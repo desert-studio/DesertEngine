@@ -144,12 +144,6 @@ namespace Desert::Graphic
         return s_RendererAPI->PresentFinalImage();
     }
 
-    void Renderer::SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
-                                             const MaterialExecutor* materialExecutor )
-    {
-        s_RendererAPI->SubmitFullscreenTriangle( pipeline, materialExecutor );
-    }
-
     void Renderer::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                 const MaterialExecutor* materialExecutor )
     {

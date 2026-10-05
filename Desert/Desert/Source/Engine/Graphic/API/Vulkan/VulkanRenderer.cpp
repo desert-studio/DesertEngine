@@ -417,47 +417,6 @@ namespace Desert::Graphic::API::Vulkan
         return false;
     }
 
-    void VulkanRendererAPI::SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
-                                                      const MaterialExecutor* materialExecutor )
-    {
-        if ( !IsRecording() )
-            return;
-        const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( !BindGraphicsPipeline( pipeline ) )
-            return;
-
-        // Bind Descriptor Sets
-        if ( materialExecutor )
-        {
-            materialExecutor->Apply();
-            auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
-
-            if ( !vkBackend->HasDescriptorSets() )
-            {
-                LOG_WARN( "VulkanRendererAPI: MaterialExecutor has no valid descriptor sets!" );
-                return;
-            }
-
-            uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                                 VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
-                return;
-        }
-
-        const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
-        VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-        const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
-        if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
-        {
-            const auto& pcInfo = *pushConstant;
-            vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                (VkShaderStageFlags)pcInfo.ShaderStage, 0, (uint32_t)pcBuffer.Size,
-                                pcBuffer.Data );
-        }
-
-        DrawCounted( kFullscreenTriangleVertexCount, 1, 0, 0 );
-    }
-
     void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount,
                                          float lineWidth, const MaterialExecutor* materialExecutor )
     {

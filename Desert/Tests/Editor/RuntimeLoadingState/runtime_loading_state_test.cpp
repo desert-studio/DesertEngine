@@ -177,8 +177,9 @@ TEST( RuntimeLoadingState, TheSceneBlitSitsInsideTheBranchOnTheGate )
     const std::string runtime = WithoutComments( ReadFile( root + kRuntimeLayer ) );
     ASSERT_FALSE( runtime.empty() ) << kRuntimeLayer << " could not be read";
 
-    // The one place the scene's final image reaches the swapchain.
-    const std::regex blit( R"(SubmitFullscreenTriangle\s*\()" );
+    // The one place the scene's final image reaches the swapchain: the image the RuntimePresent graph node
+    // blits (it imports `presented` and samples it through PassBindings).
+    const std::regex blit( R"(presented\s*=\s*m_Scene->GetFinalImage\s*\()" );
     const auto       begin = std::sregex_iterator( runtime.begin(), runtime.end(), blit );
     const auto       count = std::distance( begin, std::sregex_iterator() );
     ASSERT_EQ( count, 1 ) << "there are " << count << " fullscreen blits in " << kRuntimeLayer
@@ -190,9 +191,9 @@ TEST( RuntimeLoadingState, TheSceneBlitSitsInsideTheBranchOnTheGate )
          << " no longer asks the gate for the frame's verdict. The gate is then a state nothing reads, "
             "which is what the log marker it replaced already was.";
 
-    const std::string guarded = BlockAfter( runtime, "if ( !loading )" );
-    ASSERT_FALSE( guarded.empty() ) << kRuntimeLayer << " has no `if ( !loading )` block at all";
-    EXPECT_NE( guarded.find( "SubmitFullscreenTriangle" ), std::string::npos )
+    // The assignment is the whole statement of the branch (braced or not).
+    const std::regex guarded( R"(if\s*\(\s*!loading\s*\)\s*\{?\s*presented\s*=\s*m_Scene->GetFinalImage\s*\()" );
+    EXPECT_TRUE( std::regex_search( runtime, guarded ) )
          << "the scene blit is no longer inside the `if ( !loading )` block of " << kRuntimeLayer
          << ". That single branch is the whole mechanism: with it removed, frame 1 of Clouds_HeroTrio is "
             "a cloudless procedural sky presented to the player, and nothing anywhere says so.";

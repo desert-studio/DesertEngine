@@ -2716,7 +2716,9 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
     const std::regex forbidden(
          R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures)"
          // MESH-PB1 M2a: the material-route draws (no PassBindings) are deleted from Renderer / RendererAPI.
-         R"(|SubmitVertices\s*\(|RenderMesh\(\s*const GraphicsPipeline\s*\*)" );
+         R"(|SubmitVertices\s*\(|RenderMesh\(\s*const GraphicsPipeline\s*\*)"
+         // MESH-PB1 M2e: the out-of-graph fullscreen blit; the runtime present is a graph node.
+         R"(|SubmitFullscreenTriangle\s*\()" );
     std::vector<std::string> found;
     size_t                   scanned = 0;
     for ( const char* tree : { "Desert/Desert/Source", "Editor/Source" } )

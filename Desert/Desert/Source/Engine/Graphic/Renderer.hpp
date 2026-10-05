@@ -51,11 +51,6 @@ namespace Desert::Graphic
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into );
         void                  EndDebugLabel();
-        // One triangle covering the viewport (3 vertices, Common/FullscreenTriangle.glslh) in the open render
-        // pass.
-        void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
-                                       const MaterialExecutor* materialExecutor );
-
         // Vertexless line draw: the pipeline (Lines topology) pulls vertices from a storage buffer by index.
         void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                           const MaterialExecutor* materialExecutor );

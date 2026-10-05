@@ -1,7 +1,7 @@
 // #pragma once
 //
 // THE fullscreen vertex stage: one triangle covering the viewport (3 vertices), built from gl_VertexIndex with
-// no vertex buffer, drawn by Renderer::DrawFullscreen / Renderer::SubmitFullscreenTriangle as Draw(3, 1, 0, 0).
+// no vertex buffer, drawn by Renderer::DrawFullscreen as Draw(3, 1, 0, 0).
 // The pattern is UE's FScreenPassVS (DrawRectangle with EDRF_UseTriangleOptimization): one triangle instead of
 // two, so no pixel quad along a diagonal is shaded twice.
 //
