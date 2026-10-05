@@ -211,6 +211,8 @@ namespace Desert::Graphic::API::Vulkan
 
         // Makes the RDG frame objects on the first frame and begins them all for the current frame slot.
         Common::BoolResultStr BeginRdgFrame();
+        // PresentFinalImage with no window (the headless host): submit the frame, wait for the device.
+        Common::BoolResultStr SubmitHeadlessFrame();
     };
 
 } // namespace Desert::Graphic::API::Vulkan

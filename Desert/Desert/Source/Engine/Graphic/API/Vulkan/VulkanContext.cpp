@@ -237,12 +237,9 @@ namespace Desert::Graphic::API::Vulkan
         m_VulkanAllocator->Init( logicalDeivce, s_VulkanInstance );
 
         CommandBufferAllocator::CreateInstance( logicalDeivce );
-
-        const auto window = m_Window.lock();
-        if ( !window )
-        {
-            DESERT_VERIFY( false );
-        }
+        // No window is a valid context: the headless host (Desert/Tests/Engine/EngineHost) boots the device,
+        // the allocators and the renderer without a surface. Nothing above reads the window; the swapchain
+        // is the window's own (Window::SetupSwapChain) and is simply never made there.
     }
 
 } // namespace Desert::Graphic::API::Vulkan
