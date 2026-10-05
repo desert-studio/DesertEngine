@@ -39,7 +39,7 @@ namespace Desert::Assets
     class AssetManager;
     class LevelSequenceAsset;
     class AnimationAsset;
-}
+} // namespace Desert::Assets
 namespace Desert::Animation
 {
     class AnimationLibrary;
@@ -281,10 +281,24 @@ namespace Desert::Editor
         /// The pose-key lane of one binding: click selects (Shift adds), a drag on the empty lane draws a
         /// marquee, a drag on a selected key retimes the selection on the display grid — one undo step on
         /// release (`ECS::MoveEntityTransformKeys`).
-        void DrawLevelKeyLane( Animation::Timeline::Sequence& sequence, const Animation::Timeline::BindingGuid& binding,
-                               float laneX0, float laneW, float rowY, float rowH );
+        void DrawLevelKeyLane( Animation::Timeline::Sequence&          sequence,
+                               const Animation::Timeline::BindingGuid& binding, float laneX0, float laneW,
+                               float rowY, float rowH );
         /// Delete: every selected key, one undo step (`ECS::RemoveEntityTransformKeys`).
         void DeleteSelectedLevelKeys();
+        /// "+ Track ▸ Event" on an actor or on the sequence (`ECS::LevelSequenceMasterBinding`), one undo step.
+        void AddLevelEventTrack( const Animation::Timeline::BindingGuid& binding );
+        /// An event named "Event" at the playhead on @p binding's Event track, selected for renaming; one undo
+        /// step.
+        void AddLevelEventKey( const Animation::Timeline::BindingGuid& binding );
+        /// The Event track row of @p binding (UE: the Event Track): "+ Key" at the playhead, each key a marker
+        /// with its name; click selects, a drag retimes it on the display grid (one undo step on release), the
+        /// selected key's name is edited in the row (one undo step per committed edit), Delete removes it.
+        void DrawLevelEventRow( Animation::Timeline::Sequence&          sequence,
+                                const Animation::Timeline::BindingGuid& binding, const char* label,
+                                float contentX0, float laneX0, float laneW );
+        /// Delete: the selected event key, one undo step (`ECS::RemoveEventKey`).
+        void DeleteSelectedLevelEvent();
         void SetLevelRecord( bool on );
         /// Per frame: the gizmo bit into `m_LevelAutoKey`; the release writes its keys inside one undo step.
         void UpdateLevelAutoKey( Animation::Timeline::Sequence& sequence );
@@ -296,7 +310,20 @@ namespace Desert::Editor
             Animation::Timeline::BindingGuid Binding;
             Animation::FrameNumber           Tick;
         };
-        std::vector<LevelKeyRef>                   m_LevelSelKeys;
+        std::vector<LevelKeyRef> m_LevelSelKeys;
+        /// The selected event key: (binding, index in `ECS::EventKeys`). Events share ticks, so a tick names none.
+        struct LevelEventRef
+        {
+            Animation::Timeline::BindingGuid Binding;
+            size_t                           Index = 0;
+        };
+        std::optional<LevelEventRef> m_LevelSelEvent;
+        bool                         m_LevelEventDrag      = false;
+        float                        m_LevelEventDragX0    = 0.0f;
+        int32_t                      m_LevelEventDragDelta = 0;  ///< ticks, on the display grid
+        char                         m_LevelEventName[128] = {}; ///< the row's name field for the selected event
+        bool                         m_LevelEventNameEditing =
+             false; ///< the field holds a typed, uncommitted name (else it mirrors the key)
         std::optional<Animation::Timeline::Player> m_LevelPlayer;
         Animation::Timeline::LoopMode              m_LevelLoop = Animation::Timeline::LoopMode::Loop;
         Animation::FrameNumber                     m_LevelPlayerStart{ INT32_MIN };
@@ -313,12 +340,12 @@ namespace Desert::Editor
 
         ECS::LevelSequencePreview m_LevelPreview;
         Animation::FrameNumber    m_LevelTick;
-        int32_t                   m_LevelTickShown     = INT32_MIN;
+        int32_t                   m_LevelTickShown = INT32_MIN;
         /// The value a Material Parameter row's field shows while it is being dragged (row id → value): keyed
         /// once, on release, so a drag is one key and one undo step (UE: one transaction per committed edit).
         std::optional<std::pair<std::string, glm::vec4>> m_LevelMaterialDraft;
-        uint32_t                  m_LevelRevisionShown = UINT32_MAX;
-        SequenceEditTransaction   m_LevelEdit;
+        uint32_t                                         m_LevelRevisionShown = UINT32_MAX;
+        SequenceEditTransaction                          m_LevelEdit;
 
         // Creates a NEW empty clip for the given skeleton (a track per bone, no keys yet), registers it as an
         // in-memory AnimationAsset so it shows in the picker, and returns its name (empty on failure).
@@ -359,22 +386,22 @@ namespace Desert::Editor
         // the level sequence's `DrawLevelCurve` hand theirs to.
         struct CurvePlot
         {
-            Animation::Timeline::Sequence*         Sequence   = nullptr;
-            Animation::Timeline::TransformChannel* Shown      = nullptr;
-            Animation::TrackChannel                Channel    = Animation::TrackChannel::Position;
-            int                                    FitTrack   = -1; ///< what a value-range refit is keyed on
-            int                                    FitChannel = -1;
-            std::string                            Label;
-            float                                  ContentX0       = 0.0f;
-            float                                  Gutter          = 0.0f;
-            float                                  LaneW           = 1.0f;
-            float                                  DurationSeconds = 1.0f;
-            Animation::FrameNumber                 DurationTicks;
-            double                                 PlayheadSeconds = 0.0;
-            std::optional<Animation::FrameNumber>  SelectedTick;
-            std::function<void( Animation::FrameNumber )>                         Select;
-            std::function<void()>                                                 BeginEdit;
-            std::function<void()>                                                 EndEdit;
+            Animation::Timeline::Sequence*                Sequence = nullptr;
+            Animation::Timeline::TransformChannel*        Shown    = nullptr;
+            Animation::TrackChannel                       Channel  = Animation::TrackChannel::Position;
+            int                                           FitTrack = -1; ///< what a value-range refit is keyed on
+            int                                           FitChannel = -1;
+            std::string                                   Label;
+            float                                         ContentX0       = 0.0f;
+            float                                         Gutter          = 0.0f;
+            float                                         LaneW           = 1.0f;
+            float                                         DurationSeconds = 1.0f;
+            Animation::FrameNumber                        DurationTicks;
+            double                                        PlayheadSeconds = 0.0;
+            std::optional<Animation::FrameNumber>         SelectedTick;
+            std::function<void( Animation::FrameNumber )> Select;
+            std::function<void()>                         BeginEdit;
+            std::function<void()>                         EndEdit;
             std::function<bool( Animation::FrameNumber, Animation::FrameNumber )> Retime;
             std::function<void()>                                                 AfterEdit;
         };
@@ -552,12 +579,12 @@ namespace Desert::Editor
         glm::mat4 m_RecordLast = glm::mat4( 1.0f );
 
         // Keyframe-editor selection (m_SelChannel: 0 = Position, 1 = Rotation, 2 = Scale).
-        int   m_SelTrack   = -1;
-        int   m_SelChannel = -1;
-        int   m_SelKey     = -1;
+        int m_SelTrack   = -1;
+        int m_SelChannel = -1;
+        int m_SelKey     = -1;
         Animation::FrameNumber
-              m_SelKeyTick;        ///< the selected key's tick; m_SelKey is its index in the part's ticks
-        float m_DragTime   = 0.0f; // time being written while dragging a key (for re-selection after re-sort)
+              m_SelKeyTick;      ///< the selected key's tick; m_SelKey is its index in the part's ticks
+        float m_DragTime = 0.0f; // time being written while dragging a key (for re-selection after re-sort)
 
         // UI-clip editing state (which lane/key is selected in UI mode).
         int m_UITrack = -1;

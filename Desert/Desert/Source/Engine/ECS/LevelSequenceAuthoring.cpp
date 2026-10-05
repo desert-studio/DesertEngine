@@ -11,6 +11,7 @@
 #include <format>
 #include <optional>
 #include <utility>
+#include <variant>
 
 namespace Desert::ECS
 {
@@ -700,6 +701,212 @@ namespace Desert::ECS
                 tracks.emplace_back( std::move( *parameter ), track.Kind );
         }
         return tracks;
+    }
+
+    T::BindingGuid LevelSequenceMasterBinding()
+    {
+        return T::BindingGuid::ForObject( T::BindingKind::Sequence, {} );
+    }
+
+    namespace
+    {
+        template <typename SequenceT>
+        auto* EventTrack( SequenceT& sequence, const T::BindingGuid& binding )
+        {
+            for ( auto& candidate : sequence.Tracks )
+                if ( candidate.Binding == binding && candidate.Kind == T::TrackKind::Event &&
+                     candidate.Property == kLevelSequenceEventProperty )
+                    return &candidate;
+            return static_cast<decltype( &sequence.Tracks.front() )>( nullptr );
+        }
+
+        T::EventChannel* EventChannelOf( T::Section& section )
+        {
+            auto* channel = std::get_if<T::Channel>( &section.Content );
+            return channel != nullptr ? std::get_if<T::EventChannel>( channel ) : nullptr;
+        }
+
+        /// The (channel, key index) of the event at flat @p index in `EventKeys` order; nullopt past the end.
+        std::optional<std::pair<T::EventChannel*, size_t>> EventAt( T::Track& track, size_t index )
+        {
+            for ( T::Section& section : track.Sections )
+            {
+                T::EventChannel* events = EventChannelOf( section );
+                if ( events == nullptr )
+                    continue;
+                if ( index < events->Keys.size() )
+                    return std::pair{ events, index };
+                index -= events->Keys.size();
+            }
+            return std::nullopt;
+        }
+
+        /// The flat `EventKeys` index of key @p local of @p events within @p track.
+        size_t FlatIndexOf( T::Track& track, const T::EventChannel* events, const size_t local )
+        {
+            size_t before = 0;
+            for ( T::Section& section : track.Sections )
+            {
+                T::EventChannel* candidate = EventChannelOf( section );
+                if ( candidate == nullptr )
+                    continue;
+                if ( candidate == events )
+                    return before + local;
+                before += candidate->Keys.size();
+            }
+            return before + local;
+        }
+
+        /// Inserts @p key after every key on or before its tick (several events on one tick fire in list order,
+        /// so a new one fires last); returns its index in the channel.
+        size_t InsertEvent( T::EventChannel& events, T::EventKey key )
+        {
+            const auto at = std::ranges::upper_bound( events.Keys, key.Tick, {}, &T::EventKey::Tick );
+            return static_cast<size_t>( events.Keys.insert( at, std::move( key ) ) - events.Keys.begin() );
+        }
+
+        Common::BoolResultStr Commit( T::Sequence& sequence, T::Sequence& edited, const char* what )
+        {
+            if ( const auto valid = T::Validate( edited ); !valid )
+                return Common::MakeFormattedError<bool>( "{}: {}", what, valid.GetError() );
+            edited.Revision = sequence.Revision + 1;
+            sequence        = std::move( edited );
+            return Common::MakeSuccess( true );
+        }
+    } // namespace
+
+    Common::BoolResultStr AddEventTrack( T::Sequence& sequence, const T::BindingGuid& binding )
+    {
+        T::Sequence    edited = sequence;
+        const bool     master = binding == LevelSequenceMasterBinding();
+        const T::Binding* bound = T::FindBinding( edited, binding );
+        if ( master && bound == nullptr )
+            edited.Bindings.push_back( T::Binding{ binding, T::BindingKind::Sequence, {}, "Sequence", {} } );
+        else if ( !master && ( bound == nullptr || bound->Kind != T::BindingKind::Entity ) )
+            return Common::MakeError( "Event track: the binding is neither an actor nor the sequence" );
+        if ( EventTrack( edited, binding ) != nullptr )
+            return Common::MakeError( "Event track: this binding already has one" );
+
+        T::Track created;
+        created.Binding  = binding;
+        created.Property = kLevelSequenceEventProperty;
+        created.Kind     = T::TrackKind::Event;
+        T::Section section;
+        section.Start   = sequence.Start;
+        section.End     = sequence.End;
+        section.Content = T::Channel{ T::EventChannel{} };
+        created.Sections.push_back( std::move( section ) );
+        edited.Tracks.push_back( std::move( created ) );
+        return Commit( sequence, edited, "Event track" );
+    }
+
+    bool HasEventTrack( const T::Sequence& sequence, const T::BindingGuid& binding )
+    {
+        return EventTrack( sequence, binding ) != nullptr;
+    }
+
+    std::vector<LevelEventKey> EventKeys( const T::Sequence& sequence, const T::BindingGuid& binding )
+    {
+        std::vector<LevelEventKey> keys;
+        const T::Track*            track = EventTrack( sequence, binding );
+        if ( track == nullptr )
+            return keys;
+        for ( const T::Section& section : track->Sections )
+        {
+            const auto* channel = std::get_if<T::Channel>( &section.Content );
+            const auto* events  = channel != nullptr ? std::get_if<T::EventChannel>( channel ) : nullptr;
+            if ( events == nullptr )
+                continue;
+            for ( const T::EventKey& key : events->Keys )
+                keys.push_back( LevelEventKey{ key.Tick, key.Name } );
+        }
+        return keys;
+    }
+
+    Common::ResultStr<size_t> AddEventKey( T::Sequence& sequence, const T::BindingGuid& binding,
+                                           const Animation::FrameNumber tick, std::string name )
+    {
+        if ( name.empty() )
+            return Common::MakeError<size_t>( "Event key: an event needs a name" );
+        T::Sequence edited = sequence;
+        T::Track*   track  = EventTrack( edited, binding );
+        if ( track == nullptr )
+            return Common::MakeError<size_t>( "Event key: the binding has no Event track (+ Track ▸ Event)" );
+
+        // The highest-row section whose range holds the tick, else the first event section.
+        T::EventChannel* target    = nullptr;
+        T::EventChannel* first     = nullptr;
+        int32_t          targetRow = -1;
+        for ( T::Section& section : track->Sections )
+        {
+            T::EventChannel* events = EventChannelOf( section );
+            if ( events == nullptr )
+                continue;
+            if ( first == nullptr )
+                first = events;
+            if ( section.Covers( tick ) && section.Row > targetRow )
+            {
+                target    = events;
+                targetRow = section.Row;
+            }
+        }
+        if ( target == nullptr )
+            target = first;
+        if ( target == nullptr )
+            return Common::MakeError<size_t>( "Event key: the Event track has no section" );
+
+        T::EventKey key;
+        key.Tick          = tick;
+        key.Name          = std::move( name );
+        const size_t flat = FlatIndexOf( *track, target, InsertEvent( *target, std::move( key ) ) );
+        if ( const auto committed = Commit( sequence, edited, "Event key" ); !committed )
+            return Common::MakeError<size_t>( committed.GetError() );
+        return Common::MakeSuccess( flat );
+    }
+
+    Common::BoolResultStr RenameEventKey( T::Sequence& sequence, const T::BindingGuid& binding, const size_t index,
+                                          std::string name )
+    {
+        if ( name.empty() )
+            return Common::MakeError( "Rename event: an event needs a name" );
+        T::Sequence edited = sequence;
+        T::Track*   track  = EventTrack( edited, binding );
+        const auto  at     = track != nullptr ? EventAt( *track, index ) : std::nullopt;
+        if ( !at )
+            return Common::MakeFormattedError<bool>( "Rename event: no event {} on this binding", index );
+        at->first->Keys[at->second].Name = std::move( name );
+        return Commit( sequence, edited, "Rename event" );
+    }
+
+    Common::ResultStr<size_t> MoveEventKey( T::Sequence& sequence, const T::BindingGuid& binding, const size_t index,
+                                            const int32_t delta )
+    {
+        T::Sequence edited = sequence;
+        T::Track*   track  = EventTrack( edited, binding );
+        const auto  at     = track != nullptr ? EventAt( *track, index ) : std::nullopt;
+        if ( !at )
+            return Common::MakeFormattedError<size_t>( "Move event: no event {} on this binding", index );
+        T::EventKey key = std::move( at->first->Keys[at->second] );
+        at->first->Keys.erase( at->first->Keys.begin() + static_cast<std::ptrdiff_t>( at->second ) );
+        key.Tick.Value += delta;
+        if ( key.Tick < edited.Start || edited.End < key.Tick )
+            return Common::MakeFormattedError<size_t>( "Move event '{}': tick {} is outside the playback range",
+                                                       key.Name, key.Tick.Value );
+        const size_t flat = FlatIndexOf( *track, at->first, InsertEvent( *at->first, std::move( key ) ) );
+        if ( const auto committed = Commit( sequence, edited, "Move event" ); !committed )
+            return Common::MakeError<size_t>( committed.GetError() );
+        return Common::MakeSuccess( flat );
+    }
+
+    Common::BoolResultStr RemoveEventKey( T::Sequence& sequence, const T::BindingGuid& binding, const size_t index )
+    {
+        T::Sequence edited = sequence;
+        T::Track*   track  = EventTrack( edited, binding );
+        const auto  at     = track != nullptr ? EventAt( *track, index ) : std::nullopt;
+        if ( !at )
+            return Common::MakeFormattedError<bool>( "Delete event: no event {} on this binding", index );
+        at->first->Keys.erase( at->first->Keys.begin() + static_cast<std::ptrdiff_t>( at->second ) );
+        return Commit( sequence, edited, "Delete event" );
     }
 
     LevelSequenceStep LevelSequencePreview::Scrub( entt::registry& registry, const T::Sequence& sequence,

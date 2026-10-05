@@ -549,6 +549,58 @@ TEST( LevelSequenceDocument, AMaterialParameterTrackDrivesTheActorsSlotOverrideN
     EXPECT_EQ( slots.Overrides.begin()->second, glm::vec4( 1.0F, 1.0F, 1.0F, 0.75F ) );
 }
 
+TEST( LevelSequenceDocument, AnEventKeyFiresOnTheStepThatCrossesItsTickAndOnlyThere )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  bound    = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
+    ASSERT_TRUE( bound.IsSuccess() );
+    const auto door   = bound.GetValue();
+    const auto master = ECS::LevelSequenceMasterBinding();
+    ASSERT_TRUE( ECS::AddEventTrack( sequence, master ).IsSuccess() );
+    ASSERT_TRUE( ECS::AddEventTrack( sequence, door ).IsSuccess() ) << "an actor carries an Event track too";
+    EXPECT_FALSE( ECS::AddEventTrack( sequence, door ).IsSuccess() ) << "one Event track per binding";
+    EXPECT_FALSE( ECS::AddEventKey( sequence, door, A::FrameNumber{ 10 }, "" ).IsSuccess() ) << "a name is required";
+
+    ASSERT_TRUE( ECS::AddEventKey( sequence, master, A::FrameNumber{ 30 }, "Open" ).IsSuccess() );
+    const auto knock = ECS::AddEventKey( sequence, door, A::FrameNumber{ 60 }, "Knock" );
+    ASSERT_TRUE( knock.IsSuccess() ) << knock.GetError();
+    ASSERT_TRUE( ECS::RenameEventKey( sequence, door, knock.GetValue(), "Slam" ).IsSuccess() );
+    // A key moves and deletes like any other key: one more on the door, moved past "Slam", then removed.
+    const auto temp = ECS::AddEventKey( sequence, door, A::FrameNumber{ 10 }, "Temp" );
+    ASSERT_TRUE( temp.IsSuccess() );
+    EXPECT_EQ( temp.GetValue(), 0U );
+    const auto moved = ECS::MoveEventKey( sequence, door, temp.GetValue(), 80 );
+    ASSERT_TRUE( moved.IsSuccess() ) << moved.GetError();
+    EXPECT_EQ( moved.GetValue(), 1U ) << "tick 90 sorts after Slam at 60";
+    EXPECT_FALSE( ECS::MoveEventKey( sequence, door, moved.GetValue(), 100000 ).IsSuccess() );
+    ASSERT_TRUE( ECS::RemoveEventKey( sequence, door, moved.GetValue() ).IsSuccess() );
+    ASSERT_TRUE( T::Validate( sequence ).IsSuccess() ) << T::Validate( sequence ).GetError();
+
+    const auto doorKeys = ECS::EventKeys( sequence, door );
+    ASSERT_EQ( doorKeys.size(), 1U );
+    EXPECT_EQ( doorKeys[0].Tick.Value, 60 );
+    EXPECT_EQ( doorKeys[0].Name, "Slam" );
+
+    const auto text = Desert::Assets::LevelSequenceAsset::Write( sequence, AssetGuid{ 1, 2 } );
+    ASSERT_TRUE( text.IsSuccess() ) << text.GetError();
+    const auto parsed = Desert::Assets::LevelSequenceAsset::Parse( text.GetValue() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+
+    World                             world;
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback        playback( parsed.GetValue().Sequence );
+    const auto fired = [&]( int32_t from, int32_t to )
+    {
+        return ECS::StepLevelSequence( world.registry, component, playback, T::TimeStep{ At( from ), At( to ) } )
+             .FiredEvents;
+    };
+    EXPECT_TRUE( fired( 0, 20 ).empty() );
+    EXPECT_EQ( fired( 20, 40 ), std::vector<std::string>{ "Open" } );
+    EXPECT_TRUE( fired( 40, 50 ).empty() );
+    EXPECT_EQ( fired( 50, 70 ), std::vector<std::string>{ "Slam" } );
+    EXPECT_TRUE( fired( 70, 100 ).empty() );
+}
+
 TEST( LevelSequenceDocument, AnAnimationTrackPosesTheBoundEntitysSkeleton )
 {
     // A two-bone chain; the clip holds "child" at +5 on Y for one second.

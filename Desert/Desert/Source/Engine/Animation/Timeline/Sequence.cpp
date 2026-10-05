@@ -266,8 +266,9 @@ namespace Desert::Animation::Timeline
                     {
                         return track == TrackKind::CameraCut || track == TrackKind::Event;
                     }
-                    return binding == BindingKind::Entity && track != TrackKind::CameraCut &&
-                           track != TrackKind::Event;
+                    // An actor holds every value kind, Animation, and Event (UE: an Event track on an actor
+                    // binding fires with that actor); only the Camera Cut is the sequence's alone.
+                    return binding == BindingKind::Entity && track != TrackKind::CameraCut;
             }
             return false;
         }
