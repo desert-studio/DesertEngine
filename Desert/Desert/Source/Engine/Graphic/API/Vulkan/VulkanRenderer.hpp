@@ -68,9 +68,6 @@ namespace Desert::Graphic::API::Vulkan
         virtual void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
                                      const MaterialExecutor* materialExecutor ) override;
 
-        virtual void DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                             uint32_t groupCountY, uint32_t groupCountZ ) override;
-
         Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings, const ComputePipeline& pipeline,
                                                uint32_t groupCountX, uint32_t groupCountY,
                                                uint32_t groupCountZ ) override;

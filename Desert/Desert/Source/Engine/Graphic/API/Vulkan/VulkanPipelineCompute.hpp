@@ -37,14 +37,6 @@ namespace Desert::Graphic::API::Vulkan
         void             Dispatch( uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ ) override;
         void             Record( GpuBatch& batch, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ ) override;
 
-        // In-frame dispatch: records bind + descriptors + dispatch into an EXISTING (frame) command
-        // buffer, outside any render pass. Unlike the immediate Dispatch() it neither submits nor
-        // transitions image layouts — the caller owns layout transitions and inter-dispatch barriers
-        // (see Renderer::DispatchComputeInFrame). Each call consumes a fresh descriptor set from an
-        // internal ring so several dispatches recorded into one command buffer don't alias a single
-        // set (a descriptor set's contents are consumed at execution time, not at record time).
-        void RecordInFrame( VkCommandBuffer cmd, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ );
-
         virtual void Invalidate() override;
         virtual void Release() override;
 
@@ -97,7 +89,7 @@ namespace Desert::Graphic::API::Vulkan
         std::unique_ptr<VulkanMaterialBackend> m_VulkanMaterialBackend;
 
         // THE layouts of this pipeline: the ones m_ComputePipelineLayout was built from, the ones the
-        // in-frame ring is allocated from, and the ones its pool is sized against. One capture, one
+        // batch ring is allocated from, and the ones its pool is sized against. One capture, one
         // contract — a descriptor set and the pipeline layout it is bound to cannot describe different
         // shaders while both come from here. Strong references, so a shader recompile cannot pull them
         // out from under a pipeline that is still using them.
@@ -126,22 +118,23 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<std::byte>                                        m_BoundPushConstants;
 
         // Records the currently-bound resources into @p cmd against @p descriptorSet and dispatches.
-        // Shared by the immediate Dispatch() and the in-frame RecordInFrame(); performs no layout
-        // transitions and no submission of its own.
+        // Shared by the immediate Dispatch() and the batched Record(); performs no layout transitions and no
+        // submission of its own.
         void RecordDescriptorsAndDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
                                            uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ );
 
-        // Lazily-created ring of descriptor sets for in-frame dispatches (one per dispatch so they
-        // don't alias). Sized generously across frames-in-flight; reused round-robin.
         // Outputs to GENERAL, the dispatch, outputs back to SHADER_READ — the body both Dispatch (persistent
         // set, own buffer, waited) and Record (ring set, the batch's buffer) share.
         void RecordTransitionedDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet, uint32_t groupsX,
                                          uint32_t groupsY, uint32_t groupsZ );
 
-        void                         EnsureInFrameRing();
-        VkDescriptorPool             m_InFramePool = VK_NULL_HANDLE;
-        std::vector<VkDescriptorSet> m_InFrameRing;
-        uint32_t                     m_InFrameCursor = 0;
-        static constexpr uint32_t    kInFrameRingSize = 64;
+        // Lazily-created ring of descriptor sets for the dispatches of a GpuBatch (Record), one per dispatch so
+        // the batch's pending dispatches never alias one set; reused round-robin. In-graph dispatches do not
+        // use it: Renderer::DispatchCompute writes the pass's own sets.
+        void                         EnsureBatchRing();
+        VkDescriptorPool             m_BatchPool = VK_NULL_HANDLE;
+        std::vector<VkDescriptorSet> m_BatchRing;
+        uint32_t                     m_BatchCursor = 0;
+        static constexpr uint32_t    kBatchRingSize = 64;
     };
 } // namespace Desert::Graphic::API::Vulkan

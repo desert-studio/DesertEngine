@@ -370,7 +370,7 @@ namespace Desert::Graphic
          * writes that record back only after it executes, so mid-graph it is stale, and one record cannot
          * describe a chain whose mips sit in different layouts (the mip being written is GENERAL while the one
          * read is SHADER_READ_ONLY).
-         * Inside a render-graph node (RecordInFrame) @p declared is the node's declared access and the graph
+         * Inside a render-graph node (Renderer::DispatchCompute) @p declared is the node's declared access and the graph
          * has already put the image there. Outside the graph (Dispatch, Record: bakes) the pipeline records
          * the transition to that layout itself, before the dispatch.
          * An access that does not leave the image sampleable, or a subresource with no view, drops the dispatch

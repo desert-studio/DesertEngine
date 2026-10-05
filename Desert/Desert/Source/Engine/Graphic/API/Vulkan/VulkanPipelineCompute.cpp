@@ -87,7 +87,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VkWriteDescriptorSet> writes;
 
         // Outputs: bind the chosen mip view as a storage image (the caller has already put the image
-        // into GENERAL — we never transition here so this works both immediate and in-frame).
+        // into GENERAL — we never transition here, so every route that writes them shares this).
         for ( const auto& [binding, out] : m_BoundOutputs )
         {
             auto* img = dynamic_cast<IVulkanImage*>( out.Image );
@@ -100,7 +100,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // Inputs: sampled images (2D, cube and volume share the same VkDescriptorImageInfo shape, but not
         // the same write builder — see ClassifySampledImage). Every input names the view it declared (one
-        // mip, or all) in the layout its declared access guarantees: the graph's transition in-frame, the
+        // mip, or all) in the layout its declared access guarantees: the graph's transition in a graph node, the
         // pipeline's own one (RecordTransitionedDispatch) outside it.
         for ( const auto& [binding, input] : m_BoundInputs )
         {
@@ -252,10 +252,10 @@ namespace Desert::Graphic::API::Vulkan
         // A RING set, not the persistent one: every dispatch of a batch is still pending when the next is
         // recorded, and rewriting a set a recorded command references is undefined. The ring belongs to
         // this pipeline, so its only users are this pipeline's own dispatches — the prefilter's mips are
-        // the most one batch records, well under kInFrameRingSize.
-        EnsureInFrameRing();
-        VkDescriptorSet set = m_InFrameRing[m_InFrameCursor];
-        m_InFrameCursor     = ( m_InFrameCursor + 1 ) % kInFrameRingSize;
+        // the most one batch records, well under kBatchRingSize.
+        EnsureBatchRing();
+        VkDescriptorSet set = m_BatchRing[m_BatchCursor];
+        m_BatchCursor     = ( m_BatchCursor + 1 ) % kBatchRingSize;
 
         RecordTransitionedDispatch( cmd, set, groupsX, groupsY, groupsZ );
     }
@@ -287,9 +287,9 @@ namespace Desert::Graphic::API::Vulkan
                                        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT );
     }
 
-    void VulkanPipelineCompute::EnsureInFrameRing()
+    void VulkanPipelineCompute::EnsureBatchRing()
     {
-        if ( m_InFramePool != VK_NULL_HANDLE )
+        if ( m_BatchPool != VK_NULL_HANDLE )
             return;
 
         VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
@@ -309,15 +309,15 @@ namespace Desert::Graphic::API::Vulkan
 
         std::vector<VkDescriptorPoolSize> poolSizes;
         for ( const auto& [type, count] : countsByType )
-            poolSizes.push_back( { static_cast<VkDescriptorType>( type ), count * kInFrameRingSize } );
+            poolSizes.push_back( { static_cast<VkDescriptorType>( type ), count * kBatchRingSize } );
         if ( poolSizes.empty() )
-            poolSizes.push_back( { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kInFrameRingSize } );
+            poolSizes.push_back( { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kBatchRingSize } );
 
         VkDescriptorPoolCreateInfo poolInfo{ .sType   = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                                             .maxSets = kInFrameRingSize,
+                                             .maxSets = kBatchRingSize,
                                              .poolSizeCount = static_cast<uint32_t>( poolSizes.size() ),
                                              .pPoolSizes    = poolSizes.data() };
-        VK_CHECK_RESULT( vkCreateDescriptorPool( device, &poolInfo, nullptr, &m_InFramePool ) );
+        VK_CHECK_RESULT( vkCreateDescriptorPool( device, &poolInfo, nullptr, &m_BatchPool ) );
 
         // The ring is allocated from the layout THIS PIPELINE captured at Invalidate, never from the
         // shader's current one. Re-reading the shader here is what produced the mismatch this whole
@@ -327,13 +327,13 @@ namespace Desert::Graphic::API::Vulkan
         VkDescriptorSetLayout layout0 =
              m_Layouts.empty() || !m_Layouts[0] ? VK_NULL_HANDLE : m_Layouts[0]->Handle();
 
-        std::vector<VkDescriptorSetLayout> layouts( kInFrameRingSize, layout0 );
-        m_InFrameRing.resize( kInFrameRingSize );
+        std::vector<VkDescriptorSetLayout> layouts( kBatchRingSize, layout0 );
+        m_BatchRing.resize( kBatchRingSize );
         VkDescriptorSetAllocateInfo allocInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                                               .descriptorPool     = m_InFramePool,
-                                               .descriptorSetCount = kInFrameRingSize,
+                                               .descriptorPool     = m_BatchPool,
+                                               .descriptorSetCount = kBatchRingSize,
                                                .pSetLayouts        = layouts.data() };
-        VK_CHECK_RESULT( vkAllocateDescriptorSets( device, &allocInfo, m_InFrameRing.data() ) );
+        VK_CHECK_RESULT( vkAllocateDescriptorSets( device, &allocInfo, m_BatchRing.data() ) );
     }
 
     std::vector<uint32_t> VulkanPipelineCompute::GetBoundBindings() const
@@ -349,20 +349,6 @@ namespace Desert::Graphic::API::Vulkan
         std::sort( bindings.begin(), bindings.end() );
         bindings.erase( std::unique( bindings.begin(), bindings.end() ), bindings.end() );
         return bindings;
-    }
-
-    void VulkanPipelineCompute::RecordInFrame( VkCommandBuffer cmd, uint32_t groupsX, uint32_t groupsY,
-                                               uint32_t groupsZ )
-    {
-        if ( !m_VulkanMaterialBackend || !cmd )
-            return;
-
-        EnsureInFrameRing();
-
-        VkDescriptorSet set = m_InFrameRing[m_InFrameCursor];
-        m_InFrameCursor     = ( m_InFrameCursor + 1 ) % kInFrameRingSize;
-
-        RecordDescriptorsAndDispatch( cmd, set, groupsX, groupsY, groupsZ );
     }
 
     void VulkanPipelineCompute::Invalidate()
@@ -391,7 +377,7 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // Captured ONCE, here, and used for everything this pipeline binds: the pipeline layout below,
-        // the in-frame ring, and the pool that ring is allocated from. Holding the references is what
+        // the batch ring, and the pool that ring is allocated from. Holding the references is what
         // keeps the layouts alive if the shader recompiles under us, and using only these is what keeps
         // the set and the pipeline layout describing the same contract.
         m_Layouts          = vulkanShader->GetAllDescriptorSetLayouts();
@@ -478,13 +464,13 @@ namespace Desert::Graphic::API::Vulkan
             m_ComputePipelineLayout = VK_NULL_HANDLE;
         }
 
-        if ( m_InFramePool != VK_NULL_HANDLE )
+        if ( m_BatchPool != VK_NULL_HANDLE )
         {
             // Frees every ring set allocated from it.
-            vkDestroyDescriptorPool( device, m_InFramePool, nullptr );
-            m_InFramePool = VK_NULL_HANDLE;
-            m_InFrameRing.clear();
-            m_InFrameCursor = 0;
+            vkDestroyDescriptorPool( device, m_BatchPool, nullptr );
+            m_BatchPool = VK_NULL_HANDLE;
+            m_BatchRing.clear();
+            m_BatchCursor = 0;
         }
 
         // Released LAST: everything above was built from these, so they may only be let go once nothing

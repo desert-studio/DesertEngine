@@ -647,19 +647,6 @@ namespace Desert::Graphic::API::Vulkan
         DrawCounted( vertexCount, 1, 0, 0 );
     }
 
-    void VulkanRendererAPI::DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                                    uint32_t groupCountY, uint32_t groupCountZ )
-    {
-        if ( !IsRecording() || pipeline == nullptr )
-            return;
-
-        // Records bind + a fresh ring descriptor set + dispatch: no barrier, no layout transition, no submit.
-        // Every caller runs inside a frame-graph node that declares what the dispatch reads and writes, so the
-        // graph places each barrier from the declared accesses (see RendererAPI::DispatchComputeInFrame).
-        const_cast<VulkanPipelineCompute*>( static_cast<const VulkanPipelineCompute*>( pipeline ) )
-             ->RecordInFrame( m_CurrentCommandBuffer, groupCountX, groupCountY, groupCountZ );
-    }
-
     namespace
     {
         const VkDescriptorSetLayoutBinding* FindLayoutBinding( const VulkanDescriptorSetLayout& layout,

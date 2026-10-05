@@ -2475,7 +2475,7 @@ namespace
 // targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the system
 // names in RenderGraphBuilder::PassConfig::Declare, and whose render pass the graph opens and merges. Each system
 // declares its own reads where it registers the pass, the editor's external passes through
-// ExternalPassSpecification::Declare, and DispatchComputeInFrame records no barrier of its own any more (the
+// ExternalPassSpecification::Declare, and the in-graph DispatchCompute records no barrier of its own (the
 // particle draw declares its StorageRead).
 TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
 {
@@ -2532,14 +2532,25 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
               .find( "declared.Read(ctx.Graph.Transients.BackdropBlur,Graphic::RDG::Access::SampledGraphics" ),
          std::string::npos );
 
-    // The one compute dispatch records no barrier: every caller is a graph node, and the graph places the barrier
-    // between the declared write and read (RDG-TAILS merged the particle-only DispatchComputeCull into it).
+    // The one in-graph compute dispatch is Renderer::DispatchCompute, and it records no barrier: every caller is a
+    // graph node, and the graph places the barrier between the declared write and read (RDG-TAILS merged the
+    // particle-only DispatchComputeCull into the old route; RDG-A2 P10 deleted that route, DispatchComputeInFrame
+    // with VulkanPipelineCompute::RecordInFrame, once its last caller moved to PassBindings).
     const std::string vulkan = source( "API/Vulkan/VulkanRenderer.cpp" );
     const std::string dispatch =
-         SqueezedBody( vulkan, "voidVulkanRendererAPI::DispatchComputeInFrame(", "voidVulkanRendererAPI::" );
+         SqueezedBody( vulkan, "Common::BoolResultStrVulkanRendererAPI::DispatchCompute(", "VulkanRendererAPI::" );
     ASSERT_FALSE( dispatch.empty() );
-    EXPECT_EQ( dispatch.find( "vkCmdPipelineBarrier" ), std::string::npos )
-         << "DispatchComputeInFrame still barriers";
+    EXPECT_EQ( dispatch.find( "vkCmdPipelineBarrier" ), std::string::npos ) << "DispatchCompute barriers";
+    for ( const char* file : { "Renderer.hpp", "Renderer.cpp", "RendererAPI.hpp", "API/Vulkan/VulkanRenderer.hpp",
+                               "API/Vulkan/VulkanRenderer.cpp", "API/Vulkan/VulkanPipelineCompute.hpp",
+                               "API/Vulkan/VulkanPipelineCompute.cpp", "Pipeline.hpp" } )
+    {
+        const std::string text = source( file );
+        EXPECT_EQ( text.find( "DispatchComputeInFrame" ), std::string::npos )
+             << file << ": the out-of-PassBindings in-frame dispatch is back";
+        EXPECT_EQ( text.find( "RecordInFrame" ), std::string::npos )
+             << file << ": the pipeline's in-frame record (setters + its own descriptor ring) is back";
+    }
     EXPECT_EQ( vulkan.find( "DispatchComputeCull" ), std::string::npos )
          << "a second dispatch entry point is back";
 }

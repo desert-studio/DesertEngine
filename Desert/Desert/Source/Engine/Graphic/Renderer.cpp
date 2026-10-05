@@ -170,12 +170,6 @@ namespace Desert::Graphic
         s_RendererAPI->SubmitVertices( pipeline, vertexCount, materialExecutor );
     }
 
-    void Renderer::DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                           uint32_t groupCountY, uint32_t groupCountZ )
-    {
-        s_RendererAPI->DispatchComputeInFrame( pipeline, groupCountX, groupCountY, groupCountZ );
-    }
-
     Common::BoolResultStr Renderer::DispatchCompute( const RDG::PassBindings& bindings,
                                                      const ComputePipeline& pipeline, uint32_t groupCountX,
                                                      uint32_t groupCountY, uint32_t groupCountZ )

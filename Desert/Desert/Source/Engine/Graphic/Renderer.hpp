@@ -72,11 +72,6 @@ namespace Desert::Graphic
         void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
                              const MaterialExecutor* materialExecutor );
 
-        // In-frame compute dispatch (records into the frame command buffer outside any render pass,
-        // inserts a trailing compute->shader barrier). The compute mip-chain bloom is built on this.
-        void DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                     uint32_t groupCountY, uint32_t groupCountZ );
-
         // RDG-A2 - the renderer-level consumers of a PassBindings (RDGPassBindings.hpp). Called only from inside
         // the exec lambda whose PassContext built @p bindings; they record on that pass's command buffer
         // (VulkanRdgBackend::CommandBufferOf), write one descriptor set per set of the pipeline layout for THIS
@@ -86,8 +81,6 @@ namespace Desert::Graphic
         // resource slot of the shader is filled by neither @p bindings nor @p material; or a slot is filled by
         // both (a graph resource is bound only through @p bindings). No barrier and no layout transition is
         // recorded here: the graph placed them from the pass's declarations.
-        // They replace DispatchComputeInFrame (and VulkanPipelineCompute::RecordInFrame with its descriptor
-        // ring) for every in-graph dispatch; that route is deleted with its last caller.
         [[nodiscard]] Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings,
                                                              const ComputePipeline& pipeline, uint32_t groupCountX,
                                                              uint32_t groupCountY, uint32_t groupCountZ );
