@@ -132,12 +132,18 @@ namespace Desert::Editor
         // Undo after the close never writes into a freed clip (ClipEditUndo, AClosedEditorsRecords...).
         if ( m_ClipAsset )
             CommandHistory::Get().DropFor( &m_ClipAsset->GetClip() );
+        // The Reference Pose records go with the window that shows them dirty (as the clip's do).
+        if ( m_SkeletonAsset && Mode() == Core::PersonaMode::Skeleton )
+            CommandHistory::Get().DropFor( m_SkeletonAsset.get() );
     }
 
     bool AnimationEditorDocument::DiscardEdits()
     {
         // "Don't Save" on the close question: the shared asset outlives the window, so the file's notifies and
         // curves go back into it - otherwise the next opening would show the discarded edits as unsaved.
+        // Skeleton mode: the file's Reference Pose goes back into the rig, for the same reason.
+        if ( Mode() == Core::PersonaMode::Skeleton )
+            return m_BindOnDisk && RestoreBindPose( m_SkeletonAsset, *m_BindOnDisk );
         if ( !m_ClipAsset || !m_OnDisk )
             return false;
         auto& clip    = m_ClipAsset->GetClipForAuthoring();
@@ -234,6 +240,15 @@ namespace Desert::Editor
             return false;
         }
         m_SkeletonAsset = skeleton.GetValue();
+        m_BindRevisionShown = m_SkeletonAsset->GetBindRevision();
+        m_BindOnDisk.reset();
+        if ( Mode() == Core::PersonaMode::Skeleton )
+        {
+            if ( auto onDisk = ReadBindPoseOnDisk( *m_SkeletonAsset ) )
+                m_BindOnDisk = onDisk.ExtractValue();
+            else
+                LOG_ERROR( "Skeleton Editor: '{}': the Reference Pose is not editable: {}", name, onDisk.GetError() );
+        }
         // UE: the skeleton's PreviewSkeletalMesh is what Skeleton and Animation modes show (Mesh shows itself).
         if ( preferredMesh.empty() && !m_SkeletonAsset->GetPreviewMesh().IsNull() )
             if ( const auto preview = Assets::ContentRegistry::RowOf(
@@ -493,6 +508,20 @@ namespace Desert::Editor
         if ( !m_Preview || m_RenderSize.x == 0u || m_RenderSize.y == 0u )
             return;
 
+        // The preview stands in the rig's CURRENT rest pose: an edit, an undo or a reload moved the bind revision.
+        if ( Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset )
+        {
+            const uint64_t revision = m_SkeletonAsset->GetBindRevision();
+            if ( revision != m_BindRevisionShown )
+                if ( auto* animator = m_Preview->GetAnimatorForAuthoring() )
+                {
+                    if ( const auto rebound = animator->RebindRestPose(); !rebound )
+                        LOG_ERROR( "Skeleton Editor: {}", rebound.GetError() );
+                    m_BindRevisionShown = revision;
+                }
+            m_Preview->SetContentFingerprint( m_BindRevisionShown );
+        }
+
         // Real seconds, scaled by the transport's speed: playback runs at clip speed whatever the frame rate.
         const float  dt         = ImGui::GetIO().DeltaTime;
         const bool   wasPlaying = m_Transport.Playing;
@@ -596,6 +625,13 @@ namespace Desert::Editor
 
     ISubjectDocument::DiskState AnimationEditorDocument::GetDiskState() const
     {
+        // Skeleton mode's document is the `.skeleton`: dirty while the rig's Reference Pose is not the file's.
+        if ( Mode() == Core::PersonaMode::Skeleton )
+        {
+            if ( !m_SkeletonAsset || !m_BindOnDisk )
+                return DiskState::Untracked;
+            return BindPoseDiffers( *m_SkeletonAsset, *m_BindOnDisk ) ? DiskState::Dirty : DiskState::Clean;
+        }
         if ( !m_Tracked || !m_ClipAsset )
             return DiskState::Untracked;
         return !m_OnDisk || ClipDiffersFromFile( m_ClipAsset->GetClip(), *m_OnDisk ) ? DiskState::Dirty
@@ -604,6 +640,16 @@ namespace Desert::Editor
 
     bool AnimationEditorDocument::SaveDocument()
     {
+        if ( Mode() == Core::PersonaMode::Skeleton )
+        {
+            const auto saved = SaveSkeleton();
+            m_SaveFailed     = !saved;
+            m_SaveStatus     = saved ? std::format( "Saved {}", m_SkeletonAsset->GetMetadata().Filepath.filename().string() )
+                                     : std::format( "Save failed: {}", saved.GetError() );
+            if ( !saved )
+                LOG_ERROR( "Skeleton Editor: {}", m_SaveStatus );
+            return saved.IsSuccess();
+        }
         // A clip no file produced (a procedural one) has nowhere to go; false, never an invented path.
         if ( ClipAsset() == nullptr || !m_Tracked || m_ClipPath.empty() )
             return false;
@@ -619,6 +665,29 @@ namespace Desert::Editor
         m_OnDisk     = clip;
         m_SaveStatus = std::format( "Saved {}", m_ClipPath.filename().string() );
         return true;
+    }
+
+    Common::BoolResultStr AnimationEditorDocument::SaveSkeleton()
+    {
+        if ( !m_SkeletonAsset )
+            return Common::MakeError<bool>( "no skeleton is loaded in this window" );
+        // A RENAMED BONE IS CARRIED INTO THE SKELETON'S CLIPS AND RETARGETS (files by the registry, and the ones
+        // resident in this manager in memory) by the save itself - the one point
+        // (Assets::RenameBonesInSkeletonAssets).
+        if ( const auto saved = Assets::Serialization::SaveSkeletonAsset(
+                  *m_SkeletonAsset, Assets::ReferrersOfSkeleton( m_Skeleton, m_Assets ) );
+             !saved )
+            return saved;
+        // THE READERS RE-READ THE FILE (UE: a saved USkeleton is what every mesh and clip on it loads). The reload
+        // rebuilds the rig at the same address; its content signature moves with the new binds, which is what
+        // AnimatorForSkeleton rebuilds a scene's Animator on.
+        if ( const auto reloaded = m_SkeletonAsset->Load(); !reloaded )
+            return Common::MakeFormattedError<bool>( "saved, but the reload refused: {}", reloaded.GetError() );
+        auto onDisk = ReadBindPoseOnDisk( *m_SkeletonAsset );
+        if ( !onDisk )
+            return Common::MakeFormattedError<bool>( "saved, but the file does not read back: {}", onDisk.GetError() );
+        m_BindOnDisk = onDisk.ExtractValue();
+        return BOOLSUCCESS;
     }
 
     void AnimationEditorDocument::DrawOverlay( const glm::vec2& origin ) const
@@ -808,21 +877,22 @@ namespace Desert::Editor
                  { origin.x, origin.y, view.x, view.y, ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
             // The gizmo is evaluated BEFORE the preview's button and painted on a channel above it: the preview
             // then knows in the same frame that the pointer is on the gizmo and yields the press (a hover read
-            // one frame late let the orbit take the drag). Posing keys into the clip, so the gizmo is
-            // Animation mode's.
+            // one frame late let the orbit take the drag). Animation mode's gizmo poses into the clip; Skeleton
+            // mode's moves the Reference Pose (UE's Skeleton Editor). Mesh mode authors neither.
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             drawList->ChannelsSplit( 2 );
             drawList->ChannelsSetCurrent( 1 );
             m_GizmoHovered = false;
-            if ( animation )
+            if ( animation || Mode() == Core::PersonaMode::Skeleton )
                 DrawBoneGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             drawList->ChannelsSetCurrent( 0 );
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
-                (void)m_Preview->Draw( *m_UIHelper, view,
-                                       PreviewInteractionUnderTool( m_GizmoHovered, m_BoneGesture.Active(),
-                                                                    ImGui::IsAnyItemActive() ) );
+                (void)m_Preview->Draw(
+                     *m_UIHelper, view,
+                     PreviewInteractionUnderTool( m_GizmoHovered, m_BoneGesture.Active() || m_BindGesture.Active(),
+                                                  ImGui::IsAnyItemActive() ) );
             DrawBones( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             // A click on a drawn joint selects that bone — in the tree too, which reads the same selection (UE's
             // Persona viewport). A press on the posing gizmo is the gizmo's.
@@ -895,6 +965,9 @@ namespace Desert::Editor
         const auto& skeleton = animator->GetSkeleton();
         const auto& bones    = skeleton.GetBones();
         m_CollapsedBones.resize( bones.size(), false );
+        const bool canRename = Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk;
+        if ( !canRename )
+            m_RenamingBone.reset();
 
         ImGui::SetNextItemWidth( -1.0f );
         ImGui::InputTextWithHint( "##bonefilter", "Search Bones", m_BoneFilter.data(), m_BoneFilter.size() );
@@ -928,13 +1001,68 @@ namespace Desert::Editor
             // A row shown only as the ancestor of a search hit is dimmed, as in UE's filtered tree.
             if ( !row.Matches )
                 ImGui::PushStyleColor( ImGuiCol_Text, ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
-            if ( ImGui::Selectable( bones[row.Bone].Name.c_str(), m_SelectedBone == row.Bone ) )
-                m_SelectedBone = row.Bone;
+            if ( m_RenamingBone == row.Bone )
+            {
+                if ( m_RenameFocus )
+                {
+                    ImGui::SetKeyboardFocusHere();
+                    m_RenameFocus = false;
+                }
+                ImGui::SetNextItemWidth( -1.0f );
+                if ( ImGui::InputText( "##rename", m_RenameBuffer.data(), m_RenameBuffer.size(),
+                                       ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll ) )
+                    CommitRename( row.Bone, m_RenameBuffer.data() );
+                else if ( ImGui::IsKeyPressed( ImGuiKey_Escape ) ||
+                          ( !ImGui::IsItemActive() && !ImGui::IsItemFocused() && !m_RenameFocus ) )
+                    m_RenamingBone.reset();
+            }
+            else
+            {
+                if ( ImGui::Selectable( bones[row.Bone].Name.c_str(), m_SelectedBone == row.Bone ) )
+                    m_SelectedBone = row.Bone;
+                // UE's Skeleton Tree: Rename Bone on the row's context menu and on F2. Skeleton mode only - the
+                // other modes show the rig they play on, they do not author it.
+                if ( canRename && ImGui::BeginPopupContextItem( "##bonemenu" ) )
+                {
+                    m_SelectedBone = row.Bone;
+                    if ( ImGui::MenuItem( "Rename Bone", "F2" ) )
+                        BeginRename( row.Bone );
+                    ImGui::EndPopup();
+                }
+            }
             if ( !row.Matches )
                 ImGui::PopStyleColor();
             ImGui::PopID();
         }
+        if ( canRename && m_SelectedBone && !m_RenamingBone &&
+             ImGui::IsWindowFocused( ImGuiFocusedFlags_ChildWindows ) &&
+             ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
+            BeginRename( *m_SelectedBone );
         ImGui::EndChild();
+        if ( !m_RenameStatus.empty() )
+            ImGui::TextColored( ImVec4( 0.9f, 0.4f, 0.3f, 1.0f ), "%s", m_RenameStatus.c_str() );
+    }
+
+    void AnimationEditorDocument::BeginRename( const uint32_t bone )
+    {
+        const Animation::Skeleton* rig = m_SkeletonAsset ? m_SkeletonAsset->GetSkeleton() : nullptr;
+        if ( rig == nullptr || bone >= rig->GetBones().size() )
+            return;
+        const std::string& name = rig->GetBones()[bone].Name;
+        m_RenameBuffer.fill( '\0' );
+        name.copy( m_RenameBuffer.data(), std::min( name.size(), m_RenameBuffer.size() - 1 ) );
+        m_RenamingBone = bone;
+        m_RenameFocus  = true;
+        m_RenameStatus.clear();
+    }
+
+    void AnimationEditorDocument::CommitRename( const uint32_t bone, const std::string& name )
+    {
+        m_RenamingBone.reset();
+        if ( const auto renamed = CommitBoneRename( m_SkeletonAsset, bone, name ); !renamed )
+            m_RenameStatus = std::format( "Rename refused: {}", renamed.GetError() );
+        else
+            m_RenameStatus.clear();
     }
 
     void AnimationEditorDocument::DrawBoneDetails()
@@ -950,12 +1078,27 @@ namespace Desert::Editor
         const uint32_t index    = *m_SelectedBone;
         const auto&    bone     = skeleton.GetBones()[index];
         const uint32_t parent   = skeleton.ResolveParent( index );
-        ImGui::Text( "Bone  %s", bone.Name.c_str() );
+        if ( Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk )
+        {
+            // The Details Name row (UE: the bone's name in the Skeleton Tree Details): Enter commits a Rename
+            // Bone.
+            std::array<char, 128> name{};
+            bone.Name.copy( name.data(), std::min( bone.Name.size(), name.size() - 1 ) );
+            ImGui::SetNextItemWidth( -80.0f );
+            if ( ImGui::InputText( "Name", name.data(), name.size(), ImGuiInputTextFlags_EnterReturnsTrue ) )
+            {
+                // The rig was rebuilt (its bones are new storage): this frame's references into it end here.
+                CommitRename( index, name.data() );
+                return;
+            }
+        }
+        else
+            ImGui::Text( "Bone  %s", bone.Name.c_str() );
         ImGui::TextDisabled( "Index %u   Parent %s", index,
                              parent < skeleton.GetBones().size() ? skeleton.GetBones()[parent].Name.c_str()
                                                                  : "(root)" );
 
-        // One row set per transform; `editable` rows commit on Enter, the reference pose is read-only.
+        // One row set per transform; `editable` rows commit on Enter. The reference pose is editable in Skeleton mode.
         const auto section = [index]( const char* label, BoneTransformRows& rows, const bool editable )
         {
             SectionHeader( label );
@@ -982,13 +1125,17 @@ namespace Desert::Editor
              m_Posed ? animator->GetAuthoringPose()[index] : animator->GetLocalPose()[index];
         BoneTransformRows posed{ shown.Translation, glm::degrees( glm::eulerAngles( shown.Rotation ) ),
                                  shown.Scale };
-        if ( section( std::format( "Bone (frame {})", m_Transport.FrameIndex() ).c_str(), posed, true ) )
+        const bool authorsBind = Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk;
+        if ( !authorsBind &&
+             section( std::format( "Bone (frame {})", m_Transport.FrameIndex() ).c_str(), posed, true ) )
             (void)PoseSelectedBone( Animation::BoneTransform{ posed.Location,
                                                               glm::quat( glm::radians( posed.RotationDegrees ) ),
                                                               posed.Scale },
                                     true );
         BoneTransformRows reference = DecomposeBoneTransform( bone.LocalBindTransform );
-        (void)section( "Reference Pose", reference, false );
+        // Skeleton mode authors it (UE's Skeleton Editor): a committed row is one undo record, Save writes it.
+        if ( section( "Reference Pose", reference, authorsBind ) )
+            (void)CommitBindEdit( m_SkeletonAsset, index, ComposeBoneTransform( reference ) );
     }
 
     Animation::FrameNumber AnimationEditorDocument::KeyTick() const
@@ -1082,8 +1229,61 @@ namespace Desert::Editor
         return true;
     }
 
+    void AnimationEditorDocument::DrawBindGizmo( const glm::vec2& origin, const glm::vec2& size )
+    {
+        m_GizmoHovered = false;
+        auto* animator = m_Preview ? m_Preview->GetAnimatorForAuthoring() : nullptr;
+        if ( animator == nullptr || !m_SkeletonAsset || !m_BindOnDisk || !m_SelectedBone ||
+             *m_SelectedBone >= animator->GetSkeleton().GetBones().size() )
+        {
+            m_BindGesture.End();
+            return;
+        }
+        if ( ImGui::IsWindowHovered() && !ImGui::GetIO().WantTextInput )
+        {
+            if ( ImGui::IsKeyPressed( ImGuiKey_W, false ) )
+                m_GizmoRotate = false;
+            if ( ImGui::IsKeyPressed( ImGuiKey_E, false ) )
+                m_GizmoRotate = true;
+        }
+        const uint32_t  bone   = *m_SelectedBone;
+        const glm::mat4 target = m_Preview->GetTargetTransform();
+        const glm::mat4 view   = m_Preview->GetView();
+        const glm::mat4 proj   = m_Preview->GetProjection();
+        glm::mat4       world  = target * animator->GetBoneModelMatrix( bone );
+
+        const Core::GizmoIdScope gizmoId( "AnimationEditorBindBone" );
+        ImGuizmo::SetOrthographic( false );
+        ImGuizmo::SetDrawlist();
+        ImGuizmo::SetRect( origin.x, origin.y, size.x, size.y );
+        const bool moved = ImGuizmo::Manipulate( &view[0][0], &proj[0][0],
+                                                 m_GizmoRotate ? ImGuizmo::ROTATE : ImGuizmo::TRANSLATE,
+                                                 ImGuizmo::LOCAL, &world[0][0] );
+        const bool held  = ImGuizmo::IsUsing();
+        m_GizmoHovered   = held || ImGuizmo::IsOver();
+
+        // World -> the bone's parent-relative RAW matrix (GizmoController's rest-pose branch): the bind is a matrix,
+        // and a TRS round trip would not invert what the OffsetMatrix was cooked against.
+        std::optional<glm::mat4> local;
+        if ( moved )
+        {
+            glm::mat4      parentModel( 1.0f );
+            const uint32_t parent = animator->GetSkeleton().ResolveParent( bone );
+            if ( parent < animator->GetSkeleton().GetBones().size() )
+                parentModel = animator->GetBoneModelMatrix( parent );
+            local = glm::inverse( parentModel ) * glm::inverse( target ) * world;
+        }
+        // One undo record per drag: press captures the bind, the release records old -> current.
+        m_BindGesture.Step( m_SkeletonAsset, bone, held, local ? &*local : nullptr );
+    }
+
     void AnimationEditorDocument::DrawBoneGizmo( const glm::vec2& origin, const glm::vec2& size )
     {
+        if ( Mode() == Core::PersonaMode::Skeleton )
+        {
+            DrawBindGizmo( origin, size );
+            return;
+        }
         m_GizmoHovered = false;
         auto* animator = m_Preview ? m_Preview->GetAnimatorForAuthoring() : nullptr;
         if ( animator == nullptr || ClipAsset() == nullptr || !m_SelectedBone || m_Transport.Playing ||
@@ -1731,6 +1931,22 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::DrawModeToolbar()
     {
+        // UE's asset editor toolbar starts with Save. Skeleton mode's document is the `.skeleton` (its Reference
+        // Pose edits: Save* / Don't Save on close); Animation mode's Save is on its transport, beside the clip.
+        if ( Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset )
+        {
+            if ( ImGui::Button( GetDiskState() == DiskState::Dirty ? "Save*" : "Save" ) )
+                (void)SaveDocument();
+            if ( !m_SaveStatus.empty() )
+            {
+                ImGui::SameLine();
+                if ( m_SaveFailed )
+                    ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), "%s", m_SaveStatus.c_str() );
+                else
+                    ImGui::TextDisabled( "%s", m_SaveStatus.c_str() );
+            }
+            ImGui::SameLine();
+        }
         // UE puts the mode switcher at the right of the asset editor's toolbar.
         constexpr std::array kModes = { Core::PersonaMode::Skeleton, Core::PersonaMode::Mesh,
                                         Core::PersonaMode::Animation };
@@ -1853,7 +2069,8 @@ namespace Desert::Editor
         // document of its own to hold the edit, so the slot is the save).
         const auto save = [this]( const char* what )
         {
-            if ( const auto saved = Assets::Serialization::SaveSkeletonAsset( *m_SkeletonAsset ); !saved )
+            // The one write of the file (SaveSkeleton): it carries the Reference Pose too, so the disk state follows.
+            if ( const auto saved = SaveSkeleton(); !saved )
             {
                 m_AssignStatus = std::format( "{} was not saved: {}", what, saved.GetError() );
                 m_AssignFailed = true;

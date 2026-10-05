@@ -42,6 +42,7 @@ namespace Desert::Assets
         // Taken from the bones that were just read, never from `data.Signature`: the file's own field is
         // what a cook WROTE, and this is what the rig in memory IS. A mesh is matched against the second.
         m_Signature = m_Skeleton->GetSignature();
+        ++m_BindRevision;
 
         // The references (SKEL 2) resolve by GUID; the stored path is only for the reader. A GUID that does not
         // parse is a broken file, refused by name rather than read as "no reference".
@@ -88,6 +89,37 @@ namespace Desert::Assets
     void SkeletonAsset::SetCompatibleSkeletons( std::vector<Common::Content::AssetGuid> skeletons )
     {
         m_CompatibleSkeletons = std::move( skeletons );
+    }
+
+    bool SkeletonAsset::SetLocalBindTransform( const uint32_t bone, const glm::mat4& localBind )
+    {
+        if ( !m_Skeleton || !m_Skeleton->SetLocalBindTransform( bone, localBind ) )
+            return false;
+        ++m_BindRevision;
+        return true;
+    }
+
+    Common::BoolResultStr SkeletonAsset::RenameBone( const uint32_t bone, const std::string& name )
+    {
+        if ( !m_Skeleton )
+            return Common::MakeError<bool>( "the rig is not loaded" );
+        const auto& bones = m_Skeleton->GetBones();
+        if ( bone >= bones.size() )
+            return Common::MakeFormattedError<bool>( "bone {} is out of range (the rig has {})", bone,
+                                                     bones.size() );
+        if ( name.empty() )
+            return Common::MakeError<bool>( "a bone needs a name" );
+        if ( bones[bone].Name == name )
+            return BOOLSUCCESS;
+        if ( const auto other = m_Skeleton->FindBoneIndex( name ); other && *other != bone )
+            return Common::MakeFormattedError<bool>( "bone {} is already named '{}'", *other, name );
+
+        std::vector<Animation::BoneInfo> renamed = bones;
+        renamed[bone].Name                       = name;
+        *m_Skeleton                              = Animation::Skeleton( std::move( renamed ) );
+        m_Signature                              = m_Skeleton->GetSignature();
+        ++m_BindRevision;
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr SkeletonAsset::Unload()

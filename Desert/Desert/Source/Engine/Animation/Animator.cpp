@@ -178,6 +178,18 @@ namespace Desert::Animation
         SampleClipPose( TargetSampling(), &clip, time, m_AuthoringPose );
     }
 
+    Common::BoolResultStr Animator::RebindRestPose()
+    {
+        auto bind = LocalPose::FromBindPose( m_Skeleton );
+        if ( !bind.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "the rest pose of rig {} does not decompose: {}",
+                                                     m_Skeleton.GetSignature(), bind.GetError() );
+        m_BindPose      = std::move( bind.GetValue() );
+        m_AuthoringPose = m_BindPose;
+        ApplyLocalPose();
+        return Common::MakeSuccess( true );
+    }
+
     void Animator::ApplyLocalPose()
     {
         const size_t n = m_Skeleton.GetBones().size();

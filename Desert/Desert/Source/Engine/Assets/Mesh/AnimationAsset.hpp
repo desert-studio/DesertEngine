@@ -31,6 +31,18 @@ namespace Desert::Assets
             return m_Clip;
         }
 
+        /// RENAME BONE, CARRIED INTO THIS CLIP IN MEMORY (Skeleton Editor Save; the file is rewritten beside it by
+        /// Assets::RenameBonesInSkeletonAssets): Timeline::RenameBoneLocators on the clip's sequence. A move is a
+        /// new generation of the bindings, so the Revision moves and an Animator's ClipBinding re-resolves the
+        /// names. Returns how many bindings moved.
+        std::size_t RenameBones( std::span<const Animation::Timeline::BoneRename> renames )
+        {
+            const std::size_t moved = Animation::Timeline::RenameBoneLocators( m_Clip.Sequence, renames );
+            if ( moved > 0 )
+                m_Clip.Sequence.Revision = ++m_TrackRevision;
+            return moved;
+        }
+
         /// THE CLIP'S SKELETON, BY GUID (SKEL-TREE; contract: Engine/Animation/SkeletonReference.hpp). UE
         /// UAnimSequence::Skeleton. Whether the clip plays on a mesh is ClipPlaysOnMesh over this and the mesh's
         /// SkinnedMeshAsset::GetSkeleton(); GetSkeletonSignature goes away.

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <Engine/Animation/Skeleton.hpp>
 
 #include <glm/glm.hpp>
@@ -120,5 +123,14 @@ namespace Desert::Editor
         if ( !glm::decompose( local, scale, rotation, translation, skew, perspective ) )
             return {};
         return { translation, glm::degrees( glm::eulerAngles( rotation ) ), scale };
+    }
+
+    // The rows back into a local transform (the Skeleton mode's Reference Pose edit): T * R * S, the order
+    // DecomposeBoneTransform takes apart.
+    [[nodiscard]] inline glm::mat4 ComposeBoneTransform( const BoneTransformRows& rows )
+    {
+        return glm::translate( glm::mat4( 1.0f ), rows.Location ) *
+               glm::mat4_cast( glm::quat( glm::radians( rows.RotationDegrees ) ) ) *
+               glm::scale( glm::mat4( 1.0f ), rows.Scale );
     }
 } // namespace Desert::Editor
