@@ -116,7 +116,9 @@ TEST( MovieRender, FractionalDurationsParse )
     EXPECT_DOUBLE_EQ( ParsedDuration( "0.1666667" ), 0.1666667 );
     auto args   = Full();
     args.back() = "2.5";
-    EXPECT_EQ( ParseMovieRender( args ).GetValue()->FrameCount(), 150u ); // 2.5 s at 60 fps
+    const auto twoAndAHalf = ParseMovieRender( args );
+    ASSERT_TRUE( twoAndAHalf.IsSuccess() ) << twoAndAHalf.GetError();
+    EXPECT_EQ( twoAndAHalf.GetValue()->FrameCount(), 150u ); // 2.5 s at 60 fps
     for ( const char* bad : { "3.", ".5", "3,0", " 3", "3.0 ", "1e1", "inf", "nan", "0x10", "+3", "3.0.0" } )
     {
         args.back() = bad;
