@@ -512,4 +512,49 @@ namespace Desert::Animation::Timeline
         }
         return CheckTracks( sequence );
     }
+
+    Common::ResultStr<size_t> AddAudioTrack( Sequence& sequence, std::string sound )
+    {
+        if ( sound.empty() )
+        {
+            return Common::MakeFormattedError<size_t>( "an Audio track plays a sound: name it ({})",
+                                                       "an Assets-relative path" );
+        }
+        if ( !HostHoldsTrack( sequence.Host, BindingKind::Sequence, TrackKind::Audio ) )
+        {
+            return Common::MakeFormattedError<size_t>( "a {} holds no Audio track", ToString( sequence.Host ) );
+        }
+        BindingGuid master;
+        for ( const Binding& binding : sequence.Bindings )
+        {
+            if ( binding.Kind == BindingKind::Sequence )
+            {
+                master = binding.Guid;
+                break;
+            }
+        }
+        if ( master.IsNull() )
+        {
+            Binding binding;
+            binding.Guid  = BindingGuid::Generate();
+            binding.Kind  = BindingKind::Sequence;
+            binding.Label = ToString( sequence.Host );
+            master        = binding.Guid;
+            sequence.Bindings.push_back( std::move( binding ) );
+        }
+        std::string property = "Audio";
+        for ( int n = 2; FindTrack( sequence, master, property ) != nullptr; ++n )
+        {
+            property = std::format( "Audio {}", n );
+        }
+        Track track;
+        track.Binding  = master;
+        track.Property = std::move( property );
+        track.Kind     = TrackKind::Audio;
+        Section& section = AddSection( track, sequence.Start, sequence.End );
+        std::get<AudioSectionContent>( section.Content ).Sound = std::move( sound );
+        sequence.Tracks.push_back( std::move( track ) );
+        ++sequence.Revision;
+        return Common::MakeSuccess( sequence.Tracks.size() - 1 );
+    }
 } // namespace Desert::Animation::Timeline

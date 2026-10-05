@@ -156,3 +156,43 @@ TEST( TimelineAudio, AudioSectionRoundTripsThroughTheFormat )
     EXPECT_EQ( audio.FadeIn.Value, 50 );
     EXPECT_EQ( audio.FadeOut.Value, 50 );
 }
+
+// MOVIE-AUDIO-c: the Sequencer's "+ Track > Audio" — one master binding however many sounds, a track per
+// sound named apart, one section over the playback range holding the sound, and the refusals Validate makes.
+TEST( TimelineAudio, AddAudioTrackPutsASoundOnTheMasterBindingOverThePlaybackRange )
+{
+    Sequence sequence;
+    sequence.Host  = SequenceHost::UIAnimation;
+    sequence.Start = Tick( 0 );
+    sequence.End   = Tick( 900 );
+    sequence.Bindings.push_back( Binding{ Guid( 2 ), BindingKind::Widget, "5007", "Rim", {} } );
+    const uint32_t revision = sequence.Revision;
+
+    const auto first = AddAudioTrack( sequence, "Movies/Source/DesertStudio.wav" );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    const auto second = AddAudioTrack( sequence, "Audio/Wind.wav" );
+    ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
+    EXPECT_GT( sequence.Revision, revision );
+
+    ASSERT_EQ( sequence.Bindings.size(), 2u ) << "the master binding is created once, then reused";
+    EXPECT_EQ( sequence.Bindings[1].Kind, BindingKind::Sequence );
+    const Track& track = sequence.Tracks[first.GetValue()];
+    EXPECT_EQ( track.Kind, TrackKind::Audio );
+    EXPECT_EQ( track.Binding, sequence.Bindings[1].Guid );
+    EXPECT_EQ( track.Property, "Audio" );
+    EXPECT_EQ( sequence.Tracks[second.GetValue()].Property, "Audio 2" );
+    ASSERT_EQ( track.Sections.size(), 1u );
+    EXPECT_EQ( track.Sections[0].Start.Value, 0 );
+    EXPECT_EQ( track.Sections[0].End.Value, 900 );
+    EXPECT_EQ( std::get<AudioSectionContent>( track.Sections[0].Content ).Sound, "Movies/Source/DesertStudio.wav" );
+    EXPECT_TRUE( Validate( sequence ).IsSuccess() ) << Validate( sequence ).GetError();
+
+    const Sequence before = sequence;
+    EXPECT_FALSE( AddAudioTrack( sequence, "" ).IsSuccess() ) << "an Audio section names its sound";
+    EXPECT_EQ( sequence.Tracks.size(), before.Tracks.size() ) << "a refusal writes nothing";
+
+    Sequence level;
+    level.Host = SequenceHost::LevelSequence;
+    EXPECT_FALSE( AddAudioTrack( level, "Audio/Wind.wav" ).IsSuccess() ) << "a level sequence plays no sound yet";
+    EXPECT_TRUE( level.Bindings.empty() && level.Tracks.empty() );
+}
