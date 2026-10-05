@@ -443,7 +443,7 @@ namespace Desert::Graphic::Render2D
 
     void Render2D::RenderRetained()
     {
-        RenderRetainedOf( m_DrawList, m_DrawList );
+        RenderRetainedOf( m_DrawList );
 
         const uint64_t frame  = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const uint32_t window = ExecutorRetireWindow();
@@ -451,40 +451,77 @@ namespace Desert::Graphic::Render2D
                        { return MayRetireExecutor( t->LastUsedFrame, frame, window ); } );
     }
 
-    void Render2D::RenderRetainedOf( const DrawList2D& list, const DrawList2D& maskRoot )
+    void Render2D::RenderRetainedOf( const DrawList2D& root )
     {
         const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
-        for ( const DrawCommand& cmd : list.GetCommands() )
+
+        // Expand: every retainer, at any depth, becomes a job; a job's nested retainers are appended after
+        // it, so walking the jobs backwards draws the most nested layer first, all outside every pass.
+        std::vector<RetainedJob>                             jobs;
+        std::vector<std::pair<Render2D*, const DrawList2D*>> pending{ { this, &root } };
+        while ( !pending.empty() )
         {
-            if ( !cmd.Retained || cmd.RetainedLayer >= list.GetLayers().size() )
-                continue;
-            const glm::vec4 r = cmd.RetainedRect;
-            const auto      w = static_cast<uint32_t>( r.z - r.x );
-            const auto      h = static_cast<uint32_t>( r.w - r.y );
-            if ( w == 0 || h == 0 )
-                continue;
-
-            RetainedTarget* content = AcquireRetainedTarget( w, h, frame );
-            if ( content == nullptr ||
-                 !DrawIntoTarget( *content, *list.GetLayers()[cmd.RetainedLayer], r, maskRoot ) )
-                continue;
-
-            RetainedPicture pic;
-            pic.Content = content->Image;
-            pic.Uv      = glm::vec4( static_cast<float>( w ) / static_cast<float>( content->Width ),
-                                     static_cast<float>( h ) / static_cast<float>( content->Height ),
-                                     1.0f / static_cast<float>( content->Width ),
-                                     1.0f / static_cast<float>( content->Height ) );
-
-            if ( cmd.Effect.Mask )
+            const auto [owner, list] = pending.back();
+            pending.pop_back();
+            for ( const DrawCommand& cmd : list->GetCommands() )
             {
-                const auto& masks = maskRoot.GetMaskLayers();
-                if ( const auto it = masks.find( cmd.RetainedMask ); it != masks.end() )
-                    if ( RetainedTarget* mask = AcquireRetainedTarget( content->Width, content->Height, frame ) )
-                        if ( DrawIntoTarget( *mask, *maskRoot.GetLayers()[it->second], r, maskRoot ) )
-                            pic.Mask = mask->Image;
+                if ( !cmd.Retained || cmd.RetainedLayer >= list->GetLayers().size() )
+                    continue;
+                const glm::vec4 r = cmd.RetainedRect;
+                const auto      w = static_cast<uint32_t>( r.z - r.x );
+                const auto      h = static_cast<uint32_t>( r.w - r.y );
+                if ( w == 0 || h == 0 )
+                    continue;
+
+                RetainedTarget* content = AcquireRetainedTarget( w, h, frame );
+                if ( content == nullptr )
+                    continue;
+                const DrawList2D* layer = list->GetLayers()[cmd.RetainedLayer].get();
+                OpenTarget( *content, r );
+                const size_t contentJob = jobs.size();
+                jobs.push_back(
+                     { .Owner = owner, .Cmd = &cmd, .Target = content, .Layer = layer, .Width = w, .Height = h } );
+                pending.emplace_back( content->Renderer.get(), layer );
+
+                if ( !cmd.Effect.Mask )
+                    continue;
+                const auto& masks = root.GetMaskLayers();
+                const auto  it    = masks.find( cmd.RetainedMask );
+                if ( it == masks.end() )
+                    continue;
+                RetainedTarget* mask = AcquireRetainedTarget( content->Width, content->Height, frame );
+                if ( mask == nullptr )
+                    continue;
+                const DrawList2D* maskLayer = root.GetLayers()[it->second].get();
+                OpenTarget( *mask, r );
+                jobs.push_back( { .Owner  = owner,
+                                  .Cmd    = &cmd,
+                                  .Target = mask,
+                                  .Layer  = maskLayer,
+                                  .Width  = w,
+                                  .Height = h,
+                                  .MaskOf = contentJob } );
+                pending.emplace_back( mask->Renderer.get(), maskLayer );
             }
-            m_Retained[&cmd] = pic;
+        }
+
+        for ( auto job = jobs.rbegin(); job != jobs.rend(); ++job )
+        {
+            if ( !DrawJob( *job ) )
+                continue;
+            if ( job->MaskOf != SIZE_MAX )
+            {
+                jobs[job->MaskOf].Mask = job->Target->Image;
+                continue;
+            }
+            const RetainedTarget& t = *job->Target;
+            RetainedPicture       pic;
+            pic.Content = t.Image;
+            pic.Mask    = job->Mask;
+            pic.Uv      = glm::vec4( static_cast<float>( job->Width ) / static_cast<float>( t.Width ),
+                                     static_cast<float>( job->Height ) / static_cast<float>( t.Height ),
+                                     1.0f / static_cast<float>( t.Width ), 1.0f / static_cast<float>( t.Height ) );
+            job->Owner->m_Retained[job->Cmd] = pic;
         }
     }
 
@@ -544,18 +581,19 @@ namespace Desert::Graphic::Render2D
         return m_RetainedPool.back().get();
     }
 
-    bool Render2D::DrawIntoTarget( RetainedTarget& target, const DrawList2D& layer, const glm::vec4& rect,
-                                   const DrawList2D& maskRoot )
+    void Render2D::OpenTarget( RetainedTarget& target, const glm::vec4& rect )
     {
         Render2D& r2d = *target.Renderer;
         // Screen px in, target px out: the layer's top-left lands on the target's (0,0), one to one.
         r2d.BeginFrame(
              { rect.x, rect.y, static_cast<float>( target.Width ), static_cast<float>( target.Height ) } );
         r2d.m_TargetOrigin = glm::vec2( rect.x, rect.y );
-        // A retainer inside this layer: its own targets first, still outside every pass.
-        r2d.RenderRetainedOf( layer, maskRoot );
+    }
 
-        auto& renderer = Renderer::GetInstance();
+    bool Render2D::DrawJob( const RetainedJob& job )
+    {
+        RetainedTarget& target   = *job.Target;
+        auto&           renderer = Renderer::GetInstance();
         if ( const auto begun = renderer.BeginRenderPass( target.Pass.get(), true ); !begun )
         {
             // Nothing is recorded: a draw or an EndRenderPass after a refused begin is outside every pass.
@@ -563,7 +601,7 @@ namespace Desert::Graphic::Render2D
                        begun.GetError() );
             return false;
         }
-        r2d.FlushList( layer );
+        target.Renderer->FlushList( *job.Layer );
         renderer.EndRenderPass();
         return target.Image != nullptr;
     }
