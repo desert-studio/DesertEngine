@@ -267,14 +267,15 @@ namespace Desert::Graphic::System
                         continue;
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                    if ( img != nullptr )
-                        material->SetTexture( name, img );
+                    if ( img != nullptr && !material->SetTexture( name, img ) )
+                        LogRefusedTextureOverride( shaderName, name );
                 }
 
                 // Runtime-owned texture (no asset handle) bound straight to its sampler — the text
                 // SDF atlas takes this path.
-                if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() )
-                    material->SetTexture( g.DirectTextureSampler, g.DirectTexture );
+                if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() &&
+                     !material->SetTexture( g.DirectTextureSampler, g.DirectTexture ) )
+                    LogRefusedTextureOverride( shaderName, g.DirectTextureSampler );
             }
 
             auto&       rows = rowsFor( material );

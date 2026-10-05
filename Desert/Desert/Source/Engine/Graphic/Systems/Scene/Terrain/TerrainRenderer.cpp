@@ -277,8 +277,8 @@ namespace Desert::Graphic::System
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
                     // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-                    if ( img != nullptr )
-                        surface->SetTexture( name, img );
+                    if ( img != nullptr && !surface->SetTexture( name, img ) )
+                        LogRefusedTextureOverride( surface->GetShaderName(), name );
                 }
                 surface->SetTexture( "u_Heightmap", t.Heightmap );
                 materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap );

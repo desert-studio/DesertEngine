@@ -150,4 +150,29 @@ namespace Desert::Graphic
                    name, value );
         return false;
     }
+    /**
+     * @brief Names, once per (shader, sampler), a texture override the material refused.
+     *
+     * A material owns exactly its `Properties` textures (DataDrivenMaterial::SetTexture returns false for
+     * any other name), so an override naming a pass input or a typo is dropped. Dropped silently it is a
+     * file that says one texture and a surface that draws the shader default with nothing in between to
+     * notice; said every frame it is a flood. Called by every renderer that applies MaterialOverrides.
+     */
+    inline void LogRefusedTextureOverride( std::string_view shaderName, std::string_view sampler )
+    {
+        static std::mutex            said;
+        static std::set<std::string> alreadySaid;
+        {
+            const std::lock_guard<std::mutex> lock( said );
+            std::string                       key( shaderName );
+            key.append( 1, '/' ).append( sampler );
+            if ( !alreadySaid.insert( std::move( key ) ).second )
+                return;
+        }
+
+        LOG_ERROR( "[Material] '{}' has no Properties texture '{}' — the override is ignored and the "
+                   "surface draws the shader's own default. Only textures declared in the shader's "
+                   "Properties are material parameters; every other sampler is bound by its pass.",
+                   shaderName, sampler );
+    }
 } // namespace Desert::Graphic
