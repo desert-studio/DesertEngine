@@ -1,1472 +1,1364 @@
 {
-  "Header": {
-    "Kind": "Scene",
-    "Guid": "44657365727453747564696f00e1d0a2",
-    "Versions": {
-      "SCNE": 41,
-      "UNIT": 1
-    },
-    "Dependencies": []
-  },
-  "SceneName": "DesertStudio",
-  "Entities": [
-    {
-      "id": 5001,
-      "siblingIndex": 0,
-      "Tag": "UI Canvas",
-      "UICanvas": {
-        "ScaleMode": 1,
-        "RenderMode": 0,
-        "WorldScale": 400.0,
-        "ReferenceWidth": 1920.0,
-        "ReferenceHeight": 1080.0,
-        "MatchWidthHeight": 0.5,
-        "Visible": true,
-        "SortOrder": 0
-      }
-    },
-    {
-      "id": 5002,
-      "siblingIndex": 0,
-      "Tag": "Sky",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0,
-          0
-        ],
-        "AnchorMax": [
-          1,
-          1
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.0784313725490196,
-          0.07450980392156863,
-          0.12156862745098039
-        ],
-        "Opacity": 1.0,
-        "Circle": false,
-        "CornerRadius": 0.0,
-        "UseGradient": true,
-        "GradientColor": [
-          0.16470588235294117,
-          0.1450980392156863,
-          0.25098039215686274
-        ]
-      }
-    },
-    {
-      "id": 5003,
-      "siblingIndex": 1,
-      "Tag": "Afterglow",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0,
-          0.2
-        ],
-        "AnchorMax": [
-          1,
-          1
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.09568627450980392,
-          0.08862745098039215,
-          0.14745098039215687
-        ],
-        "Opacity": 0.62,
-        "Circle": false,
-        "CornerRadius": 0.0,
-        "UseGradient": true,
-        "GradientColor": [
-          0.8509803921568627,
-          0.5098039215686274,
-          0.16862745098039217
-        ]
-      }
-    },
-    {
-      "id": 5004,
-      "siblingIndex": 2,
-      "Tag": "FarDuneLeft",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -2300,
-          10
-        ],
-        "OffsetMax": [
-          900,
-          3210
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.11725490196078431,
-          0.10627450980392157,
-          0.17980392156862746
-        ],
-        "Opacity": 1.0,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5005,
-      "siblingIndex": 3,
-      "Tag": "FarDuneRight",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -1000,
-          40
-        ],
-        "OffsetMax": [
-          2800,
-          3840
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.1388235294117647,
-          0.12392156862745099,
-          0.21215686274509804
-        ],
-        "Opacity": 1.0,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5006,
-      "siblingIndex": 4,
-      "Tag": "SunLayer",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0,
-          0
-        ],
-        "AnchorMax": [
-          1,
-          1
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIRetainer": {
-        "Opacity": 1.0,
-        "Mask": true,
-        "MaskElement": "Dune",
-        "InvertMask": true,
-        "Haze": true,
-        "HazeAmplitude": 1.6,
-        "HazeScale": 18.0,
-        "HazeSpeed": 1.2
-      }
-    },
-    {
-      "id": 5007,
-      "siblingIndex": 0,
-      "Tag": "SunRig",
-      "parent": 5006,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -150.0,
-          -190.0
-        ],
-        "OffsetMax": [
-          150.0,
-          110.0
-        ],
-        "Visibility": 0
-      }
-    },
-    {
-      "id": 5008,
-      "siblingIndex": 0,
-      "Tag": "Halo",
-      "parent": 5007,
-      "UILayout": {
-        "AnchorMin": [
-          0,
-          0
-        ],
-        "AnchorMax": [
-          1,
-          1
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      }
-    },
-    {
-      "id": 5009,
-      "siblingIndex": 0,
-      "Tag": "HaloGlow",
-      "parent": 5008,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -470,
-          -470
-        ],
-        "OffsetMax": [
-          470,
-          470
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.8509803921568627,
-          0.5098039215686274,
-          0.16862745098039217
-        ],
-        "Opacity": 0.45,
-        "Circle": false,
-        "CornerRadius": 0.0,
-        "Material": "Materials/MI_SunGlow.demat"
-      }
-    },
-    {
-      "id": 5010,
-      "siblingIndex": 1,
-      "Tag": "SunDisk",
-      "parent": 5007,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -150.0,
-          -150.0
-        ],
-        "OffsetMax": [
-          150.0,
-          150.0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9490196078431372,
-          0.7058823529411765,
-          0.35294117647058826
-        ],
-        "Opacity": 1.0,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5011,
-      "siblingIndex": 2,
-      "Tag": "SunCore",
-      "parent": 5007,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -124.0,
-          -124.0
-        ],
-        "OffsetMax": [
-          124.0,
-          124.0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9531372549019608,
-          0.7868627450980392,
-          0.5450980392156863
-        ],
-        "Opacity": 0.55,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5012,
-      "siblingIndex": 5,
-      "Tag": "Rim",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -2300.0,
-          -42.5
-        ],
-        "OffsetMax": [
-          2300.0,
-          4557.5
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.8509803921568627,
-          0.5098039215686274,
-          0.16862745098039217
-        ],
-        "Opacity": 1.0,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5013,
-      "siblingIndex": 6,
-      "Tag": "Dune",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -2300.0,
-          -40.0
-        ],
-        "OffsetMax": [
-          2300.0,
-          4560.0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.0784313725490196,
-          0.07450980392156863,
-          0.12156862745098039
-        ],
-        "Opacity": 1.0,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5014,
-      "siblingIndex": 7,
-      "Tag": "Wordmark",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -760,
-          125
-        ],
-        "OffsetMax": [
-          760,
-          295
-        ],
-        "Visibility": 0
-      },
-      "UIText": {
-        "Text": "DESERT STUDIO",
-        "FontSize": 132.0,
-        "Font": "assets:Fonts/Manrope-ExtraBold.ttf",
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Align": 1,
-        "VerticalAlign": 1,
-        "Wrap": false,
-        "LineSpacing": 1.0,
-        "AutoSize": false,
-        "MinFontSize": 8.0,
-        "Overflow": 0,
-        "RichText": false,
-        "Marquee": false,
-        "Shadow": false,
-        "Outline": false
-      }
-    },
-    {
-      "id": 5015,
-      "siblingIndex": 8,
-      "Tag": "WarmLayer",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0,
-          0
-        ],
-        "AnchorMax": [
-          1,
-          1
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIRetainer": {
-        "Opacity": 1.0,
-        "Mask": true,
-        "MaskElement": "LightSpread",
-        "InvertMask": false,
-        "Haze": false
-      }
-    },
-    {
-      "id": 5016,
-      "siblingIndex": 0,
-      "Tag": "WarmWordmark",
-      "parent": 5015,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -760,
-          125
-        ],
-        "OffsetMax": [
-          760,
-          295
-        ],
-        "Visibility": 0
-      },
-      "UIText": {
-        "Text": "DESERT STUDIO",
-        "FontSize": 132.0,
-        "Font": "assets:Fonts/Manrope-ExtraBold.ttf",
-        "Color": [
-          0.9490196078431372,
-          0.7058823529411765,
-          0.35294117647058826
-        ],
-        "Align": 1,
-        "VerticalAlign": 1,
-        "Wrap": false,
-        "LineSpacing": 1.0,
-        "AutoSize": false,
-        "MinFontSize": 8.0,
-        "Overflow": 0,
-        "RichText": false,
-        "Marquee": false,
-        "Shadow": false,
-        "Outline": false,
-        "Glow": true,
-        "GlowColor": [
-          0.8509803921568627,
-          0.5098039215686274,
-          0.16862745098039217
-        ],
-        "GlowRadius": 10.0,
-        "GlowStrength": 0.3
-      }
-    },
-    {
-      "id": 5017,
-      "siblingIndex": 9,
-      "Tag": "LightSpread",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          0,
-          -40.0
-        ],
-        "OffsetMax": [
-          0,
-          -40.0
-        ],
-        "Visibility": 1
-      }
-    },
-    {
-      "id": 5018,
-      "siblingIndex": 0,
-      "Tag": "SpreadGlow",
-      "parent": 5017,
-      "UILayout": {
-        "AnchorMin": [
-          0,
-          0
-        ],
-        "AnchorMax": [
-          1,
-          1
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 1.0,
-        "Circle": false,
-        "CornerRadius": 0.0,
-        "Material": "Materials/MI_WarmSpread.demat"
-      }
-    },
-    {
-      "id": 5019,
-      "siblingIndex": 10,
-      "Tag": "Fade",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0,
-          0
-        ],
-        "AnchorMax": [
-          1,
-          1
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Opacity": 1.0,
-        "Circle": false,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5020,
-      "siblingIndex": 11,
-      "Tag": "Intro",
-      "parent": 5001,
-      "UILayout": {
-        "AnchorMin": [
-          0,
-          0
-        ],
-        "AnchorMax": [
-          0,
-          0
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIAnim": {
-        "Sequence": {
-          "Header": {
-            "Kind": "",
-            "Guid": "",
-            "Versions": {
-              "TMLN": 2
-            },
-            "Dependencies": []
-          },
-          "Host": 1,
-          "TickRate": [
-            24000,
-            1
-          ],
-          "DisplayRate": [
-            60,
-            1
-          ],
-          "Start": 0,
-          "End": 72000,
-          "Bindings": [
-            {
-              "Guid": "445353756e5269670000000000000008",
-              "Kind": 3,
-              "Locator": "5007",
-              "Label": "SunRig",
-              "Parent": ""
-            },
-            {
-              "Guid": "445348616c6f00000000000000000006",
-              "Kind": 3,
-              "Locator": "5008",
-              "Label": "Halo",
-              "Parent": ""
-            },
-            {
-              "Guid": "44534166746572676c6f77000000000b",
-              "Kind": 3,
-              "Locator": "5003",
-              "Label": "Afterglow",
-              "Parent": ""
-            },
-            {
-              "Guid": "445352696d0000000000000000000005",
-              "Kind": 3,
-              "Locator": "5012",
-              "Label": "Rim",
-              "Parent": ""
-            },
-            {
-              "Guid": "4453576f72646d61726b00000000000a",
-              "Kind": 3,
-              "Locator": "5014",
-              "Label": "Wordmark",
-              "Parent": ""
-            },
-            {
-              "Guid": "44534c6967687453707265616400000d",
-              "Kind": 3,
-              "Locator": "5017",
-              "Label": "LightSpread",
-              "Parent": ""
-            },
-            {
-              "Guid": "44534661646500000000000000000006",
-              "Kind": 3,
-              "Locator": "5019",
-              "Label": "Fade",
-              "Parent": ""
-            },
-            {
-              "Guid": "4453436c697000000000000000000001",
-              "Kind": 0,
-              "Locator": "",
-              "Label": "UIAnimation",
-              "Parent": ""
-            }
-          ],
-          "Tracks": [
-            {
-              "Binding": "4453436c697000000000000000000001",
-              "Property": "Audio",
-              "Kind": 8,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Audio": {
-                    "Sound": "Movies/Source/DesertStudio.wav",
-                    "StartOffset": 0,
-                    "Volume": 1.0,
-                    "FadeIn": 0,
-                    "FadeOut": 0
-                  }
-                }
-              ]
-            },
-            {
-              "Binding": "44534661646500000000000000000006",
-              "Property": "Opacity",
-              "Kind": 0,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Channel": {
-                    "Kind": 0,
-                    "Components": [
-                      {
-                        "Keys": [
-                          [
-                            0,
-                            1.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            7680,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            62880,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            72000,
-                            1.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 1.0
-                      }
-                    ],
-                    "Events": []
-                  }
-                }
-              ]
-            },
-            {
-              "Binding": "445353756e5269670000000000000008",
-              "Property": "Offset",
-              "Kind": 1,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Channel": {
-                    "Kind": 1,
-                    "Components": [
-                      {
-                        "Keys": [
-                          [
-                            2880,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            42000,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      },
-                      {
-                        "Keys": [
-                          [
-                            2880,
-                            215.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            42000,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 215.0
-                      },
-                      {
-                        "Keys": [
-                          [
-                            2880,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            42000,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      }
-                    ],
-                    "Events": []
-                  }
-                }
-              ]
-            },
-            {
-              "Binding": "445348616c6f00000000000000000006",
-              "Property": "Opacity",
-              "Kind": 0,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Channel": {
-                    "Kind": 0,
-                    "Components": [
-                      {
-                        "Keys": [
-                          [
-                            7200,
-                            0.25,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            45600,
-                            1.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.25
-                      }
-                    ],
-                    "Events": []
-                  }
-                }
-              ]
-            },
-            {
-              "Binding": "44534166746572676c6f77000000000b",
-              "Property": "Opacity",
-              "Kind": 0,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Channel": {
-                    "Kind": 0,
-                    "Components": [
-                      {
-                        "Keys": [
-                          [
-                            4800,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            45600,
-                            1.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      }
-                    ],
-                    "Events": []
-                  }
-                }
-              ]
-            },
-            {
-              "Binding": "445352696d0000000000000000000005",
-              "Property": "Opacity",
-              "Kind": 0,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Channel": {
-                    "Kind": 0,
-                    "Components": [
-                      {
-                        "Keys": [
-                          [
-                            13200,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            43200,
-                            1.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      }
-                    ],
-                    "Events": []
-                  }
-                }
-              ]
-            },
-            {
-              "Binding": "4453576f72646d61726b00000000000a",
-              "Property": "Opacity",
-              "Kind": 0,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Channel": {
-                    "Kind": 0,
-                    "Components": [
-                      {
-                        "Keys": [
-                          [
-                            22800,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            42000,
-                            1.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      }
-                    ],
-                    "Events": []
-                  }
-                }
-              ]
-            },
-            {
-              "Binding": "4453576f72646d61726b00000000000a",
-              "Property": "Offset",
-              "Kind": 1,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Channel": {
-                    "Kind": 1,
-                    "Components": [
-                      {
-                        "Keys": [
-                          [
-                            22800,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            44400,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      },
-                      {
-                        "Keys": [
-                          [
-                            22800,
-                            18.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            44400,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 18.0
-                      },
-                      {
-                        "Keys": [
-                          [
-                            22800,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            44400,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      }
-                    ],
-                    "Events": []
-                  }
-                }
-              ]
-            },
-            {
-              "Binding": "44534c6967687453707265616400000d",
-              "Property": "Size",
-              "Kind": 1,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Channel": {
-                    "Kind": 1,
-                    "Components": [
-                      {
-                        "Keys": [
-                          [
-                            31200,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            61200,
-                            2100.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      },
-                      {
-                        "Keys": [
-                          [
-                            31200,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            61200,
-                            2100.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      },
-                      {
-                        "Keys": [
-                          [
-                            31200,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            61200,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      }
-                    ],
-                    "Events": []
-                  }
-                }
-              ]
-            },
-            {
-              "Binding": "44534c6967687453707265616400000d",
-              "Property": "Offset",
-              "Kind": 1,
-              "Muted": false,
-              "Sections": [
-                {
-                  "Start": 0,
-                  "End": 72000,
-                  "Blend": 0,
-                  "Weight": [],
-                  "Row": 0,
-                  "Name": "",
-                  "Channel": {
-                    "Kind": 1,
-                    "Components": [
-                      {
-                        "Keys": [
-                          [
-                            31200,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            61200,
-                            -1050.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      },
-                      {
-                        "Keys": [
-                          [
-                            31200,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            61200,
-                            -1050.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      },
-                      {
-                        "Keys": [
-                          [
-                            31200,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ],
-                          [
-                            61200,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            2,
-                            1
-                          ]
-                        ],
-                        "Default": 0.0
-                      }
-                    ],
-                    "Events": []
-                  }
-                }
-              ]
-            }
-          ]
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "44657365727453747564696f00e1d0a2",
+        "Versions": {
+            "SCNE": 42,
+            "UNIT": 1
         },
-        "Loop": 0,
-        "AutoPlay": true
-      }
+        "Dependencies": []
     },
-    {
-      "id": 5900,
-      "siblingIndex": 1,
-      "Tag": "Camera",
-      "Translation": [
-        0.0,
-        250.0,
-        700.0
-      ],
-      "Rotation": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "Scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
-      "Camera": {
-        "AutoActivateForPlayer": true,
-        "FOV": 45.0,
-        "Near": 10.0,
-        "Far": 500000.0
-      }
+    "SceneName": "DesertStudio",
+    "Entities": [
+        {
+            "id": 5001,
+            "siblingIndex": 0,
+            "Tag": "UI Canvas",
+            "UICanvas": {
+                "ScaleMode": 1,
+                "RenderMode": 0,
+                "WorldScale": 400.0,
+                "ReferenceWidth": 1920.0,
+                "ReferenceHeight": 1080.0,
+                "MatchWidthHeight": 0.5,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Visible": true,
+                "SortOrder": 0,
+                "SafeArea": [0.0, 0.0, 0.0, 0.0],
+                "Theme": "",
+                "FontScale": 1.0,
+                "HighContrast": false
+            }
+        },
+        {
+            "id": 5002,
+            "parent": 5001,
+            "siblingIndex": 0,
+            "Tag": "Sky",
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": false,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": true,
+                "GradientColor": [0.16470588743686676, 0.14509804546833038, 0.250980406999588],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5003,
+            "parent": 5001,
+            "siblingIndex": 1,
+            "Tag": "Afterglow",
+            "UILayout": {
+                "AnchorMin": [0.0, 0.20000000298023224],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.09568627178668976, 0.08862745016813278, 0.1474509835243225],
+                "Opacity": 0.6200000047683716,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": false,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": true,
+                "GradientColor": [0.8509804010391235, 0.5098039507865906, 0.16862745583057404],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5004,
+            "parent": 5001,
+            "siblingIndex": 2,
+            "Tag": "FarDuneLeft",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-2300.0, 10.0],
+                "OffsetMax": [900.0, 3210.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.11725490540266037, 0.10627450793981552, 0.17980392277240753],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": true,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5005,
+            "parent": 5001,
+            "siblingIndex": 3,
+            "Tag": "FarDuneRight",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-1000.0, 40.0],
+                "OffsetMax": [2800.0, 3840.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.1388235241174698, 0.12392156571149826, 0.21215686202049255],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": true,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5006,
+            "parent": 5001,
+            "siblingIndex": 4,
+            "Tag": "SunLayer",
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIRetainer": {
+                "Opacity": 1.0,
+                "Mask": true,
+                "MaskElement": "Dune",
+                "InvertMask": true,
+                "Haze": true,
+                "HazeAmplitude": 1.600000023841858,
+                "HazeScale": 18.0,
+                "HazeSpeed": 1.2000000476837158
+            }
+        },
+        {
+            "id": 5007,
+            "parent": 5006,
+            "siblingIndex": 0,
+            "Tag": "SunRig",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-150.0, -190.0],
+                "OffsetMax": [150.0, 110.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            }
+        },
+        {
+            "id": 5008,
+            "parent": 5007,
+            "siblingIndex": 0,
+            "Tag": "Halo",
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            }
+        },
+        {
+            "id": 5009,
+            "parent": 5008,
+            "siblingIndex": 0,
+            "Tag": "HaloGlow",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-470.0, -470.0],
+                "OffsetMax": [470.0, 470.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.8509804010391235, 0.5098039507865906, 0.16862745583057404],
+                "Opacity": 0.44999998807907104,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "Materials/MI_SunGlow.demat",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": false,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5010,
+            "parent": 5007,
+            "siblingIndex": 1,
+            "Tag": "SunDisk",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-150.0, -150.0],
+                "OffsetMax": [150.0, 150.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": true,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5011,
+            "parent": 5007,
+            "siblingIndex": 2,
+            "Tag": "SunCore",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-124.0, -124.0],
+                "OffsetMax": [124.0, 124.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.9531372785568237, 0.7868627309799194, 0.545098066329956],
+                "Opacity": 0.550000011920929,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": true,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5012,
+            "parent": 5001,
+            "siblingIndex": 5,
+            "Tag": "Rim",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-2300.0, -42.5],
+                "OffsetMax": [2300.0, 4557.5],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.8509804010391235, 0.5098039507865906, 0.16862745583057404],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": true,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5013,
+            "parent": 5001,
+            "siblingIndex": 6,
+            "Tag": "Dune",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-2300.0, -40.0],
+                "OffsetMax": [2300.0, 4560.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.0784313753247261, 0.07450980693101883, 0.12156862765550613],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": true,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5014,
+            "parent": 5001,
+            "siblingIndex": 7,
+            "Tag": "Wordmark",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-760.0, 125.0],
+                "OffsetMax": [760.0, 295.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIText": {
+                "Text": "DESERT STUDIO",
+                "FontSize": 132.0,
+                "Font": "assets:Fonts/Manrope-ExtraBold.ttf",
+                "Color": [0.9607843160629272, 0.9372549057006836, 0.9019607901573181],
+                "Align": 1,
+                "VerticalAlign": 1,
+                "Wrap": false,
+                "LineSpacing": 1.0,
+                "AutoSize": false,
+                "MinFontSize": 8.0,
+                "Overflow": 0,
+                "RichText": false,
+                "Marquee": false,
+                "MarqueeSpeed": 60.0,
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
+                "Outline": false,
+                "OutlineColor": [0.0, 0.0, 0.0],
+                "Glow": false,
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
+                "GlowRadius": 6.0,
+                "GlowStrength": 0.5
+            }
+        },
+        {
+            "id": 5015,
+            "parent": 5001,
+            "siblingIndex": 8,
+            "Tag": "WarmLayer",
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIRetainer": {
+                "Opacity": 1.0,
+                "Mask": true,
+                "MaskElement": "LightSpread",
+                "InvertMask": false,
+                "Haze": false,
+                "HazeAmplitude": 3.0,
+                "HazeScale": 24.0,
+                "HazeSpeed": 1.5
+            }
+        },
+        {
+            "id": 5016,
+            "parent": 5015,
+            "siblingIndex": 0,
+            "Tag": "WarmWordmark",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [-760.0, 125.0],
+                "OffsetMax": [760.0, 295.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIText": {
+                "Text": "DESERT STUDIO",
+                "FontSize": 132.0,
+                "Font": "assets:Fonts/Manrope-ExtraBold.ttf",
+                "Color": [0.9490196108818054, 0.7058823704719543, 0.3529411852359772],
+                "Align": 1,
+                "VerticalAlign": 1,
+                "Wrap": false,
+                "LineSpacing": 1.0,
+                "AutoSize": false,
+                "MinFontSize": 8.0,
+                "Overflow": 0,
+                "RichText": false,
+                "Marquee": false,
+                "MarqueeSpeed": 60.0,
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
+                "Outline": false,
+                "OutlineColor": [0.0, 0.0, 0.0],
+                "Glow": true,
+                "GlowColor": [0.8509804010391235, 0.5098039507865906, 0.16862745583057404],
+                "GlowRadius": 10.0,
+                "GlowStrength": 0.30000001192092896
+            }
+        },
+        {
+            "id": 5017,
+            "parent": 5001,
+            "siblingIndex": 9,
+            "Tag": "LightSpread",
+            "UILayout": {
+                "AnchorMin": [0.5, 0.5],
+                "AnchorMax": [0.5, 0.5],
+                "OffsetMin": [0.0, -40.0],
+                "OffsetMax": [0.0, -40.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 1,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            }
+        },
+        {
+            "id": 5018,
+            "parent": 5017,
+            "siblingIndex": 0,
+            "Tag": "SpreadGlow",
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.9607843160629272, 0.9372549057006836, 0.9019607901573181],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "Materials/MI_WarmSpread.demat",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": false,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5019,
+            "parent": 5001,
+            "siblingIndex": 10,
+            "Tag": "Fade",
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.0, 0.0, 0.0],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
+                "Circle": false,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        },
+        {
+            "id": 5020,
+            "parent": 5001,
+            "siblingIndex": 11,
+            "Tag": "Intro",
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIAnim": {
+                "Sequence": {
+                    "Header": {
+                        "Kind": "",
+                        "Guid": "",
+                        "Versions": {
+                            "TMLN": 2
+                        },
+                        "Dependencies": ["4b929a7a753845f0bfc66441fce02ab6"]
+                    },
+                    "Host": 1,
+                    "TickRate": [24000, 1],
+                    "DisplayRate": [60, 1],
+                    "Start": 0,
+                    "End": 72000,
+                    "Bindings": [
+                        {
+                            "Guid": "445353756e5269670000000000000008",
+                            "Kind": 3,
+                            "Locator": "5007",
+                            "Label": "SunRig",
+                            "Parent": ""
+                        },
+                        {
+                            "Guid": "445348616c6f00000000000000000006",
+                            "Kind": 3,
+                            "Locator": "5008",
+                            "Label": "Halo",
+                            "Parent": ""
+                        },
+                        {
+                            "Guid": "44534166746572676c6f77000000000b",
+                            "Kind": 3,
+                            "Locator": "5003",
+                            "Label": "Afterglow",
+                            "Parent": ""
+                        },
+                        {
+                            "Guid": "445352696d0000000000000000000005",
+                            "Kind": 3,
+                            "Locator": "5012",
+                            "Label": "Rim",
+                            "Parent": ""
+                        },
+                        {
+                            "Guid": "4453576f72646d61726b00000000000a",
+                            "Kind": 3,
+                            "Locator": "5014",
+                            "Label": "Wordmark",
+                            "Parent": ""
+                        },
+                        {
+                            "Guid": "44534c6967687453707265616400000d",
+                            "Kind": 3,
+                            "Locator": "5017",
+                            "Label": "LightSpread",
+                            "Parent": ""
+                        },
+                        {
+                            "Guid": "44534661646500000000000000000006",
+                            "Kind": 3,
+                            "Locator": "5019",
+                            "Label": "Fade",
+                            "Parent": ""
+                        },
+                        {
+                            "Guid": "4453436c697000000000000000000001",
+                            "Kind": 0,
+                            "Locator": "",
+                            "Label": "UIAnimation",
+                            "Parent": ""
+                        }
+                    ],
+                    "Tracks": [
+                        {
+                            "Binding": "4453436c697000000000000000000001",
+                            "Property": "Audio",
+                            "Kind": 8,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Audio": {
+                                        "Sound": "4b929a7a753845f0bfc66441fce02ab6",
+                                        "StartOffset": 0,
+                                        "Volume": 1.0,
+                                        "FadeIn": 0,
+                                        "FadeOut": 0
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "Binding": "44534661646500000000000000000006",
+                            "Property": "Opacity",
+                            "Kind": 0,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Channel": {
+                                        "Kind": 0,
+                                        "Components": [
+                                            {
+                                                "Keys": [
+                                                    [0, 1.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [7680, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [62880, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [72000, 1.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 1.0
+                                            }
+                                        ],
+                                        "Events": []
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "Binding": "445353756e5269670000000000000008",
+                            "Property": "Offset",
+                            "Kind": 1,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Channel": {
+                                        "Kind": 1,
+                                        "Components": [
+                                            {
+                                                "Keys": [
+                                                    [2880, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [42000, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            },
+                                            {
+                                                "Keys": [
+                                                    [2880, 215.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [42000, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 215.0
+                                            },
+                                            {
+                                                "Keys": [
+                                                    [2880, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [42000, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            }
+                                        ],
+                                        "Events": []
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "Binding": "445348616c6f00000000000000000006",
+                            "Property": "Opacity",
+                            "Kind": 0,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Channel": {
+                                        "Kind": 0,
+                                        "Components": [
+                                            {
+                                                "Keys": [
+                                                    [7200, 0.25, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [45600, 1.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.25
+                                            }
+                                        ],
+                                        "Events": []
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "Binding": "44534166746572676c6f77000000000b",
+                            "Property": "Opacity",
+                            "Kind": 0,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Channel": {
+                                        "Kind": 0,
+                                        "Components": [
+                                            {
+                                                "Keys": [
+                                                    [4800, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [45600, 1.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            }
+                                        ],
+                                        "Events": []
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "Binding": "445352696d0000000000000000000005",
+                            "Property": "Opacity",
+                            "Kind": 0,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Channel": {
+                                        "Kind": 0,
+                                        "Components": [
+                                            {
+                                                "Keys": [
+                                                    [13200, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [43200, 1.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            }
+                                        ],
+                                        "Events": []
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "Binding": "4453576f72646d61726b00000000000a",
+                            "Property": "Opacity",
+                            "Kind": 0,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Channel": {
+                                        "Kind": 0,
+                                        "Components": [
+                                            {
+                                                "Keys": [
+                                                    [22800, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [42000, 1.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            }
+                                        ],
+                                        "Events": []
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "Binding": "4453576f72646d61726b00000000000a",
+                            "Property": "Offset",
+                            "Kind": 1,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Channel": {
+                                        "Kind": 1,
+                                        "Components": [
+                                            {
+                                                "Keys": [
+                                                    [22800, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [44400, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            },
+                                            {
+                                                "Keys": [
+                                                    [22800, 18.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [44400, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 18.0
+                                            },
+                                            {
+                                                "Keys": [
+                                                    [22800, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [44400, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            }
+                                        ],
+                                        "Events": []
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "Binding": "44534c6967687453707265616400000d",
+                            "Property": "Size",
+                            "Kind": 1,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Channel": {
+                                        "Kind": 1,
+                                        "Components": [
+                                            {
+                                                "Keys": [
+                                                    [31200, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [61200, 2100.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            },
+                                            {
+                                                "Keys": [
+                                                    [31200, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [61200, 2100.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            },
+                                            {
+                                                "Keys": [
+                                                    [31200, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [61200, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            }
+                                        ],
+                                        "Events": []
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "Binding": "44534c6967687453707265616400000d",
+                            "Property": "Offset",
+                            "Kind": 1,
+                            "Muted": false,
+                            "Sections": [
+                                {
+                                    "Start": 0,
+                                    "End": 72000,
+                                    "Blend": 0,
+                                    "Weight": [],
+                                    "Row": 0,
+                                    "Name": "",
+                                    "Channel": {
+                                        "Kind": 1,
+                                        "Components": [
+                                            {
+                                                "Keys": [
+                                                    [31200, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [61200, -1050.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            },
+                                            {
+                                                "Keys": [
+                                                    [31200, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [61200, -1050.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            },
+                                            {
+                                                "Keys": [
+                                                    [31200, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1],
+                                                    [61200, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 1]
+                                                ],
+                                                "Default": 0.0
+                                            }
+                                        ],
+                                        "Events": []
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "Loop": 0,
+                "AutoPlay": true
+            }
+        },
+        {
+            "id": 5900,
+            "siblingIndex": 1,
+            "Tag": "Camera",
+            "Translation": [0.0, 250.0, 700.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 45.0,
+                "Near": 10.0,
+                "Far": 500000.0
+            }
+        }
+    ],
+    "Settings": {
+        "RenderingPath": 1,
+        "Gravity": 981.0,
+        "DefaultPawn": {
+            "Guid": "",
+            "Path": ""
+        },
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
+        "SplashDuration": 0.0,
+        "SplashFade": 0.4000000059604645
     }
-  ]
 }

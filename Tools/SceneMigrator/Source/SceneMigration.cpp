@@ -509,10 +509,22 @@ namespace Desert::Migration
                                               const std::filesystem::path&     assetsRoot )
     {
         SoundRefsReport report;
-        const auto      absolute = [&]( const std::string& path )
+        // A v41 path is relative to its project (the content root), which is an ancestor of the scene's
+        // directory: the same rule LocateMeshFile applies to `meshPath`. The project is kept for the Path the
+        // Sound reference states. A file found under no ancestor is named under `assetsRoot` and refused.
+        std::filesystem::path project = assetsRoot;
+        const auto            absolute = [&]( const std::string& path )
         {
             const std::filesystem::path named( path );
-            return named.is_absolute() ? named : ( assetsRoot / named ).lexically_normal();
+            if ( named.is_absolute() )
+                return named;
+            if ( const auto located = LocateMeshFile( path, assetsRoot ) )
+            {
+                project = located.GetValue().Project;
+                return located.GetValue().File;
+            }
+            project = assetsRoot;
+            return ( assetsRoot / named ).lexically_normal();
         };
         // Every Audio section of a sequence is an object {"Audio": {"Sound": ...}} somewhere under it.
         const std::function<void( rfl::Generic&, const std::string& )> walk =
@@ -583,7 +595,7 @@ namespace Desert::Migration
                            rfl::Generic::Object ref;
                            ref["Guid"] = rfl::Generic( Common::Content::AssetGuidToText( asset.GetValue().first ) );
                            ref["Path"] = rfl::Generic(
-                                asset.GetValue().second.lexically_relative( assetsRoot ).generic_string() );
+                                asset.GetValue().second.lexically_relative( project ).generic_string() );
                            block["Sound"] = rfl::Generic( std::move( ref ) );
                            return true;
                        } );
