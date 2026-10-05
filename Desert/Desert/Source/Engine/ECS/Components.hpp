@@ -401,6 +401,14 @@ namespace Desert::ECS
 
         float PlaybackSpeed = 1.0f;
 
+        /**
+         * @brief UE's `bUpdateAnimationInEditor`: whether this component advances in the EDITOR world (Edit
+         *        mode). Off by default, as in UE — an edited level holds still while it is being laid out;
+         *        Play always advances. AUTHORED (scene + prefab block); read by AnimationECSSystem through
+         *        Animation::AnimationAdvanceSeconds. Scrubbing Time in Details poses the character either way.
+         */
+        bool UpdateAnimationInEditor = false;
+
         // NO ROOT-MOTION FLAG. `bool EnableRootMotion` sat here, was written to every scene and prefab and
         // drawn as a checkbox in Details, and NOTHING in the engine ever read it: there was no root-delta
         // extraction in Animator, in AnimationECSSystem or in LocomotionSystem. A knob that cannot move a

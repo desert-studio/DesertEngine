@@ -78,6 +78,10 @@ TEST( GenericBlockRead, AnAnimationBlockMissingTwoFieldsKeepsTheComponentAndDefa
     EXPECT_FALSE( parsed.value().Graph.has_value() )
          << "an absent graph key came back as something other than 'no graph' — absence is how this "
             "format says an entity has no state machine";
+    // ANIM-FIX1: a file written before UpdateAnimationInEditor existed reads as UE's default — the level
+    // holds still in Edit. The Edit preview it used to get regardless of this key was the defect.
+    EXPECT_FALSE( parsed.value().UpdateAnimationInEditor )
+         << "a block with no UpdateAnimationInEditor key previews in the editor world; UE's default is off";
 }
 
 TEST( GenericBlockRead, ATextBlockMissingEverythingButItsTextIsStillAText )

@@ -9,6 +9,7 @@
 // moment this file was edited at all: "no type named 'AnimationLibrary'", and two static_casts between
 // classes "not related by inheritance" because only the forward declarations were visible.
 #include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Animation/AnimationTick.hpp>
 #include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -30,7 +31,6 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -82,19 +82,18 @@ namespace Desert::ECS
         {
         }
 
+        void SetEditorTick( const Common::Timestep& editorTs ) override
+        {
+            m_EditorSeconds = editorTs.GetSeconds();
+        }
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& /*renderCommandBuffer*/,
                      const Common::Timestep& ts ) override
         {
-            // Editor PREVIEW: the gameplay timestep is 0 in Edit mode (gameplay frozen), but animation should
-            // still preview when "Playing" is on. So advance by a real wall-clock delta when the gameplay ts
-            // is ~0; use the gameplay ts in Play mode. Clamped to avoid huge jumps after a stall.
-            const auto  now    = std::chrono::steady_clock::now();
-            float       realDt = m_HasLast ? std::chrono::duration<float>( now - m_LastTime ).count() : 0.0f;
-            m_LastTime         = now;
-            m_HasLast          = true;
-            realDt             = std::min( realDt, 0.1f );
-            const float effectiveSeconds = ts.GetSeconds() > 1e-6f ? ts.GetSeconds() : realDt;
-            const Common::Timestep animTs( effectiveSeconds );
+            // Gameplay time in Play; in the editor world, the editor's frame time for the components that
+            // asked for it (UpdateAnimationInEditor) and nothing for the rest —
+            // Animation::AnimationAdvanceSeconds.
+            const float gameplaySeconds = ts.GetSeconds();
             auto view = registry.view<ECS::SkinnedMeshComponent, ECS::AnimationComponent>();
 
             for ( auto entity : view )
@@ -244,6 +243,8 @@ namespace Desert::ECS
                         }
 
                         DrivePoseGraph( anim, clipRig, graphRebuilt );
+                        const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
+                             gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
                         anim.Animator->Update( animTs );
                         anim.PendingNotifies = anim.Animator->ConsumeNotifyEvents();
                     }
@@ -309,6 +310,8 @@ namespace Desert::ECS
                     anim.Animator->SetLoop( anim.Loop );
                     anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed );
 
+                    const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
+                         gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
                     anim.Animator->Update( animTs );
 
                     // Notify markers crossed this frame -> queued for ScriptSystem to dispatch (assigned, so
@@ -1099,8 +1102,8 @@ namespace Desert::ECS
         // Non-owning: the manager belongs to the host, which outlives its scene. MAY BE NULL — a host
         // that builds no asset manager simply has no rigs, and SyncControlRig says so once.
         Assets::AssetManager*                 m_AssetManager = nullptr;
-        std::chrono::steady_clock::time_point m_LastTime;
-        bool                                  m_HasLast = false;
+        /// The editor world's frame time this frame (Scene::SetEditorTick): real time in Edit, 0 in Play/Paused.
+        float m_EditorSeconds = 0.0f;
 
         // ONE dedupe store for every complaint this system makes, and it remembers the MESSAGE rather than
         // just the key. The set it replaces could only say "already complained about this state", so a
