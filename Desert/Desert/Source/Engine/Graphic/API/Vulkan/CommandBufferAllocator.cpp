@@ -240,7 +240,10 @@ namespace Desert::Graphic::API::Vulkan
     Common::ResultStr<CommandBufferAllocator::Submitted>
     CommandBufferAllocator::RT_SubmitCommandBufferGraphic( VkCommandBuffer commandBuffer )
     {
-        const auto entry = m_OneShotPools.find( commandBuffer );
+        // m_OneShotPools and the pool the buffer came from are shared with the threads that upload (see
+        // m_PoolMutex): the lookup, the erase and every vkFreeCommandBuffers below run under it.
+        std::unique_lock pools( m_PoolMutex );
+        const auto       entry = m_OneShotPools.find( commandBuffer );
         if ( entry == m_OneShotPools.end() )
             return Common::MakeFormattedError<Submitted>(
                  "command buffer {} was not allocated by CommandBufferAllocator (or was already submitted); "
@@ -248,6 +251,7 @@ namespace Desert::Graphic::API::Vulkan
                  static_cast<const void*>( commandBuffer ) );
         Submitted submitted{ .Buffer = commandBuffer, .Pool = entry->second };
         m_OneShotPools.erase( entry );
+        pools.unlock();
 
         // EVERY REFUSAL BELOW FREES THE BUFFER. Its row is gone from m_OneShotPools, so nothing else would
         // ever free it: a refusal that only returned would leak the buffer (and the fence, once created)
@@ -256,6 +260,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             if ( submitted.Fence != VK_NULL_HANDLE )
                 vkDestroyFence( m_LogicalDevice, submitted.Fence, nullptr );
+            const std::scoped_lock freeing( m_PoolMutex );
             vkFreeCommandBuffers( m_LogicalDevice, submitted.Pool, 1, &submitted.Buffer );
             return Common::MakeError<Submitted>( reason );
         };
@@ -298,6 +303,7 @@ namespace Desert::Graphic::API::Vulkan
         // what makes freeing it legal.
         VK_CHECK_RESULT( vkWaitForFences( m_LogicalDevice, 1, &submitted.Fence, VK_TRUE, UINT64_MAX ) );
         vkDestroyFence( m_LogicalDevice, submitted.Fence, nullptr );
+        const std::scoped_lock pools( m_PoolMutex ); // the pool is shared with the uploading threads
         vkFreeCommandBuffers( m_LogicalDevice, submitted.Pool, 1, &submitted.Buffer );
     }
 
