@@ -2574,11 +2574,12 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
     EXPECT_TRUE( found.empty() ) << found.size() << " legacy construct(s) remain:" << list;
 }
 
-// THE AUTO-EXPOSURE HISTOGRAM IS AN IMPORTED BUFFER THE GRAPH ORDERS (RDG-TAILS 1). Before, the histogram was a
-// storage buffer the graph never saw: Clear and Histogram were NeverCull roots, and the dispatch's own memory
-// barrier ordered clear -> accumulate -> average. Now the renderer imports it (Renderer::ImportBuffer), Clear and
-// Histogram declare Write(StorageWrite), Average declares Read(StorageRead), and no node needs NeverCull.
-TEST( RenderGraphCompile, AutoExposureHistogramIsAnImportedBufferTheGraphOrders )
+// THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and
+// resolved within one frame and nothing reads it the next, so the renderer keeps no StorageBuffer for it: the
+// graph creates it (Builder::CreateBuffer from AutoExposureRenderer::GetHistogramDesc), Clear and Histogram declare
+// Write(StorageWrite), Average declares Read(StorageRead), no node needs NeverCull, and every dispatch binds it by
+// the shader's block name through PassBindings (no DispatchComputeInFrame, no SetStorageBuffer).
+TEST( RenderGraphCompile, AutoExposureHistogramIsATransientBufferOfTheFrameGraph )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
@@ -2587,9 +2588,10 @@ TEST( RenderGraphCompile, AutoExposureHistogramIsAnImportedBufferTheGraphOrders 
     const std::string body =
          SqueezedBody( frame, "voidSceneRenderer::AddFrameAutoExposure(", "voidSceneRenderer::" );
     ASSERT_FALSE( body.empty() );
-    const size_t imported = body.find( "autoExp->ImportHistogram(graph)" );
-    ASSERT_NE( imported, std::string::npos );
-    EXPECT_LT( imported, body.find( "autoExp->Prepare()" ) ) << "a refused import must not advance the ping-pong";
+    EXPECT_NE( body.find( "graph.CreateBuffer(System::AutoExposureRenderer::GetHistogramDesc(),"
+                          "\"AutoExposure.Histogram\")" ),
+               std::string::npos );
+    EXPECT_EQ( body.find( "ImportHistogram" ), std::string::npos ) << "the histogram is not an import any more";
     size_t writes = 0;
     for ( size_t at = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)" ); at != std::string::npos;
           at        = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)", at + 1 ) )
@@ -2600,7 +2602,16 @@ TEST( RenderGraphCompile, AutoExposureHistogramIsAnImportedBufferTheGraphOrders 
 
     const std::string renderer = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp" );
-    EXPECT_NE( renderer.find( "ImportBuffer(m_Histogram,m_HistogramImport)" ), std::string::npos );
+    for ( const char* legacy : { "StorageBuffer::Create(", "ImportBuffer(", "SetStorageBuffer(", "SetInput(",
+                                 "SetOutput(", "DispatchComputeInFrame(" } )
+        EXPECT_EQ( renderer.find( legacy ), std::string::npos ) << "AutoExposureRenderer.cpp still calls " << legacy;
+    size_t boundWrites = 0;
+    for ( size_t at = renderer.find( ".Storage(\"Histogram\",histogram,RDG::Access::StorageWrite)" );
+          at != std::string::npos;
+          at = renderer.find( ".Storage(\"Histogram\",histogram,RDG::Access::StorageWrite)", at + 1 ) )
+        ++boundWrites;
+    EXPECT_EQ( boundWrites, 2u ) << "Clear and Histogram bind the histogram by the shader's block name";
+    EXPECT_NE( renderer.find( ".Storage(\"Histogram\",histogram,RDG::Access::StorageRead)" ), std::string::npos );
 }
 
 // Execute compiles against the backend's pipes, brackets every segment, records ownership releases after

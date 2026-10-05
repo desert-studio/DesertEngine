@@ -1,6 +1,7 @@
 #include "AutoExposureRenderer.hpp"
 
 #include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <cstdint>
@@ -9,7 +10,6 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        constexpr uint32_t kBins      = 256;
         constexpr uint32_t kGroupSize = 16; // matches AEHistogram local_size
 
         // What the meter can SEE, in log2 luminance. The ceiling is not a taste value: the procedural
@@ -73,8 +73,6 @@ namespace Desert::Graphic::System
 
     bool AutoExposureRenderer::CreateResources()
     {
-        m_Histogram = ShaderResources::StorageBuffer::Create( "AEHistogram", kBins * sizeof( uint32_t ), 1 );
-
         const auto makeLum = [&]( const std::string& tag )
         {
             Core::Formats::Image2DSpecification spec = {
@@ -112,57 +110,47 @@ namespace Desert::Graphic::System
         m_HistogramPipeline = make( "AEHistogram" );
         m_AveragePipeline   = make( "AEAverage" );
 
-        return m_Histogram && m_LumImage[0] && m_LumImage[1] && m_ClearPipeline && m_HistogramPipeline &&
+        return m_LumImage[0] && m_LumImage[1] && m_ClearPipeline && m_HistogramPipeline &&
                m_AveragePipeline;
     }
 
     bool AutoExposureRenderer::Prepare()
     {
-        if ( !GetSceneColorImage() || !m_Histogram || !m_ClearPipeline || !m_HistogramPipeline ||
+        if ( !GetSceneColorImage() || !m_ClearPipeline || !m_HistogramPipeline ||
              !m_AveragePipeline )
             return false;
         m_ReadIndex = 1 - m_ReadIndex; // this frame writes the other image and adapts from the last one
         return true;
     }
 
-    RDG::BufferRef AutoExposureRenderer::ImportHistogram( RDG::Builder& graph )
+    Common::BoolResultStr AutoExposureRenderer::RecordClear( const RDG::PassContext& context,
+                                                             RDG::BufferRef         histogram )
     {
-        if ( !m_Histogram )
-            return {};
-        if ( const Common::BoolResultStr imported =
-                  Renderer::GetInstance().ImportBuffer( m_Histogram, m_HistogramImport );
-             !imported )
-        {
-            LOG_ERROR(
-                 "[AutoExposure] the histogram is not in the frame graph, auto exposure sits out this frame: {}",
-                 imported.GetError() );
-            return {};
-        }
-        return graph.RegisterExternal( m_HistogramImport, "AutoExposure.Histogram" );
+        RDG::PassBindings bindings( context );
+        bindings.Storage( "Histogram", histogram, RDG::Access::StorageWrite );
+        // One group of kBins threads (AEHistogramClear LocalSize(256, 1, 1)).
+        return Renderer::GetInstance().DispatchCompute( bindings, *m_ClearPipeline, 1, 1, 1 );
     }
 
-    void AutoExposureRenderer::RecordClear()
+    Common::BoolResultStr AutoExposureRenderer::RecordHistogram( const RDG::PassContext& context,
+                                                                 RDG::TextureRef scene, RDG::BufferRef histogram,
+                                                                 uint32_t width, uint32_t height )
     {
-        m_ClearPipeline->SetStorageBuffer( 1, m_Histogram.get() );
-        Renderer::GetInstance().DispatchComputeInFrame( m_ClearPipeline.get(), 1, 1, 1 );
+        const HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range() };
+        RDG::PassBindings   bindings( context );
+        // The shader reads texels with texelFetch: no filtering or addressing applies, PointClamp states that.
+        bindings
+             .Sampled( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::PointClamp() )
+             .Storage( "Histogram", histogram, RDG::Access::StorageWrite )
+             .PushConstants( &hp, sizeof( hp ) );
+        return Renderer::GetInstance().DispatchCompute( bindings, *m_HistogramPipeline, GroupCount( width ),
+                                                        GroupCount( height ), 1 );
     }
 
-    void AutoExposureRenderer::RecordHistogram()
-    {
-        const auto& scene = m_TargetFramebuffer.lock();
-        if ( !scene )
-            return;
-        HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range() };
-        m_HistogramPipeline->SetInput( 0, scene->GetColorAttachmentImage().get(), RDG::Access::SampledCompute,
-                                       RDG::SubresourceRange::All() );
-        m_HistogramPipeline->SetStorageBuffer( 1, m_Histogram.get() );
-        m_HistogramPipeline->SetPushConstants( &hp, sizeof( hp ) );
-        Renderer::GetInstance().DispatchComputeInFrame( m_HistogramPipeline.get(),
-                                                        GroupCount( scene->GetFramebufferWidth() ),
-                                                        GroupCount( scene->GetFramebufferHeight() ), 1 );
-    }
-
-    void AutoExposureRenderer::RecordAverage()
+    Common::BoolResultStr AutoExposureRenderer::RecordAverage( const RDG::PassContext& context,
+                                                               RDG::BufferRef histogram, RDG::TextureRef previous,
+                                                               RDG::TextureRef adapted )
     {
         // 3) Resolve: percentile-clipped weighted average + temporal adaptation -> newLum (1x1).
         //
@@ -177,13 +165,15 @@ namespace Desert::Graphic::System
         const float deltaSeconds = m_SnapNextAdaptation ? 1.0f : m_DeltaSeconds;
         m_SnapNextAdaptation     = false;
 
-        AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
+        const AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
                         kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent };
-        m_AveragePipeline->SetStorageBuffer( 0, m_Histogram.get() );
-        m_AveragePipeline->SetInput( 1, GetPreviousLuminanceImage().get(), RDG::Access::SampledCompute,
-                                     RDG::SubresourceRange::All() );
-        m_AveragePipeline->SetOutput( 2, GetAdaptedLuminanceImage().get(), 0 );
-        m_AveragePipeline->SetPushConstants( &ap, sizeof( ap ) );
-        Renderer::GetInstance().DispatchComputeInFrame( m_AveragePipeline.get(), 1, 1, 1 );
+        RDG::PassBindings bindings( context );
+        // u_PrevLum is 1x1 and sampled at its centre: PointClamp returns exactly the stored luminance.
+        bindings.Storage( "Histogram", histogram, RDG::Access::StorageRead )
+             .Sampled( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::PointClamp() )
+             .Storage( "u_OutLum", adapted, RDG::Access::StorageWrite, 0 )
+             .PushConstants( &ap, sizeof( ap ) );
+        return Renderer::GetInstance().DispatchCompute( bindings, *m_AveragePipeline, 1, 1, 1 );
     }
 } // namespace Desert::Graphic::System
