@@ -34,6 +34,11 @@ namespace Desert::Graphic
         // claimed it was "asked of the RENDERER this pass is drawing into", and this is the field that
         // makes that true.
         SceneRenderer* Renderer = nullptr;
+        // This frame's graph refs (FrameGraphRefs): Declare names the graph textures it samples by them
+        // (RenderPassDeclaration::Read( RDG::TextureRef, ... )) and Execute binds them by shader name
+        // (RDG::PassBindings over the RDG::PassContext it is given). E.g. the UI glass reads
+        // Graph.Transients.BackdropBlur.
+        FrameGraphRefs Graph;
     };
 
     // A render pass injected from outside the engine (the editor's debug-draw tools). Phase +
@@ -52,10 +57,12 @@ namespace Desert::Graphic
         // specification of the pipeline the owner will draw with).
         GraphicsPipelineSpecification PipelineSpecification;
 
-        std::function<void( const ExternalPassContext& )> Execute;
+        // The pass body: @p pass is this node's RDG::PassContext (PassBindings / Renderer::DrawIndexed etc.).
+        std::function<Common::BoolResultStr( const ExternalPassContext&, RDG::PassContext& pass )> Execute;
 
         // What the pass samples besides its target (the scene framebuffer, declared whole by the graph): each
-        // engine image its shaders read, e.g. the UI's backdrop pyramid. It runs while the frame graph is built,
+        // graph texture its shaders read, e.g. the UI's backdrop pyramid (ctx.Graph.Transients.BackdropBlur).
+        // It runs while the frame graph is built,
         // with the same context Execute gets. Leave it empty when the pass reads nothing but what it draws over.
         std::function<void( RenderPassDeclaration&, const ExternalPassContext& )> Declare;
     };

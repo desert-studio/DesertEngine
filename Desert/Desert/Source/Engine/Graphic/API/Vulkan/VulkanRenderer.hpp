@@ -77,6 +77,10 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                               const MaterialExecutor* material, uint32_t vertexCount,
                                               uint32_t instanceCount ) override;
+        Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                           const MaterialExecutor* material, VertexBuffer& vertexBuffer,
+                                           IndexBuffer& indexBuffer, uint32_t indexCount,
+                                           uint32_t firstIndex ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;
@@ -108,6 +112,12 @@ namespace Desert::Graphic::API::Vulkan
         //
         // Why here and not in a render pass: an ISM batch is ONE draw with many instances, and only the
         // recording site knows the instance count. Counting passes would report the batch as one of each.
+        // Everything an in-graph draw records before its draw call (DrawProcedural, DrawIndexed): the pass's
+        // command buffer check, the exec's descriptor sets from @p bindings + the material's written slots, the
+        // pipeline, the sets and the push constants. Error when any of it cannot be recorded.
+        Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings& bindings,
+                                                     const GraphicsPipeline& pipeline,
+                                                     const MaterialExecutor* material );
         void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                                  int32_t vertexOffset, uint32_t firstInstance );
         void DrawCounted( uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,

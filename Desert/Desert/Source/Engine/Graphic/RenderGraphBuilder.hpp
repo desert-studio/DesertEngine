@@ -31,7 +31,9 @@ namespace Desert::Graphic
         {
             std::string                       Name;
             RenderPhaseID                     Phase;
-            std::function<void()>             ExecuteFunc;
+            // The node body (NodeRecordFunc): this frame's PassContext and graph refs. The short AddPass form
+            // takes a body that needs neither and wraps it.
+            NodeRecordFunc                    ExecuteFunc;
             GraphicsPipelineSpecification     PipelineSpec;
             std::shared_ptr<Framebuffer>      TargetFramebuffer;
             std::vector<RenderPassDependency> Dependencies;
@@ -44,8 +46,9 @@ namespace Desert::Graphic
             // read. It runs once per frame while the frame graph is built, before any ExecuteFunc, so it names
             // this frame's resources. A pass whose shaders read nothing outside its target leaves it empty. What
             // is not declared here gets no barrier: a sampled image left in a storage or attachment layout by an
-            // earlier node is a validation error, not a picture.
-            std::function<void( RenderPassDeclaration& )> Declare;
+            // earlier node is a validation error, not a picture. The FrameGraphRefs are this frame's: a graph
+            // texture is declared by its ref (RenderPassDeclaration::Read( RDG::TextureRef, ... )).
+            std::function<void( RenderPassDeclaration&, const FrameGraphRefs& )> Declare;
 
             // Optional per-pass color clear override. When unset the default (0.1 grey) is used. The
             // shadow pass needs 1.0 here so its R32F depth target clears to "far" (no occluder) — a 0.1

@@ -5,6 +5,7 @@
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
 
@@ -21,27 +22,6 @@
 
 namespace Desert::Graphic
 {
-    // RDG-A2. The transients of THIS frame graph that one renderer's passes produce and a LATER renderer's passes
-    // read (UE: FSceneTextures / the RDG texture fields passed between AddPass helpers). The producer's
-    // AddFrame* creates the texture with Builder::CreateTexture (desc from this frame's view) and stores the ref
-    // here; the consumer's AddFrame* declares a read of it and binds it with RDG::PassBindings. An invalid ref
-    // means the producer did not run this frame (effect off, culled input): the consumer declares a read of
-    // FrameTextures::System.Black, binds it at that slot and writes zero intensity in its uniform values - an
-    // explicit choice at the call site (UE: FRDGSystemTextures::Black), never a stale image.
-    // Only cross-renderer transients live here; a transient read only by its own renderer's passes (SMAA edges,
-    // JFA ping-pong, SSR trace/tiles, cloud trace/guide, the exposure histogram) stays a local of that
-    // AddFrame*. A history (read in a LATER frame) is never here: it is an external the renderer owns.
-    // The struct is rebuilt with every graph and dies with it.
-    struct FrameTransients
-    {
-        RDG::TextureRef Bloom;          // BloomRenderer chain (mip 0 read)   -> Tonemap
-        RDG::TextureRef LightShafts;    // LightShaftRenderer result          -> Tonemap
-        RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
-        RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
-        RDG::TextureRef GIResolve;      // RSM-GI resolve (raw, pre-temporal) -> GI temporal / deferred lighting
-        RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
-    };
-
     // The graph's names for the engine images this frame's nodes render into, copy and sample: each image is
     // imported once per graph (Renderer::ImportImage) in the layout its own record holds, and every node naming
     // it shares that one graph texture. The graph writes the layout it leaves the image in back into the record.
@@ -60,6 +40,13 @@ namespace Desert::Graphic
         // FRDGSystemTextures), registered once by the constructor. A pass reads them like any graph texture.
         // A ref is invalid only if the engine image could not be created or imported, and that is logged.
         RDG::SystemTextures System;
+
+        // What every node added from here on is handed (FrameGraphRefs): a value of this frame's transients
+        // and system textures as they stand now.
+        FrameGraphRefs GraphRefs() const
+        {
+            return FrameGraphRefs{ Transients, System };
+        }
 
         std::vector<RDG::TextureRef>
         Refs( std::initializer_list<std::pair<std::shared_ptr<Image2D>, std::string_view>> images )

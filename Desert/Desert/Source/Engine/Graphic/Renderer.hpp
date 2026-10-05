@@ -105,6 +105,14 @@ namespace Desert::Graphic
                                                             const GraphicsPipeline&  pipeline,
                                                             const MaterialExecutor* material, uint32_t vertexCount,
                                                             uint32_t instanceCount );
+        // The PassBindings route for indexed batched draws (the 2D/UI batcher): SubmitIndexed's draw with the
+        // graph textures bound by shader name, e.g. Render2D's glass batches sampling u_Backdrop from this
+        // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.
+        [[nodiscard]] Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings,
+                                                         const GraphicsPipeline&  pipeline,
+                                                         const MaterialExecutor* material, VertexBuffer& vertexBuffer,
+                                                         IndexBuffer& indexBuffer, uint32_t indexCount,
+                                                         uint32_t firstIndex );
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).

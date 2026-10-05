@@ -1,6 +1,9 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <functional>
@@ -24,6 +27,9 @@ namespace Desert::Graphic
     // An image is named with the access its shaders make (SampledGraphics for a fragment-shader sample,
     // SampledCompute / StorageWrite for a compute dispatch). A buffer is named by the graph handle its owner
     // registered this frame (a buffer is imported by the system that owns it, e.g. ParticleRenderer's state).
+    // A texture of THIS graph (a transient of FrameGraphRefs, a system texture, a ref an AddFrame* created) is
+    // named by its ref with the access and the subresource range its shaders touch; it is declared on the node
+    // as given, with no import.
     // The attachments a raster node renders into are NOT listed here: they are its target framebuffer, whole.
     class RenderPassDeclaration
     {
@@ -34,6 +40,14 @@ namespace Desert::Graphic
             RDG::Access            Access = RDG::Access::None;
             bool                   Writes = false;
             std::string            Name; // the graph name of the import, when this entry registers it first
+        };
+
+        struct TextureUse
+        {
+            RDG::TextureRef       Texture;
+            RDG::Access           Access = RDG::Access::None;
+            RDG::SubresourceRange Range  = RDG::SubresourceRange::All();
+            bool                  Writes = false;
         };
 
         struct BufferUse
@@ -53,6 +67,14 @@ namespace Desert::Graphic
             if ( image )
                 m_Images.push_back( { std::move( image ), access, true, std::move( name ) } );
         }
+        void Read( RDG::TextureRef texture, RDG::Access access, RDG::SubresourceRange range )
+        {
+            m_Textures.push_back( { texture, access, range, false } );
+        }
+        void Write( RDG::TextureRef texture, RDG::Access access, RDG::SubresourceRange range )
+        {
+            m_Textures.push_back( { texture, access, range, true } );
+        }
         void Read( RDG::BufferRef buffer, RDG::Access access )
         {
             m_Buffers.push_back( { buffer, access, false } );
@@ -66,15 +88,26 @@ namespace Desert::Graphic
         {
             return m_Images;
         }
+        const std::vector<TextureUse>& Textures() const
+        {
+            return m_Textures;
+        }
         const std::vector<BufferUse>& Buffers() const
         {
             return m_Buffers;
         }
 
     private:
-        std::vector<ImageUse>  m_Images;
-        std::vector<BufferUse> m_Buffers;
+        std::vector<ImageUse>   m_Images;
+        std::vector<TextureUse> m_Textures;
+        std::vector<BufferUse>  m_Buffers;
     };
+
+    // The body of a frame-graph node, whatever registered it: it records into the node's command buffer with
+    // @p context (RDG::PassBindings over it, Renderer::DispatchCompute / DrawFullscreen / DrawProcedural /
+    // DrawIndexed) and binds the graph textures it declared from @p refs. A failure is returned, never swallowed:
+    // the graph logs it with the node's name.
+    using NodeRecordFunc = std::function<Common::BoolResultStr( RDG::PassContext& context, const FrameGraphRefs& refs )>;
 
     // One compute node of a system's frame work: its name in the graph, what it declares, and the body that
     // records its dispatch. A system that dispatches several times in a frame hands one node per dispatch, in
@@ -83,6 +116,6 @@ namespace Desert::Graphic
     {
         std::string           Name;
         RenderPassDeclaration Access;
-        std::function<void()> Record;
+        NodeRecordFunc        Record;
     };
 } // namespace Desert::Graphic
