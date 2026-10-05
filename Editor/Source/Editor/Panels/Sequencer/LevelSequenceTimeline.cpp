@@ -222,7 +222,7 @@ namespace Desert::Editor
     {
         /// What @p instance shows for @p param now: its own override, else the nearest parent instance's, else
         /// the schema default (packed as SetParamFromVec4 unpacks it: .x scalar, .xyz vector).
-        glm::vec4 MaterialParameterNow( const Graphic::MaterialInstance&             instance,
+        glm::vec4 MaterialParameterNow( const Graphic::MaterialInstance&            instance,
                                         const ::Desert::Core::Formats::ShaderParam& param )
         {
             if ( const auto own = instance.GetOverrideAsVec4( param.Name ) )
@@ -255,15 +255,16 @@ namespace Desert::Editor
             {
                 const Graphic::MaterialInstance* instance = mesh.RuntimeMaterialInstances[slot].get();
                 const Graphic::Material* material = instance != nullptr ? instance->GetParentMaterial() : nullptr;
-                const auto*              executor = material != nullptr ? material->GetMaterialExecutor() : nullptr;
-                const auto               shader   = executor != nullptr ? executor->GetShader() : nullptr;
+                const auto* executor = material != nullptr ? material->GetMaterialExecutor() : nullptr;
+                const auto  shader   = executor != nullptr ? executor->GetShader() : nullptr;
                 if ( !shader )
                     continue;
                 LevelMaterialSlotChoice choice;
                 choice.Slot  = static_cast<uint32_t>( slot );
-                choice.Label = instance->GetName().empty() ? std::format( "Slot {}", slot )
-                                                           : std::format( "Slot {} · {}", slot, instance->GetName() );
-                using VT = ::Desert::Core::Formats::ShaderValueType;
+                choice.Label = instance->GetName().empty()
+                                    ? std::format( "Slot {}", slot )
+                                    : std::format( "Slot {} · {}", slot, instance->GetName() );
+                using VT     = ::Desert::Core::Formats::ShaderValueType;
                 for ( const auto& param : shader->GetProgramMeta().Params )
                 {
                     if ( param.IsTexture || param.Name.empty() || param.Name.find( '.' ) != std::string::npos )
@@ -524,8 +525,9 @@ namespace Desert::Editor
                     AddLevelVisibilityTrack( binding.Guid );
                 // UE: "+ Track ▸ Material Parameter" on a mesh component — slot, then a scalar / vector
                 // parameter of that slot's shader; a parameter that already has a track is greyed out.
-                if ( entity && ( entity->HasComponent<ECS::StaticMeshComponent>() ||
-                                 entity->HasComponent<ECS::SkinnedMeshComponent>() ) &&
+                if ( entity &&
+                     ( entity->HasComponent<ECS::StaticMeshComponent>() ||
+                       entity->HasComponent<ECS::SkinnedMeshComponent>() ) &&
                      ImGui::BeginMenu( ICON_MDI_PALETTE " Material Parameter" ) )
                 {
                     const auto slots = LevelMaterialSlots( binding.Guid );
@@ -536,10 +538,11 @@ namespace Desert::Editor
                         if ( !ImGui::BeginMenu( slot.Label.c_str() ) )
                             continue;
                         for ( const auto& choice : slot.Parameters )
-                            if ( ImGui::MenuItem(
-                                      choice.Label.c_str(),
-                                      choice.Kind == LevelTL::TrackKind::Vector ? "Vector" : "Scalar", false,
-                                      !ECS::HasMaterialParameterTrack( sequence, binding.Guid, choice.Parameter ) ) )
+                            if ( ImGui::MenuItem( choice.Label.c_str(),
+                                                  choice.Kind == LevelTL::TrackKind::Vector ? "Vector" : "Scalar",
+                                                  false,
+                                                  !ECS::HasMaterialParameterTrack( sequence, binding.Guid,
+                                                                                   choice.Parameter ) ) )
                                 AddLevelMaterialParameterTrack( binding.Guid, choice.Parameter );
                         ImGui::EndMenu();
                     }
@@ -631,8 +634,8 @@ namespace Desert::Editor
             // mesh component): the field shows the track's value at the playhead; a committed edit (release of
             // a drag, Enter, a picked colour) keys it there — one key, one undo step. The lane draws the keys.
             const auto materialTracks = ECS::MaterialParameterTracks( sequence, binding.Guid );
-            const auto offeredSlots =
-                 materialTracks.empty() ? std::vector<LevelMaterialSlotChoice>{} : LevelMaterialSlots( binding.Guid );
+            const auto offeredSlots   = materialTracks.empty() ? std::vector<LevelMaterialSlotChoice>{}
+                                                               : LevelMaterialSlots( binding.Guid );
             for ( const auto& [parameter, kind] : materialTracks )
             {
                 const auto value = ECS::MaterialParameterAt( sequence, binding.Guid, parameter, m_LevelTick );
@@ -648,10 +651,9 @@ namespace Desert::Editor
                 const float matY = ImGui::GetCursorScreenPos().y;
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, matY ) );
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted(
-                     std::format( ICON_MDI_PALETTE " {}.{}", parameter.Slot,
-                                  schema != nullptr ? schema->Label : parameter.Name )
-                          .c_str() );
+                ImGui::TextUnformatted( std::format( ICON_MDI_PALETTE " {}.{}", parameter.Slot,
+                                                     schema != nullptr ? schema->Label : parameter.Name )
+                                             .c_str() );
                 ImGui::SameLine( 160.0f );
                 ImGui::SetNextItemWidth( std::max( 60.0f, laneX0 - ImGui::GetCursorScreenPos().x - 8.0f ) );
                 const std::string draftId = std::format( "{}/{}", binding.Locator, property );
@@ -1135,17 +1137,18 @@ namespace Desert::Editor
                              [this, guid, parameter] { AddLevelMaterialParameterTrack( guid, parameter ); } } );
                     else
                         // Keys what the track says at the playhead (UE: the track row's key button).
-                        actions.push_back( DocumentAction{
-                             std::format( "Key Material Parameter {} {} {}", binding.Label, slot.Label, choice.Label ),
-                             [this, guid, parameter]
-                             {
-                                 const auto live = ResolveLevelAsset();
-                                 if ( !live )
-                                     return;
-                                 if ( const auto value = ECS::MaterialParameterAt( live->GetSequence(), guid,
-                                                                                   parameter, m_LevelTick ) )
-                                     KeyLevelMaterialParameter( guid, parameter, *value );
-                             } } );
+                        actions.push_back(
+                             DocumentAction{ std::format( "Key Material Parameter {} {} {}", binding.Label,
+                                                          slot.Label, choice.Label ),
+                                             [this, guid, parameter]
+                                             {
+                                                 const auto live = ResolveLevelAsset();
+                                                 if ( !live )
+                                                     return;
+                                                 if ( const auto value = ECS::MaterialParameterAt(
+                                                           live->GetSequence(), guid, parameter, m_LevelTick ) )
+                                                     KeyLevelMaterialParameter( guid, parameter, *value );
+                                             } } );
                 }
             for ( const auto& clip : LevelAnimationClips( guid ) )
             {

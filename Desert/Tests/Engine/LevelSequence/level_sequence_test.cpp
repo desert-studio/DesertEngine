@@ -779,7 +779,7 @@ TEST( LevelSequenceKeys, AutoKeyedGizmoReleaseIsOneUndoStep )
 // the add and the key are two Ctrl+Z, and each Ctrl+Z takes back exactly its own.
 TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneUndoStepEach )
 {
-    namespace Ed = Desert::Editor;
+    namespace Ed  = Desert::Editor;
     auto& history = Ed::CommandHistory::Get();
     history.Clear();
     T::Sequence                               sequence = AuthoredDoor();

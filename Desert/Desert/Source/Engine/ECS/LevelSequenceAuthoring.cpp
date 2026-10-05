@@ -544,9 +544,9 @@ namespace Desert::ECS
         template <typename TrackT>
         auto* MaterialChannelAt( TrackT& track, const Animation::FrameNumber tick )
         {
-            decltype( std::get_if<T::Channel>( &track.Sections.front().Content ) ) target = nullptr;
-            decltype( target )                                                    first  = nullptr;
-            int32_t                                                               targetRow = -1;
+            decltype( std::get_if<T::Channel>( &track.Sections.front().Content ) ) target    = nullptr;
+            decltype( target )                                                     first     = nullptr;
+            int32_t                                                                targetRow = -1;
             for ( auto& section : track.Sections )
             {
                 auto* channel = std::get_if<T::Channel>( &section.Content );
@@ -654,9 +654,9 @@ namespace Desert::ECS
         return std::nullopt;
     }
 
-    std::vector<Animation::FrameNumber> MaterialParameterKeyTicks( const T::Sequence&                    sequence,
-                                                                   const T::BindingGuid&                 binding,
-                                                                   const LevelSequenceMaterialParameter& parameter )
+    std::vector<Animation::FrameNumber>
+    MaterialParameterKeyTicks( const T::Sequence& sequence, const T::BindingGuid& binding,
+                               const LevelSequenceMaterialParameter& parameter )
     {
         std::vector<Animation::FrameNumber> ticks;
         const T::Track*                     track = MaterialParameterTrack( sequence, binding, parameter );

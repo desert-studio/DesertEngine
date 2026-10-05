@@ -244,7 +244,8 @@ namespace Desert::Editor
                                              const ECS::LevelSequenceMaterialParameter& parameter );
         /// A Material Parameter key @p value at the playhead on @p binding's track, one undo step.
         void KeyLevelMaterialParameter( const Animation::Timeline::BindingGuid&    binding,
-                                        const ECS::LevelSequenceMaterialParameter& parameter, const glm::vec4& value );
+                                        const ECS::LevelSequenceMaterialParameter& parameter,
+                                        const glm::vec4&                           value );
         /// The clips that play on @p binding's entity (SkinnedMesh + Animation): the AnimationLibrary's clips
         /// for the mesh's skeleton (UE: "+ Track → Animation" lists the assets compatible with the skeleton).
         /// Empty when the binding names no such entity.
@@ -302,8 +303,8 @@ namespace Desert::Editor
         ECS::LevelSequencePreview m_LevelPreview;
         Animation::FrameNumber    m_LevelTick;
         int32_t                   m_LevelTickShown     = INT32_MIN;
-        /// The value a Material Parameter row's field shows while it is being dragged (row id → value): keyed once,
-        /// on release, so a drag is one key and one undo step (UE: one transaction per committed edit).
+        /// The value a Material Parameter row's field shows while it is being dragged (row id → value): keyed
+        /// once, on release, so a drag is one key and one undo step (UE: one transaction per committed edit).
         std::optional<std::pair<std::string, glm::vec4>> m_LevelMaterialDraft;
         uint32_t                  m_LevelRevisionShown = UINT32_MAX;
         SequenceEditTransaction   m_LevelEdit;
