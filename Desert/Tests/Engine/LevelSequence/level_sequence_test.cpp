@@ -551,9 +551,11 @@ TEST( LevelSequenceDocument, AMaterialParameterTrackDrivesTheActorsSlotOverrideN
 
 TEST( LevelSequenceDocument, AnEventKeyFiresOnTheStepThatCrossesItsTickAndOnlyThere )
 {
-    T::Sequence    sequence = AuthoredDoor();
-    const auto     door     = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" ).GetValue();
-    const auto     master   = ECS::LevelSequenceMasterBinding();
+    T::Sequence sequence = AuthoredDoor();
+    const auto  bound    = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
+    ASSERT_TRUE( bound.IsSuccess() );
+    const auto door   = bound.GetValue();
+    const auto master = ECS::LevelSequenceMasterBinding();
     ASSERT_TRUE( ECS::AddEventTrack( sequence, master ).IsSuccess() );
     ASSERT_TRUE( ECS::AddEventTrack( sequence, door ).IsSuccess() ) << "an actor carries an Event track too";
     EXPECT_FALSE( ECS::AddEventTrack( sequence, door ).IsSuccess() ) << "one Event track per binding";
