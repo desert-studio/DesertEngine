@@ -3,21 +3,34 @@
 #include "ProjectContext.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <rflcpp/rfl/DefaultIfMissing.hpp>
 #include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 
 namespace Desert::Project
 {
+    namespace
+    {
+        // The cache CurrentGameSettings() answers from, and the project directory it was filled for. One pair,
+        // shared by the reader and SaveGameSettings, so a save is what the next read returns.
+        std::string  loadedFor;
+        GameSettings settings;
+
+        std::filesystem::path GameSettingsFile( const std::string& projectDirectory )
+        {
+            return std::filesystem::path( projectDirectory ) / "Config" / "Game.json";
+        }
+    } // namespace
+
     const GameSettings& CurrentGameSettings()
     {
-        static std::string  loadedFor;
-        static GameSettings settings;
-        const std::string   directory = ProjectContext::HasProject() ? ProjectContext::Directory() : std::string{};
+        const std::string directory = ProjectContext::HasProject() ? ProjectContext::Directory() : std::string{};
         if ( directory == loadedFor )
             return settings;
         loadedFor = directory;
@@ -25,7 +38,7 @@ namespace Desert::Project
         if ( directory.empty() )
             return settings;
 
-        const std::filesystem::path path = std::filesystem::path( directory ) / "Config" / "Game.json";
+        const std::filesystem::path path = GameSettingsFile( directory );
         std::ifstream               in( path, std::ios::binary );
         if ( !in )
             return settings; // the project declares no game settings
@@ -39,5 +52,29 @@ namespace Desert::Project
         }
         settings = std::move( parsed.value() );
         return settings;
+    }
+
+    Common::BoolResultStr SaveGameSettings( const GameSettings& toSave )
+    {
+        if ( !ProjectContext::HasProject() )
+            return Common::MakeError<bool>( "the game settings were not saved: no project is open" );
+
+        const std::string           directory = ProjectContext::Directory();
+        const std::filesystem::path path      = GameSettingsFile( directory );
+        std::error_code             ec;
+        std::filesystem::create_directories( path.parent_path(), ec );
+        if ( ec )
+            return Common::MakeError<bool>(
+                 std::format( "{} was not saved: cannot create its folder: {}", path.string(), ec.message() ) );
+
+        const auto written = Common::Json::WriteFileAtomic( path, toSave );
+        if ( !written )
+            return Common::MakeError<bool>(
+                 std::format( "{} was not saved: {}", path.string(), written.GetError() ) );
+
+        loadedFor = directory;
+        settings  = toSave;
+        LOG_INFO( "[Project] saved the game settings -> {}", path.string() );
+        return Common::MakeSuccess( true );
     }
 } // namespace Desert::Project

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <string>
 #include <vector>
 
@@ -24,4 +26,11 @@ namespace Desert::Project
     // has no game settings and gets an empty struct — NOT a fallback value: nothing is invented for it, and a
     // file that exists but does not parse is logged with the parser's own words.
     const GameSettings& CurrentGameSettings();
+
+    // UE's Project Settings window writing DefaultGame.ini: the one writer of `<project>/Config/Game.json`
+    // (the editor's Project Settings panel). Writes atomically in the canonical JSON layout, creating
+    // Config/ when the project has none yet, and on success makes CurrentGameSettings() answer @p settings
+    // without re-reading — the file and the cache cannot disagree after a save. Refuses with the reason (no
+    // project open, the write failed) and then leaves both the file and the cache as they were.
+    Common::BoolResultStr SaveGameSettings( const GameSettings& settings );
 } // namespace Desert::Project
