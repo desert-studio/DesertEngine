@@ -66,8 +66,6 @@ namespace Desert::Graphic::API::Vulkan
         DrawCounter::Roll();
 
         auto window = m_Window.lock();
-        if ( !window )
-            return Common::MakeError( "Window is null" );
 
         // After the slot's fence (Present waited it): the graph's frame objects of this slot are reusable.
         m_FrameSubmissions.clear();
@@ -75,6 +73,24 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_CurrentCommandBuffer = nullptr;
             return Common::MakeFormattedError<bool>( "render graph frame: {}", rdg.GetError() );
+        }
+
+        // HEADLESS (no window, Desert/Tests/Engine/EngineHost): the frame records into a graphics command
+        // buffer of the graph's own frame slot, already begun, and PresentFinalImage submits and waits instead
+        // of presenting. Everything else in the frame is the windowed path's.
+        if ( !window )
+        {
+            Common::ResultStr<VkCommandBuffer> headless = m_RdgQueueObjects->BeginCommandBuffer( RDG::Pipe::Graphics );
+            if ( !headless )
+            {
+                m_CurrentCommandBuffer = nullptr;
+                return Common::MakeError( headless.GetError() );
+            }
+            m_CurrentCommandBuffer = headless.GetValue();
+#if DESERT_DEV_INSTRUMENTS
+            m_GpuProfiler.BeginFrame( m_CurrentCommandBuffer );
+#endif
+            return BOOLSUCCESS;
         }
 
         auto swapChain         = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
@@ -143,7 +159,7 @@ namespace Desert::Graphic::API::Vulkan
 
         auto window = m_Window.lock();
         if ( !window )
-            return Common::MakeError( "Window is null" );
+            return SubmitHeadlessFrame();
         auto swapChain = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
 
         // REFUSE TO SUBMIT A BUFFER THAT DID NOT CLOSE. EndFrame is what calls vkEndCommandBuffer, and
@@ -166,6 +182,44 @@ namespace Desert::Graphic::API::Vulkan
         if ( Graphic::DeviceLost::IsLost() )
             return Common::MakeError( "the device was lost while submitting or presenting this frame." );
 
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::SubmitHeadlessFrame()
+    {
+        const auto ended = EndFrame();
+        if ( !ended.IsSuccess() )
+            return Common::MakeError( ended.GetError() );
+
+        // The frame's submissions in order, each with the graph's own cross-queue semaphores; no image to
+        // wait on and none to signal. The frame is synchronous: the device is idle when this returns, so the
+        // caller may read back what the frame wrote and the slot's objects are free for the next frame.
+        const auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        for ( size_t i = 0; i < m_FrameSubmissions.size(); ++i )
+        {
+            const VulkanRdgSubmission& entry = m_FrameSubmissions[i];
+            VkSubmitInfo               submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            submitInfo.waitSemaphoreCount   = static_cast<uint32_t>( entry.WaitSemaphores.size() );
+            submitInfo.pWaitSemaphores      = entry.WaitSemaphores.data();
+            submitInfo.pWaitDstStageMask    = entry.WaitStages.data();
+            submitInfo.commandBufferCount   = 1;
+            submitInfo.pCommandBuffers      = &entry.CommandBuffer;
+            submitInfo.signalSemaphoreCount = static_cast<uint32_t>( entry.SignalSemaphores.size() );
+            submitInfo.pSignalSemaphores    = entry.SignalSemaphores.data();
+            const VkQueue  target    = entry.Queue != VK_NULL_HANDLE ? entry.Queue : device->GetGraphicsQueue();
+            const VkResult submitted = device->SubmitToQueue( target, 1, &submitInfo, VK_NULL_HANDLE );
+            if ( submitted != VK_SUCCESS )
+            {
+                m_FrameSubmissions.clear();
+                (void)NoteIfDeviceLost( submitted, "vkQueueSubmit", __FILE__, __LINE__ );
+                return Common::MakeFormattedError<bool>( "headless vkQueueSubmit of frame entry {} failed: {}", i,
+                                                         VkResultToString( submitted ) );
+            }
+        }
+        m_FrameSubmissions.clear();
+        device->WaitIdle();
+        if ( Graphic::DeviceLost::IsLost() )
+            return Common::MakeError( "the device was lost while submitting this headless frame." );
         return BOOLSUCCESS;
     }
 
