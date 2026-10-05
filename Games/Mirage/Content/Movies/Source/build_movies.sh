@@ -2,10 +2,11 @@
 # Builds the three startup movies with ONE command: the engine renders each movie map (Runtime
 # --render-movie: offscreen 3840x2160, fixed 1/60 s step), the sound accent is synthesised here from the
 # parameters below, and ffmpeg encodes AV1 (SVT-AV1, 10-bit 4:2:0, Rec.709 tv range) + Opus into WebM.
-# Usage: build_movies.sh <Runtime binary>
+# Usage: build_movies.sh <Runtime binary> [movie name...]   (no names = all three)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; OUT="$(cd "$HERE/.." && pwd)"; PROJECT="$(cd "$HERE/../../.." && pwd)"
-RUNTIME="${1:?usage: build_movies.sh <Runtime binary>}"
+RUNTIME="${1:?usage: build_movies.sh <Runtime binary> [movie name...]}"; shift
+ONLY=" $* "
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 FPS=60; RES=3840x2160
 
@@ -18,6 +19,8 @@ MOVIES=(
 
 for entry in "${MOVIES[@]}"; do
   IFS='|' read -r NAME MAP SECONDS SOUND <<<"$entry"
+  [[ "$ONLY" == "  " || "$ONLY" == *" $NAME "* ]] || continue
+  [[ -f "$PROJECT/$MAP" ]] || { echo "build_movies: map $PROJECT/$MAP does not exist" >&2; exit 1; }
   "$RUNTIME" --project "$PROJECT/Mirage.deproj" --render-movie "$MAP" --movie-out "$WORK/$NAME" \
              --resolution "$RES" --fps "$FPS" --duration "$SECONDS"
   ffmpeg -hide_banner -loglevel error -y \
