@@ -70,7 +70,7 @@ namespace Common::Utils
         // are taken as given; an unset root is FullPath's refusal, not a cwd fallback.
         [[nodiscard]] fs::path OnDisk( const fs::path& filepath )
         {
-            if ( filepath.empty() || filepath.is_absolute() || filepath.has_root_directory() ||
+            if ( filepath.empty() || filepath.is_absolute() ||
                  filepath.generic_string().find( "://" ) != std::string::npos )
                 return filepath;
             return Common::Constants::Path::FullPath( filepath );
