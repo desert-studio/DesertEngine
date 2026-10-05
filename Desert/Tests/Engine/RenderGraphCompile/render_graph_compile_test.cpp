@@ -2417,7 +2417,7 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
                                              "voidSceneRenderer::AddGraphPhasePasses(", "voidSceneRenderer::" );
     ASSERT_FALSE( bridge.empty() ) << "no AddGraphPhasePasses in SceneRendererFrameMesh.cpp";
     for ( const char* needle :
-          { "RDG::PassFlags::Raster", "pass.Declare(declared)",
+          { "RDG::PassFlags::Raster", "pass.Declare(declared,textures.GraphRefs())",
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
             "node.ColorTarget(slot,targets->Colors[slot],color)", "node.DepthTarget(targets->Depth,depth)",
             "node.ResolveTarget(slot,targets->Resolves[slot])",

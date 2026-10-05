@@ -2186,7 +2186,7 @@ namespace Desert::Graphic::System
         config.OrderInPhase = RenderPassOrder::FarField;
         // The composite samples the reconstruction the resolve node wrote this frame (m_ResolvedIndex is decided
         // when the cloud nodes are declared, before this runs).
-        config.Declare = [this]( RenderPassDeclaration& declared )
+        config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
             if ( !m_HasFrameResult )
                 return;

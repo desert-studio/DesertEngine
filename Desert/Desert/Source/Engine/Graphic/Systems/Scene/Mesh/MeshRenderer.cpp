@@ -243,7 +243,7 @@ namespace Desert::Graphic::System
                        },
                        m_StaticPipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = [this]( RenderPassDeclaration& declared )
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         { m_SceneRenderer->DeclareShadowReads( declared ); };
 
         // NOTE: the deferred G-buffer geometry is NOT a graph pass — it's rendered MANUALLY via

@@ -895,7 +895,7 @@ namespace Desert::Graphic::System
              .AddPass(
                   "SkyboxPass", RenderPhase::Sky, [this]() { Render(); },
                   m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb )
-             .Declare = [this]( RenderPassDeclaration& declared )
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
             // The procedural sky samples the transmittance and sky-view LUTs (Render); SkyAtmosphereLuts writes
             // them as storage images, last frame's at this point of the frame.

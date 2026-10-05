@@ -315,7 +315,7 @@ namespace Desert::Graphic::System
         // OVER the fogged world. Stated here, on the pass itself, not implied by registration order.
         config.OrderInPhase = RenderPassOrder::AtmosphericFog;
         // The apply samples the fog image the AtmosphericFog node wrote as a storage image this frame.
-        config.Declare = [this]( RenderPassDeclaration& declared )
+        config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         { declared.Read( m_FogImage, RDG::Access::SampledGraphics, "HeightFog.Fog" ); };
 
         builder.AddPass( config );

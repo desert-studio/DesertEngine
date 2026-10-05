@@ -384,7 +384,7 @@ namespace Desert::Graphic::System
                       }
                   },
                   m_AddPipeline->GetSpecification(), targetFb, { RenderPassDependency( RenderPhase::Geometry ) } )
-             .Declare = [this]( RenderPassDeclaration& declared )
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
             // The billboards read each emitter's integrated state in the vertex stage: StorageRead, so the graph
             // places the compute -> vertex barrier after "Particles: Simulate" (and the vertex -> compute one

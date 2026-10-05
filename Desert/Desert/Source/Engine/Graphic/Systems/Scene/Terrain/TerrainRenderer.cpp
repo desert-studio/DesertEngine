@@ -397,7 +397,7 @@ namespace Desert::Graphic::System
                        },
                        m_Pipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = [this]( RenderPassDeclaration& declared )
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         { m_SceneRenderer->DeclareShadowReads( declared ); };
     }
 
