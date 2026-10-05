@@ -156,12 +156,13 @@ namespace Desert::Graphic::System
 
         // Pass 1, from the exec of the compute node that declares @p trace and @p tiles as storage writes: classify
         // + half-resolution trace, one dispatch (one workgroup per tile). gbuffer = the camera G-buffer
-        // (albedo/normal/worldpos at 0/1/2); sceneColor = snapshot of the lit opaque scene; maxDistance and
+        // (albedo/normal/worldpos at 0/1/2); sceneCopy = this frame's snapshot of the lit opaque scene
+        // (FrameTransients::SceneColorCopy, declared as a SampledCompute read of the node, bound by name); maxDistance and
         // thickness are WORLD distances (a world unit is a centimetre - convert through Common::Units).
         [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context, RDG::TextureRef trace,
                                                          RDG::TextureRef                     tiles,
                                                          const std::shared_ptr<Framebuffer>& gbuffer,
-                                                         const std::shared_ptr<Image2D>&     sceneColor,
+                                                         RDG::TextureRef                     sceneCopy,
                                                          const glm::mat4& viewProj, const glm::vec4& cameraPos,
                                                          int maxSteps, float maxDistance, float intensity,
                                                          float thickness )
@@ -183,11 +184,13 @@ namespace Desert::Graphic::System
                                        RDG::SubresourceRange::All() );
             m_TracePipeline->SetInput( 2, gbuffer->GetColorAttachmentImage( 2 ).get(), RDG::Access::SampledCompute,
                                        RDG::SubresourceRange::All() );
-            m_TracePipeline->SetInput( 3, sceneColor.get(), RDG::Access::SampledCompute,
-                                       RDG::SubresourceRange::All() );
 
             RDG::PassBindings bindings( context );
-            bindings.Storage( "u_Trace", trace, RDG::Access::StorageWrite )
+            // The sampler the pipeline-setter route sampled the copy with (the image's own: linear, REPEAT).
+            bindings
+                 .Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearRepeat() )
+                 .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
                  .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
                  .PushConstants( &push, sizeof( push ) );
             return Renderer::GetInstance().DispatchCompute( bindings, *m_TracePipeline, TileGrid( Width() ),

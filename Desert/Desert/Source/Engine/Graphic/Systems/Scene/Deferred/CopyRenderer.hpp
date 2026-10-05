@@ -3,13 +3,14 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
-#include <Engine/Graphic/Materials/Deferred/MaterialCopy.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::Graphic::System
 {
-    // Full-screen copy: snapshots a source image into this system's target framebuffer. Used to copy the
-    // composited scene colour into a separate texture the glass pass samples (screen-space refraction), so the
+    // Full-screen copy: snapshots the composited scene colour into this frame's scene-copy transient
+    // (FrameTransients::SceneColorCopy) that the glass (refraction) and SSR (reflection source) sample, so the
     // glass pass never reads + writes the same attachment (feedback loop).
     class CopyRenderer final : public RenderSystem
     {
@@ -22,13 +23,11 @@ namespace Desert::Graphic::System
             if ( !m_Shader )
                 return Common::MakeError( "Copy shader not found" );
 
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target )
-                return Common::MakeError( "Copy target framebuffer missing" );
-
+            // The copy is a graph transient: the pipeline is built against the graph's canonical render pass for
+            // that one colour target (no framebuffer of its own).
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "Copy";
-            spec.Framebuffer       = target;
+            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kSceneColorCopy } };
             spec.Shader            = m_Shader;
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
@@ -36,8 +35,6 @@ namespace Desert::Graphic::System
             if ( !pipeline )
                 return Common::MakeError( pipeline.GetError() );
             m_Pipeline = pipeline.GetValue();
-
-            m_Material = std::make_unique<MaterialCopy>();
             return BOOLSUCCESS;
         }
 
@@ -45,27 +42,21 @@ namespace Desert::Graphic::System
         {
         }
 
-        void Execute( const std::shared_ptr<Image2D>& src )
+        // Inside the render pass the graph opens on the copy ("Deferred: SceneCopy"): samples @p source (declared
+        // as a read of the node) as u_Input, the shader's only resource, so no material.
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, RDG::TextureRef source )
         {
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target || !src || !m_Pipeline || !m_Material )
-                return;
-
-            // Inside the render pass the frame graph opens on GetImage() ("Deferred: SceneCopy").
-            auto& renderer = Renderer::GetInstance();
-            m_Material->BindInputs( src );
-            renderer.SubmitFullscreenTriangle( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
-        }
-
-        std::shared_ptr<Image2D> GetImage() const
-        {
-            const auto& target = m_TargetFramebuffer.lock();
-            return target ? target->GetColorAttachmentImage( 0 ) : nullptr;
+            if ( !m_Pipeline )
+                return Common::MakeError( "Deferred: SceneCopy: the copy pipeline is not initialised" );
+            // The sampler the material route sampled the scene colour with (the image's own: linear, REPEAT).
+            RDG::PassBindings bindings( context );
+            bindings.Sampled( "u_Input", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                              RDG::SamplerDesc::LinearRepeat() );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, nullptr );
         }
 
     private:
         std::shared_ptr<Shader>           m_Shader;
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
-        std::unique_ptr<MaterialCopy>     m_Material;
     };
 } // namespace Desert::Graphic::System

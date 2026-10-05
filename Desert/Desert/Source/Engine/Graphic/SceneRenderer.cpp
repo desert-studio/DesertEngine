@@ -231,13 +231,6 @@ namespace Desert::Graphic
         m_GBuffer = Graphic::Framebuffer::Create( gbufferSpec );
         m_GBuffer->Resize( width, height );
 
-        // Scene-colour snapshot (same format as the target) the glass pass samples for refraction.
-        FramebufferSpecification copySpec;
-        copySpec.DebugName = "SceneColorCopy";
-        copySpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColorCopy );
-        m_SceneColorCopy = Graphic::Framebuffer::Create( copySpec );
-        m_SceneColorCopy->Resize( width, height );
-
         // NOTE: SSR and RSM-GI resources are deliberately NOT created here — see EnsureSSRResources() /
         // EnsureGIResources(). Every PreviewViewport (asset thumbnails, the Details mesh preview) builds its
         // OWN SceneRenderer, so anything allocated in this constructor is paid for once PER PREVIEW. Between
@@ -361,7 +354,7 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
                        resolveInit.GetError() );
 
-        RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_SceneColorCopy,
+        RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer,
                                               m_RenderGraphBuilder );
         if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
             LOG_WARN( "[SceneRenderer] Scene-color copy system unavailable (glass refraction off)." );
@@ -910,14 +903,13 @@ namespace Desert::Graphic
             AddFrameSkinned( graph, textures, meshRenderer );
 
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
-            std::vector<RDG::TextureRef> copyReads;
-            AddFrameSceneCopy( graph, textures, sceneColor(), copy, values, copyReads );
+            const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy );
 
             // SSR traces the copy made by the pass above; without a copy target there is nothing to trace.
-            if ( m_EnableSSR && copy && EnsureSSRResources() )
-                AddFrameSSR( graph, textures, gbuffer, copyReads, viewProj, cameraPos, values );
+            if ( m_EnableSSR && sceneCopy.IsValid() && EnsureSSRResources() )
+                AddFrameSSR( graph, textures, gbuffer, sceneCopy, viewProj, cameraPos );
 
-            AddFrameGlass( graph, textures, copyReads, meshRenderer, values );
+            AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
         }
 
         AddFrameSceneDepthResolve( graph, textures );
@@ -1163,8 +1155,6 @@ namespace Desert::Graphic
         if ( auto resolve =
                   SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] ) )
             resolve->Resize( width, height );
-        if ( m_SceneColorCopy )
-            m_SceneColorCopy->Resize( width, height );
         // m_RSMBuffer is deliberately NOT resized: it is a fixed-resolution light-space target, unrelated
         // to the viewport. Its accumulation history is invalidated by the GI system's own size check.
 

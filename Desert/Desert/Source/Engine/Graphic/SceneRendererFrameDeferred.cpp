@@ -363,37 +363,47 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& sceneColor,
-                                           System::CopyRenderer* copy, const std::shared_ptr<FrameValues>& values,
-                                           std::vector<RDG::TextureRef>& copyReads )
+    RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
+                                                      const std::vector<RDG::TextureRef>& sceneColor,
+                                                      System::CopyRenderer*               copy )
     {
-        if ( !copy || !copy->GetImage() )
-            return;
-        const std::shared_ptr<Image2D> image = copy->GetImage();
-        copyReads                            = { textures.Import( image, "SceneCopy" ) };
+        if ( !copy || sceneColor.empty() )
+            return {};
+        // The snapshot lives within this graph (UE: a transient from the scene colour's desc): the scene
+        // colour's size, the copy format, one mip, one layer, one sample (the scene colour ref is the
+        // attachment 0 the copy always read).
+        const auto desc = graph.GetTextureDesc( sceneColor.front() );
+        if ( !desc )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: SceneCopy: {}", desc.GetError() );
+            return {};
+        }
+        RDG::TextureDesc copyDesc = desc.GetValue();
+        copyDesc.Format           = ViewTargetFormats::kSceneColorCopy;
+        copyDesc.Mips             = 1;
+        copyDesc.Layers           = 1;
+        copyDesc.Samples          = 1;
+        const RDG::TextureRef sceneCopy    = graph.CreateTexture( copyDesc, "SceneCopy" );
+        const RDG::TextureRef source       = sceneColor.front();
+        textures.Transients.SceneColorCopy = sceneCopy; // -> Deferred: SSR (u_SceneColor), Deferred: Glass
         graph.AddPass(
              "Deferred: SceneCopy", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  ReadAll( pass, sceneColor, RDG::Access::SampledGraphics );
-                 pass.ColorTarget( 0, copyReads.front(), EngineClearColor() );
+                 pass.ColorTarget( 0, sceneCopy, EngineClearColor() );
              },
-             [this, copy, image, values]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 copy->Execute( m_TargetFramebuffer->GetColorAttachmentImage( 0 ) );
-                 values->SceneCopy = image;
-                 return BOOLSUCCESS;
-             } );
+             [copy, source]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return copy->Record( context, source ); } );
+        return sceneCopy;
     }
 
     void SceneRenderer::AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
-                                     const std::vector<RDG::TextureRef>& gbuffer,
-                                     const std::vector<RDG::TextureRef>& copyReads, const glm::mat4& viewProj,
-                                     const glm::vec4& cameraPos, const std::shared_ptr<FrameValues>& values )
+                                     const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,
+                                     const glm::mat4& viewProj, const glm::vec4& cameraPos )
     {
         auto* ssr = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
-        if ( !ssr || copyReads.empty() )
+        if ( !ssr || !sceneCopy.IsValid() )
             return;
         const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr->Prepare();
         if ( !traceTargets )
@@ -412,16 +422,14 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  ReadAll( pass, gbuffer, RDG::Access::SampledCompute );
-                 ReadAll( pass, copyReads, RDG::Access::SampledCompute );
+                 pass.Read( sceneCopy, RDG::Access::SampledCompute );
                  pass.Write( trace, RDG::Access::StorageWrite );
                  pass.Write( tiles, RDG::Access::StorageWrite );
              },
-             [this, ssr, trace, tiles, viewProj, cameraPos, values]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [this, ssr, trace, tiles, sceneCopy, viewProj, cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 if ( !values->SceneCopy )
-                     return Common::MakeError( "Deferred: SSR runs after a SceneCopy pass that left no copy" );
                  constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
-                 return ssr->RecordTrace( context, trace, tiles, m_GBuffer, values->SceneCopy, viewProj, cameraPos,
+                 return ssr->RecordTrace( context, trace, tiles, m_GBuffer, sceneCopy, viewProj, cameraPos,
                                           /*maxSteps*/ 32, m_SSRMaxDistance, m_SSRIntensity, kSSRThickness );
              } );
         graph.AddPass(
