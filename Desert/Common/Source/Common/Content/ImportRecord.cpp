@@ -1,5 +1,7 @@
 #include <Common/Content/ImportRecord.hpp>
 
+#include <Common/Core/Constants.hpp>
+
 #include <string>
 #include <vector>
 
@@ -12,7 +14,7 @@ namespace Common::Content
             std::filesystem::path candidate = assetPath;
             candidate.replace_extension( ext );
             std::error_code ec;
-            if ( std::filesystem::exists( candidate, ec ) )
+            if ( std::filesystem::exists( Common::Constants::Path::FullPath( candidate ), ec ) )
                 return candidate;
         }
         return std::nullopt;

@@ -210,7 +210,7 @@ namespace Desert::Editor
         // THE LOOK IS THE MATERIAL'S SINCE O1, resolved here exactly as the renderer resolves it —
         // schema defaults, `.demat` chain over them — so the map this panel draws is the sky the layer
         // renders, whichever `.demat` the component names and even when it names none.
-        const Core::Formats::ShaderProgramMeta* schema = nullptr;
+        const ::Desert::Core::Formats::ShaderProgramMeta* schema = nullptr;
         if ( const auto shaderService = Runtime::ResourceRegistry::GetShaderService() )
         {
             if ( const auto marchShader = shaderService->GetByName( Graphic::kCloudMaterialShaderName ) )
@@ -747,7 +747,8 @@ namespace Desert::Editor
         // agent's renders — the absolute figures are not a budget, the RATIO between them is the finding.
         if ( m_CanvasImage && m_CanvasImageSide == side )
         {
-            if ( const auto streamed = m_CanvasImage->SetData( Core::Formats::ImagePixelData( grey ) ); !streamed )
+            if ( const auto streamed = m_CanvasImage->SetData( ::Desert::Core::Formats::ImagePixelData( grey ) );
+                 !streamed )
             {
                 m_Status        = "The canvas could not be updated on the device: " + streamed.GetError();
                 m_StatusIsError = true;
@@ -760,15 +761,15 @@ namespace Desert::Editor
             return;
         }
 
-        const Core::Formats::Image2DSpecification spec{
+        const ::Desert::Core::Formats::Image2DSpecification spec{
              .Tag        = "CloudLayoutCanvas",
              .Width      = side,
              .Height     = side,
-             .Format     = Core::Formats::ImageFormat::RGBA8F,
+             .Format     = ::Desert::Core::Formats::ImageFormat::RGBA8F,
              .Mips       = 1,
              .Data       = std::move( grey ),
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Sample,
+             .Usage      = ::Desert::Core::Formats::Image2DUsage::Image2D,
+             .Properties = ::Desert::Core::Formats::Sample,
         };
 
         m_CanvasImage = Graphic::Image2D::Create( spec );
@@ -1364,15 +1365,15 @@ namespace Desert::Editor
         }
 
         {
-            const Core::Formats::Image2DSpecification spec{
+            const ::Desert::Core::Formats::Image2DSpecification spec{
                  .Tag        = "CloudLayoutPainting",
                  .Width      = resolution,
                  .Height     = resolution,
-                 .Format     = Core::Formats::ImageFormat::RGBA8F,
+                 .Format     = ::Desert::Core::Formats::ImageFormat::RGBA8F,
                  .Mips       = 1,
                  .Data       = std::move( painting ),
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
-                 .Properties = Core::Formats::Sample,
+                 .Usage      = ::Desert::Core::Formats::Image2DUsage::Image2D,
+                 .Properties = ::Desert::Core::Formats::Sample,
             };
             m_PaintingImage = Graphic::Image2D::Create( spec );
         }
@@ -1406,15 +1407,15 @@ namespace Desert::Editor
         }
 
         {
-            const Core::Formats::Image2DSpecification spec{
+            const ::Desert::Core::Formats::Image2DSpecification spec{
                  .Tag        = "CloudLayoutSky",
                  .Width      = side,
                  .Height     = side,
-                 .Format     = Core::Formats::ImageFormat::RGBA8F,
+                 .Format     = ::Desert::Core::Formats::ImageFormat::RGBA8F,
                  .Mips       = 1,
                  .Data       = std::move( sky ),
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
-                 .Properties = Core::Formats::Sample,
+                 .Usage      = ::Desert::Core::Formats::Image2DUsage::Image2D,
+                 .Properties = ::Desert::Core::Formats::Sample,
             };
             m_SkyImage = Graphic::Image2D::Create( spec );
         }

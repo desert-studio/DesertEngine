@@ -96,7 +96,7 @@ namespace Desert::Editor
         if ( !header )
             return Common::MakeError<ImportTemplate>( std::format( "'{}': {}", out.Locator, header.GetError() ) );
         out.Guid          = header.GetValue().Guid;
-        const auto parsed = Core::Preprocess::DShaderParser::Parse( std::string( source ) );
+        const auto parsed = ::Desert::Core::Preprocess::DShaderParser::Parse( std::string( source ) );
         if ( !parsed )
             return Common::MakeError<ImportTemplate>( std::format( "'{}': {}", out.Locator, parsed.GetError() ) );
         for ( const auto& param : parsed.GetValue().Meta.Params )

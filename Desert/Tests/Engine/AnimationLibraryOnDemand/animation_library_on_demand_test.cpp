@@ -19,6 +19,8 @@
 
 #include <filesystem>
 #include <format>
+#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace
 {
@@ -26,21 +28,13 @@ namespace
     namespace fs   = std::filesystem;
     namespace Path = Common::Constants::Path;
 
-    constexpr const char* kClip = "SkinProbe_Tilt"; // Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim
+    constexpr const char* kClip =
+         "SkinProbe_Tilt"; // Desert/Tests/Data/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim
 
     fs::path RepoRoot()
     {
-        for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
-        {
-            const fs::path candidate =
-                 fs::path( prefix ) / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
-            if ( fs::is_regular_file( candidate ) )
-                return fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) )
-                     .lexically_normal();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
-
     class AnimationLibraryOnDemand : public ::testing::Test
     {
     protected:
@@ -50,12 +44,11 @@ namespace
             Assets::AsyncAssetLoader::Get().ResetForTest();
             const fs::path root = RepoRoot();
             ASSERT_FALSE( root.empty() );
-            // The engine's content mount (ENGINE_CONTENT_PATH) resolves against the host's working directory,
-            // as SHADERDIR_PATH does: stand where the editor stands, or the built-in humanoid's clips are
-            // outside the registry this suite gathers.
-            m_Cwd = fs::current_path();
-            fs::current_path( root / "Editor" );
-            Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+            // The engine's content mount (ENGINE_CONTENT_PATH) hangs off the engine directory: the checkout's
+            // Editor/, or the built-in humanoid's clips are outside the registry this suite gathers.
+            m_SavedEngineDir = Common::Constants::Path::EngineDir();
+            Common::Constants::Path::SetEngineDir( root / "Editor" );
+            Path::SetProjectRoot( Desert::TestSupport::TestDataDir(), "Resources/Assets" );
             Assets::ContentRegistry::ResetForTest();
             std::vector<std::string> refused;
             ASSERT_TRUE( Assets::ContentRegistry::Gather( &refused ) );
@@ -67,8 +60,7 @@ namespace
             Path::SetProjectRoot( m_Saved.ProjectDir, m_Saved.AssetsRoot );
             Assets::ContentRegistry::ResetForTest();
             Common::AssetPathIndex::Clear();
-            if ( !m_Cwd.empty() )
-                fs::current_path( m_Cwd );
+            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
 
         std::size_t ClipAssets() const
@@ -80,7 +72,7 @@ namespace
 
     private:
         Path::ProjectRootState m_Saved;
-        fs::path               m_Cwd;
+        fs::path               m_SavedEngineDir;
     };
 } // namespace
 
@@ -148,8 +140,8 @@ TEST_F( AnimationLibraryOnDemand, TheSpawnedHumanoidsDefaultClipIsACommittedEngi
             EXPECT_FALSE( binding.Locator.empty() ) << "a bone binding names no bone";
 
     // (HumanoidMeshFile lives in the generator's .cpp, which this suite does not link; the path is spelled.)
-    EXPECT_TRUE( fs::is_regular_file( Path::CurrentProjectRoot().ProjectDir /
-                                      "Resources/Engine/Meshes/Skinned/Humanoid.skmesh" ) )
+    // An ENGINE asset (UE /Engine/), so it is spelled off the engine directory, not the project's.
+    EXPECT_TRUE( fs::is_regular_file( Path::EngineDir() / "Resources/Engine/Meshes/Skinned/Humanoid.skmesh" ) )
          << "the humanoid's body Humanoid.skmesh is not committed";
 }
 
@@ -160,7 +152,8 @@ TEST_F( AnimationLibraryOnDemand, TheSpawnedHumanoidsDefaultClipIsACommittedEngi
 // the import rewrites it.
 TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
 {
-    const fs::path source = RepoRoot() / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
+    const fs::path source =
+         Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
     const fs::path project =
          fs::temp_directory_path() /
          std::format( "anim_library_import_{}", ::testing::UnitTest::GetInstance()->random_seed() );
@@ -207,6 +200,7 @@ TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

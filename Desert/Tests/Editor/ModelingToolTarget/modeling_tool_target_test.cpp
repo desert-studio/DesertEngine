@@ -5,6 +5,7 @@
 //  - the lift is cached by identity until the .stmesh is rewritten;
 //  - no Modeling tool reads StaticMeshComponent::EditableMesh itself (census over the tool sources).
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/cooked_static_mesh.hpp"
 
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
@@ -27,6 +28,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 using namespace Desert;
@@ -301,7 +303,7 @@ TEST( ModelingToolTargetCensus, TheRuleSeesAReadAndIgnoresCommentsAndSetters )
 TEST( ModelingToolTargetCensus, NoModelingToolReadsTheEditableMeshItself )
 {
     const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from " << fs::current_path();
+    ASSERT_FALSE( root.empty() ) << "repository root not found from " << Desert::TestSupport::RepositoryRoot();
     const fs::path           editor = fs::path( root ) / "Editor/Source/Editor";
     int                      files  = 0;
     std::vector<std::string> seenAllowed;
@@ -332,6 +334,7 @@ TEST( ModelingToolTargetCensus, NoModelingToolReadsTheEditableMeshItself )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

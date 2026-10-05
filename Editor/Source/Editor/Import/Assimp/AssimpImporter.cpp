@@ -1099,8 +1099,9 @@ namespace Desert::Editor
     {
         static const ScopedAssimpLogger logger;
         Assimp::Importer                importer;
-        // No post-processing: the kind is the scene's meshes and bones as the file states them.
-        const aiScene* scene = importer.ReadFile( path.string(), 0 );
+        // No post-processing: the kind is the scene's meshes and bones as the file states them. A relative
+        // source is read off the project (FullPath), the root every cooked output of it is written under.
+        const aiScene* scene = importer.ReadFile( Common::Constants::Path::FullPath( path ).string(), 0 );
         if ( scene == nullptr || scene->mRootNode == nullptr )
             return Common::MakeFormattedError<ImportContentKind>( "'{}' could not be read: {}", path.string(),
                                                                   importer.GetErrorString() );
@@ -1131,7 +1132,9 @@ namespace Desert::Editor
         const uint32_t readFlags = aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_CalcTangentSpace |
                                    aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights;
 
-        const aiScene* scene = importer.ReadFile( path.string(), readFlags );
+        // The source is read where its outputs are written: a relative path is off the project (FullPath),
+        // never off the process's working directory (ENG-ROOT).
+        const aiScene* scene = importer.ReadFile( Common::Constants::Path::FullPath( path ).string(), readFlags );
 
         if ( !scene || !scene->mRootNode )
         {

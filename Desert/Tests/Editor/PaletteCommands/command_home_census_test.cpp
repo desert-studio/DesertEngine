@@ -62,6 +62,8 @@ namespace
     constexpr const char* kAnimDocument =
          "Editor/Source/Editor/Panels/AnimationEditor/AnimationEditorDocument.cpp";
     constexpr const char* kLayer = "Editor/Source/EditorLayer.cpp";
+    constexpr const char* kPlay          = "Editor/Source/Editor/LevelEditor/PlaySession.cpp";
+    constexpr const char* kAssetCommands = "Editor/Source/Editor/Panels/FileExplorer/AssetCommands.cpp";
 } // namespace
 
 TEST( CommandHome, EveryCommandHasALabelUniqueInItsContext )
@@ -111,9 +113,10 @@ TEST( CommandHome, TheContentBrowserMenuRowsAreCommands )
 
 TEST( CommandHome, ThePaletteOffersEveryTable )
 {
+    const std::string assets = ReadFile( kAssetCommands );
+    EXPECT_NE( assets.find( "Editor::kContentBrowserCommandOrder" ), std::string::npos );
+    EXPECT_NE( assets.find( "&FileExplorerPanel::RunCommand" ), std::string::npos );
     const std::string layer = ReadFile( kLayer );
-    EXPECT_NE( layer.find( "Editor::kContentBrowserCommandOrder" ), std::string::npos );
-    EXPECT_NE( layer.find( "&FileExplorerPanel::RunCommand" ), std::string::npos );
     EXPECT_NE( layer.find( "Editor::kViewportCommandOrder" ), std::string::npos );
     EXPECT_NE( layer.find( "&Editor::ViewportPanel::RequestCommand" ), std::string::npos );
     // The document's palette actions are the transport commands (and so reach the channel as
@@ -153,11 +156,11 @@ TEST( CommandHome, PlayWorldCommandsHaveStableAddresses )
 
 TEST( CommandHome, ThePlaybackGroupRunsThePlayWorldCommands )
 {
-    const std::string layer = ReadFile( kLayer );
-    EXPECT_NE( layer.find( "Editor::kPlayWorldCommandOrder" ), std::string::npos ) << "the palette lost them";
-    const std::string group = FunctionBody( layer, "void EditorLayer::DrawPlaybackGroup(", "EditorLayer::" );
+    const std::string play = ReadFile( kPlay );
+    EXPECT_NE( play.find( "kPlayWorldCommandOrder" ), std::string::npos ) << "the palette lost them";
+    const std::string group = FunctionBody( play, "void PlaySession::DrawPlaybackGroup(", "PlaySession::" );
     ASSERT_FALSE( group.empty() );
-    for ( const char* body : { "OnScenePlay(", "SetState(", "m_PendingSceneStop", "RequestSingleFrame(" } )
+    for ( const char* body : { "Play(", "Stop(", "SetState(", "m_PendingStop", "RequestSingleFrame(" } )
         EXPECT_EQ( group.find( body ), std::string::npos ) << body << " is a second home of a play-world command";
     for ( const char* name : { "Play )", "PlayFromHere )", "NextFrame )", "Stop )" } )
         EXPECT_NE( group.find( std::string( "run( Command::" ) + name ), std::string::npos )
@@ -198,10 +201,10 @@ TEST( ContentBrowserNavigation, GoToFolderAndSyncToAssetCarryThePathAndCallTheBr
     EXPECT_EQ( ContentBrowserPathLabel( kSyncToAssetLabel, "Assets/Materials/Fox/fox_material.demat" ),
                "Sync to Asset Assets/Materials/Fox/fox_material.demat" );
 
-    const std::string layer = ReadFile( kLayer );
-    EXPECT_NE( layer.find( "&FileExplorerPanel::GoToFolder" ), std::string::npos );
-    EXPECT_NE( layer.find( "&FileExplorerPanel::SyncToAsset" ), std::string::npos );
-    EXPECT_NE( layer.find( "->ContentFiles()" ), std::string::npos ) << "every file, not the open folder's";
+    const std::string assets = ReadFile( kAssetCommands );
+    EXPECT_NE( assets.find( "&FileExplorerPanel::GoToFolder" ), std::string::npos );
+    EXPECT_NE( assets.find( "&FileExplorerPanel::SyncToAsset" ), std::string::npos );
+    EXPECT_NE( assets.find( "->ContentFiles()" ), std::string::npos ) << "every file, not the open folder's";
 
     const std::string browser = ReadFile( kFileExplorer );
     const std::string sync    = FunctionBody( browser, "FileExplorerPanel::SyncToAsset(", "FileExplorerPanel::" );

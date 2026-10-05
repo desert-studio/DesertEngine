@@ -18,11 +18,15 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceTexturePath.cpp",
         -- stb_image: SourceAlphaMode reads the base colour's header (stbi_info) for its channel count.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
+        -- TextureSourceAsset.cpp: the base colour may be the texture asset an embedded image was imported into;
+        -- the probe reads its carried source (Assets::ReadTextureSourceImage).
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
     }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",  -- <Editor/Import/Assimp/SourceAlphaMode.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source", -- <Engine/Assets/TextureSourceAsset.hpp>
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
     }
 

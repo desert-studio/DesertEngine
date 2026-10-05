@@ -57,7 +57,7 @@ namespace Desert::Editor::ThumbnailSubject
                  shaderName );
         }
 
-        const Core::Formats::ShaderDomain domain = shader->GetProgramMeta().Domain;
+        const ::Desert::Core::Formats::ShaderDomain domain = shader->GetProgramMeta().Domain;
 
         // The domain alone decides. A masked material is NOT flattened onto a card: it goes on the ball
         // like any other surface and the mesh path's alpha discard cuts it (StaticMeshPBR.shader).
@@ -74,9 +74,9 @@ namespace Desert::Editor::ThumbnailSubject
              "path executes only {} and the dome only {} and Skybox. Photographing it would write an empty frame "
              "and "
              "file it as the picture of this material",
-             shaderName, Core::Formats::ShaderDomainName( domain ),
-             Core::Formats::ShaderDomainName( Core::Formats::kMeshPathDomain ),
-             Core::Formats::ShaderDomainName( Core::Formats::kVolumePathDomain ) );
+             shaderName, ::Desert::Core::Formats::ShaderDomainName( domain ),
+             ::Desert::Core::Formats::ShaderDomainName( ::Desert::Core::Formats::kMeshPathDomain ),
+             ::Desert::Core::Formats::ShaderDomainName( ::Desert::Core::Formats::kVolumePathDomain ) );
     }
 
     Common::ResultStr<std::optional<Common::AssetHandle>> DomeSkyboxOf( const Common::AssetHandle& material )
@@ -95,7 +95,7 @@ namespace Desert::Editor::ThumbnailSubject
             return Common::MakeFormattedError<Answer>( "its template '{}' is not a registered shader",
                                                        shaderName );
         const auto& meta = shader->GetProgramMeta();
-        if ( meta.Domain != Core::Formats::ShaderDomain::Skybox )
+        if ( meta.Domain != ::Desert::Core::Formats::ShaderDomain::Skybox )
             return Common::MakeSuccess( Answer{} );
 
         // The FIRST cube property, as the Material Editor's ball wraps it: any Skybox-domain shader names its

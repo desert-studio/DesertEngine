@@ -25,6 +25,7 @@
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
 #include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Core/AssetOpen.hpp>
+#include <Editor/Core/DetailsNavigation.hpp>
 
 namespace Desert::Editor
 {
@@ -253,7 +254,10 @@ namespace Desert::Editor
                                  "(e.g. Speed, IsJumping). Pick one above, or make a new one." );
             ImGui::PopTextWrapPos();
             ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
-            if ( Utils::ImGuiUtilities::AccentButton( ICON_MDI_PLUS_CIRCLE "  New AnimGraph", 28.0f ) )
+            // The palette's "New AnimGraph" presses THIS button (DetailsNavigation): one handler, two routes.
+            const bool commanded = TakeDetailsActionRequest( "New AnimGraph" );
+            if ( Utils::ImGuiUtilities::AccentButton( ICON_MDI_PLUS_CIRCLE "  New AnimGraph", 28.0f ) ||
+                 commanded )
             {
                 CreateAnimGraphAsset( entity, animation, clips, assets );
             }

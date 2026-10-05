@@ -829,9 +829,9 @@ namespace Desert::Editor
             m_Setup.LightIntensity = 22.0f;
             // AND THE GRADE THAT SUN IS SEEN THROUGH, on the same terms and from the same file: 0.26 is
             // what fifty of the fifty-one cloud scenes in this repository author, Clouds_ShadowsOnGround
-            // among them. The pane's own default of 1.0 is Core::PostProcessSettings' struct default and was
-            // never a decision; leaving it there made the preview 78 of 255 brighter on average than any
-            // level that would ship the material. See SceneSetup::Exposure.
+            // among them. The pane's own default of 1.0 is ::Desert::Core::PostProcessSettings' struct default and
+            // was never a decision; leaving it there made the preview 78 of 255 brighter on average than any level
+            // that would ship the material. See SceneSetup::Exposure.
             m_Setup.Exposure = kDomeExposure;
         }
 

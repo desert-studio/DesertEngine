@@ -13,6 +13,7 @@
 
 #include <filesystem>
 #include <string>
+#include "../../TestSupport/engine_dir.hpp"
 
 using namespace Desert::Assets::Serialization;
 
@@ -202,6 +203,7 @@ TEST( FoliageTypeAsset, TheKindHasItsOneRegistryRow )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

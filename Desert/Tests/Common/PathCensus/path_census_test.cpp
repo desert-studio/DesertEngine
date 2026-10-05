@@ -12,6 +12,8 @@
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 
+#include "../../TestSupport/engine_dir.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -22,6 +24,7 @@
 #include <sstream>
 #include <optional>
 #include <string>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace Path = Common::Constants::Path;
 namespace fs   = std::filesystem;
@@ -104,7 +107,8 @@ TEST( PathCensus, NoRowSurvivesARemapPointingAtThePreviousProject )
 
 TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard                    guard;
+    const Desert::TestSupport::EngineDirScope engineDir;
     Path::ResetToSandbox();
 
     // Byte-for-byte the spellings the engine shipped with before the census existed. Every asset
@@ -140,7 +144,8 @@ TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
                    "a census row was added without pinning its sandbox spelling here" );
 
     for ( const auto& [view, spelling] : expected )
-        EXPECT_EQ( view->generic_string(), spelling );
+        // The sandbox IS engine content: each spelling is read off the engine directory, never the working one.
+        EXPECT_EQ( view->generic_string(), ( Path::EngineDir() / spelling ).generic_string() );
 }
 
 TEST( PathCensus, ANamedViewIsTheCensusRowItNames )
@@ -270,18 +275,10 @@ TEST( PathCensus, TheInverseRefusesAPathOutsideTheRowAndKeepsACallerRelativeFram
 
 namespace
 {
-    // The checkout root: the nearest ancestor of the working directory holding `.gitignore` and `Desert/`.
+    // The checkout, baked by the build (DESERT_TEST_REPO_ROOT).
     std::optional<fs::path> RepoRoot()
     {
-        std::error_code ec;
-        for ( fs::path here = fs::current_path( ec ); !here.empty(); here = here.parent_path() )
-        {
-            if ( fs::exists( here / ".gitignore", ec ) && fs::exists( here / "Desert", ec ) )
-                return here;
-            if ( here == here.parent_path() )
-                break;
-        }
-        return std::nullopt;
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadText( const fs::path& file )
@@ -331,7 +328,7 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
 
     const auto root = RepoRoot();
     ASSERT_TRUE( root.has_value() ) << "run from inside the checkout (no .gitignore + Desert/ above "
-                                    << fs::current_path().generic_string() << ")";
+                                    << Desert::TestSupport::RepositoryRoot().generic_string() << ")";
 
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the ASSERT above returns on nullopt
     const fs::path& repo = root.value();
@@ -402,6 +399,7 @@ TEST( PathCensus, NoAuthoredDocumentReferencesAFileUnderACookedFolder )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

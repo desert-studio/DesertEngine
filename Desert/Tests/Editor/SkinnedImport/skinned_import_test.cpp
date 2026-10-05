@@ -25,6 +25,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -35,6 +36,7 @@
 
 #include "../../TestSupport/assets_sandbox.hpp"
 #include "../../TestSupport/derived_data_sandbox.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -181,10 +183,9 @@ namespace
         // seam the registry uses (read from the repository root, before the sandbox moves the process).
         static void SetUpTestSuite()
         {
-            // Parsing a template resolves its `ShadingModel` through the engine's shader root, found against
-            // the working directory: the reads below work from the engine resources, as the editor does.
-            const TestSupport::EngineResourcesWorkingDirectory engineResources;
-            ASSERT_TRUE( engineResources.Error().empty() ) << engineResources.Error();
+            // Parsing a template resolves its `ShadingModel` through the engine's shader root, which hangs off
+            // the engine directory the build baked in.
+            const TestSupport::EngineDirScope   engineDir;
             std::vector<Editor::ImportTemplate> shipped;
             for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader",
                                        "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )
@@ -202,8 +203,10 @@ namespace
         void SetUp() override
         {
             Assets::ContentRegistry::ResetForTest();
-            std::filesystem::create_directories( m_Source.parent_path() );
-            std::ofstream( m_Source, std::ios::binary ) << MockGltf();
+            // The source is written where the engine reads a relative path: off the project (the sandbox).
+            const std::filesystem::path onDisk = Common::Constants::Path::FullPath( m_Source );
+            std::filesystem::create_directories( onDisk.parent_path() );
+            std::ofstream( onDisk, std::ios::binary ) << MockGltf();
 
             m_Before  = Assets::ContentRegistry::WriteSerial();
             m_Outcome = ImportManager().ImportWithSettings( m_Source, Assets::SourceImportSettings{} );
@@ -377,13 +380,19 @@ TEST_F( SkinnedImport, EveryFileTheImportWroteTracesBackToItsSource )
 }
 
 // THM1l-b19: the texture EMBEDDED in the file ("*0" to assimp, a data-URI image here, a bufferView image in a
-// .glb) is written out beside the source as a texture of its own and the material names it. Live on Fox.glb:
-// "texture '*0' (type 1) NOT FOUND" and the fox drew white.
-TEST_F( SkinnedImport, TheEmbeddedBaseColourIsWrittenBesideTheSource )
+// .glb) is imported as a texture ASSET of its own beside the source (UE Interchange: a UTexture2D in the import
+// folder) and the material names it. Live on Fox.glb: "texture '*0' (type 1) NOT FOUND" and the fox drew white.
+// TAIL-TEX: no bare image is written into the content for it — the asset carries the bytes.
+TEST_F( SkinnedImport, TheEmbeddedBaseColourIsImportedAsATextureAssetBesideTheSource )
 {
-    const std::filesystem::path extracted =
+    const std::filesystem::path asset = m_Source.parent_path() / std::format( "{}_0{}", m_Source.stem().string(),
+                                                                              Assets::kTextureAssetExtension );
+    EXPECT_TRUE( Assets::IsTextureSourceAssetFile( Common::Constants::Path::FullPath( asset ) ) )
+         << asset.string();
+    const std::filesystem::path image =
          m_Source.parent_path() / std::format( "{}_0.png", m_Source.stem().string() );
-    EXPECT_TRUE( std::filesystem::exists( extracted ) ) << extracted.string();
+    EXPECT_FALSE( std::filesystem::exists( Common::Constants::Path::FullPath( image ) ) )
+         << image.string() << ": a source without an asset was left in the content";
 }
 
 // THM1l-b21: THE SKINNED MESH NAMES ITS MATERIAL AS THE STATIC ONE DOES: every .skmesh submesh states the GUID of
@@ -395,8 +404,8 @@ TEST_F( SkinnedImport, TheSkinnedMeshNamesTheMaterialTheImportWrote )
                                               m_Outcome.WrittenMeshes.front().string() );
     ASSERT_TRUE( mesh.IsSuccess() ) << mesh.GetError();
     const std::filesystem::path demat = Editor::MaterialAdoption::MaterialAssetPath( m_Source, "Skin" );
-    const auto                  header =
-         Common::Content::ReadAssetHeader( demat, Common::Content::AssetHeaderReadContext{ {}, true } );
+    const auto header = Common::Content::ReadAssetHeader( Common::Constants::Path::FullPath( demat ),
+                                                          Common::Content::AssetHeaderReadContext{ {}, true } );
     ASSERT_TRUE( header.IsSuccess() ) << demat.string() << ": " << header.GetError();
     ASSERT_FALSE( mesh.GetValue().Submeshes.empty() );
     for ( const auto& submesh : mesh.GetValue().Submeshes )
@@ -595,8 +604,9 @@ namespace
 
     std::filesystem::path WriteSource( const std::filesystem::path& path, const std::string& tipName = "Tip" )
     {
-        std::filesystem::create_directories( path.parent_path() );
-        std::ofstream( path, std::ios::binary | std::ios::trunc ) << MockGltf( tipName );
+        const std::filesystem::path onDisk = Common::Constants::Path::FullPath( path );
+        std::filesystem::create_directories( onDisk.parent_path() );
+        std::ofstream( onDisk, std::ios::binary | std::ios::trunc ) << MockGltf( tipName );
         return path;
     }
 } // namespace
@@ -669,7 +679,7 @@ TEST_F( SkinnedImport, ARepeatedRunReimportsNothingUntilTheSourceBytesChange )
     EXPECT_EQ( ImportManager().Import( second ), Editor::CookVerdict::UpToDate )
          << "an unchanged source imported onto another file's skeleton was re-imported";
 
-    std::ofstream( m_Source, std::ios::binary | std::ios::app ) << "\n";
+    std::ofstream( Common::Constants::Path::FullPath( m_Source ), std::ios::binary | std::ios::app ) << "\n";
     EXPECT_EQ( ImportManager().Import( m_Source ), Editor::CookVerdict::Cooked )
          << "a source whose bytes changed was taken as up to date";
 }
@@ -695,7 +705,8 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
     copy.Header->Guid = otherText;
     copy.PreviewMesh.reset();
     const std::filesystem::path otherFile = "Resources/Assets/Mock/RigOther.skeleton";
-    std::ofstream( otherFile, std::ios::binary | std::ios::trunc ) << Ser::WriteSkeletonJson( copy );
+    std::ofstream( Common::Constants::Path::FullPath( otherFile ), std::ios::binary | std::ios::trunc )
+         << Ser::WriteSkeletonJson( copy );
     Assets::ContentRegistry::Update( otherFile );
     ASSERT_TRUE( Assets::ContentRegistry::RigRow( other ).has_value() )
          << "precondition: the registry does not know the other skeleton";
@@ -722,10 +733,10 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
 // changes, appears or disappears. Before the migrator step the record stated no SourceHash, and the first start
 // re-imported the file and rewrote the committed outputs (-0.0 in the rig, a new GUID in the record). Mutation:
 // ImportManager.cpp SkinnedImportIsFresh returning false => Cooked, the folder rewritten => red here. Mutation:
-// delete SourceHash from Editor/Resources/Assets/Meshes/TwoJointProbe.gltf.deimport => red here.
+// delete SourceHash from Desert/Tests/Data/Resources/Assets/Meshes/TwoJointProbe.gltf.deimport => red here.
 TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesNothing )
 {
-    const std::filesystem::path corpus = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes";
+    const std::filesystem::path        corpus = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes";
     const std::vector<std::string>     files = { "TwoJointProbe.gltf", "TwoJointProbe.gltf.deimport",
                                                  "TwoJointProbe.skmesh", "TwoJointProbe.skeleton",
                                                  "TwoJointProbe_ArmSwing.anim" };
@@ -741,19 +752,21 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
     const TestSupport::DerivedDataSandbox derivedData{ "SkinnedImportCorpus" };
     const TestSupport::AssetsSandbox      sandbox{ "SkinnedImportCorpus", {} };
     const std::filesystem::path           folder = "Resources/Assets/Meshes";
-    std::filesystem::create_directories( folder );
+    const std::filesystem::path           onDisk = Common::Constants::Path::FullPath( folder );
+    std::filesystem::create_directories( onDisk );
     for ( const auto& [name, bytes] : committed )
-        std::ofstream( folder / name, std::ios::binary ) << bytes;
+        std::ofstream( onDisk / name, std::ios::binary ) << bytes;
 
     EXPECT_EQ( Editor::ImportManager().Import( folder / "TwoJointProbe.gltf" ), Editor::CookVerdict::UpToDate )
          << "the committed import of TwoJointProbe.gltf was taken as stale";
 
     std::map<std::string, std::string> after;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources" ) )
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( Common::Constants::Path::FullPath( "Resources" ) ) )
         if ( entry.is_regular_file() )
         {
             std::ifstream in( entry.path(), std::ios::binary );
-            after[entry.path().lexically_relative( folder ).generic_string()] =
+            after[entry.path().lexically_relative( onDisk ).generic_string()] =
                  std::string{ std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
         }
     EXPECT_EQ( after.size(), committed.size() ) << "the import added or removed a file";
@@ -847,6 +860,9 @@ TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
 
 int main( int argc, char** argv )
 {
+    // The host step (as the editor takes it in Sandbox.hpp): every engine path read after it answers off
+    // the checkout's engine directory, never off the working directory.
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

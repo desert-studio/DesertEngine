@@ -20,8 +20,11 @@
 //      shape VulkanShader turns into a VkDescriptorSetLayout. The number this produces is the number
 //      the validation layer compares, so a shader that gains a binding is visible here first.
 
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
+#include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
@@ -59,6 +62,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 using Desert::Core::CollectShaderIncludes;
@@ -68,24 +72,21 @@ using namespace Desert::Graphic::API::Vulkan;
 
 namespace
 {
-    // The engine resolves `#include <...>` against Common::Constants::Path::SHADERDIR_PATH, which is
-    // relative ("Resources/Shaders/"). The editor runs with its own directory as the working one; the
-    // test does the same so the include walk resolves the same files the runtime would.
+    // The engine resolves `#include <...>` against Common::Constants::Path::ShaderDir(), derived from the engine
+    // directory the host sets. The suite is that host: it sets the checkout's Editor/ and reads every shader
+    // path off ShaderDir(), never off the working directory.
     struct ShaderRootFixture : ::testing::Test
     {
         static void SetUpTestSuite()
         {
             // The test binary lives in build/Bin/Tests/<config>; the shader root is Editor/Resources.
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
 
             s_RepoRoot = here;
             ASSERT_TRUE( std::filesystem::exists( s_RepoRoot / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+                 << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
-            std::filesystem::current_path( s_RepoRoot / "Editor" );
+            Common::Constants::Path::SetEngineDir( s_RepoRoot / "Editor" );
         }
 
         static std::filesystem::path s_RepoRoot;
@@ -103,7 +104,7 @@ namespace
 
     std::filesystem::path ShaderPath( const char* relative )
     {
-        return std::filesystem::path( "Resources/Shaders/Programs" ) / relative;
+        return ( Common::Constants::Path::ShaderDir() / "Programs" ) / relative;
     }
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser — the same string
@@ -132,48 +133,12 @@ namespace
         return it == stages->end() ? std::string{} : it->second;
     }
 
-    // Resolves `#include <...>` exactly as ShaderIncluder does, so the SPIR-V under test is the SPIR-V
-    // the engine compiles.
-    class Includer final : public shaderc::CompileOptions::IncluderInterface
-    {
-    public:
-        shaderc_include_result* GetInclude( const char* requested, shaderc_include_type type,
-                                            const char* requesting, size_t ) override
-        {
-            const std::filesystem::path full =
-                 type == shaderc_include_type_relative
-                      ? ( std::filesystem::path( requesting ).parent_path() / requested ).lexically_normal()
-                      : ( Common::Constants::Path::SHADERDIR_PATH / requested ).lexically_normal();
-
-            auto* name = new std::string( full.string() );
-            auto* body =
-                 new std::string( Desert::Core::Preprocess::DShaderParser::TranslateSugar( ReadFile( full ) ) );
-
-            auto* result               = new shaderc_include_result;
-            result->source_name        = name->c_str();
-            result->source_name_length = name->size();
-            result->content            = body->c_str();
-            result->content_length     = body->size();
-            result->user_data          = new std::pair<std::string*, std::string*>( name, body );
-            return result;
-        }
-
-        void ReleaseInclude( shaderc_include_result* data ) override
-        {
-            auto* pair = static_cast<std::pair<std::string*, std::string*>*>( data->user_data );
-            delete pair->first;
-            delete pair->second;
-            delete pair;
-            delete data;
-        }
-    };
-
     std::vector<uint32_t> CompileStage( const std::string& source, const std::filesystem::path& path,
                                         shaderc_shader_kind kind )
     {
         shaderc::Compiler       compiler;
         shaderc::CompileOptions options;
-        options.SetIncluder( std::make_unique<Includer>() );
+        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
         options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
         options.SetWarningsAsErrors();
 
@@ -300,7 +265,7 @@ namespace
     struct ScopedHeader
     {
         explicit ScopedHeader( std::string body )
-             : Path( std::filesystem::path( "Resources/Shaders/Common" ) / "CacheKeyTestScratch.glslh" )
+             : Path( ( Common::Constants::Path::ShaderDir() / "Common" ) / "CacheKeyTestScratch.glslh" )
         {
             Write( std::move( body ) );
         }
@@ -527,9 +492,6 @@ TEST_F( ShaderRootFixture, SubstitutingTheShippedMediumMovesTheKeyOfTheRealCloud
 
 namespace
 {
-    // Captured during static initialisation, before any fixture moves the working directory, so a
-    // relative argv[0] still resolves.
-    const std::filesystem::path kStartDirectory = std::filesystem::current_path();
 
     constexpr const char* kPrintKeysFlag = "--print-shader-keys";
     constexpr const char* kKeyLinePrefix = "SHADERKEY ";
@@ -585,7 +547,7 @@ namespace
     {
         std::filesystem::path self( ::testing::internal::GetArgvs().at( 0 ) );
         if ( self.is_relative() )
-            self = kStartDirectory / self;
+            self = std::filesystem::absolute( self );
         // Double quotes: cmd.exe does not treat single quotes as quoting, POSIX sh accepts both.
         const std::string command =
              std::format( "\"{}\" --gtest_filter=ShaderRootFixture.PrintsTheKeysForAnotherProcess {} 2>&1",
@@ -1266,7 +1228,7 @@ namespace
     std::vector<std::filesystem::path> ShadersWithAGeneratedMaterialRow()
     {
         std::vector<std::filesystem::path> out;
-        const auto                         root = std::filesystem::path( "Resources/Shaders/Programs" );
+        const auto                         root = ( Common::Constants::Path::ShaderDir() / "Programs" );
         if ( !std::filesystem::exists( root ) )
             return out;
 
@@ -2015,7 +1977,7 @@ namespace
     std::vector<std::filesystem::path> ShippedShaderFiles()
     {
         std::vector<std::filesystem::path> files;
-        const std::filesystem::path        root = "Resources/Shaders";
+        const std::filesystem::path        root = Common::Constants::Path::ShaderDir();
         if ( std::filesystem::exists( root ) )
             for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
                 if ( entry.is_regular_file() && entry.path().extension() == ".shader" )
@@ -2111,7 +2073,7 @@ TEST_F( ShaderRootFixture, TheBrokenShaderFixtureStillDoesNotCompile )
     // success, which is exactly wrong here.
     shaderc::Compiler       compiler;
     shaderc::CompileOptions options;
-    options.SetIncluder( std::make_unique<Includer>() );
+    options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( fixture ) );
     options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
     options.SetWarningsAsErrors();
 
@@ -2297,54 +2259,6 @@ namespace
          "Clouds/CloudRaymarch.shader", "Clouds/CloudShadowMap.shader", "Clouds/CloudSkyOcclusionVolume.shader",
          "Compute/BakeProceduralSky.shader" };
 
-    // shaderc's includer, resolving one name from a variant and everything else from disk — the same
-    // arrangement Core::ShaderIncluder has, narrowed to what a test needs. The suite's own Includer reads
-    // only the file system, so a substituted medium would silently compile the shipped one.
-    class SubstitutingIncluder final : public shaderc::CompileOptions::IncluderInterface
-    {
-    public:
-        SubstitutingIncluder( std::string name, std::string body )
-             : m_Name( std::move( name ) ), m_Body( std::move( body ) )
-        {
-        }
-
-        shaderc_include_result* GetInclude( const char* requested, shaderc_include_type type,
-                                            const char* requesting, size_t ) override
-        {
-            const bool substituted = ( type == shaderc_include_type_standard && m_Name == requested );
-
-            const std::filesystem::path full =
-                 type == shaderc_include_type_relative
-                      ? ( std::filesystem::path( requesting ).parent_path() / requested ).lexically_normal()
-                      : ( Common::Constants::Path::SHADERDIR_PATH / requested ).lexically_normal();
-
-            auto* name = new std::string( full.string() );
-            auto* body = new std::string( Desert::Core::Preprocess::DShaderParser::TranslateSugar(
-                 substituted ? m_Body : ReadFile( full ) ) );
-
-            auto* result               = new shaderc_include_result;
-            result->source_name        = name->c_str();
-            result->source_name_length = name->size();
-            result->content            = body->c_str();
-            result->content_length     = body->size();
-            result->user_data          = new std::pair<std::string*, std::string*>( name, body );
-            return result;
-        }
-
-        void ReleaseInclude( shaderc_include_result* data ) override
-        {
-            auto* pair = static_cast<std::pair<std::string*, std::string*>*>( data->user_data );
-            delete pair->first;
-            delete pair->second;
-            delete pair;
-            delete data;
-        }
-
-    private:
-        std::string m_Name;
-        std::string m_Body;
-    };
-
     // Compiles one consumer's compute stage with @p mediumBody standing in for the medium include, then
     // reflects it. Returns the reflection's diagnostics and, through @p data, the layout it built.
     //
@@ -2361,8 +2275,12 @@ namespace
 
         shaderc::Compiler       compiler;
         shaderc::CompileOptions options;
-        options.SetIncluder(
-             std::make_unique<SubstitutingIncluder>( Desert::Graphic::kCloudMediumInclude, mediumBody ) );
+        // The engine's own includer with the medium as the variant's virtual source — the arrangement a cloud
+        // material's compile has, so a substituted medium is the one compiled and every other include (the
+        // generated shading-model dispatch among them) is answered exactly as the engine answers it.
+        Desert::Core::ShaderVariant variant;
+        variant.VirtualSources.push_back( { std::string( Desert::Graphic::kCloudMediumInclude ), mediumBody } );
+        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path, std::move( variant ) ) );
         options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
         options.SetWarningsAsErrors();
 
@@ -2601,6 +2519,7 @@ TEST_F( ShaderRootFixture, EveryShippedProgramsMetadataIsTheSameAfterTheShaderMa
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
@@ -2724,7 +2643,8 @@ TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
     namespace Preprocess = Desert::Core::Preprocess;
     size_t      files = 0, stages = 0;
     std::string failures;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders" ) )
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( Common::Constants::Path::ShaderDir() ) )
     {
         if ( entry.path().extension() != ".shader" )
             continue;
@@ -2802,7 +2722,8 @@ TEST_F( ShaderRootFixture, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
     // the parser) or, for the hand-written terrain, DefaultLit's generated define; both lighting passes call the
     // two dispatchers; and no shipped pass names Unlit's index or keeps the old hand-written table.
     namespace SM = Desert::Core::ShadingModels;
-    EXPECT_FALSE( std::filesystem::exists( "Resources/Shaders/Mesh/Surface/ShadingModels.glslh" ) )
+    EXPECT_FALSE(
+         std::filesystem::exists( Common::Constants::Path::ShaderDir() / "Mesh/Surface/ShadingModels.glslh" ) )
          << "the hand-written shading-model table is back beside the generated one";
 
     struct User
@@ -2823,7 +2744,7 @@ TEST_F( ShaderRootFixture, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
     };
     for ( const User& user : users )
     {
-        const auto source = ReadFile( user.File );
+        const auto source = ReadFile( Common::Constants::Path::EngineDir() / user.File );
         ASSERT_FALSE( source.empty() ) << user.File;
         EXPECT_NE( source.find( std::format( "<{}>", SM::kGeneratedInclude ) ), std::string::npos )
              << user.File << " does not include the generated shading-model dispatch";
@@ -2846,9 +2767,11 @@ TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
     const auto  held   = SM::ShaderRootShadingModels();
     const auto& models = *held;
     ASSERT_TRUE( models.IsSuccess() ) << models.GetError();
-    const auto header = std::filesystem::path( "Resources/Shaders" ) / SM::kGeneratedInclude;
-    const auto text   = ReadFile( header );
-    EXPECT_EQ( text, models.GetValue().GeneratedGlsl ) << header.string() << " is not the loaded set's text";
+    // The include is VIRTUAL (UE /Engine/Generated/): the includer serves the set's text and nothing is written
+    // into the engine resource tree. Mutation: write GeneratedGlsl to SHADERDIR_PATH / kGeneratedInclude again.
+    const auto header = Common::Constants::Path::SHADERDIR_PATH / SM::kGeneratedInclude;
+    EXPECT_FALSE( std::filesystem::exists( header ) ) << header.string() << " was written into the shader root";
+    const std::string& text = models.GetValue().GeneratedGlsl;
 
     std::map<std::string, int> defined; // every SHADING_MODEL_INDEX_* the header defines, by name
     std::istringstream         lines( text );

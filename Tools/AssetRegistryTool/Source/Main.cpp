@@ -20,10 +20,12 @@
 // its row is current (same size and modification time), exactly as in the editor; a mesh's box comes from
 // its 64-byte header.
 //
-// RUN IT FROM THE DIRECTORY THE ENGINE RUNS FROM — the one that holds `Resources/`. Engine resource
-// roots are never remapped by a project and so resolve against the working directory; the tool refuses
-// rather than silently cooking a registry with no shaders in it.
+// IT FINDS THE ENGINE FROM ITS OWN EXECUTABLE (UE: FPaths::EngineDir), never from the working directory:
+// Tools/Shared/ToolEngineDir.hpp, the resolver the editor uses. No engine directory found, or one without
+// its shaders, is a refusal naming the paths — a registry gathered without the engine's shader rows would
+// be a silent partial answer about the file the whole boot depends on.
 
+#include <ToolEngineDir.hpp>
 #include <ToolMain.hpp>
 
 #include <Common/Content/ContentScan.hpp>
@@ -74,24 +76,20 @@ namespace
         const fs::path projectDir = fs::absolute( projectPath ).parent_path().lexically_normal();
         Common::Constants::Path::SetProjectRoot( projectDir, project.GetValue().AssetsRoot );
 
-        // AND THE WORKING DIRECTORY HAS TO BE THE ENGINE'S, which is a refusal rather than a note.
-        //
-        // `SetProjectRoot` moves every PROJECT root and leaves the ENGINE resource roots alone, by
-        // design (Constants.hpp: "Engine resources are never remapped"). Those are relative paths —
-        // `Resources/Shaders/` — so they resolve against the process's working directory, and both
-        // hosts `cd` into the directory that holds them before starting (scripts/MacOS/RunEditor.sh).
-        // A cook run from anywhere else finds no shaders, writes a registry with 76 rows missing, and
-        // exits 0: a silent partial answer about the one file the whole boot now depends on. Measured
-        // while building this — the first cook produced 171 rows instead of 247.
+        // AND THE ENGINE'S OWN ROOTS, which `SetProjectRoot` leaves alone by design (Constants.hpp:
+        // "Engine resources are never remapped"). They come from the executable's position, never from the
+        // working directory; a cook without them wrote a registry with 76 shader rows missing and exited 0
+        // (171 rows instead of 247), so a missing shader directory is a refusal, not a note.
+        if ( const std::string refused = Desert::Tools::SetEngineDirFromExecutable( {} ); !refused.empty() )
+            return Common::MakeFormattedError<fs::path>( "no engine directory: {}", refused );
+
         std::error_code shaderEc;
-        if ( !fs::is_directory( Common::Constants::Path::SHADERDIR_PATH, shaderEc ) )
+        if ( !fs::is_directory( Common::Constants::Path::ShaderDir(), shaderEc ) )
         {
             return Common::MakeFormattedError<fs::path>(
-                 "'{}' does not exist from the current directory. Engine resources are never remapped by "
-                 "the project, so they resolve against the WORKING DIRECTORY — run this tool from the "
-                 "same directory the editor runs from (the one that holds Resources/), or the registry "
-                 "would be written without a single shader row",
-                 Common::Constants::Path::SHADERDIR_PATH.string() );
+                 "the engine directory {} has no shader directory {} — the registry would be written "
+                 "without a single shader row",
+                 Common::Constants::Path::EngineDir().string(), Common::Constants::Path::ShaderDir().string() );
         }
 
         return Common::MakeSuccess( fs::path( projectDir ) );

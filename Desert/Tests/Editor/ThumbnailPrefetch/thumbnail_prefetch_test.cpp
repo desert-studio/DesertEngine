@@ -307,7 +307,8 @@ TEST( ThumbnailPrefetch, NothingSweepsTheProjectForInvisibleAssets )
     EXPECT_NE( panel.find( "ThumbnailPrefetch::Get().Request(" ), std::string::npos )
          << "the Content Browser no longer hands its folder's cached pictures to the worker decode";
 
-    const std::string layer = ReadFile( std::format( "{}Editor/Source/EditorLayer.cpp", root ) );
+    const std::string layer =
+         ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
     EXPECT_NE(
          layer.find(
@@ -381,18 +382,16 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
     EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )
          << "the splash upload does not go through the cache the tiles draw from";
 
-    const std::string layer = ReadFile( std::format( "{}Editor/Source/EditorLayer.cpp", root ) );
+    const std::string layer =
+         ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
     EXPECT_NE(
          layer.find( "            ThumbnailService::TickDiskAndDecode();\n        UploadSplashThumbnails();\n" ),
          std::string::npos )
          << "the per-frame thumbnail pump no longer runs the splash upload pass";
-    EXPECT_NE( layer.find( "m_FileExplorerPanel->UploadPrefetchedThumbnails()" ), std::string::npos );
-    EXPECT_NE(
-         layer.find(
-              "                ThumbnailService::TickDiskAndDecode();\n            SampleFrameQuiescence();\n"
-              "            return BOOLSUCCESS;" ),
-         std::string::npos )
+    EXPECT_NE( layer.find( "m_FileExplorer->UploadPrefetchedThumbnails()" ), std::string::npos );
+    EXPECT_NE( layer.find( "            ThumbnailService::TickDiskAndDecode();\n        return true;\n" ),
+               std::string::npos )
          << "the startup stages no longer tick the worker decode";
     EXPECT_NE( layer.find( "state.ThumbnailsUploading = m_ThumbnailsHoldReveal;" ), std::string::npos );
 }

@@ -4,7 +4,6 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <format>
-#include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -16,28 +15,6 @@ namespace Desert::Core::ShadingModels
     {
         using LoadResult = Common::ResultStr<LoadedShadingModels>;
 
-        // Writes the generated include only when its bytes differ, so an unchanged set never touches the file's
-        // write time (the per-process shader file cache compares it). The comparison reads through the VFS: in
-        // a packaged game the include is the cooked copy in the pak and matches, so the player's install is
-        // never written to.
-        std::string WriteIfChanged( const std::filesystem::path& path, const std::string& text )
-        {
-            const auto current = Common::Utils::FileSystem::ReadFileContentIfExists( path );
-            if ( current.IsSuccess() )
-            {
-                const std::optional<std::string>& bytes = current.GetValue();
-                if ( bytes.has_value() && *bytes == text )
-                    return {};
-            }
-            std::ofstream out( path, std::ios::binary | std::ios::trunc );
-            out << text;
-            out.close();
-            if ( !out )
-                return std::format( "{}: cannot write the generated shading-model include",
-                                    path.generic_string() );
-            return {};
-        }
-
         LoadResult Load( const std::filesystem::path& shaderRoot )
         {
             auto registry = ShadingModelRegistry::Scan( shaderRoot );
@@ -48,9 +25,6 @@ namespace Desert::Core::ShadingModels
             loaded.Registry       = registry.ExtractValue();
             loaded.GeneratedGlsl  = loaded.Registry.GenerateGlsl();
             loaded.IndexLayoutKey = loaded.Registry.IndexLayoutKey();
-            if ( const std::string error = WriteIfChanged( shaderRoot / kGeneratedInclude, loaded.GeneratedGlsl );
-                 !error.empty() )
-                return Common::MakeError<LoadedShadingModels>( error );
             return Common::MakeSuccess( std::move( loaded ) );
         }
     } // namespace
@@ -93,7 +67,7 @@ namespace Desert::Core::ShadingModels
         const std::filesystem::path root = CurrentRoot();
         RootSets&                   sets = Sets();
         // Under the lock for the whole scan: two reloads (or a first load racing a reload) must not write
-        // kGeneratedInclude twice from two different sets.
+        // two different sets into one slot.
         const std::lock_guard lock( sets.Mutex );
         auto                  loaded = std::make_shared<const LoadResult>( Load( root ) );
         if ( !loaded->IsSuccess() )

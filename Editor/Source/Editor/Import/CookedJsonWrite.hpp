@@ -3,6 +3,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp> // BOOLSUCCESS
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -52,8 +53,10 @@ namespace Desert::Editor
     {
         static const std::regex illegal( R"([<>:"/\\|?*])" );
 
+        // The folder is made where the atomic write lands: a relative key is off the project (FullPath),
+        // never the working directory.
         std::error_code ec;
-        std::filesystem::create_directories( path.parent_path(), ec );
+        std::filesystem::create_directories( Common::Constants::Path::FullPath( path ).parent_path(), ec );
 
         const std::filesystem::path fixedPath =
              path.parent_path() / std::regex_replace( path.filename().string(), illegal, "_" );

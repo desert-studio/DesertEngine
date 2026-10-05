@@ -37,7 +37,8 @@ namespace
     constexpr const char* kGateHeader    = "Desert/Desert/Source/Engine/Assets/ContentGate.hpp";
     constexpr const char* kRuntimeLayer  = "Runtime/Source/RuntimeLayer.cpp";
     constexpr const char* kRuntimeHeader = "Runtime/Source/RuntimeLayer.hpp";
-    constexpr const char* kEditorLayer   = "Editor/Source/EditorLayer.cpp";
+    // The editor's ContentGate lives in its startup (EDL-7 moved it out of EditorLayer.cpp).
+    constexpr const char* kEditorHost = "Editor/Source/Editor/LevelEditor/EditorStartup.cpp";
 
     std::string RepoRoot()
     {
@@ -229,7 +230,7 @@ TEST( RuntimeLoadingState, BothHostsTickTheGateWithBothCounters )
     const std::regex tick( R"(m_Content\.Tick\(\s*work\.Outstanding\s*,\s*work\.Started\s*\))" );
     const std::regex gathered( R"(work\s*=\s*Assets::ContentWorkNow\(\))" );
 
-    for ( const char* layer : { kEditorLayer, kRuntimeLayer } )
+    for ( const char* layer : { kEditorHost, kRuntimeLayer } )
     {
         const std::string source = WithoutComments( ReadFile( root + layer ) );
         ASSERT_FALSE( source.empty() ) << layer << " could not be read";
@@ -255,7 +256,7 @@ TEST( RuntimeLoadingState, NeitherHostKeepsItsOwnCopyOfTheRule )
     // OnUpdate. Both spellings of the first condition are forbidden in a host: the rule has one home.
     const std::regex reimplemented( R"(Outstanding\(\)\s*==\s*0)" );
 
-    for ( const char* layer : { kEditorLayer, kRuntimeLayer } )
+    for ( const char* layer : { kEditorHost, kRuntimeLayer } )
     {
         const std::string source = WithoutComments( ReadFile( root + layer ) );
         ASSERT_FALSE( source.empty() ) << layer << " could not be read";

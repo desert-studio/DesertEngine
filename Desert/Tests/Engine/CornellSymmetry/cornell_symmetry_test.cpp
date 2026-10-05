@@ -11,9 +11,9 @@
 //
 // The cause was in neither the geometry nor the shader but in the MATERIAL ASSET. Editor/Resources/
 // Assets/Materials/CB_Red.demat carried `RoughnessFactor 0.0` and `MetallicFactor 1.0` — a chrome
-// mirror — where its five CB_* siblings and the builder that authors them (EditorLayer::
-// BuildCornellShowcase -> CreatePBRMaterialAsset(..., red, 0.9f)) all say roughness 0.9 and no
-// metalness at all. A conductor has no diffuse lobe (`kd = (1 - F) * (1 - metalness)` in
+// mirror — where its five CB_* siblings and what their author asked for (CornellDemo.desce's
+// materials, held as data in Desert/Tests/Engine/MaterialRequestAgreement/CornellDemoMaterials.hpp) all say
+// roughness 0.9 and no metalness at all. A conductor has no diffuse lobe (`kd = (1 - F) * (1 - metalness)` in
 // Mesh/DirectLighting.glslh is identically zero at metalness 1) and a mirror's specular lobe only fires
 // where the eye lies in the reflected direction of the source, which for a delta light is nowhere. The
 // measured consequence, through the shipped text this suite compiles:

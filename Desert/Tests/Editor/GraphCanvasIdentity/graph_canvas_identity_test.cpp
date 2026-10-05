@@ -61,6 +61,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace G   = Desert::Animation::Graph;
 namespace GC  = Desert::Editor::Graph;
@@ -68,16 +70,11 @@ namespace SGF = Desert::Assets::Serialization::ShaderGraph;
 
 namespace
 {
+    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
+    // directory: a path built off it resolves the same wherever the runner was started.
     std::filesystem::path RepoRoot()
     {
-        std::filesystem::path prefix = ".";
-        for ( int up = 0; up < 8; ++up )
-        {
-            if ( std::filesystem::exists( prefix / "Desert/Common/Source/Common/Core/Constants.hpp" ) )
-                return prefix;
-            prefix /= "..";
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadAll( const std::filesystem::path& path )
@@ -442,10 +439,8 @@ TEST( GraphCanvasIdentity, TheFreshnessRuleIsOneRuleForBothGraphs )
 
 TEST( GraphCanvasIdentity, EveryCommittedAnimGraphPlansToTheSameCanvasTwice )
 {
-    const std::filesystem::path root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
-
-    const std::filesystem::path folder = root / "Editor/Resources/Assets/AnimGraphs";
+    // The committed anim graphs are TEST DATA (Desert/Tests/Data), not engine content: the engine ships none.
+    const std::filesystem::path folder = Desert::TestSupport::TestDataDir() / "Resources/Assets/AnimGraphs";
     ASSERT_TRUE( std::filesystem::exists( folder ) ) << folder.generic_string();
 
     std::vector<std::filesystem::path> files;
@@ -678,6 +673,7 @@ TEST( GraphCanvasIdentity, NeitherCanvasIsWrappedInAChildWindow )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

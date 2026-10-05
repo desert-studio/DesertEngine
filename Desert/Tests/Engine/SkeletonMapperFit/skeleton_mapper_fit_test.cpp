@@ -63,6 +63,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -72,8 +73,8 @@ namespace
     using Desert::Animation::LocalPose;
     using Desert::Animation::Skeleton;
 
-    constexpr const char* kRigPath  = "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
-    constexpr const char* kClipPath = "Editor/Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim";
+    constexpr const char* kRigPath  = "Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
+    constexpr const char* kClipPath = "Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim";
 
     // The probe limb. IK_Shoulder -> IK_Elbow -> IK_Hand is the only three-bone chain in the corpus, and
     // a limb is the thing a retargeter is judged on.
@@ -81,20 +82,11 @@ namespace
     constexpr const char* kMid  = "IK_Elbow";
     constexpr const char* kTip  = "IK_Hand";
 
-    std::string RepoRoot()
-    {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + kRigPath );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
-    }
+    // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
+    // from the working directory.
+    using Desert::TestSupport::TestDataDir;
 
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -106,7 +98,7 @@ namespace
 
     std::vector<BoneInfo> ProbeBones()
     {
-        const std::string raw = ReadFile( RepoRoot() + kRigPath );
+        const std::string raw = ReadFile( TestDataDir() / kRigPath );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kRigPath;
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -118,7 +110,7 @@ namespace
     Common::Content::AssetGuid SkeletonGuidOf( const std::string& relPath )
     {
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>(
-             ReadFile( RepoRoot() + relPath ) );
+             ReadFile( TestDataDir() / relPath ) );
         if ( !data.IsSuccess() )
             return {};
         const auto& header = data.GetValue().Header;
@@ -130,7 +122,7 @@ namespace
 
     Desert::Animation::AnimationClip ProbeClip()
     {
-        const std::string raw = ReadFile( RepoRoot() + kClipPath );
+        const std::string raw = ReadFile( TestDataDir() / kClipPath );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kClipPath;
         const auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -280,7 +272,6 @@ namespace
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, OurRigMapsOntoItselfUnchanged )
 {
-    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
 
     const auto bones = ProbeBones();
     ASSERT_EQ( bones.size(), 5u ) << "IKProbe.skeleton is the five-bone probe this suite was written for";
@@ -329,7 +320,6 @@ TEST( SkeletonMapperFit, OurRigMapsOntoItselfUnchanged )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, OurClipDrivesTheMappedRig )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton rig{ std::vector<BoneInfo>( bones ) };
@@ -476,7 +466,6 @@ namespace
 
 TEST( SkeletonMapperFit, LimbLengthErrorGrowsWithTheRestPoseDifference )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton source{ std::vector<BoneInfo>( bones ) };
@@ -542,7 +531,6 @@ TEST( SkeletonMapperFit, LimbLengthErrorGrowsWithTheRestPoseDifference )
 // idea even if the class is not reused.
 TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton source{ std::vector<BoneInfo>( bones ) };
@@ -620,10 +608,8 @@ TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
-    const std::string raw =
-         ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
+    const std::string raw = ReadFile( TestDataDir() / "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
     ASSERT_FALSE( raw.empty() );
     auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
     ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -633,7 +619,7 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
     const Skeleton target = ScaledRig( twoBones, 1.5F );
 
     const std::string clipRaw =
-         ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim" );
+         ReadFile( TestDataDir() / "Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim" );
     ASSERT_FALSE( clipRaw.empty() );
     const auto clipData = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( clipRaw );
     ASSERT_TRUE( clipData.IsSuccess() ) << clipData.GetError();
@@ -641,7 +627,7 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
     ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
     const auto clip = built.ExtractValue();
     ASSERT_FALSE( clip.Skeleton.IsNull() ) << "TwoBoneProbe_Wave.anim names no skeleton";
-    ASSERT_EQ( clip.Skeleton, SkeletonGuidOf( "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" ) );
+    ASSERT_EQ( clip.Skeleton, SkeletonGuidOf( "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" ) );
 
     JPH::Skeleton joltSource;
     JPH::Skeleton joltTarget;
@@ -712,7 +698,6 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, ScaleSurvivesADirectMapping )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton rig{ std::vector<BoneInfo>( bones ) };
@@ -759,7 +744,6 @@ TEST( SkeletonMapperFit, ScaleSurvivesADirectMapping )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton source{ std::vector<BoneInfo>( bones ) };
@@ -887,7 +871,6 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, ConvertingTheOutputBackToALocalPoseRoundTrips )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton rig{ std::vector<BoneInfo>( bones ) };
@@ -993,12 +976,10 @@ TEST( SkeletonMapperFit, AChildFirstRigIsLegalForUsAndRejectedByJolt )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, TheSourceRigMayBeLargerThanTheTargetAndJoltForbidsThat )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const Skeleton fiveBone( ProbeBones() );
 
-    const std::string raw =
-         ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
+    const std::string raw = ReadFile( TestDataDir() / "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
     ASSERT_FALSE( raw.empty() );
     auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
     ASSERT_TRUE( data.IsSuccess() ) << data.GetError();

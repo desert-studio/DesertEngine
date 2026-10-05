@@ -2413,7 +2413,7 @@ namespace Desert::Editor
         // row, a reset, an instance override and a control-channel `set` without a second implementation
         // of any of those.
         //
-        // THE NAMES ARE PREFIXED (Core::kCloudMediumOverridePrefix) AND THAT IS THE WHOLE SAFETY. Every
+        // THE NAMES ARE PREFIXED (::Desert::Core::kCloudMediumOverridePrefix) AND THAT IS THE WHOLE SAFETY. Every
         // write below lands in MaterialData under ShaderParam::Name, and the renderer reads the shipped
         // schema out of that same map by name — so an unprefixed medium property called `Coverage` would
         // silently retune the layer's bake. A GLSL identifier cannot contain the prefix's dot, so the two

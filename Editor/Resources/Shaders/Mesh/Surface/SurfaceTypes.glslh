@@ -8,7 +8,7 @@
 //
 // The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth),
 // DESERT_SHADING_MODEL_INDEX (the template's model, a SHADING_MODEL_INDEX_<NAME> of the generated
-// ShadingModels/ShadingModels.generated.glslh) and, for `BlendMode Masked`, DESERT_SURFACE_MASKED. The headers shape their declarations on these so each
+// Generated/ShadingModels.glslh) and, for `BlendMode Masked`, DESERT_SURFACE_MASKED. The headers shape their declarations on these so each
 // cell declares exactly what the shader it replaces declared (SurfaceTemplate holds them equal by reflection).
 
 // The source-to-surface arithmetic a surface function is written in (UV transform, base colour, ORM, normal

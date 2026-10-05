@@ -29,6 +29,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
 
 using Desert::Assets::AssetBase;
 using Desert::Assets::AssetTypeID;
@@ -706,6 +707,7 @@ TEST_F( AsyncAssetLoad, AnAwaitWithANullDelegateIsRefused )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

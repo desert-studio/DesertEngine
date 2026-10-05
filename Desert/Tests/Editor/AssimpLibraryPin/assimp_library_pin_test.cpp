@@ -34,17 +34,13 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
     std::filesystem::path RepositoryRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( here / "BuildScripts" / "ThirdParty" ); ++up )
-        {
-            here = here.parent_path();
-        }
-        return here;
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadFile( const std::filesystem::path& path )
@@ -369,7 +365,8 @@ TEST( AssimpLibraryPin, TheCommittedModelsImportToTheGeometryTheyCarry )
     // is actually applied — a run with the flags dropped reports 8.
     {
         std::string  error;
-        const Counts counts = ImportCounts( root / "Editor/Resources/Assets/Meshes/TwoJointProbe.gltf", error );
+        const Counts counts = ImportCounts(
+             Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/TwoJointProbe.gltf", error );
         ASSERT_TRUE( error.empty() ) << "TwoJointProbe.gltf did not import: " << error
                                      << " — if this says the format is unknown, the GLTF row of "
                                         "AssimpImporters.txt is no longer taking effect.";
@@ -419,8 +416,8 @@ TEST( AssimpLibraryPin, TheCommittedModelsImportAtTheSizeTheirUnitStates )
     {
         std::string error;
         auto        source = Desert::Editor::ImportUnits::Source::AssumedCentimetres;
-        const auto  box =
-             ImportInCentimetres( root / "Editor/Resources/Assets/Meshes/TwoJointProbe.gltf", error, source );
+        const auto  box    = ImportInCentimetres(
+             Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/TwoJointProbe.gltf", error, source );
         ASSERT_TRUE( error.empty() ) << "TwoJointProbe.gltf did not import: " << error;
 
         EXPECT_EQ( source, Desert::Editor::ImportUnits::Source::FixedByFormat );

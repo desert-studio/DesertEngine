@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
 
 // AL1-11 / owner decision V2: the startup cook never blocks the reveal. Since AF4h a static mesh's cook is a DDC
 // entry keyed by the source's bytes, so fresh loads now and stale == missing == Pending until the worker's
@@ -76,6 +77,7 @@ namespace
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
