@@ -121,9 +121,8 @@ namespace Desert::Graphic::Render2D
         // flat fill appended to it (the next sibling after a Retainer Box) was drawn as more of that picture
         // and the sibling itself never appeared.
         if ( !m_Commands.empty() && !m_Commands.back().Glass && !m_Commands.back().Retained &&
-             m_Commands.back().Texture == texture &&
-             m_Commands.back().Text == text && m_Commands.back().Material == material &&
-             m_Commands.back().ClipRect == scissor )
+             m_Commands.back().Texture == texture && m_Commands.back().Text == text &&
+             m_Commands.back().Material == material && m_Commands.back().ClipRect == scissor )
             return m_Commands.back();
 
         DrawCommand cmd;
@@ -373,13 +372,13 @@ namespace Desert::Graphic::Render2D
         for ( int c = 0; c < 4; ++c )
             for ( int s = 0; s <= kSeg; ++s )
             {
-                const float     a   = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / kSeg );
-                const glm::vec2 dir = { std::cos( a ), std::sin( a ) };
-                const glm::vec2 in  = cc[c] + dir * ( r - kEdgeFringe * 0.5f );
-                const glm::vec2 out = cc[c] + dir * ( r + kEdgeFringe * 0.5f );
-                rim[perim]                 = { Xf( in ), { 0.5f, 0.5f }, color };
-                fringe[perim * 2]          = { Xf( out ), { 0.5f, 0.5f }, clear };
-                fringe[perim * 2 + 1]      = rim[perim];
+                const float     a     = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / kSeg );
+                const glm::vec2 dir   = { std::cos( a ), std::sin( a ) };
+                const glm::vec2 in    = cc[c] + dir * ( r - kEdgeFringe * 0.5f );
+                const glm::vec2 out   = cc[c] + dir * ( r + kEdgeFringe * 0.5f );
+                rim[perim]            = { Xf( in ), { 0.5f, 0.5f }, color };
+                fringe[perim * 2]     = { Xf( out ), { 0.5f, 0.5f }, clear };
+                fringe[perim * 2 + 1] = rim[perim];
                 ++perim;
             }
         fringe[static_cast<size_t>( kPerim ) * 2]     = fringe[0];
