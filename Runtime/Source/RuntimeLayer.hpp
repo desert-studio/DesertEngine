@@ -80,10 +80,9 @@ namespace Desert::Player
         std::unique_ptr<Core::WorldStreamer> m_WorldStreamer;
         double                               m_WorldStreamClock = 0.0; // seconds of play, for retries
 
-        // The present path: the runtime opens the swapchain pass itself, blits the scene's final image with
+        // The present path: one graph node into the imported back buffer blits the scene's final image with
         // a fullscreen triangle, then draws the UI + splash with the engine's own Render2D batcher. Lazily
-        // created on the first present (the swapchain framebuffer only exists after the first
-        // BeginSwapChainRenderPass).
+        // created on the first present (the pipelines are built against the swapchain's composite framebuffer).
         std::unique_ptr<Graphic::Render2D::Render2D> m_Render2D;
 
         // The offscreen worlds behind this game's render-texture UI elements (Ю16). HERE and not only in

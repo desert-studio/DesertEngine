@@ -458,61 +458,6 @@ namespace Desert::Graphic::API::Vulkan
         DrawCounted( kFullscreenTriangleVertexCount, 1, 0, 0 );
     }
 
-    void VulkanRendererAPI::SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
-                                           IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
-                                           const MaterialExecutor* materialExecutor )
-    {
-        if ( !IsRecording() || vertexBuffer == nullptr || indexBuffer == nullptr || indexCount == 0 )
-            return;
-        const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( !BindGraphicsPipeline( pipeline ) )
-            return;
-
-        // Bind Descriptor Sets (the batch's texture + any UBOs)
-        if ( materialExecutor )
-        {
-            materialExecutor->Apply();
-            auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
-
-            // "NO SETS" HAS TWO CAUSES AND ONLY ONE OF THEM IS A DEFECT, and until Ю11 the second one
-            // could not happen so both were refused together. A shader that publishes NO LAYOUTS
-            // declares no descriptor resources at all — legal Vulkan, and what a purely procedural fill
-            // driven by push constants looks like (`UIMatError`); there is simply nothing to bind, and
-            // dropping the draw made such a program invisible. A shader that publishes layouts and has
-            // no SETS is the real failure — the view's allocation did not happen — and drawing it would
-            // sample whatever the last material left bound, so BindDescriptorSets refuses it (named once).
-            if ( vkBackend->HasDescriptorSets() )
-            {
-                uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-                if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                                     VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
-                    return;
-            }
-
-            const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
-            VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-            const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
-            if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
-            {
-                const auto& pcInfo = *pushConstant;
-                vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                    (VkShaderStageFlags)pcInfo.ShaderStage, 0, (uint32_t)pcBuffer.Size,
-                                    pcBuffer.Data );
-            }
-        }
-
-        VkDeviceSize offsets[] = { 0 };
-        auto         vbuffer   = static_cast<API::Vulkan::VulkanVertexBuffer*>( vertexBuffer )->GetVulkanBuffer();
-        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
-
-        auto ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer*>( indexBuffer )->GetVulkanBuffer();
-        vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
-
-        // Vertices are addressed absolutely (the batcher bakes base offsets into the indices), so the
-        // vertex offset stays 0 and only firstIndex selects this batch's slice of the shared buffer.
-        DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
-    }
-
     void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount,
                                          float lineWidth, const MaterialExecutor* materialExecutor )
     {
@@ -732,7 +677,7 @@ namespace Desert::Graphic::API::Vulkan
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
         const VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
         vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
-        // As SubmitIndexed: vertices are addressed absolutely, only firstIndex selects the batch's slice.
+        // Vertices are addressed absolutely, only firstIndex selects the batch's slice.
         DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
         return Common::MakeSuccess( true );
     }
@@ -1148,6 +1093,14 @@ namespace Desert::Graphic::API::Vulkan
             return image.GetGraphTexture();
         }
     } // namespace
+
+    Common::BoolResultStr VulkanRendererAPI::ImportBackBuffer( RDG::ExternalTexture& into )
+    {
+        const auto window = m_Window.lock();
+        if ( !window )
+            return Common::MakeError( "ImportBackBuffer: the window is gone" );
+        return SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->ImportBackBuffer( into );
+    }
 
     Common::BoolResultStr VulkanRendererAPI::ImportImage( const std::shared_ptr<Image>& image,
                                                           RDG::ExternalTexture&         into )

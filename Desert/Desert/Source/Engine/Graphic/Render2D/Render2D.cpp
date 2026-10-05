@@ -189,10 +189,12 @@ namespace Desert::Graphic::Render2D
         return exec;
     }
 
-    void Render2D::Flush( const RDG::PassContext* context, RDG::TextureRef backdrop )
+    Common::BoolResultStr Render2D::Flush( const RDG::PassContext& context, RDG::TextureRef backdrop )
     {
-        if ( !m_Pipeline || !m_TextPipeline || m_DrawList.Empty() )
-            return;
+        if ( !m_Pipeline || !m_TextPipeline )
+            return Common::MakeError( "Render2D::Flush: the 2D pipelines were not created (Init)" );
+        if ( m_DrawList.Empty() )
+            return BOOLSUCCESS;
 
         const auto& verts = m_DrawList.GetVertices();
         const auto& idx   = m_DrawList.GetIndices();
@@ -218,11 +220,14 @@ namespace Desert::Graphic::Render2D
             // so nothing accumulates, and if the failure was transient the same batch is simply
             // re-uploaded then. No draw was issued, so no backdrop was used either.
             m_UsedBackdrop = false;
-            return;
+            return Common::MakeError( std::string( "Render2D::Flush: the batch was not uploaded: " ) +
+                                      ( vertices.IsSuccess() ? indices.GetError() : vertices.GetError() ) );
         }
 
         auto& renderer     = Renderer::GetInstance();
         bool  usedBackdrop = false;
+        // The first refused draw; the remaining batches are still drawn, so one bad batch costs one batch.
+        Common::BoolResultStr failure = BOOLSUCCESS;
 
         // Clip a batch (UILayout ClipContents) via the scissor, or reset it to the full viewport.
         const auto ApplyScissor = [&]( const DrawCommand& cmd )
@@ -242,13 +247,14 @@ namespace Desert::Graphic::Render2D
 
             MaterialExecutor* exec;
             GraphicsPipeline* pipeline;
-            if ( cmd.Glass && m_GlassPipeline && context && backdrop.IsValid() )
+            if ( cmd.Glass && m_GlassPipeline && backdrop.IsValid() )
             {
                 // The coarsest LOD the glass may sample is the pyramid's own last mip (UE: Texture->Desc.NumMips).
-                const Common::ResultStr<RDG::TextureDesc> backdropDesc = context->GetTextureDesc( backdrop );
+                const Common::ResultStr<RDG::TextureDesc> backdropDesc = context.GetTextureDesc( backdrop );
                 if ( !backdropDesc.IsSuccess() )
                 {
-                    LOG_ERROR( "[Render2D] a glass panel was not drawn: {}", backdropDesc.GetError() );
+                    if ( failure.IsSuccess() )
+                        failure = Common::MakeError( "a glass panel was not drawn: " + backdropDesc.GetError() );
                     continue;
                 }
                 const uint32_t backdropMaxLod = backdropDesc.GetValue().Mips - 1;
@@ -277,7 +283,7 @@ namespace Desert::Graphic::Render2D
                         glm::vec4( cmd.GlassInverse[0].y, cmd.GlassInverse[1].y, cmd.GlassInverse[2].y, 0.0f ) };
 
                 ApplyScissor( cmd );
-                RDG::PassBindings bindings( *context );
+                RDG::PassBindings bindings( context );
                 bindings
                      .Sampled( "u_Backdrop", backdrop, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                                RDG::SamplerDesc::LinearClamp() )
@@ -285,8 +291,8 @@ namespace Desert::Graphic::Render2D
                 const Common::BoolResultStr drawn =
                      renderer.DrawIndexed( bindings, *m_GlassPipeline, nullptr, *m_VertexBuffer, *m_IndexBuffer,
                                            cmd.IndexCount, cmd.IndexOffset );
-                if ( !drawn.IsSuccess() )
-                    LOG_ERROR( "[Render2D] a glass panel was not drawn: {}", drawn.GetError() );
+                if ( !drawn.IsSuccess() && failure.IsSuccess() )
+                    failure = Common::MakeError( "a glass panel was not drawn: " + drawn.GetError() );
                 usedBackdrop = true;
                 continue;
             }
@@ -319,8 +325,11 @@ namespace Desert::Graphic::Render2D
                 // Transform carries the batcher's pixel -> clip projection in the UI domain.
                 material->SetPushMatrix( m_Projection );
                 material->SetMaterialIndex( 0 );
-                renderer.SubmitIndexed( entry->Pipeline.get(), m_VertexBuffer.get(), m_IndexBuffer.get(),
-                                        cmd.IndexCount, cmd.IndexOffset, material->GetMaterialExecutor() );
+                const Common::BoolResultStr drawn = renderer.DrawIndexed(
+                     RDG::PassBindings( context ), *entry->Pipeline, material->GetMaterialExecutor(),
+                     *m_VertexBuffer, *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
+                if ( !drawn.IsSuccess() && failure.IsSuccess() )
+                    failure = Common::MakeError( "a UI material batch was not drawn: " + drawn.GetError() );
                 continue;
             }
 
@@ -344,8 +353,11 @@ namespace Desert::Graphic::Render2D
             ApplyScissor( cmd );
 
             exec->PushConstant( &m_Projection, (uint32_t)sizeof( glm::mat4 ) );
-            renderer.SubmitIndexed( pipeline, m_VertexBuffer.get(), m_IndexBuffer.get(), cmd.IndexCount,
-                                    cmd.IndexOffset, exec );
+            const Common::BoolResultStr drawn =
+                 renderer.DrawIndexed( RDG::PassBindings( context ), *pipeline, exec, *m_VertexBuffer,
+                                       *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
+            if ( !drawn.IsSuccess() && failure.IsSuccess() )
+                failure = Common::MakeError( "a 2D batch was not drawn: " + drawn.GetError() );
         }
 
         // Leave the scissor at the full viewport so nothing downstream inherits a UI clip.
@@ -356,6 +368,7 @@ namespace Desert::Graphic::Render2D
 
         RetireUnusedExecutors();
         m_MaterialCache.RetireUnused();
+        return failure;
     }
 
     void Render2D::RetireUnusedExecutors()

@@ -62,6 +62,8 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
@@ -733,15 +735,19 @@ namespace Desert::Player
         return BOOLSUCCESS;
     }
 
-    // The runtime's frame present. Opens the swapchain pass, blits the scene's final image fullscreen,
-    // then draws the UI canvas + splash with the engine's Render2D batcher. No interface toolkit is in
-    // this process at all — Desert/Tests/Engine/ImGuiBoundary is the census that keeps it that way.
+    // The runtime's frame present: ONE graph node whose colour target is this frame's back buffer (imported
+    // through Renderer::ImportBackBuffer). It clears it, blits the scene's final image fullscreen (bound through
+    // RDG::PassBindings), then draws the UI canvas + splash with the engine's Render2D batcher. No interface
+    // toolkit is in this process at all — Desert/Tests/Engine/ImGuiBoundary is the census that keeps it that way.
     Common::BoolResultStr RuntimeLayer::OnUIRender()
     {
         auto& renderer = Graphic::Renderer::GetInstance();
-        renderer.BeginSwapChainRenderPass();
 
         std::string clicked;
+        // What the present node draws, decided while the frame's UI is walked below: the scene image it blits
+        // (none while the content gate is shut) and whether the 2D batch was recorded.
+        std::shared_ptr<Graphic::Image2D> presented;
+        bool                              drawUI = false;
         if ( const auto swapFb = renderer.GetCompositeFramebuffer() )
         {
             if ( !m_PresentReady )
@@ -772,14 +778,7 @@ namespace Desert::Player
 
                 // 1) Present the scene: blit its final (tonemapped) image over the whole swapchain.
                 if ( !loading )
-                {
-                    if ( const auto image = m_Scene->GetFinalImage() )
-                    {
-                        if ( auto tp = m_BlitExecutor->GetTexture2DProperty( "u_Texture" ) )
-                            tp->SetImage( image.get(), Desert::Graphic::RDG::Access::SampledGraphics );
-                        renderer.SubmitFullscreenTriangle( m_BlitPipeline.get(), m_BlitExecutor.get() );
-                    }
-                }
+                    presented = m_Scene->GetFinalImage();
 
                 // 2) UI + splash via Render2D, on top.
                 m_Render2D->BeginFrame( { 0.0f, 0.0f, w, h } );
@@ -889,17 +888,62 @@ namespace Desert::Player
                          wait != nullptr && wait->Assessment.Blocks() )
                         UI::DrawStreamingWaitOverlay( dl, w, h, wait->FramesWaiting );
 
-                m_Render2D->Flush();
+                drawUI = true;
             }
         }
 
-        renderer.EndRenderPass();
+        // THE PRESENT IS A GRAPH NODE (UE: the viewport's back buffer is registered as an external texture each
+        // frame, the final passes write it, and the present follows the graph). The node clears the acquired
+        // image, samples the scene's final image as a declared pass parameter, draws the 2D batch over it, and the
+        // graph leaves the back buffer in the present layout.
+        Graphic::RDG::Builder         graph( "RuntimePresent" );
+        Graphic::RDG::ExternalTexture backBuffer;
+        if ( const auto imported = renderer.ImportBackBuffer( backBuffer ); !imported )
+            return Common::MakeError( "[Runtime] present: " + imported.GetError() );
+        const Graphic::RDG::TextureRef target = graph.RegisterExternal( backBuffer, "BackBuffer" );
+        Graphic::RDG::ExternalTexture  sceneImage;
+        Graphic::RDG::TextureRef       sceneRef;
+        if ( presented )
+        {
+            if ( const auto imported = renderer.ImportImage( presented, sceneImage ); !imported )
+                return Common::MakeError( "[Runtime] present: the scene's final image: " + imported.GetError() );
+            sceneRef = graph.RegisterExternal( sceneImage, "SceneFinalImage" );
+        }
+        graph.AddPass(
+             "RuntimePresent", Graphic::RDG::PassFlags::Raster,
+             [&]( Graphic::RDG::PassBuilder& pass )
+             {
+                 pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f ) );
+                 if ( sceneRef.IsValid() )
+                     pass.Read( sceneRef, Graphic::RDG::Access::SampledGraphics );
+             },
+             [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 if ( sceneRef.IsValid() )
+                 {
+                     Graphic::RDG::PassBindings bindings( context );
+                     bindings.Sampled( "u_Texture", sceneRef, Graphic::RDG::Access::SampledGraphics,
+                                       Graphic::RDG::SubresourceRange::All(),
+                                       Graphic::RDG::SamplerDesc::LinearClamp() );
+                     if ( const auto drawn =
+                               renderer.DrawFullscreen( bindings, *m_BlitPipeline, m_BlitExecutor.get() );
+                          !drawn )
+                         return Common::MakeError( "the scene blit: " + drawn.GetError() );
+                 }
+                 // The runtime has no backdrop pyramid: a glass panel draws as its flat tinted fill.
+                 if ( drawUI )
+                     return m_Render2D->Flush( context, Graphic::RDG::TextureRef{} );
+                 return BOOLSUCCESS;
+             } );
+        graph.Extract( target, backBuffer, Graphic::RDG::Access::Present );
+        if ( const auto executed = renderer.ExecuteGraph( graph ); !executed )
+            return Common::MakeError( "[Runtime] present graph: " + executed.GetError() );
 
-        // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and it has to be: a swapchain
-        // image may only be touched between its acquire and its present, and reading it back afterwards
-        // is a Vulkan violation that looks perfect in the resulting PNG -- only the validation layer
-        // objects. So the copy goes into THIS frame's command buffer, and the bytes are collected in
-        // OnFramePresented once the present that carried it has gone out.
+            // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and it has to be: a swapchain
+            // image may only be touched between its acquire and its present, and reading it back afterwards
+            // is a Vulkan violation that looks perfect in the resulting PNG -- only the validation layer
+            // objects. So the copy goes into THIS frame's command buffer, and the bytes are collected in
+            // OnFramePresented once the present that carried it has gone out.
 #if DESERT_DEV_INSTRUMENTS
         RecordShotIfDue();
 #endif

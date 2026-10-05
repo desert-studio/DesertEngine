@@ -150,14 +150,6 @@ namespace Desert::Graphic
         s_RendererAPI->SubmitFullscreenTriangle( pipeline, materialExecutor );
     }
 
-    void Renderer::SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
-                                  IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
-                                  const MaterialExecutor* materialExecutor )
-    {
-        s_RendererAPI->SubmitIndexed( pipeline, vertexBuffer, indexBuffer, indexCount, firstIndex,
-                                      materialExecutor );
-    }
-
     void Renderer::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                 const MaterialExecutor* materialExecutor )
     {
@@ -259,6 +251,11 @@ namespace Desert::Graphic
     Common::BoolResultStr Renderer::ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into )
     {
         return s_RendererAPI->ImportImage( image, into );
+    }
+
+    Common::BoolResultStr Renderer::ImportBackBuffer( RDG::ExternalTexture& into )
+    {
+        return s_RendererAPI->ImportBackBuffer( into );
     }
 
     Common::BoolResultStr Renderer::ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,

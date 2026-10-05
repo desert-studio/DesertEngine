@@ -10,6 +10,7 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -234,6 +235,8 @@ namespace Desert::Graphic::API::Vulkan
             if ( !createdImageView.IsSuccess() ) return Common::MakeError<bool>( createdImageView.GetError() );
             m_SwapChainImages.ImagesView[i] = createdImageView.GetValue();
         }
+        // The graph handles wrap the images just fetched; any handle of the previous images is dropped here.
+        m_BackBufferGraphTextures.assign( swapChainImagesCount, nullptr );
 
         const auto attachments = CreateColorAndDepthImages( vkLogicalDevice );
         if ( !attachments.IsSuccess() )
@@ -434,6 +437,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_SwapChain != VK_NULL_HANDLE )
         {
             for ( auto& view : m_SwapChainImages.ImagesView ) vkDestroyImageView( device, view, nullptr );
+            m_BackBufferGraphTextures.clear();
             vkDestroySwapchainKHR( device, m_SwapChain, nullptr );
             m_SwapChain = VK_NULL_HANDLE;
         }
@@ -507,6 +511,37 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         m_CompositeFramebuffer = nullptr;
+    }
+
+    Common::BoolResultStr VulkanSwapChain::ImportBackBuffer( ::Desert::Graphic::RDG::ExternalTexture& into )
+    {
+        const uint32_t index = GetCurrentBufferIndex();
+        if ( index >= m_SwapChainImages.Images.size() || index >= m_BackBufferGraphTextures.size() )
+            return Common::MakeError( std::format( "ImportBackBuffer: image index {} of a {}-image swapchain",
+                                                   index, m_SwapChainImages.Images.size() ) );
+
+        ::Desert::Graphic::RDG::TextureDesc desc;
+        desc.Size.Width  = m_Width;
+        desc.Size.Height = m_Height;
+        desc.Size.Depth  = 1;
+        // The composite framebuffer's format (CreateCompositeFramebuffer): the pipelines that draw into the back
+        // buffer are built against it.
+        desc.Format = Core::Formats::ImageFormat::BGRA8F;
+
+        if ( !m_BackBufferGraphTextures[index] )
+        {
+            const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                         ->GetVulkanLogicalDevice();
+            m_BackBufferGraphTextures[index] =
+                 VulkanRdgTexture::Wrap( device, m_SwapChainImages.Images[index], m_ColorFormat, desc );
+        }
+
+        into.Desc = desc;
+        into.SubresourceStates.assign( desc.SubresourceCount(), ::Desert::Graphic::RDG::GetAccessState(
+                                                                     ::Desert::Graphic::RDG::Access::None ) );
+        into.Physical     = m_BackBufferGraphTextures[index];
+        into.RecordStates = {};
+        return BOOLSUCCESS;
     }
 
     uint32_t VulkanSwapChain::GetCurrentBufferIndex() const { return m_VulkanQueue->GetImageIndex(); }

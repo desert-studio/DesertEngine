@@ -27,8 +27,8 @@ namespace Desert::Graphic::Render2D
 {
     // GPU backend for the 2D batcher: owns the UI2D pipeline, one growable dynamic vertex+index buffer and a
     // 1x1 white texture, and turns a DrawList2D into draw calls. Callers record primitives into GetDrawList()
-    // between BeginFrame() and Flush(); Flush() uploads the geometry once and issues one Renderer::SubmitIndexed
-    // per state batch. Flush() must run INSIDE an active render pass (the UI-phase pass into the scene target).
+    // between BeginFrame() and Flush(); Flush() uploads the geometry once and issues one Renderer::DrawIndexed
+    // per state batch. Flush() runs inside a graph raster pass (its PassContext), never outside the graph.
     class Render2D
     {
     public:
@@ -72,9 +72,10 @@ namespace Desert::Graphic::Render2D
         // Upload the recorded geometry and draw it into the current render pass. No-op when nothing was recorded.
         // Glass rects sample @p backdrop (this frame's BackdropBlur transient, bound by name as u_Backdrop through
         // RDG::PassBindings over @p context, the UI node's context) at up to its coarsest mip, read from the
-        // texture's own description (PassContext::GetTextureDesc); with no context or an invalid ref they draw
-        // as a flat tinted panel.
-        void Flush( const RDG::PassContext* context = nullptr, RDG::TextureRef backdrop = {} );
+        // texture's own description (PassContext::GetTextureDesc); with an invalid ref (no blur this frame) they
+        // draw as a flat tinted panel. Every batch is drawn through Renderer::DrawIndexed over @p context; the
+        // first refused draw is returned (the remaining batches are still drawn and the caches still retired).
+        [[nodiscard]] Common::BoolResultStr Flush( const RDG::PassContext& context, RDG::TextureRef backdrop );
 
         // This backend's UI-material cache. The canvas walk resolves an element's `.demat` through it and
         // hands the resolved entry to DrawList2D::AddMaterialRect; Flush then draws with that entry's own

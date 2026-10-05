@@ -28,7 +28,6 @@ namespace Desert::ECS
 namespace Desert::Graphic
 {
     class Framebuffer;
-    class RenderPass;
 } // namespace Desert::Graphic
 
 namespace Desert::Editor
@@ -112,7 +111,7 @@ namespace Desert::Editor
         // ── NOT A VIEW, EVEN THOUGH THIS WINDOW RENDERS ─────────────────────────────────────────────────
         //
         // A view is a live Graphic::SceneRenderer (counted by ViewResourceRegistry::LiveCount). This window
-        // has none: it owns a Framebuffer, a RenderPass and a Render2D, and draws the canvas straight into
+        // has none: it owns a Framebuffer and a Render2D, and draws (as one graph node) the canvas straight into
         // them. So it can never claim a view and can never release one, and BOTH answers have to be false
         // rather than the base class's conservative default — a `true` here would put "UICanvasComponent
         // document 'HUD' — holds a view" in the refusal census (EditorLayer::ViewCensus), which tells a user
@@ -171,7 +170,6 @@ namespace Desert::Editor
 
         std::unique_ptr<Editor::UI::UIHelper> m_UIHelper;
         std::shared_ptr<Graphic::Framebuffer> m_Target;
-        std::shared_ptr<Graphic::RenderPass>  m_RenderPass;
         Graphic::Render2D::Render2D           m_Render2D;
 
         // This preview's own canvas state, so its walk cannot touch the viewport's. DrivesSceneAnimation is
