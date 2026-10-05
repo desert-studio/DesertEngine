@@ -50,11 +50,6 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into ) override;
 
-        virtual void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
-                                 const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,
-                                 uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0,
-                                 uint32_t lodLevel = 0 ) override;
-
         virtual void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
                                                const MaterialExecutor* materialExecutor ) override;
 
@@ -64,9 +59,6 @@ namespace Desert::Graphic::API::Vulkan
 
         virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                   const MaterialExecutor* materialExecutor ) override;
-
-        virtual void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                     const MaterialExecutor* materialExecutor ) override;
 
         Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings, const ComputePipeline& pipeline,
                                                uint32_t groupCountX, uint32_t groupCountY,

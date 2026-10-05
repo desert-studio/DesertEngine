@@ -164,12 +164,6 @@ namespace Desert::Graphic
         s_RendererAPI->SubmitLines( pipeline, vertexCount, lineWidth, materialExecutor );
     }
 
-    void Renderer::SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                   const MaterialExecutor* materialExecutor )
-    {
-        s_RendererAPI->SubmitVertices( pipeline, vertexCount, materialExecutor );
-    }
-
     Common::BoolResultStr Renderer::DispatchCompute( const RDG::PassBindings& bindings,
                                                      const ComputePipeline& pipeline, uint32_t groupCountX,
                                                      uint32_t groupCountY, uint32_t groupCountZ )
@@ -309,14 +303,6 @@ namespace Desert::Graphic
     std::shared_ptr<Framebuffer> Renderer::GetCompositeFramebuffer()
     {
         return s_RendererAPI->GetCompositeFramebuffer();
-    }
-
-    void Renderer::RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
-                               const MaterialExecutor* materialExecutor, uint32_t instanceCount,
-                               uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel )
-    {
-        s_RendererAPI->RenderMesh( pipeline, mesh, transform, materialExecutor, instanceCount, firstInstance,
-                                   hiddenSubmeshMask, lodLevel );
     }
 
     const std::shared_ptr<Desert::Graphic::Texture2D>& Renderer::GetBRDFTexture() const

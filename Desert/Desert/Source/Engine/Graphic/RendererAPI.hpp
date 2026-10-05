@@ -89,15 +89,6 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                                     RDG::ExternalBuffer& into ) = 0;
 
-        // @p instanceCount > 1 issues a hardware-instanced draw (the instanced pipeline's vertex shader
-        // reads the per-instance model matrix from an InstanceTransforms SSBO by gl_InstanceIndex).
-        // @p firstInstance offsets gl_InstanceIndex (== firstInstance + 0..instanceCount-1), so several
-        // mesh sub-groups can share ONE packed InstanceTransforms buffer (each draw reads its own slice).
-        virtual void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
-                                 const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,
-                                 uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0,
-                                 uint32_t lodLevel = 0 ) = 0;
-
         virtual void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
                                                const MaterialExecutor* materialExecutor ) = 0;
 
@@ -111,14 +102,6 @@ namespace Desert::Graphic
         // Vertexless line draw (Lines-topology pipeline pulls vertices from a storage buffer by index).
         virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                   const MaterialExecutor* materialExecutor )                            = 0;
-
-        // Vertexless draw of @p vertexCount vertices (no vertex/index buffer bound). The vertex shader
-        // synthesizes geometry from gl_VertexIndex. Used by the GPU terrain (patch-list tessellation) and
-        // the particle billboards. Hardware instancing of ASSETS is SubmitMesh's @p instanceCount above;
-        // this seam draws one instance because nothing synthesizes per-instance geometry any more (Г25
-        // removed the procedural grass, which was the only caller that did).
-        virtual void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                     const MaterialExecutor* materialExecutor ) = 0;
 
         // The in-graph consumers of an RDG::PassBindings (see Renderer::DispatchCompute / DrawFullscreen): record
         // into the command buffer of the pass the bindings were built in, with descriptor sets written for this

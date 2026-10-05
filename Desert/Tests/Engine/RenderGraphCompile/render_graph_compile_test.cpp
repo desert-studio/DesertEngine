@@ -2712,7 +2712,9 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
     const std::regex forbidden(
-         R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures)" );
+         R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures)"
+         // MESH-PB1 M2a: the material-route draws (no PassBindings) are deleted from Renderer / RendererAPI.
+         R"(|SubmitVertices\s*\(|RenderMesh\(\s*const GraphicsPipeline\s*\*)" );
     std::vector<std::string> found;
     size_t                   scanned = 0;
     for ( const char* tree : { "Desert/Desert/Source", "Editor/Source" } )
@@ -2728,7 +2730,7 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
             std::ifstream file( entry.path() );
             std::string   line;
             for ( size_t number = 1; std::getline( file, line ); ++number )
-                if ( line.find( "Legacy" ) != std::string::npos && std::regex_search( line, forbidden ) )
+                if ( std::regex_search( line, forbidden ) )
                     found.push_back( std::format( "{}:{}: {}", fs::relative( entry.path(), root ).generic_string(),
                                                   number, line ) );
         }
@@ -2738,6 +2740,56 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
     for ( const std::string& hit : found )
         std::format_to( std::back_inserter( list ), "\n  {}", hit );
     EXPECT_TRUE( found.empty() ) << found.size() << " legacy construct(s) remain:" << list;
+}
+
+// EVERY MESH PASS BODY RETURNS ITS DRAWS' RESULT (MESH-PB1 M2a). A draw through RDG::PassBindings is refused (an
+// undeclared or unfilled binding) by returning an error; a body that drops it and returns BOOLSUCCESS draws
+// nothing and the graph reports success. The cascade body returns each caster draw's and each non-mesh caster's
+// (terrain) result, and the terrain's own three bodies return RecordDraws'.
+TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const auto stripped = [&root]( const char* relative )
+    {
+        std::ifstream      file( root / "Desert/Desert/Source/Engine/Graphic" / relative );
+        std::ostringstream text;
+        text << file.rdbuf();
+        std::string out;
+        for ( const char ch : text.str() )
+            if ( std::isspace( static_cast<unsigned char>( ch ) ) == 0 )
+                out.push_back( ch );
+        return out;
+    };
+    const auto count = []( const std::string& text, const std::string& needle )
+    {
+        size_t n = 0;
+        for ( size_t at = text.find( needle ); at != std::string::npos; at = text.find( needle, at + 1 ) )
+            ++n;
+        return n;
+    };
+
+    const std::string shadow = stripped( "Systems/Scene/Mesh/MeshRendererShadow.cpp" );
+    ASSERT_FALSE( shadow.empty() );
+    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,m_CascadeVP[c]);!cast.IsSuccess())"
+                            "returncast;" ),
+               std::string::npos )
+         << "the cascade body drops the non-mesh caster's draw result";
+    // RSM + the cascade's singles / generic / skinned / instanced draws.
+    EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 5u )
+         << "a shadow / RSM draw's refusal is no longer returned by its body";
+
+    const std::string terrain = stripped( "Systems/Scene/Terrain/TerrainRenderer.cpp" );
+    ASSERT_FALSE( terrain.empty() );
+    EXPECT_NE( terrain.find( "draw.VertexCount,1);!drawn.IsSuccess())returndrawn;}returnBOOLSUCCESS;" ),
+               std::string::npos )
+         << "RecordDraws drops a refused terrain draw";
+    EXPECT_NE( terrain.find( "returnRecordDraws(bindings,*m_Pipeline,&ProgramMaterials::Forward" ),
+               std::string::npos );
+    EXPECT_NE( terrain.find( "returnRecordDraws(RDG::PassBindings(context),*m_GBufferPipeline" ),
+               std::string::npos );
+    EXPECT_NE( terrain.find( "returnRecordDraws(RDG::PassBindings(context),*m_ShadowPipeline" ),
+               std::string::npos );
 }
 
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and

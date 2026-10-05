@@ -48,11 +48,7 @@ namespace Desert::Graphic
         Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into );
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into );
-        void EndDebugLabel();
-        void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
-                         const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,
-                         uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0, uint32_t lodLevel = 0 );
-
+        void                  EndDebugLabel();
         // One triangle covering the viewport (3 vertices, Common/FullscreenTriangle.glslh) in the open render
         // pass.
         void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
@@ -65,12 +61,6 @@ namespace Desert::Graphic
         // Vertexless line draw: the pipeline (Lines topology) pulls vertices from a storage buffer by index.
         void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                           const MaterialExecutor* materialExecutor );
-
-        // Vertexless draw: the vertex shader synthesizes geometry from gl_VertexIndex (GPU terrain patches,
-        // particle billboards). Instanced MESH drawing is SubmitMesh's instanceCount, which is a different
-        // seam and the one hardware instancing of assets goes through.
-        void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                             const MaterialExecutor* materialExecutor );
 
         // RDG-A2 - the renderer-level consumers of a PassBindings (RDGPassBindings.hpp). Called only from inside
         // the exec lambda whose PassContext built @p bindings; they record on that pass's command buffer

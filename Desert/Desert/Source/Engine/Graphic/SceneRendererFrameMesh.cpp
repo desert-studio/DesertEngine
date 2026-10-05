@@ -66,20 +66,6 @@ namespace Desert::Graphic
                  [body = std::move( body )]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return body( context ); } );
         }
-
-        // A raster node whose body binds no graph resource by name (its draws read what @p sampled declares
-        // through their materials) and cannot fail.
-        void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
-                        const RDG::LoadOp& color, const RDG::LoadOp& depth,
-                        const std::vector<RDG::TextureRef>& sampled, std::function<void()> body )
-        {
-            AddRaster( graph, name, targets, color, depth, sampled,
-                       [body = std::move( body )]( const RDG::PassContext& ) -> Common::BoolResultStr
-                       {
-                           body();
-                           return BOOLSUCCESS;
-                       } );
-        }
     } // namespace
 
     void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, FrameTextures&            textures,
@@ -161,11 +147,12 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        AddRaster(
-             graph, "TerrainGBuffer", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
-             [this]() {
-                 UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->RenderGBufferManual();
-             } );
+        AddRaster( graph, "TerrainGBuffer", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+                   [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   {
+                       return UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+                            ->RenderGBufferManual( context );
+                   } );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 

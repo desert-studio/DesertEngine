@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
@@ -62,9 +63,10 @@ namespace Desert::Graphic::System
         void PrepareFrame();
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'.
-        void RenderGBufferManual();
+        [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
 
-        void RecordShadowCascade( uint32_t cascade, const glm::mat4& cascadeViewProj ) override;
+        [[nodiscard]] Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context, uint32_t cascade,
+                                                                 const glm::mat4& cascadeViewProj ) override;
 
         void Submit( const TerrainDrawData& data )
         {
@@ -103,9 +105,10 @@ namespace Desert::Graphic::System
             uint32_t VertexCount = 0;
         };
 
-        void RecordDraws( GraphicsPipeline*                   pipeline,
-                          std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                          const glm::mat4&                                       clipFromWorld );
+        [[nodiscard]] Common::BoolResultStr
+        RecordDraws( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                     std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
+                     const glm::mat4&                                       clipFromWorld );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;

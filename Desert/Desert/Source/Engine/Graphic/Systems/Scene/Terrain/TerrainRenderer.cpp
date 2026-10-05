@@ -1,6 +1,8 @@
 #include "TerrainRenderer.hpp"
 
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowBinding.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -351,25 +353,32 @@ namespace Desert::Graphic::System
             // one writer. A terrain is drawn by neither render path's mesh shaders, so while
             // the map's only reader was the deferred composite a terrain never darkened under a
             // cloud at all: the ground beside it did and it did not.
-            // Forward only: in Deferred the composite applies it, like to every other surface.
+            // Forward only: in Deferred the composite applies it, like to every other surface. The map itself is
+            // a pass parameter of the "TerrainPass" node (SceneViewInputs); the material carries the uniforms.
             if ( !deferred )
-                CloudShadowBind( surface, m_SceneRenderer->GetCloudShadowInput() );
+                CloudShadowUpload( surface, m_SceneRenderer->GetCloudShadowInput() );
         }
     }
 
     // ── Record. The push constant is per-draw state, snapshotted by Vulkan at record: the row index AND the
     // clip-from-world matrix, so one material serves the camera and every cascade. ────────────────────────
-    void TerrainRenderer::RecordDraws( GraphicsPipeline*                   pipeline,
-                                       std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                                       const glm::mat4&                                       clipFromWorld )
+    // The first refused draw is the node's error.
+    Common::BoolResultStr
+    TerrainRenderer::RecordDraws( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                  std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
+                                  const glm::mat4&                                       clipFromWorld )
     {
         for ( const auto& draw : m_FrameDraws )
         {
             auto* material = ( m_Materials[m_FrameGroups[draw.Group].Key].*program ).get();
             material->SetMaterialIndex( draw.Row );
             material->SetPushMatrix( clipFromWorld );
-            Renderer::GetInstance().SubmitVertices( pipeline, draw.VertexCount, material->GetMaterialExecutor() );
+            if ( auto drawn = Renderer::GetInstance().DrawProcedural(
+                      bindings, pipeline, material->GetMaterialExecutor(), draw.VertexCount, 1 );
+                 !drawn.IsSuccess() )
+                return drawn;
         }
+        return BOOLSUCCESS;
     }
 
     void TerrainRenderer::RegisterPasses( RenderGraphBuilder& builder )
@@ -382,44 +391,59 @@ namespace Desert::Graphic::System
         // (depth shared, no clear) so terrain and meshes depth-resolve against each other.
         builder
              .AddPass( "TerrainPass", RenderPhase::Geometry,
-                       [this]()
+                       [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
                        {
                            // Forward path only. In Deferred the terrain is in the G-buffer (RenderGBufferManual)
                            // and lit by the composite; drawing it here too would light the ground twice, two
                            // different ways.
                            if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
-                               return;
+                               return BOOLSUCCESS;
                            const auto* camera = m_SceneRenderer->GetMainCamera();
                            if ( ( camera == nullptr ) || m_FrameDraws.empty() )
-                               return;
-                           RecordDraws( m_Pipeline.get(), &ProgramMaterials::Forward,
-                                        camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+                               return BOOLSUCCESS;
+                           // The scene/view inputs Terrain.shader samples (the cloud shadow map) are pass
+                           // parameters of this node, declared below.
+                           RDG::PassBindings bindings( context );
+                           BindSceneViewInputs( bindings, SceneViewInputsOf( refs ),
+                                                *m_Pipeline->GetSpecification().Shader );
+                           return RecordDraws( bindings, *m_Pipeline, &ProgramMaterials::Forward,
+                                               camera->GetProjectionMatrix() * camera->GetViewMatrix() );
                        },
                        m_Pipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
-        { m_SceneRenderer->DeclareShadowReads( declared ); };
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        {
+            if ( !SamplesSceneViewInputs( *m_Pipeline->GetSpecification().Shader ) )
+                return;
+            for ( const RDG::TextureRef input : SceneViewInputsOf( refs ).Refs() )
+                declared.Read( input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+        };
     }
 
-    void TerrainRenderer::RenderGBufferManual()
+    Common::BoolResultStr TerrainRenderer::RenderGBufferManual( const RDG::PassContext& context )
     {
         const auto& gbuffer = m_SceneRenderer->GetGBuffer();
         const auto* camera  = m_SceneRenderer->GetMainCamera();
         if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_FrameDraws.empty() )
-            return;
+            return BOOLSUCCESS;
 
         // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it. The graph opens the
         // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
-        RecordDraws( m_GBufferPipeline.get(), &ProgramMaterials::GBuffer,
-                     camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+        // TerrainGBuffer.shader samples no scene/view input: the bindings carry none.
+        return RecordDraws( RDG::PassBindings( context ), *m_GBufferPipeline, &ProgramMaterials::GBuffer,
+                            camera->GetProjectionMatrix() * camera->GetViewMatrix() );
     }
 
-    void TerrainRenderer::RecordShadowCascade( uint32_t /*cascade*/, const glm::mat4& cascadeViewProj )
+    Common::BoolResultStr TerrainRenderer::RecordShadowCascade( const RDG::PassContext& context,
+                                                                uint32_t /*cascade*/,
+                                                                const glm::mat4& cascadeViewProj )
     {
         if ( !m_ShadowPipeline || m_FrameDraws.empty() )
-            return;
+            return BOOLSUCCESS;
         // Its own row inside the cascade's: the terrain's share of the shadow cost, summed over cascades.
         DESERT_PROFILE_PASS( "TerrainShadowCascade" );
-        RecordDraws( m_ShadowPipeline.get(), &ProgramMaterials::Shadow, cascadeViewProj );
+        // A depth-only caster samples no scene/view input.
+        return RecordDraws( RDG::PassBindings( context ), *m_ShadowPipeline, &ProgramMaterials::Shadow,
+                            cascadeViewProj );
     }
 } // namespace Desert::Graphic::System

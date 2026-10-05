@@ -595,7 +595,9 @@ namespace Desert::Graphic::System
                      // cascade is cleared once and holds everyone's depth (IShadowCaster).
                      for ( const auto& weak : m_ShadowCasters )
                          if ( const auto caster = weak.lock() )
-                             caster->RecordShadowCascade( c, m_CascadeVP[c] );
+                             if ( auto cast = caster->RecordShadowCascade( context, c, m_CascadeVP[c] );
+                                  !cast.IsSuccess() )
+                                 return cast;
                      return BOOLSUCCESS;
                  },
                  m_ShadowPipeline->GetSpecification(), m_CascadeFB[c], {},
