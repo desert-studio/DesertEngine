@@ -5,6 +5,8 @@
 
 #include <Editor/Core/Commands/SkeletonBindEdit.hpp>
 
+#include <Engine/Animation/Animator.hpp>
+
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
@@ -15,6 +17,8 @@
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
+
+#include "../../Engine/ClipFixture.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -118,7 +122,7 @@ TEST( SkeletonBindEdit, DontSavePutsTheFilesBindBackAndForgetsTheRecords )
 
     ASSERT_TRUE( Editor::CommitBindEdit( rig, 1U, kEdited ) );
     EXPECT_FALSE( Editor::CommitBindEdit( rig, 1U, kEdited ) ) << "the same value is no second record";
-    ASSERT_TRUE( Editor::RestoreBindPose( rig, onDisk.GetValue() ) );
+    ASSERT_TRUE( Editor::RestoreBindPose( rig, onDisk.GetValue(), { kRigGuid, &manager } ) );
     EXPECT_FALSE( Editor::BindPoseDiffers( *rig, onDisk.GetValue() ) );
     EXPECT_FALSE( Editor::CommandHistory::Get().Undo() ) << "the discarded edit's record went with it";
 }
@@ -184,12 +188,12 @@ TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheSkeletonAndItsClip )
     ASSERT_TRUE( Assets::Serialization::SaveClipToFile( clipFile, clip ).IsSuccess() );
 
     // Refusals: no name, another bone's name - nothing moves, no record.
-    EXPECT_FALSE( Editor::CommitBoneRename( rig, 1U, "" ).IsSuccess() );
-    EXPECT_FALSE( Editor::CommitBoneRename( rig, 1U, "Root" ).IsSuccess() );
+    EXPECT_FALSE( Editor::CommitBoneRename( rig, 1U, "", { kRigGuid, &manager } ).IsSuccess() );
+    EXPECT_FALSE( Editor::CommitBoneRename( rig, 1U, "Root", { kRigGuid, &manager } ).IsSuccess() );
     EXPECT_FALSE( Editor::CommandHistory::Get().Undo() ) << "a refused rename is no record";
 
     const uint64_t revision = rig->GetBindRevision();
-    ASSERT_TRUE( Editor::CommitBoneRename( rig, 1U, "Forearm" ).IsSuccess() );
+    ASSERT_TRUE( Editor::CommitBoneRename( rig, 1U, "Forearm", { kRigGuid, &manager } ).IsSuccess() );
     EXPECT_EQ( rig->GetSkeleton()->GetBones()[1].Name, "Forearm" );
     EXPECT_EQ( rig->GetSkeleton()->FindBoneIndex( "Forearm" ), std::optional<uint32_t>( 1U ) );
     EXPECT_NE( rig->GetBindRevision(), revision ) << "the preview re-reads the rig";
@@ -224,6 +228,97 @@ TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheSkeletonAndItsClip )
     Editor::CommandHistory::Get().DropFor( rig.get() );
 }
 
+// ANIM-FIX4b3: RENAME BONE IS ONE TRANSACTION OVER THE SKELETON AND ITS LOADED CLIPS (UE Skeleton Editor). Between
+// the Rename and the Save, an Animator rebuilt on the renamed rig still animates the renamed bone from the
+// resident clip; undo and "Don't Save" put the clip's names back with the bone's; Save writes the files and does
+// not rename the resident clip a second time (a chain Child -> Forearm, Root -> Child would move Root's channel
+// onto Forearm).
+TEST( SkeletonBindEdit, BetweenRenameAndSaveTheLoadedClipStillAnimatesTheRenamedBone )
+{
+    const auto           dir  = TempDir( "rename-live" );
+    const auto           file = WriteRig( dir );
+    Assets::AssetManager manager;
+    auto                 rig = manager.CreateAsset<Assets::SkeletonAsset>( Common::Filepath( file ) );
+    ASSERT_TRUE( rig->Load().IsSuccess() );
+
+    Animation::AnimationClip clip =
+         ClipFixture::Clip( "Wave", Animation::FrameNumber{ Animation::PROJECT_TICK_RATE.Numerator } );
+    clip.Skeleton = kRigGuid;
+    (void)ClipFixture::AddStaticBone( clip, "Root", glm::vec3( 0.0f, 5.0f, 0.0f ) );
+    (void)ClipFixture::AddStaticBone( clip, "Child", glm::vec3( 0.0f, 40.0f, 0.0f ) );
+    const auto clipFile = dir / "wave.anim";
+    ASSERT_TRUE( Assets::Serialization::SaveClipToFile( clipFile, clip ).IsSuccess() );
+    auto resident = manager.CreateAsset<Assets::AnimationAsset>( Common::Filepath( clipFile ) );
+    ASSERT_TRUE( resident->Load().IsSuccess() );
+    ASSERT_EQ( resident->GetSkeleton(), kRigGuid );
+
+    // A scene's Animator, REBUILT on the rig as it is now (the ECS rebuilds on the moved signature).
+    const auto childY = [&]
+    {
+        Animation::Animator animator( *rig->GetSkeleton() );
+        animator.Play( resident->GetClip(), true );
+        animator.Update( Common::Timestep( 0.0f ) );
+        return animator.GetPose().Matrices.at( 1 )[3].y;
+    };
+    const auto locators = [&]
+    {
+        std::vector<std::string> names;
+        for ( const auto& binding : resident->GetClip().Sequence.Bindings )
+            if ( binding.Kind == Animation::Timeline::BindingKind::Bone )
+                names.push_back( binding.Locator );
+        return names;
+    };
+    const std::vector<std::string> original{ "Root", "Child" };
+    const std::vector<std::string> chained{ "Child", "Forearm" };
+    ASSERT_EQ( locators(), original );
+    ASSERT_FLOAT_EQ( childY(), 45.0f )
+         << "both channels animate before the rename, so the checks below are not vacuous";
+
+    const Editor::ResidentSkeletonClips clips{ kRigGuid, &manager };
+    ASSERT_TRUE( Editor::CommitBoneRename( rig, 1U, "Forearm", clips ).IsSuccess() );
+    ASSERT_TRUE( Editor::CommitBoneRename( rig, 0U, "Child", clips ).IsSuccess() );
+    EXPECT_EQ( locators(), chained ) << "the loaded clip is renamed by the Rename, not by the Save";
+    EXPECT_FLOAT_EQ( childY(), 45.0f ) << "between Rename and Save the renamed bones keep their channels";
+
+    // One undo per rename, each putting the clip's name back with the bone's.
+    ASSERT_TRUE( Editor::CommandHistory::Get().Undo() );
+    EXPECT_EQ( locators(), ( std::vector<std::string>{ "Root", "Forearm" } ) );
+    EXPECT_FLOAT_EQ( childY(), 45.0f );
+    ASSERT_TRUE( Editor::CommandHistory::Get().Undo() );
+    EXPECT_EQ( locators(), original );
+    EXPECT_FLOAT_EQ( childY(), 45.0f );
+    ASSERT_TRUE( Editor::CommandHistory::Get().Redo() );
+    ASSERT_TRUE( Editor::CommandHistory::Get().Redo() );
+    EXPECT_EQ( locators(), chained );
+
+    // "Don't Save": the file's names go back into the rig AND the loaded clip.
+    auto onDisk = Editor::ReadBindPoseOnDisk( *rig );
+    ASSERT_TRUE( onDisk.IsSuccess() );
+    ASSERT_TRUE( Editor::RestoreBindPose( rig, onDisk.GetValue(), clips ) );
+    EXPECT_EQ( locators(), original );
+    EXPECT_FLOAT_EQ( childY(), 45.0f );
+
+    // Save writes; the resident clip is not renamed twice.
+    ASSERT_TRUE( Editor::CommitBoneRename( rig, 1U, "Forearm", clips ).IsSuccess() );
+    ASSERT_TRUE( Editor::CommitBoneRename( rig, 0U, "Child", clips ).IsSuccess() );
+    Assets::SkeletonReferrers referrers;
+    referrers.ClipFiles = { clipFile };
+    referrers.Loaded    = &manager;
+    ASSERT_TRUE( Assets::Serialization::SaveSkeletonAsset( *rig, referrers ).IsSuccess() );
+    EXPECT_EQ( locators(), chained ) << "Save must not re-apply the chain to the already renamed clip";
+    EXPECT_FLOAT_EQ( childY(), 45.0f );
+
+    Assets::AssetManager fresh;
+    auto                 written = fresh.CreateAsset<Assets::AnimationAsset>( Common::Filepath( clipFile ) );
+    ASSERT_TRUE( written->Load().IsSuccess() );
+    std::vector<std::string> onFile;
+    for ( const auto& binding : written->GetClip().Sequence.Bindings )
+        if ( binding.Kind == Animation::Timeline::BindingKind::Bone )
+            onFile.push_back( binding.Locator );
+    EXPECT_EQ( onFile, chained ) << "the file holds the rename after Save";
+    Editor::CommandHistory::Get().DropFor( rig.get() );
+}
+
 // ANIM-FIX4b2: a retarget whose SOURCE rig is the renamed skeleton names its source bones by the new name after
 // Save; its target side (the entity's own rig, not stated in the file) and a retarget of another rig are kept.
 TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheRetargetsOfItsSkeleton )
@@ -252,7 +347,7 @@ TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheRetargetsOfItsSkeleton )
     const auto ours   = retargetOf( kRigGuid, "ours" );
     const auto theirs = retargetOf( Common::Content::AssetGuid{ 0x1ull, 0x2ull }, "theirs" );
 
-    ASSERT_TRUE( Editor::CommitBoneRename( rig, 1U, "Forearm" ).IsSuccess() );
+    ASSERT_TRUE( Editor::CommitBoneRename( rig, 1U, "Forearm", { kRigGuid, &manager } ).IsSuccess() );
     Assets::SkeletonReferrers referrers;
     referrers.RetargetFiles = { ours, theirs };
     ASSERT_TRUE( Assets::Serialization::SaveSkeletonAsset( *rig, referrers ).IsSuccess() );

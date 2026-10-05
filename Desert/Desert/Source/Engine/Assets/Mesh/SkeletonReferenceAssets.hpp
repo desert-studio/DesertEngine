@@ -35,8 +35,9 @@ namespace Desert::Assets
      * `ClipFiles`: every .anim whose header names the skeleton (the registry's Rig tag, ReferrersOfSkeleton),
      * loaded or not. `RetargetFiles`: every .retarget the registry knows; the ones whose SourceSkeleton is this
      * skeleton are the referrers (the file states the pair's source rig by GUID, UE's IK Retargeter source IK
-     * Rig). `Loaded`: the manager whose resident AnimationAssets of the skeleton are renamed in memory and whose
-     * resident RetargetAssets of a rewritten file re-read it; null = none resident.
+     * Rig). `Loaded`: the manager whose resident RetargetAssets of a rewritten file re-read it; null = none
+     * resident. Its resident clips are NOT renamed here: the Rename itself renamed them
+     * (RenameBonesInResidentClips), Save only writes.
      */
     struct SkeletonReferrers
     {
@@ -50,13 +51,26 @@ namespace Desert::Assets
                                                          AssetManager*                     loaded );
 
     /**
-     * @brief THE ONE POINT A BONE RENAME REACHES THE SKELETON'S ASSETS: every clip file of @p referrers is read,
-     * its Bone bindings renamed (Timeline::RenameBoneLocators) and written back when one moved (SaveClipToFile
-     * keeps its GUID and import record); every resident clip of @p skeleton in `Loaded` is renamed in memory
-     * (AnimationAsset::RenameBones). Every retarget file whose SourceSkeleton is @p skeleton has its SOURCE-side
-     * bone names renamed (RenameSourceBonesInRetarget) and is written back; a resident RetargetAsset of that file
-     * re-reads it. A file that does not read or write is refused by path; the ones before it stay written. Called
-     * by Serialization::SaveSkeletonAsset with the renames it reads off the file.
+     * @brief RENAME BONE, IN THE LOADED CLIPS - the in-memory half of the Rename transaction (UE Skeleton Editor
+     * Rename Bone renames the loaded animations' tracks at once and dirties their packages; Save only writes).
+     * Every AnimationAsset resident in @p loaded whose skeleton is @p skeleton has its Bone bindings renamed
+     * (AnimationAsset::RenameBones - its Revision moves, so an Animator rebinds by the new names), so between
+     * the Rename and the Save a scene keeps animating the renamed bone. One simultaneous map, as
+     * RenameBoneLocators; the undo is the inverse map. Returns how many bindings moved over all clips.
+     */
+    std::size_t RenameBonesInResidentClips( const Common::Content::AssetGuid&                skeleton,
+                                            std::span<const Animation::Timeline::BoneRename> renames,
+                                            AssetManager&                                    loaded );
+
+    /**
+     * @brief THE ONE POINT A SAVED BONE RENAME REACHES THE SKELETON'S FILES: every clip file of @p referrers is
+     * read, its Bone bindings renamed (Timeline::RenameBoneLocators) and written back when one moved
+     * (SaveClipToFile keeps its GUID and import record). The resident clips are not touched: the Rename renamed
+     * them in memory already (RenameBonesInResidentClips), and renaming them again would re-apply a chain
+     * (A -> B, C -> A) to names that already moved. Every retarget file whose SourceSkeleton is @p skeleton has
+     * its SOURCE-side bone names renamed (RenameSourceBonesInRetarget) and is written back; a resident
+     * RetargetAsset of that file re-reads it. A file that does not read or write is refused by path; the ones
+     * before it stay written. Called by Serialization::SaveSkeletonAsset with the renames it reads off the file.
      */
     [[nodiscard]] Common::BoolResultStr
     RenameBonesInSkeletonAssets( const Common::Content::AssetGuid&                skeleton,

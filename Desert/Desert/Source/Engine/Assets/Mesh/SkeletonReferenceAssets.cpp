@@ -159,11 +159,20 @@ namespace Desert::Assets
                 return Common::MakeFormattedError<bool>( "bone rename: clip '{}' was not written: {}",
                                                          file.string(), written.GetError() );
         }
-        if ( referrers.Loaded != nullptr )
-            for ( const auto& [handle, clip] : referrers.Loaded->FindAllByType<AnimationAsset>() )
-                if ( clip && clip->GetSkeleton() == skeleton )
-                    (void)clip->RenameBones( renames );
         return RenameBonesInRetargetFiles( skeleton, renames, referrers );
+    }
+
+    std::size_t RenameBonesInResidentClips( const Common::Content::AssetGuid&                      skeleton,
+                                            const std::span<const Animation::Timeline::BoneRename> renames,
+                                            AssetManager&                                          loaded )
+    {
+        std::size_t moved = 0;
+        if ( renames.empty() )
+            return moved;
+        for ( const auto& [handle, clip] : loaded.FindAllByType<AnimationAsset>() )
+            if ( clip && clip->GetSkeleton() == skeleton )
+                moved += clip->RenameBones( renames );
+        return moved;
     }
 } // namespace Desert::Assets
 

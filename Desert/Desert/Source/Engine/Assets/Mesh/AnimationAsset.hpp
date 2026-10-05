@@ -31,7 +31,8 @@ namespace Desert::Assets
             return m_Clip;
         }
 
-        /// RENAME BONE, CARRIED INTO THIS CLIP IN MEMORY (Skeleton Editor Save; the file is rewritten beside it by
+        /// RENAME BONE, CARRIED INTO THIS CLIP IN MEMORY (the Skeleton Editor's Rename, its undo and "Don't Save",
+        /// through Assets::RenameBonesInResidentClips; Save rewrites the file by
         /// Assets::RenameBonesInSkeletonAssets): Timeline::RenameBoneLocators on the clip's sequence. A move is a
         /// new generation of the bindings, so the Revision moves and an Animator's ClipBinding re-resolves the
         /// names. Returns how many bindings moved.

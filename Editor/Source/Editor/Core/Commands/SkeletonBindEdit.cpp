@@ -1,7 +1,10 @@
 #include "SkeletonBindEdit.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+
+#include <array>
 
 #include <format>
 
@@ -23,25 +26,47 @@ namespace Desert::Editor
         return m_Skeleton && m_Skeleton->SetLocalBindTransform( m_Bone, m_After );
     }
 
+    namespace
+    {
+        /// The rename's one rule, for the commit, the undo and the redo alike: the bone, then its channels in the
+        /// loaded clips - the clips only once the rig took the name.
+        Common::BoolResultStr RenameBoneAndClips( Assets::SkeletonAsset& skeleton, const uint32_t bone,
+                                                  const std::string& from, const std::string& to,
+                                                  const ResidentSkeletonClips& clips )
+        {
+            if ( auto renamed = skeleton.RenameBone( bone, to ); !renamed )
+                return renamed;
+            if ( clips.Loaded != nullptr )
+            {
+                const std::array<Animation::Timeline::BoneRename, 1> rename{
+                     Animation::Timeline::BoneRename{ from, to } };
+                (void)Assets::RenameBonesInResidentClips( clips.Skeleton, rename, *clips.Loaded );
+            }
+            return Common::MakeSuccess( true );
+        }
+    } // namespace
+
     SkeletonRenameCommand::SkeletonRenameCommand( std::shared_ptr<Assets::SkeletonAsset> skeleton,
-                                                  const uint32_t bone, std::string before, std::string after )
+                                                  const uint32_t bone, std::string before, std::string after,
+                                                  ResidentSkeletonClips clips )
          : m_Skeleton( std::move( skeleton ) ), m_Bone( bone ), m_Before( std::move( before ) ),
-           m_After( std::move( after ) )
+           m_After( std::move( after ) ), m_Clips( clips )
     {
     }
 
     bool SkeletonRenameCommand::Undo()
     {
-        return m_Skeleton && m_Skeleton->RenameBone( m_Bone, m_Before ).IsSuccess();
+        return m_Skeleton && RenameBoneAndClips( *m_Skeleton, m_Bone, m_After, m_Before, m_Clips ).IsSuccess();
     }
 
     bool SkeletonRenameCommand::Redo()
     {
-        return m_Skeleton && m_Skeleton->RenameBone( m_Bone, m_After ).IsSuccess();
+        return m_Skeleton && RenameBoneAndClips( *m_Skeleton, m_Bone, m_Before, m_After, m_Clips ).IsSuccess();
     }
 
     Common::BoolResultStr CommitBoneRename( const std::shared_ptr<Assets::SkeletonAsset>& skeleton,
-                                            const uint32_t bone, const std::string& name )
+                                            const uint32_t bone, const std::string& name,
+                                            const ResidentSkeletonClips& clips )
     {
         if ( !skeleton || skeleton->GetSkeleton() == nullptr )
             return Common::MakeError<bool>( "the rig is not loaded" );
@@ -51,10 +76,10 @@ namespace Desert::Editor
         if ( bones[bone].Name == name )
             return Common::MakeSuccess( true );
         std::string before = bones[bone].Name;
-        if ( auto renamed = skeleton->RenameBone( bone, name ); !renamed )
+        if ( auto renamed = RenameBoneAndClips( *skeleton, bone, before, name, clips ); !renamed )
             return renamed;
         CommandHistory::Get().PushCommand(
-             std::make_unique<SkeletonRenameCommand>( skeleton, bone, std::move( before ), name ) );
+             std::make_unique<SkeletonRenameCommand>( skeleton, bone, std::move( before ), name, clips ) );
         return Common::MakeSuccess( true );
     }
 
@@ -148,7 +173,7 @@ namespace Desert::Editor
     }
 
     bool RestoreBindPose( const std::shared_ptr<Assets::SkeletonAsset>& skeleton,
-                          const ReferencePoseOnDisk&                    onDisk )
+                          const ReferencePoseOnDisk& onDisk, const ResidentSkeletonClips& clips )
     {
         if ( !skeleton || skeleton->GetSkeleton() == nullptr ||
              skeleton->GetSkeleton()->GetBones().size() != onDisk.Binds.size() ||
@@ -156,13 +181,20 @@ namespace Desert::Editor
             return false;
         // Names first, through a name no bone holds: a discarded swap (A <-> B) would otherwise refuse its own
         // first step as a duplicate.
-        const size_t count = onDisk.Names.size();
+        const size_t                                 count = onDisk.Names.size();
+        std::vector<Animation::Timeline::BoneRename> discarded; // memory name -> the file's, one simultaneous map
+        for ( uint32_t i = 0; i < count; ++i )
+            if ( const std::string& name = skeleton->GetSkeleton()->GetBones()[i].Name; name != onDisk.Names[i] )
+                discarded.push_back( { name, onDisk.Names[i] } );
         for ( uint32_t i = 0; i < count; ++i )
             if ( skeleton->GetSkeleton()->GetBones()[i].Name != onDisk.Names[i] )
                 (void)skeleton->RenameBone( i, std::format( "\x01restoring {}", i ) );
         for ( uint32_t i = 0; i < count; ++i )
             if ( skeleton->GetSkeleton()->GetBones()[i].Name != onDisk.Names[i] )
                 (void)skeleton->RenameBone( i, onDisk.Names[i] );
+        // The loaded clips were renamed with the bones (the Rename's transaction), so they are renamed back.
+        if ( clips.Loaded != nullptr )
+            (void)Assets::RenameBonesInResidentClips( clips.Skeleton, discarded, *clips.Loaded );
         for ( uint32_t i = 0; i < count; ++i )
             if ( skeleton->GetSkeleton()->GetBones()[i].LocalBindTransform != onDisk.Binds[i] )
                 (void)skeleton->SetLocalBindTransform( i, onDisk.Binds[i] );

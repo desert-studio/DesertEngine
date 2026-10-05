@@ -273,6 +273,25 @@ TEST( UIAnimationUndo, ABindingAndATrackAddedToAUIAnimationAreOneStepAndUndoRese
     EXPECT_TRUE( CommandHistory::Get().RedoStack().empty() && CommandHistory::Get().UndoStack().empty() );
 }
 
+TEST( BoneTrackBinding, ANewBindingToABoneGivenARenamedBonesOldNameGetsItsOwnGuid )
+{
+    Timeline::Sequence          sequence;
+    const Timeline::BindingGuid renamed = Animation::AddBoneTrack( sequence, "Hand" ).Binding;
+    EXPECT_EQ( renamed, Timeline::BindingGuid::ForObject( Timeline::BindingKind::Bone, "Hand" ) )
+         << "the first binding is derived, so the collision below is real";
+
+    const std::array<Timeline::BoneRename, 1> rename{ Timeline::BoneRename{ "Hand", "Hand_L" } };
+    ASSERT_EQ( Timeline::RenameBoneLocators( sequence, rename ), 1U );
+
+    const Timeline::BindingGuid fresh = Animation::AddBoneTrack( sequence, "Hand" ).Binding;
+    EXPECT_FALSE( fresh.IsNull() );
+    EXPECT_NE( fresh, renamed ) << "a bone now called Hand must not take the GUID the renamed Hand_L keeps";
+    ASSERT_EQ( sequence.Bindings.size(), 2U );
+    EXPECT_NE( sequence.Bindings[0].Guid, sequence.Bindings[1].Guid );
+    EXPECT_EQ( Timeline::FindBinding( sequence, renamed )->Locator, "Hand_L" );
+    EXPECT_EQ( Timeline::FindBinding( sequence, fresh )->Locator, "Hand" );
+}
+
 TEST( SequenceCensus, EveryStoredFieldOfATrackIsCompared )
 {
     Timeline::Track a;
