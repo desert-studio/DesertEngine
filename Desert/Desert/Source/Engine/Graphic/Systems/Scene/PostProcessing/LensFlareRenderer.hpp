@@ -5,11 +5,13 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <glm/glm.hpp>
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -70,48 +72,36 @@ namespace Desert::Graphic::System
         }
 
         // Whether the flare is dispatched this frame, decided when the frame graph is built.
-        // @p sunScreenUv is the sun's position in [0,1] screen UV; @p screenFade is SunScreen::Fade — 0
-        // when the sun is behind the camera or far past the edge, in which case nothing is dispatched (and
-        // the graph gets no flare nodes). Keeps the sun position the features pass places the flare at.
-        bool Prepare( const glm::vec2& sunScreenUv, float screenFade );
-        // Bright pass into source @p mip: mip 0 samples the scene colour (thresholded), mip i samples mip i-1.
-        // Records one dispatch, into the frame graph node that declares those two subresources.
-        void RecordBrightPass( uint32_t mip );
-        // Features: the whole source chain -> the flare image. One dispatch.
-        void RecordFeatures();
+        // @p screenFade is SunScreen::Fade: 0 when the sun is behind the camera or far past the edge, in which
+        // case nothing is dispatched, the graph gets no flare nodes and the tonemap reads the system black texture.
+        bool Prepare( float screenFade ) const;
 
-        uint32_t GetSourceMipLevels() const
-        {
-            return m_SourceMipLevels;
-        }
-        const std::shared_ptr<Image2D>& GetSourceImage() const
-        {
-            return m_SourceImage;
-        }
-        std::shared_ptr<Image2D> GetSceneColorImage() const;
-        void Resize( uint32_t width, uint32_t height );
+        // The two images of this frame, transients of its graph (Builder::CreateTexture): the half-resolution
+        // source chain and the quarter-resolution feature image (FrameTextures::Transients.LensFlare, which the
+        // tonemap adds in). The renderer keeps no image and has no Resize. Nullopt: no scene colour.
+        std::optional<RDG::TextureDesc> GetSourceDesc() const;
+        std::optional<RDG::TextureDesc> GetFlareDesc() const;
+
+        // Bright pass into @p source @p mip: mip 0 samples @p sceneColor (thresholded), mip i samples mip i-1.
+        // Called from the exec of the node that declares exactly those two subresources.
+        [[nodiscard]] Common::BoolResultStr RecordBrightPass( const RDG::PassContext& context,
+                                                              RDG::TextureRef sceneColor, RDG::TextureRef source,
+                                                              const RDG::TextureDesc& sourceDesc, uint32_t mip );
+        // Features: the whole @p source chain -> @p flare, placed about @p sunScreenUv ([0,1] screen UV).
+        [[nodiscard]] Common::BoolResultStr RecordFeatures( const RDG::PassContext& context, RDG::TextureRef source,
+                                                            RDG::TextureRef flare, const RDG::TextureDesc& flareDesc,
+                                                            const glm::vec2& sunScreenUv );
 
         void SetParams( const Params& params )
         {
             m_Params = params;
         }
-
         const Params& GetParams() const
         {
             return m_Params;
         }
 
-        // The flare image the tonemap adds in. When the effect contributes nothing this frame its
-        // contents are STALE, and that is safe for the same reason the bloom and shaft images are: the
-        // tonemap's flare intensity is derived from the same numbers that gate the dispatches, so it is
-        // exactly zero in exactly those frames.
-        const std::shared_ptr<Image2D>& GetFlareImage() const
-        {
-            return m_FlareImage;
-        }
-
     private:
-        bool CreateImages( uint32_t width, uint32_t height );
         bool CreatePipelines();
 
         // The two resolutions are deliberately different, because the two passes want opposite things.
@@ -130,14 +120,10 @@ namespace Desert::Graphic::System
         // the whole authored magnification range (Ghost Size tops out at 16).
         static constexpr uint32_t kMaxSourceMips = 5;
 
-        std::shared_ptr<Image2D> m_SourceImage;
-        std::shared_ptr<Image2D> m_FlareImage;
-        uint32_t                 m_SourceMipLevels = 1;
 
         std::shared_ptr<ComputePipeline> m_BrightPassPipeline;
         std::shared_ptr<ComputePipeline> m_FeaturesPipeline;
 
         Params    m_Params;
-        glm::vec2 m_SunScreenUv{ 0.5f };
     };
 } // namespace Desert::Graphic::System

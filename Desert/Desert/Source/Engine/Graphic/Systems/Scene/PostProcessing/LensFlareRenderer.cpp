@@ -1,5 +1,6 @@
 #include "LensFlareRenderer.hpp"
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -45,50 +46,9 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr LensFlareRenderer::Initialize()
     {
-        const auto& target = m_TargetFramebuffer.lock();
-        if ( !target )
-            return Common::MakeError( "LensFlareRenderer: target framebuffer is not available" );
-
-        if ( !CreateImages( target->GetFramebufferWidth(), target->GetFramebufferHeight() ) )
-            return Common::MakeError( "LensFlareRenderer: failed to create flare images" );
-
         if ( !CreatePipelines() )
             return Common::MakeError( "LensFlareRenderer: failed to create compute pipelines" );
-
         return BOOLSUCCESS;
-    }
-
-    bool LensFlareRenderer::CreateImages( uint32_t width, uint32_t height )
-    {
-        const uint32_t sw = std::max( 1u, width / kSourceDivisor );
-        const uint32_t sh = std::max( 1u, height / kSourceDivisor );
-        const uint32_t fw = std::max( 1u, width / kFeatureDivisor );
-        const uint32_t fh = std::max( 1u, height / kFeatureDivisor );
-
-        // The source carries a chain because the ghosts MAGNIFY it (see the shader's SourceLodForScale);
-        // the feature image is one level — the tonemap only ever reads it at full screen.
-        m_SourceMipLevels = std::min( kMaxSourceMips, Utils::CalculateMipCount( sw, sh ) );
-
-        const auto make = [&]( const char* tag, uint32_t w, uint32_t h, uint32_t mips ) -> std::shared_ptr<Image2D>
-        {
-            Core::Formats::Image2DSpecification spec = {
-                 .Tag        = tag,
-                 .Width      = w,
-                 .Height     = h,
-                 .Format     = kFlareFormat,
-                 .Mips       = mips,
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
-                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
-                 // Sampled by the tonemap in frames this effect is off (intensity 0), so it must not be garbage.
-                 .InitialContent = Core::Formats::ImageInitialContent::Zero,
-            };
-            return Image2D::Create( spec );
-        };
-
-        m_SourceImage = make( "LensFlareSource", sw, sh, m_SourceMipLevels );
-        m_FlareImage  = make( "LensFlareFeatures", fw, fh, 1 );
-
-        return m_SourceImage && m_FlareImage;
     }
 
     bool LensFlareRenderer::CreatePipelines()
@@ -118,62 +78,70 @@ namespace Desert::Graphic::System
         return m_BrightPassPipeline && m_FeaturesPipeline;
     }
 
-    void LensFlareRenderer::Resize( uint32_t width, uint32_t height )
-    {
-        if ( width == 0 || height == 0 )
-            return;
-        CreateImages( width, height );
-    }
-
-    std::shared_ptr<Image2D> LensFlareRenderer::GetSceneColorImage() const
+    std::optional<RDG::TextureDesc> LensFlareRenderer::GetSourceDesc() const
     {
         const auto scene = m_TargetFramebuffer.lock();
-        return scene ? scene->GetColorAttachmentImage() : nullptr;
+        if ( !scene || !scene->GetColorAttachmentImage() )
+            return std::nullopt;
+        const uint32_t sw = std::max( 1u, scene->GetFramebufferWidth() / kSourceDivisor );
+        const uint32_t sh = std::max( 1u, scene->GetFramebufferHeight() / kSourceDivisor );
+        // The source carries a chain because the ghosts MAGNIFY it (see the shader's SourceLodForScale).
+        return RDG::TextureDesc{ .Size   = { .Width = sw, .Height = sh },
+                                 .Format = kFlareFormat,
+                                 .Mips   = std::min( kMaxSourceMips, Utils::CalculateMipCount( sw, sh ) ) };
     }
 
-    bool LensFlareRenderer::Prepare( const glm::vec2& sunScreenUv, float screenFade )
+    std::optional<RDG::TextureDesc> LensFlareRenderer::GetFlareDesc() const
+    {
+        const auto scene = m_TargetFramebuffer.lock();
+        if ( !scene || !scene->GetColorAttachmentImage() )
+            return std::nullopt;
+        // One level: the tonemap only ever reads it at full screen.
+        const uint32_t fw = std::max( 1u, scene->GetFramebufferWidth() / kFeatureDivisor );
+        const uint32_t fh = std::max( 1u, scene->GetFramebufferHeight() / kFeatureDivisor );
+        return RDG::TextureDesc{ .Size = { .Width = fw, .Height = fh }, .Format = kFlareFormat, .Mips = 1 };
+    }
+
+    bool LensFlareRenderer::Prepare( float screenFade ) const
     {
         // Nothing to add this frame: the sun is behind the camera or off screen, or the effect is off.
-        // The dispatches are skipped and the (stale) flare image stays inert because SceneRenderer
-        // derives the tonemap's flare intensity from these same numbers — the contract bloom has.
         if ( !m_Params.Enabled || screenFade <= 0.0f || m_Params.Intensity <= 0.0f )
             return false;
-        if ( !GetSceneColorImage() || !m_SourceImage || !m_FlareImage || !m_BrightPassPipeline ||
-             !m_FeaturesPipeline )
-            return false;
-        m_SunScreenUv = sunScreenUv;
-        return true;
+        return m_BrightPassPipeline && m_FeaturesPipeline;
     }
 
-    void LensFlareRenderer::RecordBrightPass( uint32_t mip )
+    Common::BoolResultStr LensFlareRenderer::RecordBrightPass( const RDG::PassContext& context,
+                                                               RDG::TextureRef sceneColor, RDG::TextureRef source,
+                                                               const RDG::TextureDesc& sourceDesc, uint32_t mip )
     {
         // One shader run per mip, exactly as BloomRenderer does it; the threshold applies on the first
         // pass only, so the deeper levels are honest averages of the energy the first level admitted.
-        const auto sceneColor = GetSceneColorImage();
-        if ( !sceneColor )
-            return;
         const bool           first = ( mip == 0 );
-        const BrightPassPush brightPush{ first ? 1 : 0,
-                                         m_Params.Threshold, m_Params.MaxBrightness };
-
-        m_BrightPassPipeline->SetInput( 0, first ? sceneColor.get() : m_SourceImage.get(),
-                                        RDG::Access::SampledCompute,
-                                        RDG::SubresourceRange::Mip( first ? 0u : mip - 1 ) );
-        m_BrightPassPipeline->SetOutput( 1, m_SourceImage.get(), mip );
-        m_BrightPassPipeline->SetPushConstants( &brightPush, sizeof( brightPush ) );
-        Renderer::GetInstance().DispatchComputeInFrame(
-             m_BrightPassPipeline.get(), GroupCount( MipSize( m_SourceImage->GetWidth(), mip ) ),
-             GroupCount( MipSize( m_SourceImage->GetHeight(), mip ) ), 1 );
+        const BrightPassPush brightPush{ first ? 1 : 0, m_Params.Threshold, m_Params.MaxBrightness };
+        RDG::PassBindings    bindings( context );
+        if ( first )
+            bindings.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                              RDG::SamplerDesc::LinearClamp() );
+        else
+            bindings.Sampled( "u_Source", source, RDG::Access::SampledCompute,
+                              RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() );
+        bindings.Storage( "u_Output", source, RDG::Access::StorageWrite, mip )
+             .PushConstants( &brightPush, sizeof( brightPush ) );
+        return Renderer::GetInstance().DispatchCompute( bindings, *m_BrightPassPipeline,
+                                                        GroupCount( MipSize( sourceDesc.Size.Width, mip ) ),
+                                                        GroupCount( MipSize( sourceDesc.Size.Height, mip ) ), 1 );
     }
 
-    void LensFlareRenderer::RecordFeatures()
+    Common::BoolResultStr LensFlareRenderer::RecordFeatures( const RDG::PassContext& context, RDG::TextureRef source,
+                                                             RDG::TextureRef flare, const RDG::TextureDesc& flareDesc,
+                                                             const glm::vec2& sunScreenUv )
     {
         // Source -> ghosts + halo + streak.
         const float angle = glm::radians( m_Params.StreakAngle );
 
         FeaturesPush featuresPush{};
         featuresPush.SunUvHalo =
-             glm::vec4( m_SunScreenUv.x, m_SunScreenUv.y, m_Params.HaloIntensity, m_Params.HaloRadius );
+             glm::vec4( sunScreenUv.x, sunScreenUv.y, m_Params.HaloIntensity, m_Params.HaloRadius );
         featuresPush.GhostParams =
              glm::vec4( static_cast<float>( std::max( 0, m_Params.GhostCount ) ), m_Params.GhostSpacing,
                         m_Params.GhostSizeNear, m_Params.GhostSizeFar );
@@ -184,12 +152,14 @@ namespace Desert::Graphic::System
         featuresPush.Streak =
              glm::vec4( m_Params.StreakIntensity, m_Params.StreakLength, std::cos( angle ), std::sin( angle ) );
 
-        m_FeaturesPipeline->SetInput( 0, m_SourceImage.get(), RDG::Access::SampledCompute,
-                                      RDG::SubresourceRange::All() );
-        m_FeaturesPipeline->SetOutput( 1, m_FlareImage.get() );
-        m_FeaturesPipeline->SetPushConstants( &featuresPush, sizeof( featuresPush ) );
-        Renderer::GetInstance().DispatchComputeInFrame( m_FeaturesPipeline.get(),
-                                                        GroupCount( m_FlareImage->GetWidth() ),
-                                                        GroupCount( m_FlareImage->GetHeight() ), 1 );
+        RDG::PassBindings bindings( context );
+        bindings
+             .Sampled( "u_FlareSource", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() )
+             .Storage( "u_Flare", flare, RDG::Access::StorageWrite, 0 )
+             .PushConstants( &featuresPush, sizeof( featuresPush ) );
+        return Renderer::GetInstance().DispatchCompute( bindings, *m_FeaturesPipeline,
+                                                        GroupCount( flareDesc.Size.Width ),
+                                                        GroupCount( flareDesc.Size.Height ), 1 );
     }
 } // namespace Desert::Graphic::System

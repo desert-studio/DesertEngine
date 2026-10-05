@@ -5,10 +5,12 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <glm/glm.hpp>
 
 #include <memory>
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -42,73 +44,47 @@ namespace Desert::Graphic::System
         }
 
         // The mask and every blur pass are compute nodes of the frame graph (SceneRendererFramePostFX.cpp
-        // "PostFX: LightShaft*"): the mask samples GetSceneColorImage() and writes GetPingImage(); blur pass p
-        // samples GetBlurSource( p ) and writes GetBlurTarget( p ). The last pass writes GetShaftImage().
-        // False: nothing to record (no scene colour, images or pipelines).
-        bool Prepare() const;
-        // @p sunScreenUv is the sun's position in [0,1] screen UV; @p screenFade is the CPU-computed
-        // fade for a sun leaving the view (0 = fully off-screen or behind: the dispatches are skipped).
+        // "PostFX: LightShaft*"). Their two half-resolution images are transients of that graph
+        // (Builder::CreateTexture from GetTargetDesc()); the renderer keeps no image and has no Resize.
+        // The last blur pass's target is FrameTextures::Transients.LightShafts, which the tonemap adds in.
+        // Nullopt: nothing to record (no scene colour or pipelines).
+        std::optional<RDG::TextureDesc> GetTargetDesc() const;
+
+        // @p screenFade is the CPU-computed fade for a sun leaving the view (0 = fully off-screen or behind):
+        // when this is false the graph gets no shaft nodes and the tonemap reads the system black texture.
         bool IsActive( float screenFade ) const
         {
             return m_Params.Enabled && screenFade > 0.0f && m_Params.BloomScale > 0.0f;
         }
-        void RecordMask( const glm::vec2& sunScreenUv, float screenFade );
-        void RecordBlur( uint32_t pass, const glm::vec2& sunScreenUv, float screenFade );
+
+        // Mask: samples @p sceneColor, writes @p mask. @p sunScreenUv is the sun's position in [0,1] screen UV.
+        // Called from the exec of the pass that declared exactly those two uses.
+        [[nodiscard]] Common::BoolResultStr RecordMask( const RDG::PassContext& context, RDG::TextureRef sceneColor,
+                                                        RDG::TextureRef mask, const RDG::TextureDesc& desc,
+                                                        const glm::vec2& sunScreenUv );
+        // Radial blur pass @p pass: samples @p source, writes @p target; the reach grows per pass.
+        [[nodiscard]] Common::BoolResultStr RecordBlur( const RDG::PassContext& context, RDG::TextureRef source,
+                                                        RDG::TextureRef target, const RDG::TextureDesc& desc,
+                                                        uint32_t pass, const glm::vec2& sunScreenUv );
 
         static constexpr uint32_t GetBlurPassCount()
         {
             return kBlurPasses;
         }
-        std::shared_ptr<Image2D> GetSceneColorImage() const
-        {
-            const auto scene = m_TargetFramebuffer.lock();
-            return scene ? scene->GetColorAttachmentImage() : nullptr;
-        }
-        const std::shared_ptr<Image2D>& GetPingImage() const
-        {
-            return m_PingImage;
-        }
-        // Mask -> ping, then ping -> pong, pong -> ping, ping -> pong.
-        const std::shared_ptr<Image2D>& GetBlurSource( uint32_t pass ) const
-        {
-            return pass % 2 == 0 ? m_PingImage : m_PongImage;
-        }
-        const std::shared_ptr<Image2D>& GetBlurTarget( uint32_t pass ) const
-        {
-            return pass % 2 == 0 ? m_PongImage : m_PingImage;
-        }
-        void Resize( uint32_t width, uint32_t height );
 
         void SetParams( const Params& params )
         {
             m_Params = params;
         }
-
         const Params& GetParams() const
         {
             return m_Params;
         }
 
-        // The blurred streak image the tonemap adds in — valid after Initialize. When the effect is off
-        // this frame its contents are STALE and that is fine: the tonemap's shaft intensity is derived
-        // from the same params and is zero in exactly those frames, the same contract the bloom image
-        // has. The sun's screen position and edge fade are pure maths and live in
-        // Engine/Graphic/PostProcessing/LightShaftRules.hpp, where the tests compile them.
-        const std::shared_ptr<Image2D>& GetShaftImage() const
-        {
-            return m_ShaftImage;
-        }
-
     private:
-        bool CreateImages( uint32_t width, uint32_t height );
         bool CreatePipelines();
 
         static constexpr uint32_t kBlurPasses = 3;
-
-        // Ping-pong pair at half resolution; m_ShaftImage aliases the last blur pass's target.
-        std::shared_ptr<Image2D> m_PingImage;
-        std::shared_ptr<Image2D> m_PongImage;
-        std::shared_ptr<Image2D> m_ShaftImage;
 
         std::shared_ptr<ComputePipeline> m_MaskPipeline;
         std::shared_ptr<ComputePipeline> m_BlurPipeline;

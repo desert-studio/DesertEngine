@@ -410,8 +410,6 @@ namespace Desert::Graphic
         if ( !SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
                    ->Initialize() )
             LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable." );
-        tonemapSystem->SetLightShaftImage( lightShaftSystem->GetShaftImage() );
-        tonemapSystem->SetLensFlareImage( lensFlareSystem->GetFlareImage() );
 
         // Auto-exposure measures the HDR scene luminance into a 1x1 buffer that tonemap reads.
         RegisterSystem<System::AutoExposureRenderer>( "AutoExposureSystem", this, m_TargetFramebuffer,
@@ -1209,18 +1207,6 @@ namespace Desert::Graphic
         if ( auto* backdrop =
                   UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] ) )
             backdrop->Resize( width, height );
-
-        // The light shafts recreate their ping-pong pair on resize, so re-point tonemap at the new image.
-        const auto& shaftSystem = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
-        shaftSystem->Resize( width, height );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetLightShaftImage( shaftSystem->GetShaftImage() );
-
-        // And for the lens flare, whose source/feature pair is recreated at the new quarter resolution.
-        const auto& flareSystem = UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
-        flareSystem->Resize( width, height );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetLensFlareImage( flareSystem->GetFlareImage() );
     }
 
     void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,

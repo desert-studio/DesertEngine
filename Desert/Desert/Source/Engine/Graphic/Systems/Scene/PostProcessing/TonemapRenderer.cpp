@@ -62,23 +62,25 @@ namespace Desert::Graphic::System
         // ignored, but the descriptor stays validly bound.
         std::shared_ptr<Image2D> avgLuminance = m_AutoExposureImage.lock();
 
-        std::shared_ptr<Image2D> lightShafts = m_LightShaftImage.lock();
-
-        std::shared_ptr<Image2D> lensFlare = m_LensFlareImage.lock();
-
-        const float bloomIntensity = inputs.BloomProduced ? m_BloomIntensity : 0.0f;
+        // An effect whose nodes did not run this frame reads System.Black and adds nothing.
+        const float bloomIntensity      = inputs.BloomProduced ? m_BloomIntensity : 0.0f;
+        const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
+        const float lensFlareIntensity  = inputs.LensFlareProduced ? m_LensFlareIntensity : 0.0f;
 
         MaterialTonemap::Params params{ m_TonemapOperator, m_Exposure,           m_Gamma,
                                         bloomIntensity,    m_ExposureKey,        m_AutoExposureEnabled,
-                                        m_ChromaticBloom,  m_WhitePoint,         m_LightShaftIntensity,
-                                        m_LightShaftTint,  m_LensFlareIntensity, m_LensFlareTint };
+                                        m_ChromaticBloom,  m_WhitePoint,         lightShaftIntensity,
+                                        m_LightShaftTint,  lensFlareIntensity,   m_LensFlareTint };
 
-        m_MaterialTonemap->BindInputs( framebuffer->GetColorAttachmentImage(), avgLuminance, lightShafts, lensFlare,
-                                       params );
+        m_MaterialTonemap->BindInputs( framebuffer->GetColorAttachmentImage(), avgLuminance, params );
 
         RDG::PassBindings bindings( context );
         bindings.Sampled( "u_BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
-                          RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() );
+                          RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                        m_MaterialTonemap->GetMaterialExecutor() );
     }

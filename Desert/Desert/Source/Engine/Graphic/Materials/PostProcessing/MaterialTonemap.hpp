@@ -29,10 +29,10 @@ namespace Desert::Graphic
             glm::vec3 LensFlareTint;       // the lens's Tint
         };
 
-        // u_BloomTexture is a graph transient: the tonemap exec binds it through RDG::PassBindings, never here.
+        // u_BloomTexture, u_LightShaftTexture and u_LensFlareTexture are graph transients: the tonemap exec binds
+        // them through RDG::PassBindings, never here.
         void BindInputs( const std::shared_ptr<Image2D>& targetImage, const std::shared_ptr<Image2D>& avgLuminance,
-                         const std::shared_ptr<Image2D>& lightShaftImage,
-                         const std::shared_ptr<Image2D>& lensFlareImage, const Params& params );
+                         const Params& params );
 
         MPROPERTY( float, Exposure,            "u_Exposure",            1.0f )
         MPROPERTY( float, Gamma,               "u_Gamma",               2.2f )
@@ -54,7 +54,5 @@ namespace Desert::Graphic
     private:
         Texture2DProperty* m_GeometryTexture   = nullptr;
         Texture2DProperty* m_AvgLuminance      = nullptr;
-        Texture2DProperty* m_LightShaftTexture = nullptr;
-        Texture2DProperty* m_LensFlareTexture  = nullptr;
     };
 } // namespace Desert::Graphic
