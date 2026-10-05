@@ -314,9 +314,9 @@ namespace
         Animator              anim( skel );
         anim.Play( clip );
         anim.SetTime( 0.2f );
-        anim.Update( Desert::Common::Timestep( seconds ) );
+        anim.Update( Common::Timestep( seconds ) );
         const glm::mat4 first = anim.GetPose().Matrices[1];
-        anim.Update( Desert::Common::Timestep( seconds ) );
+        anim.Update( Common::Timestep( seconds ) );
         return { first, anim.GetPose().Matrices[1] };
     }
 } // namespace
