@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -43,9 +44,12 @@ namespace
         }
         void Push( const float*, uint64_t frames ) override
         {
-            std::lock_guard lock( m_Lock );
-            m_Queued += frames;
-            m_Pushed += frames;
+            {
+                std::lock_guard lock( m_Lock );
+                m_Queued += frames;
+                m_Pushed += frames;
+            }
+            m_Fed.notify_all();
         }
         uint64_t PlayedFrames() const override
         {
@@ -70,10 +74,13 @@ namespace
             m_PushedBeforeFlush = m_Pushed; // one pass's sound: a flush ends a pass (the end, a seek)
             m_Pushed            = 0;
         }
+        // A device pulls its period: it waits for the decode thread to feed it (as a real output's callback is
+        // fed ahead), and plays short only when nothing more comes (the stream's end).
         void Consume( uint64_t frames )
         {
-            std::lock_guard lock( m_Lock );
-            const uint64_t  n = frames < m_Queued ? frames : m_Queued;
+            std::unique_lock lock( m_Lock );
+            m_Fed.wait_for( lock, std::chrono::milliseconds( 200 ), [&] { return m_Queued >= frames; } );
+            const uint64_t n = frames < m_Queued ? frames : m_Queued;
             m_Queued -= n;
             m_Played += n;
         }
@@ -91,9 +98,10 @@ namespace
         uint32_t SampleRate = 0, Channels = 0;
 
     private:
-        mutable std::mutex m_Lock;
-        uint64_t           m_Queued = 0, m_Played = 0, m_Pushed = 0, m_PushedBeforeFlush = 0;
-        bool               m_Paused = true;
+        mutable std::mutex      m_Lock;
+        std::condition_variable m_Fed;
+        uint64_t                m_Queued = 0, m_Played = 0, m_Pushed = 0, m_PushedBeforeFlush = 0;
+        bool                    m_Paused = true;
     };
 
     MediaSource Clip()
