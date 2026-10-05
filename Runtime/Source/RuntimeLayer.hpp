@@ -103,6 +103,7 @@ namespace Desert::Player
         bool                                         m_Backspace     = false; // backspace pressed since present
         bool                                         m_TabPressed    = false; // Tab pressed since present
         bool                                         m_SubmitPressed = false; // Enter pressed since present
+        int m_Navigate = 0; // Up/W = -1, Down/S = +1 since present (UIInput::Navigate)
         bool                                         m_EscapePressed = false; // Escape pressed since present
         entt::entity                                 m_FocusedUI     = entt::null; // the focused control (or null)
 

@@ -805,6 +805,7 @@ namespace Desert::Player
                     m_TabPressed    = false;
                     m_SubmitPressed = false;
                     m_EscapePressed = false;
+                    m_Navigate      = 0;
                 }
                 else
                 {
@@ -833,6 +834,7 @@ namespace Desert::Player
                     input.Backspace      = m_Backspace;
                     input.Tab            = m_TabPressed;
                     input.Submit         = m_SubmitPressed;
+                    input.Navigate       = m_Navigate;
                     m_PrevMouseDown      = down;
                     m_ScrollAccum        = 0.0f;
                     m_TypedText.clear();
@@ -840,6 +842,7 @@ namespace Desert::Player
                     m_TabPressed    = false;
                     m_SubmitPressed = false;
                     m_EscapePressed = false;
+                    m_Navigate      = 0;
 
                     // Pointer events / drops can fire several times in one frame, so they come back in their
                     // own list; a button action still arrives through `clicked`.
@@ -1000,6 +1003,14 @@ namespace Desert::Player
                 break;
             case Common::KeyCode::Enter:
                 m_SubmitPressed = true;
+                break;
+            case Common::KeyCode::Down:
+            case Common::KeyCode::S:
+                m_Navigate = 1;
+                break;
+            case Common::KeyCode::Up:
+            case Common::KeyCode::W:
+                m_Navigate = -1;
                 break;
             case Common::KeyCode::Escape:
                 m_EscapePressed = true;

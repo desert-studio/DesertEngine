@@ -1572,6 +1572,11 @@ namespace Desert::Editor
                 pv.Scroll       = m_ViewportData.IsHovered ? ImGui::GetIO().MouseWheel : 0.0f;
                 pv.Tab          = ImGui::IsKeyPressed( ImGuiKey_Tab, false );
                 pv.Submit       = ImGui::IsKeyPressed( ImGuiKey_Enter, false );
+                pv.Navigate = ( ImGui::IsKeyPressed( ImGuiKey_DownArrow, false ) || ImGui::IsKeyPressed( ImGuiKey_S, false ) )
+                                  ? 1
+                              : ( ImGui::IsKeyPressed( ImGuiKey_UpArrow, false ) || ImGui::IsKeyPressed( ImGuiKey_W, false ) )
+                                  ? -1
+                                  : 0;
                 pv.Backspace    = ImGui::IsKeyPressed( ImGuiKey_Backspace, false );
                 pv.TypedText.clear();
                 for ( ImWchar c : ImGui::GetIO().InputQueueCharacters )

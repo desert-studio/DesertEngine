@@ -2788,18 +2788,21 @@ namespace Desert::UI
         // than here, so it stays readable between the two.
         view.Hot = view.HotNext;
 
-        // Tab advances keyboard focus to the next focusable control (wraps; effective next frame). The list
-        // spans every canvas of the frame, so focus can leave a HUD and enter an overlay.
-        if ( focused && input && input->Tab && !view.Focusables.empty() )
+        // Tab and Down/S advance keyboard focus to the next focusable control, Up/W steps back (both wrap;
+        // effective next frame). The list spans every canvas of the frame, so focus can leave a HUD and enter
+        // an overlay. With nothing focused, either direction lands on the FIRST control — the top of a menu.
+        const int step = input ? ( input->Tab ? 1 : input->Navigate ) : 0;
+        if ( focused && step != 0 && !view.Focusables.empty() )
         {
-            std::size_t idx = 0; // not-found -> focus the first
-            for ( std::size_t i = 0; i < view.Focusables.size(); ++i )
+            const std::size_t n   = view.Focusables.size();
+            std::size_t       idx = 0; // not-found -> focus the first
+            for ( std::size_t i = 0; i < n; ++i )
                 if ( view.Focusables[i] == *focused )
                 {
-                    idx = i + 1;
+                    idx = step > 0 ? ( i + 1 ) % n : ( i + n - 1 ) % n;
                     break;
                 }
-            *focused = view.Focusables[idx % view.Focusables.size()];
+            *focused = view.Focusables[idx];
         }
 
         view.FrameOpen = false;

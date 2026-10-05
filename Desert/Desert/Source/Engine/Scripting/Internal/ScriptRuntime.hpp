@@ -511,4 +511,5 @@ namespace Desert::Scripting
     void RegisterAnimationBindings( ScriptEngine::Impl& impl );  // entity:setAnimParam -> the AnimGraph
     void RegisterUIBindings( ScriptEngine::Impl& impl );         // ui.set/get/send + OnUIMessage bridge
     void RegisterLocalizationBindings( ScriptEngine::Impl& impl ); // loc.text/plural/number/money/date
+    void RegisterProjectBindings( ScriptEngine::Impl& impl );      // project.name/company
 } // namespace Desert::Scripting
