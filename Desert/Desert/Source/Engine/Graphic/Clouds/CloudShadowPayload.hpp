@@ -219,13 +219,15 @@ namespace Desert::Graphic
      * SceneRenderer gathers ONE of these per frame (SceneRenderer::GetCloudShadowInput) and the deferred
      * material, the PBR materials and the terrain material are all handed the same one.
      *
-     * `Map` null, or `Enabled` false, is the ordinary state: no cloud component, clouds off, casting off,
+     * `HasMap` false, or `Enabled` false, is the ordinary state: no cloud component, clouds off, casting off,
      * strength zero, or a renderer whose scene has no sky at all. Consumers then leave the sampler on its
      * dummy image and the shader is told not to read it.
      */
     struct CloudShadowInput
     {
-        Image2D*  Map = nullptr;
+        // Whether the cloud renderer built a map this frame. The image itself is a pass parameter
+        // (FrameTransients::CloudShadowMap, bound by name through RDG::PassBindings), never carried here.
+        bool      HasMap = false;
         glm::mat4 WorldToMap{ 1.0f };
         float     FarDepthKm = 0.0f;
         float     Strength   = 0.0f;
@@ -240,7 +242,7 @@ namespace Desert::Graphic
         /// shading with a shadow the other has switched off.
         bool IsLive() const
         {
-            return Enabled && Map != nullptr && Strength > 0.0f;
+            return Enabled && HasMap && Strength > 0.0f;
         }
     };
 

@@ -1536,7 +1536,7 @@ namespace Desert::Graphic
 
         const CloudShadowMapView& view = clouds->GetShadowMapView();
 
-        cloudShadow.Map        = clouds->GetShadowMapImage();
+        cloudShadow.HasMap     = clouds->GetShadowMapImage() != nullptr;
         cloudShadow.WorldToMap = view.WorldToMap;
         cloudShadow.FarDepthKm = view.FarDepthKm;
         cloudShadow.Strength   = clouds->GetShadowStrength();

@@ -31,7 +31,7 @@
 //     };
 //
 // The NAMES are what has to match, and they do because every material binds by name — see
-// Graphic::CloudShadowBind, which is the single C++ writer of both.
+// Graphic::CloudShadowUpload (the block) and the pass's RDG::PassBindings (u_CloudShadowMap, FrameTransients::CloudShadowMap).
 
 #ifndef CLOUD_SHADOW_RECEIVER_GLSLH
 #define CLOUD_SHADOW_RECEIVER_GLSLH

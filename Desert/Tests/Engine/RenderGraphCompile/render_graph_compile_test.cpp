@@ -2702,7 +2702,8 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
                std::string::npos );
     const std::string deferredMaterial = source( "Materials/Deferred/MaterialDeferredLighting.hpp" );
     EXPECT_NE( deferredMaterial.find( "CloudShadowUpload(this,cloudShadow)" ), std::string::npos );
-    EXPECT_EQ( deferredMaterial.find( "CloudShadowBind(" ), std::string::npos );
+    EXPECT_EQ( deferredMaterial.find( "\"u_CloudShadowMap\"" ), std::string::npos )
+         << "the deferred material sets the cloud map itself; it is a pass parameter";
 }
 
 // NO LEGACY CONSTRUCT REMAINS (RDG-LEG1-L5b). Every pass of the frame is a Raster, Compute or Copy node that
@@ -2717,8 +2718,9 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
          R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures)"
          // MESH-PB1 M2a: the material-route draws (no PassBindings) are deleted from Renderer / RendererAPI.
          R"(|SubmitVertices\s*\(|RenderMesh\(\s*const GraphicsPipeline\s*\*)"
-         // MESH-PB1 M2e: the out-of-graph fullscreen blit; the runtime present is a graph node.
-         R"(|SubmitFullscreenTriangle\s*\()" );
+         // MESH-PB1 M2e: the out-of-graph fullscreen blit (the runtime present is a graph node) and the
+         // material-side cloud-map binder (u_CloudShadowMap is a pass parameter).
+         R"(|SubmitFullscreenTriangle\s*\(|CloudShadowBind\s*\()" );
     std::vector<std::string> found;
     size_t                   scanned = 0;
     for ( const char* tree : { "Desert/Desert/Source", "Editor/Source" } )

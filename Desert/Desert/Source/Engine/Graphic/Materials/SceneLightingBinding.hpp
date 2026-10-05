@@ -27,7 +27,7 @@ namespace Desert::Graphic
 
     // ------------------------------------------------------------------------------------------------
     // THE ONE WRITER of each per-frame scene block a shader can receive: the camera, the light payloads,
-    // the shadow cascades and the IBL trio. Same shape and same reason as Graphic::CloudShadowBind next
+    // the shadow cascades and the IBL trio. Same shape and same reason as Graphic::CloudShadowUpload next
     // door — every material in this engine binds by NAME, so one function serves every shader that
     // declares the block, whatever slot number it chose for it.
     //

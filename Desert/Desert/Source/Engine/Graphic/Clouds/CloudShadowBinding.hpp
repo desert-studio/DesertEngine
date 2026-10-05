@@ -3,7 +3,6 @@
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 
 #include <Engine/Graphic/Materials/Material.hpp>
-#include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 
 #include <cstddef>
@@ -47,25 +46,5 @@ namespace Desert::Graphic
 
         if ( auto* ub = material->Get<UniformBufferProperty>( "CloudShadowUB" ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
-    }
-
-    /**
-     * CloudShadowUpload plus the map, for a material whose draws go through the material route (the forward
-     * PBR meshes, the glass and the terrain: RenderMesh / SubmitVertices without RDG::PassBindings). A pass
-     * that draws through PassBindings (the deferred Composite) calls CloudShadowUpload and binds
-     * FrameTransients::CloudShadowMap by name instead: a slot filled by both routes is refused.
-     */
-    inline void CloudShadowBind( Material* material, const CloudShadowInput& cloudShadow )
-    {
-        if ( !material )
-            return;
-
-        CloudShadowUpload( material, cloudShadow );
-
-        // The image only when there is one. Binding a null would drop the descriptor's dummy and leave
-        // the slot undefined for a shader that is about to be told, by Params.y, not to read it.
-        if ( cloudShadow.IsLive() )
-            if ( auto* tex = material->Get<Texture2DProperty>( "u_CloudShadowMap" ) )
-                tex->SetImage( cloudShadow.Map, RDG::Access::SampledGraphics );
     }
 } // namespace Desert::Graphic

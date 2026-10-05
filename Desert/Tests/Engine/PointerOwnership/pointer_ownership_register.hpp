@@ -463,11 +463,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp",
           "ReflectedWholeBlock", "TypeName", Guard::StaticStorage,
           "a string literal in a row of ForEachReflectedComponentBlock, the constant list of reflected component blocks (SAVE1)" },
-        { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudShadowPayload.hpp",
-          "CloudShadowInput", "Map", Guard::FrameScoped,
-          "SceneRenderer gathers ONE of these per frame and hands the same one to the deferred, the PBR "
-          "and the terrain materials; the map is owned by the VolumetricCloudRenderer of that same "
-          "SceneRenderer, and null is the ordinary state every consumer already tests" },
         { "Desert/Desert/Source/Engine/Graphic/Environment/SkyLook.hpp",
           "SampledCube", "Cube", Guard::CallScoped,
           "the answer of a resolver the editor's cubemap preview calls EVERY frame and consumes in the same "

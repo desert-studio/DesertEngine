@@ -521,7 +521,7 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapIsAPassParameterNotTheFrameSnapshots
     ASSERT_FALSE( applier.empty() ) << "PBRSceneFrame.cpp not found from " << std::filesystem::current_path();
     EXPECT_NE( applier.find( "CloudShadowUpload( material, CloudShadow )" ), std::string::npos )
          << "PBRSceneFrame::ApplyTo must upload CloudShadowUB through CloudShadowUpload";
-    EXPECT_EQ( applier.find( "CloudShadowBind(" ), std::string::npos )
+    EXPECT_EQ( applier.find( "\"u_CloudShadowMap\"" ), std::string::npos )
          << "PBRSceneFrame::ApplyTo binds u_CloudShadowMap on the material; the mesh node binds it as a pass "
             "parameter, so the slot would be filled by both routes";
 }
