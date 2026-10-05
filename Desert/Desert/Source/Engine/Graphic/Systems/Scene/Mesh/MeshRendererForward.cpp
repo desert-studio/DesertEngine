@@ -509,10 +509,9 @@ namespace Desert::Graphic::System
             MaterialPBR::UpdateTransform( gi, obj->Transform );
             m_GlassMaterial->SetMaterialIndex( i );
             m_GlassMaterial->Bind( gi );
-            const Common::BoolResultStr drawn =
-                 renderer.RenderMesh( bindings, *m_StaticGlassPipeline, *obj->Mesh, obj->Transform, executor, 1, 0,
-                                      obj->HiddenSubmeshes,
-                                      ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ) );
+            const Common::BoolResultStr drawn = renderer.RenderMesh(
+                 bindings, *m_StaticGlassPipeline, *obj->Mesh, obj->Transform, executor, 1, 0,
+                 obj->HiddenSubmeshes, ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ) );
             if ( !drawn.IsSuccess() )
                 return drawn;
         }

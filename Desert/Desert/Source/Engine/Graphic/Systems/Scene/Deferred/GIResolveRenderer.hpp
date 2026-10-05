@@ -130,8 +130,9 @@ namespace Desert::Graphic::System
 
         // Pass 1, inside the render pass the graph opens on the gather transient (cleared to 0): jittered VPL
         // gather. Every texture of @p inputs is bound by shader name through RDG::PassBindings.
-        [[nodiscard]] Common::BoolResultStr RecordGather( const RDG::PassContext& context, const GIGatherInputs& inputs,
-                                                          const glm::mat4& rsmViewProj,
+        [[nodiscard]] Common::BoolResultStr RecordGather( const RDG::PassContext& context,
+                                                          const GIGatherInputs&   inputs,
+                                                          const glm::mat4&        rsmViewProj,
                                                           const glm::vec4& sunColorIntensity, float giIntensity )
         {
             m_Material->BindInputs( rsmViewProj, sunColorIntensity, giIntensity,
@@ -139,24 +140,25 @@ namespace Desert::Graphic::System
             // The sampler the material route sampled these images with (the image's own: linear, REPEAT).
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             RDG::PassBindings          bindings( context );
-            const auto                 sampled = [&]( std::string_view name, RDG::TextureRef texture )
-            {
+            const auto                 sampled = [&]( std::string_view name, RDG::TextureRef texture ) {
                 bindings.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                                  kSampler );
+                                                  kSampler );
             };
             sampled( "u_GBufferB", inputs.GBufferNormal );
             sampled( "u_GBufferC", inputs.GBufferWorldPos );
             sampled( "u_RSMAlbedo", inputs.RSMAlbedo );
             sampled( "u_RSMNormal", inputs.RSMNormal );
             sampled( "u_RSMWorldPos", inputs.RSMWorldPos );
-            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, m_Material->GetMaterialExecutor() );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
+                                                           m_Material->GetMaterialExecutor() );
         }
 
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): temporal
         // accumulation (shared SSRResolve denoiser) of @p gather over @p history (GetHistoryImage, imported).
         // Advances the ping-pong; the graph imported both accumulation images before this runs.
-        [[nodiscard]] Common::BoolResultStr RecordTemporal( const RDG::PassContext& context, RDG::TextureRef gather,
-                                                            RDG::TextureRef history, RDG::TextureRef worldPos,
+        [[nodiscard]] Common::BoolResultStr RecordTemporal( const RDG::PassContext& context,
+                                                            RDG::TextureRef gather, RDG::TextureRef history,
+                                                            RDG::TextureRef  worldPos,
                                                             const glm::mat4& cameraViewProj )
         {
             const auto& target = m_TargetFramebuffer.lock();
@@ -168,7 +170,8 @@ namespace Desert::Graphic::System
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             RDG::PassBindings          bindings( context );
             bindings
-                 .Sampled( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(), kSampler )
+                 .Sampled( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler )
                  .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler )
                  .Sampled( "u_GBufferWorldPos", worldPos, RDG::Access::SampledGraphics,

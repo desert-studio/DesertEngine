@@ -70,7 +70,8 @@ namespace Desert::Graphic::System
                            kSampler )
                  .Sampled( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler );
-            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, m_Material->GetMaterialExecutor() );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
+                                                           m_Material->GetMaterialExecutor() );
         }
 
     private:

@@ -120,8 +120,8 @@ namespace Desert::Graphic::RDG
     {
         const ResourceRecord* resource = FindResource( texture.Index, ResourceKind::Texture );
         if ( !resource )
-            return Common::MakeFormattedError<TextureDesc>( "graph '{}': GetTextureDesc of invalid texture handle {}",
-                                                            m_Name, texture.Index );
+            return Common::MakeFormattedError<TextureDesc>(
+                 "graph '{}': GetTextureDesc of invalid texture handle {}", m_Name, texture.Index );
         return Common::MakeSuccess( resource->Texture );
     }
 

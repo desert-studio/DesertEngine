@@ -839,9 +839,10 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
                                                          const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                         const glm::mat4& transform, const MaterialExecutor& material,
-                                                         uint32_t instanceCount, uint32_t firstInstance,
-                                                         uint64_t hiddenSubmeshMask, uint32_t lodLevel )
+                                                         const glm::mat4&        transform,
+                                                         const MaterialExecutor& material, uint32_t instanceCount,
+                                                         uint32_t firstInstance, uint64_t hiddenSubmeshMask,
+                                                         uint32_t lodLevel )
     {
         DESERT_PROFILE_FUNC();
         const std::string_view pass = bindings.GetContext().GetPassName();
@@ -850,7 +851,8 @@ namespace Desert::Graphic::API::Vulkan
         // The push block is the per-submesh transform the material carries (written below for each submesh).
         if ( !bindings.GetPushConstants().empty() )
             return Common::MakeFormattedError(
-                 "{}: a mesh draw's push constants are its per-submesh transform; the bindings carry their own", pass );
+                 "{}: a mesh draw's push constants are its per-submesh transform; the bindings carry their own",
+                 pass );
         if ( !mesh.GetVertexBuffer() )
             return Common::MakeFormattedError( "{}: mesh has no vertex buffer", pass );
         if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material ); !bound )
@@ -862,7 +864,8 @@ namespace Desert::Graphic::API::Vulkan
         auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
 
         const VkDeviceSize offsets[] = { 0 };
-        const VkBuffer vbuffer = sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetVertexBuffer() )->GetVulkanBuffer();
+        const VkBuffer     vbuffer =
+             sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetVertexBuffer() )->GetVulkanBuffer();
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
         const auto indexBuffer = mesh.GetIndexBuffer();
         if ( indexBuffer )
@@ -879,8 +882,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( pushConstant.has_value() && pushConstant->Size > 0 )
         {
             if ( pushConstant->Size < sizeof( glm::mat4 ) )
-                return Common::MakeFormattedError( "{}: shader '{}' push block of {} bytes cannot hold the transform",
-                                                   pass, shader->GetName(), pushConstant->Size );
+                return Common::MakeFormattedError(
+                     "{}: shader '{}' push block of {} bytes cannot hold the transform", pass, shader->GetName(),
+                     pushConstant->Size );
             push.assign( pushConstant->Size, std::byte{ 0 } );
             const auto& materialPush = material.GetPushConstantBuffer();
             if ( materialPush.Data != nullptr )
@@ -912,14 +916,15 @@ namespace Desert::Graphic::API::Vulkan
             uint32_t drawCount  = submesh.IndexCount;
             if ( !submesh.LODs.empty() )
             {
-                const uint32_t lvl = lodLevel < submesh.LODs.size() ? lodLevel
-                                                                     : static_cast<uint32_t>( submesh.LODs.size() ) - 1;
+                const uint32_t lvl =
+                     lodLevel < submesh.LODs.size() ? lodLevel : static_cast<uint32_t>( submesh.LODs.size() ) - 1;
                 drawOffset = submesh.LODs[lvl].IndexOffset;
                 drawCount  = submesh.LODs[lvl].IndexCount;
             }
             if ( drawOffset + drawCount > indexBuffer->GetCount() )
-                return Common::MakeFormattedError( "{}: submesh {} reads indices [{}, {}) of a {}-index buffer", pass,
-                                                   si, drawOffset, drawOffset + drawCount, indexBuffer->GetCount() );
+                return Common::MakeFormattedError( "{}: submesh {} reads indices [{}, {}) of a {}-index buffer",
+                                                   pass, si, drawOffset, drawOffset + drawCount,
+                                                   indexBuffer->GetCount() );
             DrawIndexedCounted( drawCount, instanceCount, drawOffset, static_cast<int32_t>( submesh.VertexOffset ),
                                 firstInstance );
         }

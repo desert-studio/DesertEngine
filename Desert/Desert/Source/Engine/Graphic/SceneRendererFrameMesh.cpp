@@ -47,7 +47,7 @@ namespace Desert::Graphic
         // node's. NeverCull: the bodies also write per-frame material state later passes of the frame rely on.
         void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
                         const RDG::LoadOp& color, const RDG::LoadOp& depth,
-                        const std::vector<RDG::TextureRef>&                              sampled,
+                        const std::vector<RDG::TextureRef>&                             sampled,
                         std::function<Common::BoolResultStr( const RDG::PassContext& )> body )
         {
             graph.AddPass(

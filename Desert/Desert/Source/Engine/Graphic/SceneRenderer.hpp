@@ -562,14 +562,15 @@ namespace Desert::Graphic
                            const glm::vec4& cameraPos );
         // The GI accumulation ref the composite samples (u_GI), invalid when GI did not run this frame.
         RDG::TextureRef AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
-                                const std::vector<RDG::TextureRef>& gbuffer,
-                                const std::vector<RDG::TextureRef>& rsm, System::MeshRenderer* meshRenderer,
-                                const glm::mat4& viewProj, const glm::vec4& lightColor );
-        void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                const std::vector<RDG::TextureRef>& shadowReads,
-                                System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                const glm::vec4& lightColor, const glm::vec4& cameraPos );
+                                           const std::vector<RDG::TextureRef>& gbuffer,
+                                           const std::vector<RDG::TextureRef>& rsm,
+                                           System::MeshRenderer* meshRenderer, const glm::mat4& viewProj,
+                                           const glm::vec4& lightColor );
+        void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
+                                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
+                                           const std::vector<RDG::TextureRef>& shadowReads,
+                                           System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
+                                           const glm::vec4& lightColor, const glm::vec4& cameraPos );
         // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
         // raster node): published as FrameTransients::SceneColorCopy and returned; invalid when no copy was made
         // (no copy system, no scene colour, its desc refused - logged).

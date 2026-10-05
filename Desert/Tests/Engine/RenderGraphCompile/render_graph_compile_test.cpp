@@ -537,7 +537,7 @@ TEST( RenderGraphCompile, ADeclaredGraphTextureReadOrdersTheNodeAfterItsProducer
 // refuses a handle that is not a texture of this graph.
 TEST( RenderGraphCompile, TheBuilderHandsBackTheDescriptionATextureWasCreatedOrRegisteredWith )
 {
-    Builder         graph( "Desc" );
+    Builder          graph( "Desc" );
     const TextureRef pyramid = graph.CreateTexture( Tex2D( 64, 32, ImageFormat::RGBA16F, 5 ), "Pyramid" );
     ExternalTexture  scene( Tex2D( 128, 64, ImageFormat::RGBA8F ), Access::None );
     const TextureRef imported = graph.RegisterExternal( scene, "Scene" );

@@ -487,9 +487,9 @@ namespace Desert::Graphic
         if ( !desc )
             return {};
         // A transient of this graph, sized from this frame's view; the UI glass samples every mip of it.
-        const RDG::TextureRef pyramid          = graph.CreateTexture( *desc, "BackdropBlur" );
-        const RDG::TextureRef scene            = sceneColor.front();
-        textures.Transients.BackdropBlur       = pyramid;
+        const RDG::TextureRef pyramid    = graph.CreateTexture( *desc, "BackdropBlur" );
+        const RDG::TextureRef scene      = sceneColor.front();
+        textures.Transients.BackdropBlur = pyramid;
 
         // Scene -> pyramid mip 0, then mip i-1 -> mip i: one node per dispatch, declaring the one mip it samples
         // and the one it writes.

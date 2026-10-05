@@ -18,8 +18,8 @@ namespace Desert::Graphic
 
         // The SSAOUB values only: u_GBufferPos / u_GBufferNormal are graph resources, bound by name through
         // RDG::PassBindings (SSAORenderer::Record).
-        void BindInputs( const glm::mat4& viewProj, const glm::vec4& cameraPos, float radius, float bias, float power,
-                         int sampleCount )
+        void BindInputs( const glm::mat4& viewProj, const glm::vec4& cameraPos, float radius, float bias,
+                         float power, int sampleCount )
         {
             struct SSAOUBData
             {

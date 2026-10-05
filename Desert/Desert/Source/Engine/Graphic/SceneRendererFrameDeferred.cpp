@@ -173,11 +173,11 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Deferred: SSAO: {}", desc.GetError() );
             return;
         }
-        RDG::TextureDesc aoDesc = desc.GetValue();
-        aoDesc.Format           = ViewTargetFormats::kSSAO;
-        aoDesc.Mips             = 1;
-        aoDesc.Layers           = 1;
-        aoDesc.Samples          = 1;
+        RDG::TextureDesc aoDesc        = desc.GetValue();
+        aoDesc.Format                  = ViewTargetFormats::kSSAO;
+        aoDesc.Mips                    = 1;
+        aoDesc.Layers                  = 1;
+        aoDesc.Samples                 = 1;
         const RDG::TextureRef ao       = graph.CreateTexture( aoDesc, "SSAO" );
         const RDG::TextureRef worldPos = gbuffer[2]; // GBufferC
         const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
@@ -198,18 +198,19 @@ namespace Desert::Graphic
     }
 
     RDG::TextureRef SceneRenderer::AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer,
-                                           const std::vector<RDG::TextureRef>& rsm,
-                                           System::MeshRenderer* meshRenderer, const glm::mat4& viewProj,
-                                           const glm::vec4& lightColor )
+                                                      const std::vector<RDG::TextureRef>& gbuffer,
+                                                      const std::vector<RDG::TextureRef>& rsm,
+                                                      System::MeshRenderer*               meshRenderer,
+                                                      const glm::mat4& viewProj, const glm::vec4& lightColor )
     {
         auto* gi = UNIQUE_GET_AS( System::GIResolveRenderer, m_RenderSystems["GISystem"] );
         if ( !gi || !gi->Prepare() )
             return {};
         if ( gbuffer.size() < 3 || rsm.size() < 3 )
         {
-            LOG_ERROR( "[SceneRenderer] Deferred: GIResolve needs 3 G-buffer and 3 RSM colours, the graph has {} and {}",
-                       gbuffer.size(), rsm.size() );
+            LOG_ERROR(
+                 "[SceneRenderer] Deferred: GIResolve needs 3 G-buffer and 3 RSM colours, the graph has {} and {}",
+                 gbuffer.size(), rsm.size() );
             return {};
         }
         // The raw gather lives within this graph (UE: a transient from the scene textures' desc); the
@@ -220,11 +221,11 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Deferred: GIResolve: {}", desc.GetError() );
             return {};
         }
-        RDG::TextureDesc gatherDesc = desc.GetValue();
-        gatherDesc.Format           = ViewTargetFormats::kGIResolve;
-        gatherDesc.Mips             = 1;
-        gatherDesc.Layers           = 1;
-        gatherDesc.Samples          = 1;
+        RDG::TextureDesc gatherDesc   = desc.GetValue();
+        gatherDesc.Format             = ViewTargetFormats::kGIResolve;
+        gatherDesc.Mips               = 1;
+        gatherDesc.Layers             = 1;
+        gatherDesc.Samples            = 1;
         const RDG::TextureRef gather  = graph.CreateTexture( gatherDesc, "GI.Gather" );
         const RDG::TextureRef accum   = textures.Import( gi->GetAccumImage(), "GI" );
         const RDG::TextureRef history = textures.Import( gi->GetHistoryImage(), "GI.History" );
@@ -234,7 +235,7 @@ namespace Desert::Graphic
                                              .RSMAlbedo       = rsm[0],
                                              .RSMNormal       = rsm[1],
                                              .RSMWorldPos     = rsm[2] };
-        const float giIntensity = m_GIIntensity;
+        const float                  giIntensity = m_GIIntensity;
         graph.AddPass(
              "Deferred: GIResolve", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -246,10 +247,12 @@ namespace Desert::Graphic
                  pass.Read( inputs.RSMWorldPos, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, gather, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [gi, inputs, meshRenderer, lightColor, giIntensity]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [gi, inputs, meshRenderer, lightColor,
+              giIntensity]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  // Read when the node runs: the RSM node before it is what sets this frame's light matrix.
-                 return gi->RecordGather( context, inputs, meshRenderer->GetRSMViewProj(), lightColor, giIntensity );
+                 return gi->RecordGather( context, inputs, meshRenderer->GetRSMViewProj(), lightColor,
+                                          giIntensity );
              } );
         const RDG::TextureRef worldPos = gbuffer[2];
         graph.AddPass(
@@ -290,19 +293,19 @@ namespace Desert::Graphic
         // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not RSM, fewer cascades).
         const FrameGraphRefs            refs = textures.GraphRefs();
         System::DeferredCompositeInputs inputs;
-        inputs.GBufferA        = gbuffer[0];
-        inputs.GBufferB        = gbuffer[1];
-        inputs.GBufferC        = gbuffer[2];
-        inputs.GBufferEmissive = gbuffer[3];
-        inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
-        inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
+        inputs.GBufferA         = gbuffer[0];
+        inputs.GBufferB         = gbuffer[1];
+        inputs.GBufferC         = gbuffer[2];
+        inputs.GBufferEmissive  = gbuffer[3];
+        inputs.SSAO             = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
+        inputs.GI               = giAccum.IsValid() ? giAccum : refs.System.Black;
         const uint32_t cascades = meshRenderer ? meshRenderer->GetValidCascadeCount() : 0u;
         for ( uint32_t c = 0; c < inputs.ShadowMaps.size(); ++c )
         {
-            const std::shared_ptr<Image2D> map  = c < cascades ? meshRenderer->GetCascadeShadowImage( c ) : nullptr;
-            const RDG::TextureRef          ref  = map ? textures.Import( map, std::format( "CSM.Cascade{}", c ) )
-                                                      : RDG::TextureRef{};
-            inputs.ShadowMaps[c]                = ref.IsValid() ? ref : refs.System.White;
+            const std::shared_ptr<Image2D> map = c < cascades ? meshRenderer->GetCascadeShadowImage( c ) : nullptr;
+            const RDG::TextureRef          ref =
+                 map ? textures.Import( map, std::format( "CSM.Cascade{}", c ) ) : RDG::TextureRef{};
+            inputs.ShadowMaps[c] = ref.IsValid() ? ref : refs.System.White;
         }
         std::vector<RDG::TextureRef> reads = shadowReads; // + the cloud shadow map (material route)
         for ( const RDG::TextureRef ref : { inputs.GBufferA, inputs.GBufferB, inputs.GBufferC,
@@ -321,8 +324,8 @@ namespace Desert::Graphic
                  ReadAll( pass, declared, RDG::Access::SampledGraphics );
                  DeferredFrameNodes::LoadTarget( pass, target );
              },
-             [this, inputs, meshRenderer, lightDir, lightColor, cameraPos](
-                  RDG::PassContext& context ) -> Common::BoolResultStr
+             [this, inputs, meshRenderer, lightDir, lightColor,
+              cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  DeferredShadowInput shadow;
                  if ( meshRenderer )
@@ -351,11 +354,13 @@ namespace Desert::Graphic
                      }
                      if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
                           brdf && brdf->GetImageHandle().IsValid() )
-                         environment.BrdfLut = static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
+                         environment.BrdfLut =
+                              static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
                  }
 
                  const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
-                 return UNIQUE_GET_AS( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
+                 return UNIQUE_GET_AS( System::DeferredLightingRenderer,
+                                       m_RenderSystems["DeferredLightingSystem"] )
                       ->Record( context, inputs, lightDir, lightColor, cameraPos,
                                 static_cast<int>( m_DebugView.DeferredDebug ), GetPointLights(), GetSpotLights(),
                                 shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ), cloudShadow,
@@ -378,11 +383,11 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Deferred: SceneCopy: {}", desc.GetError() );
             return {};
         }
-        RDG::TextureDesc copyDesc = desc.GetValue();
-        copyDesc.Format           = ViewTargetFormats::kSceneColorCopy;
-        copyDesc.Mips             = 1;
-        copyDesc.Layers           = 1;
-        copyDesc.Samples          = 1;
+        RDG::TextureDesc copyDesc          = desc.GetValue();
+        copyDesc.Format                    = ViewTargetFormats::kSceneColorCopy;
+        copyDesc.Mips                      = 1;
+        copyDesc.Layers                    = 1;
+        copyDesc.Samples                   = 1;
         const RDG::TextureRef sceneCopy    = graph.CreateTexture( copyDesc, "SceneCopy" );
         const RDG::TextureRef source       = sceneColor.front();
         textures.Transients.SceneColorCopy = sceneCopy; // -> Deferred: SSR (u_SceneColor), Deferred: Glass
@@ -426,7 +431,8 @@ namespace Desert::Graphic
                  pass.Write( trace, RDG::Access::StorageWrite );
                  pass.Write( tiles, RDG::Access::StorageWrite );
              },
-             [this, ssr, trace, tiles, sceneCopy, viewProj, cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [this, ssr, trace, tiles, sceneCopy, viewProj,
+              cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
                  return ssr->RecordTrace( context, trace, tiles, m_GBuffer, sceneCopy, viewProj, cameraPos,

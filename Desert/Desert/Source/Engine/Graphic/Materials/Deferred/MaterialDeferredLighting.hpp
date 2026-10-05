@@ -75,8 +75,8 @@ namespace Desert::Graphic
         }
 
         // The frame's values only: every graph texture the pass samples (G-buffer, AO, GI, shadow cascades)
-        // is bound by name through RDG::PassBindings (DeferredLightingRenderer::Record). lightDir.xyz = direction the sun
-        // travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world pos (view vector);
+        // is bound by name through RDG::PassBindings (DeferredLightingRenderer::Record). lightDir.xyz = direction
+        // the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world pos (view vector);
         // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spot = the scene's dynamic lights.
         void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
                          int debugMode, const ShaderProtocols::PointLight& pointLights,
@@ -184,7 +184,6 @@ namespace Desert::Graphic
 
             if ( auto* ub = Get<UniformBufferProperty>( "ShadowUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
-
         }
 
         // Uploads the cloud layer's shadow into CloudShadowUB + binds the map, through the SAME writer

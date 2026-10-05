@@ -86,7 +86,8 @@ namespace Desert::Graphic::System
                 const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
         {
             if ( !m_Pipeline || !m_Material )
-                return Common::MakeError( "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
+                return Common::MakeError(
+                     "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
 
             ReportEnvironmentGap( environment );
             m_Material->BindInputs( lightDir, lightColor, cameraPos, debugMode, pointLights, spotLights, shadow,
@@ -95,10 +96,9 @@ namespace Desert::Graphic::System
             // The sampler the material route sampled these images with (the image's own: linear, REPEAT).
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             RDG::PassBindings          bindings( context );
-            const auto                 sampled = [&]( std::string_view name, RDG::TextureRef texture )
-            {
+            const auto                 sampled = [&]( std::string_view name, RDG::TextureRef texture ) {
                 bindings.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                                  kSampler );
+                                                  kSampler );
             };
             sampled( "u_GBufferA", inputs.GBufferA );
             sampled( "u_GBufferB", inputs.GBufferB );
@@ -110,7 +110,8 @@ namespace Desert::Graphic::System
                                                                  "u_ShadowMap3" };
             for ( size_t i = 0; i < inputs.ShadowMaps.size(); ++i )
                 sampled( kShadowMaps[i], inputs.ShadowMaps[i] );
-            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, m_Material->GetMaterialExecutor() );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
+                                                           m_Material->GetMaterialExecutor() );
         }
 
     private:
