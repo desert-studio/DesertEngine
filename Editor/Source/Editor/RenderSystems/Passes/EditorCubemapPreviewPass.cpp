@@ -44,22 +44,23 @@ namespace Desert::Editor::Render
         pass.Phase                 = Graphic::RenderPhase::Debug;
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Pipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx )
+        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx, Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
             if ( !ctx.Camera || !m_ResolveCube )
-                return;
+                return BOOLSUCCESS;
 
             // Resolved EVERY frame on purpose — the pass owns no copy of the material's state, so a
             // cubemap dropped onto (or cleared from) the subject shows next frame with no
             // invalidation protocol. The closure is two map lookups; see the header.
             const Graphic::SampledCube source = m_ResolveCube();
             if ( source.Cube == nullptr )
-                return;
+                return BOOLSUCCESS;
 
             m_Material->Update( ctx.Camera, source.Cube, source.Look, m_Radius, m_Backdrop, source.Lod,
                                 m_LongLat );
             Graphic::Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
                                                                        m_Material->GetMaterialExecutor() );
+            return BOOLSUCCESS;
         };
 
         scene->RegisterExternalPass( std::move( pass ) );

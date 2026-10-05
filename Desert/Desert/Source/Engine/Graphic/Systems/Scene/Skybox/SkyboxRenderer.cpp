@@ -449,10 +449,11 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration transmittance;
             transmittance.Name = "Sky: TransmittanceLut";
             transmittance.Access.Write( m_TransmittanceLut, RDG::Access::StorageWrite, "Sky.TransmittanceLut" );
-            transmittance.Record = [this]()
+            transmittance.Record = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: AtmosphereLuts" );
                 DispatchTransmittanceLut();
+                return BOOLSUCCESS;
             };
             nodes.push_back( std::move( transmittance ) );
 
@@ -460,7 +461,7 @@ namespace Desert::Graphic::System
             multiScatter.Name = "Sky: MultiScatterLut";
             multiScatter.Access.Read( m_TransmittanceLut, RDG::Access::SampledCompute, "Sky.TransmittanceLut" );
             multiScatter.Access.Write( m_MultiScatterLut, RDG::Access::StorageWrite, "Sky.MultiScatterLut" );
-            multiScatter.Record = [this]() { DispatchMultiScatterLut(); };
+            multiScatter.Record = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr { DispatchMultiScatterLut(); return BOOLSUCCESS; };
             nodes.push_back( std::move( multiScatter ) );
 
             // BUILD TIME: which nodes exist is decided here; the pair counts as baked once
@@ -482,10 +483,11 @@ namespace Desert::Graphic::System
             skyView.Name = "Sky: SkyViewLut";
             sampledLuts( skyView.Access );
             skyView.Access.Write( m_SkyViewLut, RDG::Access::StorageWrite, "Sky.SkyViewLut" );
-            skyView.Record = [this]()
+            skyView.Record = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: SkyViewLut" );
                 DispatchSkyViewLut();
+                return BOOLSUCCESS;
             };
             nodes.push_back( std::move( skyView ) );
             // BUILD TIME: the fill counts once SettleAtmosphereLutNodes hears the graph accepted the node.
@@ -499,10 +501,11 @@ namespace Desert::Graphic::System
             aerial.Name = "Sky: AerialPerspectiveLut";
             sampledLuts( aerial.Access );
             aerial.Access.Write( m_AerialPerspectiveLut, RDG::Access::StorageWrite, "Sky.AerialPerspectiveLut" );
-            aerial.Record = [this]()
+            aerial.Record = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: AerialPerspectiveLut" );
                 DispatchAerialPerspectiveLut();
+                return BOOLSUCCESS;
             };
             nodes.push_back( std::move( aerial ) );
 
@@ -517,10 +520,11 @@ namespace Desert::Graphic::System
             distant.Name = "Sky: DistantSkyLight";
             sampledLuts( distant.Access );
             distant.Access.Write( m_DistantLight, RDG::Access::StorageWrite, "Sky.DistantLight" );
-            distant.Record = [this]()
+            distant.Record = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: DistantSkyLight" );
                 DispatchDistantLight();
+                return BOOLSUCCESS;
             };
             nodes.push_back( std::move( distant ) );
 

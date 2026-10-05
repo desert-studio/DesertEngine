@@ -266,22 +266,11 @@ namespace Desert::Graphic
             }
             images.push_back( ref );
         }
-        for ( const RenderPassDeclaration::TextureUse& use : declared.Textures() )
-            if ( !use.Texture.IsValid() )
-            {
-                LOG_ERROR( "[SceneRenderer] '{}' is not recorded: it declares a graph texture this frame did not "
-                           "produce",
-                           node );
-                return false;
-            }
-        for ( const RenderPassDeclaration::BufferUse& use : declared.Buffers() )
-            if ( !use.Buffer.IsValid() )
-            {
-                LOG_ERROR(
-                     "[SceneRenderer] '{}' is not recorded: it declares a buffer the frame graph was not given",
-                     node );
-                return false;
-            }
+        if ( const char* invalid = InvalidDeclaredRef( declared ) )
+        {
+            LOG_ERROR( "[SceneRenderer] '{}' is not recorded: it declares {}", node, invalid );
+            return false;
+        }
         return true;
     }
 
@@ -297,20 +286,7 @@ namespace Desert::Graphic
             else
                 pass.Read( images[i], uses[i].Access );
         }
-        for ( const RenderPassDeclaration::TextureUse& use : declared.Textures() )
-        {
-            if ( use.Writes )
-                pass.Write( use.Texture, use.Access, use.Range );
-            else
-                pass.Read( use.Texture, use.Access, use.Range );
-        }
-        for ( const RenderPassDeclaration::BufferUse& use : declared.Buffers() )
-        {
-            if ( use.Writes )
-                pass.Write( use.Buffer, use.Access );
-            else
-                pass.Read( use.Buffer, use.Access );
-        }
+        DeclareRefsOn( pass, declared );
     }
 
     // A system's compute work of this frame, one Compute node per entry in the order given, each declaring exactly

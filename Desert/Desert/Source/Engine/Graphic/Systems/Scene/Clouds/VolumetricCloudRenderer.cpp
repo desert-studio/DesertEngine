@@ -1142,7 +1142,7 @@ namespace Desert::Graphic::System
         shadow.Name = "Clouds: ShadowMap";
         DeclareVolumeReads( shadow.Access );
         shadow.Access.Write( m_ShadowMapImage, RDG::Access::StorageWrite, "Clouds.ShadowMap" );
-        shadow.Record = [this, push, resolution]()
+        shadow.Record = [this, push, resolution]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: ShadowMap" );
             auto& renderer = Renderer::GetInstance();
@@ -1168,6 +1168,7 @@ namespace Desert::Graphic::System
             renderer.DispatchComputeInFrame( m_ShadowMapPipeline.get(),
                                              GroupCount( resolution, kMarchWorkGroupSize ),
                                              GroupCount( resolution, kMarchWorkGroupSize ), 1 );
+            return BOOLSUCCESS;
         };
         nodes.push_back( std::move( shadow ) );
 
@@ -1856,7 +1857,7 @@ namespace Desert::Graphic::System
             occlusion.Name = "Clouds: SkyOcclusion";
             DeclareVolumeReads( occlusion.Access );
             occlusion.Access.Write( m_SkyOcclusionVolume, RDG::Access::StorageWrite, "Clouds.SkyOcclusion" );
-            occlusion.Record = [this]()
+            occlusion.Record = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Clouds: SkyOcclusion" );
                 auto& renderer = Renderer::GetInstance();
@@ -1891,6 +1892,7 @@ namespace Desert::Graphic::System
                 renderer.DispatchComputeInFrame(
                      m_SkyOcclusionPipeline.get(), GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
                      GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ), 1 );
+                return BOOLSUCCESS;
             };
             nodes.push_back( std::move( occlusion ) );
 
@@ -1947,7 +1949,7 @@ namespace Desert::Graphic::System
         march.Access.Write( m_TraceImage, RDG::Access::StorageWrite, "Clouds.Trace" );
         march.Access.Write( m_TraceGuideImage, RDG::Access::StorageWrite, "Clouds.TraceGuide" );
         march.Record =
-             [this, push, atmosphere, skyOcclusionReady, traceWidth, traceHeight, depthImage = depth.get()]()
+             [this, push, atmosphere, skyOcclusionReady, traceWidth, traceHeight, depthImage = depth.get()]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: March" );
             auto& renderer = Renderer::GetInstance();
@@ -2024,6 +2026,7 @@ namespace Desert::Graphic::System
 
             renderer.DispatchComputeInFrame( m_MarchPipeline.get(), GroupCount( traceWidth, kMarchWorkGroupSize ),
                                              GroupCount( traceHeight, kMarchWorkGroupSize ), 1 );
+            return BOOLSUCCESS;
         };
         nodes.push_back( std::move( march ) );
 
@@ -2075,7 +2078,7 @@ namespace Desert::Graphic::System
                                std::format( "Clouds.History{}", writeIndex ) );
         temporal.Access.Write( m_HistoryGuideImage[writeIndex], RDG::Access::StorageWrite,
                                std::format( "Clouds.HistoryGuide{}", writeIndex ) );
-        temporal.Record = [this, writeIndex, readIndex, historyValid = m_HistoryValid]()
+        temporal.Record = [this, writeIndex, readIndex, historyValid = m_HistoryValid]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             auto& renderer = Renderer::GetInstance();
 
@@ -2111,6 +2114,7 @@ namespace Desert::Graphic::System
                                                  GroupCount( m_HalfWidth, kMarchWorkGroupSize ),
                                                  GroupCount( m_HalfHeight, kMarchWorkGroupSize ), 1 );
             }
+            return BOOLSUCCESS;
         };
         nodes.push_back( std::move( temporal ) );
 
@@ -2163,18 +2167,19 @@ namespace Desert::Graphic::System
         RenderGraphBuilder::PassConfig config;
         config.Name        = "CloudComposite";
         config.Phase       = RenderPhase::Transparency;
-        config.ExecuteFunc = [this]()
+        config.ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             // The RECONSTRUCTION, not the trace: the composite upsamples half to full, and the half-res
             // pair is what the resolve wrote this frame.
             if ( !m_HasFrameResult || !m_HistoryImage[m_ResolvedIndex] || !m_HistoryGuideImage[m_ResolvedIndex] ||
                  !m_CompositeMaterial )
-                return;
+                return BOOLSUCCESS;
 
             m_CompositeMaterial->BindInputs( m_HistoryImage[m_ResolvedIndex].get(),
                                              m_HistoryGuideImage[m_ResolvedIndex].get() );
             Renderer::GetInstance().SubmitFullscreenTriangle( m_CompositePipeline.get(),
                                                               m_CompositeMaterial->GetMaterialExecutor() );
+            return BOOLSUCCESS;
         };
         config.PipelineSpec      = m_CompositePipeline->GetSpecification();
         config.TargetFramebuffer = target;

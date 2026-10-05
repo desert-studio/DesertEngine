@@ -118,4 +118,39 @@ namespace Desert::Graphic
         RenderPassDeclaration Access;
         NodeRecordFunc        Record;
     };
+
+    // The graph-ref half of a declaration (textures and buffers named by their handle in THIS graph), kept free of
+    // the image imports (FrameTextures) so the device-free RenderGraphCompile suite runs the very code every node
+    // kind declares through. What the first invalid ref is, for the refusal message, or nullptr when every ref is
+    // a handle of this graph: a node naming a transient no earlier node produced is refused, never half-declared.
+    inline const char* InvalidDeclaredRef( const RenderPassDeclaration& declared )
+    {
+        for ( const RenderPassDeclaration::TextureUse& use : declared.Textures() )
+            if ( !use.Texture.IsValid() )
+                return "a graph texture this frame did not produce";
+        for ( const RenderPassDeclaration::BufferUse& use : declared.Buffers() )
+            if ( !use.Buffer.IsValid() )
+                return "a buffer the frame graph was not given";
+        return nullptr;
+    }
+
+    // Every graph texture (with its subresource range) and buffer @p declared names, on @p pass. Call only after
+    // InvalidDeclaredRef returned nullptr.
+    inline void DeclareRefsOn( RDG::PassBuilder& pass, const RenderPassDeclaration& declared )
+    {
+        for ( const RenderPassDeclaration::TextureUse& use : declared.Textures() )
+        {
+            if ( use.Writes )
+                pass.Write( use.Texture, use.Access, use.Range );
+            else
+                pass.Read( use.Texture, use.Access, use.Range );
+        }
+        for ( const RenderPassDeclaration::BufferUse& use : declared.Buffers() )
+        {
+            if ( use.Writes )
+                pass.Write( use.Buffer, use.Access );
+            else
+                pass.Read( use.Buffer, use.Access );
+        }
+    }
 } // namespace Desert::Graphic

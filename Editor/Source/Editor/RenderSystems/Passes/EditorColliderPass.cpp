@@ -91,26 +91,27 @@ namespace Desert::Editor::Render
         pass.Phase                 = Graphic::RenderPhase::Debug;
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Pipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx )
+        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx, Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
             // Asked of the RENDERER, not the scene — see EditorGridPass for why. This flag in particular:
             // it defaulted to `true` in SceneSettings and 55 of 80 committed scenes carried it on, so the
             // green wireframes travelled through git into everybody's viewport.
             const auto scene = m_Scene.lock();
             if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
-                return;
+                return BOOLSUCCESS;
             if ( !ctx.Renderer->GetDebugView().ShowColliders )
-                return;
+                return BOOLSUCCESS;
 
             std::vector<LineVertex> lines;
             BuildLines( lines );
             if ( lines.empty() )
-                return;
+                return BOOLSUCCESS;
 
             m_Material->Update( ctx.Camera, lines );
             Graphic::Renderer::GetInstance().SubmitLines( m_Pipeline.get(),
                                                           static_cast<uint32_t>( lines.size() ), 1.0f,
                                                           m_Material->GetMaterialExecutor() );
+            return BOOLSUCCESS;
         };
 
         scene->RegisterExternalPass( std::move( pass ) );

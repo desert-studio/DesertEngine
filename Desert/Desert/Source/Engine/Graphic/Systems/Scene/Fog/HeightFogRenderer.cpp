@@ -248,7 +248,7 @@ namespace Desert::Graphic::System
         fog.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
         m_SceneRenderer->DeclareAtmosphereReads( fog.Access, RDG::Access::SampledCompute );
         fog.Access.Write( m_FogImage, RDG::Access::StorageWrite, "HeightFog.Fog" );
-        fog.Record = [this, push, apActive, atmosphere, depthImage = depth.get()]()
+        fog.Record = [this, push, apActive, atmosphere, depthImage = depth.get()]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "HeightFog: ExecuteInFrame" );
             auto& renderer = Renderer::GetInstance();
@@ -281,6 +281,7 @@ namespace Desert::Graphic::System
 
             renderer.DispatchComputeInFrame( m_FogPipeline.get(), GroupCount( m_FogWidth ),
                                              GroupCount( m_FogHeight ), 1 );
+            return BOOLSUCCESS;
         };
         nodes.push_back( std::move( fog ) );
 
@@ -297,14 +298,15 @@ namespace Desert::Graphic::System
         RenderGraphBuilder::PassConfig config;
         config.Name        = "HeightFogApply";
         config.Phase       = RenderPhase::Transparency;
-        config.ExecuteFunc = [this]()
+        config.ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             if ( !m_HasFrameResult || !m_FogImage || !m_ApplyMaterial )
-                return;
+                return BOOLSUCCESS;
 
             m_ApplyMaterial->BindInputs( m_FogImage.get() );
             Renderer::GetInstance().SubmitFullscreenTriangle( m_ApplyPipeline.get(),
                                                               m_ApplyMaterial->GetMaterialExecutor() );
+            return BOOLSUCCESS;
         };
         config.PipelineSpec      = m_ApplyPipeline->GetSpecification();
         config.TargetFramebuffer = target;

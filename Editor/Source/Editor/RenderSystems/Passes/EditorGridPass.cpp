@@ -42,7 +42,7 @@ namespace Desert::Editor::Render
         pass.Phase                 = Graphic::RenderPhase::Transparency;
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Pipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx )
+        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx, Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
             // The flag is asked of the RENDERER this pass is drawing into, not of the scene and not of a
             // global: it is what THIS view is showing (Graphic/DebugViewState.hpp). A scene rendered into
@@ -50,13 +50,14 @@ namespace Desert::Editor::Render
             // nobody pushes to gets the all-off default without having to opt out.
             const auto scene = m_Scene.lock();
             if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
-                return;
+                return BOOLSUCCESS;
             if ( !ctx.Renderer->GetDebugView().ShowGrid )
-                return;
+                return BOOLSUCCESS;
 
             m_Material->Update( ctx.Camera );
             Graphic::Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
                                                                        m_Material->GetMaterialExecutor() );
+            return BOOLSUCCESS;
         };
 
         scene->RegisterExternalPass( std::move( pass ) );

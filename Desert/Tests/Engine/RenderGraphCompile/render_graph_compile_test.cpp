@@ -7,6 +7,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
+#include <Engine/Graphic/RenderPassDeclaration.hpp>
 
 // `#if DESERT_DEV_INSTRUMENTS` on a macro nobody defined is `#if 0`: without DevInstruments.hpp above, every
 // instrument-gated test here was skipped in Debug too. Refuse to compile rather than skip silently again.
@@ -488,6 +489,69 @@ TEST( RenderGraphCompile, CullingIsPerMipAWriterOfAnUnreadMipIsCulled )
     EXPECT_NE( result.FindPass( "WriteMip0" ), nullptr );
     EXPECT_EQ( result.FindPass( "WriteMip1" ), nullptr );
     EXPECT_TRUE( HasEdge( result, 0, 2, DependencyKind::ReadAfterWrite ) );
+}
+
+// RDG-A2 decision 2: every node kind (a system's ComputeNodeDeclaration, a phase pass, an editor external pass)
+// names a graph texture another node produced by its REF and a subresource range
+// (RenderPassDeclaration::Read( TextureRef, Access, SubresourceRange )); DeclareRefsOn is the code all of them
+// declare through (SceneRendererFrame.hpp DeclareOn). The read becomes a real edge on exactly the declared mip:
+// the producer of mip 0 is ordered before the reader, the producer of mip 1 nobody declared is culled.
+TEST( RenderGraphCompile, ADeclaredGraphTextureReadOrdersTheNodeAfterItsProducerOnTheDeclaredMip )
+{
+    ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "declared" );
+    const TextureRef blur = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F, 2 ), "BackdropBlur" );
+    const TextureRef back = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    graph.AddPass(
+         "BlurMip0", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { pass.Write( blur, Access::StorageWrite, SubresourceRange::Mip( 0 ) ); }, Ok );
+    graph.AddPass(
+         "BlurMip1", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { pass.Write( blur, Access::StorageWrite, SubresourceRange::Mip( 1 ) ); }, Ok );
+
+    Desert::Graphic::RenderPassDeclaration declared;
+    declared.Read( blur, Access::SampledGraphics, SubresourceRange::Mip( 0 ) );
+    ASSERT_EQ( Desert::Graphic::InvalidDeclaredRef( declared ), nullptr );
+    graph.AddPass(
+         "UIGlass", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             Desert::Graphic::DeclareRefsOn( pass, declared );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_EQ( result.CulledPassNames, std::vector<std::string>{ "BlurMip1" } );
+    ASSERT_NE( result.FindPass( "BlurMip0" ), nullptr );
+    EXPECT_TRUE( HasEdge( result, 0, 2, DependencyKind::ReadAfterWrite ) );
+}
+
+// The refusal half: a declaration naming a ref that is not a handle of this graph (a transient no earlier node
+// produced this frame, a buffer nobody gave the graph) is reported, so ResolveDeclared refuses the whole node
+// and nothing is added half-declared; a declaration of valid refs only is accepted.
+TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
+{
+    Builder          graph( "refused" );
+    const TextureRef made = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "Made" );
+
+    Desert::Graphic::RenderPassDeclaration valid;
+    valid.Read( made, Access::SampledCompute, SubresourceRange::All() );
+    EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( valid ), nullptr );
+
+    Desert::Graphic::RenderPassDeclaration texture;
+    texture.Read( made, Access::SampledCompute, SubresourceRange::All() );
+    texture.Read( TextureRef{}, Access::SampledCompute, SubresourceRange::All() );
+    const char* textureRefusal = Desert::Graphic::InvalidDeclaredRef( texture );
+    ASSERT_NE( textureRefusal, nullptr );
+    EXPECT_NE( std::string_view( textureRefusal ).find( "graph texture" ), std::string_view::npos );
+
+    Desert::Graphic::RenderPassDeclaration buffer;
+    buffer.Write( BufferRef{}, Access::StorageWrite );
+    const char* bufferRefusal = Desert::Graphic::InvalidDeclaredRef( buffer );
+    ASSERT_NE( bufferRefusal, nullptr );
+    EXPECT_NE( std::string_view( bufferRefusal ).find( "buffer" ), std::string_view::npos );
 }
 
 // A chain of transients ending in an EXTRACTED texture survives although no pass of the graph reads the end of
