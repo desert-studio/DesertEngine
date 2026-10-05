@@ -67,6 +67,33 @@ namespace Desert::Player
             out = static_cast<uint32_t>( std::stoul( text ) );
             return true;
         }
+
+        /**
+         * @brief Seconds written as `DIGITS[.DIGITS]` (at most 15 digits in all), parsed explicitly — the way
+         * UE's FParse reads a command-line number — rather than by std::strtod, whose decimal separator is the
+         * process's LC_NUMERIC: under a comma locale strtod stops at the '.' of "3.0" and the request is
+         * refused. (std::from_chars would be the library form, but Apple clang 15's libc++ has no floating
+         * from_chars.) The value is DIGITS-as-integer / 10^fraction-digits: both are exact doubles, so the one
+         * division is correctly rounded — the same double strtod gives in the C locale.
+         */
+        [[nodiscard]] inline bool ParseSeconds( const std::string& text, double& out )
+        {
+            const auto dot      = text.find( '.' );
+            const auto intPart  = text.substr( 0, dot );
+            const auto fracPart = dot == std::string::npos ? std::string{} : text.substr( dot + 1 );
+            if ( intPart.empty() || ( dot != std::string::npos && fracPart.empty() ) ||
+                 intPart.size() + fracPart.size() > 15 ||
+                 ( intPart + fracPart ).find_first_not_of( "0123456789" ) != std::string::npos )
+                return false;
+            uint64_t mantissa = 0;
+            for ( const char c : intPart + fracPart )
+                mantissa = mantissa * 10 + static_cast<uint64_t>( c - '0' );
+            double scale = 1.0;
+            for ( size_t i = 0; i < fracPart.size(); ++i )
+                scale *= 10.0;
+            out = static_cast<double>( mantissa ) / scale;
+            return true;
+        }
     } // namespace MovieRenderDetail
 
     /**
@@ -122,9 +149,8 @@ namespace Desert::Player
             }
             else // --duration
             {
-                char*        end     = nullptr;
-                const double seconds = std::strtod( value.c_str(), &end );
-                if ( end == value.c_str() || *end != '\0' || !( seconds > 0.0 ) || seconds > 3600.0 )
+                double seconds = 0.0;
+                if ( !MovieRenderDetail::ParseSeconds( value, seconds ) || !( seconds > 0.0 ) || seconds > 3600.0 )
                     return Common::MakeFormattedError<Result>( "--duration '{}' is not seconds in (0, 3600]",
                                                                value );
                 request.Duration = seconds;
