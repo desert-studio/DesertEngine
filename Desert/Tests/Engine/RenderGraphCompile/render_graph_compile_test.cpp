@@ -2568,7 +2568,9 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
          { "Systems/Scene/Mesh/MeshRenderer.cpp",
            "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
            "SampledGraphics" },
-         { "Systems/Scene/Terrain/TerrainRenderer.cpp", "m_SceneRenderer->DeclareShadowReads(declared)" },
+         { "Systems/Scene/Terrain/TerrainRenderer.cpp",
+           "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
+           "SampledGraphics" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
            "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",

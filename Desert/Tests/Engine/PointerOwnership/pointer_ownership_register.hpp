@@ -531,12 +531,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/MappedMemory.hpp",
           "MappedMemory", "m_Reason", Guard::StaticStorage,
           "always one of the constexpr literals above, so the refusal text cannot outlive its own storage" },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDepthExpand.hpp",
-          "MaterialDepthExpand", "m_Depth", Guard::OwnedByThisObject,
-          kWhyMaterialProperty },
-        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp",
-          "MaterialSceneDepthResolve", "m_Depth", Guard::OwnedByThisObject,
-          kWhyMaterialProperty },
         { "Desert/Desert/Source/Engine/Graphic/SceneRendererFrame.hpp",
           "FrameTextures", "m_Externals", Guard::OwnedByThisObject,
           "RDG-INT: every value is the address of an ExternalTexture that Import emplaced into the sibling "
