@@ -316,6 +316,17 @@ namespace Desert::Animation::Graph
         }
     }
 
+    std::optional<Evaluator::EnteringFade> Evaluator::EnteringTransition() const
+    {
+        if ( m_Output < 0 )
+            return std::nullopt;
+        const MachineRun& run = m_Runs[static_cast<size_t>( m_Output )];
+        if ( run.Active.empty() || run.Active.back().To != run.Current )
+            return std::nullopt;
+        const ActiveTransition& newest = run.Active.back();
+        return EnteringFade{ newest.Duration, newest.Elapsed, newest.Curve };
+    }
+
     std::vector<Evaluator::StateWeight> Evaluator::ActiveStateWeights() const
     {
         std::vector<StateWeight> layers;

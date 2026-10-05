@@ -276,7 +276,8 @@ namespace Desert::Animation
         m_Fades.clear();
     }
 
-    void Animator::CrossFade( const AnimationClip& clip, float duration, bool loop, AlphaBlendOption curve )
+    void Animator::CrossFade( const AnimationClip& clip, float duration, bool loop, AlphaBlendOption curve,
+                              float elapsed )
     {
         if ( GetCurrentClip() == &clip )
         {
@@ -293,6 +294,7 @@ namespace Desert::Animation
         // already reaches alpha 1, so a zero-length blend behaves as an instant cut.
         constexpr float MIN_BLEND_SECONDS = 0.0001F;
         fade.Duration                     = glm::max( duration, MIN_BLEND_SECONDS );
+        fade.Time                         = glm::max( elapsed, 0.0F );
         m_Fades.push_back( std::move( fade ) );
     }
 

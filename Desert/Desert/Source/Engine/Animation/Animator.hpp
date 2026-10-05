@@ -123,8 +123,10 @@ namespace Desert::Animation
         /// running does not cut it: it is STACKED on top (UE: the state machine's active transition array),
         /// blending from the whole pose below it, each fade on its own clock — so an interrupted fade
         /// carries on fading out instead of snapping. A request for the clip already on top is a no-op.
+        /// `elapsed` > 0 JOINS a fade already under way (a state machine transition that fired while this clip
+        /// was still being read): the fade starts that many seconds in, so its alpha is the transition's.
         void CrossFade( const AnimationClip& clip, float duration, bool loop = true,
-                        AlphaBlendOption curve = AlphaBlendOption::Linear );
+                        AlphaBlendOption curve = AlphaBlendOption::Linear, float elapsed = 0.0F );
         void Stop();
 
         void Update( const Common::Timestep& ts );

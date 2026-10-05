@@ -415,6 +415,20 @@ namespace Desert::Animation::Graph
         /// weight 1 when nothing is blending; empty when the machine has no states).
         [[nodiscard]] std::vector<StateWeight> ActiveStateWeights() const;
 
+        /// The transition fading the output machine INTO its running state, while it is still fading.
+        struct EnteringFade
+        {
+            float            Duration = 0.0f;
+            float            Elapsed  = 0.0f; ///< of blend time, on the clock AdvanceTransitions is given
+            AlphaBlendOption Curve    = AlphaBlendOption::Linear;
+        };
+        /// The newest active transition of the machine wired into Output Pose when its target is the running
+        /// state; nullopt when nothing is fading into it. The Animator's fade IS this transition: a caller
+        /// whose clip became playable only after the transition fired joins it at `Elapsed` instead of
+        /// cutting, so the pose blends along the machine's own clock (`Result::Changed` is true on one tick
+        /// only, and a clip still being read on that tick would otherwise lose the blend for good).
+        [[nodiscard]] std::optional<EnteringFade> EnteringTransition() const;
+
         [[nodiscard]] const AnimGraph& Graph() const
         {
             return m_Graph;
