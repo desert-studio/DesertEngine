@@ -526,6 +526,62 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapIsAPassParameterNotTheFrameSnapshots
             "parameter, so the slot would be filled by both routes";
 }
 
+// THE MATERIAL OWNS EXACTLY ITS PROPERTIES (MESH-PB1). The classification MaterialExecutor builds its
+// texture properties from: a schema's Properties textures are material parameters (with their default),
+// every other sampler is a pass parameter with no material property. Mesh PBR materials take StaticMeshPBR's
+// schema for every program (MaterialPBR.cpp), the terrain programs their own.
+namespace
+{
+    std::vector<std::string> MaterialTextureNames( const char* shader )
+    {
+        auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( shader ) ) );
+        EXPECT_TRUE( parsed.IsSuccess() ) << shader;
+        std::vector<std::string> names;
+        if ( !parsed.IsSuccess() )
+            return names;
+        for ( const auto* param : Desert::Core::Formats::MaterialTextureParameters( parsed.GetValue().Meta ) )
+            names.push_back( param->Name );
+        return names;
+    }
+
+    bool Has( const std::vector<std::string>& names, const char* name )
+    {
+        return std::find( names.begin(), names.end(), name ) != names.end();
+    }
+} // namespace
+
+TEST( PBRSceneFrame, MaterialTexturesAreThePropertiesTexturesAndNoPassInput )
+{
+    const auto pbr = MaterialTextureNames( "PBR/StaticMeshPBR.shader" );
+    for ( const char* own : { "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" } )
+        EXPECT_TRUE( Has( pbr, own ) ) << own;
+    for ( const char* pass :
+          { "u_ShadowMap0", "u_EnvSpecularTex", "u_EnvIrradianceTex", "u_BRDFLUTTexture", "u_CloudShadowMap" } )
+        EXPECT_FALSE( Has( pbr, pass ) ) << pass << " is a pass parameter";
+
+    // SkinnedMeshPBR declares no Properties on purpose: its OWN schema yields nothing, which is exactly why
+    // MaterialPBR hands it StaticMeshPBR's.
+    EXPECT_TRUE( MaterialTextureNames( "PBR/SkinnedMeshPBR.shader" ).empty() );
+
+    for ( const char* terrain :
+          { "Terrain/Terrain.shader", "Terrain/TerrainGBuffer.shader", "Terrain/TerrainShadow.shader" } )
+    {
+        const auto names = MaterialTextureNames( terrain );
+        EXPECT_TRUE( Has( names, "u_Heightmap" ) ) << terrain;
+        EXPECT_TRUE( Has( names, "u_Weightmap" ) ) << terrain;
+        EXPECT_FALSE( Has( names, "u_CloudShadowMap" ) ) << terrain;
+    }
+
+    // The declared default travels with the parameter (the executor reads it at creation).
+    auto parsed =
+         Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( "PBR/StaticMeshPBR.shader" ) ) );
+    ASSERT_TRUE( parsed.IsSuccess() );
+    for ( const auto* param : Desert::Core::Formats::MaterialTextureParameters( parsed.GetValue().Meta ) )
+        if ( param->Name == "u_NormalTexture" )
+            EXPECT_NE( param->DefaultTexture, Desert::Core::Formats::DefaultTextureKind::White )
+                 << "a normal map's default must be the flat normal, not White";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

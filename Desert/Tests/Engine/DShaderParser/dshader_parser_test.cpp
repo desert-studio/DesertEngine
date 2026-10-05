@@ -176,6 +176,46 @@ Shader "CubeSky"
     EXPECT_NE( frag.find( "layout( binding = 5 ) uniform sampler2D u_Detail;" ), std::string::npos );
 }
 
+// EngineSet: a material texture the engine writes. Parsed onto the param (and nothing else changes about
+// it — it is still a texture of the schema), and refused on a non-texture where it would mean nothing.
+TEST( DShaderParser, EngineSetIsCarriedOnATextureAndRefusedOnAScalar )
+{
+    const char* src = R"(
+Shader "Tile"
+{
+    Properties
+    {
+        Texture2D u_Heightmap ("Heightmap", EngineSet)
+        Texture2D u_Detail    ("Detail")
+    }
+    Vertex   { void main() { gl_Position = vec4(0.0); } }
+    Fragment { layout( location = 0 ) out vec4 o; void main() { o = vec4(1.0); } }
+}
+)";
+    auto        res = DShaderParser::Parse( src );
+    ASSERT_TRUE( res.IsSuccess() ) << res.GetError();
+    const auto& params = res.GetValue().Meta.Params;
+    ASSERT_EQ( params.size(), 2u );
+    EXPECT_TRUE( params[0].IsTexture );
+    EXPECT_TRUE( params[0].EngineSet );
+    EXPECT_FALSE( params[1].EngineSet );
+
+    const char* bad     = R"(
+Shader "Bad"
+{
+    Properties
+    {
+        float Height ("Height", EngineSet) = 1.0
+    }
+    Vertex   { void main() { gl_Position = vec4(0.0); } }
+    Fragment { layout( location = 0 ) out vec4 o; void main() { o = vec4(1.0); } }
+}
+)";
+    auto        refused = DShaderParser::Parse( bad );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "EngineSet" ), std::string::npos ) << refused.GetError();
+}
+
 TEST( DShaderParser, ParsesRenderState )
 {
     auto res = DShaderParser::Parse( kUnlit );

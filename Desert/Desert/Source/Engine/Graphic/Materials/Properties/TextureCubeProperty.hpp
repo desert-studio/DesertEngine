@@ -44,6 +44,13 @@ namespace Desert::Graphic
         /// authored default for a `samplerCube`: every cube binding in this engine is PER-FRAME SCENE
         /// STATE — the baked environment — and the question a null asks is "what does a scene with no sky
         /// look like", which the backend already answers with the fallback cube it seeds the binding with.
+        // A cube parameter's default is the backend's fallback cube (FallbackTextures, RGBA8F): that is
+        // what UniformImageCube::SetImageCube( nullptr ) binds, so "nothing" is a write like any other.
+        void RestoreDefault()
+        {
+            SetTexture( nullptr );
+        }
+
         void SetTexture( const ImageCube* texture )
         {
             m_Texture = texture;

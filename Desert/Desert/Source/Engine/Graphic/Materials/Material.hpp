@@ -17,7 +17,10 @@ namespace Desert::Graphic
     class Material : public IPropertyOwner
     {
     public:
-        explicit Material( std::string&& debugName, std::string&& shaderName );
+        // @p parameterSchema: see MaterialExecutor — the program whose Properties are this material's own
+        // textures; null means @p shaderName's own.
+        explicit Material( std::string&& debugName, std::string&& shaderName,
+                           const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
 
         virtual ~Material() = default;
 

@@ -13,6 +13,12 @@ Shader "Terrain"
     Properties Binding(1)
     {
         Color       Tint ("Tint") = (1, 1, 1, 1)
+
+        // The landscape tile's own maps (LandscapeECSSystem's R16 height / RGBA8 weight copies): material
+        // parameters the TerrainRenderer writes per tile, never an artist (EngineSet). Declared by hand in
+        // TerrainVertex.glslh / TerrainSurface.glslh; a Binding(1) row skips textures.
+        Texture2D   u_Heightmap ("Heightmap", EngineSet)
+        Texture2D   u_Weightmap ("Weightmap", EngineSet)
     }
 
     State

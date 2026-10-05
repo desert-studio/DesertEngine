@@ -694,6 +694,12 @@ namespace Desert::Editor::MaterialEdit
             if ( schema.Params[index].IsAssetRef() )
                 continue;
 
+            // ENGINE-SET PARAMETERS ARE NOT DETAILS. The engine writes them every draw (ShaderParam::
+            // EngineSet — the landscape tile's height and weight maps); a row here would offer an artist a
+            // slot whose value the next frame overwrites, and the .demat would persist it for nothing.
+            if ( schema.Params[index].EngineSet )
+                continue;
+
             const std::string& category = schema.Params[index].Category;
 
             auto group =

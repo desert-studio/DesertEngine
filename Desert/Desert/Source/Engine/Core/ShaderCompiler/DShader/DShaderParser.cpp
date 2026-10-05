@@ -336,7 +336,8 @@ namespace Desert::Core::Preprocess
 
         bool ParsePropertyAttributes( Cursor& c, ShaderParam& param, ParseError& err )
         {
-            // ( "Display Name" [, Range(a,b)] [, Category("...")] [, Tooltip("...")] [, Timing(Immediate)] )
+            // ( "Display Name" [, Range(a,b)] [, Category("...")] [, Tooltip("...")] [, Timing(Immediate)]
+            //   [, EngineSet] )
             if ( !Expect( c, '(', err, "after property name" ) )
                 return false;
 
@@ -370,6 +371,19 @@ namespace Desert::Core::Preprocess
                          !Expect( c, ')', err, "closing Category" ) )
                         return false;
                 }
+                // A texture the ENGINE writes per draw (ShaderParam::EngineSet). Refused on anything but a
+                // texture: an engine-written scalar has a uniform buffer of its own, and an attribute that
+                // meant nothing on a float would be a dead setting the author believes in.
+                else if ( attr == "engineset" )
+                {
+                    if ( !param.IsTexture )
+                    {
+                        err = { c.Line, "EngineSet is only valid on a Texture2D or TextureCube property ('" +
+                                             param.Name + "')" };
+                        return false;
+                    }
+                    param.EngineSet = true;
+                }
                 else if ( attr == "tooltip" )
                 {
                     if ( !Expect( c, '(', err, "after Tooltip" ) || !ReadQuoted( c, param.Tooltip, err ) ||
@@ -401,7 +415,7 @@ namespace Desert::Core::Preprocess
                 else
                 {
                     err = { c.Line, "unknown property attribute '" + attr +
-                                         "' (expected Range, Category, Tooltip or Timing)" };
+                                         "' (expected Range, Category, Tooltip, Timing or EngineSet)" };
                     return false;
                 }
                 SkipTrivia( c );

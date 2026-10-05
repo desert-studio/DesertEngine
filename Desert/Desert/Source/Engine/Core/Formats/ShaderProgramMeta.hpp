@@ -104,6 +104,16 @@ namespace Desert::Core::Formats
         // dimensionality and the parser's copy is gone.
         bool IsCubeTexture = false;
 
+        // `EngineSet` on a texture property: a parameter OF THE MATERIAL that the ENGINE writes, never an
+        // artist — the landscape tile's height and weight maps are the shape (TerrainRenderer binds the
+        // tile's own R16/RGBA8 copies per draw). It is a material parameter like any other Properties
+        // texture (the MaterialExecutor gives it a property holding its default), and it is the reason the
+        // DSL can say so without lying: the Material Editor's Details never list it
+        // (MaterialEdit::PlanParameterGroups) and a .demat never carries a value for it
+        // (MaterialFactory::ApplyShaderAsset), because a value an artist wrote would be overwritten by
+        // the next draw.
+        bool EngineSet = false;
+
         std::optional<float> Min;                                // present => slider/clamped
         std::optional<float> Max;
 
@@ -319,5 +329,22 @@ namespace Desert::Core::Formats
 
         bool operator==( const ShaderProgramMeta& ) const = default;
     };
+
+    // THE MATERIAL'S OWN TEXTURES — the one classification of a program's samplers (UE's material
+    // parameters vs pass/view parameters, which never share a slot). A sampler the parameter schema's
+    // `Properties` block declares is a MATERIAL parameter: the MaterialExecutor gives it a property that
+    // holds its declared default from creation. Every OTHER sampler a program declares — shadow cascades,
+    // environment cubes, the BRDF LUT, the cloud shadow map, scene textures — is a PASS parameter: no
+    // material property exists for it, and the pass binds it by name through RDG::PassBindings, so a slot
+    // can never be filled by both. EngineSet textures are included: they are the material's, only the
+    // writer differs.
+    inline std::vector<const ShaderParam*> MaterialTextureParameters( const ShaderProgramMeta& schema )
+    {
+        std::vector<const ShaderParam*> parameters;
+        for ( const auto& param : schema.Params )
+            if ( param.IsTexture && !param.IsAssetRef() )
+                parameters.push_back( &param );
+        return parameters;
+    }
 
 } // namespace Desert::Core::Formats

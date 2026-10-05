@@ -29,9 +29,10 @@ namespace Desert::Graphic
         m_MaterialExecutor->PushConstant( &wind, sizeof( InstanceWindPush ), kInstancedWindPushOffset );
     }
 
-    Material::Material( std::string&& debugName, std::string&& shaderName )
-         : m_MaterialExecutor(
-                Graphic::MaterialExecutor::Create( std::move( debugName ), std::move( shaderName ) ) ),
+    Material::Material( std::string&& debugName, std::string&& shaderName,
+                        const Core::Formats::ShaderProgramMeta* parameterSchema )
+         : m_MaterialExecutor( Graphic::MaterialExecutor::Create( std::move( debugName ), std::move( shaderName ),
+                                                                  parameterSchema ) ),
            // The ledger row — see Engine/Graphic/ResourceLedger.hpp. A Material is the single most
            // expensive row in it: on the Vulkan backend one carries its own VkDescriptorPool, a
            // frames x slots grid of descriptor sets, and one uniform/storage buffer object per block its
@@ -94,36 +95,19 @@ namespace Desert::Graphic
         if ( !property )
             return false;
 
-        // The schema is asked, never guessed. A sampler the shader declares by hand without a matching
-        // `Properties` entry (StaticMeshPBR's environment maps, the cloud shadow map) has no authored
-        // default and gets White -- the colour the backend fallback already held, so nothing moves.
-        auto kind = Core::Formats::DefaultTextureKind::White;
-        if ( const auto& shader = m_MaterialExecutor->GetShader() )
-        {
-            for ( const auto& param : shader->GetProgramMeta().Params )
-            {
-                if ( param.IsTexture && !param.IsCubeTexture && param.Name == sampler )
-                {
-                    kind = param.DefaultTexture;
-                    break;
-                }
-            }
-        }
+        // The property was born knowing its schema default (MaterialExecutor::InitializeProperties reads
+        // ShaderParam::DefaultTexture once, from the material's parameter schema); restoring it is the
+        // property's own operation, so there is one rule and not a second copy of it here.
+        if ( property->RestoreDefault() )
+            return true;
 
-        const Image2D* image = DefaultTextures::Get().Resolve( kind );
-        if ( !image )
-        {
-            // Resolve() has already said WHICH kind failed; this line says which material and slot are
-            // left holding the previous image, because that is the visible symptom (DC §1.4).
-            LOG_ERROR( "[Materials] '{}' could not be given the '{}' default for its '{}' slot, so that "
-                       "sampler keeps whatever was bound to it last",
-                       m_MaterialExecutor->GetDubugName(), Core::Formats::DefaultTextureKindName( kind ),
-                       sampler );
-            return false;
-        }
-
-        property->SetImage( image, RDG::Access::SampledGraphics );
-        return true;
+        // Resolve() has already said WHICH kind failed; this line says which material and slot are left
+        // holding the previous image, because that is the visible symptom (DC §1.4).
+        LOG_ERROR( "[Materials] '{}' could not be given the '{}' default for its '{}' slot, so that sampler "
+                   "keeps whatever was bound to it last",
+                   m_MaterialExecutor->GetDubugName(),
+                   Core::Formats::DefaultTextureKindName( property->GetDefault() ), sampler );
+        return false;
     }
 
     // ---------------------------------------------------------------------------
