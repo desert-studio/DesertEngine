@@ -44,8 +44,8 @@ namespace Desert::Graphic::System
         }
 
         // The graph resources one tonemap exec binds by shader name. Bloom is FrameTextures::Transients.Bloom,
-        // or the engine black texture when the bloom chain did not run this frame; then BloomProduced is false
-        // and the bloom intensity is 0 for this draw, whatever SetBloomIntensity said.
+        // or the graph's FrameTextures::System.Black when the bloom chain did not run this frame; then
+        // BloomProduced is false and the bloom intensity is 0 for this draw, whatever SetBloomIntensity said.
         struct GraphInputs
         {
             RDG::TextureRef Bloom;

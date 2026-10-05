@@ -49,9 +49,9 @@ namespace Desert::Graphic
         const Image2D* Resolve( Core::Formats::DefaultTextureKind kind );
 
         /**
-         * @brief Resolve, handing out the owning pointer: for a frame graph that imports the image as an
-         *        external (FrameTextures::Import), e.g. the black texture a consumer binds when the
-         *        producer of a transient did not run this frame.
+         * @brief Resolve, handing out the owning pointer: the mechanism by which the frame setup imports the
+         *        system textures into each frame graph (FrameTextures::System, RDG::SystemTextures). No pass
+         *        calls it: a pass reads the graph's System refs.
          */
         std::shared_ptr<Image2D> Share( Core::Formats::DefaultTextureKind kind );
 

@@ -7,6 +7,7 @@
 // DispatchCompute / DrawFullscreen in RDG-A2-1.
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 
 #include <gtest/gtest.h>
 
@@ -309,4 +310,40 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
              return Common::MakeSuccess( true );
          } );
     EXPECT_TRUE( executed.IsSuccess() ) << executed.GetError();
+}
+
+// The system textures are graph resources of a fresh graph (UE: FRDGSystemTextures): registered once, valid,
+// distinct, and a pass that declares a read of System.Black binds it by shader name like any graph texture -
+// the tonemap's "bloom did not run" input, with no default texture substituted anywhere else.
+TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
+{
+    ExternalTexture blackImage( Tex2D( 1, 1 ), Access::None );
+    ExternalTexture whiteImage( Tex2D( 1, 1 ), Access::None );
+    Builder         graph( "system-textures" );
+    graph.SetPassCulling( false ); // the test pass reads only; nothing reads what it writes
+    const SystemTextures system = RegisterSystemTextures( graph, blackImage, whiteImage );
+    ASSERT_TRUE( system.Black.IsValid() );
+    ASSERT_TRUE( system.White.IsValid() );
+    EXPECT_NE( system.Black.Index, system.White.Index );
+
+    bool bound = false;
+    graph.AddPass(
+         "Reads System.Black", PassFlags::Compute, [&]( PassBuilder& pass )
+         { pass.Read( system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ) ); },
+         [&]( PassContext& context ) -> Common::BoolResultStr
+         {
+             PassBindings bindings( context );
+             bindings.Sampled( "u_Source", system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ),
+                               SamplerDesc::LinearClamp() );
+             EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
+             EXPECT_EQ( bindings.GetTextures().size(), 1u );
+             if ( bindings.GetTextures().size() == 1u )
+                 EXPECT_EQ( bindings.GetTextures()[0].Texture.Resource, system.Black.Index );
+             bound = true;
+             return Common::MakeSuccess( true );
+         } );
+    NoOpBackend                 backend;
+    const Common::BoolResultStr executed = graph.Execute( backend );
+    EXPECT_TRUE( executed.IsSuccess() ) << executed.GetError();
+    EXPECT_TRUE( bound );
 }

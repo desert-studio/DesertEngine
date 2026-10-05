@@ -3,7 +3,6 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
-#include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -355,16 +354,15 @@ namespace Desert::Graphic
              textures.Import( inputs.LightShafts, "LightShaft.Pong" ),
              textures.Import( inputs.LensFlare, "LensFlare" ),
         };
-        // Bloom is this graph's transient when the chain ran; otherwise the engine black texture with zero
-        // intensity (TonemapRenderer::GraphInputs), an explicit choice rather than a stale image.
-        System::TonemapRenderer::GraphInputs graphInputs{ .Bloom         = textures.Transients.Bloom,
-                                                          .BloomProduced = textures.Transients.Bloom.IsValid() };
-        if ( !graphInputs.BloomProduced )
-            graphInputs.Bloom = textures.Import(
-                 DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::Black ), "Engine.Black" );
+        // Bloom is this graph's transient when the chain ran; otherwise the graph's system black texture with
+        // zero intensity (TonemapRenderer::GraphInputs), an explicit choice rather than a stale image.
+        const bool                           bloomProduced = textures.Transients.Bloom.IsValid();
+        System::TonemapRenderer::GraphInputs graphInputs{ .Bloom = bloomProduced ? textures.Transients.Bloom
+                                                                                 : textures.System.Black,
+                                                          .BloomProduced = bloomProduced };
         if ( !graphInputs.Bloom.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] the tonemap has no bloom input (the engine black texture did not import); "
+            LOG_ERROR( "[SceneRenderer] the tonemap has no bloom input (System.Black is not in this graph); "
                        "the tonemap pass is not recorded this frame" );
             return;
         }

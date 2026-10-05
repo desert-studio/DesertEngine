@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
@@ -23,9 +25,9 @@ namespace Desert::Graphic
     // read (UE: FSceneTextures / the RDG texture fields passed between AddPass helpers). The producer's
     // AddFrame* creates the texture with Builder::CreateTexture (desc from this frame's view) and stores the ref
     // here; the consumer's AddFrame* declares a read of it and binds it with RDG::PassBindings. An invalid ref
-    // means the producer did not run this frame (effect off, culled input): the consumer binds the engine's
-    // black texture (an external, imported like any other) at that slot and zero intensity in its uniform
-    // values - an explicit choice at the call site (UE: GSystemTextures.BlackDummy), never a stale image.
+    // means the producer did not run this frame (effect off, culled input): the consumer declares a read of
+    // FrameTextures::System.Black, binds it at that slot and writes zero intensity in its uniform values - an
+    // explicit choice at the call site (UE: FRDGSystemTextures::Black), never a stale image.
     // Only cross-renderer transients live here; a transient read only by its own renderer's passes (SMAA edges,
     // JFA ping-pong, SSR trace/tiles, cloud trace/guide, the exposure histogram) stays a local of that
     // AddFrame*. A history (read in a LATER frame) is never here: it is an external the renderer owns.
@@ -46,12 +48,18 @@ namespace Desert::Graphic
     class FrameTextures
     {
     public:
+        // Registers the engine's system textures in @p graph before any pass is added (System).
         explicit FrameTextures( RDG::Builder& graph ) : m_Graph( graph )
         {
+            ImportSystemTextures();
         }
 
         // RDG-A2: the cross-renderer transients of this graph (see FrameTransients).
         FrameTransients Transients;
+        // RDG-A2: the engine's constant textures as refs of THIS graph (RDG::SystemTextures, UE:
+        // FRDGSystemTextures), registered once by the constructor. A pass reads them like any graph texture.
+        // A ref is invalid only if the engine image could not be created or imported, and that is logged.
+        RDG::SystemTextures System;
 
         std::vector<RDG::TextureRef>
         Refs( std::initializer_list<std::pair<std::shared_ptr<Image2D>, std::string_view>> images )
@@ -161,6 +169,42 @@ namespace Desert::Graphic
         }
 
     private:
+        void ImportSystemTextures()
+        {
+            using Core::Formats::DefaultTextureKind;
+            const std::shared_ptr<Image2D> black = DefaultTextures::Get().Share( DefaultTextureKind::Black );
+            const std::shared_ptr<Image2D> white = DefaultTextures::Get().Share( DefaultTextureKind::White );
+            RDG::ExternalTexture*          blackExternal = ImportExternal( black, "System.Black" );
+            RDG::ExternalTexture*          whiteExternal = ImportExternal( white, "System.White" );
+            if ( !blackExternal || !whiteExternal )
+                return;
+            System = RDG::RegisterSystemTextures( m_Graph, *blackExternal, *whiteExternal );
+            // A later Import of the same engine image names the same graph texture.
+            m_Refs.emplace( black.get(), System.Black );
+            m_Externals.emplace( black.get(), blackExternal );
+            m_Refs.emplace( white.get(), System.White );
+            m_Externals.emplace( white.get(), whiteExternal );
+        }
+
+        // @p image as an external holding its recorded layout, not yet registered; nullptr (logged) if it
+        // cannot be imported.
+        RDG::ExternalTexture* ImportExternal( const std::shared_ptr<Image>& image, std::string_view name )
+        {
+            if ( !image )
+            {
+                LOG_ERROR( "[SceneRenderer] the frame graph has no engine image for '{}'", name );
+                return nullptr;
+            }
+            RDG::ExternalTexture& external = *m_Storage.emplace_back( std::make_unique<RDG::ExternalTexture>() );
+            if ( const Common::BoolResultStr imported = Renderer::GetInstance().ImportImage( image, external );
+                 !imported )
+            {
+                LOG_ERROR( "[SceneRenderer] the frame graph cannot import '{}': {}", name, imported.GetError() );
+                return nullptr;
+            }
+            return &external;
+        }
+
         RDG::Builder&                                      m_Graph;
         std::vector<std::unique_ptr<RDG::ExternalTexture>> m_Storage; // outlive Execute: the graph points at them
         std::map<const Image*, RDG::TextureRef>            m_Refs;
