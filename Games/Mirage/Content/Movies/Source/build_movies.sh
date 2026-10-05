@@ -12,9 +12,9 @@ FPS=60; RES=3840x2160
 
 # name | map (relative to the project) | seconds | sound accent (ffmpeg aevalsrc expression, stereo)
 MOVIES=(
-  "DesertEngine|Content/Movies/Source/DesertEngine.desce|3.0|0.30*sin(2*PI*(110+40*t)*t)*exp(-1.6*t)+0.12*sin(2*PI*220*t)*exp(-2.4*t)"
-  "DesertStudio|Content/Movies/Source/DesertStudio.desce|3.0|0.22*(sin(2*PI*196*t)+sin(2*PI*293.66*t)+0.6*sin(2*PI*392*t))*(1-exp(-3*t))*exp(-0.9*t)"
-  "Title|Content/Movies/Source/Title.desce|4.0|0.25*sin(2*PI*73.42*t+2*sin(2*PI*0.5*t))*(1-exp(-2*t))*exp(-0.5*t)+0.05*(random(0)-0.5)*exp(-1.5*t)"
+  "DesertEngine|Content/Movies/Source/DesertEngine.desce|3|0.30*sin(2*PI*(110+40*t)*t)*exp(-1.6*t)+0.12*sin(2*PI*220*t)*exp(-2.4*t)"
+  "DesertStudio|Content/Movies/Source/DesertStudio.desce|3|0.22*(sin(2*PI*196*t)+sin(2*PI*293.66*t)+0.6*sin(2*PI*392*t))*(1-exp(-3*t))*exp(-0.9*t)"
+  "Title|Content/Movies/Source/Title.desce|4|0.25*sin(2*PI*73.42*t+2*sin(2*PI*0.5*t))*(1-exp(-2*t))*exp(-0.5*t)+0.05*(random(0)-0.5)*exp(-1.5*t)"
 )
 
 for entry in "${MOVIES[@]}"; do
