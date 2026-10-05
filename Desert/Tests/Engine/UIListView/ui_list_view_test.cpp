@@ -875,12 +875,16 @@ TEST( ListViewBound, ChangingOneRecordChangesOnlyItsRowsVertices )
 
 TEST( ListViewBound, RemovingARecordInTheWindowMovesTheRecordsBelowItUpOneRow )
 {
-    // The colour of the first vertex drawn inside row @p row: the entry panel, tinted by its record.
+    // The colour of the first vertex drawn inside row @p row: the entry panel, tinted by its record. The list
+    // sizes each entry to the full row pitch, so the row ABOVE ends exactly on this row's top edge and its
+    // antialiasing fringe reaches half a fringe past it -- drawn earlier, that faded vertex would be found
+    // first and report the record above. The probe keeps a whole fringe clear of both edges.
     const auto rowColour = []( const R2D::DrawList2D& list, int row ) -> std::optional<glm::vec4>
     {
+        const float top    = static_cast<float>( row ) * kRowHeight + R2D::DrawList2D::kEdgeFringe;
+        const float bottom = static_cast<float>( row + 1 ) * kRowHeight - R2D::DrawList2D::kEdgeFringe;
         for ( const R2D::Vertex2D& v : list.GetVertices() )
-            if ( v.Position.y > static_cast<float>( row ) * kRowHeight &&
-                 v.Position.y < static_cast<float>( row + 1 ) * kRowHeight )
+            if ( v.Position.y > top && v.Position.y < bottom )
                 return v.Color;
         return std::nullopt;
     };

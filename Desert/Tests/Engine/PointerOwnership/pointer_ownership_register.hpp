@@ -875,9 +875,35 @@ namespace Desert::Tests::PointerCensus
           "ExecutorFor re-points the entry's Texture2DProperty with SetImage before every use, so the "
           "stale address is overwritten before anything reads it. The leak is closed by "
           "RetireUnusedExecutors, whose window is asserted rather than described" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedTarget", "Image", Guard::OwnedByThisObject,
+          "the colour attachment of Target, the shared_ptr<Framebuffer> beside it in the same struct, so the image "
+          "dies with the struct. The address is stable because AcquireRetainedTarget is the only caller of Resize "
+          "(once, at creation) and the spec is NoResizeble, so no window resize re-creates the attachment; the "
+          "struct itself is held by unique_ptr in m_RetainedPool and does not move when the pool grows" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedPicture", "Content", Guard::FrameScoped,
+          "a RetainedTarget::Image from m_RetainedPool, written by RenderRetained and read by the Flush of the "
+          "same frame (BeginFrame clears m_Retained). Nothing in that window frees it: the only pool release is "
+          "RenderRetained's own erase_if, which runs AFTER the pictures are written and spares every target "
+          "acquired this frame (LastUsedFrame == frame is inside the retire window)" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedPicture", "Mask", Guard::FrameScoped,
+          "the same as Content: a pooled target's Image acquired in this frame's RenderRetained and read by this "
+          "frame's Flush; null means no mask and Flush binds m_WhiteImage instead" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "Render2D", "m_Retained", Guard::IdentityOnly,
+          "keyed by the ADDRESS of a DrawCommand in m_DrawList, found with find( &cmd ) and never dereferenced. A "
+          "recycled address cannot be mistaken for an old command because BeginFrame clears this map in the same "
+          "call that Resets m_DrawList, so a key never outlives the list generation it was taken from; a command "
+          "vector that reallocated after RenderRetained would only MISS, and Flush refuses that composite with an error" },
         { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
           "ExternalPassSystem", "m_Renderer", Guard::ObservedContainsUs,
           "the SceneRenderer owns its render systems, so it cannot be destroyed while one of them is alive" },
+        { "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
+          "WalkCtx", "Root", Guard::CallScoped,
+          "set by RenderCanvas2D to its own DrawList2D& argument, and the WalkCtx is a local of that call consumed "
+          "by the recursive walk inside it; the caller's draw list outlives the call by construction" },
         { "Desert/Desert/Source/Engine/Graphic/SkyPresets.hpp",
           "SkyPresetEntry", "Name", Guard::StaticStorage,
           "a string literal in a constexpr preset table" },
