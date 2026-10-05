@@ -324,10 +324,14 @@ namespace Desert::Graphic
                                      const glm::vec4& cameraPos, const std::shared_ptr<FrameValues>& values )
     {
         auto* ssr = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
-        if ( !ssr || copyReads.empty() || !ssr->Prepare() )
+        if ( !ssr || copyReads.empty() )
             return;
-        const RDG::TextureRef          trace   = textures.Import( ssr->GetTraceImage(), "SSR.Trace" );
-        const RDG::TextureRef          tiles   = textures.Import( ssr->GetTileMask(), "SSR.TileMask" );
+        const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr->Prepare();
+        if ( !traceTargets )
+            return;
+        // Transients of this graph, sized from this frame's view: written by the trace, read by the tiled passes.
+        const RDG::TextureRef          trace   = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
+        const RDG::TextureRef          tiles   = graph.CreateTexture( traceTargets->TileMask, "SSR.TileMask" );
         const RDG::TextureRef          accum   = textures.Import( ssr->GetAccumImage(), "SSR" );
         const RDG::TextureRef          history = textures.Import( ssr->GetHistoryImage(), "SSR.History" );
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: SSRComposite" );
@@ -343,14 +347,13 @@ namespace Desert::Graphic
                  pass.Write( trace, RDG::Access::StorageWrite );
                  pass.Write( tiles, RDG::Access::StorageWrite );
              },
-             [this, ssr, viewProj, cameraPos, values]( RDG::PassContext& ) -> Common::BoolResultStr
+             [this, ssr, trace, tiles, viewProj, cameraPos, values]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  if ( !values->SceneCopy )
                      return Common::MakeError( "Deferred: SSR runs after a SceneCopy pass that left no copy" );
                  constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
-                 ssr->RecordTrace( m_GBuffer, values->SceneCopy, viewProj, cameraPos, /*maxSteps*/ 32,
-                                   m_SSRMaxDistance, m_SSRIntensity, kSSRThickness );
-                 return BOOLSUCCESS;
+                 return ssr->RecordTrace( context, trace, tiles, m_GBuffer, values->SceneCopy, viewProj, cameraPos,
+                                          /*maxSteps*/ 32, m_SSRMaxDistance, m_SSRIntensity, kSSRThickness );
              } );
         graph.AddPass(
              "Deferred: SSRResolve", RDG::PassFlags::Raster,
@@ -360,11 +363,8 @@ namespace Desert::Graphic
                  ReadAll( pass, { trace, tiles, history }, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [this, ssr]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 ssr->RecordResolve( m_GBuffer );
-                 return BOOLSUCCESS;
-             } );
+             [this, ssr, trace, tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordResolve( context, trace, tiles, m_GBuffer ); } );
         graph.AddPass(
              "Deferred: SSRComposite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -373,10 +373,7 @@ namespace Desert::Graphic
                  ReadAll( pass, { accum, tiles }, RDG::Access::SampledGraphics );
                  DeferredFrameNodes::LoadTarget( pass, target ); // blend over the scene
              },
-             [this, ssr, viewProj]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 ssr->RecordComposite( m_GBuffer, viewProj );
-                 return BOOLSUCCESS;
-             } );
+             [this, ssr, tiles, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordComposite( context, tiles, m_GBuffer, viewProj ); } );
     }
 } // namespace Desert::Graphic

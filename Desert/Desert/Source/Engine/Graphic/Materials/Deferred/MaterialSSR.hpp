@@ -12,7 +12,7 @@ namespace Desert::Graphic
     enum class SSRResolveVariant
     {
         Fullscreen, // SSRResolve.shader (GI)
-        Tiled,      // SSRResolveTiled.shader (SSR) - needs BindTileMask
+        Tiled,      // SSRResolveTiled.shader (SSR) - its trace and tile mask are graph transients (PassBindings)
     };
 
     // Temporal + spatial resolve (the shared denoiser): blends this frame's jittered estimate with the
@@ -24,26 +24,24 @@ namespace Desert::Graphic
              : Material( "MaterialSSRResolve",
                          variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
-            if ( variant == SSRResolveVariant::Tiled )
-                m_TileMask = m_MaterialExecutor->GetTexture2DProperty( "u_SSRTileMask" ).get();
-            m_Trace    = m_MaterialExecutor->GetTexture2DProperty( "u_Trace" ).get();
+            // The tiled variant's trace is a transient of the frame graph, bound by name through RDG::PassBindings
+            // (SSRRenderer::RecordResolve); only the fullscreen (GI) variant reads it through the material.
+            if ( variant == SSRResolveVariant::Fullscreen )
+                m_Trace = m_MaterialExecutor->GetTexture2DProperty( "u_Trace" ).get();
             m_History  = m_MaterialExecutor->GetTexture2DProperty( "u_History" ).get();
             m_WorldPos = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferWorldPos" ).get();
         }
 
-        // The SSR tile mask (SSRTileClassify): its vertex stage draws only the tiles it marks.
-        void BindTileMask( const std::shared_ptr<Image2D>& mask )
-        {
-            if ( m_TileMask != nullptr && mask != nullptr )
-                m_TileMask->SetImage( mask.get(), RDG::Access::SampledGraphics );
-        }
-
-        void BindInputs( const std::shared_ptr<Image2D>& trace, const std::shared_ptr<Image2D>& history,
-                         const std::shared_ptr<Image2D>& worldPos, const glm::mat4& prevViewProj,
-                         const glm::vec2& texelSize, float historyBlend )
+        // The fullscreen (GI) variant's trace; the tiled variant has no material slot for it.
+        void BindTrace( const std::shared_ptr<Image2D>& trace )
         {
             if ( m_Trace && trace )
                 m_Trace->SetImage( trace.get(), RDG::Access::SampledGraphics );
+        }
+
+        void BindInputs( const std::shared_ptr<Image2D>& history, const std::shared_ptr<Image2D>& worldPos,
+                         const glm::mat4& prevViewProj, const glm::vec2& texelSize, float historyBlend )
+        {
             if ( m_History && history )
                 m_History->SetImage( history.get(), RDG::Access::SampledGraphics );
             if ( m_WorldPos && worldPos )
@@ -62,10 +60,9 @@ namespace Desert::Graphic
         }
 
     private:
-        Texture2DProperty* m_Trace    = nullptr;
+        Texture2DProperty* m_Trace    = nullptr; // Fullscreen variant only
         Texture2DProperty* m_History  = nullptr;
         Texture2DProperty* m_WorldPos = nullptr;
-        Texture2DProperty* m_TileMask = nullptr; // Tiled variant only
     };
 
     // Composite half of SSR: blurs the traced reflection buffer (radius scaled by G-buffer roughness)
@@ -77,14 +74,8 @@ namespace Desert::Graphic
         {
             m_SSR    = m_MaterialExecutor->GetTexture2DProperty( "u_SSR" ).get();
             m_Normal   = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferNormal" ).get();
-            m_TileMask = m_MaterialExecutor->GetTexture2DProperty( "u_SSRTileMask" ).get();
-        }
-
-        // The SSR tile mask (SSRTileClassify): its vertex stage draws only the tiles it marks.
-        void BindTileMask( const std::shared_ptr<Image2D>& mask )
-        {
-            if ( m_TileMask != nullptr && mask != nullptr )
-                m_TileMask->SetImage( mask.get(), RDG::Access::SampledGraphics );
+            // u_SSRTileMask is a transient of the frame graph, bound through RDG::PassBindings
+            // (SSRRenderer::RecordComposite).
         }
 
         void BindInputs( const std::shared_ptr<Image2D>& ssr, const std::shared_ptr<Image2D>& normal,
@@ -103,6 +94,5 @@ namespace Desert::Graphic
     private:
         Texture2DProperty* m_SSR      = nullptr;
         Texture2DProperty* m_Normal   = nullptr;
-        Texture2DProperty* m_TileMask = nullptr;
     };
 } // namespace Desert::Graphic

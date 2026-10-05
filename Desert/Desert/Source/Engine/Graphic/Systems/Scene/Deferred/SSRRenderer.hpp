@@ -7,10 +7,14 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
+
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -58,9 +62,6 @@ namespace Desert::Graphic::System
                 m_AccumFB[i] = Framebuffer::Create( accumSpec );
                 m_AccumFB[i]->Resize( fullW, fullH );
             }
-
-            if ( !CreateStorageTargets( fullW, fullH ) )
-                return Common::MakeError( "SSR trace / tile mask images could not be created" );
 
             const auto tracePipeline =
                  ComputePipeline::Create( { .Shader = m_TraceShader, .DebugName = "SSRTrace" } );
@@ -118,39 +119,52 @@ namespace Desert::Graphic::System
             m_HistoryValid = false;
         }
 
-        // gbuffer = the camera G-buffer (albedo/normal/worldpos at 0/1/2); sceneColor = snapshot of the lit
-        // opaque scene; viewProj/cameraPos = the camera; maxDistance and thickness are WORLD distances,
-        // and a world unit is a centimetre - callers passing literature values convert through Common::Units.
-        // The frame graph declares the images below before any pass runs, so every SSR target follows the
-        // scene target here (the trace at half its size; a resize invalidates the history), not inside a
-        // pass. False: nothing to draw.
-        bool Prepare()
+        // The two images the trace writes and the tiled passes read, both transients of this frame's graph
+        // (Builder::CreateTexture): the half-resolution trace and the tile mask (one texel per kTileSize tile).
+        struct TraceTargets
+        {
+            RDG::TextureDesc Trace;
+            RDG::TextureDesc TileMask;
+        };
+
+        // Called while the frame graph is built, before any pass runs. The accumulation pair is history (read next
+        // frame) and stays this renderer's: it follows the scene target here and a resize invalidates it. The
+        // trace targets are sized from this frame's view and kept by no one. Nullopt: nothing to draw.
+        std::optional<TraceTargets> Prepare()
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target || !m_TracePipeline || !m_ResolvePipeline || !m_CompositePipeline || !m_ResolveMaterial ||
-                 !m_CompositeMaterial || !m_TraceImage || !m_AccumFB[0] || !m_AccumFB[1] || !m_TileMask )
-                return false;
+                 !m_CompositeMaterial || !m_AccumFB[0] || !m_AccumFB[1] )
+                return std::nullopt;
             const uint32_t w = target->GetFramebufferWidth();
             const uint32_t h = target->GetFramebufferHeight();
+            if ( w == 0u || h == 0u )
+                return std::nullopt;
             if ( m_AccumFB[0]->GetFramebufferWidth() != w || m_AccumFB[0]->GetFramebufferHeight() != h )
             {
                 m_AccumFB[0]->Resize( w, h );
                 m_AccumFB[1]->Resize( w, h );
                 m_HistoryValid = false;
             }
-            if ( m_TileMask->GetWidth() != TileGrid( w ) || m_TileMask->GetHeight() != TileGrid( h ) ||
-                 m_TraceImage->GetWidth() != HalfRes( w ) || m_TraceImage->GetHeight() != HalfRes( h ) )
-                return CreateStorageTargets( w, h );
-            return true;
+            return TraceTargets{
+                 .Trace    = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
+                                               .Format = ViewTargetFormats::kSSRTrace },
+                 .TileMask = RDG::TextureDesc{ .Size   = { .Width = TileGrid( w ), .Height = TileGrid( h ) },
+                                               .Format = ViewTargetFormats::kSSRTileMask },
+            };
         }
 
-        // Pass 1, a compute node that declares GetTraceImage() and GetTileMask() as storage writes: classify +
-        // half-resolution trace, one dispatch (one workgroup per tile). gbuffer = the camera G-buffer
+        // Pass 1, from the exec of the compute node that declares @p trace and @p tiles as storage writes: classify
+        // + half-resolution trace, one dispatch (one workgroup per tile). gbuffer = the camera G-buffer
         // (albedo/normal/worldpos at 0/1/2); sceneColor = snapshot of the lit opaque scene; maxDistance and
         // thickness are WORLD distances (a world unit is a centimetre - convert through Common::Units).
-        void RecordTrace( const std::shared_ptr<Framebuffer>& gbuffer, const std::shared_ptr<Image2D>& sceneColor,
-                          const glm::mat4& viewProj, const glm::vec4& cameraPos, int maxSteps, float maxDistance,
-                          float intensity, float thickness )
+        [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context, RDG::TextureRef trace,
+                                                         RDG::TextureRef                     tiles,
+                                                         const std::shared_ptr<Framebuffer>& gbuffer,
+                                                         const std::shared_ptr<Image2D>&     sceneColor,
+                                                         const glm::mat4& viewProj, const glm::vec4& cameraPos,
+                                                         int maxSteps, float maxDistance, float intensity,
+                                                         float thickness )
         {
             // Each pass is timed on its own because EnableSSR's default is a budget decision
             // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
@@ -171,39 +185,57 @@ namespace Desert::Graphic::System
                                        RDG::SubresourceRange::All() );
             m_TracePipeline->SetInput( 3, sceneColor.get(), RDG::Access::SampledCompute,
                                        RDG::SubresourceRange::All() );
-            m_TracePipeline->SetOutput( 4, m_TraceImage.get() );
-            m_TracePipeline->SetOutput( 5, m_TileMask.get() );
-            m_TracePipeline->SetPushConstants( &push, sizeof( push ) );
-            Renderer::GetInstance().DispatchComputeInFrame( m_TracePipeline.get(), TileGrid( Width() ),
+
+            RDG::PassBindings bindings( context );
+            bindings.Storage( "u_Trace", trace, RDG::Access::StorageWrite )
+                 .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
+                 .PushConstants( &push, sizeof( push ) );
+            return Renderer::GetInstance().DispatchCompute( bindings, *m_TracePipeline, TileGrid( Width() ),
                                                             TileGrid( Height() ), 1 );
         }
 
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): spatial + temporal
-        // resolve of the trace over GetHistoryImage().
-        void RecordResolve( const std::shared_ptr<Framebuffer>& gbuffer )
+        // resolve of @p trace (read bilinearly - the upscale) over GetHistoryImage(), drawn over the tiles
+        // @p tiles marks.
+        [[nodiscard]] Common::BoolResultStr RecordResolve( const RDG::PassContext& context, RDG::TextureRef trace,
+                                                           RDG::TextureRef                     tiles,
+                                                           const std::shared_ptr<Framebuffer>& gbuffer )
         {
             DESERT_PROFILE_PASS( "SSR: Resolve" );
-            m_ResolveMaterial->BindInputs( m_TraceImage, GetHistoryImage(), gbuffer->GetColorAttachmentImage( 2 ),
-                                           m_PrevViewProj, Texel(), m_HistoryValid ? 0.88f : 0.0f );
-            m_ResolveMaterial->BindTileMask( m_TileMask );
-            Renderer::GetInstance().SubmitVertices( m_ResolvePipeline.get(), TileVertices(),
-                                                    m_ResolveMaterial->GetMaterialExecutor() );
+            m_ResolveMaterial->BindInputs( GetHistoryImage(), gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj,
+                                           Texel(), m_HistoryValid ? 0.88f : 0.0f );
+            RDG::PassBindings bindings( context );
+            bindings
+                 .Sampled( "u_Trace", trace, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
+                           RDG::SamplerDesc::LinearClamp() )
+                 .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
+                           RDG::SamplerDesc::PointClamp() );
+            return Renderer::GetInstance().DrawProcedural( bindings, *m_ResolvePipeline,
+                                                           m_ResolveMaterial->GetMaterialExecutor(), TileVertices() );
         }
 
         // Pass 3, inside the render pass the graph opens on the scene target with LOAD: roughness-scaled blur
-        // of the RESOLVED buffer, blended over the scene. Advances the ping-pong.
-        void RecordComposite( const std::shared_ptr<Framebuffer>& gbuffer, const glm::mat4& viewProj )
+        // of the RESOLVED buffer, blended over the scene, over the tiles @p tiles marks. Advances the ping-pong
+        // only when the draw was recorded.
+        [[nodiscard]] Common::BoolResultStr RecordComposite( const RDG::PassContext& context, RDG::TextureRef tiles,
+                                                             const std::shared_ptr<Framebuffer>& gbuffer,
+                                                             const glm::mat4&                    viewProj )
         {
             DESERT_PROFILE_PASS( "SSR: Composite" );
             m_CompositeMaterial->BindInputs( GetAccumImage(), gbuffer->GetColorAttachmentImage( 1 ), Texel() );
-            m_CompositeMaterial->BindTileMask( m_TileMask );
-            Renderer::GetInstance().SubmitVertices( m_CompositePipeline.get(), TileVertices(),
-                                                    m_CompositeMaterial->GetMaterialExecutor() );
+            RDG::PassBindings bindings( context );
+            bindings.Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
+                              RDG::SamplerDesc::PointClamp() );
+            const Common::BoolResultStr drawn = Renderer::GetInstance().DrawProcedural(
+                 bindings, *m_CompositePipeline, m_CompositeMaterial->GetMaterialExecutor(), TileVertices() );
+            if ( !drawn.IsSuccess() )
+                return drawn;
 
             m_PrevViewProj = viewProj;
             m_HistoryValid = true;
             m_AccumIndex   = 1u - m_AccumIndex;
             ++m_FrameIndex;
+            return drawn;
         }
 
         // Before RecordComposite: the target the resolve writes this frame and the one it reprojects.
@@ -216,20 +248,12 @@ namespace Desert::Graphic::System
             const uint32_t prv = 1u - m_AccumIndex;
             return m_AccumFB[prv] ? m_AccumFB[prv]->GetColorAttachmentImage( 0 ) : nullptr;
         }
-        std::shared_ptr<Image2D> GetTileMask() const
-        {
-            return m_TileMask;
-        }
 
         // The current resolved (denoised) result / the raw trace — for the editor's debug dumps.
         std::shared_ptr<Image2D> GetResolvedImage() const
         {
             const uint32_t last = 1u - m_AccumIndex; // RecordComposite flipped the index after writing
             return m_AccumFB[last] ? m_AccumFB[last]->GetColorAttachmentImage( 0 ) : nullptr;
-        }
-        std::shared_ptr<Image2D> GetTraceImage() const
-        {
-            return m_TraceImage;
         }
 
     private:
@@ -263,33 +287,7 @@ namespace Desert::Graphic::System
             return ( pixels + 1u ) / 2u;
         }
 
-        // Both written by the trace dispatch (storage) and read by the tiled passes (sampled): the half-resolution
-        // trace and the tile mask (the vertex stage of SSRTiles.glslh).
-        bool CreateStorageTargets( uint32_t width, uint32_t height )
-        {
-            const auto make = []( const char* tag, uint32_t w, uint32_t h, Core::Formats::ImageFormat format )
-            {
-                const Core::Formats::Image2DSpecification spec = {
-                     .Tag        = tag,
-                     .Width      = w,
-                     .Height     = h,
-                     .Format     = format,
-                     .Mips       = 1,
-                     .Data       = {},
-                     .Usage      = Core::Formats::Image2DUsage::Image2D,
-                     .Properties = Core::Formats::Storage | Core::Formats::Sample,
-                     .MipLevels  = {},
-                };
-                return Image2D::Create( spec );
-            };
-            m_TraceImage = make( "SSRTrace", HalfRes( width ), HalfRes( height ), ViewTargetFormats::kSSRTrace );
-            m_TileMask =
-                 make( "SSRTileMask", TileGrid( width ), TileGrid( height ), ViewTargetFormats::kSSRTileMask );
-            return m_TraceImage != nullptr && m_TileMask != nullptr;
-        }
 
-        std::shared_ptr<Image2D>              m_TraceImage;
-        std::shared_ptr<Image2D>              m_TileMask;
         std::shared_ptr<Shader>               m_TraceShader;
         std::shared_ptr<Shader>               m_ResolveShader;
         std::shared_ptr<Shader>               m_CompositeShader;
