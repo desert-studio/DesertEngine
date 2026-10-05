@@ -183,10 +183,9 @@ namespace Desert::Migration
 
     //  43 - A SCENE STATES WHAT IT REFERENCES (SCENE-DEPS, UE's AssetRegistry dependencies). Header.Dependencies,
     //       written [] by every earlier build, lists every asset the scene names, unique and sorted: each
-    //       GUID a component or the Settings block states ({Guid, Path} references, MeshGuid, MaterialGuids —
-    //       a hosted block's own Header excluded) and each prefab instance's prefab, by that file's header GUID
-    //       (MigrateSceneDependenciesV42ToV43). The engine's save gathers the same list at the resolver
-    //       (Core::Serialize::AssetReferenceRecording). Scenes only.
+    //       asset a component or the Settings block names and each prefab instance's prefab, by the ONE rule
+    //       the engine's save applies too (Core::GatherSceneDependencies, MigrateSceneDependenciesV42ToV43).
+    //       Scenes only.
     inline constexpr int kSceneVersionSceneDependencies = 43;
 
     static_assert( kSceneVersionSceneDependencies == kSceneVersion,

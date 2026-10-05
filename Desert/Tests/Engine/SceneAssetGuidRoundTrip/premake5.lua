@@ -14,6 +14,8 @@ project(test_name)
         -- and through it the renderer (~50 undefined symbols when T7i3 tried), so the {Guid, Path} rule was
         -- extracted into this TU and both call it; the suite pins the rule, not a copy of it.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AssetRefSerialization.cpp",
+        -- SCENE-DEPS: the one rule a save and SceneMigrator gather Header.Dependencies by.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/SceneDependencies.cpp",
     }
 
     includedirs {

@@ -16,6 +16,7 @@ project(test_name)
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SceneMigration.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/SceneDependencies.cpp", -- the v43 step gathers by the save's rule
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/SoundFormat.cpp", -- the v41 -> v42 step reads .desound
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp", -- SKEL-TREE raises (MSAS SRCE 3, MeshBinary 5, ANIM 5) in SceneMigration.cpp
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/SkeletonReference.cpp", -- SKEL-TREE raises (MSAS SRCE 3, MeshBinary 5, ANIM 5) in SceneMigration.cpp
