@@ -133,6 +133,9 @@ namespace Common::Settings
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
             return canonical;
         }
+
+        // Defined beside ResolveAA, which it reports through; Load() is one of its two callers.
+        void ReportAppliedAntiAliasing( const MachineSettings& applied );
     } // namespace
 
     MachineSettings& MachineSettings::Get()
