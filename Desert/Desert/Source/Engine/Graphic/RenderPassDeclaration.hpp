@@ -107,7 +107,8 @@ namespace Desert::Graphic
     // @p context (RDG::PassBindings over it, Renderer::DispatchCompute / DrawFullscreen / DrawProcedural /
     // DrawIndexed) and binds the graph textures it declared from @p refs. A failure is returned, never swallowed:
     // the graph logs it with the node's name.
-    using NodeRecordFunc = std::function<Common::BoolResultStr( RDG::PassContext& context, const FrameGraphRefs& refs )>;
+    using NodeRecordFunc =
+         std::function<Common::BoolResultStr( RDG::PassContext& context, const FrameGraphRefs& refs )>;
 
     // One compute node of a system's frame work: its name in the graph, what it declares, and the body that
     // records its dispatch. A system that dispatches several times in a frame hands one node per dispatch, in

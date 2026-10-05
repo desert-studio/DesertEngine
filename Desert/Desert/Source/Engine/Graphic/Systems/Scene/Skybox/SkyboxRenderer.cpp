@@ -455,7 +455,8 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration transmittance;
             transmittance.Name = "Sky: TransmittanceLut";
             transmittance.Access.Write( m_TransmittanceLut, RDG::Access::StorageWrite, "Sky.TransmittanceLut" );
-            transmittance.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+            transmittance.Record = [this]( RDG::PassContext& context,
+                                           const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: AtmosphereLuts" );
                 return DispatchTransmittanceLut( context );
@@ -466,7 +467,9 @@ namespace Desert::Graphic::System
             multiScatter.Name = "Sky: MultiScatterLut";
             multiScatter.Access.Read( m_TransmittanceLut, RDG::Access::SampledCompute, "Sky.TransmittanceLut" );
             multiScatter.Access.Write( m_MultiScatterLut, RDG::Access::StorageWrite, "Sky.MultiScatterLut" );
-            multiScatter.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr { return DispatchMultiScatterLut( context ); };
+            multiScatter.Record = [this]( RDG::PassContext& context,
+                                          const FrameGraphRefs& ) -> Common::BoolResultStr
+            { return DispatchMultiScatterLut( context ); };
             nodes.push_back( std::move( multiScatter ) );
 
             // BUILD TIME: which nodes exist is decided here; the pair counts as baked once

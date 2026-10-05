@@ -145,10 +145,9 @@ namespace
         AsyncComputeFallbackLog m_FallbackLog{ []( std::string_view ) {} };
     };
 
-         // A bloom-upsample-like compute shader: u_Source (sampled 2D, binding 0), u_Output (storage image,
-         // binding 1), u_Params (uniform buffer, binding 2, filled by the material), 12 bytes of push constants.
-         ShaderResource::ReflectionData
-         UpsampleReflection()
+    // A bloom-upsample-like compute shader: u_Source (sampled 2D, binding 0), u_Output (storage image,
+    // binding 1), u_Params (uniform buffer, binding 2, filled by the material), 12 bytes of push constants.
+    ShaderResource::ReflectionData UpsampleReflection()
     {
         ShaderResource::ReflectionData       reflection;
         ShaderResource::ShaderDescriptorSet& set = reflection.ShaderDescriptorSets[0];
@@ -224,7 +223,9 @@ namespace
 
     void FillComplete( PassBindings& bindings, TextureRef chain )
     {
-        bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
+        bindings
+             .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                       SamplerDesc::LinearClamp() )
              .Storage( "u_Output", chain, Access::StorageWrite, 0 )
              .PushConstants( kPush, sizeof( kPush ) );
     }
@@ -246,13 +247,14 @@ TEST( RenderGraphVulkanPassBindings, ACompleteBlockResolvesEveryNameToItsReflect
 // A name the shader does not declare is refused, naming the pass, the name and the shader.
 TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
 {
-    const Verdict resolved = ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                                            []( PassBindings& bindings, TextureRef chain )
-                                            {
-                                                FillComplete( bindings, chain );
-                                                bindings.Sampled( "u_Sorce", chain, Access::SampledCompute,
-                                                                  SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp());
-                                            } );
+    const Verdict resolved =
+         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
+                        []( PassBindings& bindings, TextureRef chain )
+                        {
+                            FillComplete( bindings, chain );
+                            bindings.Sampled( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                                              SamplerDesc::LinearClamp() );
+                        } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
     EXPECT_NE( error.find( "PostFX: BloomUpsample1" ), std::string::npos ) << error;
@@ -262,14 +264,16 @@ TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
 // A sampled entry into a storage-image slot (and the reverse) is refused: the kind is checked against reflection.
 TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
 {
-    const Verdict resolved = ResolveInPass(
-         UpsampleReflection(), MaterialFillsParams(),
-         []( PassBindings& bindings, TextureRef chain )
-         {
-             bindings.Sampled( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
-                  .Storage( "u_Source", chain, Access::StorageWrite, 0 )
-                  .PushConstants( kPush, sizeof( kPush ) );
-         } );
+    const Verdict resolved =
+         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
+                        []( PassBindings& bindings, TextureRef chain )
+                        {
+                            bindings
+                                 .Sampled( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                                           SamplerDesc::LinearClamp() )
+                                 .Storage( "u_Source", chain, Access::StorageWrite, 0 )
+                                 .PushConstants( kPush, sizeof( kPush ) );
+                        } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
     EXPECT_NE( error.find( "'u_Output' is bound as a Sampled texture" ), std::string::npos ) << error;
@@ -280,13 +284,15 @@ TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
 // push-constant block nothing gives.
 TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
 {
-    const Verdict noOutput = ResolveInPass(
-         UpsampleReflection(), MaterialFillsParams(),
-         []( PassBindings& bindings, TextureRef chain )
-         {
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
-                  .PushConstants( kPush, sizeof( kPush ) );
-         } );
+    const Verdict noOutput =
+         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
+                        []( PassBindings& bindings, TextureRef chain )
+                        {
+                            bindings
+                                 .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                                           SamplerDesc::LinearClamp() )
+                                 .PushConstants( kPush, sizeof( kPush ) );
+                        } );
     ASSERT_FALSE( noOutput.IsSuccess() );
     EXPECT_NE( noOutput.GetError().find( "'u_Output' (set 0 binding 1)" ), std::string::npos )
          << noOutput.GetError();
@@ -295,13 +301,15 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
     ASSERT_FALSE( noMaterial.IsSuccess() );
     EXPECT_NE( noMaterial.GetError().find( "'u_Params'" ), std::string::npos ) << noMaterial.GetError();
 
-    const Verdict noPush = ResolveInPass(
-         UpsampleReflection(), MaterialFillsParams(),
-         []( PassBindings& bindings, TextureRef chain )
-         {
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
-                  .Storage( "u_Output", chain, Access::StorageWrite, 0 );
-         } );
+    const Verdict noPush =
+         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
+                        []( PassBindings& bindings, TextureRef chain )
+                        {
+                            bindings
+                                 .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                                           SamplerDesc::LinearClamp() )
+                                 .Storage( "u_Output", chain, Access::StorageWrite, 0 );
+                        } );
     ASSERT_FALSE( noPush.IsSuccess() );
     EXPECT_NE( noPush.GetError().find( "push-constant block 'Push'" ), std::string::npos ) << noPush.GetError();
 }
@@ -329,13 +337,16 @@ TEST( RenderGraphVulkanPassBindings, ASlotFilledByBothRoutesIsRefused )
 // A block with a failed entry is refused with that entry's error, before anything is resolved.
 TEST( RenderGraphVulkanPassBindings, ABlockWithAFailedEntryIsRefusedWithThatEntry )
 {
-    const Verdict resolved = ResolveInPass(
-         UpsampleReflection(), MaterialFillsParams(),
-         []( PassBindings& bindings, TextureRef chain )
-         {
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
-                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp());
-         } );
+    const Verdict resolved =
+         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
+                        []( PassBindings& bindings, TextureRef chain )
+                        {
+                            bindings
+                                 .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                                           SamplerDesc::LinearClamp() )
+                                 .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                                           SamplerDesc::LinearClamp() );
+                        } );
     ASSERT_FALSE( resolved.IsSuccess() );
     EXPECT_NE( resolved.GetError().find( "already bound" ), std::string::npos ) << resolved.GetError();
 }

@@ -178,21 +178,25 @@ namespace Desert::Graphic
     }
 
     Common::BoolResultStr Renderer::DrawFullscreen( const RDG::PassBindings& bindings,
-                                                    const GraphicsPipeline& pipeline, const MaterialExecutor* material )
+                                                    const GraphicsPipeline&  pipeline,
+                                                    const MaterialExecutor*  material )
     {
         return DrawProcedural( bindings, pipeline, material, kFullscreenTriangleVertexCount, 1u );
     }
 
     Common::BoolResultStr Renderer::DrawProcedural( const RDG::PassBindings& bindings,
-                                                    const GraphicsPipeline& pipeline, const MaterialExecutor* material,
-                                                    uint32_t vertexCount, uint32_t instanceCount )
+                                                    const GraphicsPipeline&  pipeline,
+                                                    const MaterialExecutor* material, uint32_t vertexCount,
+                                                    uint32_t instanceCount )
     {
         return s_RendererAPI->DrawProcedural( bindings, pipeline, material, vertexCount, instanceCount );
     }
 
-    Common::BoolResultStr Renderer::DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+    Common::BoolResultStr Renderer::DrawIndexed( const RDG::PassBindings& bindings,
+                                                 const GraphicsPipeline&  pipeline,
                                                  const MaterialExecutor* material, VertexBuffer& vertexBuffer,
-                                                 IndexBuffer& indexBuffer, uint32_t indexCount, uint32_t firstIndex )
+                                                 IndexBuffer& indexBuffer, uint32_t indexCount,
+                                                 uint32_t firstIndex )
     {
         return s_RendererAPI->DrawIndexed( bindings, pipeline, material, vertexBuffer, indexBuffer, indexCount,
                                            firstIndex );

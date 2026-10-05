@@ -249,8 +249,8 @@ namespace Desert::Graphic::System
         fog.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
         m_SceneRenderer->DeclareAtmosphereReads( fog.Access, RDG::Access::SampledCompute );
         fog.Access.Write( m_FogImage, RDG::Access::StorageWrite, "HeightFog.Fog" );
-        fog.Record = [this, push, apActive, atmosphere,
-                      depthImage = depth.get()]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        fog.Record = [this, push, apActive, atmosphere, depthImage = depth.get()](
+                          RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "HeightFog: ExecuteInFrame" );
             auto& renderer = Renderer::GetInstance();

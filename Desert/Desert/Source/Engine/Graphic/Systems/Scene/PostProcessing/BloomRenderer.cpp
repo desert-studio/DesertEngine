@@ -111,8 +111,9 @@ namespace Desert::Graphic::System
             srcH = MipSize( bh, mip - 1 );
         }
 
-        const DownsamplePush push{ glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
-                                   first ? 1 : 0, m_Threshold };
+        const DownsamplePush push{
+             glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ), first ? 1 : 0,
+             m_Threshold };
 
         RDG::PassBindings bindings( context );
         if ( first )

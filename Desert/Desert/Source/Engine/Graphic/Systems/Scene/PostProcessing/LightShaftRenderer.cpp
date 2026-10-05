@@ -93,9 +93,10 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr LightShaftRenderer::RecordMask( const RDG::PassContext& context,
                                                           RDG::TextureRef sceneColor, RDG::TextureRef mask,
-                                                          const RDG::TextureDesc& desc, const glm::vec2& sunScreenUv )
+                                                          const RDG::TextureDesc& desc,
+                                                          const glm::vec2&        sunScreenUv )
     {
-        const MaskPush maskPush{ sunScreenUv, m_Params.Threshold, m_Params.MaxBrightness, kMaskWindow };
+        const MaskPush    maskPush{ sunScreenUv, m_Params.Threshold, m_Params.MaxBrightness, kMaskWindow };
         RDG::PassBindings bindings( context );
         bindings
              .Sampled( "u_SceneColor", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
@@ -116,7 +117,7 @@ namespace Desert::Graphic::System
         float reach = kBaseReach; // grown by repeated multiplication, as the single loop did
         for ( uint32_t i = 0; i < pass; ++i )
             reach *= kPassScale;
-        const BlurPush blurPush{ sunScreenUv, std::min( reach, 1.0f ), kBlurDecay };
+        const BlurPush    blurPush{ sunScreenUv, std::min( reach, 1.0f ), kBlurDecay };
         RDG::PassBindings bindings( context );
         bindings
              .Sampled( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),

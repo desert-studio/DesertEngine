@@ -113,8 +113,8 @@ namespace Desert::Graphic::API::Vulkan
         // command buffer check, the exec's descriptor sets from @p bindings + the material's written slots, the
         // pipeline, the sets and the push constants. Error when any of it cannot be recorded.
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings& bindings,
-                                                     const GraphicsPipeline& pipeline,
-                                                     const MaterialExecutor* material );
+                                                     const GraphicsPipeline&  pipeline,
+                                                     const MaterialExecutor*  material );
         void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                                  int32_t vertexOffset, uint32_t firstInstance );
         void DrawCounted( uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,

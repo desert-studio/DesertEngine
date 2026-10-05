@@ -352,7 +352,7 @@ namespace Desert::Graphic::System
             }
             fe.ParticlesRef = graph.RegisterExternal( fe.ParticlesImport, std::format( "ParticleState{}", i ) );
             written.push_back( fe.ParticlesRef );
-            fe.CounterRef   = graph.RegisterExternal( fe.CounterImport, std::format( "ParticleSpawn{}", i ) );
+            fe.CounterRef = graph.RegisterExternal( fe.CounterImport, std::format( "ParticleSpawn{}", i ) );
             written.push_back( fe.CounterRef );
             fe.Declared = true;
         }

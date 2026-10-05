@@ -132,9 +132,10 @@ namespace Desert::Graphic::System
                                                         GroupCount( MipSize( sourceDesc.Size.Height, mip ) ), 1 );
     }
 
-    Common::BoolResultStr LensFlareRenderer::RecordFeatures( const RDG::PassContext& context, RDG::TextureRef source,
-                                                             RDG::TextureRef flare, const RDG::TextureDesc& flareDesc,
-                                                             const glm::vec2& sunScreenUv )
+    Common::BoolResultStr LensFlareRenderer::RecordFeatures( const RDG::PassContext& context,
+                                                             RDG::TextureRef source, RDG::TextureRef flare,
+                                                             const RDG::TextureDesc& flareDesc,
+                                                             const glm::vec2&        sunScreenUv )
     {
         // Source -> ghosts + halo + streak.
         const float angle = glm::radians( m_Params.StreakAngle );

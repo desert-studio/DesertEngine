@@ -1143,7 +1143,8 @@ namespace Desert::Graphic::System
         shadow.Name = "Clouds: ShadowMap";
         DeclareVolumeReads( shadow.Access );
         shadow.Access.Write( m_ShadowMapImage, RDG::Access::StorageWrite, "Clouds.ShadowMap" );
-        shadow.Record = [this, push, resolution]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        shadow.Record = [this, push, resolution]( RDG::PassContext& context,
+                                                  const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: ShadowMap" );
             auto& renderer = Renderer::GetInstance();
@@ -1885,9 +1886,10 @@ namespace Desert::Graphic::System
                 // point of the pass is that a column's optical depth accumulates downward and a thread per
                 // texel would have to re-integrate everything above it.
                 const RDG::PassBindings bindings( context );
-                return renderer.DispatchCompute(
-                     bindings, *m_SkyOcclusionPipeline, GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
-                     GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ), 1 );
+                return renderer.DispatchCompute( bindings, *m_SkyOcclusionPipeline,
+                                                 GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
+                                                 GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
+                                                 1 );
             };
             nodes.push_back( std::move( occlusion ) );
 
@@ -1950,9 +1952,9 @@ namespace Desert::Graphic::System
         m_SceneRenderer->DeclareAtmosphereReads( march.Access, RDG::Access::SampledCompute );
         march.Access.Write( trace, RDG::Access::StorageWrite, RDG::SubresourceRange::All() );
         march.Access.Write( traceGuide, RDG::Access::StorageWrite, RDG::SubresourceRange::All() );
-        march.Record =
-             [this, push, atmosphere, skyOcclusionReady, traceWidth, traceHeight, trace, traceGuide,
-              depthImage = depth.get()]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        march.Record = [this, push, atmosphere, skyOcclusionReady, traceWidth, traceHeight, trace, traceGuide,
+                        depthImage = depth.get()]( RDG::PassContext& context,
+                                                   const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: March" );
             auto& renderer = Renderer::GetInstance();
@@ -2029,7 +2031,8 @@ namespace Desert::Graphic::System
 
             m_MarchPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
-            return renderer.DispatchCompute( bindings, *m_MarchPipeline, GroupCount( traceWidth, kMarchWorkGroupSize ),
+            return renderer.DispatchCompute( bindings, *m_MarchPipeline,
+                                             GroupCount( traceWidth, kMarchWorkGroupSize ),
                                              GroupCount( traceHeight, kMarchWorkGroupSize ), 1 );
         };
         nodes.push_back( std::move( march ) );
@@ -2082,9 +2085,8 @@ namespace Desert::Graphic::System
                                std::format( "Clouds.History{}", writeIndex ) );
         temporal.Access.Write( m_HistoryGuideImage[writeIndex], RDG::Access::StorageWrite,
                                std::format( "Clouds.HistoryGuide{}", writeIndex ) );
-        temporal.Record = [this, writeIndex, readIndex, trace, traceGuide,
-                           historyValid = m_HistoryValid]( RDG::PassContext& context,
-                                                           const FrameGraphRefs& ) -> Common::BoolResultStr
+        temporal.Record = [this, writeIndex, readIndex, trace, traceGuide, historyValid = m_HistoryValid](
+                               RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             auto& renderer = Renderer::GetInstance();
 

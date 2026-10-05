@@ -664,7 +664,8 @@ namespace Desert::Graphic::API::Vulkan
         // with every resolved PassBindings entry written at its slot. The caller fills the other route's slots
         // into the returned sets before they are bound.
         Common::ResultStr<std::vector<VkDescriptorSet>>
-        WriteRdgPassSets( VulkanRdgPassDescriptors& descriptors, const std::vector<DescriptorSetLayoutRef>& layouts,
+        WriteRdgPassSets( VulkanRdgPassDescriptors&                  descriptors,
+                          const std::vector<DescriptorSetLayoutRef>& layouts,
                           std::span<const RdgResolvedEntry> entries, std::string_view pass )
         {
             using Sets = std::vector<VkDescriptorSet>;
@@ -686,8 +687,8 @@ namespace Desert::Graphic::API::Vulkan
                                                    ? std::string_view( entry.Texture->ShaderName )
                                                    : std::string_view( entry.Buffer->ShaderName );
                 if ( entry.Slot.Set >= sets.size() )
-                    return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets", pass,
-                                                             name, entry.Slot.Set, sets.size() );
+                    return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets",
+                                                             pass, name, entry.Slot.Set, sets.size() );
                 const VkDescriptorSetLayoutBinding* binding =
                      FindLayoutBinding( *layouts[entry.Slot.Set], entry.Slot.Binding );
                 if ( binding == nullptr )
@@ -702,7 +703,7 @@ namespace Desert::Graphic::API::Vulkan
                     const bool               storage = entry.Kind == RDG::ShaderResourceKind::StorageTexture;
                     const VkImageLayout      layout =
                          storage ? VK_IMAGE_LAYOUT_GENERAL
-                                 : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
+                                      : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
                     VkSampler sampler = VK_NULL_HANDLE;
                     if ( binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
                     {
@@ -738,21 +739,24 @@ namespace Desert::Graphic::API::Vulkan
     } // namespace
 
     Common::BoolResultStr VulkanRendererAPI::DispatchCompute( const RDG::PassBindings& bindings,
-                                                              const ComputePipeline& pipeline, uint32_t groupCountX,
-                                                              uint32_t groupCountY, uint32_t groupCountZ )
+                                                              const ComputePipeline&   pipeline,
+                                                              uint32_t groupCountX, uint32_t groupCountY,
+                                                              uint32_t groupCountZ )
     {
         const RDG::PassContext&                  context = bindings.GetContext();
         const std::string_view                   pass    = context.GetPassName();
         const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
         if ( !cmd )
             return Common::MakeError( cmd.GetError() );
-        const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors = VulkanRdgBackend::DescriptorsOf( context );
+        const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors =
+             VulkanRdgBackend::DescriptorsOf( context );
         if ( !descriptors )
             return Common::MakeError( descriptors.GetError() );
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
-        auto& compute = const_cast<VulkanPipelineCompute&>( static_cast<const VulkanPipelineCompute&>( pipeline ) );
-        auto* shader  = static_cast<VulkanShader*>( compute.GetShader().get() );
+        auto& compute =
+             const_cast<VulkanPipelineCompute&>( static_cast<const VulkanPipelineCompute&>( pipeline ) );
+        auto* shader = static_cast<VulkanShader*>( compute.GetShader().get() );
         if ( shader == nullptr || compute.GetVkPipeline() == VK_NULL_HANDLE )
             return Common::MakeFormattedError( "{}: compute pipeline '{}' is not built", pass,
                                                compute.GetSpecification().DebugName );
@@ -774,7 +778,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !other.Filled.empty() )
         {
             if ( sets.GetValue().empty() )
-                return Common::MakeFormattedError( "{}: the pipeline's setters fill set 0, which it has not", pass );
+                return Common::MakeFormattedError( "{}: the pipeline's setters fill set 0, which it has not",
+                                                   pass );
             if ( const Common::BoolResultStr written = compute.WriteBoundResources( sets.GetValue()[0] );
                  !written.IsSuccess() )
                 return Common::MakeFormattedError( "{}: {}", pass, written.GetError() );
@@ -795,8 +800,8 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRendererAPI::DrawProcedural( const RDG::PassBindings& bindings,
                                                              const GraphicsPipeline&  pipeline,
-                                                             const MaterialExecutor* material, uint32_t vertexCount,
-                                                             uint32_t instanceCount )
+                                                             const MaterialExecutor*  material,
+                                                             uint32_t vertexCount, uint32_t instanceCount )
     {
         if ( vertexCount == 0u || instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a procedural draw of {} vertices x {} instances",
@@ -809,10 +814,10 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     Common::BoolResultStr VulkanRendererAPI::DrawIndexed( const RDG::PassBindings& bindings,
-                                                          const GraphicsPipeline& pipeline,
-                                                          const MaterialExecutor* material, VertexBuffer& vertexBuffer,
-                                                          IndexBuffer& indexBuffer, uint32_t indexCount,
-                                                          uint32_t firstIndex )
+                                                          const GraphicsPipeline&  pipeline,
+                                                          const MaterialExecutor*  material,
+                                                          VertexBuffer& vertexBuffer, IndexBuffer& indexBuffer,
+                                                          uint32_t indexCount, uint32_t firstIndex )
     {
         if ( indexCount == 0u )
             return Common::MakeFormattedError( "{}: an indexed draw of zero indices",
@@ -845,7 +850,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( cmd.GetValue() != m_CurrentCommandBuffer )
             return Common::MakeFormattedError(
                  "{}: the renderer records into another command buffer than the pass's segment", pass );
-        const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors = VulkanRdgBackend::DescriptorsOf( context );
+        const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors =
+             VulkanRdgBackend::DescriptorsOf( context );
         if ( !descriptors )
             return Common::MakeError( descriptors.GetError() );
 
@@ -897,7 +903,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !materialSlots.Bindings.empty() )
         {
             if ( sets.GetValue().empty() )
-                return Common::MakeFormattedError( "{}: the material fills set 0, which the pipeline has not", pass );
+                return Common::MakeFormattedError( "{}: the material fills set 0, which the pipeline has not",
+                                                   pass );
             std::vector<VkCopyDescriptorSet> copies;
             copies.reserve( materialSlots.Bindings.size() );
             for ( const uint32_t binding : materialSlots.Bindings )
@@ -914,19 +921,18 @@ namespace Desert::Graphic::API::Vulkan
                 copy.descriptorCount = entry->descriptorCount;
                 copies.push_back( copy );
             }
-            const VkDevice device =
-                 SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+            const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                         ->GetVulkanLogicalDevice();
             vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
         }
 
         if ( !BindGraphicsPipeline( &pipeline ) )
-            return Common::MakeFormattedError( "{}: pipeline '{}' could not be bound in the open render pass", pass,
-                                               pipeline.GetSpecification().DebugName );
+            return Common::MakeFormattedError( "{}: pipeline '{}' could not be bound in the open render pass",
+                                               pass, pipeline.GetSpecification().DebugName );
         if ( !sets.GetValue().empty() )
-            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                     graphics->GetVkPipelineLayout(), 0,
-                                     static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0,
-                                     nullptr );
+            vkCmdBindDescriptorSets(
+                 cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS, graphics->GetVkPipelineLayout(), 0,
+                 static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0, nullptr );
         const std::span<const std::byte> push = ChoosePushConstants( bindings, materialPush );
         if ( !push.empty() && reflection.PushConstantRanges.has_value() )
             vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(),

@@ -42,7 +42,8 @@ namespace Desert::Editor::Render
         pass.Phase                 = Graphic::RenderPhase::Transparency;
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Pipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx, Graphic::RDG::PassContext& ) -> Common::BoolResultStr
+        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
+                               Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
             // The flag is asked of the RENDERER this pass is drawing into, not of the scene and not of a
             // global: it is what THIS view is showing (Graphic/DebugViewState.hpp). A scene rendered into

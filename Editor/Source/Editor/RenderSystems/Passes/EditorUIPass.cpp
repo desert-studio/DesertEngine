@@ -39,7 +39,8 @@ namespace Desert::Editor::Render
         pass.Phase                 = Graphic::RenderPhase::UI;
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Render2D.GetPipeline()->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx, Graphic::RDG::PassContext& node ) -> Common::BoolResultStr
+        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
+                               Graphic::RDG::PassContext&          node ) -> Common::BoolResultStr
         {
             const auto scene = m_Scene.lock();
             if ( !scene || !ctx.Target )

@@ -110,21 +110,19 @@ namespace Desert::Graphic::System
         m_HistogramPipeline = make( "AEHistogram" );
         m_AveragePipeline   = make( "AEAverage" );
 
-        return m_LumImage[0] && m_LumImage[1] && m_ClearPipeline && m_HistogramPipeline &&
-               m_AveragePipeline;
+        return m_LumImage[0] && m_LumImage[1] && m_ClearPipeline && m_HistogramPipeline && m_AveragePipeline;
     }
 
     bool AutoExposureRenderer::Prepare()
     {
-        if ( !GetSceneColorImage() || !m_ClearPipeline || !m_HistogramPipeline ||
-             !m_AveragePipeline )
+        if ( !GetSceneColorImage() || !m_ClearPipeline || !m_HistogramPipeline || !m_AveragePipeline )
             return false;
         m_ReadIndex = 1 - m_ReadIndex; // this frame writes the other image and adapts from the last one
         return true;
     }
 
     Common::BoolResultStr AutoExposureRenderer::RecordClear( const RDG::PassContext& context,
-                                                             RDG::BufferRef         histogram )
+                                                             RDG::BufferRef          histogram )
     {
         RDG::PassBindings bindings( context );
         bindings.Storage( "Histogram", histogram, RDG::Access::StorageWrite );
@@ -166,7 +164,7 @@ namespace Desert::Graphic::System
         m_SnapNextAdaptation     = false;
 
         const AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
-                        kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent };
+                              kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent };
         RDG::PassBindings bindings( context );
         // u_PrevLum is 1x1 and sampled at its centre: PointClamp returns exactly the stored luminance.
         bindings.Storage( "Histogram", histogram, RDG::Access::StorageRead )

@@ -4,21 +4,18 @@ namespace Desert::Graphic
 {
     MaterialTonemap::MaterialTonemap() : Material( "MaterialTonemap", "SceneComposite" )
     {
-        m_GeometryTexture   = m_MaterialExecutor->GetTexture2DProperty( "u_GeometryTexture" ).get();
-        m_AvgLuminance      = m_MaterialExecutor->GetTexture2DProperty( "u_AvgLuminance" ).get();
+        m_GeometryTexture = m_MaterialExecutor->GetTexture2DProperty( "u_GeometryTexture" ).get();
+        m_AvgLuminance    = m_MaterialExecutor->GetTexture2DProperty( "u_AvgLuminance" ).get();
     }
 
     void MaterialTonemap::BindInputs( const std::shared_ptr<Image2D>& targetImage,
-                                      const std::shared_ptr<Image2D>& avgLuminance,
-                                      const Params& params )
+                                      const std::shared_ptr<Image2D>& avgLuminance, const Params& params )
     {
         if ( m_GeometryTexture && targetImage )
             m_GeometryTexture->SetImage( targetImage.get(), RDG::Access::SampledGraphics );
 
         if ( m_AvgLuminance && avgLuminance )
             m_AvgLuminance->SetImage( avgLuminance.get(), RDG::Access::SampledGraphics );
-
-
 
         SetExposure( params.Exposure );
         SetGamma( params.Gamma );

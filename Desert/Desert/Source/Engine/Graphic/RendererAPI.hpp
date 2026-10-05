@@ -130,19 +130,16 @@ namespace Desert::Graphic
         // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices x @p instanceCount instances whose
         // vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex (UE DrawPrimitive; the
         // fullscreen triangle is 3 x 1; the SSR tile grid is six vertices per tile).
-        [[nodiscard]] virtual Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings,
-                                                                    const GraphicsPipeline&  pipeline,
-                                                                    const MaterialExecutor*  material,
-                                                                    uint32_t                 vertexCount,
-                                                                    uint32_t                 instanceCount ) = 0;
+        [[nodiscard]] virtual Common::BoolResultStr
+        DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                        const MaterialExecutor* material, uint32_t vertexCount, uint32_t instanceCount ) = 0;
         // The PassBindings route of SubmitIndexed: one indexed draw of @p indexCount indices from @p firstIndex of
         // a caller-filled VB + IB (uint32 indices, vertices addressed absolutely), with the graph textures bound
         // by shader name from @p bindings and @p material supplying uniform values / asset textures only.
-        [[nodiscard]] virtual Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings,
-                                                                 const GraphicsPipeline&  pipeline,
-                                                                 const MaterialExecutor*  material,
-                                                                 VertexBuffer& vertexBuffer, IndexBuffer& indexBuffer,
-                                                                 uint32_t indexCount, uint32_t firstIndex ) = 0;
+        [[nodiscard]] virtual Common::BoolResultStr
+        DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                     const MaterialExecutor* material, VertexBuffer& vertexBuffer, IndexBuffer& indexBuffer,
+                     uint32_t indexCount, uint32_t firstIndex ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

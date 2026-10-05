@@ -59,9 +59,10 @@ namespace Desert::Graphic::System
 
         // Mask: samples @p sceneColor, writes @p mask. @p sunScreenUv is the sun's position in [0,1] screen UV.
         // Called from the exec of the pass that declared exactly those two uses.
-        [[nodiscard]] Common::BoolResultStr RecordMask( const RDG::PassContext& context, RDG::TextureRef sceneColor,
-                                                        RDG::TextureRef mask, const RDG::TextureDesc& desc,
-                                                        const glm::vec2& sunScreenUv );
+        [[nodiscard]] Common::BoolResultStr RecordMask( const RDG::PassContext& context,
+                                                        RDG::TextureRef sceneColor, RDG::TextureRef mask,
+                                                        const RDG::TextureDesc& desc,
+                                                        const glm::vec2&        sunScreenUv );
         // Radial blur pass @p pass: samples @p source, writes @p target; the reach grows per pass.
         [[nodiscard]] Common::BoolResultStr RecordBlur( const RDG::PassContext& context, RDG::TextureRef source,
                                                         RDG::TextureRef target, const RDG::TextureDesc& desc,

@@ -73,7 +73,8 @@ namespace Desert::Graphic::System
 
         // Whether the flare is dispatched this frame, decided when the frame graph is built.
         // @p screenFade is SunScreen::Fade: 0 when the sun is behind the camera or far past the edge, in which
-        // case nothing is dispatched, the graph gets no flare nodes and the tonemap reads the system black texture.
+        // case nothing is dispatched, the graph gets no flare nodes and the tonemap reads the system black
+        // texture.
         bool Prepare( float screenFade ) const;
 
         // The two images of this frame, transients of its graph (Builder::CreateTexture): the half-resolution
@@ -88,9 +89,10 @@ namespace Desert::Graphic::System
                                                               RDG::TextureRef sceneColor, RDG::TextureRef source,
                                                               const RDG::TextureDesc& sourceDesc, uint32_t mip );
         // Features: the whole @p source chain -> @p flare, placed about @p sunScreenUv ([0,1] screen UV).
-        [[nodiscard]] Common::BoolResultStr RecordFeatures( const RDG::PassContext& context, RDG::TextureRef source,
-                                                            RDG::TextureRef flare, const RDG::TextureDesc& flareDesc,
-                                                            const glm::vec2& sunScreenUv );
+        [[nodiscard]] Common::BoolResultStr RecordFeatures( const RDG::PassContext& context,
+                                                            RDG::TextureRef source, RDG::TextureRef flare,
+                                                            const RDG::TextureDesc& flareDesc,
+                                                            const glm::vec2&        sunScreenUv );
 
         void SetParams( const Params& params )
         {
@@ -120,10 +122,9 @@ namespace Desert::Graphic::System
         // the whole authored magnification range (Ghost Size tops out at 16).
         static constexpr uint32_t kMaxSourceMips = 5;
 
-
         std::shared_ptr<ComputePipeline> m_BrightPassPipeline;
         std::shared_ptr<ComputePipeline> m_FeaturesPipeline;
 
-        Params    m_Params;
+        Params m_Params;
     };
 } // namespace Desert::Graphic::System

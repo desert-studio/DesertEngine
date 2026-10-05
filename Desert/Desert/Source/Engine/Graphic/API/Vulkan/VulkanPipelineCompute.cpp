@@ -129,9 +129,10 @@ namespace Desert::Graphic::API::Vulkan
             if ( declaredLayout != RDG::ImageLayout::ShaderReadOnly &&
                  declaredLayout != RDG::ImageLayout::General )
             {
-                return Common::MakeFormattedError( "ComputePipeline '{}': input at binding {} is declared as {}, which does not "
-                           "leave the image sampleable; dispatch skipped",
-                           m_Specification.DebugName, binding, RDG::GetAccessName( input.Declared ) );
+                return Common::MakeFormattedError(
+                     "ComputePipeline '{}': input at binding {} is declared as {}, which does not "
+                     "leave the image sampleable; dispatch skipped",
+                     m_Specification.DebugName, binding, RDG::GetAccessName( input.Declared ) );
             }
             const VkImageLayout layout = RdgVulkanLayout( declaredLayout );
 
@@ -142,10 +143,11 @@ namespace Desert::Graphic::API::Vulkan
                 // No fallback exists for a volume, and dispatching with a stale descriptor would read
                 // whatever the previous user of this ring slot bound. Say exactly what is missing and
                 // drop the dispatch instead.
-                return Common::MakeFormattedError( "ComputePipeline '{}': volume input at binding {} is not sampleable "
-                           "(view={}, sampler={}, layout={}); dispatch skipped",
-                           m_Specification.DebugName, binding, view != VK_NULL_HANDLE,
-                           r.Sampler != VK_NULL_HANDLE, static_cast<int>( layout ) );
+                return Common::MakeFormattedError(
+                     "ComputePipeline '{}': volume input at binding {} is not sampleable "
+                     "(view={}, sampler={}, layout={}); dispatch skipped",
+                     m_Specification.DebugName, binding, view != VK_NULL_HANDLE, r.Sampler != VK_NULL_HANDLE,
+                     static_cast<int>( layout ) );
             }
 
             infos.push_back( { r.Sampler, view, layout } );
@@ -184,9 +186,10 @@ namespace Desert::Graphic::API::Vulkan
             const auto                                    bound = vkBuffer->BindActiveCopy( frameIndex, copy );
             if ( !bound.IsSuccess() )
             {
-                return Common::MakeFormattedError( "ComputePipeline '{}': storage buffer at binding {} has no copy to bind; dispatch "
-                           "skipped -- {}",
-                           m_Specification.DebugName, binding, bound.GetError() );
+                return Common::MakeFormattedError(
+                     "ComputePipeline '{}': storage buffer at binding {} has no copy to bind; dispatch "
+                     "skipped -- {}",
+                     m_Specification.DebugName, binding, bound.GetError() );
             }
             bufferInfos.push_back( copy.Info );
             writes.push_back( DescriptorSetBuilder::GetStorageWDS( m_VulkanMaterialBackend.get(), 0, 0, binding, 1,
@@ -197,7 +200,6 @@ namespace Desert::Graphic::API::Vulkan
         UpdateDescriptorSet( 0, writes, descriptorSet );
         return Common::MakeSuccess( true );
     }
-
 
     void VulkanPipelineCompute::RecordDescriptorsAndDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
                                                               uint32_t groupsX, uint32_t groupsY,
@@ -255,7 +257,7 @@ namespace Desert::Graphic::API::Vulkan
         // the most one batch records, well under kBatchRingSize.
         EnsureBatchRing();
         VkDescriptorSet set = m_BatchRing[m_BatchCursor];
-        m_BatchCursor     = ( m_BatchCursor + 1 ) % kBatchRingSize;
+        m_BatchCursor       = ( m_BatchCursor + 1 ) % kBatchRingSize;
 
         RecordTransitionedDispatch( cmd, set, groupsX, groupsY, groupsZ );
     }
@@ -313,8 +315,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( poolSizes.empty() )
             poolSizes.push_back( { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kBatchRingSize } );
 
-        VkDescriptorPoolCreateInfo poolInfo{ .sType   = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                                             .maxSets = kBatchRingSize,
+        VkDescriptorPoolCreateInfo poolInfo{ .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                             .maxSets       = kBatchRingSize,
                                              .poolSizeCount = static_cast<uint32_t>( poolSizes.size() ),
                                              .pPoolSizes    = poolSizes.data() };
         VK_CHECK_RESULT( vkCreateDescriptorPool( device, &poolInfo, nullptr, &m_BatchPool ) );
@@ -329,8 +331,8 @@ namespace Desert::Graphic::API::Vulkan
 
         std::vector<VkDescriptorSetLayout> layouts( kBatchRingSize, layout0 );
         m_BatchRing.resize( kBatchRingSize );
-        VkDescriptorSetAllocateInfo allocInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                                               .descriptorPool     = m_BatchPool,
+        VkDescriptorSetAllocateInfo allocInfo{ .sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                               .descriptorPool = m_BatchPool,
                                                .descriptorSetCount = kBatchRingSize,
                                                .pSetLayouts        = layouts.data() };
         VK_CHECK_RESULT( vkAllocateDescriptorSets( device, &allocInfo, m_BatchRing.data() ) );

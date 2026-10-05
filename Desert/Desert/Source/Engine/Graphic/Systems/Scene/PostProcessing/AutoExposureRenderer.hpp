@@ -43,16 +43,19 @@ namespace Desert::Graphic::System
         // nothing to record (no scene colour or pipelines), and the ping-pong does not move.
         bool Prepare();
         // 1) Zero the histogram (the node declares Write(histogram, StorageWrite)); binds "Histogram" by name.
-        [[nodiscard]] Common::BoolResultStr RecordClear( const RDG::PassContext& context, RDG::BufferRef histogram );
-        // 2) Histogram of @p scene (texelFetch, so PointClamp), atomic adds into @p histogram. @p width x @p height
+        [[nodiscard]] Common::BoolResultStr RecordClear( const RDG::PassContext& context,
+                                                         RDG::BufferRef          histogram );
+        // 2) Histogram of @p scene (texelFetch, so PointClamp), atomic adds into @p histogram. @p width x @p
+        // height
         //    is the scene's size this frame (one thread per texel).
-        [[nodiscard]] Common::BoolResultStr RecordHistogram( const RDG::PassContext& context, RDG::TextureRef scene,
-                                                             RDG::BufferRef histogram, uint32_t width,
-                                                             uint32_t height );
+        [[nodiscard]] Common::BoolResultStr RecordHistogram( const RDG::PassContext& context,
+                                                             RDG::TextureRef scene, RDG::BufferRef histogram,
+                                                             uint32_t width, uint32_t height );
         // 3) Percentile-clipped average + temporal adaptation: reads @p histogram, samples @p previous (the
         //    imported GetPreviousLuminanceImage()), writes @p adapted (the imported GetAdaptedLuminanceImage()).
-        [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context, RDG::BufferRef histogram,
-                                                           RDG::TextureRef previous, RDG::TextureRef adapted );
+        [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context,
+                                                           RDG::BufferRef histogram, RDG::TextureRef previous,
+                                                           RDG::TextureRef adapted );
 
         std::shared_ptr<Image2D> GetSceneColorImage() const
         {

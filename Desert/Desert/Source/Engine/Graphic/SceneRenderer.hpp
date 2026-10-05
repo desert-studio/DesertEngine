@@ -639,7 +639,6 @@ namespace Desert::Graphic
             m_BackdropBlurNeeded = needed;
         }
 
-
     private:
         std::shared_ptr<Framebuffer> m_TargetFramebuffer;
         std::shared_ptr<Framebuffer> m_GBuffer;                    // deferred G-buffer (MRT)

@@ -133,8 +133,8 @@ namespace Desert::Graphic
                      for ( uint32_t slot = 0; slot < targets->Resolves.size(); ++slot )
                          node.ResolveTarget( slot, targets->Resolves[slot] );
                  },
-                 [execute = pass.ExecuteFunc, refs = textures.GraphRefs()]( RDG::PassContext& context )
-                      -> Common::BoolResultStr { return execute( context, refs ); } );
+                 [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
+                      RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
         }
     }
 

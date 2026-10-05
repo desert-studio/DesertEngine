@@ -66,7 +66,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         // The set-0 bindings the pipeline's own setters (SetInput / SetOutput / SetStorageBuffer) fill: the
         // "other route" of an in-graph dispatch (Renderer::DispatchCompute), sorted and unique.
-        std::vector<uint32_t> GetBoundBindings() const;
+        std::vector<uint32_t>      GetBoundBindings() const;
         std::span<const std::byte> GetBoundPushConstants() const
         {
             return m_BoundPushConstants;
@@ -134,7 +134,7 @@ namespace Desert::Graphic::API::Vulkan
         void                         EnsureBatchRing();
         VkDescriptorPool             m_BatchPool = VK_NULL_HANDLE;
         std::vector<VkDescriptorSet> m_BatchRing;
-        uint32_t                     m_BatchCursor = 0;
+        uint32_t                     m_BatchCursor  = 0;
         static constexpr uint32_t    kBatchRingSize = 64;
     };
 } // namespace Desert::Graphic::API::Vulkan

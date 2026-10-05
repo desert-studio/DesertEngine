@@ -280,8 +280,8 @@ namespace Desert::Graphic::System
         // Allocates the shadow map the first frame the layer actually casts, and REALLOCATES it when the
         // quality tier changes its size. Separate from EnsureTraceTargets because its size is not a
         // property of the view: a viewport resize must not throw it away, where every one of the four
-        // reconstruction targets IS the view's size and must. Returns false having logged the reason and latched the
-        // failure.
+        // reconstruction targets IS the view's size and must. Returns false having logged the reason and latched
+        // the failure.
         //
         // @param resolution texels per side for THIS tier, from Graphic::CloudShadowResolutionForScale.
         bool EnsureShadowMap( uint32_t resolution );
@@ -760,8 +760,8 @@ namespace Desert::Graphic::System
         uint32_t m_HalfWidth  = 0;
         uint32_t m_HalfHeight = 0;
 
-        // Latched by EnsureTraceTargets and covering ALL FOUR reconstruction images: any one missing means the pass cannot
-        // run, and retrying an allocation that already failed once per frame only fills the log.
+        // Latched by EnsureTraceTargets and covering ALL FOUR reconstruction images: any one missing means the
+        // pass cannot run, and retrying an allocation that already failed once per frame only fills the log.
         bool m_TargetsFailed = false;
         // Set by BuildProceduralParams (which is const, hence mutable) when either layout slot names a
         // painting whose read is in flight; read by EnsureModellingVolume, which is the level that can

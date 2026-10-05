@@ -18,6 +18,6 @@ namespace Desert::Graphic
         // Typed outline parameters — visible to editor via GetRegisteredProperties()
         MPROPERTY( glm::vec4, OutlineColor, "u_OutlineColor", (glm::vec4( 1.0f, 0.5f, 0.0f, 1.0f )) )
         MPROPERTY( float,     OutlineWidth, "u_OutlineWidth", 4.0f )
-        MPROPERTY( float,     Smoothness,   "u_Smoothness",   2.0f )
+        MPROPERTY( float, Smoothness, "u_Smoothness", 2.0f )
     };
 } // namespace Desert::Graphic

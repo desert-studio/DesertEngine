@@ -106,8 +106,8 @@ namespace Desert::Graphic::System
 
             RDG::PassBindings bindings( context );
             if ( first )
-                bindings.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                                  RDG::SamplerDesc::LinearClamp() );
+                bindings.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute,
+                                  RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
             else
                 bindings.Sampled( "u_Source", pyramid, RDG::Access::SampledCompute,
                                   RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() );

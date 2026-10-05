@@ -347,7 +347,8 @@ namespace Desert::Graphic
                  pass.Write( trace, RDG::Access::StorageWrite );
                  pass.Write( tiles, RDG::Access::StorageWrite );
              },
-             [this, ssr, trace, tiles, viewProj, cameraPos, values]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [this, ssr, trace, tiles, viewProj, cameraPos,
+              values]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  if ( !values->SceneCopy )
                      return Common::MakeError( "Deferred: SSR runs after a SceneCopy pass that left no copy" );

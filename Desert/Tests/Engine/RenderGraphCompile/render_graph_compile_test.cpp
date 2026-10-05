@@ -2386,13 +2386,13 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     EXPECT_NE( particleText.find( "if(!fe.Declared)continue;", simulateAt ), std::string::npos );
     // The node's exec binds this frame's graph handles of both buffers by their shader names, as the declared
     // StorageWrite, and dispatches through DispatchCompute (no pipeline setter carries a graph buffer).
-    const std::string simulateBody =
-         particleText.substr( simulateAt, particleText.find( "ParticleRenderer::ImportSimulationBuffers(", simulateAt ) -
-                                               simulateAt );
+    const std::string simulateBody = particleText.substr(
+         simulateAt, particleText.find( "ParticleRenderer::ImportSimulationBuffers(", simulateAt ) - simulateAt );
     EXPECT_NE( simulateBody.find( "bindings.Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageWrite)"
                                   ".Storage(\"SpawnCounter\",fe.CounterRef,RDG::Access::StorageWrite)" ),
                std::string::npos );
-    EXPECT_NE( simulateBody.find( "renderer.DispatchCompute(bindings,*m_SimPipeline,groups,1,1)" ), std::string::npos );
+    EXPECT_NE( simulateBody.find( "renderer.DispatchCompute(bindings,*m_SimPipeline,groups,1,1)" ),
+               std::string::npos );
     EXPECT_EQ( simulateBody.find( "SetStorageBuffer" ), std::string::npos );
     EXPECT_NE( importBody.find( "fe.CounterRef=graph.RegisterExternal(fe.CounterImport," ), std::string::npos );
     EXPECT_NE( importBody.find( "written.push_back(fe.CounterRef);" ), std::string::npos );
@@ -2503,7 +2503,8 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     EXPECT_EQ( bridge.find( "EndRenderPass(" ), std::string::npos );
 
     // The declaration lives on the pass registration, not in a list in SceneRenderer.
-    EXPECT_NE( source( "RenderGraphBuilder.hpp" ).find( "std::function<void(RenderPassDeclaration&,constFrameGraphRefs&)>Declare;" ),
+    EXPECT_NE( source( "RenderGraphBuilder.hpp" )
+                    .find( "std::function<void(RenderPassDeclaration&,constFrameGraphRefs&)>Declare;" ),
                std::string::npos );
     EXPECT_NE( source( "ExternalRenderPass.hpp" )
                     .find( "std::function<void(RenderPassDeclaration&,constExternalPassContext&)>Declare;" ),
@@ -2664,9 +2665,9 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
 
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and
 // resolved within one frame and nothing reads it the next, so the renderer keeps no StorageBuffer for it: the
-// graph creates it (Builder::CreateBuffer from AutoExposureRenderer::GetHistogramDesc), Clear and Histogram declare
-// Write(StorageWrite), Average declares Read(StorageRead), no node needs NeverCull, and every dispatch binds it by
-// the shader's block name through PassBindings (no DispatchComputeInFrame, no SetStorageBuffer).
+// graph creates it (Builder::CreateBuffer from AutoExposureRenderer::GetHistogramDesc), Clear and Histogram
+// declare Write(StorageWrite), Average declares Read(StorageRead), no node needs NeverCull, and every dispatch
+// binds it by the shader's block name through PassBindings (no DispatchComputeInFrame, no SetStorageBuffer).
 TEST( RenderGraphCompile, AutoExposureHistogramIsATransientBufferOfTheFrameGraph )
 {
     const fs::path root = RepoRoot();
@@ -2692,7 +2693,8 @@ TEST( RenderGraphCompile, AutoExposureHistogramIsATransientBufferOfTheFrameGraph
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp" );
     for ( const char* legacy : { "StorageBuffer::Create(", "ImportBuffer(", "SetStorageBuffer(", "SetInput(",
                                  "SetOutput(", "DispatchComputeInFrame(" } )
-        EXPECT_EQ( renderer.find( legacy ), std::string::npos ) << "AutoExposureRenderer.cpp still calls " << legacy;
+        EXPECT_EQ( renderer.find( legacy ), std::string::npos )
+             << "AutoExposureRenderer.cpp still calls " << legacy;
     size_t boundWrites = 0;
     for ( size_t at = renderer.find( ".Storage(\"Histogram\",histogram,RDG::Access::StorageWrite)" );
           at != std::string::npos;

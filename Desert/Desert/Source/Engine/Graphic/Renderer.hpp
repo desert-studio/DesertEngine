@@ -91,8 +91,8 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr DrawFullscreen( const RDG::PassBindings& bindings,
                                                             const GraphicsPipeline&  pipeline,
                                                             const MaterialExecutor*  material );
-        // UE DrawPrimitive: the same contract as DrawFullscreen for a vertex stage that builds @p vertexCount (> 0)
-        // vertices x @p instanceCount (> 0) instances from gl_VertexIndex / gl_InstanceIndex with no vertex
+        // UE DrawPrimitive: the same contract as DrawFullscreen for a vertex stage that builds @p vertexCount (>
+        // 0) vertices x @p instanceCount (> 0) instances from gl_VertexIndex / gl_InstanceIndex with no vertex
         // buffer, e.g. the SSR tile grid (six vertices per tile, unmarked tiles collapsed, one instance).
         [[nodiscard]] Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings,
                                                             const GraphicsPipeline&  pipeline,
@@ -103,9 +103,9 @@ namespace Desert::Graphic
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.
         [[nodiscard]] Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings,
                                                          const GraphicsPipeline&  pipeline,
-                                                         const MaterialExecutor* material, VertexBuffer& vertexBuffer,
-                                                         IndexBuffer& indexBuffer, uint32_t indexCount,
-                                                         uint32_t firstIndex );
+                                                         const MaterialExecutor*  material,
+                                                         VertexBuffer& vertexBuffer, IndexBuffer& indexBuffer,
+                                                         uint32_t indexCount, uint32_t firstIndex );
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).

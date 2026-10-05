@@ -36,7 +36,8 @@ namespace Desert::Graphic::System
         {
             return Common::MakeError( "JumpFloodOutlineRenderer: failed to create the output framebuffer" );
         }
-        m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(), targetFramebuffer->GetFramebufferHeight() );
+        m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(),
+                               targetFramebuffer->GetFramebufferHeight() );
 
         if ( !CreatePipelines() )
         {
@@ -125,9 +126,9 @@ namespace Desert::Graphic::System
             LOG_ERROR( "JumpFloodOutlineRenderer: the scene framebuffer is gone; no seed is created" );
             return std::nullopt;
         }
-        return RDG::TextureDesc{ .Size   = { .Width  = scene->GetFramebufferWidth(),
-                                             .Height = scene->GetFramebufferHeight() },
-                                 .Format = kSeedFormat };
+        return RDG::TextureDesc{
+             .Size   = { .Width = scene->GetFramebufferWidth(), .Height = scene->GetFramebufferHeight() },
+             .Format = kSeedFormat };
     }
 
     bool JumpFloodOutlineRenderer::RunsInit() const
@@ -149,7 +150,8 @@ namespace Desert::Graphic::System
 
     // The mask and the seeds hold per-texel data (coverage, a seed coordinate) that must not be blended between
     // texels, and a neighbour beyond the border must not wrap to the opposite edge: PointClamp.
-    Common::BoolResultStr JumpFloodOutlineRenderer::RecordInit( const RDG::PassContext& context, RDG::TextureRef mask )
+    Common::BoolResultStr JumpFloodOutlineRenderer::RecordInit( const RDG::PassContext& context,
+                                                                RDG::TextureRef         mask )
     {
         RDG::PassBindings bindings( context );
         bindings.Sampled( "u_StencilTexture", mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
@@ -171,8 +173,8 @@ namespace Desert::Graphic::System
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_StepPipeline, nullptr );
     }
 
-    Common::BoolResultStr JumpFloodOutlineRenderer::RecordFinal( const RDG::PassContext& context, RDG::TextureRef seed,
-                                                                 RDG::TextureRef scene )
+    Common::BoolResultStr JumpFloodOutlineRenderer::RecordFinal( const RDG::PassContext& context,
+                                                                 RDG::TextureRef seed, RDG::TextureRef scene )
     {
         const float effectiveWidth = RunsSteps() ? m_OutlineWidth : 0.0f;
         m_MaterialComposite->SetParams( glm::vec4( m_OutlineColor, 1.0f ), effectiveWidth, m_Smoothness );

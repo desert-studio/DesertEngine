@@ -196,7 +196,9 @@ TEST( RenderGraphPassBindings, DeclaredEntriesResolveWithTheirRangeAndAccess )
          {
              const float  push[3] = { 1.0f / 32.0f, 1.0f / 32.0f, 1.0f };
              PassBindings bindings( context );
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
+             bindings
+                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                            SamplerDesc::LinearClamp() )
                   .Storage( "u_Output", chain, Access::StorageWrite, 0 )
                   .PushConstants( push, sizeof( push ) );
              EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
@@ -231,7 +233,8 @@ TEST( RenderGraphPassBindings, AnUndeclaredResourceFailsNamingPassSlotAndResourc
          [&]( PassContext& context, TextureRef, TextureRef other ) -> Common::BoolResultStr
          {
              PassBindings bindings( context );
-             bindings.Sampled( "u_Source", other, Access::SampledCompute, SubresourceRange::All(), SamplerDesc::LinearClamp());
+             bindings.Sampled( "u_Source", other, Access::SampledCompute, SubresourceRange::All(),
+                               SamplerDesc::LinearClamp() );
              error = bindings.GetStatus().IsSuccess() ? std::string() : bindings.GetStatus().GetError();
              return Common::MakeSuccess( true );
          } );
@@ -250,7 +253,8 @@ TEST( RenderGraphPassBindings, AnAccessOrRangeOtherThanTheDeclaredOneFails )
          [&]( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
          {
              PassBindings a( context );
-             a.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 0 ), SamplerDesc::LinearClamp());
+             a.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 0 ),
+                        SamplerDesc::LinearClamp() );
              wrongRange = a.GetStatus().IsSuccess() ? std::string() : a.GetStatus().GetError();
              PassBindings b( context );
              b.Storage( "u_Output", chain, Access::StorageWrite, 1 );
@@ -270,8 +274,11 @@ TEST( RenderGraphPassBindings, ASlotBoundTwiceFailsAndTheFirstFailureIsKept )
          [&]( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
          {
              PassBindings bindings( context );
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
-                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
+             bindings
+                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                            SamplerDesc::LinearClamp() )
+                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                            SamplerDesc::LinearClamp() )
                   .Storage( "u_Output", chain, Access::StorageWrite, 0 );
              error = bindings.GetStatus().IsSuccess() ? std::string() : bindings.GetStatus().GetError();
              return Common::MakeSuccess( true );
@@ -292,8 +299,9 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
          []( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
          {
              PassBindings bindings( context );
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                               SamplerDesc::PointClamp() )
+             bindings
+                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                            SamplerDesc::PointClamp() )
                   .Storage( "u_Output", chain, Access::StorageWrite, 0 );
              EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
              EXPECT_EQ( bindings.GetTextures().size(), 2u );

@@ -76,7 +76,8 @@ namespace Desert::Graphic::System
         // Init on seed[0], Step on the seed GetStepSource does not name, Final on GetOutputImage().
         // Init: the silhouette @p mask -> seed[0].
         [[nodiscard]] Common::BoolResultStr RecordInit( const RDG::PassContext& context, RDG::TextureRef mask );
-        // Step @p step: @p source (seed[GetStepSource(step)]) -> the other seed, sampling 2^(N-1-step) texels away.
+        // Step @p step: @p source (seed[GetStepSource(step)]) -> the other seed, sampling 2^(N-1-step) texels
+        // away.
         [[nodiscard]] Common::BoolResultStr RecordStep( const RDG::PassContext& context, uint32_t step,
                                                         RDG::TextureRef source );
         // Final: @p seed (the final seed, or FrameTextures::System.Black when Init did not run) composited over

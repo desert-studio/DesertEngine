@@ -134,8 +134,8 @@ namespace Desert::Graphic::System
             const glm::vec2 texel( 1.0f / static_cast<float>( target->GetFramebufferWidth() ),
                                    1.0f / static_cast<float>( target->GetFramebufferHeight() ) );
             m_ResolveMaterial->BindTrace( target->GetColorAttachmentImage( 0 ) );
-            m_ResolveMaterial->BindInputs( GetHistoryImage(), gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj, texel,
-                                           m_HistoryValid ? 0.92f : 0.0f );
+            m_ResolveMaterial->BindInputs( GetHistoryImage(), gbuffer->GetColorAttachmentImage( 2 ),
+                                           m_PrevViewProj, texel, m_HistoryValid ? 0.92f : 0.0f );
             Renderer::GetInstance().SubmitFullscreenTriangle( m_ResolvePipeline.get(),
                                                               m_ResolveMaterial->GetMaterialExecutor() );
 

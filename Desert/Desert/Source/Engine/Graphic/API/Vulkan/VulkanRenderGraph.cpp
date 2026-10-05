@@ -785,20 +785,21 @@ namespace Desert::Graphic::API::Vulkan
         if ( const auto found = m_Samplers.find( key ); found != m_Samplers.end() )
             return Common::MakeSuccess( found->second );
         VkSamplerCreateInfo info{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
-        info.magFilter    = RdgVulkanFilter( desc.MagFilter );
-        info.minFilter    = RdgVulkanFilter( desc.MinFilter );
-        info.mipmapMode   = desc.MipMode == RDG::SamplerMipMode::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR
-                                                                        : VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        info.addressModeU = RdgVulkanAddress( desc.AddressU );
-        info.addressModeV = RdgVulkanAddress( desc.AddressV );
-        info.addressModeW = RdgVulkanAddress( desc.AddressW );
-        info.minLod       = 0.0f;
-        info.maxLod       = VK_LOD_CLAMP_NONE;
-        info.borderColor  = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+        info.magFilter         = RdgVulkanFilter( desc.MagFilter );
+        info.minFilter         = RdgVulkanFilter( desc.MinFilter );
+        info.mipmapMode        = desc.MipMode == RDG::SamplerMipMode::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+                                                                             : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        info.addressModeU      = RdgVulkanAddress( desc.AddressU );
+        info.addressModeV      = RdgVulkanAddress( desc.AddressV );
+        info.addressModeW      = RdgVulkanAddress( desc.AddressW );
+        info.minLod            = 0.0f;
+        info.maxLod            = VK_LOD_CLAMP_NONE;
+        info.borderColor       = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
         VkSampler      sampler = VK_NULL_HANDLE;
         const VkResult result  = vkCreateSampler( m_Device, &info, nullptr, &sampler );
         if ( result != VK_SUCCESS )
-            return Common::MakeFormattedError<VkSampler>( "vkCreateSampler failed ({})", static_cast<int>( result ) );
+            return Common::MakeFormattedError<VkSampler>( "vkCreateSampler failed ({})",
+                                                          static_cast<int>( result ) );
         m_Samplers.emplace( key, sampler );
         return Common::MakeSuccess( sampler );
     }

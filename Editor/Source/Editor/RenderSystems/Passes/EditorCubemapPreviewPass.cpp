@@ -44,7 +44,8 @@ namespace Desert::Editor::Render
         pass.Phase                 = Graphic::RenderPhase::Debug;
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Pipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx, Graphic::RDG::PassContext& ) -> Common::BoolResultStr
+        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
+                               Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
             if ( !ctx.Camera || !m_ResolveCube )
                 return BOOLSUCCESS;

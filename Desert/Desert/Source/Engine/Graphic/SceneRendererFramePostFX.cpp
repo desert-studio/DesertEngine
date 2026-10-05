@@ -202,7 +202,8 @@ namespace Desert::Graphic
                          pass.Read( chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
                      pass.Write( chain, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
                  },
-                 [bloom, scene, chain, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [bloom, scene, chain, chainDesc = *desc,
+                  mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return bloom->RecordDownsample( context, scene, chain, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
         for ( uint32_t mip = desc->Mips - 1; mip >= 1; --mip )
@@ -255,7 +256,8 @@ namespace Desert::Graphic
         if ( !desc )
             return;
 
-        // Two half-resolution transients of this graph; mask -> ping, then ping -> pong, pong -> ping, ping -> pong.
+        // Two half-resolution transients of this graph; mask -> ping, then ping -> pong, pong -> ping, ping ->
+        // pong.
         const RDG::TextureRef scene = sceneColor.front();
         const RDG::TextureRef ping  = graph.CreateTexture( *desc, "LightShaft.Ping" );
         const RDG::TextureRef pong  = graph.CreateTexture( *desc, "LightShaft.Pong" );
@@ -283,8 +285,8 @@ namespace Desert::Graphic
                      pass.Read( source, RDG::Access::SampledCompute );
                      pass.Write( target, RDG::Access::StorageWrite );
                  },
-                 [shafts, source, target, desc = *desc, blur, sunUv]( RDG::PassContext& context )
-                      -> Common::BoolResultStr
+                 [shafts, source, target, desc = *desc, blur,
+                  sunUv]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return shafts->RecordBlur( context, source, target, desc, blur, sunUv ); } );
             last = target;
         }
@@ -333,7 +335,8 @@ namespace Desert::Graphic
                          pass.Read( source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
                      pass.Write( source, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
                  },
-                 [flare, scene, source, desc = *sourceDesc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [flare, scene, source, desc = *sourceDesc,
+                  mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return flare->RecordBrightPass( context, scene, source, desc, mip ); } );
         // Features: every ghost reads the source mip its magnification picks, so the whole chain is sampled.
         graph.AddPass(
@@ -360,10 +363,10 @@ namespace Desert::Graphic
         };
         // Bloom is this graph's transient when the chain ran; otherwise the graph's system black texture with
         // zero intensity (TonemapRenderer::GraphInputs), an explicit choice rather than a stale image.
-        const bool                           bloomProduced = textures.Transients.Bloom.IsValid();
+        const bool bloomProduced = textures.Transients.Bloom.IsValid();
         // The light shafts and the lens flare follow the same rule.
-        const bool shaftsProduced = textures.Transients.LightShafts.IsValid();
-        const bool flareProduced  = textures.Transients.LensFlare.IsValid();
+        const bool                           shaftsProduced = textures.Transients.LightShafts.IsValid();
+        const bool                           flareProduced  = textures.Transients.LensFlare.IsValid();
         System::TonemapRenderer::GraphInputs graphInputs{
              .Bloom               = bloomProduced ? textures.Transients.Bloom : textures.System.Black,
              .BloomProduced       = bloomProduced,
@@ -371,7 +374,8 @@ namespace Desert::Graphic
              .LightShaftsProduced = shaftsProduced,
              .LensFlare           = flareProduced ? textures.Transients.LensFlare : textures.System.Black,
              .LensFlareProduced   = flareProduced };
-        if ( !graphInputs.Bloom.IsValid() || !graphInputs.LightShafts.IsValid() || !graphInputs.LensFlare.IsValid() )
+        if ( !graphInputs.Bloom.IsValid() || !graphInputs.LightShafts.IsValid() ||
+             !graphInputs.LensFlare.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (System.Black is not in this graph); "
                        "the tonemap pass is not recorded this frame" );
@@ -389,9 +393,12 @@ namespace Desert::Graphic
                  // Any of the three may be System.Black: a texture the node already reads is not declared again
                  // (every binding reads mip 0, the shaft and flare images' only level).
                  if ( graphInputs.LightShafts != graphInputs.Bloom )
-                     pass.Read( graphInputs.LightShafts, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
-                 if ( graphInputs.LensFlare != graphInputs.Bloom && graphInputs.LensFlare != graphInputs.LightShafts )
-                     pass.Read( graphInputs.LensFlare, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
+                     pass.Read( graphInputs.LightShafts, RDG::Access::SampledGraphics,
+                                RDG::SubresourceRange::Mip( 0 ) );
+                 if ( graphInputs.LensFlare != graphInputs.Bloom &&
+                      graphInputs.LensFlare != graphInputs.LightShafts )
+                     pass.Read( graphInputs.LensFlare, RDG::Access::SampledGraphics,
+                                RDG::SubresourceRange::Mip( 0 ) );
                  // A fullscreen triangle writes every pixel: the old contents are not loaded.
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
@@ -498,8 +505,8 @@ namespace Desert::Graphic
                          pass.Read( pyramid, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
                      pass.Write( pyramid, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
                  },
-                 [backdrop, scene, pyramid, pyramidDesc = *desc, mip]( RDG::PassContext& context )
-                      -> Common::BoolResultStr
+                 [backdrop, scene, pyramid, pyramidDesc = *desc,
+                  mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return backdrop->RecordDownsample( context, scene, pyramid, pyramidDesc, mip ); } );
         // The UI phase samples the pyramid: the caller declares that read on the UI passes.
         return pyramid;

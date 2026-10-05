@@ -36,7 +36,7 @@ namespace Desert::Graphic
         config.Name              = name;
         config.Phase             = phase;
         config.ExecuteFunc       = [execute = std::move( executeFunc )]( RDG::PassContext&,
-                                                                    const FrameGraphRefs& ) -> Common::BoolResultStr
+                                                                   const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             execute();
             return BOOLSUCCESS;

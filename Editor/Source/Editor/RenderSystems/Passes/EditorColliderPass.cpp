@@ -91,7 +91,8 @@ namespace Desert::Editor::Render
         pass.Phase                 = Graphic::RenderPhase::Debug;
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Pipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx, Graphic::RDG::PassContext& ) -> Common::BoolResultStr
+        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
+                               Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
             // Asked of the RENDERER, not the scene — see EditorGridPass for why. This flag in particular:
             // it defaulted to `true` in SceneSettings and 55 of 80 committed scenes carried it on, so the

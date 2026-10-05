@@ -67,16 +67,17 @@ namespace Desert::Graphic::System
             return Common::MakeError( edges.GetError() );
         m_EdgesPipeline = edges.GetValue();
 
-        const auto weights = MakePipeline( "SMAAWeights", nullptr, m_WeightsShader, ViewTargetFormats::kSMAAEdges );
+        const auto weights =
+             MakePipeline( "SMAAWeights", nullptr, m_WeightsShader, ViewTargetFormats::kSMAAEdges );
         if ( !weights )
             return Common::MakeError( weights.GetError() );
         m_WeightsPipeline = weights.GetValue();
 
-        const auto blend = MakePipeline( "SMAABlend", m_Framebuffer, m_BlendShader, ViewTargetFormats::kSMAABlend );
+        const auto blend =
+             MakePipeline( "SMAABlend", m_Framebuffer, m_BlendShader, ViewTargetFormats::kSMAABlend );
         if ( !blend )
             return Common::MakeError( blend.GetError() );
         m_BlendPipeline = blend.GetValue();
-
 
         LoadLUTs();
 
@@ -141,12 +142,13 @@ namespace Desert::Graphic::System
         if ( !input || !input->GetColorAttachmentImage() || !m_AreaTex || !m_SearchTex || !m_EdgesPipeline ||
              !m_WeightsPipeline || !m_BlendPipeline )
         {
-            LOG_ERROR( "SMAARenderer: the input framebuffer, a LUT or a pipeline is missing; SMAA is not recorded" );
+            LOG_ERROR(
+                 "SMAARenderer: the input framebuffer, a LUT or a pipeline is missing; SMAA is not recorded" );
             return std::nullopt;
         }
-        return RDG::TextureDesc{ .Size   = { .Width  = input->GetFramebufferWidth(),
-                                             .Height = input->GetFramebufferHeight() },
-                                 .Format = ViewTargetFormats::kSMAAEdges };
+        return RDG::TextureDesc{
+             .Size   = { .Width = input->GetFramebufferWidth(), .Height = input->GetFramebufferHeight() },
+             .Format = ViewTargetFormats::kSMAAEdges };
     }
 
     // SMAA samples every input bilinearly with clamped addressing (the reference LinearSampler); the bilinear
