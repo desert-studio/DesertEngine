@@ -1,5 +1,6 @@
 #include "SMAARenderer.hpp"
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include "SMAAAreaTexData.h"   // exact SMAA AreaTex bytes (RG8)   — engine-owned copy (official iryoku/smaa)
 #include "SMAASearchTexData.h" // exact SMAA SearchTex bytes (R8)  — engine-owned copy
 
@@ -20,14 +21,19 @@ namespace Desert::Graphic::System
             return fb;
         }
 
+        // @p fb: the output framebuffer (pass 3); null: a graph transient of @p transientFormat (passes 1 and 2),
+        // built against the graph's canonical render pass for that one colour target.
         NO_DISCARD Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
                    MakePipeline( std::string_view name, const std::shared_ptr<Framebuffer>& fb,
-                                 const std::shared_ptr<Shader>& shader )
+                                 const std::shared_ptr<Shader>& shader, Core::Formats::ImageFormat transientFormat )
         {
             Graphic::GraphicsPipelineSpecification spec;
-            spec.DebugName   = std::string( name );
-            spec.Framebuffer = fb;
-            spec.Shader      = shader;
+            spec.DebugName = std::string( name );
+            if ( fb )
+                spec.Framebuffer = fb;
+            else
+                spec.TargetLayout = RenderTargetLayout{ .ColorFormats = { transientFormat } };
+            spec.Shader = shader;
             return Graphic::GraphicsPipeline::Create( spec );
         }
     } // namespace
@@ -45,9 +51,7 @@ namespace Desert::Graphic::System
         const uint32_t w = targetFramebuffer->GetFramebufferWidth();
         const uint32_t h = targetFramebuffer->GetFramebufferHeight();
 
-        // Intermediate targets: edges + weights are LDR (RGBA8); final matches the FXAA output (RGBA32F).
-        m_EdgesFB     = MakeColorFB( "SMAAEdges", ViewTargetFormats::kSMAAEdges, w, h );
-        m_WeightsFB   = MakeColorFB( "SMAAWeights", ViewTargetFormats::kSMAAEdges, w, h );
+        // Edges + weights are LDR (RGBA8) graph transients; the final output matches the FXAA output (RGBA32F).
         m_Framebuffer = MakeColorFB( "SMAABlend", ViewTargetFormats::kSMAABlend, w, h );
 
         auto& shaders   = *Runtime::ResourceRegistry::GetShaderService();
@@ -58,24 +62,21 @@ namespace Desert::Graphic::System
         // The three shaders above were taken from GetByName WITHOUT a check until Г22, and a missing one
         // is a null shared_ptr that reached VulkanPipeline::CreatePipelineLayout and was dereferenced.
         // The rule inside Create refuses it by name now, and the refusal arrives here.
-        const auto edges = MakePipeline( "SMAAEdges", m_EdgesFB, m_EdgesShader );
+        const auto edges = MakePipeline( "SMAAEdges", nullptr, m_EdgesShader, ViewTargetFormats::kSMAAEdges );
         if ( !edges )
             return Common::MakeError( edges.GetError() );
         m_EdgesPipeline = edges.GetValue();
 
-        const auto weights = MakePipeline( "SMAAWeights", m_WeightsFB, m_WeightsShader );
+        const auto weights = MakePipeline( "SMAAWeights", nullptr, m_WeightsShader, ViewTargetFormats::kSMAAEdges );
         if ( !weights )
             return Common::MakeError( weights.GetError() );
         m_WeightsPipeline = weights.GetValue();
 
-        const auto blend = MakePipeline( "SMAABlend", m_Framebuffer, m_BlendShader );
+        const auto blend = MakePipeline( "SMAABlend", m_Framebuffer, m_BlendShader, ViewTargetFormats::kSMAABlend );
         if ( !blend )
             return Common::MakeError( blend.GetError() );
         m_BlendPipeline = blend.GetValue();
 
-        m_MatEdges   = std::make_unique<MaterialSMAAEdges>();
-        m_MatWeights = std::make_unique<MaterialSMAAWeights>();
-        m_MatBlend   = std::make_unique<MaterialSMAABlend>();
 
         LoadLUTs();
 
@@ -134,38 +135,65 @@ namespace Desert::Graphic::System
         }
     }
 
-    bool SMAARenderer::Prepare() const
+    std::optional<RDG::TextureDesc> SMAARenderer::GetIntermediateDesc() const
     {
-        if ( GetInputImage() && m_AreaTex && m_SearchTex )
-            return true;
-        LOG_ERROR( "SMAARenderer::Prepare: missing input framebuffer or LUTs" );
-        return false;
+        const auto input = m_TargetFramebuffer.lock();
+        if ( !input || !input->GetColorAttachmentImage() || !m_AreaTex || !m_SearchTex || !m_EdgesPipeline ||
+             !m_WeightsPipeline || !m_BlendPipeline )
+        {
+            LOG_ERROR( "SMAARenderer: the input framebuffer, a LUT or a pipeline is missing; SMAA is not recorded" );
+            return std::nullopt;
+        }
+        return RDG::TextureDesc{ .Size   = { .Width  = input->GetFramebufferWidth(),
+                                             .Height = input->GetFramebufferHeight() },
+                                 .Format = ViewTargetFormats::kSMAAEdges };
     }
 
-    void SMAARenderer::RecordEdges()
+    // SMAA samples every input bilinearly with clamped addressing (the reference LinearSampler); the bilinear
+    // fetches of the edges and the AreaTex/SearchTex lookups depend on it.
+    Common::BoolResultStr SMAARenderer::RecordEdges( const RDG::PassContext& context, RDG::TextureRef input )
     {
-        m_MatEdges->BindInputs( GetInputImage() );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_EdgesPipeline.get(), m_MatEdges->GetMaterialExecutor() );
+        RDG::PassBindings bindings( context );
+        bindings.Sampled( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                          RDG::SamplerDesc::LinearClamp() );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_EdgesPipeline, nullptr );
     }
 
-    void SMAARenderer::RecordWeights()
+    Common::BoolResultStr SMAARenderer::RecordWeights( const RDG::PassContext& context, RDG::TextureRef edges,
+                                                       RDG::TextureRef area, RDG::TextureRef search )
     {
-        m_MatWeights->BindInputs( m_EdgesFB->GetColorAttachmentImage().get(), m_AreaTex.get(), m_SearchTex.get() );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_WeightsPipeline.get(),
-                                                      m_MatWeights->GetMaterialExecutor() );
+        RDG::PassBindings bindings( context );
+        bindings
+             .Sampled( "u_EdgesTex", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_AreaTex", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_SearchTex", search, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_WeightsPipeline, nullptr );
     }
 
-    void SMAARenderer::RecordBlend()
+    Common::BoolResultStr SMAARenderer::RecordBlend( const RDG::PassContext& context, RDG::TextureRef input,
+                                                     RDG::TextureRef weights, RDG::TextureRef edges,
+                                                     RDG::TextureRef area )
     {
-        m_MatBlend->BindInputs( GetInputImage(), m_WeightsFB->GetColorAttachmentImage().get(),
-                                m_EdgesFB->GetColorAttachmentImage().get(), m_AreaTex.get() );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_BlendPipeline.get(), m_MatBlend->GetMaterialExecutor() );
+        RDG::PassBindings bindings( context );
+        bindings
+             .Sampled( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_BlendTex", weights, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_EdgesTex", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_AreaTex", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_BlendPipeline, nullptr );
     }
 
     void SMAARenderer::Resize( uint32_t width, uint32_t height )
     {
-        if ( m_EdgesFB )   m_EdgesFB->Resize( width, height );
-        if ( m_WeightsFB ) m_WeightsFB->Resize( width, height );
-        if ( m_Framebuffer ) m_Framebuffer->Resize( width, height );
+        // Only the output is a member; the edges and weights are created per frame from the input's size.
+        if ( m_Framebuffer )
+            m_Framebuffer->Resize( width, height );
     }
 } // namespace Desert::Graphic::System

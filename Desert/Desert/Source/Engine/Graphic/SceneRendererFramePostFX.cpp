@@ -406,16 +406,19 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* smaa = UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] );
-        if ( !smaa || !smaa->Prepare() )
+        if ( !smaa )
             return;
-        const RDG::TextureRef input   = textures.Import( smaa->GetInputImage(), "Tonemap" );
-        const RDG::TextureRef edges   = textures.Import( smaa->GetEdgesImage(), "SMAA.Edges" );
-        const RDG::TextureRef weights = textures.Import( smaa->GetWeightsImage(), "SMAA.Weights" );
+        const std::optional<RDG::TextureDesc> desc = smaa->GetIntermediateDesc();
+        if ( !desc )
+            return;
+        const RDG::TextureRef input = textures.Import( smaa->GetInputImage(), "Tonemap" );
+        // Edges and weights live within this graph: transients sized from this frame's input.
+        const RDG::TextureRef edges   = graph.CreateTexture( *desc, "SMAA.Edges" );
+        const RDG::TextureRef weights = graph.CreateTexture( *desc, "SMAA.Weights" );
         const RDG::TextureRef area    = textures.Import( smaa->GetAreaTex(), "SMAA.AreaTex" );
         const RDG::TextureRef search  = textures.Import( smaa->GetSearchTex(), "SMAA.SearchTex" );
         const RDG::TextureRef output  = textures.Import( smaa->GetOutputImage(), "SMAA" );
-        // The old passes cleared edges and weights (RenderPassSpecification's default clear, black); the edge
-        // shader discards pixels without an edge, so the clear is kept.
+        // The edge shader discards pixels without an edge, so edges and weights are cleared (black) first.
         graph.AddPass(
              "PostFX: SMAAEdges", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -423,11 +426,8 @@ namespace Desert::Graphic
                  pass.Read( input, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, edges, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [smaa]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 smaa->RecordEdges();
-                 return BOOLSUCCESS;
-             } );
+             [smaa, input]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return smaa->RecordEdges( context, input ); } );
         graph.AddPass(
              "PostFX: SMAAWeights", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -437,11 +437,8 @@ namespace Desert::Graphic
                  pass.Read( search, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, weights, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [smaa]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 smaa->RecordWeights();
-                 return BOOLSUCCESS;
-             } );
+             [smaa, edges, area, search]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return smaa->RecordWeights( context, edges, area, search ); } );
         graph.AddPass(
              "PostFX: SMAABlend", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -452,11 +449,8 @@ namespace Desert::Graphic
                  pass.Read( area, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
-             [smaa]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 smaa->RecordBlend();
-                 return BOOLSUCCESS;
-             } );
+             [smaa, input, weights, edges, area]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return smaa->RecordBlend( context, input, weights, edges, area ); } );
     }
 
     RDG::TextureRef SceneRenderer::AddFrameBackdropBlur( RDG::Builder& graph, FrameTextures& textures,

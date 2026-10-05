@@ -3,7 +3,9 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
-#include <Engine/Graphic/Materials/PostProcessing/MaterialSMAA.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -24,27 +26,25 @@ namespace Desert::Graphic::System
         }
 
         // Each pass is a raster node of the frame graph (SceneRendererFramePostFX.cpp "PostFX: SMAA*"), which
-        // opens the render pass on the step's output. False: the input or a LUT is missing.
-        bool Prepare() const;
-        // Pass 1, into GetEdgesImage(): edge detection on GetInputImage().
-        void RecordEdges();
-        // Pass 2, into GetWeightsImage(): blend weights from the edges + AreaTex + SearchTex.
-        void RecordWeights();
-        // Pass 3, into GetOutputImage(): neighbourhood blending of the input with the weights.
-        void RecordBlend();
+        // opens the render pass on the step's output. The edges and the blend weights are transients of that graph
+        // (Builder::CreateTexture with GetIntermediateDesc); the renderer keeps no image for them.
+        // Nullopt: nothing to record this frame (the input, a LUT or a pipeline is missing; logged).
+        std::optional<RDG::TextureDesc> GetIntermediateDesc() const;
+        // Pass 1, into the edges target the node declared: edge detection on @p input.
+        [[nodiscard]] Common::BoolResultStr RecordEdges( const RDG::PassContext& context, RDG::TextureRef input );
+        // Pass 2, into the weights target: blend weights from @p edges + AreaTex + SearchTex.
+        [[nodiscard]] Common::BoolResultStr RecordWeights( const RDG::PassContext& context, RDG::TextureRef edges,
+                                                           RDG::TextureRef area, RDG::TextureRef search );
+        // Pass 3, into GetOutputImage(): neighbourhood blending of @p input with @p weights (@p edges and @p area
+        // are the shader's diagnostic views).
+        [[nodiscard]] Common::BoolResultStr RecordBlend( const RDG::PassContext& context, RDG::TextureRef input,
+                                                         RDG::TextureRef weights, RDG::TextureRef edges,
+                                                         RDG::TextureRef area );
 
         std::shared_ptr<Image2D> GetInputImage() const
         {
             const auto input = m_TargetFramebuffer.lock();
             return input ? input->GetColorAttachmentImage() : nullptr;
-        }
-        std::shared_ptr<Image2D> GetEdgesImage() const
-        {
-            return m_EdgesFB ? m_EdgesFB->GetColorAttachmentImage( 0 ) : nullptr;
-        }
-        std::shared_ptr<Image2D> GetWeightsImage() const
-        {
-            return m_WeightsFB ? m_WeightsFB->GetColorAttachmentImage( 0 ) : nullptr;
         }
         std::shared_ptr<Image2D> GetOutputImage() const
         {
@@ -64,20 +64,14 @@ namespace Desert::Graphic::System
     private:
         void LoadLUTs();
 
-        // Intermediate targets (final output is the base m_Framebuffer).
-        std::shared_ptr<Framebuffer> m_EdgesFB;
-        std::shared_ptr<Framebuffer> m_WeightsFB;
-
+        // The output is the base m_Framebuffer (read after the graph by whatever presents the view); the edges
+        // and weights are this frame's graph transients.
         std::shared_ptr<GraphicsPipeline> m_EdgesPipeline;
         std::shared_ptr<GraphicsPipeline> m_WeightsPipeline;
         std::shared_ptr<GraphicsPipeline> m_BlendPipeline;
         std::shared_ptr<Shader>           m_EdgesShader;
         std::shared_ptr<Shader>           m_WeightsShader;
         std::shared_ptr<Shader>           m_BlendShader;
-
-        std::unique_ptr<MaterialSMAAEdges>   m_MatEdges;
-        std::unique_ptr<MaterialSMAAWeights> m_MatWeights;
-        std::unique_ptr<MaterialSMAABlend>   m_MatBlend;
 
         std::shared_ptr<Image2D> m_AreaTex;
         std::shared_ptr<Image2D> m_SearchTex;
