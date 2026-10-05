@@ -82,15 +82,18 @@ namespace
     /// The body of `MeshRenderer::<name>`, from its signature to the next member definition.
     std::string BodyOf( const std::string& source, const std::string& name )
     {
-        const std::string opener = "\n    void MeshRenderer::" + name + "(";
-        const std::size_t begin  = source.find( opener );
-        if ( begin == std::string::npos )
+        // A definition at namespace indent, whatever it returns (void, bool, Common::BoolResultStr); the body runs
+        // to the next MeshRenderer definition.
+        const std::string qualified = " MeshRenderer::" + name + "(";
+        const std::size_t nameAt    = source.find( qualified );
+        if ( nameAt == std::string::npos )
         {
             return {};
         }
-        const std::size_t end  = source.find( "\n    void MeshRenderer::", begin + opener.size() );
-        const std::size_t end2 = source.find( "\n    bool MeshRenderer::", begin + opener.size() );
-        return source.substr( begin, std::min( end, end2 ) - begin );
+        const std::size_t begin = source.rfind( "\n    ", nameAt );
+        const std::size_t next  = source.find( " MeshRenderer::", nameAt + qualified.size() );
+        const std::size_t end   = next == std::string::npos ? std::string::npos : source.rfind( "\n    ", next );
+        return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
     }
 } // namespace
 
@@ -252,7 +255,7 @@ TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
          { "DrawGenericMeshes", true, "camera->GetFrustum()",
            "data-driven / shader-graph surfaces — rasterizes from the camera. Sound only while no vertex "
            "stage moves a vertex off the authored box, which the next test asserts" },
-         { "RenderOverdrawManual", true, "camera->GetFrustum()",
+         { "RenderOverdrawAccumManual", true, "camera->GetFrustum()",
            "debug view OF the camera pass; it must report the frame that actually runs" },
          { "RegisterShadowPass", true, "m_CascadeVP[c]",
            "rasterizes from the SUN: the camera's frustum here would delete off-screen casters whose "

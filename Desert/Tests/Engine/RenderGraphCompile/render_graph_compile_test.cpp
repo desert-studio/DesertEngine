@@ -1693,7 +1693,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: Glass",
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
-         "compute[fog->DeclareFrameNodes()]",
+         "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
          "compute[clouds->DeclareFrameNodes(graph)]",
          "phases[phase==RenderPhase::Transparency]",
          "Debug: Overdraw",
@@ -2617,7 +2617,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     const std::string frame = source( "SceneRendererFrameAtmosphere.cpp" );
     for ( const char* needle : { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
                                  "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
-                                 "AddComputeNodes(graph,textures,fog->DeclareFrameNodes())",
+                                 "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients))",
                                  "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph))" } )
         EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;
     EXPECT_NE( source( "SceneRendererFrame.hpp" ).find( "RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),

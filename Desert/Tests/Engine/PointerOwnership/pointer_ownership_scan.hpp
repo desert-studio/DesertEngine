@@ -374,7 +374,15 @@ namespace Desert::Tests::PointerCensus
                 if ( braces.empty() || braces.back().second.empty() )
                     continue; // not directly inside a class body
 
-                const std::string collapsed = Collapse( stmt );
+                // A statement runs from the previous `;` or brace, so a member that follows an access specifier
+                // also carries what stands between them: semicolon-less macro lines (MPROPERTY( ... ) rows) and
+                // the specifier itself. The declaration is what follows the last specifier.
+                std::string declared = stmt;
+                for ( const char* specifier : { "public:", "private:", "protected:" } )
+                    for ( std::size_t at = declared.find( specifier ); at != std::string::npos;
+                          at             = declared.find( specifier ) )
+                        declared = declared.substr( at + std::char_traits<char>::length( specifier ) );
+                const std::string collapsed = Collapse( declared );
                 if ( collapsed.empty() )
                     continue;
                 // A function declaration, a using/typedef alias, a friend, an enumerator list.
