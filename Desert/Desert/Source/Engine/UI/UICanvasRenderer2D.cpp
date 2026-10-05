@@ -88,14 +88,15 @@ namespace Desert::UI
         // says so, rather than guessing which of two "Dune"s was meant.
         void ResolveRetainerMasks( WalkCtx& ctx, entt::registry& reg )
         {
-            for ( const auto [r, ret] : reg.view<ECS::UIRetainerComponent>().each() )
+            for ( const entt::entity r : reg.view<ECS::UIRetainerComponent>() )
             {
+                const auto& ret = reg.get<ECS::UIRetainerComponent>( r );
                 if ( !ret.Data.Mask || ret.Data.MaskElement.empty() )
                     continue;
                 entt::entity found = entt::null;
                 int          hits  = 0;
-                for ( const auto [m, tag] : reg.view<ECS::TagComponent, ECS::UILayoutComponent>().each() )
-                    if ( tag.Tag == ret.Data.MaskElement && m != r )
+                for ( const auto m : reg.view<ECS::TagComponent, ECS::UILayoutComponent>() )
+                    if ( m != r && reg.get<ECS::TagComponent>( m ).Tag == ret.Data.MaskElement )
                     {
                         found = m;
                         ++hits;
