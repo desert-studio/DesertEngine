@@ -70,7 +70,16 @@ namespace Desert::Animation::Timeline::Format
         std::string Camera;
     };
 
-    /// Exactly one of the three content members is present — the SectionContent alternative.
+    struct AudioData
+    {
+        std::string Sound;
+        int32_t     StartOffset = 0;
+        float       Volume      = 1.0F;
+        int32_t     FadeIn      = 0;
+        int32_t     FadeOut     = 0;
+    };
+
+    /// Exactly one of the four content members is present — the SectionContent alternative.
     struct SectionData
     {
         int32_t                      Start = 0;
@@ -82,6 +91,7 @@ namespace Desert::Animation::Timeline::Format
         std::optional<ChannelData>   Channel;
         std::optional<AnimationData> Animation;
         std::optional<CameraCutData> CameraCut;
+        std::optional<AudioData>     Audio;
     };
 
     struct TrackData
@@ -233,6 +243,11 @@ namespace Desert::Animation::Timeline
                                                anim->PlayRate, anim->Loop };
                 clips.push_back( out.Animation->Clip );
             }
+            else if ( const auto* audio = std::get_if<AudioSectionContent>( &section.Content ) )
+            {
+                out.Audio = AudioData{ audio->Sound, audio->StartOffset.Value, audio->Volume, audio->FadeIn.Value,
+                                       audio->FadeOut.Value };
+            }
             else
             {
                 out.CameraCut =
@@ -371,11 +386,12 @@ namespace Desert::Animation::Timeline
 
             const int contents = static_cast<int>( data.Channel.has_value() ) +
                                  static_cast<int>( data.Animation.has_value() ) +
-                                 static_cast<int>( data.CameraCut.has_value() );
+                                 static_cast<int>( data.CameraCut.has_value() ) +
+                                 static_cast<int>( data.Audio.has_value() );
             if ( contents != 1 )
             {
                 return Common::MakeFormattedError<Section>(
-                     "states {} of Channel / Animation / CameraCut; a section holds exactly one", contents );
+                     "states {} of Channel / Animation / CameraCut / Audio; a section holds exactly one", contents );
             }
             if ( data.Channel )
             {
@@ -396,6 +412,12 @@ namespace Desert::Animation::Timeline
                 section.Content =
                      AnimationSectionContent{ clip.GetValue(), FrameNumber{ data.Animation->StartOffset },
                                               data.Animation->PlayRate, data.Animation->Loop };
+            }
+            else if ( data.Audio )
+            {
+                section.Content = AudioSectionContent{ data.Audio->Sound, FrameNumber{ data.Audio->StartOffset },
+                                                       data.Audio->Volume, FrameNumber{ data.Audio->FadeIn },
+                                                       FrameNumber{ data.Audio->FadeOut } };
             }
             else if ( data.CameraCut ) // the count above leaves this the only one present
             {
@@ -455,7 +477,7 @@ namespace Desert::Animation::Timeline
                     return Common::MakeFormattedError<Sequence>( "track {} '{}': {}", t, in.Property,
                                                                  guid.GetError() );
                 }
-                if ( in.Kind > static_cast<uint8_t>( TrackKind::CameraCut ) )
+                if ( in.Kind > static_cast<uint8_t>( TrackKind::Audio ) )
                 {
                     return Common::MakeFormattedError<Sequence>( "track {} '{}': unknown kind {}", t, in.Property,
                                                                  in.Kind );

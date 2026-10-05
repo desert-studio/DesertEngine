@@ -42,6 +42,9 @@ namespace Desert::Audio
         void     StartSource( uint32_t id );
         void     StopSource( uint32_t id );
         bool     IsSourcePlaying( uint32_t id ) const;
+        // Moves the source's play position to @p seconds into its clip (a sequence's Audio section following
+        // a scrub or a loop, ECS/System/AudioECSSystem.hpp). Clamped at 0; past the end the source ends.
+        void     SeekSource( uint32_t id, double seconds );
         void     SetSourcePosition( uint32_t id, const glm::vec3& position );
         void     SetSourceVolume( uint32_t id, float volume );
 

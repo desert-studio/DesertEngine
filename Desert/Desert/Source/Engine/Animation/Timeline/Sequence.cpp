@@ -213,7 +213,9 @@ namespace Desert::Animation::Timeline
                 case SequenceHost::AnimationClip:
                     return kind == BindingKind::Bone || kind == BindingKind::Sequence;
                 case SequenceHost::UIAnimation:
-                    return kind == BindingKind::Widget;
+                    // The master binding holds the clip's own Audio tracks (UE: a widget animation's tracks
+                    // on no widget).
+                    return kind == BindingKind::Widget || kind == BindingKind::Sequence;
                 case SequenceHost::LevelSequence:
                     return kind == BindingKind::Sequence || kind == BindingKind::Entity ||
                            kind == BindingKind::Bone;
@@ -226,7 +228,8 @@ namespace Desert::Animation::Timeline
          *
          * Bones take transforms only; the master (Sequence) binding takes the sequence-level tracks — a
          * clip's named float curves and its one notify track, a level sequence's Camera Cut and events;
-         * a skeletal Animation section plays on an entity; a UI clip animates Vector/Float properties.
+         * a skeletal Animation section plays on an entity; a UI clip animates Vector/Float properties and
+         * plays its sounds on Audio tracks of its master binding.
          */
         bool HostHoldsTrack( const SequenceHost host, const BindingKind binding, const TrackKind track )
         {
@@ -240,6 +243,10 @@ namespace Desert::Animation::Timeline
                     return binding == BindingKind::Sequence &&
                            ( track == TrackKind::Float || track == TrackKind::Event );
                 case SequenceHost::UIAnimation:
+                    if ( binding == BindingKind::Sequence )
+                    {
+                        return track == TrackKind::Audio;
+                    }
                     return binding == BindingKind::Widget &&
                            ( track == TrackKind::Vector || track == TrackKind::Float );
                 case SequenceHost::LevelSequence:
@@ -247,8 +254,9 @@ namespace Desert::Animation::Timeline
                     {
                         return track == TrackKind::CameraCut || track == TrackKind::Event;
                     }
+                    // Audio: the LevelSequence host plays no sound yet — refused until it does.
                     return binding == BindingKind::Entity && track != TrackKind::CameraCut &&
-                           track != TrackKind::Event;
+                           track != TrackKind::Event && track != TrackKind::Audio;
             }
             return false;
         }
@@ -370,6 +378,24 @@ namespace Desert::Animation::Timeline
                 {
                     return Common::MakeFormattedError<bool>( "play rate {} is not a positive rate",
                                                              animation->PlayRate );
+                }
+                return Pass();
+            }
+            if ( const auto* audio = std::get_if<AudioSectionContent>( &section.Content ) )
+            {
+                if ( audio->Sound.empty() )
+                {
+                    return Common::MakeFormattedError<bool>( "an Audio section names no sound" );
+                }
+                if ( !std::isfinite( audio->Volume ) || audio->Volume < 0.0F )
+                {
+                    return Common::MakeFormattedError<bool>( "volume {} is not a non-negative gain", audio->Volume );
+                }
+                if ( audio->StartOffset.Value < 0 || audio->FadeIn.Value < 0 || audio->FadeOut.Value < 0 )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "start offset {} / fade in {} / fade out {} ticks: none may be negative",
+                         audio->StartOffset.Value, audio->FadeIn.Value, audio->FadeOut.Value );
                 }
                 return Pass();
             }

@@ -78,6 +78,30 @@ namespace Desert::UI
             UIClipFrame&                                         m_Frame;
         };
 
+        /// The clip's Audio sections → the voices it sounds this frame (UIAnimData::Sounding). Only a step
+        /// that MOVES FORWARD sounds — paused, stopped, scrubbed or played backwards it is silence (UE), and
+        /// the executor's diff stops the voices; the next forward step starts them where the picture is.
+        void CollectSounding( const TL::TimeStep& step, const TL::Sequence& sequence,
+                              const TL::EvaluatedFrame& evaluated, std::vector<TL::SoundingVoice>& out )
+        {
+            out.clear();
+            const double from    = step.From.AsTicks();
+            const double to      = step.To.AsTicks();
+            const bool   forward = step.Direction == TL::PlayDirection::Forward && !step.Reversed &&
+                                 ( to > from || step.Wrapped );
+            if ( !forward )
+            {
+                return;
+            }
+            const double rate     = sequence.TickRate.AsDouble();
+            const double advanced = step.Wrapped ? 0.0 : ( to - from ) / rate;
+            for ( const TL::AudioSample& sound : evaluated.Sounds )
+            {
+                out.push_back( TL::SoundingVoice{ 0, sound.TrackIndex, sound.SectionIndex, sound.Sound,
+                                                  sound.SoundSeconds, advanced, sound.Gain } );
+            }
+        }
+
         void ReportUnresolved( const TL::ApplyReport& report, UIClipFrame& frame )
         {
             for ( const std::string& label : report.Unresolved )
@@ -137,6 +161,10 @@ namespace Desert::UI
             TL::Evaluator evaluator( clip.Sequence );
             evaluator.Evaluate( step, frame.Scratch );
             ReportUnresolved( evaluator.Apply( frame.Scratch, host ), frame );
+            // Only the driving view moves the playhead, so only it says what sounds (a preview evaluating
+            // the same playhead must not silence it).
+            if ( advance )
+                CollectSounding( step, clip.Sequence, frame.Scratch, clip.Sounding );
         }
     }
 } // namespace Desert::UI

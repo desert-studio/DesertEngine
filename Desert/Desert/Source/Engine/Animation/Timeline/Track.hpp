@@ -46,6 +46,9 @@ namespace Desert::Animation::Timeline
         Event     = 5,
         Animation = 6,
         CameraCut = 7,
+        /// UE's Audio track (UMovieSceneAudioTrack): each section plays one sound asset in step with the
+        /// playhead. A master-binding track; its sections hold `AudioSectionContent`.
+        Audio = 8,
     };
 
     [[nodiscard]] const char* ToString( TrackKind kind );

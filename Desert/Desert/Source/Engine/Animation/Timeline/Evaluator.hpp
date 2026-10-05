@@ -72,11 +72,29 @@ namespace Desert::Animation::Timeline
         bool Loop = false;
     };
 
+    /// An Audio section under the playhead at the step's end: which sound, where in it, how loud. The
+    /// (TrackIndex, SectionIndex) pair names the voice across frames (AudioVoices.hpp). NOT applied through
+    /// the host: a sound binds no object, and a voice is state across frames — the sequence's owner hands
+    /// `EvaluatedFrame::Sounds` to an `AudioVoices`, which knows the previous frame.
+    struct AudioSample
+    {
+        uint32_t                   TrackIndex   = 0;
+        uint32_t                   SectionIndex = 0;
+        std::string                Sound;
+        double                     SoundSeconds = 0.0; ///< position in the sound
+        float                      Gain         = 1.0F; ///< Volume × fades × section weight
+    };
+
+    /// `AudioSectionContent`'s gain at @p at: Volume × the fade ramps × the section weight (Section.hpp).
+    [[nodiscard]] float AudioGainAt( const Section& section, const AudioSectionContent& audio, FrameTime at,
+                                     FrameRate tickRate );
+
     struct EvaluatedFrame
     {
         std::vector<EvaluatedTrack>  Values;
         std::vector<FiredEvent>      Events;
         std::vector<AnimationSample> Animations;
+        std::vector<AudioSample>     Sounds;
         /// The Camera Cut in force, or nullopt when the sequence has none (the viewport keeps its camera).
         std::optional<BindingGuid> ActiveCamera;
     };

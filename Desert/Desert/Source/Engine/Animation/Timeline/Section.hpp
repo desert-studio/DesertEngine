@@ -93,8 +93,28 @@ namespace Desert::Animation::Timeline
         BindingGuid Camera;
     };
 
+    /**
+     * @brief An Audio section (UE: UMovieSceneAudioSection): plays `Sound` while the playhead is inside it.
+     *
+     * At sequence tick t the sound is at `( t - section.Start + StartOffset ) / TickRate` seconds — one
+     * mapping, so a pause, a scrub, a loop and a Stop all land the sound where the picture is. Its gain is
+     * `Volume`, times the linear fade-in over the first `FadeIn` ticks and fade-out over the last `FadeOut`
+     * (UE's section Easing), times the section weight. The sound is named by its Assets-relative path, as
+     * `AudioSourceData::Clip` names it: audio files are not registry assets yet (no ContentKind), and a
+     * second identity for the same file would be a second answer.
+     */
+    struct AudioSectionContent
+    {
+        std::string                Sound;
+        FrameNumber                StartOffset; ///< sequence ticks into the sound at the section's start
+        float                      Volume = 1.0F;
+        FrameNumber                FadeIn;  ///< ticks from Start over which the gain ramps 0 → 1
+        FrameNumber                FadeOut; ///< ticks before End over which the gain ramps 1 → 0
+    };
+
     /// What a section holds. A track's sections all hold the same alternative (`Validate` refuses a mix).
-    using SectionContent = std::variant<Channel, AnimationSectionContent, CameraCutSectionContent>;
+    using SectionContent =
+         std::variant<Channel, AnimationSectionContent, CameraCutSectionContent, AudioSectionContent>;
 
     /**
      * @brief One section.
