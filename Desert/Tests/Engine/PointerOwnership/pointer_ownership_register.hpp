@@ -333,9 +333,9 @@ namespace Desert::Tests::PointerCensus
           "VulkanPipelineCompute", "m_BoundStorageBuffers", Guard::ReboundBeforeEveryUse,
           "same as InputBinding::Image: never cleared, and safe only because every dispatch site re-Sets the "
           "binding from the live owner in the same function before dispatching" },
-        { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.hpp",
-          "VulkanQueue", "m_SwapChain", Guard::ObservedContainsUs,
-          "the swapchain creates and owns the queue wrapper; the queue cannot outlive it" },
+        { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChainOutput.hpp",
+          "VulkanSwapChainOutput", "m_SwapChain", Guard::ObservedContainsUs,
+          "the swapchain creates and owns its output; the output cannot outlive it" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp",
           "VulkanRdgQueueSet", "Objects", Guard::HostOutlivesUs,
           "RDG-ASYNC B2: set once to `m_RdgQueueObjects.get()` by VulkanRendererAPI::BeginRdgFrame (VulkanRenderer.cpp), which owns both the queue set (m_RdgQueues) and the objects (unique_ptr m_RdgQueueObjects, declared before m_RdgQueues so destroyed after it) and never resets the unique_ptr before its own destruction; the device suite's FrameObjects holds `Queues` and `Objects` as sibling members of one non-moved local. The set is read through the backend's m_Queues during that frame only; copying the set into an object that outlives the renderer (or its FrameObjects) would make this row false" },

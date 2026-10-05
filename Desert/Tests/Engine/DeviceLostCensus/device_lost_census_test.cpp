@@ -143,15 +143,20 @@ namespace
     //
     // VulkanImGui::End and VulkanSwapChain::RecordFrameCapture record into the renderer's current command
     // buffer (GetCurrentCommandBuffer) from outside that file and are gated rows of their own.
-    // `queue->GetDrawCommandBuffer()` is read only by BeginFrame. Any future second route to a command buffer
-    // belongs here too — grep GetDrawCommandBuffer and GetCurrentCommandBuffer before believing there are none.
+    // The frame's first command buffer comes from the frame loop's slot (VulkanFrameLoop), windowed or not; the
+    // swapchain hands out none. Any future second route to a command buffer belongs here too -- grep
+    // BeginCommandBuffer and GetCurrentCommandBuffer before believing there are none.
     constexpr GatedEntryPoint k_Gated[] = {
-         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.cpp", "VulkanQueue::PrepareFrame",
-           "vkResetFences + the acquire" },
-         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.cpp", "VulkanQueue::Submit",
-           "vkQueueSubmit" },
-         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.cpp", "VulkanQueue::Present",
-           "vkQueuePresentKHR + vkWaitForFences" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChainOutput.cpp",
+           "VulkanSwapChainOutput::AcquireImage", "the acquire" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChainOutput.cpp",
+           "VulkanSwapChainOutput::Present", "vkQueuePresentKHR" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanFrameLoop.cpp", "VulkanFrameLoop::BeginSlot",
+           "vkWaitForFences + the slot's vkResetCommandPool" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanFrameLoop.cpp", "VulkanFrameLoop::Submit",
+           "vkResetFences + vkQueueSubmit" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanFrameLoop.cpp", "VulkanFrameLoop::WaitSlot",
+           "vkWaitForFences" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp",
            "VulkanSwapChain::CreateSwapChain", "vkCreateSwapchainKHR -- the line that aborted" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp", "VulkanSwapChain::OnResize",
@@ -162,8 +167,8 @@ namespace
            "VulkanSwapChain::RecordFrameCapture", "a staging allocation and an image copy" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp", "VulkanRendererAPI::BeginFrame",
            "vkBeginCommandBuffer -- and every vkCmd* after it" },
-         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp",
-           "VulkanRendererAPI::ExecuteGraph", "vkEndCommandBuffer, the graph's segments and a re-armed buffer" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp", "VulkanRendererAPI::ExecuteGraph",
+           "vkEndCommandBuffer, the graph's segments and a re-armed buffer" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp", "VulkanRendererAPI::EndFrame",
            "vkEndCommandBuffer" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp",
@@ -518,13 +523,8 @@ TEST( DeviceLostCensus, OnlyGatedFunctionsCanArmTheCommandBuffer )
             armedOutside.push_back( 1 + static_cast<int>( std::count( src.begin(), src.begin() + at, '\n' ) ) );
     }
 
-    // BeginFrame arms once on each of its two exclusive paths: the headless frame (the graph's own graphics
-    // command buffer, Desert/Tests/Engine/EngineHost) returns before the windowed one (the swapchain's).
     for ( const Armer& armer : armers )
-    {
-        const int paths = std::string_view( armer.Name ) == "VulkanRendererAPI::BeginFrame" ? 2 : 1;
-        EXPECT_EQ( armer.Count, paths ) << armer.Name << " must arm the command buffer exactly once per path";
-    }
+        EXPECT_EQ( armer.Count, 1 ) << armer.Name << " must arm the command buffer exactly once";
     for ( int line : armedOutside )
         ADD_FAILURE() << file.filename().string() << ":" << line
                       << " assigns a command buffer to m_CurrentCommandBuffer OUTSIDE BeginFrame, "
@@ -569,4 +569,41 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ONE FRAME SUBMISSION PATH (FRAME-OUT1). A window is an output of the frame, not a second way to submit it: the
+// renderer submits only through VulkanFrameLoop::Submit, which is the frame's only vkQueueSubmit route, and no
+// frame function waits for the whole device -- CPU/GPU sync is the slot fence. Mutations: put a
+// `device->SubmitToQueue` back into VulkanRenderer.cpp, or `WaitIdle()` into PresentFinalImage -> red.
+TEST( DeviceLostCensus, TheFrameHasOneSubmissionRouteAndNoDeviceWait )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string renderer = StripCommentsAndStrings(
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp" ) );
+    const std::string loop = StripCommentsAndStrings(
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanFrameLoop.cpp" ) );
+    const auto count = []( const std::string& src, const std::string& what )
+    {
+        std::size_t n = 0;
+        for ( std::size_t at = 0; ( at = src.find( what, at ) ) != std::string::npos; at += what.size() )
+            ++n;
+        return n;
+    };
+
+    EXPECT_EQ( count( renderer, "vkQueueSubmit" ) + count( renderer, "SubmitToQueue" ), 0u )
+         << "VulkanRenderer.cpp submits by itself; the frame's one route is VulkanFrameLoop::Submit";
+    EXPECT_EQ( count( renderer, "m_FrameLoop->Submit(" ), 1u )
+         << "VulkanRenderer.cpp must submit the frame exactly once, through the frame loop";
+    EXPECT_EQ( count( loop, "SubmitToQueue(" ), 1u )
+         << "VulkanFrameLoop.cpp must hold the one vkQueueSubmit route";
+    for ( const char* frameFunction :
+          { "VulkanRendererAPI::BeginFrame", "VulkanRendererAPI::EndFrame", "VulkanRendererAPI::PresentFinalImage",
+            "VulkanRendererAPI::BeginRdgFrame", "VulkanRendererAPI::ExecuteGraph" } )
+    {
+        const std::string body = BodyOf( renderer, frameFunction );
+        ASSERT_FALSE( body.empty() ) << frameFunction << " is not in VulkanRenderer.cpp";
+        EXPECT_EQ( body.find( "WaitIdle" ), std::string::npos )
+             << frameFunction << " waits for the whole device; the frame waits only its slot fence";
+    }
 }

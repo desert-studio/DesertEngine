@@ -5,6 +5,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp> // m_RdgTransients is owned here
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>    // m_FrameLoop is owned here
 
 #include <memory>
 
@@ -197,10 +198,11 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgDevice                   m_RdgDevice;
         std::unique_ptr<VulkanRdgPool>    m_RdgPool;
         // RDG-CONTRACTS A/B frame objects, per frame slot and re-begun by BeginFrame after the slot's fence:
-        // transient heaps, per-pass descriptor pools, segment command pools + semaphores, and the queues.
+        // transient heaps, per-pass descriptor pools, the frame loop (slot fences + segment command pools and
+        // semaphores: the frame's one submission path, windowed or not), and the queues.
         std::unique_ptr<VulkanRdgTransientAllocator> m_RdgTransients;
         std::unique_ptr<VulkanRdgPassDescriptors>    m_RdgDescriptors;
-        std::unique_ptr<VulkanRdgQueueObjects>       m_RdgQueueObjects;
+        std::unique_ptr<VulkanFrameLoop>             m_FrameLoop;
         VulkanRdgQueueSet                            m_RdgQueues;
         // DECLARED AFTER the frame objects above: the backend holds raw pointers to m_RdgQueues, m_RdgTransients
         // and m_RdgDescriptors (bound by BeginFrame), so it is destroyed before them.
@@ -211,8 +213,6 @@ namespace Desert::Graphic::API::Vulkan
 
         // Makes the RDG frame objects on the first frame and begins them all for the current frame slot.
         Common::BoolResultStr BeginRdgFrame();
-        // PresentFinalImage with no window (the headless host): submit the frame, wait for the device.
-        Common::BoolResultStr SubmitHeadlessFrame();
     };
 
 } // namespace Desert::Graphic::API::Vulkan

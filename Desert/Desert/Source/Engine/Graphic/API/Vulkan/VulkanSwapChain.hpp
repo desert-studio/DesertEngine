@@ -3,7 +3,7 @@
 #include <Engine/Core/GlfwVulkan.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanQueue.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanSwapChainOutput.hpp>
 #include <Engine/Graphic/SwapchainAcquire.hpp>
 
 #include <Engine/Graphic/SwapChain.hpp>
@@ -88,9 +88,9 @@ namespace Desert::Graphic::API::Vulkan
             return m_SwapChainFramebuffers;
         }
 
-        const auto& GetVulkanQueue() const
+        const auto& GetOutput() const
         {
-            return m_VulkanQueue;
+            return m_Output;
         }
 
         void OnResize( uint32_t width, uint32_t height ) override;
@@ -172,7 +172,7 @@ namespace Desert::Graphic::API::Vulkan
         CreateColorAndDepthImages( const std::shared_ptr<VulkanLogicalDevice>& device );
 
     private:
-        std::unique_ptr<VulkanQueue>       m_VulkanQueue;
+        std::unique_ptr<VulkanSwapChainOutput> m_Output;
         VkSampleCountFlagBits              m_MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         std::weak_ptr<VulkanLogicalDevice> m_LogicalDevice;
 
@@ -226,6 +226,6 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<::Desert::Graphic::Framebuffer> m_CompositeFramebuffer;
 
     private:
-        friend class VulkanQueue;
+        friend class VulkanSwapChainOutput;
     };
 } // namespace Desert::Graphic::API::Vulkan

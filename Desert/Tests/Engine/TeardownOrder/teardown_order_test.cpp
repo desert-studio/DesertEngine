@@ -345,11 +345,12 @@ TEST( TeardownOrder, EverySiteThatDestroysASceneRendererIdlesTheDeviceFirst )
 // Three owners, and NOT ONE of them was a forgotten line inside a release function:
 //
 //   * 5919 sat in VulkanAllocator's deferred-deletion queue. RT_Destroy* only ENQUEUES, and the queue is
-//     drained from exactly one place -- VulkanQueue::Present. Shutdown releases the engine's entire
-//     content AFTER the last frame, so there was no frame left to collect any of it on.
+//     drained from exactly one place -- VulkanRendererAPI::PresentFinalImage. Shutdown releases the engine's
+//     entire content AFTER the last frame, so there was no frame left to collect any of it on.
 //   * 220 were CommandBufferAllocator's nine command pools and the one-off buffers taken from them. That
 //     class had no teardown at all, and FlushCommandBuffer's pool parameter was commented out.
-//   * 9 were VulkanQueue's semaphores and fences. `VulkanQueue::Release()` existed, was public, was
+//   * 9 were VulkanQueue's semaphores and fences (now VulkanSwapChainOutput's and VulkanFrameLoop's).
+//   `VulkanQueue::Release()` existed, was public, was
 //     correct -- and was called from nowhere.
 //
 // The last one is the shape worth naming: a release function that is right and unreachable looks exactly
@@ -380,10 +381,13 @@ TEST( TeardownOrder, TheDeviceTeardownReachesEveryVulkanOwner )
            "CommandBufferAllocator::GetInstance().Destroy()", "the nine command pools and their buffers" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanContext.cpp", "void VulkanContext::Shutdown",
            "m_VulkanAllocator->Shutdown()", "the VMA allocator itself" },
-         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.cpp", "VulkanQueue::~VulkanQueue",
-           "Release()", "the frame semaphores and the wait fences" },
-         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.cpp", "void VulkanQueue::Present",
-           "ProcessDeletionQueue()", "the per-frame drain, which is what makes the queue bounded at all" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChainOutput.cpp",
+           "VulkanSwapChainOutput::~VulkanSwapChainOutput", "Release()", "the frame semaphores" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanFrameLoop.cpp",
+           "VulkanFrameLoop::~VulkanFrameLoop", "vkDestroyFence", "the frame slots' fences" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp",
+           "Common::BoolResultStr VulkanRendererAPI::PresentFinalImage", "ProcessDeletionQueue()",
+           "the per-frame drain, which is what makes the queue bounded at all" },
     };
 
     for ( const Link& link : links )

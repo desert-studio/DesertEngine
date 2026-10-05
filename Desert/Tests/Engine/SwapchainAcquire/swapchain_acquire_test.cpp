@@ -63,8 +63,9 @@ namespace
         }
     };
 
-    // One frame exactly as VulkanQueue::PrepareFrame / Submit / Present run it: the slot is read once before
-    // the acquire, and the submit reads it again.
+    // One frame exactly as VulkanSwapChainOutput::AcquireImage / VulkanFrameLoop::Submit /
+    // VulkanSwapChainOutput::Present run it: the slot is read once before the acquire, and the submit reads it
+    // again.
     void RunFrame( FakeSwapchain& swapchain )
     {
         auto&          frames = FrameManager::GetInstance();

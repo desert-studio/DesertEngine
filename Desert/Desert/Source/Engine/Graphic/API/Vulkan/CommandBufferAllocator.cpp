@@ -364,8 +364,7 @@ namespace Desert::Graphic::API::Vulkan
         // Nine pools — three queue families times k_MaxCommandPoolFrames — and not one of them was ever
         // destroyed: this class had no destructor at all, and a Common::Singleton could not have used one
         // anyway (see the header). Destroying a pool frees every command buffer allocated from it, which
-        // is how the per-frame draw and compute buffers VulkanQueue::Init takes out of these same pools
-        // are released too.
+        // is how the one-off buffers taken out of these same pools are released too.
         for ( const auto& pools : { std::ref( m_CommandGraphicPool ), std::ref( m_ComputeCommandPool ),
                                     std::ref( m_TransferOpsCommandPool ) } )
         {

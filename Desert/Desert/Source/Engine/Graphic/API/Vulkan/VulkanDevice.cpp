@@ -365,9 +365,9 @@ namespace Desert::Graphic::API::Vulkan
             // every one of its children can be released. The order below this line was already correct and
             // the leak was never in it: `vkDestroyDevice(): VkDevice has 6599 leaked objects` on a normal
             // close, of which 6 370 were sitting in the renderer context's deferred-deletion queue (drained
-            // only from VulkanQueue::Present, and shutdown releases the engine's whole content AFTER the
-            // last frame) and 220 were the command pools and their one-off buffers, which nothing had ever
-            // been written to destroy.
+            // only from VulkanRendererAPI::PresentFinalImage, and shutdown releases the engine's whole content
+            // AFTER the last frame) and 220 were the command pools and their one-off buffers, which nothing had
+            // ever been written to destroy.
             //
             // It is called from HERE rather than from ~VulkanContext because Application's members die
             // window -> device -> context: by the time the context is destroyed this device is already

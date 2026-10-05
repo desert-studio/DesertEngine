@@ -56,7 +56,7 @@ namespace Desert::Graphic
     {
     public:
         /// Latches the state and, on the FIRST call only, prints the one human-facing explanation.
-        /// @param site   where it was noticed, e.g. "VulkanQueue::Submit / vkQueueSubmit".
+        /// @param site   where it was noticed, e.g. "VulkanFrameLoop::Submit / vkQueueSubmit".
         /// @param detail the driver's own words for the result, e.g. "VK_ERROR_DEVICE_LOST".
         /// @return true iff this call was the first — the caller that gets true owns the event.
         static bool Report( std::string_view site, std::string_view detail );

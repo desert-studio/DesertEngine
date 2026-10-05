@@ -52,14 +52,15 @@ namespace
     // The frame loop, in the order the recorded crash walked it. Each entry is a point that would issue
     // device work; `AllowWork()` is what each of them asks before doing so.
     const char* const k_FrameSequence[] = {
-         "VulkanQueue::PrepareFrame",         // vkResetFences  <- "pFences[0] is in use"
-         "VulkanSwapChain::AcquireNextImage", // vkAcquireNextImageKHR <- "Semaphore must not have..."
-         "VulkanSwapChain::OnResize",         // the rebuild
-         "VulkanSwapChain::CreateSwapChain",  // vkCreateSwapchainKHR <- the abort, at line 165
-         "VulkanRendererAPI::BeginFrame",     // vkBeginCommandBuffer
-         "VulkanQueue::Submit",               // vkQueueSubmit
-         "VulkanQueue::Present",              // vkQueuePresentKHR + vkWaitForFences
-         "VulkanRendererAPI::WaitDeviceIdle", // vkDeviceWaitIdle
+         "VulkanSwapChainOutput::AcquireImage", // the acquire
+         "VulkanSwapChain::AcquireNextImage",   // vkAcquireNextImageKHR <- "Semaphore must not have..."
+         "VulkanSwapChain::OnResize",           // the rebuild
+         "VulkanSwapChain::CreateSwapChain",    // vkCreateSwapchainKHR <- the abort, at line 165
+         "VulkanRendererAPI::BeginFrame",       // vkBeginCommandBuffer
+         "VulkanFrameLoop::Submit",             // vkResetFences <- "pFences[0] is in use" + vkQueueSubmit
+         "VulkanSwapChainOutput::Present",      // vkQueuePresentKHR
+         "VulkanFrameLoop::WaitSlot",           // vkWaitForFences
+         "VulkanRendererAPI::WaitDeviceIdle",   // vkDeviceWaitIdle
     };
 
     // Runs the sequence and answers how many of its steps were allowed to issue work.
@@ -96,7 +97,7 @@ TEST( DeviceLostGate, AfterTheFirstLossNotOneFurtherCallIsIssued )
     ASSERT_EQ( WorkIssuedOverOneFrame(), std::size( k_FrameSequence ) );
 
     // ...then the submit of that frame fails asynchronously. This is the whole event.
-    EXPECT_TRUE( DeviceLost::Report( "VulkanQueue::Submit / vkQueueSubmit", "VK_ERROR_DEVICE_LOST" ) );
+    EXPECT_TRUE( DeviceLost::Report( "VulkanFrameLoop::Submit / vkQueueSubmit", "VK_ERROR_DEVICE_LOST" ) );
     EXPECT_TRUE( DeviceLost::IsLost() );
 
     // THE ASSERTION THE TASK IS ABOUT. Ten frames' worth of the same sequence, and not one step of it is
@@ -118,10 +119,11 @@ TEST( DeviceLostGate, TheHumanIsToldOnceNoMatterHowManyPlacesNoticed )
     // Every route into the loss reports, because whichever one gets there first is not knowable in
     // advance: the submit, the fence reset, the acquire, the present, the driver's own callback.
     EXPECT_TRUE( DeviceLost::Report( "the Vulkan driver's own debug callback", "Lost VkDevice after ..." ) );
-    EXPECT_FALSE( DeviceLost::Report( "VulkanQueue::PrepareFrame / vkResetFences", "VK_ERROR_DEVICE_LOST" ) );
+    EXPECT_FALSE( DeviceLost::Report( "VulkanFrameLoop::Submit / vkResetFences", "VK_ERROR_DEVICE_LOST" ) );
     EXPECT_FALSE(
          DeviceLost::Report( "VulkanSwapChain::CreateSwapChain / vkCreateSwapchainKHR", "VK_ERROR_DEVICE_LOST" ) );
-    EXPECT_FALSE( DeviceLost::Report( "VulkanQueue::Present / vkQueuePresentKHR", "VK_ERROR_DEVICE_LOST" ) );
+    EXPECT_FALSE(
+         DeviceLost::Report( "VulkanSwapChainOutput::Present / vkQueuePresentKHR", "VK_ERROR_DEVICE_LOST" ) );
 
     // ONE explanation, from the FIRST reporter. The twenty consequence lines are exactly what sent a
     // reader off to fix a synchronisation defect that did not exist.
@@ -133,7 +135,7 @@ TEST( DeviceLostGate, TheExplanationNamesTheCauseTheRemedyAndTheTrap )
 {
     LatchGuard guard;
 
-    (void)DeviceLost::Report( "VulkanQueue::Submit / vkQueueSubmit", "VK_ERROR_DEVICE_LOST" );
+    (void)DeviceLost::Report( "VulkanFrameLoop::Submit / vkQueueSubmit", "VK_ERROR_DEVICE_LOST" );
     const std::string text = DeviceLost::Explanation();
 
     // Not a spelling check on prose — these four are the four things the message exists to say, and a

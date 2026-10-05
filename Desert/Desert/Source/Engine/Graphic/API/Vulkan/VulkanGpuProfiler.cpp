@@ -179,9 +179,10 @@ namespace Desert::Graphic::API::Vulkan
             return;
         FrameQueries& frame = m_Frames[frameIndex];
 
-        // Everything this frame index submitted last time round has completed — VulkanQueue::Present()
-        // waited on its fence before handing the index back. So this read never blocks, and afterwards
-        // nothing still refers to the pool, which is what makes this the one place it may be replaced.
+        // Everything this frame index submitted last time round has completed —
+        // VulkanRendererAPI::PresentFinalImage() waited on its fence before handing the index back. So this read
+        // never blocks, and afterwards nothing still refers to the pool, which is what makes this the one place it
+        // may be replaced.
         Resolve( frame );
         GrowIfNeeded( frame );
 

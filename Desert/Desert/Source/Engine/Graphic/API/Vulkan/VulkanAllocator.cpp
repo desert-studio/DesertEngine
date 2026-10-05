@@ -285,8 +285,8 @@ namespace Desert::Graphic::API::Vulkan
     std::size_t VulkanAllocator::DrainDeletionQueue()
     {
         // WHY AN UNCONDITIONAL DRAIN EXISTS AT ALL, in the numbers that produced it. ProcessDeletionQueue
-        // above is reached from exactly one place — VulkanQueue::Present — so it runs only while frames
-        // run. Shutdown releases the whole content of the engine AFTER the last frame: Renderer::Shutdown
+        // above is reached from exactly one place — VulkanRendererAPI::PresentFinalImage — so it runs only while
+        // frames run. Shutdown releases the whole content of the engine AFTER the last frame: Renderer::Shutdown
         // clears every resource service, the scene renderers drop their passes and the swapchain gives its
         // capture buffer back, and every one of those calls RT_Destroy*, which QUEUES. Nothing ever came
         // back to drain it, so all of it was still queued when vkDestroyDevice ran: 6 370 of the 6 599

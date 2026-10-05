@@ -66,56 +66,25 @@ namespace Desert::Graphic::API::Vulkan
         // frame that actually recorded.
         DrawCounter::Roll();
 
-        auto window = m_Window.lock();
-
-        // After the slot's fence (Present waited it): the graph's frame objects of this slot are reusable.
+        // ONE PATH, WINDOW OR NOT. BeginRdgFrame waited this slot's fence (VulkanFrameLoop::BeginSlot) and began
+        // its objects; the frame records into a graphics command buffer of the slot, already begun. A window is
+        // only an output of PresentFinalImage's submission (Desert/Tests/Engine/EngineHost runs this same frame
+        // with none). vkBeginCommandBuffer cannot report VK_ERROR_DEVICE_LOST (only out-of-memory), so its
+        // failure is the refusal below and nothing more.
         m_FrameSubmissions.clear();
         if ( Common::BoolResultStr rdg = BeginRdgFrame(); !rdg )
         {
             m_CurrentCommandBuffer = nullptr;
             return Common::MakeFormattedError<bool>( "render graph frame: {}", rdg.GetError() );
         }
-
-        // HEADLESS (no window, Desert/Tests/Engine/EngineHost): the frame records into a graphics command
-        // buffer of the graph's own frame slot, already begun, and PresentFinalImage submits and waits instead
-        // of presenting. Everything else in the frame is the windowed path's.
-        if ( !window )
+        Common::ResultStr<VkCommandBuffer> frame =
+             m_FrameLoop->GetQueueObjects().BeginCommandBuffer( RDG::Pipe::Graphics );
+        if ( !frame )
         {
-            Common::ResultStr<VkCommandBuffer> headless = m_RdgQueueObjects->BeginCommandBuffer( RDG::Pipe::Graphics );
-            if ( !headless )
-            {
-                m_CurrentCommandBuffer = nullptr;
-                return Common::MakeError( headless.GetError() );
-            }
-            m_CurrentCommandBuffer = headless.GetValue();
-#if DESERT_DEV_INSTRUMENTS
-            m_GpuProfiler.BeginFrame( m_CurrentCommandBuffer );
-#endif
-            return BOOLSUCCESS;
-        }
-
-        auto swapChain         = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
-        m_CurrentCommandBuffer = swapChain->GetVulkanQueue()->GetDrawCommandBuffer();
-
-        // Reset descriptor update tracking for this frame
-        // This requires access to materials, which might be hard here.
-        // A better approach is to have MaterialBackend reset itself.
-
-        VkCommandBufferBeginInfo beginInfo = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                                               .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
-        const VkResult           begun     = vkBeginCommandBuffer( m_CurrentCommandBuffer, &beginInfo );
-        if ( begun != VK_SUCCESS )
-        {
-            // THE HANDLE IS DROPPED, not merely reported. It was assigned above, so returning the error
-            // alone would leave a buffer that is NOT recording sitting in m_CurrentCommandBuffer — and
-            // every vkCmd* in this file, plus EndFrame's vkEndCommandBuffer, treats a non-null value there
-            // as "recording". Nulling it is what makes the invariant this class relies on true in the
-            // failure case as well as the success case.
             m_CurrentCommandBuffer = nullptr;
-            (void)NoteIfDeviceLost( begun, "vkBeginCommandBuffer", __FILE__, __LINE__ );
-            return Common::MakeFormattedError<bool>( "vkBeginCommandBuffer failed: {}",
-                                                     VkResultToString( begun ) );
+            return Common::MakeFormattedError<bool>( "the frame's command buffer: {}", frame.GetError() );
         }
+        m_CurrentCommandBuffer = frame.GetValue();
 
         // Resolve the previous results and reset this frame's queries. Must be here: vkCmdResetQueryPool
         // is illegal inside a render pass, and this is the one point in the frame where the command buffer
@@ -158,11 +127,6 @@ namespace Desert::Graphic::API::Vulkan
         if ( !Graphic::DeviceLost::AllowWork() )
             return Common::MakeError( "the device is lost; nothing is submitted or presented." );
 
-        auto window = m_Window.lock();
-        if ( !window )
-            return SubmitHeadlessFrame();
-        auto swapChain = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
-
         // REFUSE TO SUBMIT A BUFFER THAT DID NOT CLOSE. EndFrame is what calls vkEndCommandBuffer, and
         // submitting a still-recording buffer is undefined behaviour that the validation layers report
         // as a driver-side error with no line of ours in it. Returning the message here puts the cause
@@ -171,56 +135,44 @@ namespace Desert::Graphic::API::Vulkan
         if ( !ended.IsSuccess() )
             return Common::MakeError( ended.GetError() );
 
-        const Common::BoolResultStr submitted = swapChain->GetVulkanQueue()->Submit( m_FrameSubmissions );
+        // THE FRAME'S ONE SUBMISSION. A window is an output of it: its acquired image is waited by the first
+        // graphics entry, its render-complete signalled by the last, and it presents afterwards. Without one
+        // (EngineHost) nothing else changes.
+        const auto             window = m_Window.lock();
+        VulkanSwapChainOutput* output =
+             window ? SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetOutput().get() : nullptr;
+        const uint32_t                   slot = EngineContext::GetInstance().GetCurrentFrameIndex();
+        std::optional<VulkanFrameOutput> frameOutput;
+        if ( output )
+            frameOutput = output->GetFrameOutput();
+        const Common::BoolResultStr submitted =
+             m_FrameLoop->Submit( slot, m_FrameSubmissions, frameOutput ? &*frameOutput : nullptr );
         m_FrameSubmissions.clear();
         if ( !submitted )
             return Common::MakeError( submitted.GetError() );
-        swapChain->Present();
+
+        // With an output, present. Without one the frame is synchronous: THIS slot's fence is waited, so the
+        // caller may read back what the frame wrote (EngineHost) -- the slot's fence, not the device.
+        if ( output )
+            output->Present();
+        else if ( Common::BoolResultStr waited = m_FrameLoop->WaitSlot( slot ); !waited )
+            return Common::MakeFormattedError<bool>( "the frame's slot: {}", waited.GetError() );
 
         // The submit and the present are where an asynchronous loss surfaces. Saying so HERE, in this
-        // frame's own result, is what carries it up to Application::Run — before which the result of this
-        // function was thrown away at three separate links.
+        // frame's own result, is what carries it up to Application::Run -- and nothing below (a fence wait,
+        // the deletion queue) may run on a dead device.
         if ( Graphic::DeviceLost::IsLost() )
             return Common::MakeError( "the device was lost while submitting or presenting this frame." );
 
-        return BOOLSUCCESS;
-    }
-
-    Common::BoolResultStr VulkanRendererAPI::SubmitHeadlessFrame()
-    {
-        const auto ended = EndFrame();
-        if ( !ended.IsSuccess() )
-            return Common::MakeError( ended.GetError() );
-
-        // The frame's submissions in order, each with the graph's own cross-queue semaphores; no image to
-        // wait on and none to signal. The frame is synchronous: the device is idle when this returns, so the
-        // caller may read back what the frame wrote and the slot's objects are free for the next frame.
-        const auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-        for ( size_t i = 0; i < m_FrameSubmissions.size(); ++i )
-        {
-            const VulkanRdgSubmission& entry = m_FrameSubmissions[i];
-            VkSubmitInfo               submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-            submitInfo.waitSemaphoreCount   = static_cast<uint32_t>( entry.WaitSemaphores.size() );
-            submitInfo.pWaitSemaphores      = entry.WaitSemaphores.data();
-            submitInfo.pWaitDstStageMask    = entry.WaitStages.data();
-            submitInfo.commandBufferCount   = 1;
-            submitInfo.pCommandBuffers      = &entry.CommandBuffer;
-            submitInfo.signalSemaphoreCount = static_cast<uint32_t>( entry.SignalSemaphores.size() );
-            submitInfo.pSignalSemaphores    = entry.SignalSemaphores.data();
-            const VkQueue  target    = entry.Queue != VK_NULL_HANDLE ? entry.Queue : device->GetGraphicsQueue();
-            const VkResult submitted = device->SubmitToQueue( target, 1, &submitInfo, VK_NULL_HANDLE );
-            if ( submitted != VK_SUCCESS )
-            {
-                m_FrameSubmissions.clear();
-                (void)NoteIfDeviceLost( submitted, "vkQueueSubmit", __FILE__, __LINE__ );
-                return Common::MakeFormattedError<bool>( "headless vkQueueSubmit of frame entry {} failed: {}", i,
-                                                         VkResultToString( submitted ) );
-            }
-        }
-        m_FrameSubmissions.clear();
-        device->WaitIdle();
-        if ( Graphic::DeviceLost::IsLost() )
-            return Common::MakeError( "the device was lost while submitting this headless frame." );
+        // The next slot: its previous frame must be complete before the output acquires on its semaphore and
+        // before anything that frame used is destroyed (the deletion queue's per-frame drain).
+        Engine::FrameManager::GetInstance().NextFrame();
+        const uint32_t next = EngineContext::GetInstance().GetCurrentFrameIndex();
+        if ( Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
+            return Common::MakeFormattedError<bool>( "the next frame's slot: {}", waited.GetError() );
+        SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+             ->GetVulkanAllocator()
+             ->ProcessDeletionQueue();
         return BOOLSUCCESS;
     }
 
@@ -1210,7 +1162,8 @@ namespace Desert::Graphic::API::Vulkan
             m_CurrentCommandBuffer = nullptr;
             return Common::MakeError( "the device was lost while the graph recorded" );
         }
-        Common::ResultStr<VkCommandBuffer> next = m_RdgQueueObjects->BeginCommandBuffer( RDG::Pipe::Graphics );
+        Common::ResultStr<VkCommandBuffer> next =
+             m_FrameLoop->GetQueueObjects().BeginCommandBuffer( RDG::Pipe::Graphics );
         if ( !next )
         {
             m_CurrentCommandBuffer = nullptr;
@@ -1258,21 +1211,22 @@ namespace Desert::Graphic::API::Vulkan
             const uint32_t graphicsFamily = device->GetPhysicalDevice()->GetGraphicsFamily();
             const uint32_t computeFamily  = device->GetPhysicalDevice()->GetComputeFamily();
             const bool     separate       = computeFamily != graphicsFamily;
-            m_RdgQueueObjects             = std::make_unique<VulkanRdgQueueObjects>(
+            m_FrameLoop                   = std::make_unique<VulkanFrameLoop>(
                  m_RdgDevice.Device, graphicsFamily,
                  separate ? std::optional<uint32_t>( computeFamily ) : std::nullopt, slots );
             m_RdgQueues.GraphicsQueue  = device->GetGraphicsQueue();
             m_RdgQueues.GraphicsFamily = graphicsFamily;
             m_RdgQueues.ComputeQueue   = separate ? device->GetComputeQueue() : VK_NULL_HANDLE;
             m_RdgQueues.ComputeFamily  = computeFamily;
-            m_RdgQueues.Objects        = m_RdgQueueObjects.get();
+            m_RdgQueues.Objects        = &m_FrameLoop->GetQueueObjects();
         }
+        // The slot's fence FIRST: every object begun below may still be in use by the slot's previous frame.
         const uint32_t slot = EngineContext::GetInstance().GetCurrentFrameIndex();
+        if ( Common::BoolResultStr begun = m_FrameLoop->BeginSlot( slot ); !begun )
+            return begun;
         m_RdgPool->BeginFrame( slot );
         m_RdgTransients->BeginFrameSlot( slot );
         m_RdgDescriptors->BeginFrameSlot( slot );
-        if ( Common::BoolResultStr begun = m_RdgQueueObjects->BeginFrameSlot( slot ); !begun )
-            return begun;
         return m_RdgBackend->BeginFrame( slot, m_RdgQueues, *m_RdgTransients, *m_RdgDescriptors );
     }
 

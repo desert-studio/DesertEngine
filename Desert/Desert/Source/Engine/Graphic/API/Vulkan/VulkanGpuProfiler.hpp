@@ -33,7 +33,8 @@ namespace Desert::Graphic::API::Vulkan
     //    recording: a profiler that reallocates mid-frame measures its own allocator. The replaced pool goes
     //    to the allocator's deferred deletion queue like every other per-frame GPU object.
     //
-    // 2. RESULTS ARE READ MaxFramesInFlight FRAMES LATE, AND NEVER WAITED ON. VulkanQueue::Present()
+    // 2. RESULTS ARE READ MaxFramesInFlight FRAMES LATE, AND NEVER WAITED ON.
+    // VulkanRendererAPI::PresentFinalImage()
     //    already does vkWaitForFences on the frame index it is about to reuse, so by the time frame index f
     //    begins recording again, everything the GPU was asked to do the last time f was used has completed
     //    and its queries are readable. Resolving right there costs nothing and cannot stall: the wait has

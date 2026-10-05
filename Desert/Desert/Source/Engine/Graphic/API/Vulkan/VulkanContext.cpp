@@ -187,8 +187,9 @@ namespace Desert::Graphic::API::Vulkan
             DESERT_VERIFY( false );
         }
 
-        const auto& vulkanQueue = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetVulkanQueue();
-        vulkanQueue->PrepareFrame();
+        // The previous frame waited this slot's fence (VulkanRendererAPI::PresentFinalImage), so the slot's
+        // image-acquired semaphore is free to be signalled again.
+        SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetOutput()->AcquireImage();
 
         // Asked AFTER the acquire too. A device that died during the PREVIOUS frame's submit is discovered
         // here — the submit itself returned VK_SUCCESS and the failure arrived asynchronously — and saying

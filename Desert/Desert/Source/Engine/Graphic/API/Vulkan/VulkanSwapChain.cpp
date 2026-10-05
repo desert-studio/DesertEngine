@@ -244,10 +244,13 @@ namespace Desert::Graphic::API::Vulkan
         if ( !framebuffers.IsSuccess() )
             return Common::MakeFormattedError<bool>( "the swapchain framebuffers: {}", framebuffers.GetError() );
 
-        if ( !m_VulkanQueue )
+        if ( !m_Output )
         {
-            m_VulkanQueue = std::make_unique<VulkanQueue>( this );
-            m_VulkanQueue->Init();
+            // Once per swapchain object and never on a rebuild: the output's semaphores are per frame slot,
+            // and a rebuild does not change the slots (FrameManager::AdoptSwapchainImageCount).
+            m_Output = std::make_unique<VulkanSwapChainOutput>( this );
+            if ( const auto initialized = m_Output->Init(); !initialized.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "the swapchain output: {}", initialized.GetError() );
         }
 
         FramebufferSpecification fbSpec;
@@ -509,9 +512,18 @@ namespace Desert::Graphic::API::Vulkan
         m_CompositeFramebuffer = nullptr;
     }
 
-    uint32_t VulkanSwapChain::GetCurrentBufferIndex() const { return m_VulkanQueue->GetImageIndex(); }
-    void VulkanSwapChain::PrepareFrame() { m_VulkanQueue->PrepareFrame(); }
-    void VulkanSwapChain::Present() { m_VulkanQueue->Present(); }
+    uint32_t VulkanSwapChain::GetCurrentBufferIndex() const
+    {
+        return m_Output->GetImageIndex();
+    }
+    void VulkanSwapChain::PrepareFrame()
+    {
+        m_Output->AcquireImage();
+    }
+    void VulkanSwapChain::Present()
+    {
+        m_Output->Present();
+    }
 
     namespace
     {
@@ -585,7 +597,7 @@ namespace Desert::Graphic::API::Vulkan
                  static_cast<int>( m_ColorFormat ) );
         }
 
-        const uint32_t imageIndex = m_VulkanQueue->GetImageIndex();
+        const uint32_t imageIndex = m_Output->GetImageIndex();
         if ( imageIndex >= m_SwapChainImages.Images.size() )
         {
             return Common::MakeFormattedError<bool>(

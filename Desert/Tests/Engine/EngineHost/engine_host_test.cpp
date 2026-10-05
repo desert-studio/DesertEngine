@@ -2,13 +2,15 @@
 //
 // The boot is Application's (Engine/Core/Application.cpp) without the window and the swapchain:
 // RendererContext::Create -> EngineContext::Initialize -> Device::Create -> SetDevice -> RendererContext::Init
-// -> Renderer::Init. A frame with no window records into the graph's own command buffer and
-// Renderer::PresentFinalImage submits it and waits for the device (VulkanRendererAPI::SubmitHeadlessFrame).
+// -> Renderer::Init. A frame with no window is the windowed frame without an output: it records into the frame
+// slot's own command buffer (VulkanFrameLoop) and Renderer::PresentFinalImage submits it through the one
+// submission path (VulkanFrameLoop::Submit) and waits that slot's fence.
 //
 // Mutations that turn this suite red:
 //   * VulkanRenderer.cpp DispatchCompute: drop the vkCmdBindDescriptorSets call -> the bytes differ.
 //   * VulkanRenderer.cpp DispatchCompute: pass groupCountX - 1 to vkCmdDispatch -> the last 64 words differ.
-//   * VulkanRenderer.cpp SubmitHeadlessFrame: delete device->WaitIdle() -> the readback races the GPU.
+//   * VulkanRenderer.cpp PresentFinalImage: skip the slot fence wait (`m_FrameLoop->WaitSlot( slot )` of the
+//     no-output branch) -> the readback races the GPU.
 //   * Renderer::DrawFullscreen: draw fewer than 3 vertices -> pixels keep the clear colour;
 //     FullscreenTriangle.glslh ScreenUVToNdc without the y flip -> every row lands mirrored.
 //   * Renderer::DrawProcedural: draw one instance instead of instanceCount -> the right half keeps the clear
