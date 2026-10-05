@@ -697,6 +697,7 @@ namespace Desert::Player
         // Time also stops while streaming waits for the cell under a streaming source (WP12): the loader keeps
         // reading on its workers and Tick above keeps collecting, but no script or physics step runs over a hole.
         const bool streamingWaits = m_WorldStreamer && m_WorldStreamer->BlocksPlay();
+        m_UIFrameDtSeconds        = ts.GetSeconds();
         if ( const auto frame =
                   m_Scene->OnUpdate( m_Content.Loading() || streamingWaits ? Common::Timestep( 0.0f ) : ts );
              !frame )
@@ -854,7 +855,8 @@ namespace Desert::Player
                     // game without UI is legitimate, and it was only ever a refusal because of the limit.
                     m_UIView.Materials      = &m_Render2D->Materials();
                     m_UIView.RenderTextures = m_UIRenderTextures.get();
-                    UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
+                    UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h },
+                                      m_UIFrameDtSeconds );
                     for ( const entt::entity canvas : UI::CanvasesInDrawOrder( m_Scene->GetRegistry() ) )
                         if ( const auto drawn = UI::RenderCanvas2D( m_UIView, m_Scene->GetRegistry(), canvas, dl,
                                                                     vpPtr, &input, &clicked, &m_FocusedUI );

@@ -19,7 +19,6 @@
 
 #include <algorithm>
 #include <optional>
-#include <chrono>
 #include <cstdint>
 #include <cmath>
 #include <limits>
@@ -33,25 +32,6 @@ namespace Desert::UI
         bool HandleSet( const Assets::AssetHandle& h )
         {
             return static_cast<uint64_t>( h ) != 0;
-        }
-
-        // Seconds since the first UI frame — a shared wall clock so every time-driven effect (pulse, marquee,
-        // hover eases) animates without any per-frame dt being plumbed through the stateless walk.
-        //
-        // THE ONE STATIC LEFT IN THIS FILE, and deliberately: it is a CLOCK, not state. Every view reads it
-        // and keeps its own last reading in its context, which is what a shared clock has to look like once
-        // two views draw in one frame — the previous arrangement kept the last reading here too, so of two
-        // walks in a frame the second measured no time at all. Nothing here is written after the first call.
-        //
-        // Its consequence is worth knowing before comparing frames: a canvas with a marquee or a running
-        // tween is NOT byte-reproducible run to run, because its phase comes from this clock rather than
-        // from the frame counter. Measured on MainMenu (one marquee): 0.63-0.85% of pixels differ between
-        // two runs of the same binary, and 0.405% even at 400 frames when the intro tween has settled.
-        // UI_ElementProbe has no marquee and no tween, and its floor is exactly 0.
-        float NowSeconds()
-        {
-            static const auto epoch = std::chrono::steady_clock::now();
-            return std::chrono::duration<float>( std::chrono::steady_clock::now() - epoch ).count();
         }
 
         // ONE CANVAS BEING WALKED BY ONE VIEW — the two coordinates of the key, bound together for the
@@ -829,8 +809,11 @@ namespace Desert::UI
 
         // @p tint is the caller's accumulated element tint (UICanvasContext::Tint), passed in rather than
         // read from a global so this helper stays a pure function of its arguments.
+        // @p viewSeconds is the view's UI time (UIViewContext::Time) — the marquee's phase, so it scrolls
+        // by frame steps the host handed in rather than by a wall clock, and frame N of a fixed-step run
+        // draws the same scroll every run.
         void DrawText2D( Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t, const Rect& rect,
-                         float scale, const glm::vec4& tint )
+                         float scale, const glm::vec4& tint, double viewSeconds )
         {
             if ( t.Text.empty() )
                 return;
@@ -877,7 +860,7 @@ namespace Desert::UI
                     contentW += advEm( sc.ch ) * sM;
                 const float gap    = std::max( 40.0f * scale, rect.W * 0.35f );
                 const float period = std::max( 1.0f, contentW + gap );
-                const float off    = std::fmod( NowSeconds() * t.MarqueeSpeed * scale, period );
+                const float off = static_cast<float>( std::fmod( viewSeconds * t.MarqueeSpeed * scale, period ) );
                 const float blockH = ( bf.Ascent - bf.Descent ) * sM;
                 const float baseY  = rect.Y + ( rect.H - blockH ) * 0.5f + bf.Ascent * sM;
 
@@ -1546,7 +1529,8 @@ namespace Desert::UI
                     const float op =
                          p.Pulse ? p.Opacity * ( p.PulseMin +
                                                  ( 1.0f - p.PulseMin ) *
-                                                      ( 0.5f + 0.5f * std::sin( NowSeconds() * p.PulseSpeed ) ) )
+                                                      ( 0.5f + 0.5f * static_cast<float>( std::sin(
+                                                                           ctx.View.Time * p.PulseSpeed ) ) ) )
                                  : p.Opacity;
 
                     // Resolved once: the corner radius is read by the glow, the shadow and the fill, and a
@@ -1730,7 +1714,7 @@ namespace Desert::UI
                     td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
                     td.Align    = ECS::UITextAlign::Left;
                     dl.PushClipRect( mn, mx );
-                    DrawText2D( dl, td, rect, scale, ctx.View.Tint );
+                    DrawText2D( dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
                     if ( isFocused )
                     {
                         const float caretX = rect.X + 6.0f + MeasureTextPx( f.Text, fieldSize * scale );
@@ -1772,7 +1756,7 @@ namespace Desert::UI
                     td.Color    = listText;
                     td.Font     = st.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                     td.Align    = ECS::UITextAlign::Left;
-                    DrawText2D( dl, td, rect, scale, ctx.View.Tint );
+                    DrawText2D( dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
 
                     // Down-arrow on the right edge.
                     const float ax = mx.x - rect.H * 0.5f, ay = ( mn.y + mx.y ) * 0.5f, aw = rect.H * 0.16f;
@@ -1807,7 +1791,7 @@ namespace Desert::UI
                     // (ResolveLabel already subsumes `binding.Text` — see its own comment).
                     ECS::UITextData text = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
                     text.Text            = ResolveLabel( text.Text, binding );
-                    DrawText2D( dl, text, rect, scale, ctx.View.Tint );
+                    DrawText2D( dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
                 }
 
                 if ( reg.has<ECS::UIIconComponent>( e ) )
@@ -2114,7 +2098,7 @@ namespace Desert::UI
         }
     } // namespace
 
-    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx )
+    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx, float frameDtSeconds )
     {
         // This view is now looking at another scene. Entity ids are unique only inside a registry, so every
         // per-entity clock and every (canvas x view) cell the view holds would answer to ids that mean
@@ -2131,12 +2115,13 @@ namespace Desert::UI
         // held its renderer slot until something destroyed it (Docs/RENDERER_FRAME_STATE.md).
         view.RetireDeadCanvases( reg );
 
-        // THIS VIEW's frame delta, advanced once per FRAME and not once per canvas. Clamped so a long stall
-        // doesn't snap animations; the first frame of a view gets 0 rather than the age of the process.
-        const float now    = NowSeconds();
-        view.FrameDt       = view.HasDrawn ? std::clamp( now - view.LastFrameTime, 0.0f, 0.1f ) : 0.0f;
-        view.LastFrameTime = now;
-        view.HasDrawn      = true;
+        // THIS VIEW's frame delta, advanced once per FRAME and not once per canvas — and handed in by the
+        // host, which owns the frame's timestep (as FSlateApplication::Tick takes the engine's DeltaTime).
+        // A clock read here measured how long the walk took rather than the step the frame stands for, so
+        // a fixed-step run (--play) did not draw tick N on frame N and a slow build drifted the playheads.
+        // Clamped so a long stall doesn't snap animations.
+        view.FrameDt = std::clamp( frameDtSeconds, 0.0f, 0.1f );
+        view.Time += view.FrameDt;
         ++view.FrameIndex; // drives the tween rewind-on-hide check
 
         // The scene's UI clips, stepped by the one view that owns scene time and evaluated by every view.
@@ -2524,7 +2509,7 @@ namespace Desert::UI
                 td.Color    = pi.Style.Color( StyleSlot::DropdownText, d.TextColor );
                 td.Font     = pi.Style.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                 td.Align    = ECS::UITextAlign::Left;
-                DrawText2D( dl, td, row, pi.Scale, ctx.View.Tint );
+                DrawText2D( dl, td, row, pi.Scale, ctx.View.Tint, ctx.View.Time );
                 if ( hover && input->MouseReleased )
                 {
                     d.SelectedIndex = static_cast<int>( i );

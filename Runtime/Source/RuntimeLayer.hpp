@@ -111,6 +111,9 @@ namespace Desert::Player
         // entity ids from the old registry never answer for the new one, and a canvas destroyed mid-level
         // takes its cell with it.
         UI::UIViewContext m_UIView;
+        // This frame's step, recorded by OnUpdate for the UI walk in OnUIRender (which is handed no time):
+        // UI::BeginUIFrame advances the view by exactly the step the host ticked, not by a clock of its own.
+        float m_UIFrameDtSeconds = 0.0f;
 
         Common::BoolResultStr InitPresent( const std::shared_ptr<Graphic::Framebuffer>& swapFb );
 

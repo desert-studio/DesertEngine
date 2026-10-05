@@ -215,7 +215,7 @@ namespace
     bool Walk( Scene& scene, R2D::DrawList2D& dl, UIViewContext& ctx )
     {
         dl.Reset();
-        UI::BeginUIFrame( ctx, scene.Registry, kViewport );
+        UI::BeginUIFrame( ctx, scene.Registry, kViewport, /*frameDtSeconds=*/0.0f );
         const bool drawn = UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl ).IsSuccess();
         UI::EndUIFrame( ctx, scene.Registry, dl, /*input=*/nullptr );
         return drawn;
