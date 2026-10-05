@@ -14,7 +14,8 @@ if not os.isfile( root .. "/include/opus.h" ) then
 end
 
 local function MakeList( mk, name )
-    local text = "\n" .. ( io.readfile( root .. "/" .. mk ) or "" ) .. "\n\n" -- a list may end the file
+    -- CR stripped: a Windows checkout (core.autocrlf) delivers the .mk with CRLF, and "\\\n" never matched there.
+    local text = "\n" .. ( io.readfile( root .. "/" .. mk ) or "" ):gsub( "\r", "" ) .. "\n\n" -- a list may end the file
     local body = text:match( "\n" .. name .. " = \\\n(.-)\n%s*\n" )
     if not body then
         error( "Opus.lua: no list " .. name .. " in " .. root .. "/" .. mk )
