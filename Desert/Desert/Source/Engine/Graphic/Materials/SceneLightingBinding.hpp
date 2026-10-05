@@ -157,7 +157,6 @@ namespace Desert::Graphic
         if ( auto* ub = material->Get<UniformBufferProperty>( MaterialPBRBase::kShadowBlockName ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
     }
-    }
 
     /// The scene's sky look — rotation and gain — for any program that declares `SkyLookUB`. THE ONE
     /// WRITER: the lit materials (through SceneEnvironmentBind), the deferred composite and the skybox
