@@ -31,7 +31,9 @@
                                 "Blend": 2.0,
                                 "HasExitTime": true,
                                 "ExitTime": 0.25,
-                                "Conditions": []
+                                "Conditions": [],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
                             }
                         ]
                     },
