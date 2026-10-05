@@ -35,6 +35,7 @@ namespace
     {
         AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
         g.Name = "Locomotion";
+        g.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Locomotion.skeleton" };
         State idle;
         idle.Name = "Idle";
         idle.Clip = "Anim_Idle";

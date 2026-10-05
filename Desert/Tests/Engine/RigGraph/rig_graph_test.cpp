@@ -1100,6 +1100,7 @@ namespace
     {
         Serialization::ControlRigData data;
         data.Name          = "Graphed Arm";
+        data.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/ArmRig.skeleton" };
 
         Serialization::ControlElementData hand;
         hand.Name      = "Hand_CTRL";
@@ -1220,7 +1221,7 @@ TEST( RigGraphTest, ARigWithoutAGraphDoesNotGainTheFieldAndStillLoadsAsTheIdenti
     // `kControlRigVersion` staying at 1: a generation-1 file has no Graph, and no Graph means what it has
     // always meant.
     EXPECT_EQ( text.find( "\"Graph\"" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( R"("CRIG":2)" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( "\"CRIG\":" + std::to_string( Serialization::kControlRigVersion ) ), std::string::npos ) << text;
 
     const auto parsed = Serialization::ParseControlRig( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();

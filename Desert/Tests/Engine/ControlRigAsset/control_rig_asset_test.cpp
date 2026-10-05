@@ -199,6 +199,7 @@ namespace
     {
         RigFile::ControlRigData data;
         data.Name = "ArmRig";
+        data.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/ArmRig.skeleton" };
 
         RigFile::ControlElementData wrist;
         wrist.Name      = "Wrist_CTRL";
@@ -428,7 +429,8 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
     // must load, and its controls must draw exactly as they always did. That equivalence is the whole
     // argument for leaving kControlRigVersion where it is, so it is asserted rather than reasoned about.
     const std::string legacy = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Legacy",
       "Controls": [
         { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
@@ -453,7 +455,8 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
 
     // A FILE THAT NAMES A SIZE gets that size, to the float, on the control it names and on no other.
     const std::string sizedText = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Sized",
       "Controls": [
         { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
@@ -512,7 +515,8 @@ TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTh
 {
     const Skeleton    skeleton = MakeArmRig();
     const std::string text     = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Painted",
       "Controls": [
         { "Name": "Hand_L_CTRL", "ShapeName": "CircleXY",
