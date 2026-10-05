@@ -224,7 +224,7 @@ namespace
 
     void FillComplete( PassBindings& bindings, TextureRef chain )
     {
-        bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+        bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
              .Storage( "u_Output", chain, Access::StorageWrite, 0 )
              .PushConstants( kPush, sizeof( kPush ) );
     }
@@ -251,7 +251,7 @@ TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
                                             {
                                                 FillComplete( bindings, chain );
                                                 bindings.Sampled( "u_Sorce", chain, Access::SampledCompute,
-                                                                  SubresourceRange::Mip( 1 ) );
+                                                                  SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp());
                                             } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
@@ -266,7 +266,7 @@ TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
          UpsampleReflection(), MaterialFillsParams(),
          []( PassBindings& bindings, TextureRef chain )
          {
-             bindings.Sampled( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             bindings.Sampled( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
                   .Storage( "u_Source", chain, Access::StorageWrite, 0 )
                   .PushConstants( kPush, sizeof( kPush ) );
          } );
@@ -284,7 +284,7 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
          UpsampleReflection(), MaterialFillsParams(),
          []( PassBindings& bindings, TextureRef chain )
          {
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
                   .PushConstants( kPush, sizeof( kPush ) );
          } );
     ASSERT_FALSE( noOutput.IsSuccess() );
@@ -299,7 +299,7 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
          UpsampleReflection(), MaterialFillsParams(),
          []( PassBindings& bindings, TextureRef chain )
          {
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
                   .Storage( "u_Output", chain, Access::StorageWrite, 0 );
          } );
     ASSERT_FALSE( noPush.IsSuccess() );
@@ -333,8 +333,8 @@ TEST( RenderGraphVulkanPassBindings, ABlockWithAFailedEntryIsRefusedWithThatEntr
          UpsampleReflection(), MaterialFillsParams(),
          []( PassBindings& bindings, TextureRef chain )
          {
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) );
+             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
+                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp());
          } );
     ASSERT_FALSE( resolved.IsSuccess() );
     EXPECT_NE( resolved.GetError().find( "already bound" ), std::string::npos ) << resolved.GetError();

@@ -1,4 +1,9 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <span>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -653,6 +658,259 @@ namespace Desert::Graphic::API::Vulkan
         // graph places each barrier from the declared accesses (see RendererAPI::DispatchComputeInFrame).
         const_cast<VulkanPipelineCompute*>( static_cast<const VulkanPipelineCompute*>( pipeline ) )
              ->RecordInFrame( m_CurrentCommandBuffer, groupCountX, groupCountY, groupCountZ );
+    }
+
+    namespace
+    {
+        const VkDescriptorSetLayoutBinding* FindLayoutBinding( const VulkanDescriptorSetLayout& layout,
+                                                               uint32_t                         binding )
+        {
+            for ( const VkDescriptorSetLayoutBinding& entry : layout.Bindings() )
+            {
+                if ( entry.binding == binding )
+                    return &entry;
+            }
+            return nullptr;
+        }
+
+        // One descriptor set per set of @p layouts, allocated for THIS exec from the graph's per-frame pools,
+        // with every resolved PassBindings entry written at its slot. The caller fills the other route's slots
+        // into the returned sets before they are bound.
+        Common::ResultStr<std::vector<VkDescriptorSet>>
+        WriteRdgPassSets( VulkanRdgPassDescriptors& descriptors, const std::vector<DescriptorSetLayoutRef>& layouts,
+                          std::span<const RdgResolvedEntry> entries, std::string_view pass )
+        {
+            using Sets = std::vector<VkDescriptorSet>;
+            Sets sets;
+            sets.reserve( layouts.size() );
+            for ( size_t index = 0; index < layouts.size(); ++index )
+            {
+                if ( !layouts[index] )
+                    return Common::MakeFormattedError<Sets>( "{}: the pipeline has no layout for set {}", pass,
+                                                             index );
+                Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
+                if ( !set )
+                    return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
+                sets.push_back( set.GetValue() );
+            }
+            for ( const RdgResolvedEntry& entry : entries )
+            {
+                const std::string_view name = entry.Texture != nullptr
+                                                   ? std::string_view( entry.Texture->ShaderName )
+                                                   : std::string_view( entry.Buffer->ShaderName );
+                if ( entry.Slot.Set >= sets.size() )
+                    return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets", pass,
+                                                             name, entry.Slot.Set, sets.size() );
+                const VkDescriptorSetLayoutBinding* binding =
+                     FindLayoutBinding( *layouts[entry.Slot.Set], entry.Slot.Binding );
+                if ( binding == nullptr )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: '{}' (set {}, binding {}) is not in the pipeline's layout", pass, name,
+                         entry.Slot.Set, entry.Slot.Binding );
+                const VkDescriptorSet set     = sets[entry.Slot.Set];
+                Common::BoolResultStr written = Common::MakeSuccess( true );
+                if ( entry.Texture != nullptr )
+                {
+                    const RDG::BoundTexture& texture = *entry.Texture;
+                    const bool               storage = entry.Kind == RDG::ShaderResourceKind::StorageTexture;
+                    const VkImageLayout      layout =
+                         storage ? VK_IMAGE_LAYOUT_GENERAL
+                                 : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
+                    VkSampler sampler = VK_NULL_HANDLE;
+                    if ( binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
+                    {
+                        if ( !texture.Sampler )
+                            return Common::MakeFormattedError<Sets>( "{}: '{}' is sampled but names no sampler",
+                                                                     pass, name );
+                        Common::ResultStr<VkSampler> made = descriptors.GetSampler( *texture.Sampler );
+                        if ( !made )
+                            return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
+                        sampler = made.GetValue();
+                    }
+                    written = descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
+                                                        texture.Texture, texture.Range, layout, sampler );
+                }
+                else
+                {
+                    written = descriptors.WriteBuffer( set, entry.Slot.Binding, binding->descriptorType,
+                                                       entry.Buffer->Buffer );
+                }
+                if ( !written.IsSuccess() )
+                    return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, written.GetError() );
+            }
+            return Common::MakeSuccess( std::move( sets ) );
+        }
+
+        // The push constants of the draw: the block's, or the other route's when the block has none (the
+        // resolution already refused both, and neither while the shader declares a range).
+        std::span<const std::byte> ChoosePushConstants( const RDG::PassBindings&   bindings,
+                                                        std::span<const std::byte> other )
+        {
+            return bindings.GetPushConstants().empty() ? other : bindings.GetPushConstants();
+        }
+    } // namespace
+
+    Common::BoolResultStr VulkanRendererAPI::DispatchCompute( const RDG::PassBindings& bindings,
+                                                              const ComputePipeline& pipeline, uint32_t groupCountX,
+                                                              uint32_t groupCountY, uint32_t groupCountZ )
+    {
+        const RDG::PassContext&                  context = bindings.GetContext();
+        const std::string_view                   pass    = context.GetPassName();
+        const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !cmd )
+            return Common::MakeError( cmd.GetError() );
+        const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors = VulkanRdgBackend::DescriptorsOf( context );
+        if ( !descriptors )
+            return Common::MakeError( descriptors.GetError() );
+
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
+        auto& compute = const_cast<VulkanPipelineCompute&>( static_cast<const VulkanPipelineCompute&>( pipeline ) );
+        auto* shader  = static_cast<VulkanShader*>( compute.GetShader().get() );
+        if ( shader == nullptr || compute.GetVkPipeline() == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "{}: compute pipeline '{}' is not built", pass,
+                                               compute.GetSpecification().DebugName );
+
+        // The other route: the pipeline's own setters (asset textures, out-of-graph buffers), set 0.
+        RdgOtherRoute other;
+        for ( const uint32_t binding : compute.GetBoundBindings() )
+            other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
+        other.PushConstants = !compute.GetBoundPushConstants().empty();
+
+        const auto resolved =
+             ResolveRdgPassBindings( shader->GetReflectionData(), shader->GetName(), bindings, other );
+        if ( !resolved )
+            return Common::MakeError( resolved.GetError() );
+        const auto sets =
+             WriteRdgPassSets( *descriptors.GetValue(), compute.GetLayouts(), resolved.GetValue(), pass );
+        if ( !sets )
+            return Common::MakeError( sets.GetError() );
+        if ( !other.Filled.empty() )
+        {
+            if ( sets.GetValue().empty() )
+                return Common::MakeFormattedError( "{}: the pipeline's setters fill set 0, which it has not", pass );
+            if ( const Common::BoolResultStr written = compute.WriteBoundResources( sets.GetValue()[0] );
+                 !written.IsSuccess() )
+                return Common::MakeFormattedError( "{}: {}", pass, written.GetError() );
+        }
+
+        vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, compute.GetVkPipeline() );
+        if ( !sets.GetValue().empty() )
+            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, compute.GetVkPipelineLayout(),
+                                     0, static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0,
+                                     nullptr );
+        const std::span<const std::byte> push = ChoosePushConstants( bindings, compute.GetBoundPushConstants() );
+        if ( !push.empty() )
+            vkCmdPushConstants( cmd.GetValue(), compute.GetVkPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                static_cast<uint32_t>( push.size() ), push.data() );
+        vkCmdDispatch( cmd.GetValue(), groupCountX, groupCountY, groupCountZ );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::DrawFullscreen( const RDG::PassBindings& bindings,
+                                                             const GraphicsPipeline&  pipeline,
+                                                             const MaterialExecutor*  material )
+    {
+        const RDG::PassContext&                  context = bindings.GetContext();
+        const std::string_view                   pass    = context.GetPassName();
+        const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !cmd )
+            return Common::MakeError( cmd.GetError() );
+        // BindGraphicsPipeline and DrawCounted record into the renderer's current command buffer, which the
+        // graph backend points at the segment the pass runs on (VulkanRdgBackend::SetRecordingListener).
+        if ( cmd.GetValue() != m_CurrentCommandBuffer )
+            return Common::MakeFormattedError(
+                 "{}: the renderer records into another command buffer than the pass's segment", pass );
+        const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors = VulkanRdgBackend::DescriptorsOf( context );
+        if ( !descriptors )
+            return Common::MakeError( descriptors.GetError() );
+
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
+        const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
+        auto*       shader   = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
+        if ( shader == nullptr )
+            return Common::MakeFormattedError( "{}: pipeline '{}' has no shader", pass,
+                                               pipeline.GetSpecification().DebugName );
+
+        // The other route: what the material wrote with a resource of its own (uniform values, asset
+        // textures), never a slot holding only its fallback.
+        RdgOtherRoute                       other;
+        VulkanMaterialBackend::WrittenSlots materialSlots;
+        std::span<const std::byte>          materialPush;
+        if ( material != nullptr )
+        {
+            material->Apply();
+            auto* backend = static_cast<VulkanMaterialBackend*>( material->GetMaterialBackend().get() );
+            if ( backend->HasDescriptorSets() )
+            {
+                const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+                auto           written    = backend->GetWrittenSlots( frameIndex );
+                if ( !written )
+                    return Common::MakeFormattedError( "{}: {}", pass, written.GetError() );
+                materialSlots = written.GetValue();
+                for ( const uint32_t binding : materialSlots.Bindings )
+                    other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
+            }
+            const auto& pc = material->GetPushConstantBuffer();
+            if ( pc.Size != 0u )
+            {
+                materialPush        = std::span<const std::byte>( reinterpret_cast<const std::byte*>( pc.Data ),
+                                                                  static_cast<size_t>( pc.Size ) );
+                other.PushConstants = true;
+            }
+        }
+
+        const ShaderResource::ReflectionData& reflection = shader->GetReflectionData();
+        const auto resolved = ResolveRdgPassBindings( reflection, shader->GetName(), bindings, other );
+        if ( !resolved )
+            return Common::MakeError( resolved.GetError() );
+        const std::vector<DescriptorSetLayoutRef>& layouts = graphics->GetLayouts();
+        const auto sets = WriteRdgPassSets( *descriptors.GetValue(), layouts, resolved.GetValue(), pass );
+        if ( !sets )
+            return Common::MakeError( sets.GetError() );
+
+        // The material's written slots are copied into this exec's set 0 from the material's own set.
+        if ( !materialSlots.Bindings.empty() )
+        {
+            if ( sets.GetValue().empty() )
+                return Common::MakeFormattedError( "{}: the material fills set 0, which the pipeline has not", pass );
+            std::vector<VkCopyDescriptorSet> copies;
+            copies.reserve( materialSlots.Bindings.size() );
+            for ( const uint32_t binding : materialSlots.Bindings )
+            {
+                const VkDescriptorSetLayoutBinding* entry = FindLayoutBinding( *layouts[0], binding );
+                if ( entry == nullptr )
+                    return Common::MakeFormattedError( "{}: material binding {} is not in the pipeline's set 0",
+                                                       pass, binding );
+                VkCopyDescriptorSet copy{ VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET };
+                copy.srcSet          = materialSlots.Set;
+                copy.srcBinding      = binding;
+                copy.dstSet          = sets.GetValue()[0];
+                copy.dstBinding      = binding;
+                copy.descriptorCount = entry->descriptorCount;
+                copies.push_back( copy );
+            }
+            const VkDevice device =
+                 SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+            vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
+        }
+
+        if ( !BindGraphicsPipeline( &pipeline ) )
+            return Common::MakeFormattedError( "{}: pipeline '{}' could not be bound in the open render pass", pass,
+                                               pipeline.GetSpecification().DebugName );
+        if ( !sets.GetValue().empty() )
+            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                     graphics->GetVkPipelineLayout(), 0,
+                                     static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0,
+                                     nullptr );
+        const std::span<const std::byte> push = ChoosePushConstants( bindings, materialPush );
+        if ( !push.empty() && reflection.PushConstantRanges.has_value() )
+            vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(),
+                                static_cast<VkShaderStageFlags>( reflection.PushConstantRanges->ShaderStage ), 0,
+                                static_cast<uint32_t>( push.size() ), push.data() );
+        // The draw SubmitFullscreenQuad records: the fullscreen vertex shaders build their quad from
+        // gl_VertexIndex over six vertices.
+        DrawCounted( 6, 1, 0, 0 );
+        return Common::MakeSuccess( true );
     }
 
     void VulkanRendererAPI::ComputeImageBeginWrite( Image* image )

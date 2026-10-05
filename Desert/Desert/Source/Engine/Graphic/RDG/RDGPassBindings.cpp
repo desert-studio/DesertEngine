@@ -34,7 +34,7 @@ namespace Desert::Graphic::RDG
     }
 
     PassBindings& PassBindings::Sampled( std::string_view shaderName, TextureRef texture, Access declared,
-                                         SubresourceRange range )
+                                         SubresourceRange range, SamplerDesc sampler )
     {
         if ( !m_FirstError.empty() )
             return *this;
@@ -66,7 +66,8 @@ namespace Desert::Graphic::RDG
                                             .Kind       = ShaderResourceKind::SampledTexture,
                                             .Texture    = resolved.GetValue(),
                                             .Range      = range,
-                                            .Declared   = declared } );
+                                            .Declared   = declared,
+                                            .Sampler    = sampler } );
         return *this;
     }
 

@@ -88,7 +88,7 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings,
                                                              const ComputePipeline& pipeline, uint32_t groupCountX,
                                                              uint32_t groupCountY, uint32_t groupCountZ );
-        // A fullscreen triangle inside the render pass the graph opened for this pass (its ColorTarget /
+        // The fullscreen quad (the six-vertex draw the fullscreen vertex shaders expect) inside the render pass the graph opened for this pass (its ColorTarget /
         // DepthTarget declarations). @p material supplies uniform values and asset textures only; may be null.
         [[nodiscard]] Common::BoolResultStr DrawFullscreen( const RDG::PassBindings& bindings,
                                                             const GraphicsPipeline&  pipeline,

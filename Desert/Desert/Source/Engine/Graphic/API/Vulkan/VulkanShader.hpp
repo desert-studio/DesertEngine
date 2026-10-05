@@ -150,6 +150,11 @@ namespace Desert::Graphic::API::Vulkan
             return m_ReloadGeneration;
         }
 
+        const ShaderResource::ReflectionData& GetReflectionData() const
+        {
+            return m_ReflectionData;
+        }
+
         auto& GetShaderDescriptorSets()
         {
             return m_ReflectionData.ShaderDescriptorSets;

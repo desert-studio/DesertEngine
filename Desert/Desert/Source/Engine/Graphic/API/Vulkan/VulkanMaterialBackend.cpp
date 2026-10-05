@@ -135,6 +135,21 @@ namespace Desert::Graphic::API::Vulkan
         return setIndex < handles.size() ? handles[setIndex] : VK_NULL_HANDLE;
     }
 
+    Common::ResultStr<VulkanMaterialBackend::WrittenSlots>
+    VulkanMaterialBackend::GetWrittenSlots( const uint32_t frameIndex )
+    {
+        IViewDescriptorSetCopy* sets = ActiveSets( frameIndex );
+        if ( sets == nullptr )
+            return Common::MakeFormattedError<WrittenSlots>( "material of shader '{}' has no descriptor sets",
+                                                             m_VulkanShader->GetName() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): AllocateViewSets makes only this type
+        const auto& handles = static_cast<VulkanViewSets*>( sets )->GetSets();
+        if ( handles.empty() )
+            return Common::MakeFormattedError<WrittenSlots>( "material of shader '{}' has no set 0",
+                                                             m_VulkanShader->GetName() );
+        return Common::MakeSuccess( WrittenSlots{ handles[0], sets->BoundCopies.GetWrittenBindings() } );
+    }
+
     void VulkanMaterialBackend::NoteDescriptorWrite( IViewDescriptorSetCopy& sets, const uint32_t binding,
                                                      const uint64_t handle )
     {

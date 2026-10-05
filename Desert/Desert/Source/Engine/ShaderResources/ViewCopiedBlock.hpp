@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -256,6 +257,18 @@ namespace Desert::ShaderResources
         void NoteWritten( const uint32_t binding, const uint64_t resourceId, const uint64_t propertyVersion )
         {
             m_Bound[binding] = Written{ resourceId, propertyVersion };
+        }
+
+        // Every binding written with a resource of its own (a fresh set holds only fallbacks and has none),
+        // sorted.
+        [[nodiscard]] std::vector<uint32_t> GetWrittenBindings() const
+        {
+            std::vector<uint32_t> bindings;
+            bindings.reserve( m_Bound.size() );
+            for ( const auto& [binding, written] : m_Bound )
+                bindings.push_back( binding );
+            std::sort( bindings.begin(), bindings.end() );
+            return bindings;
         }
 
     private:

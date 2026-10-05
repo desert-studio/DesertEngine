@@ -82,6 +82,11 @@ namespace Desert::Graphic::API::Vulkan
         // when the variant could not be created (logged once per key).
         VkPipeline GetVkPipelineFor( const RdgRenderPassKey& openPass );
 
+        // The descriptor set layouts m_PipelineLayout was built from, one per set.
+        const std::vector<DescriptorSetLayoutRef>& GetLayouts() const
+        {
+            return m_Layouts;
+        }
         VkPipelineLayout GetVkPipelineLayout() const
         {
             return m_PipelineLayout;

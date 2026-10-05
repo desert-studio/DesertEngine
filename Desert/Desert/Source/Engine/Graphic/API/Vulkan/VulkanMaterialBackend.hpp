@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <Engine/ShaderResources/ViewCopiedBlock.hpp>
 
 #include <Engine/Graphic/ViewDescriptorSets.hpp>
@@ -38,6 +40,16 @@ namespace Desert::Graphic::API::Vulkan
         // whatever the previous material left bound.
         [[nodiscard]] bool BindDescriptorSets( VkCommandBuffer cmdBuffer, VkPipelineLayout layout,
                                                VkPipelineBindPoint bindPoint, uint32_t frameIndex );
+
+        // The graph route's view of this material (VulkanRendererAPI::DrawFullscreen): the active view's set 0
+        // for @p frameIndex and the bindings of it the material wrote with a resource of its own - never a
+        // binding still holding the fallback the set was born with. Refused when the sets could not be made.
+        struct WrittenSlots
+        {
+            VkDescriptorSet       Set = VK_NULL_HANDLE;
+            std::vector<uint32_t> Bindings; // sorted
+        };
+        Common::ResultStr<WrittenSlots> GetWrittenSlots( uint32_t frameIndex );
 
         // True when the shader declares descriptor resources. The sets themselves are made per view, on
         // that view's first use (see Graphic::ViewDescriptorSets).

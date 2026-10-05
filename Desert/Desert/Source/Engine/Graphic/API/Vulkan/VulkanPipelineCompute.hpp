@@ -6,6 +6,12 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
+#include <cstddef>
+#include <span>
+#include <vector>
+
 namespace Desert::Graphic::API::Vulkan
 {
     class VulkanPipelineCompute final : public ComputePipeline
@@ -60,6 +66,22 @@ namespace Desert::Graphic::API::Vulkan
         void BindDescriptorSets( VkDescriptorSet descriptorSet, uint32_t frameIndex );
         void UpdateDescriptorSet( uint32_t frameIndex, const std::vector<VkWriteDescriptorSet>& writes,
                                   VkDescriptorSet descriptorSet, uint32_t setIndex = 0 );
+
+        // The descriptor set layouts this pipeline's layout was built from, one per set.
+        const std::vector<DescriptorSetLayoutRef>& GetLayouts() const
+        {
+            return m_Layouts;
+        }
+        // The set-0 bindings the pipeline's own setters (SetInput / SetOutput / SetStorageBuffer) fill: the
+        // "other route" of an in-graph dispatch (Renderer::DispatchCompute), sorted and unique.
+        std::vector<uint32_t> GetBoundBindings() const;
+        std::span<const std::byte> GetBoundPushConstants() const
+        {
+            return m_BoundPushConstants;
+        }
+        // Writes the resources the setters bound into @p descriptorSet (set 0). Refused, naming the pipeline and
+        // the binding, when a bound resource has no view or copy to write.
+        Common::BoolResultStr WriteBoundResources( VkDescriptorSet descriptorSet );
 
         VulkanMaterialBackend* GetVulkanMaterialBackend() const
         {

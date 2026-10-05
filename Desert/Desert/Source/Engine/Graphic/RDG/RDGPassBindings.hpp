@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -34,14 +35,77 @@
 // material fills are errors returned by the consumer, never a silent fallback image. Binding indices never
 // appear at a call site: they are the shader's business and drift with it.
 //
-// SAMPLERS. A sampled entry uses the sampler the backend already assigns to that shader slot for the material
-// path; the block carries no sampler of its own, so the same shader samples the same way on both routes.
+// SAMPLERS. A sampled entry names the sampler it is read with (SamplerDesc), as UE's pass parameters carry a
+// TStaticSamplerState next to the texture. There is no default and no implicit sampler on the graph route: the
+// call site passes one, usually a named constant (SamplerDesc::LinearClamp()). The backend turns the description
+// into a device object it caches for the device's lifetime (Vulkan: VulkanRdgPassDescriptors::GetSampler), so
+// equal descriptions share one object and nothing is created per frame. Asset textures bound through a material
+// keep the sampler their image owns; that is the other route and is unchanged.
 namespace Desert::Graphic::RDG
 {
+    enum class SamplerFilter : uint8_t
+    {
+        Nearest,
+        Linear,
+    };
+
+    // How a sampler moves between mips (Vulkan: VkSamplerMipmapMode).
+    enum class SamplerMipMode : uint8_t
+    {
+        Nearest,
+        Linear,
+    };
+
+    enum class SamplerAddress : uint8_t
+    {
+        ClampToEdge,
+        Repeat,
+        MirroredRepeat,
+    };
+
+    // The sampler a sampled entry is read with. Every field is given: there is no default-constructed sampler,
+    // so a call site cannot bind a texture without saying how it is filtered and addressed. Level of detail is
+    // unclamped (every mip of the bound view is reachable); a Mip(m) range already limits the view to one mip.
+    struct SamplerDesc
+    {
+        SamplerFilter  MinFilter;
+        SamplerFilter  MagFilter;
+        SamplerMipMode MipMode;
+        SamplerAddress AddressU;
+        SamplerAddress AddressV;
+        SamplerAddress AddressW;
+
+        static constexpr SamplerDesc LinearClamp()
+        {
+            return { SamplerFilter::Linear,       SamplerFilter::Linear,       SamplerMipMode::Linear,
+                     SamplerAddress::ClampToEdge, SamplerAddress::ClampToEdge, SamplerAddress::ClampToEdge };
+        }
+        static constexpr SamplerDesc PointClamp()
+        {
+            return { SamplerFilter::Nearest,      SamplerFilter::Nearest,      SamplerMipMode::Nearest,
+                     SamplerAddress::ClampToEdge, SamplerAddress::ClampToEdge, SamplerAddress::ClampToEdge };
+        }
+        static constexpr SamplerDesc LinearRepeat()
+        {
+            return { SamplerFilter::Linear,  SamplerFilter::Linear,  SamplerMipMode::Linear,
+                     SamplerAddress::Repeat, SamplerAddress::Repeat, SamplerAddress::Repeat };
+        }
+
+        // One value per distinct description: the key of the backend's sampler cache.
+        constexpr uint32_t GetKey() const
+        {
+            return static_cast<uint32_t>( MinFilter ) | ( static_cast<uint32_t>( MagFilter ) << 2 ) |
+                   ( static_cast<uint32_t>( MipMode ) << 4 ) | ( static_cast<uint32_t>( AddressU ) << 6 ) |
+                   ( static_cast<uint32_t>( AddressV ) << 9 ) | ( static_cast<uint32_t>( AddressW ) << 12 );
+        }
+
+        friend constexpr bool operator==( const SamplerDesc&, const SamplerDesc& ) = default;
+    };
+
     // What the shader slot is. Checked against the reflected descriptor type by the consumer.
     enum class ShaderResourceKind : uint8_t
     {
-        SampledTexture, // sampler2D / texture2D (+ the slot's sampler)
+        SampledTexture, // sampler2D, read with the entry's SamplerDesc
         StorageTexture, // image2D, one mip
         UniformBuffer,
         StorageBuffer,
@@ -56,6 +120,8 @@ namespace Desert::Graphic::RDG
         TextureBinding     Texture;
         SubresourceRange   Range    = SubresourceRange::All();
         Access             Declared = Access::None;
+        // Set for SampledTexture (the entry's sampler), empty for StorageTexture.
+        std::optional<SamplerDesc> Sampler;
     };
 
     struct BoundBuffer
@@ -82,11 +148,11 @@ namespace Desert::Graphic::RDG
         PassBindings( PassBindings&& )                 = delete;
         PassBindings& operator=( PassBindings&& )      = delete;
 
-        // A texture read through a sampler. @p declared is the access the setup declared for @p texture over
+        // A texture read through @p sampler. @p declared is the access the setup declared for @p texture over
         // @p range (SampledCompute / SampledGraphics). @p range = Mip(m) gives a view of that mip alone (the
         // shader samples it at lod 0), All the whole image.
         PassBindings& Sampled( std::string_view shaderName, TextureRef texture, Access declared,
-                               SubresourceRange range = SubresourceRange::All() );
+                               SubresourceRange range, SamplerDesc sampler );
         // A storage image, one mip over every layer. @p declared is StorageWrite or StorageRead as declared
         // for Mip(@p mip).
         PassBindings& Storage( std::string_view shaderName, TextureRef texture, Access declared,
