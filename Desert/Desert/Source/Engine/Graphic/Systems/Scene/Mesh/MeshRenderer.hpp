@@ -29,7 +29,6 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 
-#include <array>
 #include <memory>
 #include <string>
 #include <utility>
@@ -185,15 +184,9 @@ namespace Desert::Graphic::System
         // scene, inside the "Deferred: Glass" graph node whose @p context this is. @p sceneCopy is this frame's
         // snapshot of the opaque scene (FrameTransients::SceneColorCopy, declared as a read of the node); the
         // glass samples it for refraction as u_SceneColor through RDG::PassBindings and draws every object via
-        // Renderer::RenderMesh( bindings, ... ). @p shadowMaps are the cascades u_ShadowMap0..3 as graph textures,
-        // one per slot (cascade c past GetValidCascadeCount() is the engine's System.White, as in the deferred
-        // composite), every one declared as a read of the node; bound by name here and never through the material
-        // (PBRSceneFrame::ApplyTo is handed a snapshot without cascade maps), so each slot has exactly one route.
-        // Nothing to draw is success; a refused draw is the error.
-        using GlassShadowMaps = std::array<RDG::TextureRef, MaterialPBRBase::kMaxCascades>;
+        // Renderer::RenderMesh( bindings, ... ). Nothing to draw is success; a refused draw is the error.
         [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context,
-                                                               RDG::TextureRef         sceneCopy,
-                                                               const GlassShadowMaps&  shadowMaps );
+                                                               RDG::TextureRef         sceneCopy );
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
         // this they simply vanish in Deferred. Forward path draws them inside MeshGeometryPass.

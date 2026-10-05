@@ -2234,22 +2234,17 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
         EXPECT_EQ( body.find( "TransitionLayout(" ), std::string::npos ) << function;
     }
 
-    // RDG-A2-W4: the glass cascades u_ShadowMap0..3 are the node's graph reads bound by name (System.White past
-    // the valid count, built in AddFrameGlass), and the material snapshot carries no cascade map - one route per
-    // slot.
+    // The glass shader (StaticMeshGlass) has no cascade slot: the glass pass neither declares nor binds the
+    // cascades. Binding u_ShadowMap0..3 by name there is refused ("not a resource of shader 'StaticMeshGlass'")
+    // and takes the whole frame graph down with it - the RDG-A2-W4 regression the live editor showed.
     std::string glass =
          bodyOf( read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" ),
                  "RenderGlassManual" );
     std::erase_if( glass, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
-    EXPECT_NE( glass.find( "bindings.Sampled(MaterialPBRBase::kShadowMapNames[i],shadowMaps[i]," ),
-               std::string::npos );
-    EXPECT_NE(
-         glass.find( "std::fill(std::begin(frameState.CascadeMaps),std::end(frameState.CascadeMaps),nullptr)" ),
-         std::string::npos );
-    EXPECT_NE( collapsed.find( "shadowMaps[c]=ref.IsValid()?ref:refs.System.White;" ), std::string::npos );
+    EXPECT_EQ( glass.find( "kShadowMapNames" ), std::string::npos );
 
-    // The deferred composite follows the same rule: a cascade that exists this frame is its graph texture, the
-    // rest read the white system texture (no shadow). Always-white would light every pixel as unshadowed.
+    // The deferred composite: a cascade that exists this frame is its graph texture, the rest read the white
+    // system texture (no shadow). Always-white would light every pixel as unshadowed.
     std::string deferred = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
     std::erase_if( deferred, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
     EXPECT_NE( deferred.find( "inputs.ShadowMaps[c]=ref.IsValid()?ref:refs.System.White;" ), std::string::npos );
