@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "c723dc3007b54940920b8c56f36b51da",
         "Versions": {
-            "SCNE": 41,
+            "SCNE": 42,
             "UNIT": 1
         },
         "Dependencies": []
@@ -76,6 +76,8 @@
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Material": "",
                 "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
                 "Circle": false,
                 "RingWidth": 0.0,
                 "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
@@ -137,7 +139,11 @@
                 "ShadowColor": [0.0, 0.0, 0.0],
                 "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [0.0, 0.0, 0.0]
+                "OutlineColor": [0.0, 0.0, 0.0],
+                "Glow": false,
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
+                "GlowRadius": 6.0,
+                "GlowStrength": 0.5
             }
         },
         {
@@ -182,7 +188,11 @@
                 "ShadowColor": [0.0, 0.0, 0.0],
                 "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [0.0, 0.0, 0.0]
+                "OutlineColor": [0.0, 0.0, 0.0],
+                "Glow": false,
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
+                "GlowRadius": 6.0,
+                "GlowStrength": 0.5
             },
             "UIBinding": {
                 "Key": "probe.inventory.caption",
@@ -259,6 +269,8 @@
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Material": "",
                 "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
                 "Circle": false,
                 "RingWidth": 0.0,
                 "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
@@ -324,7 +336,11 @@
                 "ShadowColor": [0.0, 0.0, 0.0],
                 "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [0.0, 0.0, 0.0]
+                "OutlineColor": [0.0, 0.0, 0.0],
+                "Glow": false,
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
+                "GlowRadius": 6.0,
+                "GlowStrength": 0.5
             },
             "UIBinding": {
                 "Key": "name",
@@ -373,7 +389,11 @@
                 "ShadowColor": [0.0, 0.0, 0.0],
                 "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [0.0, 0.0, 0.0]
+                "OutlineColor": [0.0, 0.0, 0.0],
+                "Glow": false,
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
+                "GlowRadius": 6.0,
+                "GlowStrength": 0.5
             },
             "UIBinding": {
                 "Key": "count",
@@ -450,6 +470,8 @@
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Material": "",
                 "Video": "",
+                "VideoVolume": 1.0,
+                "VideoMuted": false,
                 "Circle": false,
                 "RingWidth": 0.0,
                 "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
@@ -511,7 +533,11 @@
                 "ShadowColor": [0.0, 0.0, 0.0],
                 "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [0.0, 0.0, 0.0]
+                "OutlineColor": [0.0, 0.0, 0.0],
+                "Glow": false,
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
+                "GlowRadius": 6.0,
+                "GlowStrength": 0.5
             },
             "UIBinding": {
                 "Key": "from",
@@ -560,7 +586,11 @@
                 "ShadowColor": [0.0, 0.0, 0.0],
                 "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [0.0, 0.0, 0.0]
+                "OutlineColor": [0.0, 0.0, 0.0],
+                "Glow": false,
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
+                "GlowRadius": 6.0,
+                "GlowStrength": 0.5
             },
             "UIBinding": {
                 "Key": "line",
