@@ -69,6 +69,11 @@ namespace Desert::Runtime
 
     Graphic::Image* ImageService::Resolve( const ImageHandle& handle ) const
     {
+        return Share( handle ).get();
+    }
+
+    std::shared_ptr<Graphic::Image> ImageService::Share( const ImageHandle& handle ) const
+    {
         if ( handle.Value.Index >= m_Images.size() )
             return nullptr;
 
@@ -87,7 +92,7 @@ namespace Desert::Runtime
             return nullptr;
         }
 
-        return m_Images[handle.Value.Index].get();
+        return m_Images[handle.Value.Index];
     }
 
 } // namespace Desert::Runtime

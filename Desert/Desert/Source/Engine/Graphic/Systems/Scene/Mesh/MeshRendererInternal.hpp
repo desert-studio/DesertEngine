@@ -9,6 +9,7 @@
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRPush.hpp>
@@ -28,6 +29,9 @@
 #include <cmath>
 #include <algorithm>
 #include <unordered_set>
+#include <unordered_map>
+#include <optional>
+#include <memory>
 
 namespace Desert::Graphic::System
 {
@@ -37,32 +41,51 @@ namespace Desert::Graphic::System
         PBRGpuMaterial    BuildEffectiveMaterial( MaterialPBR* material, MaterialInstance* instance );
         MaterialInstance* FirstPBRSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path );
 
-        // The PassBindings of one mesh node (UE: the mesh pass's pass parameters), two blocks over the node's
-        // PassContext: Plain binds nothing (the material fills every slot), Lit binds the cloud-shadow map
-        // (CloudShadowMapOrWhite, declared by the node as a SampledGraphics read) as u_CloudShadowMap. For()
-        // picks by what the material's SHADER declares, so a custom shader without the receiver is not handed a
-        // name it does not have. A node that declares no cloud read passes an invalid ref: every draw is Plain.
+        static_assert( MaterialPBRBase::kMaxCascades == kSceneViewShadowCascades,
+                       "the lit materials' cascade count is the scene/view inputs' cascade count" );
+
+        // The PassBindings of one mesh node (UE: the mesh pass's pass parameters) over the node's PassContext.
+        // Plain binds nothing (the material fills every slot it owns); a node constructed with the frame's
+        // SceneViewInputs binds them (BindSceneViewInputs: shadow cascades, environment cubes, BRDF LUT, cloud
+        // shadow map) for every draw whose SHADER samples them, by its reflected resource list - so a custom
+        // shader without the receivers is never handed a name it does not have. One block per shader, built on
+        // its first draw in the node.
         class MeshPassBindings
         {
         public:
-            MeshPassBindings( const RDG::PassContext& context, RDG::TextureRef cloudShadowMap )
-                 : m_Plain( context ), m_Lit( context ), m_HasCloud( cloudShadowMap.IsValid() )
+            explicit MeshPassBindings( const RDG::PassContext& context ) : m_Context( context ), m_Plain( context )
             {
-                if ( m_HasCloud )
-                    m_Lit.Sampled( "u_CloudShadowMap", cloudShadowMap, RDG::Access::SampledGraphics,
-                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+            }
+            MeshPassBindings( const RDG::PassContext& context, const SceneViewInputs& view )
+                 : m_Context( context ), m_Plain( context ), m_View( view )
+            {
             }
 
             [[nodiscard]] const RDG::PassBindings& For( const MaterialExecutor& material ) const
             {
-                static const std::string kCloudShadowMap = "u_CloudShadowMap";
-                return m_HasCloud && material.GetTexture2DProperty( kCloudShadowMap ) ? m_Lit : m_Plain;
+                const std::shared_ptr<Shader> shader = material.GetShader();
+                if ( !m_View || !shader )
+                    return m_Plain;
+                auto it = m_ByShader.find( shader.get() );
+                if ( it == m_ByShader.end() )
+                {
+                    std::unique_ptr<RDG::PassBindings> lit;
+                    if ( SamplesSceneViewInputs( *shader ) )
+                    {
+                        lit = std::make_unique<RDG::PassBindings>( m_Context );
+                        BindSceneViewInputs( *lit, *m_View, *shader );
+                    }
+                    it = m_ByShader.emplace( shader.get(), std::move( lit ) ).first;
+                }
+                return it->second ? *it->second : m_Plain;
             }
 
         private:
-            RDG::PassBindings m_Plain;
-            RDG::PassBindings m_Lit;
-            bool              m_HasCloud = false;
+            const RDG::PassContext&        m_Context;
+            RDG::PassBindings              m_Plain;
+            std::optional<SceneViewInputs> m_View;
+            // nullptr: the shader samples no scene/view input (Plain).
+            mutable std::unordered_map<const Shader*, std::unique_ptr<RDG::PassBindings>> m_ByShader;
         };
 
         // THE mesh draw of every MeshRenderer pass: Renderer::RenderMesh( bindings, ... ) with the bindings

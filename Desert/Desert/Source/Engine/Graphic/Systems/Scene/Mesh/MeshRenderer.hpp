@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
@@ -190,21 +191,21 @@ namespace Desert::Graphic::System
         // snapshot of the opaque scene (FrameTransients::SceneColorCopy, declared as a read of the node); the
         // glass samples it for refraction as u_SceneColor through RDG::PassBindings and draws every object via
         // Renderer::RenderMesh( bindings, ... ). Nothing to draw is success; a refused draw is the error.
-        // @p cloudShadowMap (CloudShadowMapOrWhite, declared by the node) is bound as u_CloudShadowMap.
+        // @p view (SceneViewInputsOf, declared by the node) is bound for the inputs the glass shader samples.
         [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context,
                                                                RDG::TextureRef         sceneCopy,
-                                                               RDG::TextureRef         cloudShadowMap );
+                                                               const SceneViewInputs&  view );
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
         // this they simply vanish in Deferred. Forward path draws them inside MeshGeometryPass.
-        // @p cloudShadowMap (declared by the node) is the u_CloudShadowMap of every draw whose shader samples it.
+        // @p view (SceneViewInputsOf, declared by the node) is bound for every draw whose shader samples it.
         [[nodiscard]] Common::BoolResultStr RenderGenericManual( const RDG::PassContext& context,
-                                                                 RDG::TextureRef         cloudShadowMap );
+                                                                 const SceneViewInputs&  view );
         // Deferred path: draws SKINNED meshes forward over the deferred lighting composite (they have no
         // G-buffer variant, so without this they only appear in the silhouette/outline pass — invisible
         // otherwise). Forward path draws them inside MeshGeometryPass.
         [[nodiscard]] Common::BoolResultStr RenderSkinnedManual( const RDG::PassContext& context,
-                                                                 RDG::TextureRef         cloudShadowMap );
+                                                                 const SceneViewInputs&  view );
         // Reflective Shadow Map: the G-buffer rasterized from the SUN instead of the camera, into the scene
         // renderer's RSM buffer. Every lit texel becomes a virtual point light for the RSM GI mode, which is
         // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists.

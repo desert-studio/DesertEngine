@@ -582,6 +582,9 @@ namespace Desert::Graphic
                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,
                           const glm::mat4& viewProj, const glm::vec4& cameraPos );
         void AddFrameParticlesSimulate( RDG::Builder& graph, const UpdateInfo& sceneRenderInfo );
+        // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
+        // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
+        void ImportSceneViewTextures( FrameTextures& textures );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );

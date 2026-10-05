@@ -80,19 +80,6 @@ namespace Desert::Graphic
                            return BOOLSUCCESS;
                        } );
         }
-
-        // The shadow images a lit forward pass samples (SceneRenderer::DeclareShadowReads), as graph textures.
-        // When one cannot be imported the error is logged and the pass declares none of them.
-        std::vector<RDG::TextureRef> ShadowSamples( const SceneRenderer& renderer, FrameTextures& textures,
-                                                    std::string_view node )
-        {
-            RenderPassDeclaration declared;
-            renderer.DeclareShadowReads( declared );
-            std::vector<RDG::TextureRef> images;
-            if ( !ResolveDeclared( textures, declared, node, images ) )
-                images.clear();
-            return images;
-        }
     } // namespace
 
     void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, FrameTextures&            textures,
@@ -205,13 +192,12 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || !meshRenderer )
             return;
-        // The cloud layer's shadow map is a pass parameter of the node, read beside the shadow cascades.
-        const RDG::TextureRef        cloud   = CloudShadowMapOrWhite( textures.GraphRefs() );
-        std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Generic" );
-        sampled.push_back( cloud );
+        // The scene/view inputs (cascades, environment cubes, BRDF LUT, cloud shadow map) are pass parameters.
+        const SceneViewInputs              view    = SceneViewInputsOf( textures.GraphRefs() );
+        const std::vector<RDG::TextureRef> sampled = view.Refs();
         AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, cloud]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGenericManual( context, cloud ); } );
+                   [meshRenderer, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderGenericManual( context, view ); } );
     }
 
     void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,
@@ -220,13 +206,12 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
         if ( !targets || !meshRenderer )
             return;
-        // The cloud layer's shadow map is a pass parameter of the node, read beside the shadow cascades.
-        const RDG::TextureRef        cloud   = CloudShadowMapOrWhite( textures.GraphRefs() );
-        std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Skinned" );
-        sampled.push_back( cloud );
+        // The scene/view inputs (cascades, environment cubes, BRDF LUT, cloud shadow map) are pass parameters.
+        const SceneViewInputs              view    = SceneViewInputsOf( textures.GraphRefs() );
+        const std::vector<RDG::TextureRef> sampled = view.Refs();
         AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, cloud]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderSkinnedManual( context, cloud ); } );
+                   [meshRenderer, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderSkinnedManual( context, view ); } );
     }
 
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
@@ -237,15 +222,14 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
         if ( !targets )
             return;
-        // The glass samples the scene copy for its refraction (bound by name in the body), and the shadow maps as
-        // every lit forward pass does.
-        const RDG::TextureRef        cloud   = CloudShadowMapOrWhite( textures.GraphRefs() );
-        std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Glass" );
+        // The glass samples the scene copy for its refraction and the scene/view inputs, both bound by name in
+        // the body.
+        const SceneViewInputs        view    = SceneViewInputsOf( textures.GraphRefs() );
+        std::vector<RDG::TextureRef> sampled = view.Refs();
         sampled.push_back( sceneCopy );
-        sampled.push_back( cloud );
         AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, sceneCopy, cloud]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGlassManual( context, sceneCopy, cloud ); } );
+                   [meshRenderer, sceneCopy, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderGlassManual( context, sceneCopy, view ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS

@@ -14,7 +14,7 @@ namespace Desert::Graphic::System
         // The graph opens the render pass and clears it to ZERO (SceneRenderer::AddFrameGBuffer). The G-buffer
         // shaders sample no scene input, so the node binds no cloud map: every draw is Plain.
         m_DeferredGeometry                = true;
-        const Common::BoolResultStr drawn = DrawStaticMeshes( MeshPassBindings( context, RDG::TextureRef{} ) );
+        const Common::BoolResultStr drawn = DrawStaticMeshes( MeshPassBindings( context ) );
         m_DeferredGeometry                = false;
         return drawn;
     }

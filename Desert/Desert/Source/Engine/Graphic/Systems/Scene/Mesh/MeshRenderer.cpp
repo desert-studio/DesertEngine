@@ -238,7 +238,7 @@ namespace Desert::Graphic::System
                            // two `GetXLights()` calls that fed this one were a per-frame walk of the
                            // scene's light components for nothing.
                            // The cloud layer's shadow map is a pass parameter of this node (declared below).
-                           const MeshPassBindings pass( context, CloudShadowMapOrWhite( refs ) );
+                           const MeshPassBindings pass( context, SceneViewInputsOf( refs ) );
                            if ( auto drawn = DrawStaticMeshes( pass ); !drawn.IsSuccess() )
                                return drawn;
                            if ( auto drawn = DrawSkinnedMeshes( /*useLoadPass*/ false, pass ); !drawn.IsSuccess() )
@@ -249,9 +249,10 @@ namespace Desert::Graphic::System
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
-            m_SceneRenderer->DeclareShadowReads( declared );
-            declared.Read( CloudShadowMapOrWhite( refs ), RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All() );
+            // The scene/view inputs the lit draws sample (SceneViewInputs: cascades, environment cubes, BRDF LUT,
+            // cloud shadow map), each a pass parameter the body binds.
+            for ( const RDG::TextureRef input : SceneViewInputsOf( refs ).Refs() )
+                declared.Read( input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
         };
 
         // NOTE: the deferred G-buffer geometry is NOT a graph pass — it's rendered MANUALLY via

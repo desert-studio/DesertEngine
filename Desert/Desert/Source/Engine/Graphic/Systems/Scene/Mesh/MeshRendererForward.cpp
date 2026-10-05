@@ -12,35 +12,6 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // Every scene-input slot of the glass shader is filled by exactly ONE route every frame (the
-        // deferred composite's rule, MaterialDeferredLighting::BindInputs): PBRSceneFrame::ApplyTo writes
-        // what this frame has, and this writes the explicit engine default for what it does not - never the
-        // material's construction-time fallback, which BindGraphicsPassState refuses as "filled neither".
-        //   env cubes absent    -> the fallback cube (the split-sum ambient reads zero)
-        //   BRDF LUT absent     -> Black (no specular ambient term)
-        //   normal map          -> FlatNormal (the glass draws share one material; no object has normal
-        //                         detail, which the old route expressed by leaving the slot on the fallback)
-        // The glass shader (StaticMeshGlass) samples no shadow cascade, so there is nothing to write for them.
-        // u_CloudShadowMap is not the material's: the "Deferred: Glass" node binds it (CloudShadowMapOrWhite).
-        void BindGlassFrameDefaults( Material& material, const PBRSceneFrame& frame )
-        {
-            const auto& emptyCube =
-                 FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
-            if ( !frame.IrradianceMap )
-                if ( auto* tex = material.Get<TextureCubeProperty>( MaterialPBRBase::kEnvIrradianceName ) )
-                    tex->SetTexture( emptyCube.get() );
-            if ( !frame.PrefilteredMap )
-                if ( auto* tex = material.Get<TextureCubeProperty>( MaterialPBRBase::kEnvSpecularName ) )
-                    tex->SetTexture( emptyCube.get() );
-            if ( !frame.BrdfLut )
-                if ( auto* tex = material.Get<Texture2DProperty>( MaterialPBRBase::kBrdfLutName ) )
-                    tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::Black ).get(),
-                                   RDG::Access::SampledGraphics );
-            if ( auto* tex = material.Get<Texture2DProperty>( "u_NormalTexture" ) )
-                tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::FlatNormal ).get(),
-                               RDG::Access::SampledGraphics );
-        }
-
         constexpr std::string_view kGenericMeshNameFormat = "GenericMesh_{}";
 
         // The texture half of a shared generic material's identity.
@@ -469,7 +440,7 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr MeshRenderer::RenderGenericManual( const RDG::PassContext& context,
-                                                             const RDG::TextureRef   cloudShadowMap )
+                                                             const SceneViewInputs&  view )
     {
         const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
@@ -481,12 +452,12 @@ namespace Desert::Graphic::System
         }
 
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        return DrawGenericMeshes( /*useLoadPass*/ true, MeshPassBindings( context, cloudShadowMap ) );
+        return DrawGenericMeshes( /*useLoadPass*/ true, MeshPassBindings( context, view ) );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context,
                                                            const RDG::TextureRef   sceneCopy,
-                                                           const RDG::TextureRef   cloudShadowMap )
+                                                           const SceneViewInputs&  view )
     {
         if ( !m_StaticGlassPipeline || !m_GlassMaterial || !m_GlassInstance || m_StaticQueue.empty() )
             return BOOLSUCCESS;
@@ -532,7 +503,6 @@ namespace Desert::Graphic::System
         MaterialInstance*   gi         = m_GlassInstance.get();
         const PBRSceneFrame frameState = CaptureFrameState( camera );
         frameState.ApplyTo( gi );
-        BindGlassFrameDefaults( *m_GlassMaterial, frameState );
 
         // The scene snapshot the glass samples for refraction (binding 19, glass-shader-only) is this frame's
         // graph transient, bound by name; the sampler is the one the material route sampled the copy with (the
@@ -540,9 +510,9 @@ namespace Desert::Graphic::System
         RDG::PassBindings bindings( context );
         bindings.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                           RDG::SamplerDesc::LinearRepeat() );
-        // The cloud layer's shadow map (or System.White), a pass parameter of the node like the scene copy.
-        bindings.Sampled( "u_CloudShadowMap", cloudShadowMap, RDG::Access::SampledGraphics,
-                          RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+        // The scene/view inputs the glass shader samples (the environment cubes, the BRDF LUT, the cloud
+        // shadow map; it samples no cascade), pass parameters of the node like the scene copy.
+        BindSceneViewInputs( bindings, view, *m_GlassMaterial->GetMaterialExecutor()->GetShader() );
 
         // --- Draw the glass over the composited scene: the graph opens the render pass (LOAD + blend) ---
         const MaterialExecutor& executor = *m_GlassMaterial->GetMaterialExecutor();
@@ -1242,7 +1212,7 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr MeshRenderer::RenderSkinnedManual( const RDG::PassContext& context,
-                                                             const RDG::TextureRef   cloudShadowMap )
+                                                             const SceneViewInputs&  view )
     {
         if ( m_SkinnedQueue.empty() )
             return BOOLSUCCESS;
@@ -1251,7 +1221,7 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
 
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        return DrawSkinnedMeshes( /*useLoadPass*/ true, MeshPassBindings( context, cloudShadowMap ) );
+        return DrawSkinnedMeshes( /*useLoadPass*/ true, MeshPassBindings( context, view ) );
     }
 
     bool MeshRenderer::SetupGeometryPass()
@@ -1378,6 +1348,11 @@ namespace Desert::Graphic::System
         m_GlassMaterial = MaterialPBR::Create( MeshVertexPath::Static, MeshPass::Glass );
         if ( !m_GlassMaterial )
             return false;
+        // The glass draws share this one material, so no object has normal detail: its normal map is the flat
+        // normal, a material parameter set once here.
+        if ( auto* normal = m_GlassMaterial->Get<Texture2DProperty>( "u_NormalTexture" ) )
+            normal->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::FlatNormal ).get(),
+                              RDG::Access::SampledGraphics );
         m_GlassInstance = m_GlassMaterial->CreateInstance();
         return m_GlassMaterial && m_GlassInstance;
     }

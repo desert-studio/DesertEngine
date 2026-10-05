@@ -16,6 +16,9 @@ namespace Desert::Runtime
         [[nodiscard]] ImageHandle Register( std::shared_ptr<Graphic::Image>&& image, ImageHandle::Type type );
         void                      Unregister( const ImageHandle& handle );
         Graphic::Image*           Resolve( const ImageHandle& handle ) const;
+        // The owning pointer behind @p handle (null exactly when Resolve is): for a holder that must keep the
+        // image alive or track it (the frame graph's import), never to bypass Resolve's staleness check.
+        [[nodiscard]] std::shared_ptr<Graphic::Image> Share( const ImageHandle& handle ) const;
 
         // All registered images (for global operations like recreating samplers on a filter change).
         [[nodiscard]] const std::vector<std::shared_ptr<Graphic::Image>>& All() const

@@ -302,12 +302,19 @@ TEST( EnvironmentViewMemory, TheForwardApplierStatesAbsence )
                  "inline void SceneEnvironmentBind" );
     ASSERT_FALSE( body.empty() ) << "SceneEnvironmentBind is not where this suite expects it";
 
-    EXPECT_EQ( body.find( "if ( irradiance )" ), std::string::npos )
-         << "SceneEnvironmentBind binds the irradiance cube only when it exists, so a scene with no sky "
-            "leaves the previous scene's cube in the descriptor";
-    EXPECT_EQ( body.find( "if ( prefiltered )" ), std::string::npos ) << "same for the prefiltered cube";
-    EXPECT_NE( body.find( "SetTexture( irradiance )" ), std::string::npos );
-    EXPECT_NE( body.find( "SetTexture( prefiltered )" ), std::string::npos );
+    // MESH-PB1: the cubes are pass parameters - a graph ref of THIS frame, or System.BlackCube - so no material
+    // slot can remember the previous scene's sky. The forward applier writes only the look.
+    EXPECT_EQ( body.find( "SetTexture(" ), std::string::npos )
+         << "SceneEnvironmentBind writes an environment cube onto the material again";
+    const std::string refs =
+         BodyOf( StripComments( ReadAll( root + "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" ) ),
+                 "inline SceneViewInputs SceneViewInputsOf" );
+    ASSERT_FALSE( refs.empty() ) << "SceneViewInputsOf is not where this suite expects it";
+    EXPECT_NE( refs.find( "t.EnvIrradiance.IsValid() ? t.EnvIrradiance : refs.System.BlackCube" ),
+               std::string::npos )
+         << "an absent irradiance cube must be stated as the empty cube";
+    EXPECT_NE( refs.find( "t.EnvSpecular.IsValid() ? t.EnvSpecular : refs.System.BlackCube" ), std::string::npos )
+         << "an absent prefiltered cube must be stated as the empty cube";
 }
 
 TEST( EnvironmentViewMemory, TheDeferredCompositeStatesAbsence )
@@ -325,8 +332,8 @@ TEST( EnvironmentViewMemory, TheDeferredCompositeStatesAbsence )
             "reads as caution and is how one scene's sky survives into the next: a slot that is not "
             "written keeps what it had. Completeness is reported by "
             "DeferredLightingRenderer::ReportEnvironmentGap; it must not decide whether to write.";
-    EXPECT_NE( body.find( "SetTexture( environment.Irradiance )" ), std::string::npos );
-    EXPECT_NE( body.find( "SetTexture( environment.Prefiltered )" ), std::string::npos );
+    EXPECT_EQ( body.find( "SetTexture(" ), std::string::npos )
+         << "the composite's cubes are pass parameters (SceneViewInputs), never material writes";
 }
 
 // The slot property itself, read as text: the guard that was removed must not come back wearing a

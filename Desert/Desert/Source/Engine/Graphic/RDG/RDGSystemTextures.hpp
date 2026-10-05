@@ -15,13 +15,17 @@ namespace Desert::Graphic::RDG
     {
         TextureRef Black; // 1x1 opaque black (DefaultTextureKind::Black)
         TextureRef White; // 1x1 white (DefaultTextureKind::White)
+        // The empty environment: the engine's black cube (UE GBlackTextureCube), sampled where a scene has no
+        // baked sky - the split-sum ambient reads zero.
+        TextureRef BlackCube;
     };
 
-    // Registers @p black and @p white (externals already holding the engine images and their recorded layouts)
-    // in @p graph under the names "System.Black" / "System.White".
-    inline SystemTextures RegisterSystemTextures( Builder& graph, ExternalTexture& black, ExternalTexture& white )
+    // Registers @p black, @p white and @p blackCube (externals already holding the engine images and their
+    // recorded layouts) in @p graph under the names "System.Black" / "System.White" / "System.BlackCube".
+    inline SystemTextures RegisterSystemTextures( Builder& graph, ExternalTexture& black, ExternalTexture& white,
+                                                  ExternalTexture& blackCube )
     {
-        return { graph.RegisterExternal( black, "System.Black" ),
-                 graph.RegisterExternal( white, "System.White" ) };
+        return { graph.RegisterExternal( black, "System.Black" ), graph.RegisterExternal( white, "System.White" ),
+                 graph.RegisterExternal( blackCube, "System.BlackCube" ) };
     }
 } // namespace Desert::Graphic::RDG

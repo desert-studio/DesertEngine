@@ -2817,3 +2817,39 @@ TEST( RenderGraphCompile, ExecuteWalksSegmentsAndReportsDemotionOncePerBackend )
     EXPECT_EQ( std::count( separate.Calls.begin(), separate.Calls.end(), "Epilogue 2" ), 1 );
     EXPECT_EQ( std::count( separate.Calls.begin(), separate.Calls.end(), "Epilogue 1" ), 1 );
 }
+
+// MESH-PB1: the lit mesh nodes declare the scene/view inputs they bind (SceneViewInputs: shadow cascades,
+// environment cubes, BRDF LUT, cloud shadow map). A body that binds a texture its node did not declare is refused
+// by the graph at run time; this keeps the declaration from being dropped while the binding stays.
+TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const auto read = [&root]( const char* relative )
+    {
+        std::ifstream file( root / relative );
+        EXPECT_TRUE( file ) << relative << " is gone";
+        return std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() );
+    };
+    const std::string mesh = read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+    EXPECT_NE( mesh.find( "for ( const RDG::TextureRef input : SceneViewInputsOf( refs ).Refs() )" ),
+               std::string::npos )
+         << "MeshGeometryPass no longer declares the scene/view inputs";
+    EXPECT_NE( mesh.find( "declared.Read( input, RDG::Access::SampledGraphics" ), std::string::npos );
+
+    const std::string frame    = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
+    size_t            declared = 0;
+    for ( size_t at = frame.find( "= view.Refs();" ); at != std::string::npos;
+          at        = frame.find( "= view.Refs();", at + 1 ) )
+        ++declared;
+    EXPECT_EQ( declared, 3u ) << "Deferred: Generic / Skinned / Glass each declare SceneViewInputs::Refs()";
+
+    const std::string refs = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
+    EXPECT_NE( refs.find( "{ EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap }" ), std::string::npos )
+         << "SceneViewInputs::Refs() must name every input it binds, the cloud map included";
+
+    const std::string composite = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    EXPECT_NE( composite.find( "const std::vector<RDG::TextureRef> view = inputs.View.Refs();" ),
+               std::string::npos )
+         << "Deferred: Composite no longer declares the scene/view inputs";
+}
