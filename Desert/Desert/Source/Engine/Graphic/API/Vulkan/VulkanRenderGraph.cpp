@@ -939,7 +939,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( backend.GetKind() != RDG::BackendKind::Vulkan )
             return Common::MakeFormattedError<VkCommandBuffer>( "pass '{}' is not recorded by the Vulkan backend",
                                                                 context.GetPassName() );
-        const VkCommandBuffer commandBuffer = static_cast<VulkanRdgBackend&>( backend ).m_CommandBuffer;
+        // GetKind() is Vulkan (checked above), and VulkanRdgBackend is the one backend that answers so.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        VkCommandBuffer commandBuffer = static_cast<VulkanRdgBackend&>( backend ).m_CommandBuffer;
         if ( commandBuffer == VK_NULL_HANDLE )
             return Common::MakeFormattedError<VkCommandBuffer>( "pass '{}': the backend has no command buffer",
                                                                 context.GetPassName() );
@@ -987,6 +989,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( binding.Physical == nullptr || binding.Physical->GetBackendKind() != RDG::BackendKind::Vulkan )
             return Common::MakeFormattedError<VulkanRdgTexture*>( "texture '{}' has no Vulkan image",
                                                                   binding.Name );
+        // GetBackendKind() is Vulkan (checked above), and only VulkanRdgTexture answers so.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
         return Common::MakeSuccess( static_cast<VulkanRdgTexture*>( binding.Physical ) );
     }
 
@@ -995,6 +999,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( binding.Physical == nullptr || binding.Physical->GetBackendKind() != RDG::BackendKind::Vulkan )
             return Common::MakeFormattedError<VulkanRdgBuffer*>( "buffer '{}' has no Vulkan buffer",
                                                                  binding.Name );
+        // GetBackendKind() is Vulkan (checked above), and only VulkanRdgBuffer answers so.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
         return Common::MakeSuccess( static_cast<VulkanRdgBuffer*>( binding.Physical ) );
     }
 
@@ -1083,7 +1089,7 @@ namespace Desert::Graphic::API::Vulkan
                 continue;
             if ( view.Kind == RDG::ResourceKind::Texture )
             {
-                if ( view.ExternalTex )
+                if ( view.ExternalTex != nullptr )
                 {
                     const std::shared_ptr<RDG::IPhysicalTexture>& physical = view.ExternalTex->Physical;
                     if ( !physical || physical->GetBackendKind() != RDG::BackendKind::Vulkan )
@@ -1104,7 +1110,7 @@ namespace Desert::Graphic::API::Vulkan
             }
             else
             {
-                if ( view.ExternalBuf )
+                if ( view.ExternalBuf != nullptr )
                 {
                     const std::shared_ptr<RDG::IPhysicalBuffer>& physical = view.ExternalBuf->Physical;
                     if ( !physical || physical->GetBackendKind() != RDG::BackendKind::Vulkan )
@@ -1133,7 +1139,8 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_Device.CmdBeginLabel != nullptr )
         {
-            VkDebugUtilsLabelEXT label{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
+            VkDebugUtilsLabelEXT label{};
+            label.sType      = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
             label.pLabelName = pass.Name.c_str();
             m_Device.CmdBeginLabel( m_CommandBuffer, &label );
         }
@@ -1317,7 +1324,7 @@ namespace Desert::Graphic::API::Vulkan
                 colourViews[attachment.Slot] = { view.GetValue(), clear };
             }
         }
-        Common::ResultStr<VkRenderPass> renderPass = GetRenderPass( key );
+        const Common::ResultStr<VkRenderPass> renderPass = GetRenderPass( key );
         if ( !renderPass )
             return Common::MakeFormattedError( "render pass of '{}': {}", pass.Name, renderPass.GetError() );
 

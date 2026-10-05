@@ -201,7 +201,7 @@ namespace Desert::Graphic::RDG
                 while ( end < raws.size() && raws[end].Sub == raws[end - 1].Sub + 1 &&
                         raws[end].Sub / desc->Mips == layer && raws[end].SameTransition( raws[i] ) )
                     ++end;
-                const uint32_t mipCount = static_cast<uint32_t>( end - i );
+                const auto mipCount = static_cast<uint32_t>( end - i );
 
                 bool extended = false;
                 for ( size_t b = first; b < out.size() && !extended; ++b )
@@ -238,8 +238,8 @@ namespace Desert::Graphic::RDG
         if ( !m_DeclarationError.empty() )
             return Common::MakeError<CompileResult>( m_DeclarationError );
 
-        const uint32_t passCount     = static_cast<uint32_t>( m_Passes.size() );
-        const uint32_t resourceCount = static_cast<uint32_t>( m_Resources.size() );
+        const auto passCount     = static_cast<uint32_t>( m_Passes.size() );
+        const auto resourceCount = static_cast<uint32_t>( m_Resources.size() );
 
         // Global subresource numbering: resource r owns [subBase[r], subBase[r + 1]).
         std::vector<uint32_t> subBase( resourceCount + 1, 0 );
@@ -367,7 +367,7 @@ namespace Desert::Graphic::RDG
             {
                 const uint32_t p = stack.back();
                 stack.pop_back();
-                for ( uint32_t producer : producers[p] )
+                for ( const uint32_t producer : producers[p] )
                 {
                     if ( !alive[producer] )
                     {
@@ -391,7 +391,7 @@ namespace Desert::Graphic::RDG
             result.CulledPasses.push_back( p );
             result.CulledPassNames.push_back( m_Passes[p].Name );
         }
-        const uint32_t executedCount = static_cast<uint32_t>( executed.size() );
+        const auto executedCount = static_cast<uint32_t>( executed.size() );
 
         // ── 1. RAW / WAR / WAW edges between executed passes ──────────────────────────────────────────
         {
@@ -403,7 +403,7 @@ namespace Desert::Graphic::RDG
                 if ( from != to && seen.insert( { from, to, static_cast<uint8_t>( kind ), resource } ).second )
                     result.Edges.push_back( { from, to, kind, resource } );
             };
-            for ( uint32_t p : executed )
+            for ( const uint32_t p : executed )
             {
                 for ( const RdgSubUse& use : passUses[p] )
                 {
@@ -415,7 +415,7 @@ namespace Desert::Graphic::RDG
                         readers[use.Sub].push_back( p );
                         continue;
                     }
-                    for ( uint32_t reader : readers[use.Sub] )
+                    for ( const uint32_t reader : readers[use.Sub] )
                         addEdge( reader, p, DependencyKind::WriteAfterRead, use.Resource );
                     if ( lastWriter[use.Sub] >= 0 )
                         addEdge( static_cast<uint32_t>( lastWriter[use.Sub] ), p, DependencyKind::WriteAfterWrite,
@@ -589,7 +589,7 @@ namespace Desert::Graphic::RDG
                          { use.Resource, position, position, executed[position], executed[position] } );
                     result.Usages.push_back( { use.Resource, 0 } );
                 }
-                const size_t index                   = static_cast<size_t>( lifetimeOf[use.Resource] );
+                const auto index                     = static_cast<size_t>( lifetimeOf[use.Resource] );
                 result.Lifetimes[index].LastPosition = position;
                 result.Lifetimes[index].LastPass     = executed[position];
                 result.Usages[index].AccessMask |= use.AccessMask;
@@ -649,8 +649,8 @@ namespace Desert::Graphic::RDG
                     continue;
                 const bool isTexture = record.Kind == ResourceKind::Texture;
                 // Lifetimes and Usages are pushed together, so index l names the same resource in both.
-                const uint32_t                        usage = result.Usages[l].AccessMask;
-                Common::ResultStr<MemoryRequirements> requirements =
+                const uint32_t                              usage = result.Usages[l].AccessMask;
+                const Common::ResultStr<MemoryRequirements> requirements =
                      isTexture ? memory.GetTextureRequirements( record.Texture, usage )
                                : memory.GetBufferRequirements( record.Buffer, usage );
                 if ( !requirements )
@@ -769,14 +769,14 @@ namespace Desert::Graphic::RDG
         auto initialState = [&]( uint32_t resource, uint32_t local )
         {
             const ResourceRecord& record = m_Resources[resource];
-            if ( record.ExternalTex )
+            if ( record.ExternalTex != nullptr )
                 return record.ExternalTex->SubresourceStates[local];
-            if ( record.ExternalBuf )
+            if ( record.ExternalBuf != nullptr )
                 return record.ExternalBuf->State;
             AccessState state = kRdgUntouchedState;
             if ( const Allocation* allocation = result.FindAllocation( resource ) )
             {
-                for ( uint32_t predecessor : allocation->AliasPredecessors )
+                for ( const uint32_t predecessor : allocation->AliasPredecessors )
                 {
                     for ( uint32_t sub = subBase[predecessor]; sub < subBase[predecessor + 1]; ++sub )
                     {

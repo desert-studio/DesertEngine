@@ -307,7 +307,7 @@ namespace Desert::Graphic::RDG
             return nullptr;
         }
 
-        const Allocation* FindAllocation( uint32_t resource ) const
+        [[nodiscard]] const Allocation* FindAllocation( uint32_t resource ) const
         {
             for ( const Allocation& allocation : Aliasing.Allocations )
             {

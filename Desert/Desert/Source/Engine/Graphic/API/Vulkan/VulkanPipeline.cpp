@@ -480,11 +480,11 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanPipeline::CreateColorBlendState()
     {
         m_ColorBlendAttachments.clear();
-        uint32_t colorAttachmentCount =
-             m_Specification.Framebuffer ? m_Specification.Framebuffer->GetColorAttachmentCount()
-             : m_Specification.TargetLayout
-                  ? static_cast<uint32_t>( m_Specification.TargetLayout->ColorFormats.size() )
-                  : 1;
+        uint32_t colorAttachmentCount = 1;
+        if ( m_Specification.Framebuffer )
+            colorAttachmentCount = m_Specification.Framebuffer->GetColorAttachmentCount();
+        else if ( m_Specification.TargetLayout )
+            colorAttachmentCount = static_cast<uint32_t>( m_Specification.TargetLayout->ColorFormats.size() );
 
         const VkBool32       blend  = m_Specification.BlendEnable ? VK_TRUE : VK_FALSE;
         const VkBlendFactor  srcCol = ConvertBlendFactor( m_Specification.SrcColorBlendFactor );
@@ -532,12 +532,13 @@ namespace Desert::Graphic::API::Vulkan
             // A render-graph pass: built against the canonical render pass of the TargetLayout.
             const RenderTargetLayout& layout = *m_Specification.TargetLayout;
             std::vector<VkFormat>     colourFormats;
+            colourFormats.reserve( layout.ColorFormats.size() );
             for ( const Core::Formats::ImageFormat format : layout.ColorFormats )
                 colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( format ) );
-            const VkFormat depthFormat = layout.DepthFormat
-                                              ? API::Vulkan::GetImageVulkanFormat( *layout.DepthFormat )
-                                              : VK_FORMAT_UNDEFINED;
-            const bool     hasStencil =
+            VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+            if ( layout.DepthFormat.has_value() )
+                depthFormat = API::Vulkan::GetImageVulkanFormat( layout.DepthFormat.value() );
+            const bool hasStencil =
                  layout.DepthFormat &&
                  ( API::Vulkan::GetImageVulkanAspect( *layout.DepthFormat ) & VK_IMAGE_ASPECT_STENCIL_BIT ) != 0;
             if ( m_CompatibleRenderPass != VK_NULL_HANDLE )

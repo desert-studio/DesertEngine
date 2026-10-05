@@ -264,8 +264,8 @@ namespace Desert::Graphic::System
              {
                  if ( !m_ShowBoundingBoxes )
                      return;
-                 const auto camera = m_SceneRenderer->GetMainCamera();
-                 if ( !camera )
+                 auto* const camera = m_SceneRenderer->GetMainCamera();
+                 if ( camera == nullptr )
                      return;
 
                  // 12 box edges as index pairs into the 8 AABB corners (index bits = x|y<<1|z<<2).
@@ -276,7 +276,7 @@ namespace Desert::Graphic::System
                  std::vector<MaterialDebugLine::LineVertex> lines;
                  for ( const auto& rd : m_StaticQueue )
                  {
-                     if ( !rd.Mesh )
+                     if ( rd.Mesh == nullptr )
                          continue;
                      for ( const auto& sm : rd.Mesh->GetSubmeshes() )
                      {
@@ -319,8 +319,8 @@ namespace Desert::Graphic::System
              "MeshSilhouettePass", RenderPhase::Outline,
              [this]()
              {
-                 const auto camera = m_SceneRenderer->GetMainCamera();
-                 if ( !camera )
+                 auto* const camera = m_SceneRenderer->GetMainCamera();
+                 if ( camera == nullptr )
                      return;
 
                  auto& renderer = Renderer::GetInstance();
@@ -329,7 +329,7 @@ namespace Desert::Graphic::System
                  // ===== Static =====
                  for ( const auto& renderData : m_StaticQueue )
                  {
-                     if ( !renderData.Outlined || !renderData.Mesh )
+                     if ( !renderData.Outlined || renderData.Mesh == nullptr )
                          continue;
 
                      renderer.RenderMesh( m_SilhouettePipeline.get(), renderData.Mesh, renderData.Transform,
@@ -340,7 +340,7 @@ namespace Desert::Graphic::System
                  // material's shader is irrelevant for the mask (just geometry + transform).
                  for ( const auto& g : m_GenericQueue )
                  {
-                     if ( !g.Outlined || !g.Mesh )
+                     if ( !g.Outlined || g.Mesh == nullptr )
                          continue;
                      renderer.RenderMesh( m_SilhouettePipeline.get(), g.Mesh, g.Transform,
                                           m_SilhouetteMaterial->GetMaterialExecutor() );
@@ -359,7 +359,7 @@ namespace Desert::Graphic::System
                      std::vector<std::pair<const SkinnedMeshRenderData*, uint32_t>> outlined;
                      for ( const auto& sd : m_SkinnedQueue )
                      {
-                         if ( !sd.Outlined || !sd.Mesh || sd.BoneMatrices.empty() )
+                         if ( !sd.Outlined || sd.Mesh == nullptr || sd.BoneMatrices.empty() )
                              continue;
                          outlined.emplace_back( &sd, static_cast<uint32_t>( outlineBones.size() ) );
                          outlineBones.insert( outlineBones.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );

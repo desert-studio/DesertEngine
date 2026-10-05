@@ -120,17 +120,6 @@ namespace Desert::Graphic
         virtual void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
                                      const MaterialExecutor* materialExecutor ) = 0;
 
-        /**
-         * @brief Records a compute dispatch into the current frame command buffer (outside any render
-         *        pass), and nothing else: no barrier, no layout transition. The caller is a frame-graph
-         *        node that declares every image and buffer the dispatch reads or writes; the graph places
-         *        the barriers and transitions from those declarations. The pipeline's bound
-         *        inputs/outputs/push-constants are consumed (see ComputePipeline::SetInput/SetOutput/
-         *        SetPushConstants).
-         */
-        virtual void DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                             uint32_t groupCountY, uint32_t groupCountZ ) = 0;
-
         // The in-graph consumers of an RDG::PassBindings (see Renderer::DispatchCompute / DrawFullscreen): record
         // into the command buffer of the pass the bindings were built in, with descriptor sets written for this
         // exec only.
