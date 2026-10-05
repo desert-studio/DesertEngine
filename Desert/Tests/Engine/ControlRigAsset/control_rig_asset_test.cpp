@@ -865,3 +865,17 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// A rig that names no skeleton, or the null GUID, is refused by name: the binding is part of the asset (ANIM-SKELREF).
+TEST( ControlRigAssetTest, ARigWithoutATargetSkeletonGuidIsRefusedByName )
+{
+    RigFile::ControlRigData missing = ArmRigFile();
+    missing.TargetSkeleton          = {};
+    const auto refused              = RigFile::ValidateControlRigData( missing );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "TargetSkeleton" ), std::string::npos ) << refused.GetError();
+
+    RigFile::ControlRigData null = ArmRigFile();
+    null.TargetSkeleton.Guid     = "00000000000000000000000000000000";
+    EXPECT_FALSE( RigFile::ValidateControlRigData( null ).IsSuccess() );
+}
