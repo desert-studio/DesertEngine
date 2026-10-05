@@ -96,6 +96,13 @@ namespace Desert::Graphic::Render2D
         void AddRectFilled( const glm::vec2& min, const glm::vec2& max, const glm::vec4& color,
                             float rounding = 0.0f );
 
+        // Rounded fills: the largest distance (px) a perimeter chord may stray from the true arc, and the width
+        // (px) of the transparent fringe that antialiases the curved edge. RoundedCornerSegments(r) is the
+        // per-corner segment count those bounds give for radius r (also read by tests).
+        static constexpr float kArcError   = 0.25f;
+        static constexpr float kEdgeFringe = 1.0f;
+        static int             RoundedCornerSegments( float radius );
+
         // Frosted-glass rectangle: fills with the BLURRED scene behind it, tinted by @p tint (its alpha is
         // how much of the tint covers the blur — 0 = pure blur, 1 = flat colour). @p blur01 picks how strong
         // the blur is (0..1, mapped to the backdrop pyramid's LODs by the backend). Rounded by @p rounding,

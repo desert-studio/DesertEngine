@@ -117,7 +117,11 @@ namespace Desert::Graphic::Render2D
         // The OBLIQUE half of the clip is deliberately absent from this key: it never reaches the GPU, so
         // two batches cut by two different rotated clippers that happen to share a scissor box may still be
         // one draw call. That is the whole reason exact clipping costs no draw call at all.
-        if ( !m_Commands.empty() && !m_Commands.back().Glass && m_Commands.back().Texture == texture &&
+        // A retained composite is never extended either: it draws its quad with the LAYER's picture, so a
+        // flat fill appended to it (the next sibling after a Retainer Box) was drawn as more of that picture
+        // and the sibling itself never appeared.
+        if ( !m_Commands.empty() && !m_Commands.back().Glass && !m_Commands.back().Retained &&
+             m_Commands.back().Texture == texture &&
              m_Commands.back().Text == text && m_Commands.back().Material == material &&
              m_Commands.back().ClipRect == scissor )
             return m_Commands.back();
@@ -344,13 +348,16 @@ namespace Desert::Graphic::Render2D
             return;
 
         // Rounded: a triangle fan from the centre around a perimeter of four quarter-circle corner arcs (the
-        // straight edges fall out between consecutive corner endpoints). y-down: angle 0=+x, PI/2=+y(down).
+        // straight edges fall out between consecutive corner endpoints), then a one-pixel fringe strip that
+        // fades the edge to transparent — the coverage a rasterised hard edge lacks, so a disc or a dune
+        // arc reads as a curve and not as a staircase. y-down: angle 0=+x, PI/2=+y(down).
         constexpr float PI      = 3.14159265358979323846f;
-        constexpr int   kSeg    = 6; // segments per corner
-        constexpr int   kPerim  = 4 * ( kSeg + 1 );
+        const int       kSeg    = RoundedCornerSegments( r );
+        const uint32_t  kPerim  = 4u * static_cast<uint32_t>( kSeg + 1 );
         DrawCommand&    cmd     = CurrentCommand( nullptr, false );
         const glm::vec2 centre  = ( min + max ) * 0.5f;
         const Vertex2D  centreV = { Xf( centre ), { 0.5f, 0.5f }, color };
+        const glm::vec4 clear   = { color.r, color.g, color.b, 0.0f };
 
         const glm::vec2 cc[4] = { { min.x + r, min.y + r },
                                   { max.x - r, min.y + r },
@@ -358,17 +365,40 @@ namespace Desert::Graphic::Render2D
                                   { min.x + r, max.y - r } };
         const float     a0[4] = { PI, PI * 1.5f, 0.0f, PI * 0.5f }; // each arc sweeps +PI/2, clockwise (y-down)
 
-        std::array<Vertex2D, kPerim> rim{};
-        uint32_t                     perim = 0;
+        // The true edge sits midway through the fringe: the solid fill stops half a pixel inside it and the
+        // fringe ends half a pixel outside it, so the filled area is the authored one.
+        std::vector<Vertex2D> rim( kPerim );
+        std::vector<Vertex2D> fringe( static_cast<size_t>( kPerim + 1 ) * 2 ); // closed: pair 0 repeated
+        uint32_t              perim = 0;
         for ( int c = 0; c < 4; ++c )
             for ( int s = 0; s <= kSeg; ++s )
             {
-                const float     a = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / kSeg );
-                const glm::vec2 p = cc[c] + glm::vec2( std::cos( a ), std::sin( a ) ) * r;
-                rim[perim++]      = { Xf( p ), { 0.5f, 0.5f }, color };
+                const float     a   = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / kSeg );
+                const glm::vec2 dir = { std::cos( a ), std::sin( a ) };
+                const glm::vec2 in  = cc[c] + dir * ( r - kEdgeFringe * 0.5f );
+                const glm::vec2 out = cc[c] + dir * ( r + kEdgeFringe * 0.5f );
+                rim[perim]                 = { Xf( in ), { 0.5f, 0.5f }, color };
+                fringe[perim * 2]          = { Xf( out ), { 0.5f, 0.5f }, clear };
+                fringe[perim * 2 + 1]      = rim[perim];
+                ++perim;
             }
+        fringe[static_cast<size_t>( kPerim ) * 2]     = fringe[0];
+        fringe[static_cast<size_t>( kPerim ) * 2 + 1] = fringe[1];
 
         EmitClosedFan( cmd, centreV, rim.data(), perim );
+        EmitStrip( cmd, fringe.data(), kPerim + 1 );
+    }
+
+    int DrawList2D::RoundedCornerSegments( float radius )
+    {
+        // Segments per quarter circle so that no chord strays more than kArcError px from the arc: a chord
+        // spanning angle t has sagitta r*(1-cos(t/2)). A 6-segment floor keeps small corners as they were; the
+        // cap bounds a radius larger than any screen.
+        if ( radius <= kArcError )
+            return 6;
+        const float step = 2.0f * std::acos( 1.0f - kArcError / radius );
+        const int   n    = static_cast<int>( std::ceil( ( 3.14159265358979323846f * 0.5f ) / step ) );
+        return std::clamp( n, 6, 512 );
     }
 
     void DrawList2D::AddImage( const void* texture, const glm::vec2& min, const glm::vec2& max,
