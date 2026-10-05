@@ -830,7 +830,7 @@ namespace Desert::UI
         // @p tint is the caller's accumulated element tint (UICanvasContext::Tint), passed in rather than
         // read from a global so this helper stays a pure function of its arguments.
         void DrawText2D( Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t, const Rect& rect,
-                         float scale, const glm::vec4& tint )
+                         float scale, const glm::vec4& tint, float viewTime )
         {
             if ( t.Text.empty() )
                 return;
@@ -877,7 +877,7 @@ namespace Desert::UI
                     contentW += advEm( sc.ch ) * sM;
                 const float gap    = std::max( 40.0f * scale, rect.W * 0.35f );
                 const float period = std::max( 1.0f, contentW + gap );
-                const float off    = std::fmod( NowSeconds() * t.MarqueeSpeed * scale, period );
+                const float off    = std::fmod( viewTime * t.MarqueeSpeed * scale, period );
                 const float blockH = ( bf.Ascent - bf.Descent ) * sM;
                 const float baseY  = rect.Y + ( rect.H - blockH ) * 0.5f + bf.Ascent * sM;
 
@@ -1546,7 +1546,7 @@ namespace Desert::UI
                     const float op =
                          p.Pulse ? p.Opacity * ( p.PulseMin +
                                                  ( 1.0f - p.PulseMin ) *
-                                                      ( 0.5f + 0.5f * std::sin( NowSeconds() * p.PulseSpeed ) ) )
+                                                      ( 0.5f + 0.5f * std::sin( ctx.View.Time * p.PulseSpeed ) ) )
                                  : p.Opacity;
 
                     // Resolved once: the corner radius is read by the glow, the shadow and the fill, and a
@@ -1730,7 +1730,7 @@ namespace Desert::UI
                     td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
                     td.Align    = ECS::UITextAlign::Left;
                     dl.PushClipRect( mn, mx );
-                    DrawText2D( dl, td, rect, scale, ctx.View.Tint );
+                    DrawText2D( dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
                     if ( isFocused )
                     {
                         const float caretX = rect.X + 6.0f + MeasureTextPx( f.Text, fieldSize * scale );
@@ -1772,7 +1772,7 @@ namespace Desert::UI
                     td.Color    = listText;
                     td.Font     = st.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                     td.Align    = ECS::UITextAlign::Left;
-                    DrawText2D( dl, td, rect, scale, ctx.View.Tint );
+                    DrawText2D( dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
 
                     // Down-arrow on the right edge.
                     const float ax = mx.x - rect.H * 0.5f, ay = ( mn.y + mx.y ) * 0.5f, aw = rect.H * 0.16f;
@@ -1807,7 +1807,7 @@ namespace Desert::UI
                     // (ResolveLabel already subsumes `binding.Text` — see its own comment).
                     ECS::UITextData text = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
                     text.Text            = ResolveLabel( text.Text, binding );
-                    DrawText2D( dl, text, rect, scale, ctx.View.Tint );
+                    DrawText2D( dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
                 }
 
                 if ( reg.has<ECS::UIIconComponent>( e ) )
@@ -2133,9 +2133,20 @@ namespace Desert::UI
 
         // THIS VIEW's frame delta, advanced once per FRAME and not once per canvas. Clamped so a long stall
         // doesn't snap animations; the first frame of a view gets 0 rather than the age of the process.
-        const float now    = NowSeconds();
-        view.FrameDt       = view.HasDrawn ? std::clamp( now - view.LastFrameTime, 0.0f, 0.1f ) : 0.0f;
-        view.LastFrameTime = now;
+        // An offline host (movie render) owns the step; a live one measures it. Either way the first frame of a
+        // view gets 0, so frame N of a fixed-step view sits at exactly N * FixedStep.
+        if ( view.FixedStep.has_value() )
+        {
+            view.FrameDt       = view.HasDrawn ? *view.FixedStep : 0.0f;
+            view.LastFrameTime = view.Time + view.FrameDt;
+        }
+        else
+        {
+            const float now    = NowSeconds();
+            view.FrameDt       = view.HasDrawn ? std::clamp( now - view.LastFrameTime, 0.0f, 0.1f ) : 0.0f;
+            view.LastFrameTime = now;
+        }
+        view.Time += view.FrameDt;
         view.HasDrawn      = true;
         ++view.FrameIndex; // drives the tween rewind-on-hide check
 
@@ -2524,7 +2535,7 @@ namespace Desert::UI
                 td.Color    = pi.Style.Color( StyleSlot::DropdownText, d.TextColor );
                 td.Font     = pi.Style.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                 td.Align    = ECS::UITextAlign::Left;
-                DrawText2D( dl, td, row, pi.Scale, ctx.View.Tint );
+                DrawText2D( dl, td, row, pi.Scale, ctx.View.Tint, ctx.View.Time );
                 if ( hover && input->MouseReleased )
                 {
                     d.SelectedIndex = static_cast<int>( i );

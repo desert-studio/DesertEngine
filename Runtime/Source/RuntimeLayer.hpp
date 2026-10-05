@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MovieRender.hpp"
+
 #include <Engine/Core/PlayerStart.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Assets/ContentGate.hpp>
@@ -17,6 +19,8 @@
 
 namespace Desert::Graphic
 {
+    class Framebuffer;
+    class RenderPass;
     class GraphicsPipeline;
     class MaterialExecutor;
 } // namespace Desert::Graphic
@@ -43,7 +47,8 @@ namespace Desert::Player
         // worker threads — see the quit handler in OnUpdate).
         // @p play: how the FIRST level begins Play (`--player-start`); a level switch begins with the default
         // start, since a tag names a start in the level it was given for.
-        RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play, Engine::Application* application );
+        RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play, std::optional<MovieRenderRequest> movie,
+                      Engine::Application* application );
         ~RuntimeLayer();
 
         [[nodiscard]] Common::BoolResultStr OnAttach() override;
@@ -122,6 +127,17 @@ namespace Desert::Player
         // Scene::Resize destroys GPU resources — deferred to the top of OnUpdate (same rule as the
         // editor's viewport panel).
         std::optional<std::pair<uint32_t, uint32_t>> m_PendingResize;
+
+        // THE MOVIE RENDER (--render-movie, MovieRender.hpp). Set, the frame is composed into m_MovieTarget —
+        // an offscreen framebuffer of the requested size — instead of the swapchain, and every frame drawn
+        // after the content gate opened is read back and written as the next numbered PNG.
+        std::optional<MovieRenderRequest>     m_Movie;
+        std::shared_ptr<Graphic::Framebuffer> m_MovieTarget;
+        std::shared_ptr<Graphic::RenderPass>  m_MoviePass;
+        uint32_t                              m_MovieFrame     = 0;     // index of the next PNG
+        bool                                  m_MovieFrameDrawn = false; // this frame showed the world -> write it
+        Common::BoolResultStr                 InitMovieTarget();
+        void                                  CollectMovieFrame();
         uint32_t                                     m_LastWidth = 0, m_LastHeight = 0;
 
         // A UI button clicked this frame with an "scene:<path>" OnClickMessage — applied next OnUpdate.

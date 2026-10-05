@@ -128,9 +128,9 @@ namespace
 namespace Desert::Player
 {
     RuntimeLayer::RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play,
-                                Engine::Application* application )
+                                std::optional<MovieRenderRequest> movie, Engine::Application* application )
          : Common::Layer( "RuntimeLayer" ), m_ScenePathOverride( std::move( scenePathOverride ) ),
-           m_PlayRequest( std::move( play ) ), m_Application( application )
+           m_PlayRequest( std::move( play ) ), m_Movie( std::move( movie ) ), m_Application( application )
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
         // Filled by the "Indexing animation clips" stage of the boot, the same call the editor makes. This
@@ -326,7 +326,72 @@ namespace Desert::Player
         // same count reached with directory walks and reached without them are two different boots, and
         // nothing else in the process can tell them apart (§T2.4).
         LOG_INFO( "[ContentScan] boot finished — {}", Common::Utils::ContentScanLedger::Report() );
+        if ( m_Movie.has_value() )
+            return InitMovieTarget();
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr RuntimeLayer::InitMovieTarget()
+    {
+        Graphic::FramebufferSpecification spec;
+        spec.Width       = m_Movie->Width;
+        spec.Height      = m_Movie->Height;
+        spec.Attachments = { Core::Formats::ImageFormat::RGBA8F };
+        spec.DebugName   = "MovieRenderTarget";
+        spec.NoResizeble = true;
+        m_MovieTarget    = Graphic::Framebuffer::Create( spec );
+        if ( !m_MovieTarget )
+            return Common::MakeFormattedError<bool>( "--render-movie: could not create the {}x{} target",
+                                                     m_Movie->Width, m_Movie->Height );
+        Graphic::RenderPassSpecification passSpec;
+        passSpec.TargetFramebuffer = m_MovieTarget;
+        passSpec.DebugName         = "MovieRenderPass";
+        passSpec.ClearColor.Color  = { 0.0f, 0.0f, 0.0f, 1.0f };
+        m_MoviePass                = std::make_shared<Graphic::RenderPass>( passSpec );
+
+        // The UI view steps by the same fixed delta the application gives the world (Main.cpp).
+        m_UIView.FixedStep = m_Movie->FrameStep();
+
+        std::error_code ec;
+        std::filesystem::create_directories( m_Movie->OutDir, ec );
+        if ( ec && !std::filesystem::is_directory( m_Movie->OutDir ) )
+            return Common::MakeFormattedError<bool>( "--movie-out '{}' cannot be created: {}", m_Movie->OutDir,
+                                                     ec.message() );
+        LOG_INFO( "[Movie] rendering '{}' -> {} at {}x{}, {} fps, {} frame(s)", m_Movie->Map, m_Movie->OutDir,
+                  m_Movie->Width, m_Movie->Height, m_Movie->Fps, m_Movie->FrameCount() );
+        return BOOLSUCCESS;
+    }
+
+    // THE FRAME IS READ AFTER ITS PRESENT, from the offscreen target — not the swapchain — and synchronously:
+    // an offline render has nobody waiting on its frame rate, and a blocking read is what keeps frame N+1's
+    // draws off the image until frame N is on disk.
+    void RuntimeLayer::CollectMovieFrame()
+    {
+        if ( !m_MovieFrameDrawn )
+            return;
+        m_MovieFrameDrawn = false;
+
+        auto pixels = m_MovieTarget->GetColorAttachmentImage( 0 )->ReadPixelsRGBA8();
+        if ( !pixels )
+        {
+            LOG_ERROR( "[Movie] frame {} could not be read back: {}", m_MovieFrame, pixels.GetError() );
+            m_Application->Close( 1 );
+            return;
+        }
+        const std::string file = m_Movie->FramePath( m_MovieFrame ).string();
+        const int         w    = static_cast<int>( m_Movie->Width );
+        const int         h    = static_cast<int>( m_Movie->Height );
+        if ( stbi_write_png( file.c_str(), w, h, 4, pixels.GetValue().data(), w * 4 ) == 0 )
+        {
+            LOG_ERROR( "[Movie] could not write '{}'", file );
+            m_Application->Close( 1 );
+            return;
+        }
+        if ( ++m_MovieFrame == m_Movie->FrameCount() )
+        {
+            LOG_INFO( "[Movie] wrote {} frame(s) to {}", m_MovieFrame, m_Movie->OutDir );
+            m_Application->Close( 0 );
+        }
     }
 
     void RuntimeLayer::BuildGameplaySystems()
@@ -502,6 +567,11 @@ namespace Desert::Player
     void RuntimeLayer::OnFramePresented()
     {
         ++m_PresentedFrames;
+        if ( m_Movie.has_value() )
+        {
+            CollectMovieFrame();
+            return;
+        }
 
 #if !DESERT_DEV_INSTRUMENTS
         // A shipping player counts its presented frames and does nothing else here: the capture that used
@@ -743,10 +813,14 @@ namespace Desert::Player
     Common::BoolResultStr RuntimeLayer::OnUIRender()
     {
         auto& renderer = Graphic::Renderer::GetInstance();
-        renderer.BeginSwapChainRenderPass();
+        // A movie composes into its own offscreen target of the requested size; the game into the swapchain.
+        if ( m_Movie.has_value() )
+            renderer.BeginRenderPass( m_MoviePass.get(), true );
+        else
+            renderer.BeginSwapChainRenderPass();
 
         std::string clicked;
-        if ( const auto swapFb = renderer.GetCompositeFramebuffer() )
+        if ( const auto swapFb = m_Movie.has_value() ? m_MovieTarget : renderer.GetCompositeFramebuffer() )
         {
             if ( !m_PresentReady )
                 if ( const auto r = InitPresent( swapFb ); !r )
@@ -773,6 +847,8 @@ namespace Desert::Player
                 // is deliberate: a cover is only as opaque as whoever edits it next leaves it, and this way
                 // the undercooked image is not in the swapchain to begin with.
                 const bool loading = m_Content.Loading();
+                // Frame 0 of a movie is the first frame of a complete world; loading frames are not written.
+                m_MovieFrameDrawn = m_Movie.has_value() && !loading;
 
                 // 1) Present the scene: blit its final (tonemapped) image over the whole swapchain.
                 if ( !loading )
@@ -901,6 +977,14 @@ namespace Desert::Player
         }
 
         renderer.EndRenderPass();
+
+        // The swapchain image acquired for this frame still has to be rendered to before it is presented;
+        // during a movie it carries an empty pass and the picture lives in the offscreen target only.
+        if ( m_Movie.has_value() )
+        {
+            renderer.BeginSwapChainRenderPass();
+            renderer.EndRenderPass();
+        }
 
         // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and it has to be: a swapchain
         // image may only be touched between its acquire and its present, and reading it back afterwards

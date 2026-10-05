@@ -45,6 +45,7 @@
 #include "PackagedContent.hpp"
 #include "RuntimeCrashTest.hpp"
 #include <Engine/Graphic/PipelineCacheFile.hpp>
+#include "MovieRender.hpp"
 #include "RuntimeLayer.hpp"
 #include "RuntimeShot.hpp"
 
@@ -57,6 +58,7 @@ namespace Desert::Player
 {
     static std::string       s_SceneOverride;
     static Core::PlayRequest s_PlayRequest;
+    static std::optional<MovieRenderRequest> s_Movie; // --render-movie: offline render of a level (MovieRender.hpp)
 
     class RuntimeApp : public Engine::Application
     {
@@ -67,7 +69,10 @@ namespace Desert::Player
 
         void OnCreate() override
         {
-            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, this ) );
+            // A movie is rendered on fixed time: frame N is at N / fps of world time on every run.
+            if ( s_Movie.has_value() )
+                SetFixedDeltaTime( s_Movie->FrameStep() );
+            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, s_Movie, this ) );
         }
 
         void OnDestroy() override
@@ -137,6 +142,18 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         FailStartup( parsed.GetError(), 2 );
     }
 #endif
+
+    // THE MOVIE RENDER (UE Movie Render Queue): the level it names replaces --scene, and a malformed request is
+    // fatal for the same reason --shot's is — an unattended render that silently did not start never ends.
+    {
+        const std::vector<std::string> movieArgs( argv + ( argc > 0 ? 1 : 0 ), argv + argc );
+        auto                           movie = Desert::Player::ParseMovieRender( movieArgs );
+        if ( !movie )
+            FailStartup( movie.GetError(), 2 );
+        Desert::Player::s_Movie = movie.ExtractValue();
+        if ( Desert::Player::s_Movie.has_value() )
+            Desert::Player::s_SceneOverride = Desert::Player::s_Movie->Map;
+    }
 
     // THE CRASH HANDLER, BEFORE ANYTHING THAT CAN FAULT (PKG1c; UE installs its handler before the
     // project loads). Mounting the archive and parsing the .deproj are exactly that, and the game's Name —
@@ -322,6 +339,13 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     appInfo.Title = Desert::Project::ProjectContext::Current().Name;
     appInfo.VSync = true; // a game default: tear-free presentation
     // Width/Height left as std::nullopt -> fullscreen at the monitor's native resolution.
+    // A movie renders into its own offscreen target; the window is only the host of the device, so it is a
+    // small window rather than a fullscreen one covering the desktop for the length of the render.
+    if ( Desert::Player::s_Movie.has_value() )
+    {
+        appInfo.Width  = 640u;
+        appInfo.Height = 360u;
+    }
 
     return std::make_unique<Desert::Player::RuntimeApp>( appInfo );
 }
