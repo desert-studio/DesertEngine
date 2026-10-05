@@ -989,7 +989,8 @@ namespace Desert::Player
                 m_Application->Close( 1 );
                 renderer.BeginSwapChainRenderPass();
                 renderer.EndRenderPass();
-                return;
+                return Common::MakeFormattedError<bool>(
+                     "--render-movie: frame {}: the movie pass was refused: {}", m_MovieFrame, begun.GetError() );
             }
         }
         else
