@@ -218,7 +218,19 @@ namespace Desert::Animation
     void Animator::RetireNotifyStates()
     {
         RetireStates( m_ActiveStates, -1, -1 );
-        RetireStates( m_NextActiveStates, -1, -1 );
+        for ( IncomingFade& fade : m_Fades )
+            RetireStates( fade.ActiveStates, -1, -1 );
+    }
+
+    std::vector<float> Animator::BaseLayerWeights() const
+    {
+        std::vector<float> alphas;
+        alphas.reserve( m_Fades.size() );
+        for ( const IncomingFade& fade : m_Fades )
+            alphas.push_back( fade.Playback.IsValid() ? fade.Alpha() : 0.0F );
+        std::vector<float> weights;
+        FadeStackWeights( alphas, weights );
+        return weights;
     }
 
     std::optional<float> Animator::GetCurveValue( const std::string_view name ) const
@@ -256,52 +268,53 @@ namespace Desert::Animation
             return std::nullopt;
         };
 
-        const std::optional<float> current = valueOf( m_Current, name );
-        if ( !m_IsBlending )
+        // The same nesting as the pose (BlendedBasePose): each fade mixes over everything below it. A clip
+        // without the curve reads 0 inside a blend, and no clip of the stack having it is "no curve".
+        std::optional<float> value = valueOf( m_Current, name );
+        for ( const IncomingFade& fade : m_Fades )
         {
-            return current;
+            const std::optional<float> incoming = valueOf( fade.Playback, name );
+            if ( !value && !incoming )
+                continue;
+            value = glm::mix( value.value_or( 0.0F ), incoming.value_or( 0.0F ), fade.Alpha() );
         }
-        const std::optional<float> next = valueOf( m_Next, name );
-        if ( !current && !next )
-        {
-            return std::nullopt;
-        }
-        return glm::mix( current.value_or( 0.0F ), next.value_or( 0.0F ), BlendAlpha() );
+        return value;
     }
 
     void Animator::Play( const AnimationClip& clip, bool loop )
     {
         RetireNotifyStates();
-        m_Current    = { &clip, FrameTime{}, loop };
-        m_Next       = {};
-        m_IsBlending = false;
+        m_Current = { &clip, FrameTime{}, loop };
+        m_Fades.clear();
     }
 
-    void Animator::CrossFade( const AnimationClip& clip, float duration, bool loop )
+    void Animator::CrossFade( const AnimationClip& clip, float duration, bool loop, AlphaBlendOption curve,
+                              float elapsed )
     {
-        if ( m_Current.Clip == &clip )
+        if ( GetCurrentClip() == &clip )
         {
             return;
         }
 
-        // A crossfade that replaces an incoming clip still fading in: that clip stops playing.
-        RetireStates( m_NextActiveStates, -1, -1 );
-        m_Next = { &clip, FrameTime{}, loop };
-
-        m_IsBlending    = true;
-        m_BlendTime     = 0.0F;
-        // A crossfade of zero would divide by zero in BlendAlpha; the floor is small enough that the
-        // first Update already reaches alpha 1, so a zero-length blend behaves as an instant cut.
+        // СТЕК, А НЕ ЗАМЕНА: клип, ещё входящий в смешивание, НЕ обрывается — он продолжает играть под
+        // новым и угасает вместе со всем, что под ним (UE ActiveTransitionArray). Раньше новый кроссфейд
+        // выбрасывал входящий клип, и поза прыгала на кадре прерывания.
+        IncomingFade fade;
+        fade.Playback = { &clip, FrameTime{}, loop };
+        fade.Curve    = curve;
+        // A crossfade of zero would divide by zero in Alpha; the floor is small enough that the first Update
+        // already reaches alpha 1, so a zero-length blend behaves as an instant cut.
         constexpr float MIN_BLEND_SECONDS = 0.0001F;
-        m_BlendDuration                   = glm::max( duration, MIN_BLEND_SECONDS );
+        fade.Duration                     = glm::max( duration, MIN_BLEND_SECONDS );
+        fade.Time                         = glm::max( elapsed, 0.0F );
+        m_Fades.push_back( std::move( fade ) );
     }
 
     void Animator::Stop()
     {
         RetireNotifyStates();
-        m_Current    = {};
-        m_Next       = {};
-        m_IsBlending = false;
+        m_Current = {};
+        m_Fades.clear();
     }
 
     // ============================================================
@@ -324,10 +337,11 @@ namespace Desert::Animation
 
         UpdatePlayback( m_Current, deltaTime );
 
-        if ( m_IsBlending && m_Next.IsValid() )
+        for ( IncomingFade& fade : m_Fades )
         {
-            UpdatePlayback( m_Next, deltaTime );
-            m_BlendTime += deltaTime;
+            if ( fade.Playback.IsValid() )
+                UpdatePlayback( fade.Playback, deltaTime );
+            fade.Time += deltaTime;
         }
 
         if ( m_PoseGraph )
@@ -344,17 +358,22 @@ namespace Desert::Animation
         StepBaseNotifies( true );
         StepGraphNotifies( true );
 
-        // Retire the blend AFTER evaluating, so the frame that reaches alpha 1 renders the target clip
-        // rather than a pose built from a blend that has already been thrown away.
-        if ( m_IsBlending && m_Next.IsValid() && BlendAlpha() >= 1.0F )
+        // Retire AFTER evaluating, so the frame that reaches alpha 1 renders the target clip rather than a
+        // pose built from a blend that has already been thrown away. The NEWEST finished fade covers
+        // everything below it at weight 1: it becomes the current clip and every layer under it retires.
+        for ( size_t i = m_Fades.size(); i-- > 0; )
         {
-            // The outgoing clip is at weight 0 now (its states ended in StepBaseNotifies); the incoming one's
-            // states, reported while it faded in, are the current clip's from here.
+            if ( m_Fades[i].Alpha() < 1.0F )
+                continue;
+            // The layers below are at weight 0 now (their states ended in StepBaseNotifies); the finished
+            // fade's states, reported while it faded in, are the current clip's from here.
             RetireStates( m_ActiveStates, -1, -1 );
-            m_ActiveStates.swap( m_NextActiveStates );
-            m_Current    = m_Next;
-            m_Next       = {};
-            m_IsBlending = false;
+            for ( size_t below = 0; below < i; ++below )
+                RetireStates( m_Fades[below].ActiveStates, -1, -1 );
+            m_ActiveStates.swap( m_Fades[i].ActiveStates );
+            m_Current = m_Fades[i].Playback;
+            m_Fades.erase( m_Fades.begin(), m_Fades.begin() + static_cast<std::ptrdiff_t>( i ) + 1 );
+            break;
         }
     }
 
@@ -459,12 +478,17 @@ namespace Desert::Animation
             if ( static_cast<int>( node ) == state.BaseSource )
             {
                 out.Pose = pose;
-                for ( const ClipPlayback* player : { &m_Current, &m_Next } )
-                    if ( player->IsValid() && ( player == &m_Current || m_IsBlending ) )
-                        for ( const Timeline::Track& track : player->Clip->Sequence.Tracks )
+                const auto addCurvesOf = [&]( const ClipPlayback& player )
+                {
+                    if ( player.IsValid() )
+                        for ( const Timeline::Track& track : player.Clip->Sequence.Tracks )
                             if ( track.Kind == Timeline::TrackKind::Float )
                                 if ( const auto value = BaseCurveValue( track.Property ) )
                                     AddCurve( out, track.Property, *value );
+                };
+                addCurvesOf( m_Current );
+                for ( const IncomingFade& fade : m_Fades )
+                    addCurvesOf( fade.Playback );
                 return;
             }
             sampleClock( state.Sources[node], out );
@@ -622,31 +646,29 @@ namespace Desert::Animation
 
     void Animator::BlendedBasePose( const RigSampling& rig, LocalPose& out )
     {
+        // Nested, as the fades were stacked: each one blends from the whole pose below it to its own clip
+        // (UE: each active transition blends the previous result into its target).
         SampleClipPose( rig, m_Current.Clip, m_Current.Time, out );
-        if ( !m_IsBlending || !m_Next.IsValid() )
+        for ( const IncomingFade& fade : m_Fades )
         {
-            return;
-        }
+            if ( !fade.Playback.IsValid() )
+                continue;
+            const float alpha = fade.Alpha();
 
-        const float alpha = BlendAlpha();
+            // Exactly the endpoints at the endpoints. `Blend` slerps, and slerp at alpha 0 is not
+            // bit-identical to its input for every quaternion; short-circuiting is what makes "a crossfade at
+            // 0 is the source clip, bit for bit" a property that can be asserted rather than approximated.
+            if ( alpha <= 0.0F )
+                continue;
 
-        // Exactly the endpoints at the endpoints. `Blend` slerps, and slerp at alpha 0 is not bit-identical
-        // to its input for every quaternion; short-circuiting is what makes "a crossfade at 0 is the source
-        // clip, bit for bit" a property that can be asserted rather than approximated.
-        if ( alpha <= 0.0F )
-        {
-            return;
-        }
-
-        SampleClipPose( rig, m_Next.Clip, m_Next.Time, m_BlendScratch );
-        if ( alpha >= 1.0F )
-        {
-            out = m_BlendScratch;
-            return;
-        }
-        for ( uint32_t b = 0; b < out.Size(); ++b )
-        {
-            out[b] = Blend( out[b], m_BlendScratch[b], alpha );
+            SampleClipPose( rig, fade.Playback.Clip, fade.Playback.Time, m_BlendScratch );
+            if ( alpha >= 1.0F )
+            {
+                out = m_BlendScratch;
+                continue;
+            }
+            for ( uint32_t b = 0; b < out.Size(); ++b )
+                out[b] = Blend( out[b], m_BlendScratch[b], alpha );
         }
     }
 
@@ -711,12 +733,18 @@ namespace Desert::Animation
             weight = m_PoseGraph->BaseSource >= 0
                           ? m_PoseGraph->Instance.Weight( static_cast<size_t>( m_PoseGraph->BaseSource ) )
                           : 0.0F; // a graph that does not play the Source stage
-        const float alpha = m_IsBlending && m_Next.IsValid() ? BlendAlpha() : 0.0F;
+        // Every layer of the stack by its own weight: an interrupted fade is still heard while it fades out.
+        const std::vector<float> layers = BaseLayerWeights();
         StepNotifiesOf( m_Current, m_Current.StepFrom, m_Current.StepWrapped, played, m_Current.StepBackward,
-                        ( 1.0F - alpha ) * weight > Graph::kNotifyTriggerWeight, m_ActiveStates, -1, -1 );
-        if ( m_Next.IsValid() || !m_NextActiveStates.empty() )
-            StepNotifiesOf( m_Next, m_Next.StepFrom, m_Next.StepWrapped, played, m_Next.StepBackward,
-                            alpha * weight > Graph::kNotifyTriggerWeight, m_NextActiveStates, -1, -1 );
+                        layers[0] * weight > Graph::kNotifyTriggerWeight, m_ActiveStates, -1, -1 );
+        for ( size_t i = 0; i < m_Fades.size(); ++i )
+        {
+            IncomingFade& fade = m_Fades[i];
+            if ( fade.Playback.IsValid() || !fade.ActiveStates.empty() )
+                StepNotifiesOf( fade.Playback, fade.Playback.StepFrom, fade.Playback.StepWrapped, played,
+                                fade.Playback.StepBackward, layers[i + 1] * weight > Graph::kNotifyTriggerWeight,
+                                fade.ActiveStates, -1, -1 );
+        }
     }
 
     void Animator::StepNotifiesOf( const ClipPlayback& playback, const FrameTime previous, const bool wrapped,
@@ -884,7 +912,8 @@ namespace Desert::Animation
 
         if ( m_Current.IsValid() )
             ScrubTo( m_Current, time );
-        scrub( m_Next );
+        for ( IncomingFade& fade : m_Fades )
+            scrub( fade.Playback );
         if ( m_PoseGraph )
             for ( auto& source : m_PoseGraph->Sources )
                 scrub( source );
@@ -914,10 +943,9 @@ namespace Desert::Animation
             m_Current.Loop = loop;
         }
 
-        if ( m_IsBlending && m_Next.IsValid() )
-        {
-            m_Next.Loop = loop;
-        }
+        for ( IncomingFade& fade : m_Fades )
+            if ( fade.Playback.IsValid() )
+                fade.Playback.Loop = loop;
     }
 
     const AnimationClip* Animator::GetCurrentClip() const
@@ -925,7 +953,8 @@ namespace Desert::Animation
         // While cross-fading, report the TARGET clip: callers (e.g. AnimationECSSystem's name re-sync) treat
         // this as "the clip that should be playing", and seeing the old clip would make them Play() it and
         // snap-cancel the blend.
-        return ( m_IsBlending && m_Next.IsValid() ) ? m_Next.Clip : m_Current.Clip;
+        return !m_Fades.empty() && m_Fades.back().Playback.IsValid() ? m_Fades.back().Playback.Clip
+                                                                     : m_Current.Clip;
     }
 
     // ============================================================

@@ -112,6 +112,10 @@ namespace Desert::Editor
         // control channel's `quit` does not come here — an unattended run has nobody to answer.
         void RequestEditorExit();
 
+        // This frame's capture verdict (ShotDirector::AdmitFrame) from the layer's own state; false outside a
+        // headless capture.
+        bool AdmitShotFrame();
+
         // Runs one render frame for a scene (outline aid + Begin/RegistryRender/OnUpdate/End). Called for
         // every open document each frame so all viewports stay live.
         Common::BoolResultStr UpdateSceneFrame( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
@@ -170,7 +174,7 @@ namespace Desert::Editor
         // THE TOOLS. A container that cannot hold a document — see Editor/Core/PanelRegistry.hpp. That is
         // what makes "the View menu lists exactly the tools" true by construction rather than by a predicate
         // the menu, the command palette and --open-panel would each have had to remember.
-        PanelRegistry m_Panels;
+        PanelRegistry                                           m_Panels;
         std::optional<Common::SubsystemCollection<EditorLayer>> m_Subsystems;
 
         // `m_ContextualShown` STOOD HERE — a set of raw panel pointers, inserted and erased in five

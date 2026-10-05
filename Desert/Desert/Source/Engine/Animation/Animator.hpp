@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include "Skeleton.hpp"
+#include "AlphaBlend.hpp"
 #include "AnimationClip.hpp"
 #include "BoneControl.hpp"
 #include "Pose.hpp"
@@ -91,12 +92,18 @@ namespace Desert::Animation
         // «откуда → куда NN%», и проценту неоткуда взяться, кроме как отсюда: длительность перехода
         // знает граф, а его ПРОГРЕСС — только тот, кто ведёт часы. Читатель есть, и он один.
         //
-        // Насколько прошёл кроссфейд, 0..1. Выводится, а не хранится: альфа и часы не могут разойтись,
-        // если они одни.
+        // Насколько прошёл кроссфейд, 0..1 — НОВЕЙШИЙ из стека (тот, что ведёт к целевому клипу), по
+        // времени, без кривой. Выводится, а не хранится: альфа и часы не могут разойтись, если они одни.
         [[nodiscard]] float BlendAlpha() const
         {
-            return m_IsBlending ? glm::clamp( m_BlendTime / m_BlendDuration, 0.0F, 1.0F ) : 0.0F;
+            return m_Fades.empty() ? 0.0F
+                                   : glm::clamp( m_Fades.back().Time / m_Fades.back().Duration, 0.0F, 1.0F );
         }
+
+        /// The base pose's layers right now: the clip under every fade first, then each fading-in clip,
+        /// oldest to newest, by weight (Animation::FadeStackWeights; they sum to 1). One entry at 1 when
+        /// nothing is fading.
+        [[nodiscard]] std::vector<float> BaseLayerWeights() const;
         explicit Animator( const Skeleton& skeleton );
 
         void Play( const AnimationClip& clip, bool loop = true );
@@ -112,7 +119,14 @@ namespace Desert::Animation
         /// else would have. Deleting this turns that into a COMPILE error at the call site, which is
         /// the only place that knows how long the clip is going to live.
         void Play( AnimationClip&& clip, bool loop = true ) = delete;
-        void CrossFade( const AnimationClip& clip, float duration, bool loop = true );
+        /// Fades `clip` in over `duration` seconds along `curve`. A crossfade requested while another is still
+        /// running does not cut it: it is STACKED on top (UE: the state machine's active transition array),
+        /// blending from the whole pose below it, each fade on its own clock — so an interrupted fade
+        /// carries on fading out instead of snapping. A request for the clip already on top is a no-op.
+        /// `elapsed` > 0 JOINS a fade already under way (a state machine transition that fired while this clip
+        /// was still being read): the fade starts that many seconds in, so its alpha is the transition's.
+        void CrossFade( const AnimationClip& clip, float duration, bool loop = true,
+                        AlphaBlendOption curve = AlphaBlendOption::Linear, float elapsed = 0.0F );
         void Stop();
 
         void Update( const Common::Timestep& ts );
@@ -193,6 +207,12 @@ namespace Desert::Animation
         void SetPlaybackSpeed( float speed )
         {
             m_PlaybackSpeed = speed;
+        }
+        /// The multiplier `Update` scales its step by — the clips' clocks AND the fades' (the step an AnimGraph
+        /// evaluator's AdvanceTransitions must be given to retire its transitions on the same frame).
+        [[nodiscard]] float GetPlaybackSpeed() const
+        {
+            return m_PlaybackSpeed;
         }
 
         void SetLoop( bool loop );
@@ -558,12 +578,28 @@ namespace Desert::Animation
         // built against is exactly what those two change.
         mutable std::unordered_map<const AnimationClip*, ClipBinding> m_SourceTrackBinding;
 
-        ClipPlayback m_Current;
-        ClipPlayback m_Next;
+        /// One clip fading in over everything below it in the base stack.
+        struct IncomingFade
+        {
+            ClipPlayback     Playback;
+            float            Time     = 0.0F;
+            float            Duration = 0.0F; ///< > 0 (CrossFade floors it)
+            AlphaBlendOption Curve    = AlphaBlendOption::Linear;
+            /// This clip's notify states active at its playhead; they become m_ActiveStates when it becomes
+            /// the current clip.
+            std::vector<ActiveNotifyState> ActiveStates;
 
-        bool  m_IsBlending    = false;
-        float m_BlendTime     = 0.0F;
-        float m_BlendDuration = 0.0F;
+            /// Its pose's weight over everything below it.
+            [[nodiscard]] float Alpha() const
+            {
+                return AlphaBlendCurve( Curve, Time / Duration );
+            }
+        };
+
+        /// The current (bottom) clip of the base stage. While fades run it is the pose under all of them.
+        ClipPlayback m_Current;
+        /// Clips fading in, oldest first; the last one is the target (GetCurrentClip).
+        std::vector<IncomingFade> m_Fades;
 
         float m_PlaybackSpeed = 1.0F;
 
@@ -571,12 +607,10 @@ namespace Desert::Animation
         std::vector<NotifyEvent> m_NotifyEvents;
         // The current clip's notify states active at its playhead — see StepBaseNotifies.
         std::vector<ActiveNotifyState> m_ActiveStates;
-        // The incoming clip's, during a crossfade; they become m_ActiveStates when it becomes the current clip.
-        std::vector<ActiveNotifyState> m_NextActiveStates;
         // Per-step scratch of StepNotifiesOf (reused, no allocation once warm).
         std::vector<ActiveNotifyState>    m_StatesScratch;
         std::vector<Timeline::FiredEvent> m_Crossed;
-        // The incoming clip's pose during a crossfade (BlendedBasePose).
+        // A fading-in clip's pose during a crossfade (BlendedBasePose).
         LocalPose m_BlendScratch;
 
         /// Ends every active state of both base players: the clips they belong to stop playing.

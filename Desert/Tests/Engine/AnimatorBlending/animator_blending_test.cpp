@@ -193,6 +193,79 @@ TEST( AnimatorBlending, ACrossFadeAtOneIsTheTargetClip )
     EXPECT_EQ( animator.GetCurrentClip(), &b ) << "the blend did not retire into its target";
 }
 
+TEST( AnimatorBlending, ACrossFadeDuringACrossFadeStacksInsteadOfCuttingTheIncomingClip )
+{
+    // UE's active transition array: B is still fading in when C is asked for; B must keep playing under C
+    // and fade out with A, not vanish on the frame of the interruption.
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+
+    AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0F, 80.0F, 0.0F ) );
+    AnimationClip c = StaticClip( "C", "spine", glm::vec3( 0.0F, 10.0F, 0.0F ) );
+
+    animator.Play( a );
+    animator.CrossFade( b, 1.0F );
+    animator.Update( Timestep( 0.5F ) );
+    animator.CrossFade( c, 1.0F );
+
+    auto w = animator.BaseLayerWeights();
+    ASSERT_EQ( w.size(), 3U ) << "the interrupted fade was dropped instead of stacked";
+    EXPECT_NEAR( w[0], 0.5F, 1e-5F );
+    EXPECT_NEAR( w[1], 0.5F, 1e-5F ) << "the interruption cut the clip that was fading in";
+    EXPECT_NEAR( w[2], 0.0F, 1e-5F );
+    EXPECT_EQ( animator.GetCurrentClip(), &c );
+
+    animator.Update( Timestep( 0.25F ) ); // B at 0.75 over A, C at 0.25 over both
+    w = animator.BaseLayerWeights();
+    ASSERT_EQ( w.size(), 3U );
+    EXPECT_NEAR( w[0], 0.25F * 0.75F, 1e-5F );
+    EXPECT_NEAR( w[1], 0.75F * 0.75F, 1e-5F );
+    EXPECT_NEAR( w[2], 0.25F, 1e-5F );
+    EXPECT_NEAR( w[0] + w[1] + w[2], 1.0F, 1e-5F );
+
+    animator.Update( Timestep( 0.25F ) ); // B's fade ends: A retires, B is the current clip under C
+    w = animator.BaseLayerWeights();
+    ASSERT_EQ( w.size(), 2U ) << "a finished lower fade did not retire the layer under it";
+    EXPECT_NEAR( w[0], 0.5F, 1e-5F );
+    EXPECT_NEAR( w[1], 0.5F, 1e-5F );
+    EXPECT_EQ( animator.GetCurrentClip(), &c );
+}
+
+TEST( AnimatorBlending, ACrossFadeJoinedLateStartsAtTheTransitionsElapsedTimeAndRetiresWithIt )
+{
+    // ANIM-FIX6a-BLEND: a state machine transition fired while the target clip was still being read; the
+    // clip arrives 4 ticks of 1/60 s later. It must JOIN the 0.5 s transition at its elapsed time (weight
+    // 4/30, then climbing) and retire on the transition's 30th tick, not cut in (no blend) or restart it.
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+
+    AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0F, 80.0F, 0.0F ) );
+
+    constexpr float kStep = 1.0F / 60.0F;
+    animator.Play( a );
+    animator.CrossFade( b, 0.5F, true, Desert::Animation::AlphaBlendOption::Linear, 4.0F * kStep );
+
+    auto w = animator.BaseLayerWeights();
+    ASSERT_EQ( w.size(), 2U ) << "the late clip cut in instead of joining the transition";
+    EXPECT_NEAR( w[1], 4.0F / 30.0F, 1e-5F ) << "the join restarted the fade instead of matching its elapsed time";
+
+    float last = w[1];
+    for ( int tick = 5; tick < 29; ++tick )
+    {
+        animator.Update( Timestep( kStep ) );
+        w = animator.BaseLayerWeights();
+        ASSERT_EQ( w.size(), 2U ) << "tick " << tick;
+        EXPECT_GT( w[1], last ) << "the joined fade did not climb on tick " << tick;
+        last = w[1];
+    }
+    for ( int tick = 29; tick <= 31 && animator.BaseLayerWeights().size() > 1; ++tick )
+        animator.Update( Timestep( kStep ) );
+    EXPECT_EQ( animator.BaseLayerWeights().size(), 1U ) << "the joined fade outlived the transition's 30 ticks";
+    EXPECT_EQ( animator.GetCurrentClip(), &b );
+}
+
 TEST( AnimatorBlending, ACrossFadeKeepsTheSkeletonConnected )
 {
     // THE INVARIANT THAT DOES NOT DEPEND ON THE IMPLEMENTATION: blending two poses of the same rig cannot

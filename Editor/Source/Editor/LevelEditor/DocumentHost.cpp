@@ -109,8 +109,8 @@ namespace Desert::Editor
     {
         const std::string name  = DocumentDisplayName( document.GetName() );
         const std::string label = document.GetDiskState() == ISubjectDocument::DiskState::Dirty
-                                      ? std::format( kDirtyDocumentLabelFormat, name )
-                                      : name;
+                                       ? std::format( kDirtyDocumentLabelFormat, name )
+                                       : name;
         return IconWindowTitle( DocumentIcon( document.Subject() ), label, document.GetName() );
     }
 

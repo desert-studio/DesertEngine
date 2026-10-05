@@ -970,6 +970,23 @@ namespace Desert::Editor
                 ImGui::Text( "Transition %s -> %s", machine.States[si].Name.c_str(), tr.To.c_str() );
                 ImGui::SetNextItemWidth( 90 );
                 dirty |= ImGui::DragFloat( "Blend", &tr.Blend, 0.01f, 0.0f, 2.0f );
+                ImGui::SetNextItemWidth( 140 );
+                if ( ImGui::BeginCombo(
+                          "Curve", ::Desert::Animation::AlphaBlendName(
+                                        static_cast<::Desert::Animation::AlphaBlendOption>( tr.BlendCurve ) ) ) )
+                {
+                    for ( int option = 0; option < ::Desert::Animation::kAlphaBlendOptionCount; ++option )
+                        if ( ImGui::Selectable(
+                                  ::Desert::Animation::AlphaBlendName(
+                                       static_cast<::Desert::Animation::AlphaBlendOption>( option ) ),
+                                  option == tr.BlendCurve ) )
+                        {
+                            tr.BlendCurve = option;
+                            dirty         = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                dirty |= ImGui::Checkbox( "Can interrupt", &tr.CanInterrupt );
                 dirty |= ImGui::Checkbox( "Exit time", &tr.HasExitTime );
                 if ( tr.HasExitTime )
                 {

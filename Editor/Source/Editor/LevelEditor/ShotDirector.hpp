@@ -9,6 +9,8 @@
 // whether the start-up is still loading crosses as an argument, and ending the process is the layer's act on
 // the status Finish() returns.
 
+#include "Editor/Core/ShotRecordGate.hpp"
+
 #include <Engine/Desert.hpp>
 
 #include <cstdint>
@@ -47,14 +49,19 @@ namespace Desert::Editor
         // status to close with is returned, and nothing is queued.
         [[nodiscard]] std::optional<int32_t> QueueScene();
 
-        // `--play`: start the world (pinned to the capture's camera) before the first counted frame.
-        void BeginPlayIfDue( bool startupLoading );
+        // IS THIS FRAME A FRAME OF THE CAPTURE? One verdict per frame (ShotRecordGate), taken by the layer once
+        // this frame's deferred loads and resizes are applied and read by both halves below; false outside a
+        // headless capture.
+        [[nodiscard]] bool AdmitFrame( const ShotFrameConditions& frame );
+
+        // `--play`: start the world (pinned to the capture's camera) on the first recorded frame.
+        void BeginPlayIfDue( bool recordedFrame );
         // FIRST HALF: place the camera for the frame that is about to be rendered.
         void PlaceCamera( bool startupLoading );
         // SECOND HALF: count the frame just rendered and write what is due. True on the capture's LAST frame,
         // after its PNG — the layer then finishes its own records and closes with Finish().
-        // @p contentLoading is the start-up staging or content settle, still running.
-        [[nodiscard]] bool CountRenderedFrame( bool contentLoading );
+        // @p recordedFrame is this frame's AdmitFrame verdict.
+        [[nodiscard]] bool CountRenderedFrame( bool recordedFrame );
         // A record the layer keeps for the capture (the --flight CSV) failed: the capture fails with it.
         void MarkFailed()
         {
@@ -75,8 +82,10 @@ namespace Desert::Editor
         PlaySession&     m_Play;
         ViewportCapture& m_Capture;
 
-        int  m_ShotFrame        = 0;
-        bool m_ShotCameraPlaced = false;
+        // Which frames are frames of the capture — one verdict per frame, read by the world and the writer.
+        ShotRecordGate m_Gate;
+        int            m_ShotFrame        = 0;
+        bool           m_ShotCameraPlaced = false;
         // Set when any PNG of this capture could not be written; becomes the process exit status.
         bool m_ShotFailed = false;
     };

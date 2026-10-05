@@ -673,15 +673,6 @@ namespace Desert::Editor
             return BOOLSUCCESS;
         }
 
-        // The timestep this frame is driven by. Identical to the wall-clock one the application measured,
-        // EXCEPT under a `--play` capture, where it is the fixed step from ShotOptions.
-        //
-        // Substituted for the whole layer update rather than only for the scene: a capture is reproducible
-        // only if nothing in it integrates a number that came from a clock, and "the scene is deterministic
-        // but the thing above it is not" is the kind of split that holds until the day something above it
-        // starts feeding the scene. Outside `--play` this is `ts` itself, so no existing frame moves.
-        const Common::Timestep frameTs( ShotOptions::Get().FrameSeconds( ts.GetSeconds() ) );
-
         // A scene handed over by a panel (dropped on the viewport, double-clicked in the asset browser).
         // It goes through the SAME deferred load as the menu — but a drag is easy to do by accident, so
         // unsaved work is not thrown away silently: the confirm popup decides, and only then do we queue.
@@ -770,7 +761,9 @@ namespace Desert::Editor
             if ( prefs.AutosaveMinutes > 0 &&
                  m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit )
             {
-                s_AutosaveAccum += frameTs.GetSeconds();
+                // The wall clock: the period is minutes of the user's time, and an autosave never feeds the
+                // scene, so a `--play` capture is not made less reproducible by it.
+                s_AutosaveAccum += ts.GetSeconds();
                 if ( s_AutosaveAccum >= static_cast<float>( prefs.AutosaveMinutes ) * 60.0f )
                 {
                     s_AutosaveAccum    = 0.0f;
@@ -782,8 +775,8 @@ namespace Desert::Editor
                         const auto                          path = Autosave::PathFor( m_SceneFiles.OpenScenePath(),
                                                                                       m_Workspace.ActiveScene()->GetSceneName(),
                                                                                       Autosave::kPeriodicSuffix );
-                        const auto      dir  = path.parent_path();
-                        std::error_code ec;
+                        const auto                          dir  = path.parent_path();
+                        std::error_code                     ec;
                         std::filesystem::create_directories( dir, ec );
                         const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
                                                                               dir.string(), ec.message() )
@@ -820,6 +813,22 @@ namespace Desert::Editor
         // place that used to iterate one container now names which of the two it means.
         for ( auto& document : m_Documents.Documents() )
             document->OnPreUpdate();
+
+        // IS THIS FRAME A FRAME OF THE CAPTURE? Decided ONCE, here — after every deferred load and resize of
+        // this frame has been applied, before anything ticks — and read by both halves of a headless run: the
+        // world (Play starts on the first recorded frame, and under `--play` steps only on recorded frames)
+        // and the writer below. Frame N of the sequence is tick N of game time (ShotRecordGate.hpp).
+        const bool shotRecorded = AdmitShotFrame();
+
+        // The timestep this frame is driven by. Identical to the wall-clock one the application measured,
+        // EXCEPT under a `--play` capture, where it is the fixed step from ShotOptions on a recorded frame
+        // and zero on any other.
+        //
+        // Substituted for the whole layer update rather than only for the scene: a capture is reproducible
+        // only if nothing in it integrates a number that came from a clock, and "the scene is deterministic
+        // but the thing above it is not" is the kind of split that holds until the day something above it
+        // starts feeding the scene. Outside `--play` this is `ts` itself, so no existing frame moves.
+        const Common::Timestep frameTs( ShotOptions::Get().FrameSeconds( ts.GetSeconds(), shotRecorded ) );
 
         // THE WORLDS INSIDE UI RENDER-TEXTURE ELEMENTS, advanced HERE and nowhere else (Ю16). Each one is
         // a whole scene render, and it has to be recorded before ANY pass of this frame opens: the canvas
@@ -869,7 +878,7 @@ namespace Desert::Editor
 
         // Screenshot mode (ShotDirector): `--play` starts the world, then the camera is placed for the frame about
         // to be rendered.
-        m_Shots.BeginPlayIfDue( m_Startup.StartupLoading() );
+        m_Shots.BeginPlayIfDue( shotRecorded );
         m_Shots.PlaceCamera( m_Startup.StartupLoading() );
 
         // WAS ANYTHING STILL OUTSTANDING WHEN THIS FRAME WAS MADE? Sampled HERE, and the position is the
@@ -905,7 +914,7 @@ namespace Desert::Editor
 
         // Screenshot mode, SECOND HALF (ShotDirector::CountRenderedFrame). On the capture's last frame the layer
         // adds its own records — the profiler dump, the --flight CSV — and closes with the capture's status.
-        if ( m_Shots.CountRenderedFrame( m_Startup.StartupLoading() || m_Startup.ContentSettling() ) )
+        if ( m_Shots.CountRenderedFrame( shotRecorded ) )
         {
             const auto& shot = ShotOptions::Get();
             if ( shot.GpuProfile )
@@ -934,6 +943,24 @@ namespace Desert::Editor
 
     // The frame is out: the start-up's reveal, then the control channel keeps its promise (ControlService) — a
     // `quit` whose reply has gone out comes back as the status to close with.
+    bool EditorLayer::AdmitShotFrame()
+    {
+        ShotFrameConditions frame;
+        frame.SceneLoadPending = m_SceneFiles.HasPendingLoad();
+        frame.StartupLoading   = m_Startup.StartupLoading();
+        frame.SplashOnScreen   = m_Startup.SplashOnScreen();
+        frame.ContentSettling  = m_Startup.ContentSettling();
+        // The picture the writer reads back (ViewportCapture), at the size this frame renders at: the panels'
+        // deferred resizes were applied just before this call.
+        if ( m_Workspace.ActiveScene() )
+            if ( const auto img = m_Workspace.ActiveScene()->GetFinalImage() )
+            {
+                frame.ViewportWidth  = img->GetWidth();
+                frame.ViewportHeight = img->GetHeight();
+            }
+        return m_Shots.AdmitFrame( frame );
+    }
+
     void EditorLayer::OnFramePresented()
     {
         m_Startup.RevealWhenReady();
@@ -1520,7 +1547,7 @@ namespace Desert::Editor
                 const auto path =
                      Autosave::PathFor( m_SceneFiles.OpenScenePath(), m_Workspace.ActiveScene()->GetSceneName(),
                                         Autosave::kDeviceLostSuffix );
-                const auto      dir  = path.parent_path();
+                const auto      dir = path.parent_path();
                 std::error_code ec;
                 std::filesystem::create_directories( dir, ec );
                 const auto written =

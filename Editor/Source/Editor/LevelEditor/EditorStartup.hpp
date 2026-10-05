@@ -81,6 +81,11 @@ namespace Desert::Editor
         {
             return m_Revealed;
         }
+        // The splash still covers the editor (a capture records nothing under it).
+        [[nodiscard]] bool SplashOnScreen() const
+        {
+            return m_Splash != nullptr && !m_Revealed;
+        }
         // The splash's close button was pressed.
         [[nodiscard]] bool CloseRequested() const
         {

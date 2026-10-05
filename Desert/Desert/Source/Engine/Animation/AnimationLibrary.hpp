@@ -78,7 +78,15 @@ namespace Desert::Animation
         {
             Assets::AssetHandle Handle;
             std::string         ClipName; // the row's stated name; empty = unknown until read
+            // The row's Rig tag: the skeleton the clip references, as the scan read it from the header. Lets a
+            // miss name what the rig DOES have before any clip is read (null = the header states none).
+            Common::Content::AssetGuid Skeleton;
         };
+
+        // Every clip the library knows, read or not: the read records plus one identity per unread row (its
+        // stated name and Rig tag). What a refusal counts and lists, so "0 clip(s) known" is never said of a
+        // project whose clips are indexed and simply have other names.
+        [[nodiscard]] std::vector<ClipRigIdentity> Indexed() const;
 
         void RequestUnread( const std::string& clipName ) const;
         // UE: the registry's OnAssetAdded/OnAssetUpdated reaching the index. A `.anim` an import (or any cook)
