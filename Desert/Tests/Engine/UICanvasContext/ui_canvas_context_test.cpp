@@ -477,14 +477,12 @@ TEST( UICanvasContext, AnAuthoredLevelHoldsAnAutoPlayClipAtItsPlayheadAndAGameWo
         FAIL() << "the driving view did not give the clip its player";
     }
     EXPECT_NE( clip.Playback->State(), TL::PlayState::Playing ) << "an authored level auto-played a UI clip";
-    RewindClock( authored, 0.5f );
-    Frame( authored, f, nullptr );
+    Frame( authored, f, nullptr, 0.5f );
     EXPECT_NEAR( seconds(), 0.0, 1e-6 ) << "the authored view moved a playhead nobody started";
 
     // The Sequencer's Play is what moves it in an authored level, and the viewport then advances it.
     clip.Playback->Play();
-    RewindClock( authored, 0.05f );
-    Frame( authored, f, nullptr );
+    Frame( authored, f, nullptr, 0.05f );
     EXPECT_NEAR( seconds(), 0.05, 5e-3 ) << "a clip the Sequencer started did not advance in the authored view";
 
     // Entering Play drops the player (Core::BeginPlay); the game world re-creates it and starts it at t = 0.
