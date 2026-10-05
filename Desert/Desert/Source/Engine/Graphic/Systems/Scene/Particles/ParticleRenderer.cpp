@@ -368,13 +368,13 @@ namespace Desert::Graphic::System
         builder
              .AddPass(
                   "ParticlePass", RenderPhase::Transparency,
-                  [this]()
+                  [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
                   {
                       if ( m_FrameEmitters.empty() )
-                          return;
+                          return BOOLSUCCESS;
                       const auto camera = m_SceneRenderer->GetMainCamera();
                       if ( !camera )
-                          return;
+                          return BOOLSUCCESS;
 
                       auto& renderer = Renderer::GetInstance();
                       for ( auto& fe : m_FrameEmitters )
@@ -385,11 +385,20 @@ namespace Desert::Graphic::System
                           // Each emitter updates and draws ITS OWN material: a shared one here routed every
                           // emitter through one descriptor set, which is written at most once per frame — so
                           // every emitter after the first drew the first one's buffer.
-                          fe.Gpu->Material->Update( camera, fe.Gpu->Particles );
+                          fe.Gpu->Material->Update( camera );
                           auto* pipeline = fe.Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
-                          renderer.SubmitVertices( pipeline, static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u,
-                                                   fe.Gpu->Material->GetMaterialExecutor() );
+                          if ( pipeline == nullptr )
+                              return Common::MakeError( "ParticlePass: no pipeline for the emitter's blend" );
+                          // The integrated state is a pass parameter: the graph buffer the Declare below reads.
+                          RDG::PassBindings bindings( context );
+                          bindings.Storage( "Particles", fe.ParticlesRef, RDG::Access::StorageRead );
+                          if ( auto drawn = renderer.DrawProcedural(
+                                    bindings, *pipeline, fe.Gpu->Material->GetMaterialExecutor(),
+                                    static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u, 1 );
+                               !drawn.IsSuccess() )
+                              return drawn;
                       }
+                      return BOOLSUCCESS;
                   },
                   m_AddPipeline->GetSpecification(), targetFb, { RenderPassDependency( RenderPhase::Geometry ) } )
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )

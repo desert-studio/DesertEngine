@@ -198,7 +198,7 @@ namespace Desert::Graphic::System
         // Reflective Shadow Map: the G-buffer rasterized from the SUN instead of the camera, into the scene
         // renderer's RSM buffer. Every lit texel becomes a virtual point light for the RSM GI mode, which is
         // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists.
-        void RenderRSMManual();
+        [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context );
         // World -> RSM clip for the pass above — the GI resolve needs it to project fragments into the
         // sun's view. Valid after UpdateCascades(); identity before the first frame.
         glm::mat4 GetRSMViewProj() const
@@ -215,7 +215,8 @@ namespace Desert::Graphic::System
         // Overdraw debug view: re-rasterize every opaque mesh with additive blend (no depth) into a float
         // accumulation buffer, then heat-map the per-pixel overdraw count over the finished scene colour.
         // Path-independent (re-draws geometry; ignores the G-buffer), so it works in Forward and Deferred.
-        void RenderOverdrawAccumManual();   // node "Debug: Overdraw" (m_OverdrawFB)
+        // node "Debug: Overdraw" (m_OverdrawFB)
+        [[nodiscard]] Common::BoolResultStr RenderOverdrawAccumManual( const RDG::PassContext& context );
         // node "Debug: Overdraw Resolve" (the scene target): samples @p overdraw, the accumulation the node
         // "Debug: Overdraw" wrote, as u_Overdraw through RDG::PassBindings.
         [[nodiscard]] Common::BoolResultStr RecordOverdrawResolve( const RDG::PassContext& context,

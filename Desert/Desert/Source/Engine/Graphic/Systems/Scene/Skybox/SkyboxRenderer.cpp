@@ -902,7 +902,9 @@ namespace Desert::Graphic::System
 
         builder
              .AddPass(
-                  "SkyboxPass", RenderPhase::Sky, [this]() { Render(); },
+                  "SkyboxPass", RenderPhase::Sky,
+                  [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+                  { return Render( context ); },
                   m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb )
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
@@ -924,11 +926,14 @@ namespace Desert::Graphic::System
         };
     }
 
-    void SkyboxRenderer::Render()
+    Common::BoolResultStr SkyboxRenderer::Render( const RDG::PassContext& context )
     {
         auto& renderer = Renderer::GetInstance();
         if ( !m_BackdropVisible )
-            return;
+            return BOOLSUCCESS;
+        // The cubemap is the skybox material's own (Properties); the procedural sky's LUTs are still filled by
+        // its material (MaterialProceduralSky::Update) - nothing is bound by the pass yet.
+        const RDG::PassBindings bindings( context );
 
         // Engine-generated procedural atmosphere (no HDR asset needed). The LUTs ride along only once
         // the physical model has allocated them; on the gradient they stay null and the material keeps
@@ -938,17 +943,19 @@ namespace Desert::Graphic::System
             m_ProceduralMaterial->Update( m_ActiveCamera, m_SkyParams,
                                           m_SkyPassSamplesLuts ? m_TransmittanceLut.get() : nullptr,
                                           m_SkyPassSamplesLuts ? m_SkyViewLut.get() : nullptr );
-            renderer.SubmitFullscreenTriangle( m_ProceduralPipeline.get(),
-                                               m_ProceduralMaterial->GetMaterialExecutor() );
-            return;
+            return renderer.DrawFullscreen( bindings, *m_ProceduralPipeline,
+                                            m_ProceduralMaterial->GetMaterialExecutor() );
         }
 
         if ( const auto& material = m_MaterialSkybox.lock() )
         {
             if ( m_ActiveCamera )
                 material->BindInputs( { m_ActiveCamera, m_SkyboxLook } );
-            renderer.SubmitFullscreenTriangle( m_Pipeline.get(), material->GetMaterialExecutor() );
+            if ( !m_Pipeline )
+                return Common::MakeError( "SkyboxPass: a skybox material without its pipeline" );
+            return renderer.DrawFullscreen( bindings, *m_Pipeline, material->GetMaterialExecutor() );
         }
+        return BOOLSUCCESS;
     }
 
 } // namespace Desert::Graphic::System

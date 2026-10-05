@@ -4,31 +4,23 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
-#include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <format>
 
 namespace Desert::Graphic
 {
-    // "Scene: DepthResolve": binds the multisampled scene depth SceneDepthResolve.shader fetches sample 0 of. The
-    // node reads it as SampledGraphics; the descriptor names that declared access's layout. Header-only.
+    // "Scene: DepthResolve": SceneDepthResolve.shader fetches sample 0 of the multisampled scene depth. The
+    // material holds nothing of its own: u_Depth is a pass parameter (not in the shader's Properties), bound by
+    // SceneDepthResolveRenderer::Record through RDG::PassBindings from the node's SampledGraphics read.
+    // Header-only.
     class MaterialSceneDepthResolve final : public Material
     {
     public:
         MaterialSceneDepthResolve() : Material( "MaterialSceneDepthResolve", "SceneDepthResolve" )
         {
-            m_Depth = m_MaterialExecutor->GetTexture2DProperty( "u_Depth" ).get();
         }
-
-        void BindInputs( const std::shared_ptr<Image2D>& depth )
-        {
-            if ( m_Depth && depth )
-                m_Depth->SetImage( depth.get(), RDG::Access::SampledGraphics );
-        }
-
-    private:
-        Texture2DProperty* m_Depth = nullptr;
     };
 } // namespace Desert::Graphic
 
@@ -113,14 +105,15 @@ namespace Desert::Graphic::System
         }
 
         // Inside the render pass the frame graph opens on SceneDepthResolved ("Scene: DepthResolve").
-        Common::BoolResultStr Record( const std::shared_ptr<Image2D>& sceneDepth )
+        // @p sceneDepth is the node's SampledGraphics read, fetched at sample 0 as u_Depth.
+        Common::BoolResultStr Record( const RDG::PassContext& context, RDG::TextureRef sceneDepth )
         {
-            if ( !IsReady() || !sceneDepth )
+            if ( !IsReady() || !sceneDepth.IsValid() )
                 return Common::MakeError( "SceneDepthResolve recorded without its pipeline or the scene depth" );
-            m_Material->BindInputs( sceneDepth );
-            Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
-                                                              m_Material->GetMaterialExecutor() );
-            return BOOLSUCCESS;
+            RDG::PassBindings bindings( context );
+            bindings.Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                              RDG::SamplerDesc::PointClamp() );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, m_Material->GetMaterialExecutor() );
         }
 
     private:

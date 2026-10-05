@@ -1,20 +1,18 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/Material.hpp>
-#include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Core/Camera.hpp>
-#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <memory>
 
 namespace Desert::Graphic
 {
-    // Billboard material for the GPU particle system. Feeds only the shared CameraUB + the particle storage
-    // buffer (the "ParticleBillboard" shader reads size/colour that the compute pass baked into each particle,
-    // so there are no per-emitter uniforms). The particle buffer is EXTERNALLY owned (compute-written,
-    // persistent) and bound via StorageBufferProperty::SetBuffer.
+    // Billboard material for the GPU particle system. Feeds only the CameraUB (the "ParticleBillboard" shader
+    // reads size/colour that the compute pass baked into each particle, so there are no per-emitter uniforms).
+    // The particle storage buffer is a pass parameter: ParticlePass binds its graph handle as "Particles"
+    // through RDG::PassBindings, from the StorageRead it declares.
     //
     // ONE INSTANCE PER EMITTER (ParticleRenderer::EmitterGpu), never one shared across emitters. The
     // buffer is a descriptor, a descriptor set belongs to the material, and the set is written at most
@@ -29,7 +27,7 @@ namespace Desert::Graphic
         {
         }
 
-        void Update( const Core::Camera* camera, const std::shared_ptr<ShaderResources::StorageBuffer>& particles )
+        void Update( const Core::Camera* camera )
         {
             if ( camera )
             {
@@ -40,9 +38,6 @@ namespace Desert::Graphic
                 if ( auto* ub = Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
                     ub->SetRawData( reinterpret_cast<const std::byte*>( &cam ), sizeof( cam ) );
             }
-
-            if ( auto* sb = Get<StorageBufferProperty>( "Particles" ) )
-                sb->SetBuffer( particles );
         }
     };
 } // namespace Desert::Graphic

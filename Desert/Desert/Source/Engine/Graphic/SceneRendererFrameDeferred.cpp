@@ -103,11 +103,11 @@ namespace Desert::Graphic
              graph, m_TargetFramebuffer->GetSpecification().Samples, sourceRef, targetRef,
              [source, target]( RDG::PassContext& ) -> Common::BoolResultStr
              { return Renderer::GetInstance().CopyDepthImage( source.get(), target.get() ); },
-             [expand, source]( RDG::PassContext& ) -> Common::BoolResultStr
+             [expand, sourceRef]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  if ( !expand )
                      return Common::MakeError( "Deferred: DepthExpand has no DepthExpandSystem" );
-                 return expand->Record( source );
+                 return expand->Record( context, sourceRef );
              } );
     }
 
@@ -132,13 +132,12 @@ namespace Desert::Graphic
              UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
         if ( !resolve || !resolve->IsReady() )
             return;
-        const std::shared_ptr<Image2D> sceneDepth = m_TargetFramebuffer->GetDepthAttachmentImage();
+        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
         DeferredFrameNodes::AddSceneDepthResolve(
-             graph, m_TargetFramebuffer->GetSpecification().Samples,
-             textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+             graph, m_TargetFramebuffer->GetSpecification().Samples, sceneDepth,
              textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" ),
-             [resolve, sceneDepth]( RDG::PassContext& ) -> Common::BoolResultStr
-             { return resolve->Record( sceneDepth ); } );
+             [resolve, sceneDepth]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return resolve->Record( context, sceneDepth ); } );
     }
 
     void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,

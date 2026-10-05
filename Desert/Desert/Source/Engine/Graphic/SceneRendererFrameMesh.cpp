@@ -193,7 +193,8 @@ namespace Desert::Graphic
             // depth clears to 1 = far, not to the engine's reversed-Z clear.
             AddRaster( graph, "Deferred: RSM", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                        RDG::LoadOp::ClearDepth( 1.0f ), {},
-                       [meshRenderer]() { meshRenderer->RenderRSMManual(); } );
+                       [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                       { return meshRenderer->RenderRSMManual( context ); } );
             m_RSMLastSunDir = sunDir;
         }
     }
@@ -251,7 +252,8 @@ namespace Desert::Graphic
             return;
         AddRaster( graph, "Debug: Overdraw", *accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                    RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
-                   [meshRenderer]() { meshRenderer->RenderOverdrawAccumManual(); } );
+                   [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderOverdrawAccumManual( context ); } );
         AddRaster( graph, "Debug: Overdraw Resolve", *scene, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
                    accum->Colors, [meshRenderer, overdraw = accum->Colors[0]]( const RDG::PassContext& context )
                    { return meshRenderer->RecordOverdrawResolve( context, overdraw ); } );
