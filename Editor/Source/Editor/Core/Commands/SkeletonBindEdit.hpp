@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace Desert::Editor
@@ -79,14 +80,54 @@ namespace Desert::Editor
         glm::mat4                              m_Before{ 1.0f };
     };
 
-    /// Every bone's LocalBindTransform as the `.skeleton` file states it: what "Save*" compares against and what
-    /// "Don't Save" puts back. Read from the file, never a snapshot of the shared asset (which may hold edits).
-    [[nodiscard]] Common::ResultStr<std::vector<glm::mat4>> ReadBindPoseOnDisk( const Assets::SkeletonAsset& skeleton );
+    /// RENAME BONE (UE Skeleton Editing): one bone's name, old -> new, on one skeleton. The rename lives in memory
+    /// until Save, which writes the `.skeleton` and carries it into the skeleton's clips
+    /// (Serialization::SaveSkeletonAsset -> Assets::RenameBonesInSkeletonAssets).
+    class SkeletonRenameCommand final : public ICommand
+    {
+    public:
+        SkeletonRenameCommand( std::shared_ptr<Assets::SkeletonAsset> skeleton, uint32_t bone, std::string before,
+                               std::string after );
 
-    /// True when the rig in memory has a rest pose other than @p onDisk (or another bone count).
-    [[nodiscard]] bool BindPoseDiffers( const Assets::SkeletonAsset& skeleton, std::span<const glm::mat4> onDisk );
+        bool Undo() override;
+        bool Redo() override;
 
-    /// "Don't Save": @p onDisk back into the rig, and every record of this skeleton forgotten (they would redo an
-    /// edit the user threw away). False when the rig is not loaded or the counts differ.
-    bool RestoreBindPose( const std::shared_ptr<Assets::SkeletonAsset>& skeleton, std::span<const glm::mat4> onDisk );
+        [[nodiscard]] const void* EditedObject() const override
+        {
+            return m_Skeleton.get();
+        }
+        [[nodiscard]] std::string GetLabel() const override
+        {
+            return "Rename Bone";
+        }
+
+    private:
+        std::shared_ptr<Assets::SkeletonAsset> m_Skeleton;
+        uint32_t                               m_Bone;
+        std::string                            m_Before;
+        std::string                            m_After;
+    };
+
+    /// A committed rename (F2 / the tree's context menu / the Details Name row): renames @p bone and pushes ONE
+    /// record. The refusal says why (empty, another bone's name, rig not loaded); the same name is no record and
+    /// a success.
+    Common::BoolResultStr CommitBoneRename( const std::shared_ptr<Assets::SkeletonAsset>& skeleton, uint32_t bone,
+                                            const std::string& name );
+
+    /// Every bone's name and LocalBindTransform as the `.skeleton` file states them: what "Save*" compares against
+    /// and what "Don't Save" puts back. Read from the file, never a snapshot of the shared asset (which may hold
+    /// edits).
+    struct ReferencePoseOnDisk
+    {
+        std::vector<std::string> Names;
+        std::vector<glm::mat4>   Binds;
+    };
+    [[nodiscard]] Common::ResultStr<ReferencePoseOnDisk> ReadBindPoseOnDisk( const Assets::SkeletonAsset& skeleton );
+
+    /// True when the rig in memory has a rest pose or a bone name other than @p onDisk (or another bone count).
+    [[nodiscard]] bool BindPoseDiffers( const Assets::SkeletonAsset& skeleton, const ReferencePoseOnDisk& onDisk );
+
+    /// "Don't Save": @p onDisk's names and binds back into the rig, and every record of this skeleton forgotten
+    /// (they would redo an edit the user threw away). False when the rig is not loaded or the counts differ.
+    bool RestoreBindPose( const std::shared_ptr<Assets::SkeletonAsset>& skeleton, const ReferencePoseOnDisk& onDisk );
 } // namespace Desert::Editor

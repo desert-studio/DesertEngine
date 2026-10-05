@@ -99,6 +99,28 @@ namespace Desert::Assets
         return true;
     }
 
+    Common::BoolResultStr SkeletonAsset::RenameBone( const uint32_t bone, const std::string& name )
+    {
+        if ( !m_Skeleton )
+            return Common::MakeError<bool>( "the rig is not loaded" );
+        const auto& bones = m_Skeleton->GetBones();
+        if ( bone >= bones.size() )
+            return Common::MakeFormattedError<bool>( "bone {} is out of range (the rig has {})", bone, bones.size() );
+        if ( name.empty() )
+            return Common::MakeError<bool>( "a bone needs a name" );
+        if ( bones[bone].Name == name )
+            return BOOLSUCCESS;
+        if ( const auto other = m_Skeleton->FindBoneIndex( name ); other && *other != bone )
+            return Common::MakeFormattedError<bool>( "bone {} is already named '{}'", *other, name );
+
+        std::vector<Animation::BoneInfo> renamed = bones;
+        renamed[bone].Name                       = name;
+        *m_Skeleton                              = Animation::Skeleton( std::move( renamed ) );
+        m_Signature                              = m_Skeleton->GetSignature();
+        ++m_BindRevision;
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr SkeletonAsset::Unload()
     {
         // WAS `return BOOLSUCCESS` — WITHOUT A SEMICOLON. It compiled only because `#define BOOLSUCCESS

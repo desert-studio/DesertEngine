@@ -8,6 +8,9 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
+#include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
+#include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -64,7 +67,7 @@ TEST( SkeletonBindEdit, AnEditedBindIsSavedAndALoadReadsTheSameValue )
     ASSERT_TRUE( onDisk.IsSuccess() );
     EXPECT_TRUE( Editor::BindPoseDiffers( *rig, onDisk.GetValue() ) ) << "an unsaved edit is Save*";
 
-    ASSERT_TRUE( Assets::Serialization::SaveSkeletonAsset( *rig ).IsSuccess() );
+    ASSERT_TRUE( Assets::Serialization::SaveSkeletonAsset( *rig, {} ).IsSuccess() );
     ASSERT_TRUE( rig->Unload().IsSuccess() );
     ASSERT_TRUE( rig->Load().IsSuccess() );
     ASSERT_NE( rig->GetSkeleton(), nullptr );
@@ -148,10 +151,75 @@ TEST( SkeletonBindEdit, TheDocumentIsDirtyAfterAnEditAndCleanAfterUndoOrSave )
     EXPECT_TRUE( Editor::BindPoseDiffers( *rig, snapshot.GetValue() ) ) << "a gizmo drag makes the tab Fox*";
 
     // Save: the file now holds the bind, and the snapshot the document takes after it says clean.
-    ASSERT_TRUE( Assets::Serialization::SaveSkeletonAsset( *rig ).IsSuccess() );
+    ASSERT_TRUE( Assets::Serialization::SaveSkeletonAsset( *rig, {} ).IsSuccess() );
     auto saved = Editor::ReadBindPoseOnDisk( *rig );
     ASSERT_TRUE( saved.IsSuccess() );
     EXPECT_FALSE( Editor::BindPoseDiffers( *rig, saved.GetValue() ) ) << "Save clears the marker";
+    Editor::CommandHistory::Get().DropFor( rig.get() );
+}
+
+// Rename Bone (ANIM-FIX4b, UE Skeleton Editing): the name moves in memory as ONE undo record, and Save writes it to
+// the .skeleton AND into this skeleton's clip - the clip's channel then finds the bone by its new name.
+TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheSkeletonAndItsClip )
+{
+    const auto           dir  = TempDir( "rename" );
+    const auto           file = WriteRig( dir );
+    Assets::AssetManager manager;
+    auto                 rig = manager.CreateAsset<Assets::SkeletonAsset>( Common::Filepath( file ) );
+    ASSERT_TRUE( rig->Load().IsSuccess() );
+
+    // A clip of this skeleton keying "Child" (a bone binding with a Transform track), written as a real .anim.
+    Animation::AnimationClip clip;
+    clip.AnimationName = "Wave";
+    clip.Skeleton      = kRigGuid;
+    clip.Sequence.End  = Animation::FrameNumber{ 30 };
+    Animation::Timeline::Binding child;
+    child.Guid    = Animation::Timeline::BindingGuid::ForObject( Animation::Timeline::BindingKind::Bone, "Child" );
+    child.Kind    = Animation::Timeline::BindingKind::Bone;
+    child.Locator = "Child";
+    child.Label   = "Child";
+    clip.Sequence.Bindings.push_back( child );
+    const auto clipFile = dir / "wave.anim";
+    ASSERT_TRUE( Assets::Serialization::SaveClipToFile( clipFile, clip ).IsSuccess() );
+
+    // Refusals: no name, another bone's name - nothing moves, no record.
+    EXPECT_FALSE( Editor::CommitBoneRename( rig, 1U, "" ).IsSuccess() );
+    EXPECT_FALSE( Editor::CommitBoneRename( rig, 1U, "Root" ).IsSuccess() );
+    EXPECT_FALSE( Editor::CommandHistory::Get().Undo() ) << "a refused rename is no record";
+
+    const uint64_t revision = rig->GetBindRevision();
+    ASSERT_TRUE( Editor::CommitBoneRename( rig, 1U, "Forearm" ).IsSuccess() );
+    EXPECT_EQ( rig->GetSkeleton()->GetBones()[1].Name, "Forearm" );
+    EXPECT_EQ( rig->GetSkeleton()->FindBoneIndex( "Forearm" ), std::optional<uint32_t>( 1U ) );
+    EXPECT_NE( rig->GetBindRevision(), revision ) << "the preview re-reads the rig";
+    auto onDisk = Editor::ReadBindPoseOnDisk( *rig );
+    ASSERT_TRUE( onDisk.IsSuccess() );
+    EXPECT_TRUE( Editor::BindPoseDiffers( *rig, onDisk.GetValue() ) ) << "a rename is Save*";
+
+    // Undo puts the name back, redo renames again: one record.
+    ASSERT_TRUE( Editor::CommandHistory::Get().Undo() );
+    EXPECT_EQ( rig->GetSkeleton()->GetBones()[1].Name, "Child" );
+    EXPECT_FALSE( Editor::BindPoseDiffers( *rig, onDisk.GetValue() ) );
+    ASSERT_TRUE( Editor::CommandHistory::Get().Redo() );
+    EXPECT_EQ( rig->GetSkeleton()->GetBones()[1].Name, "Forearm" );
+
+    // Save with the clip as this skeleton's referrer: both files speak the new name.
+    Assets::SkeletonReferrers referrers;
+    referrers.ClipFiles = { clipFile };
+    ASSERT_TRUE( Assets::Serialization::SaveSkeletonAsset( *rig, referrers ).IsSuccess() );
+    ASSERT_TRUE( rig->Unload().IsSuccess() );
+    ASSERT_TRUE( rig->Load().IsSuccess() );
+    EXPECT_EQ( rig->GetSkeleton()->GetBones()[1].Name, "Forearm" ) << "the .skeleton holds the rename";
+    EXPECT_EQ( rig->GetSkeleton()->GetBones()[1].ParentBoneID, std::optional<uint32_t>( 0U ) ) << "structure kept";
+
+    auto clipAsset = manager.CreateAsset<Assets::AnimationAsset>( Common::Filepath( clipFile ) );
+    ASSERT_TRUE( clipAsset->Load().IsSuccess() );
+    const auto& bindings = clipAsset->GetClip().Sequence.Bindings;
+    ASSERT_EQ( bindings.size(), 1U );
+    EXPECT_EQ( bindings[0].Locator, "Forearm" ) << "the clip's channel names the bone by its new name";
+    EXPECT_EQ( bindings[0].Guid, child.Guid ) << "the binding keeps its identity across the rename";
+    EXPECT_EQ( rig->GetSkeleton()->FindBoneIndex( bindings[0].Locator ), std::optional<uint32_t>( 1U ) )
+         << "the clip's channel finds the bone";
     Editor::CommandHistory::Get().DropFor( rig.get() );
 }
 

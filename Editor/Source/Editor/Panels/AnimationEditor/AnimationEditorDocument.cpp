@@ -671,7 +671,11 @@ namespace Desert::Editor
     {
         if ( !m_SkeletonAsset )
             return Common::MakeError<bool>( "no skeleton is loaded in this window" );
-        if ( const auto saved = Assets::Serialization::SaveSkeletonAsset( *m_SkeletonAsset ); !saved )
+        // A RENAMED BONE IS CARRIED INTO THE SKELETON'S CLIPS (files by the registry's Rig tag, and the ones resident
+        // in this manager in memory) by the save itself - the one point (Assets::RenameBonesInSkeletonAssets).
+        if ( const auto saved = Assets::Serialization::SaveSkeletonAsset(
+                  *m_SkeletonAsset, Assets::ReferrersOfSkeleton( m_Skeleton, m_Assets ) );
+             !saved )
             return saved;
         // THE READERS RE-READ THE FILE (UE: a saved USkeleton is what every mesh and clip on it loads). The reload
         // rebuilds the rig at the same address; its content signature moves with the new binds, which is what
@@ -960,6 +964,9 @@ namespace Desert::Editor
         const auto& skeleton = animator->GetSkeleton();
         const auto& bones    = skeleton.GetBones();
         m_CollapsedBones.resize( bones.size(), false );
+        const bool canRename = Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk;
+        if ( !canRename )
+            m_RenamingBone.reset();
 
         ImGui::SetNextItemWidth( -1.0f );
         ImGui::InputTextWithHint( "##bonefilter", "Search Bones", m_BoneFilter.data(), m_BoneFilter.size() );
@@ -993,13 +1000,67 @@ namespace Desert::Editor
             // A row shown only as the ancestor of a search hit is dimmed, as in UE's filtered tree.
             if ( !row.Matches )
                 ImGui::PushStyleColor( ImGuiCol_Text, ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
-            if ( ImGui::Selectable( bones[row.Bone].Name.c_str(), m_SelectedBone == row.Bone ) )
-                m_SelectedBone = row.Bone;
+            if ( m_RenamingBone == row.Bone )
+            {
+                if ( m_RenameFocus )
+                {
+                    ImGui::SetKeyboardFocusHere();
+                    m_RenameFocus = false;
+                }
+                ImGui::SetNextItemWidth( -1.0f );
+                if ( ImGui::InputText( "##rename", m_RenameBuffer.data(), m_RenameBuffer.size(),
+                                       ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll ) )
+                    CommitRename( row.Bone, m_RenameBuffer.data() );
+                else if ( ImGui::IsKeyPressed( ImGuiKey_Escape ) ||
+                          ( !ImGui::IsItemActive() && !ImGui::IsItemFocused() && !m_RenameFocus ) )
+                    m_RenamingBone.reset();
+            }
+            else
+            {
+                if ( ImGui::Selectable( bones[row.Bone].Name.c_str(), m_SelectedBone == row.Bone ) )
+                    m_SelectedBone = row.Bone;
+                // UE's Skeleton Tree: Rename Bone on the row's context menu and on F2. Skeleton mode only - the
+                // other modes show the rig they play on, they do not author it.
+                if ( canRename && ImGui::BeginPopupContextItem( "##bonemenu" ) )
+                {
+                    m_SelectedBone = row.Bone;
+                    if ( ImGui::MenuItem( "Rename Bone", "F2" ) )
+                        BeginRename( row.Bone );
+                    ImGui::EndPopup();
+                }
+            }
             if ( !row.Matches )
                 ImGui::PopStyleColor();
             ImGui::PopID();
         }
+        if ( canRename && m_SelectedBone && !m_RenamingBone &&
+             ImGui::IsWindowFocused( ImGuiFocusedFlags_ChildWindows ) && ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
+            BeginRename( *m_SelectedBone );
         ImGui::EndChild();
+        if ( !m_RenameStatus.empty() )
+            ImGui::TextColored( ImVec4( 0.9f, 0.4f, 0.3f, 1.0f ), "%s", m_RenameStatus.c_str() );
+    }
+
+    void AnimationEditorDocument::BeginRename( const uint32_t bone )
+    {
+        const Animation::Skeleton* rig = m_SkeletonAsset ? m_SkeletonAsset->GetSkeleton() : nullptr;
+        if ( rig == nullptr || bone >= rig->GetBones().size() )
+            return;
+        const std::string& name = rig->GetBones()[bone].Name;
+        m_RenameBuffer.fill( '\0' );
+        name.copy( m_RenameBuffer.data(), std::min( name.size(), m_RenameBuffer.size() - 1 ) );
+        m_RenamingBone = bone;
+        m_RenameFocus  = true;
+        m_RenameStatus.clear();
+    }
+
+    void AnimationEditorDocument::CommitRename( const uint32_t bone, const std::string& name )
+    {
+        m_RenamingBone.reset();
+        if ( const auto renamed = CommitBoneRename( m_SkeletonAsset, bone, name ); !renamed )
+            m_RenameStatus = std::format( "Rename refused: {}", renamed.GetError() );
+        else
+            m_RenameStatus.clear();
     }
 
     void AnimationEditorDocument::DrawBoneDetails()
@@ -1015,7 +1076,21 @@ namespace Desert::Editor
         const uint32_t index    = *m_SelectedBone;
         const auto&    bone     = skeleton.GetBones()[index];
         const uint32_t parent   = skeleton.ResolveParent( index );
-        ImGui::Text( "Bone  %s", bone.Name.c_str() );
+        if ( Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk )
+        {
+            // The Details Name row (UE: the bone's name in the Skeleton Tree Details): Enter commits a Rename Bone.
+            std::array<char, 128> name{};
+            bone.Name.copy( name.data(), std::min( bone.Name.size(), name.size() - 1 ) );
+            ImGui::SetNextItemWidth( -80.0f );
+            if ( ImGui::InputText( "Name", name.data(), name.size(), ImGuiInputTextFlags_EnterReturnsTrue ) )
+            {
+                // The rig was rebuilt (its bones are new storage): this frame's references into it end here.
+                CommitRename( index, name.data() );
+                return;
+            }
+        }
+        else
+            ImGui::Text( "Bone  %s", bone.Name.c_str() );
         ImGui::TextDisabled( "Index %u   Parent %s", index,
                              parent < skeleton.GetBones().size() ? skeleton.GetBones()[parent].Name.c_str()
                                                                  : "(root)" );
