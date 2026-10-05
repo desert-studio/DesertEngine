@@ -858,9 +858,11 @@ TEST( ListViewBound, ChangingOneRecordChangesOnlyItsRowsVertices )
         if ( after[i] == before[i] )
             continue;
         ++changed;
-        const float y = after[i].Position.y;
-        EXPECT_GE( y, kRow * kRowHeight ) << "vertex " << i << " changed outside row " << kRow;
-        EXPECT_LE( y, ( kRow + 1 ) * kRowHeight ) << "vertex " << i << " changed outside row " << kRow;
+        // A rounded fill's antialiasing fringe straddles the true edge, so half of it lies past the row.
+        const float y     = after[i].Position.y;
+        const float slack = 0.5f * R2D::DrawList2D::kEdgeFringe;
+        EXPECT_GE( y, kRow * kRowHeight - slack ) << "vertex " << i << " changed outside row " << kRow;
+        EXPECT_LE( y, ( kRow + 1 ) * kRowHeight + slack ) << "vertex " << i << " changed outside row " << kRow;
     }
     EXPECT_GT( changed, 0 ) << "the record's new tint never reached its row";
 
