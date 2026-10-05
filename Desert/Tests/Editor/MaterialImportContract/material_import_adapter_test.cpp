@@ -44,11 +44,11 @@ namespace
         return std::string( reinterpret_cast<const char*>( source.data() ), source.size() );
     }
 
-    Desert::Common::Content::AssetGuid GuidOf( const std::filesystem::path& asset )
+    Common::Content::AssetGuid GuidOf( const std::filesystem::path& asset )
     {
         const auto read = Desert::Assets::ReadTextureSourceAssetFile( asset );
         EXPECT_TRUE( read.IsSuccess() ) << ( read.IsSuccess() ? "" : read.GetError() );
-        return read.IsSuccess() ? read.GetValue().Guid : Desert::Common::Content::AssetGuid{};
+        return read.IsSuccess() ? read.GetValue().Guid : Common::Content::AssetGuid{};
     }
 
     // Image files (not assets) in `dir`: what an import must not leave in the content beside its source.
