@@ -295,7 +295,7 @@ TEST( ComputePipelineRefusal, NoCallSiteCanIgnoreTheRefusal )
             {
                 back -= 2;
                 while ( back > 0 &&
-                        ( std::isalnum( static_cast<unsigned char>( text[back - 1] ) ) || text[back - 1] == '_' ) )
+                        ( std::isalnum( static_cast<unsigned char>( text[back - 1] ) ) != 0 || text[back - 1] == '_' ) )
                     --back;
             }
             while ( back > 0 && std::isspace( static_cast<unsigned char>( text[back - 1] ) ) )
