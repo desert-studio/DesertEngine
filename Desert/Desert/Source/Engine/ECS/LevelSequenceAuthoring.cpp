@@ -7,6 +7,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <format>
 #include <utility>
 
@@ -65,6 +66,203 @@ namespace Desert::ECS
             return Common::MakeFormattedError<bool>( "Transform key on '{}': the pose is not finite",
                                                      bound->Label );
         return Common::MakeSuccess( true );
+    }
+
+    namespace
+    {
+        constexpr std::array kPoseParts = { Animation::TrackChannel::Position, Animation::TrackChannel::Rotation,
+                                            Animation::TrackChannel::Scale };
+
+        T::Track* EntityTransformTrack( T::Sequence& sequence, const T::BindingGuid& binding )
+        {
+            for ( T::Track& candidate : sequence.Tracks )
+                if ( candidate.Binding == binding && candidate.Property == kLevelSequenceTransformProperty )
+                    return &candidate;
+            return nullptr;
+        }
+
+        void AddTicks( const T::FloatChannel& lane, std::vector<Animation::FrameNumber>& out )
+        {
+            for ( const auto& key : lane.Keys )
+                out.push_back( key.Tick );
+        }
+
+        /// Whether any lane of @p part has a key on @p tick in any section of @p track.
+        bool PartKeyedOn( const T::Track& track, const Animation::TrackChannel part, const Animation::FrameNumber tick )
+        {
+            for ( const T::Section& section : track.Sections )
+            {
+                const auto* channel = std::get_if<T::Channel>( &section.Content );
+                const auto* pose    = channel != nullptr ? std::get_if<T::TransformChannel>( channel ) : nullptr;
+                if ( pose == nullptr )
+                    continue;
+                std::vector<Animation::FrameNumber> ticks;
+                if ( part == Animation::TrackChannel::Position )
+                    for ( const T::FloatChannel* lane : { &pose->Translation.X, &pose->Translation.Y, &pose->Translation.Z } )
+                        AddTicks( *lane, ticks );
+                else if ( part == Animation::TrackChannel::Scale )
+                    for ( const T::FloatChannel* lane : { &pose->Scale.X, &pose->Scale.Y, &pose->Scale.Z } )
+                        AddTicks( *lane, ticks );
+                else
+                    for ( const T::FloatChannel* lane :
+                          { &pose->Rotation.X, &pose->Rotation.Y, &pose->Rotation.Z, &pose->Rotation.W } )
+                        AddTicks( *lane, ticks );
+                if ( std::ranges::find( ticks, tick ) != ticks.end() )
+                    return true;
+            }
+            return false;
+        }
+    } // namespace
+
+    std::vector<Animation::FrameNumber> EntityTransformKeyTicks( const T::Sequence&    sequence,
+                                                                 const T::BindingGuid& binding )
+    {
+        std::vector<Animation::FrameNumber> ticks;
+        for ( const T::Track& track : sequence.Tracks )
+        {
+            if ( track.Binding != binding || track.Property != kLevelSequenceTransformProperty )
+                continue;
+            for ( const T::Section& section : track.Sections )
+            {
+                const auto* channel = std::get_if<T::Channel>( &section.Content );
+                const auto* pose    = channel != nullptr ? std::get_if<T::TransformChannel>( channel ) : nullptr;
+                if ( pose == nullptr )
+                    continue;
+                for ( const T::FloatChannel* lane :
+                      { &pose->Translation.X, &pose->Translation.Y, &pose->Translation.Z, &pose->Rotation.X,
+                        &pose->Rotation.Y, &pose->Rotation.Z, &pose->Rotation.W, &pose->Scale.X, &pose->Scale.Y,
+                        &pose->Scale.Z } )
+                    AddTicks( *lane, ticks );
+            }
+        }
+        std::ranges::sort( ticks, []( const auto a, const auto b ) { return a.Value < b.Value; } );
+        ticks.erase( std::unique( ticks.begin(), ticks.end() ), ticks.end() );
+        return ticks;
+    }
+
+    Common::BoolResultStr MoveEntityTransformKeys( T::Sequence& sequence, const T::BindingGuid& binding,
+                                                   const std::vector<Animation::FrameNumber>& from,
+                                                   const int32_t                              delta )
+    {
+        if ( delta == 0 || from.empty() )
+            return Common::MakeSuccess( true );
+        // Edited on a copy: a refusal half-way through leaves the sequence exactly as it was.
+        T::Sequence edited = sequence;
+        T::Track*   track  = EntityTransformTrack( edited, binding );
+        if ( track == nullptr )
+            return Common::MakeError( "Move keys: the binding has no Transform track" );
+        const T::Binding* bound = T::FindBinding( edited, binding );
+        const std::string label = bound != nullptr ? bound->Label : std::string( "actor" );
+
+        // The leading key moves first, so a selection moved by less than its own spread steps into ticks its
+        // own members have already vacated rather than onto them.
+        std::vector<Animation::FrameNumber> order = from;
+        std::ranges::sort( order, [delta]( const auto a, const auto b )
+                           { return delta > 0 ? a.Value > b.Value : a.Value < b.Value; } );
+        for ( const Animation::FrameNumber tick : order )
+        {
+            const Animation::FrameNumber to{ tick.Value + delta };
+            bool                         movedAny = false;
+            for ( const Animation::TrackChannel part : kPoseParts )
+            {
+                if ( !PartKeyedOn( *track, part, tick ) )
+                    continue;
+                if ( const auto moved = Animation::MoveTrackKey( edited, *track, label, part, tick, to ); !moved )
+                    return Common::MakeFormattedError<bool>( "Move keys: {}", moved.GetError() );
+                movedAny = true;
+            }
+            if ( !movedAny )
+                return Common::MakeFormattedError<bool>( "Move keys on '{}': no key at tick {}", label,
+                                                         tick.Value );
+        }
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr RemoveEntityTransformKeys( T::Sequence& sequence, const T::BindingGuid& binding,
+                                                     const std::vector<Animation::FrameNumber>& ticks )
+    {
+        if ( ticks.empty() )
+            return Common::MakeSuccess( true );
+        T::Sequence edited = sequence;
+        T::Track*   track  = EntityTransformTrack( edited, binding );
+        if ( track == nullptr )
+            return Common::MakeError( "Delete keys: the binding has no Transform track" );
+        const T::Binding* bound = T::FindBinding( edited, binding );
+        const std::string label = bound != nullptr ? bound->Label : std::string( "actor" );
+        for ( const Animation::FrameNumber tick : ticks )
+        {
+            bool removedAny = false;
+            for ( const Animation::TrackChannel part : kPoseParts )
+            {
+                if ( !PartKeyedOn( *track, part, tick ) )
+                    continue;
+                if ( const auto removed = Animation::RemoveTrackKey( edited, *track, label, part, tick ); !removed )
+                    return Common::MakeFormattedError<bool>( "Delete keys: {}", removed.GetError() );
+                removedAny = true;
+            }
+            if ( !removedAny )
+                return Common::MakeFormattedError<bool>( "Delete keys on '{}': no key at tick {}", label,
+                                                         tick.Value );
+        }
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<uint32_t> LevelSequenceAutoKey::Observe( entt::registry& registry, T::Sequence& sequence,
+                                                               const Animation::FrameNumber tick, const bool held )
+    {
+        const LevelSequenceComponent noOverrides;
+        LevelSequenceEntityHost      host( registry, noOverrides );
+        const auto                   transformOf = [&]( const T::Binding& binding ) -> const TransformComponent*
+        {
+            if ( binding.Kind != T::BindingKind::Entity )
+                return nullptr;
+            const auto resolved = host.Resolve( binding );
+            if ( !resolved )
+                return nullptr;
+            return registry.try_get<TransformComponent>(
+                 static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) ) );
+        };
+
+        if ( held && !m_Held )
+        {
+            // The rising edge: what every bound actor looked like before the gesture touched it.
+            m_Before.clear();
+            for ( const T::Binding& binding : sequence.Bindings )
+                if ( const TransformComponent* transform = transformOf( binding ) )
+                    m_Before.emplace_back( binding.Guid, EntityPose( *transform ) );
+        }
+        const bool released = m_Held && !held;
+        m_Held              = held;
+        if ( !released )
+            return Common::MakeSuccess( 0U );
+
+        uint32_t keyed = 0;
+        for ( const auto& [guid, before] : m_Before )
+        {
+            const T::Binding* binding = T::FindBinding( sequence, guid );
+            const TransformComponent* transform = binding != nullptr ? transformOf( *binding ) : nullptr;
+            if ( transform == nullptr )
+                continue;
+            const Animation::BoneTransform now = EntityPose( *transform );
+            if ( now.Translation == before.Translation && now.Rotation == before.Rotation &&
+                 now.Scale == before.Scale )
+                continue;
+            if ( const auto written = SetEntityTransformKey( sequence, guid, tick, now ); !written )
+                return Common::MakeFormattedError<uint32_t>( "Auto Key: {}", written.GetError() );
+            ++keyed;
+        }
+        m_Before.clear();
+        return Common::MakeSuccess( keyed );
+    }
+
+    void LevelSequenceAutoKey::Reset()
+    {
+        m_Held = false;
+        m_Before.clear();
     }
 
     Common::BoolResultStr AddCameraCut( T::Sequence& sequence, const T::BindingGuid& camera,

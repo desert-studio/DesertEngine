@@ -580,38 +580,58 @@ namespace Desert::Animation
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr RemoveBoneKey( Timeline::Sequence& sequence, std::string_view bone, TrackChannel part,
-                                         FrameNumber tick )
+    Common::BoolResultStr RemoveTrackKey( Timeline::Sequence& sequence, Timeline::Track& track,
+                                          std::string_view label, TrackChannel part, FrameNumber tick )
     {
-        Timeline::Track*            track   = FindBoneTrack( sequence, bone );
-        Timeline::TransformChannel* channel = track != nullptr ? ChannelHoldingKey( *track, part, tick ) : nullptr;
+        Timeline::TransformChannel* channel = ChannelHoldingKey( track, part, tick );
         if ( channel == nullptr || !RemoveKey( *channel, part, tick, sequence.TickRate ) )
         {
-            return Common::MakeFormattedError<bool>( "'{}' {}: no key at tick {}", bone, PartName( part ),
+            return Common::MakeFormattedError<bool>( "'{}' {}: no key at tick {}", label, PartName( part ),
                                                      tick.Value );
         }
         ++sequence.Revision;
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr MoveBoneKey( Timeline::Sequence& sequence, std::string_view bone, TrackChannel part,
-                                       FrameNumber from, FrameNumber to )
+    Common::BoolResultStr MoveTrackKey( Timeline::Sequence& sequence, Timeline::Track& track,
+                                        std::string_view label, TrackChannel part, FrameNumber from,
+                                        FrameNumber to )
     {
         if ( !InClip( sequence, to ) )
         {
-            return Common::MakeFormattedError<bool>( "'{}' {}: tick {} is outside the clip [{}, {}]", bone,
+            return Common::MakeFormattedError<bool>( "'{}' {}: tick {} is outside the clip [{}, {}]", label,
                                                      PartName( part ), to.Value, sequence.Start.Value,
                                                      sequence.End.Value );
         }
-        Timeline::Track*            track   = FindBoneTrack( sequence, bone );
-        Timeline::TransformChannel* channel = track != nullptr ? ChannelHoldingKey( *track, part, from ) : nullptr;
+        Timeline::TransformChannel* channel = ChannelHoldingKey( track, part, from );
         if ( channel == nullptr || !MoveKey( *channel, part, from, to, sequence.TickRate ) )
         {
             return Common::MakeFormattedError<bool>(
-                 "'{}' {}: the key at tick {} cannot move to {} — none is there, or the target is occupied", bone,
+                 "'{}' {}: the key at tick {} cannot move to {} — none is there, or the target is occupied", label,
                  PartName( part ), from.Value, to.Value );
         }
         ++sequence.Revision;
         return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr RemoveBoneKey( Timeline::Sequence& sequence, std::string_view bone, TrackChannel part,
+                                         FrameNumber tick )
+    {
+        Timeline::Track* track = FindBoneTrack( sequence, bone );
+        if ( track == nullptr )
+            return Common::MakeFormattedError<bool>( "'{}' {}: no key at tick {}", bone, PartName( part ),
+                                                     tick.Value );
+        return RemoveTrackKey( sequence, *track, bone, part, tick );
+    }
+
+    Common::BoolResultStr MoveBoneKey( Timeline::Sequence& sequence, std::string_view bone, TrackChannel part,
+                                       FrameNumber from, FrameNumber to )
+    {
+        Timeline::Track* track = FindBoneTrack( sequence, bone );
+        if ( track == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "'{}' {}: the key at tick {} cannot move to {} — none is there, or the target is occupied", bone,
+                 PartName( part ), from.Value, to.Value );
+        return MoveTrackKey( sequence, *track, bone, part, from, to );
     }
 } // namespace Desert::Animation

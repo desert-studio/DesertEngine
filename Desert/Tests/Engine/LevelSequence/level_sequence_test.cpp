@@ -14,6 +14,8 @@
 
 #include <Common/Json/Document.hpp>
 
+#include <Editor/Core/CommandHistory.hpp>
+
 #include "../ClipFixture.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -455,4 +457,172 @@ TEST( LevelSequenceDocument, AnAnimationTrackPosesTheBoundEntitysSkeleton )
 
     preview.Restore( world.registry );
     EXPECT_TRUE( animation.Playing ) << "closing the preview gives the Animation component its playback back";
+}
+
+// ── KEY EDITING ON THE LEVEL SEQUENCE (ANIM-FIX2): move / delete / Auto Key, on the model, no UI ─────────────
+TEST( LevelSequenceKeys, MoveCarriesEveryLaneAndRefusesAnOccupiedTick )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  door     = sequence.Bindings.front().Guid;
+    ASSERT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U );
+
+    // Onto the other key: refused, and the sequence is exactly as it was.
+    const T::Sequence before = sequence;
+    EXPECT_FALSE( ECS::MoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 0 } }, 100 ).IsSuccess() );
+    EXPECT_EQ( sequence.Revision, before.Revision );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).front().Value, 0 );
+
+    // Out of the playback range: refused.
+    EXPECT_FALSE( ECS::MoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 100 } }, 10 ).IsSuccess() );
+
+    // The 100 key to 60: every lane goes with it, and the door evaluates X 100 there.
+    ASSERT_TRUE( ECS::MoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 100 } }, -40 ).IsSuccess() );
+    const auto ticks = ECS::EntityTransformKeyTicks( sequence, door );
+    ASSERT_EQ( ticks.size(), 2U );
+    EXPECT_EQ( ticks[1].Value, 60 );
+    EXPECT_GT( sequence.Revision, before.Revision );
+
+    // A selection moved by less than its own spread: both keys move together.
+    ASSERT_TRUE( ECS::MoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 0 }, A::FrameNumber{ 60 } }, 30 )
+                      .IsSuccess() );
+    const auto shifted = ECS::EntityTransformKeyTicks( sequence, door );
+    ASSERT_EQ( shifted.size(), 2U );
+    EXPECT_EQ( shifted[0].Value, 30 );
+    EXPECT_EQ( shifted[1].Value, 90 );
+}
+
+TEST( LevelSequenceKeys, DeleteRemovesThePoseAndRefusesAMissingKeyWhole )
+{
+    T::Sequence       sequence = AuthoredDoor();
+    const auto        door     = sequence.Bindings.front().Guid;
+    const T::Sequence before   = sequence;
+    EXPECT_FALSE( ECS::RemoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 0 }, A::FrameNumber{ 7 } } )
+                       .IsSuccess() );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U ) << "a refusal must change nothing";
+    EXPECT_EQ( sequence.Revision, before.Revision );
+
+    ASSERT_TRUE( ECS::RemoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 100 } } ).IsSuccess() );
+    const auto ticks = ECS::EntityTransformKeyTicks( sequence, door );
+    ASSERT_EQ( ticks.size(), 1U );
+    EXPECT_EQ( ticks[0].Value, 0 );
+}
+
+TEST( LevelSequenceKeys, AutoKeyWritesOnePoseKeyOnTheReleaseOfAGestureThatMovedTheActor )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  door     = sequence.Bindings.front().Guid;
+    World       world;
+    ECS::LevelSequenceAutoKey autoKey;
+    const A::FrameNumber      at{ 40 };
+    const auto                observe = [&]( const bool held ) -> uint32_t
+    {
+        const auto keyed = autoKey.Observe( world.registry, sequence, at, held );
+        EXPECT_TRUE( keyed.IsSuccess() );
+        return keyed.IsSuccess() ? keyed.GetValue() : 999U;
+    };
+
+    // A gesture that moves nothing keys nothing.
+    EXPECT_EQ( observe( true ), 0U );
+    EXPECT_TRUE( autoKey.Releasing( false ) );
+    EXPECT_EQ( observe( false ), 0U );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U );
+
+    // Press, drag (nothing written while held), release: one key at the playhead with the live pose.
+    EXPECT_EQ( observe( true ), 0U );
+    world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 777.0F;
+    EXPECT_EQ( observe( true ), 0U );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U ) << "nothing is keyed mid-gesture";
+    EXPECT_EQ( observe( false ), 1U );
+    const auto ticks = ECS::EntityTransformKeyTicks( sequence, door );
+    ASSERT_EQ( ticks.size(), 3U );
+    EXPECT_EQ( ticks[1].Value, 40 );
+
+    // Reset mid-gesture (REC switched off): the release keys nothing.
+    EXPECT_EQ( observe( true ), 0U );
+    world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 5.0F;
+    autoKey.Reset();
+    EXPECT_FALSE( autoKey.Releasing( false ) );
+    EXPECT_EQ( observe( false ), 0U );
+}
+
+namespace
+{
+    /// A recorded half of the gesture: whatever it captured is put back on Undo and re-applied on Redo.
+    template <typename Value>
+    class Restore final : public Desert::Editor::ICommand
+    {
+    public:
+        Restore( Value& live, Value before ) : m_Live( live ), m_Before( std::move( before ) ), m_After( live )
+        {
+        }
+        bool Undo() override
+        {
+            m_Live = m_Before;
+            return true;
+        }
+        bool Redo() override
+        {
+            m_Live = m_After;
+            return true;
+        }
+
+    private:
+        Value& m_Live;
+        Value  m_Before;
+        Value  m_After;
+    };
+} // namespace
+
+// UE: an actor dragged with Auto Key on is ONE FScopedTransaction — the move and its key. The editor records
+// the move (the gizmo's entry) and the key (the Sequencer's) separately; `JoinFollowUp` makes them one Ctrl+Z,
+// and only when nothing else was recorded between them.
+TEST( LevelSequenceKeys, AutoKeyedGizmoReleaseIsOneUndoStep )
+{
+    auto& history = Desert::Editor::CommandHistory::Get();
+    history.Clear();
+    T::Sequence               sequence = AuthoredDoor();
+    const auto                door     = sequence.Bindings.front().Guid;
+    World                     world;
+    auto&                     moved = world.registry.get<ECS::TransformComponent>( world.door ).Translation;
+    ECS::LevelSequenceAutoKey autoKey;
+    const A::FrameNumber      at{ 40 };
+
+    // The gesture: press, drag, release — the gizmo pushes the move and remembers the revision it stood at.
+    ASSERT_TRUE( autoKey.Observe( world.registry, sequence, at, true ).IsSuccess() );
+    const glm::vec3 before = moved;
+    moved.x                = 777.0F;
+    history.PushCommand( std::make_unique<Restore<glm::vec3>>( moved, before ) );
+    const uint64_t move = history.Revision();
+
+    // The Sequencer's release frame: its undo step opens, the key is written, the step closes.
+    const uint64_t    opened  = history.Revision();
+    const T::Sequence unkeyed = sequence;
+    const auto        keyed   = autoKey.Observe( world.registry, sequence, at, false );
+    ASSERT_TRUE( keyed.IsSuccess() );
+    ASSERT_EQ( keyed.GetValue(), 1U );
+    history.PushCommand( std::make_unique<Restore<T::Sequence>>( sequence, unkeyed ) );
+    ASSERT_TRUE( history.JoinFollowUp( move, opened ) );
+
+    // One Ctrl+Z: the actor is back AND the key is gone.
+    ASSERT_TRUE( history.Undo() );
+    EXPECT_EQ( moved.x, before.x );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U );
+    EXPECT_FALSE( history.Undo() ) << "the move and its key were one entry";
+    // One Ctrl+Y: both come back.
+    ASSERT_TRUE( history.Redo() );
+    EXPECT_EQ( moved.x, 777.0F );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 3U );
+
+    // Anything recorded between the move and the key's step keeps them apart.
+    history.Clear();
+    history.PushCommand( std::make_unique<Restore<glm::vec3>>( moved, before ) );
+    const uint64_t lone  = history.Revision();
+    float          other = 0.0F;
+    history.PushCommand( std::make_unique<Restore<float>>( other, 1.0F ) );
+    const uint64_t late = history.Revision();
+    history.PushCommand( std::make_unique<Restore<T::Sequence>>( sequence, unkeyed ) );
+    EXPECT_FALSE( history.JoinFollowUp( lone, late ) );
+    // A step that pushed nothing joins nothing either.
+    EXPECT_FALSE( history.JoinFollowUp( history.Revision(), history.Revision() ) );
+    history.Clear();
 }

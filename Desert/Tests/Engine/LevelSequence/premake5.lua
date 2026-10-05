@@ -50,6 +50,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- CommandHistory (header-only): the gizmo move + its auto-key, one undo
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",       -- the host applies to an entt registry
