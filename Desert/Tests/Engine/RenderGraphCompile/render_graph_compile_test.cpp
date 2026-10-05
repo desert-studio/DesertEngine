@@ -2244,11 +2244,14 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
     std::erase_if( glass, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
     EXPECT_EQ( glass.find( "kShadowMapNames" ), std::string::npos );
 
-    // The deferred composite: a cascade that exists this frame is its graph texture, the rest read the white
-    // system texture (no shadow). Always-white would light every pixel as unshadowed.
-    std::string deferred = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
-    std::erase_if( deferred, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
-    EXPECT_NE( deferred.find( "inputs.ShadowMaps[c]=ref.IsValid()?ref:refs.System.White;" ), std::string::npos );
+    // The scene/view inputs every lit pass binds (SceneViewInputsOf): a cascade that exists this frame is its
+    // graph texture, the rest read the white system texture (no shadow). Always-white would light every pixel as
+    // unshadowed.
+    std::string view = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
+    std::erase_if( view, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
+    EXPECT_NE(
+         view.find( "inputs.ShadowMaps[c]=t.ShadowCascades[c].IsValid()?t.ShadowCascades[c]:refs.System.White;" ),
+         std::string::npos );
 }
 
 // THE PARTICLE SIMULATION IS A COMPUTE NODE (RDG-LEG1-L3): SceneRendererFrameAtmosphere.cpp adds it through
@@ -2562,7 +2565,9 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp", "declared.Read(m_SkyViewLut,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
            "declared.Read(m_TransmittanceLut,RDG::Access::SampledGraphics" },
-         { "Systems/Scene/Mesh/MeshRenderer.cpp", "m_SceneRenderer->DeclareShadowReads(declared)" },
+         { "Systems/Scene/Mesh/MeshRenderer.cpp",
+           "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
+           "SampledGraphics" },
          { "Systems/Scene/Terrain/TerrainRenderer.cpp", "m_SceneRenderer->DeclareShadowReads(declared)" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
            "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
@@ -2683,10 +2688,15 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     EXPECT_NE( frame.find( "textures.Transients.CloudShadowMap=textures.Import(clouds->GetShadowMap(),"
                            "\"Clouds.ShadowMap\")" ),
                std::string::npos );
-    EXPECT_NE( source( "SceneRendererFrameDeferred.cpp" ).find( "inputs.GI,inputs.CloudShadowMap}" ),
+    // MESH-PB1: the map is one of the scene/view inputs (SceneViewInputsOf), which the composite declares and
+    // binds.
+    EXPECT_NE( source( "FrameGraphRefs.hpp" ).find( "inputs.CloudShadowMap=CloudShadowMapOrWhite(refs);" ),
+               std::string::npos );
+    EXPECT_NE( source( "SceneRendererFrameDeferred.cpp" )
+                    .find( "conststd::vector<RDG::TextureRef>view=inputs.View.Refs();" ),
                std::string::npos );
     EXPECT_NE( source( "Systems/Scene/Deferred/DeferredLightingRenderer.hpp" )
-                    .find( "sampled(\"u_CloudShadowMap\",inputs.CloudShadowMap)" ),
+                    .find( "BindSceneViewInputs(bindings,inputs.View,*m_Shader);" ),
                std::string::npos );
     const std::string deferredMaterial = source( "Materials/Deferred/MaterialDeferredLighting.hpp" );
     EXPECT_NE( deferredMaterial.find( "CloudShadowUpload(this,cloudShadow)" ), std::string::npos );
