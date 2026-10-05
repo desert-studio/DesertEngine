@@ -447,6 +447,102 @@ namespace Desert::Graphic::Render2D
         EmitPoly( cmd, corners, 4 );
     }
 
+    void DrawList2D::AddPolyline( const glm::vec2* points, uint32_t count, const glm::vec4& color,
+                                  float thickness, float feather, bool roundCaps )
+    {
+        if ( count < 2 || points == nullptr || ClipRegionEmpty( m_Clip ) )
+            return;
+
+        // A core thinner than a pixel cannot be drawn thinner — it is drawn one pixel wide and fainter,
+        // which is what coverage of a sub-pixel line actually is.
+        glm::vec4   core = color;
+        const float hw   = std::max( thickness, 1.0f ) * 0.5f;
+        if ( thickness < 1.0f )
+            core.a *= std::max( thickness, 0.0f );
+        const float     fw    = std::max( feather, 0.0f );
+        const glm::vec4 clear = glm::vec4( glm::vec3( core ), 0.0f );
+        const glm::vec2 uv    = { 0.5f, 0.5f };
+
+        auto segDir = [&]( uint32_t i ) // direction of segment i -> i+1, unit (zero for a degenerate one)
+        {
+            const glm::vec2 d   = points[i + 1] - points[i];
+            const float     len = std::sqrt( d.x * d.x + d.y * d.y );
+            return len > 1e-6f ? d / len : glm::vec2( 0.0f );
+        };
+
+        // Per-vertex offset direction: the mitre of the two adjacent segment normals.
+        std::vector<glm::vec2> miter( count );
+        for ( uint32_t i = 0; i < count; ++i )
+        {
+            const glm::vec2 dIn  = i > 0 ? segDir( i - 1 ) : segDir( 0 );
+            const glm::vec2 dOut = i + 1 < count ? segDir( i ) : segDir( count - 2 );
+            const glm::vec2 nIn  = { -dIn.y, dIn.x };
+            const glm::vec2 nOut = { -dOut.y, dOut.x };
+            glm::vec2       m    = nIn + nOut;
+            const float     ml   = std::sqrt( m.x * m.x + m.y * m.y );
+            if ( ml < 1e-4f )
+            {
+                miter[i] = nOut; // a 180-degree turn: no mitre exists, keep the outgoing normal
+                continue;
+            }
+            m /= ml;
+            const float cosHalf = std::max( m.x * nOut.x + m.y * nOut.y, 0.25f ); // cap the spike at 4x
+            miter[i]            = m / cosHalf;
+        }
+
+        DrawCommand&          cmd = CurrentCommand( nullptr, false );
+        std::vector<Vertex2D> pairs( static_cast<size_t>( count ) * 2 );
+        auto strip = [&]( float outer, const glm::vec4& outerColor, float inner, const glm::vec4& innerColor )
+        {
+            for ( uint32_t i = 0; i < count; ++i )
+            {
+                pairs[i * 2]     = { Xf( points[i] + miter[i] * outer ), uv, outerColor };
+                pairs[i * 2 + 1] = { Xf( points[i] + miter[i] * inner ), uv, innerColor };
+            }
+            EmitStrip( cmd, pairs.data(), count );
+        };
+        strip( hw, core, -hw, core ); // the solid core
+        if ( fw > 0.0f )
+        {
+            strip( hw + fw, clear, hw, core );    // left fringe
+            strip( -hw - fw, clear, -hw, core );  // right fringe
+        }
+
+        if ( !roundCaps )
+            return;
+
+        // Half-discs at both ends, swept from +normal through the outward tangent to -normal.
+        constexpr int kCapSegments = 12;
+        auto          cap          = [&]( const glm::vec2& c, const glm::vec2& outward )
+        {
+            const glm::vec2       n = { -outward.y, outward.x };
+            std::array<glm::vec2, kCapSegments + 1> dir {};
+            for ( int k = 0; k <= kCapSegments; ++k )
+            {
+                const float a = 3.14159265358979f * static_cast<float>( k ) / kCapSegments;
+                dir[k]        = n * std::cos( a ) + outward * std::sin( a );
+            }
+            for ( int k = 0; k < kCapSegments; ++k )
+            {
+                const Vertex2D tri[3] = { { Xf( c ), uv, core },
+                                          { Xf( c + dir[k] * hw ), uv, core },
+                                          { Xf( c + dir[k + 1] * hw ), uv, core } };
+                EmitPoly( cmd, tri, 3 );
+            }
+            if ( fw <= 0.0f )
+                return;
+            std::array<Vertex2D, ( kCapSegments + 1 ) * 2> rim {};
+            for ( int k = 0; k <= kCapSegments; ++k )
+            {
+                rim[k * 2]     = { Xf( c + dir[k] * ( hw + fw ) ), uv, clear };
+                rim[k * 2 + 1] = { Xf( c + dir[k] * hw ), uv, core };
+            }
+            EmitStrip( cmd, rim.data(), kCapSegments + 1 );
+        };
+        cap( points[0], -segDir( 0 ) );
+        cap( points[count - 1], segDir( count - 2 ) );
+    }
+
     void DrawList2D::AddRing( const glm::vec2& center, float outerRadius, float innerRadius,
                               const glm::vec4& colorA, const glm::vec4& colorB, int segments )
     {

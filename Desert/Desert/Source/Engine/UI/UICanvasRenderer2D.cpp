@@ -14,10 +14,13 @@
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
+#include <Engine/UI/UIPathGeometry.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <span>
+#include <array>
 #include <optional>
 #include <chrono>
 #include <cstdint>
@@ -1037,6 +1040,29 @@ namespace Desert::UI
                             { g.u1, g.v1 }, col );
             };
 
+            if ( t.Glow && t.GlowRadius > 0.0f && t.GlowStrength > 0.0f )
+            {
+                // Rings of the glyphs at growing radii, each fainter: the summed coverage falls off with
+                // distance from the glyph edge, which is a halo. Twelve directions keep the ring round at
+                // the radii a title uses; three rings make the falloff a slope rather than a step.
+                constexpr int kDirections = 12;
+                constexpr int kRings      = 3;
+                const float   radius      = t.GlowRadius * scale;
+                for ( int ring = kRings; ring >= 1; --ring )
+                {
+                    const float     r = radius * static_cast<float>( ring ) / kRings;
+                    const float     a = t.GlowStrength * ( 1.0f - static_cast<float>( ring - 1 ) / kRings ) /
+                                    static_cast<float>( kDirections ) * 2.0f;
+                    const glm::vec4 gc( t.GlowColor, std::clamp( a, 0.0f, 1.0f ) );
+                    for ( int k = 0; k < kDirections; ++k )
+                    {
+                        const float     ang = 6.28318530718f * static_cast<float>( k ) / kDirections;
+                        const glm::vec2 off = { std::cos( ang ) * r, std::sin( ang ) * r };
+                        for ( const auto& g : placed )
+                            quad( g, off, gc );
+                    }
+                }
+            }
             if ( t.Shadow )
             {
                 const glm::vec4 sc = glm::vec4( t.ShadowColor, 1.0f );
@@ -1639,6 +1665,41 @@ namespace Desert::UI
                     if ( t > 0.0f )
                         dl.AddRectFilled( mn, { mn.x + rect.W * t, mx.y },
                                           glm::vec4( st.Color( StyleSlot::ProgressFill, pb.Fill ), 1.0f ), r );
+                }
+                else if ( reg.has<ECS::UIPathComponent>( e ) )
+                {
+                    const ECS::UIPathData& path  = reg.get<ECS::UIPathComponent>( e ).Data;
+                    const glm::vec2        slots[8] = { path.P0, path.P1, path.P2, path.P3,
+                                                        path.P4, path.P5, path.P6, path.P7 };
+                    const int              count = std::clamp( path.PointCount, 2, 8 );
+
+                    // Points are fractions of the element's own rect, so the line follows its anchors.
+                    std::array<glm::vec2, 8> control {};
+                    for ( int i = 0; i < count; ++i )
+                        control[static_cast<size_t>( i )] = mn + slots[i] * ( mx - mn );
+
+                    const UIPathPolyline line = TessellateUIPath(
+                         std::span<const glm::vec2>( control.data(), static_cast<size_t>( count ) ),
+                         path.Curve == ECS::UIPathCurve::Smooth );
+
+                    // A keyed clip REPLACES the authored Reveal while it drives it (never written back).
+                    float      reveal = path.Reveal;
+                    const auto clip   = ctx.View.AnimClips.Samples.find( e );
+                    if ( clip != ctx.View.AnimClips.Samples.end() && clip->second.Reveal )
+                        reveal = *clip->second.Reveal;
+
+                    const std::vector<glm::vec2> shown = RevealUIPath( line, reveal );
+                    if ( shown.size() >= 2 )
+                    {
+                        const float thick = path.Thickness * scale;
+                        if ( path.Glow && path.GlowRadius > 0.0f && path.GlowStrength > 0.0f )
+                            dl.AddPolyline( shown.data(), static_cast<uint32_t>( shown.size() ),
+                                            Tinted( ctx, glm::vec4( path.GlowColor, path.GlowStrength ) ),
+                                            thick, path.GlowRadius * scale, path.RoundCaps );
+                        dl.AddPolyline( shown.data(), static_cast<uint32_t>( shown.size() ),
+                                        Tinted( ctx, glm::vec4( path.Color, path.Opacity ) ), thick, path.Feather,
+                                        path.RoundCaps );
+                    }
                 }
                 else if ( reg.has<ECS::UIToggleComponent>( e ) )
                 {

@@ -735,7 +735,9 @@ namespace
          { "Marquee", kCanvasRenderer },      { "MarqueeSpeed", kCanvasRenderer },
          { "Shadow", kCanvasRenderer },       { "ShadowColor", kCanvasRenderer },
          { "ShadowOffset", kCanvasRenderer }, { "Outline", kCanvasRenderer },
-         { "OutlineColor", kCanvasRenderer },
+         { "OutlineColor", kCanvasRenderer }, { "Glow", kCanvasRenderer },
+         { "GlowColor", kCanvasRenderer },    { "GlowRadius", kCanvasRenderer },
+         { "GlowStrength", kCanvasRenderer },
     };
 
     constexpr Row kImageRows[] = {
@@ -804,6 +806,29 @@ namespace
          { "Background", kCanvasRenderer },
          { "Fill", kCanvasRenderer },
          { "CornerRadius", kCanvasRenderer },
+    };
+
+    constexpr Row kPathRows[] = {
+         { "Curve", kCanvasRenderer },
+         { "PointCount", kCanvasRenderer },
+         { "Reveal", kCanvasRenderer },
+         { "Thickness", kCanvasRenderer },
+         { "Color", kCanvasRenderer },
+         { "Opacity", kCanvasRenderer },
+         { "RoundCaps", kCanvasRenderer },
+         { "Feather", kCanvasRenderer },
+         { "P0", kCanvasRenderer },
+         { "P1", kCanvasRenderer },
+         { "P2", kCanvasRenderer },
+         { "P3", kCanvasRenderer },
+         { "P4", kCanvasRenderer },
+         { "P5", kCanvasRenderer },
+         { "P6", kCanvasRenderer },
+         { "P7", kCanvasRenderer },
+         { "Glow", kCanvasRenderer },
+         { "GlowColor", kCanvasRenderer },
+         { "GlowRadius", kCanvasRenderer },
+         { "GlowStrength", kCanvasRenderer },
     };
 
     constexpr Row kToggleRows[] = {
@@ -975,6 +1000,7 @@ namespace
          { "PlayerStartData", "PlayerStartComponent", nullptr, CENSUS_ROWS( kPlayerStartRows ) },
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
+         { "UIPathData", "UIPathComponent", nullptr, CENSUS_ROWS( kPathRows ) },
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
          { "UIScrollViewData", "UIScrollViewComponent", nullptr, CENSUS_ROWS( kScrollViewRows ) },

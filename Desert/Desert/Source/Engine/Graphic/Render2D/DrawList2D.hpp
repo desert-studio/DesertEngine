@@ -107,6 +107,15 @@ namespace Desert::Graphic::Render2D
         // built-in vector icon set (checks, chevrons, strokes).
         void AddLine( const glm::vec2& a, const glm::vec2& b, const glm::vec4& color, float thickness );
 
+        // Open polyline stroke of pixel @p thickness through @p points (UIPath). Unlike AddLine it is
+        // ANTIALIASED by geometry: the solid core is flanked by @p feather px of fringe whose alpha falls
+        // to zero, so a curve drawn at any angle has a soft edge without MSAA or a shader. Joints are
+        // mitred (the miter is capped so a hairpin does not spike); @p roundCaps closes both ends with
+        // half-discs of the same fringe. The same call IS the glow: a wide stroke whose feather is the
+        // glow radius fades from @p color at the core to nothing at the edge. Solid batch.
+        void AddPolyline( const glm::vec2* points, uint32_t count, const glm::vec4& color, float thickness,
+                          float feather, bool roundCaps );
+
         // Annulus (ring) centred at `center`, from `innerRadius` to `outerRadius` (px), as a triangle strip.
         // The colour sweeps `colorA` -> `colorB` -> `colorA` around the ring (smooth, seamless), giving a
         // conic-style gradient border for circular avatars / status rings / progress rings. Solid batch.

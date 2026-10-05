@@ -19,6 +19,7 @@
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -31,6 +32,9 @@ namespace Desert::UI
         glm::vec2 Offset = glm::vec2( 0.0F );
         glm::vec2 Size   = glm::vec2( 0.0F );
         glm::vec4 Tint   = glm::vec4( 1.0F );
+        /// "Reveal" (UIPath): the keyed fraction of the line's length, REPLACING the authored one while the
+        /// clip drives it. Unset = the clip does not touch it.
+        std::optional<float> Reveal;
     };
 
     /// One view's clip results for the frame. Cleared and refilled by `PlayUIAnimations`.
