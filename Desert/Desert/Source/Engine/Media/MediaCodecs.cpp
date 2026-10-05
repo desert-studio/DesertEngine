@@ -94,7 +94,7 @@ namespace Desert::Media
                 const ptrdiff_t stride = picture.stride[p == 0 ? 0 : 1];
                 frame.PlaneWidth[p]    = w;
                 frame.PlaneHeight[p]   = h;
-                frame.Planes[p].resize( static_cast<size_t>( w ) * h * bytes );
+                frame.Planes[p].Allocate( static_cast<size_t>( w ) * h * bytes );
                 const auto* src = static_cast<const uint8_t*>( picture.data[p] );
                 for ( uint32_t y = 0; y < h; ++y )
                     std::memcpy( frame.Planes[p].data() + static_cast<size_t>( y ) * w * bytes,

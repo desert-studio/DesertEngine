@@ -13,6 +13,7 @@
 //   sine=frequency=440:sample_rate=48000:duration=5 -c:v libsvtav1 -preset 8 -crf 50 -pix_fmt yuv420p
 //          -c:a libopus -b:a 48k -shortest testsrc2_1080p_5s.webm
 
+#include <cstring>
 #include <Engine/Media/MediaPlayer.hpp>
 
 #include <gtest/gtest.h>
@@ -206,19 +207,42 @@ TEST( MediaPlayback, PatternClipFramesOneSecondApartDiffer )
     ASSERT_NE( player.GetCurrentFrame(), nullptr );
     EXPECT_EQ( player.GetCurrentFrame()->Width, 1920u );
     EXPECT_EQ( player.GetCurrentFrame()->Height, 1080u );
-    const std::vector<uint8_t> first  = player.GetCurrentFrame()->Planes[0];
+    const MediaPlane&          plane0 = player.GetCurrentFrame()->Planes[0];
+    const std::vector<uint8_t> first( plane0.data(), plane0.data() + plane0.size() );
     const uint64_t             serial = player.FrameSerial();
     player.Play();
     for ( int i = 0; i < 30; ++i )
         player.Tick( 1.0 / 30.0 );
     ASSERT_NE( player.GetCurrentFrame(), nullptr );
     EXPECT_GT( player.FrameSerial(), serial );
-    EXPECT_NE( player.GetCurrentFrame()->Planes[0], first );
+    const MediaPlane& now = player.GetCurrentFrame()->Planes[0];
+    EXPECT_NE( std::vector<uint8_t>( now.data(), now.data() + now.size() ), first );
 }
 
 // Decode throughput of the C path: every frame of the clip made current once (ticked at its own frame
 // rate), wall time per frame printed. The pattern clip always; DESERT_MEDIA_BENCH_CLIP adds one more file
 // (the 1080p60 / 4K60 measurements are made with it on a clip outside the repository).
+TEST( MediaPlayback, APlaneIsSizedWithoutAPassOverItsBytesAndComparesByContent )
+{
+    // MEDIA-5: a decoded plane is overwritten whole, so sizing it must not touch its bytes (a vector's resize
+    // and destruction walked 12 MB per 4K plane on Debug), and re-sizing to the same size keeps the buffer.
+    MediaPlane a;
+    EXPECT_TRUE( a.empty() );
+    a.Allocate( 16 );
+    const uint8_t* buffer = a.data();
+    a.Allocate( 16 );
+    EXPECT_EQ( a.data(), buffer );
+    EXPECT_EQ( a.size(), 16u );
+    std::memset( a.data(), 7, a.size() );
+    MediaPlane b;
+    b.Allocate( 16 );
+    std::memset( b.data(), 7, b.size() );
+    EXPECT_TRUE( a == b );
+    b.data()[15] = 8;
+    EXPECT_FALSE( a == b );
+    EXPECT_EQ( b[15], 8u );
+}
+
 TEST( MediaPlayback, DecodeThroughputIsPrinted )
 {
     std::vector<std::string> clips{ DESERT_MEDIA_PATTERN_CLIP };

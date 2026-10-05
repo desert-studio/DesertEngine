@@ -144,7 +144,8 @@ namespace Desert::Media
         {
             if ( !m_Planes[i] )
                 continue;
-            const auto uploaded = m_Planes[i]->SetData( Core::Formats::ImagePixelData( frame.Planes[i] ) );
+            const auto uploaded = m_Planes[i]->SetData( Core::Formats::ImagePixelData(
+                 reinterpret_cast<std::byte*>( const_cast<uint8_t*>( frame.Planes[i].data() ) ) ) ); // no 12 MB copy
             if ( !uploaded.IsSuccess() )
                 return std::format( "video plane {} did not reach the GPU: {}", i, uploaded.GetError() );
         }

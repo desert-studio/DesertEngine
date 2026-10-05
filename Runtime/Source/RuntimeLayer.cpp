@@ -375,11 +375,14 @@ namespace Desert::Player
             if ( m_PresentedFrames == 0 )
                 return;
             m_StartupMoviesStarted = true;
+            // A press made before the movie was on screen is not a skip of it: the boot's frames take input
+            // too, and a stray edge there ended a three-second movie after one frame (MEDIA-5).
+            m_SkipStartupMovie = false;
             m_StartupMovies->Start();
             deltaSeconds = 0.0;
         }
-        if ( m_SkipStartupMovie )
-            m_StartupMovies->Skip();
+        if ( m_SkipStartupMovie && m_StartupMovies->Skip() )
+            LOG_INFO( "[StartupMovies] skipped by the player's press after {} presented frame(s)", m_PresentedFrames );
         m_SkipStartupMovie = false;
         // Capped like VideoService's catch-up: a stalled frame must not jump the movie when it runs on the
         // tick clock (no audio device); with sound the clock is the samples played and this is moot.
@@ -805,8 +808,10 @@ namespace Desert::Player
         // The marker this replaced said the same thing to the LOG and to nothing else. A log line is not
         // a state: nothing could branch on it, so the frames it described were presented anyway.
         {
+            // Not while a startup movie owns the frame: no scene is rendered then, so nothing is ordered,
+            // and a gate ticked over frames that asked for nothing would open on a world nobody has read.
             const auto work = Assets::ContentWorkNow();
-            if ( m_Content.Tick( work.Outstanding, work.Started ) )
+            if ( !StartupMoviesPlaying() && m_Content.Tick( work.Outstanding, work.Started ) )
                 OnContentReady();
         }
 
@@ -820,6 +825,14 @@ namespace Desert::Player
             m_PrevAnyMouseDown = anyDown;
         }
         TickStartupMovies( static_cast<double>( ts.GetMilliseconds() ) * 0.001 );
+
+        // WHILE A STARTUP MOVIE PLAYS THE FRAME IS THE MOVIE AND NOTHING ELSE (UE FDefaultGameMoviePlayer: the
+        // game viewport is not drawn). The scene's update renders the world, and on a Debug build that frame
+        // costs hundreds of milliseconds -- every one of them a movie frame held while its sound clock runs.
+        // The asset loader keeps reading on its workers (pumped above); the world's own render-driven requests
+        // and the content gate resume on the first frame after the last movie.
+        if ( StartupMoviesPlaying() )
+            return BOOLSUCCESS;
 
         if ( m_SplashTimer > 0.0f )
             m_SplashTimer -= ts.GetMilliseconds() * 0.001f;

@@ -3,7 +3,10 @@
 #include <Engine/Media/WebmDemuxer.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -32,6 +35,50 @@ namespace Desert::Media
         BT2020,
     };
 
+    // ONE DECODED PLANE'S BYTES, overwritten whole by the decoder. Not std::vector<uint8_t>: a vector
+    // value-initialises every byte on resize and walks every byte again on destruction in an unoptimised
+    // build -- measured (MEDIA-5, `sample` on the Debug runtime) at ~150 ms per 4K 10-bit frame each way,
+    // which is what held a startup movie's frame for seconds while the sound clock ran on.
+    class MediaPlane
+    {
+    public:
+        void Allocate( size_t bytes )
+        {
+            if ( bytes == m_Size )
+                return;
+            m_Bytes.reset( new uint8_t[bytes] ); // default-initialised: no pass over the bytes
+            m_Size = bytes;
+        }
+        uint8_t* data()
+        {
+            return m_Bytes.get();
+        }
+        const uint8_t* data() const
+        {
+            return m_Bytes.get();
+        }
+        size_t size() const
+        {
+            return m_Size;
+        }
+        bool empty() const
+        {
+            return m_Size == 0;
+        }
+        uint8_t operator[]( size_t i ) const
+        {
+            return m_Bytes[i];
+        }
+        bool operator==( const MediaPlane& other ) const
+        {
+            return m_Size == other.m_Size && ( m_Size == 0 || std::memcmp( data(), other.data(), m_Size ) == 0 );
+        }
+
+    private:
+        std::unique_ptr<uint8_t[]> m_Bytes;
+        size_t                     m_Size = 0;
+    };
+
     struct VideoFrame
     {
         int64_t                             PtsNs     = 0;
@@ -41,7 +88,7 @@ namespace Desert::Media
         MediaChroma                         Chroma    = MediaChroma::I420;
         MediaColorMatrix                    Matrix    = MediaColorMatrix::BT601;
         bool                                FullRange = false;
-        std::array<std::vector<uint8_t>, 3> Planes;       // Y, U, V; rows tightly packed (stride = width × bytes)
+        std::array<MediaPlane, 3>           Planes;       // Y, U, V; rows tightly packed (stride = width × bytes)
         std::array<uint32_t, 3>             PlaneWidth{}; // in samples
         std::array<uint32_t, 3>             PlaneHeight{}; // in rows
 
