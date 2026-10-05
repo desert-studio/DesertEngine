@@ -29,8 +29,8 @@ namespace Desert::Editor::PreviewEnvironment
 
     struct Settings
     {
-        // The HDR skybox asset, by its project-relative path — the key a person can read in editor.json
-        // and the one the registry answers FindByPath with. EMPTY means the preview's own preset sky.
+        // The HDR skybox asset, by the registry's stable key (`root:relative/path`, AssetHandle::StableKeyForPath)
+        // — readable in editor.json and the same in every checkout. EMPTY means the preview's own preset sky.
         std::string Skybox;
         // Turn of the environment about the world's up axis, degrees, kept in [-180, 180].
         float RotationDegrees = 0.0f;
@@ -62,8 +62,8 @@ namespace Desert::Editor::PreviewEnvironment
         return look;
     }
 
-    // What the registry answers for a path: the asset's handle, or nothing when no SkyboxAsset lives there.
-    using SkyboxLookup = std::function<std::optional<uint64_t>( const std::string& path )>;
+    // What the registry answers for a stable key: the asset's handle, or nothing when no SkyboxAsset lives there.
+    using SkyboxLookup = std::function<std::optional<uint64_t>( const std::string& key )>;
 
     struct Resolved
     {

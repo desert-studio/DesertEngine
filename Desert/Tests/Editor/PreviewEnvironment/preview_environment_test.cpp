@@ -8,7 +8,10 @@
 #include <Common/Json/Json.hpp>
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
 
 using namespace Desert::Editor::PreviewEnvironment;
@@ -114,4 +117,28 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// editor.json is per USER and shared by every checkout on the machine, so the HDR it remembers is the registry's
+// stable key (`root:relative/path`), never the path expanded on this machine: an absolute path named one checkout
+// and every other one refused it ("no HDR skybox asset at 'F:/DesertEngine/...'"). The picker is ImGui, so its two
+// halves are read as text: the stored value is the row's Key, and the lookup expands a key.
+TEST( PreviewEnvironment, ThePickerStoresTheStableKeyAndTheLookupExpandsIt )
+{
+    std::string root = "./";
+    for ( int up = 0;
+          up < 6 && !std::filesystem::exists( root + "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp" );
+          ++up )
+        root += "../";
+    std::ifstream in( root + "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp", std::ios::binary );
+    ASSERT_TRUE( in ) << "run from inside the repository";
+    std::ostringstream text;
+    text << in.rdbuf();
+    const std::string ui = text.str();
+
+    EXPECT_NE( ui.find( "entries.push_back( { row.Key," ), std::string::npos );
+    EXPECT_EQ( ui.find( "row.Path.generic_string()" ), std::string::npos )
+         << "the picker stores a machine path again";
+    EXPECT_NE( ui.find( "SkyboxHandleAtPath( Common::AssetHandle::PathForStableKey( key ) )" ),
+               std::string::npos );
 }

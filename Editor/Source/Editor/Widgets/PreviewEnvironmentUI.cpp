@@ -2,6 +2,7 @@
 #include "PreviewEnvironment.hpp"
 #include "PreviewViewport.hpp"
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
@@ -27,7 +28,9 @@ namespace Desert::Editor::PreviewEnvironment
     {
         struct Entry
         {
-            std::string Path; // the key stored in editor.json and answered by FindByPath
+            // The registry's stable key (`root:relative/path`) — what editor.json stores. Never the expanded
+            // path: editor.json is per user and shared by every checkout, an absolute path names one of them.
+            std::string Key;
             std::string Name; // what a person reads in the picker and the palette
         };
 
@@ -38,9 +41,9 @@ namespace Desert::Editor::PreviewEnvironment
             for ( const Assets::ContentRegistry::PickerRow& row :
                   Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skybox ) )
             {
-                entries.push_back( { row.Path.generic_string(),
-                                     row.DisplayName.empty() ? Common::Utils::FileSystem::GetFileName( row.Path )
-                                                             : row.DisplayName } );
+                entries.push_back( { row.Key, row.DisplayName.empty()
+                                                   ? Common::Utils::FileSystem::GetFileName( row.Path )
+                                                   : row.DisplayName } );
             }
             return entries;
         }
@@ -74,11 +77,12 @@ namespace Desert::Editor::PreviewEnvironment
         const Settings& settings = EditorPreferences::Get().PreviewScene;
         const Resolved  resolved =
              Resolve( settings,
-                      [assets]( const std::string& path ) -> std::optional<uint64_t>
+                      [assets]( const std::string& key ) -> std::optional<uint64_t>
                       {
                           if ( assets == nullptr )
                               return std::nullopt;
-                          const Assets::AssetHandle handle = Runtime::SkyboxHandleAtPath( path );
+                          const Assets::AssetHandle handle =
+                               Runtime::SkyboxHandleAtPath( Common::AssetHandle::PathForStableKey( key ) );
                           if ( handle == 0 )
                               return std::nullopt;
                           // Finding the row is not having the sky: an HDR no loaded scene uses has no
@@ -122,9 +126,9 @@ namespace Desert::Editor::PreviewEnvironment
                 Edit( []( Settings& s ) { s.Skybox.clear(); } );
             for ( const Entry& entry : Skyboxes() )
             {
-                ImGui::PushID( entry.Path.c_str() );
-                if ( ImGui::Selectable( entry.Name.c_str(), entry.Path == settings.Skybox ) )
-                    Edit( [&entry]( Settings& s ) { s.Skybox = entry.Path; } );
+                ImGui::PushID( entry.Key.c_str() );
+                if ( ImGui::Selectable( entry.Name.c_str(), entry.Key == settings.Skybox ) )
+                    Edit( [&entry]( Settings& s ) { s.Skybox = entry.Key; } );
                 ImGui::PopID();
             }
             ImGui::EndCombo();
@@ -163,8 +167,8 @@ namespace Desert::Editor::PreviewEnvironment
         actions.push_back(
              { "Preview environment: preset sky", [] { Edit( []( Settings& s ) { s.Skybox.clear(); } ); } } );
         for ( Entry& entry : Skyboxes() )
-            actions.push_back( { "Preview environment: " + entry.Name, [path = std::move( entry.Path )]
-                                 { Edit( [&path]( Settings& s ) { s.Skybox = path; } ); } } );
+            actions.push_back( { "Preview environment: " + entry.Name, [key = std::move( entry.Key )]
+                                 { Edit( [&key]( Settings& s ) { s.Skybox = key; } ); } } );
 
         actions.push_back( { "Preview EV +1", []
                              { Edit( []( Settings& s ) { s.ExposureEV = ClampEV( s.ExposureEV + 1.0f ); } ); } } );
