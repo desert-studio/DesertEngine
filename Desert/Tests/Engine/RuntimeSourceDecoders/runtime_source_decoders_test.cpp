@@ -23,7 +23,7 @@
 // match a row, and every row must still match an offender — a row whose code has gone is red too, so
 // the register cannot outlive the thing it excuses. The rows today are one exception seen from three
 // files: the GIF path. Its condition for leaving is the lead's decision of 2026-09-23: a GIF becomes a
-// SOURCE format that the importer cooks to video (the runtime already plays MPEG-1 through pl_mpeg), so
+// SOURCE format that the importer cooks to video (the runtime plays WebM — AV1 + Opus — through Engine/Media's MediaPlayer), so
 // the day that card lands these rows are deleted and `ImageReader` with them.
 //
 // COMMENTS AND LITERALS ARE STRIPPED FIRST, for the reason `ImGuiBoundary` records: a census that reddens

@@ -184,6 +184,8 @@ namespace Desert::Core::Formats
                 return { 1, 1, 4 };
             case ImageFormat::R16_UNORM:
                 return { 1, 1, 2 }; // one channel, 16 bits
+            case ImageFormat::R8_UNORM:
+                return { 1, 1, 1 }; // one channel, 8 bits
             case ImageFormat::R32F:
                 return { 1, 1, 4 }; // one channel, 32-bit float
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
@@ -243,6 +245,7 @@ namespace Desert::Core::Formats
             case ImageFormat::DEPTH32F:
                 return 1;
             case ImageFormat::R16_UNORM:
+            case ImageFormat::R8_UNORM:
             case ImageFormat::R32F:
                 return 1;
             case ImageFormat::BC6H_UFLOAT:
@@ -321,6 +324,7 @@ namespace Desert::Core::Formats
             case ImageFormat::RGBA32F:
             case ImageFormat::BGRA8F:
             case ImageFormat::R16_UNORM:
+            case ImageFormat::R8_UNORM:
             case ImageFormat::R32F:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:

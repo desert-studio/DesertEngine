@@ -38,7 +38,6 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/pl_mpeg/pl_mpeg.cpp",
     }
 
     includedirs {
@@ -52,7 +51,6 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/pl_mpeg/include",
         -- Engine/Media: AV1 (dav1d) and Opus, both compiled from their submodules
         -- (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua).
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/dav1d/include",

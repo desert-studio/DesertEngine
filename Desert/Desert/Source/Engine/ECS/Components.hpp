@@ -1727,8 +1727,8 @@ namespace Desert::ECS
         Assets::AssetHandle Material;
 
         PROPERTY( DisplayName( "Video" ), Category( "UI Panel" ), Asset<VideoAsset> )
-        Assets::AssetHandle Video; // MPEG1 .mpg/.mpeg streamed into this panel (loops, tinted by Color*Opacity).
-                                   // Drag a .mpg from the Content Browser. Overrides the sprite/gradient fill
+        Assets::AssetHandle Video; // WebM (AV1 + Opus) .webm streamed into this panel (loops, tinted by Color*Opacity).
+                                   // Drag a .webm from the Content Browser. Overrides the sprite/gradient fill
                                    // while set. Unset = no video. (Handle<->path owned by the VideoService.)
 
         // --- Shape (Phase C) ------------------------------------------------------------------------------
