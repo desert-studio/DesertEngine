@@ -206,39 +206,63 @@ namespace Desert::Graphic
         auto* gi = UNIQUE_GET_AS( System::GIResolveRenderer, m_RenderSystems["GISystem"] );
         if ( !gi || !gi->Prepare() )
             return {};
-        const std::shared_ptr<Image2D> accumImage = gi->GetAccumImage();
-        const RDG::TextureRef          gather     = textures.Import( gi->GetGatherImage(), "GI.Gather" );
-        const RDG::TextureRef          accum      = textures.Import( accumImage, "GI" );
-        const RDG::TextureRef          history    = textures.Import( gi->GetHistoryImage(), "GI.History" );
+        if ( gbuffer.size() < 3 || rsm.size() < 3 )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: GIResolve needs 3 G-buffer and 3 RSM colours, the graph has {} and {}",
+                       gbuffer.size(), rsm.size() );
+            return {};
+        }
+        // The raw gather lives within this graph (UE: a transient from the scene textures' desc); the
+        // accumulation pair is history and stays external.
+        auto desc = graph.GetTextureDesc( gbuffer[0] );
+        if ( !desc )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: GIResolve: {}", desc.GetError() );
+            return {};
+        }
+        RDG::TextureDesc gatherDesc = desc.GetValue();
+        gatherDesc.Format           = ViewTargetFormats::kGIResolve;
+        gatherDesc.Mips             = 1;
+        gatherDesc.Layers           = 1;
+        gatherDesc.Samples          = 1;
+        const RDG::TextureRef gather  = graph.CreateTexture( gatherDesc, "GI.Gather" );
+        const RDG::TextureRef accum   = textures.Import( gi->GetAccumImage(), "GI" );
+        const RDG::TextureRef history = textures.Import( gi->GetHistoryImage(), "GI.History" );
+        textures.Transients.GIResolve = gather;
+        const System::GIGatherInputs inputs{ .GBufferNormal   = gbuffer[1],
+                                             .GBufferWorldPos = gbuffer[2],
+                                             .RSMAlbedo       = rsm[0],
+                                             .RSMNormal       = rsm[1],
+                                             .RSMWorldPos     = rsm[2] };
+        const float giIntensity = m_GIIntensity;
         graph.AddPass(
              "Deferred: GIResolve", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadAll( pass, gbuffer, RDG::Access::SampledGraphics );
-                 ReadAll( pass, rsm, RDG::Access::SampledGraphics );
+                 pass.Read( inputs.GBufferNormal, RDG::Access::SampledGraphics );
+                 pass.Read( inputs.GBufferWorldPos, RDG::Access::SampledGraphics );
+                 pass.Read( inputs.RSMAlbedo, RDG::Access::SampledGraphics );
+                 pass.Read( inputs.RSMNormal, RDG::Access::SampledGraphics );
+                 pass.Read( inputs.RSMWorldPos, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, gather, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [this, gi, meshRenderer, lightColor]( RDG::PassContext& ) -> Common::BoolResultStr
+             [gi, inputs, meshRenderer, lightColor, giIntensity]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 gi->RecordGather( m_GBuffer, m_RSMBuffer->GetColorAttachmentImage( 0 ),
-                                   m_RSMBuffer->GetColorAttachmentImage( 1 ), m_RSMBuffer->GetColorAttachmentImage( 2 ),
-                                   meshRenderer->GetRSMViewProj(), lightColor, m_GIIntensity );
-                 return BOOLSUCCESS;
+                 // Read when the node runs: the RSM node before it is what sets this frame's light matrix.
+                 return gi->RecordGather( context, inputs, meshRenderer->GetRSMViewProj(), lightColor, giIntensity );
              } );
+        const RDG::TextureRef worldPos = gbuffer[2];
         graph.AddPass(
              "Deferred: GITemporal", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadAll( pass, gbuffer, RDG::Access::SampledGraphics );
+                 pass.Read( worldPos, RDG::Access::SampledGraphics );
                  pass.Read( gather, RDG::Access::SampledGraphics );
                  pass.Read( history, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [this, gi, viewProj]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 gi->RecordTemporal( m_GBuffer, viewProj );
-                 return BOOLSUCCESS;
-             } );
+             [gi, gather, history, worldPos, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return gi->RecordTemporal( context, gather, history, worldPos, viewProj ); } );
         return accum;
     }
 

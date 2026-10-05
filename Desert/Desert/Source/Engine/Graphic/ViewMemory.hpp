@@ -327,7 +327,7 @@ namespace Desert::Graphic
         }
         if ( profile.GlobalIllumination )
         {
-            add( { "GI.Resolve", "SceneRenderer.cpp", F::kGIResolve, width, height } );
+            add( { "GI.Gather", "SceneRendererFrameDeferred.cpp", F::kGIResolve, width, height } );
             add( { "GI.Accum x2", "GIResolveRenderer.hpp", F::kGIAccum, width, height, 1, 2 } );
             // SceneRenderer::kRSMResolution = 512, one row per attachment: they mirror the G-buffer's formats,
             // which need not all be the same.

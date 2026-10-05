@@ -1053,13 +1053,6 @@ namespace Desert::Graphic
 
         Renderer::GetInstance().WaitDeviceIdle();
 
-        FramebufferSpecification giSpec;
-        giSpec.DebugName = "GIResolve";
-        giSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGIResolve );
-        m_GIBuffer = Graphic::Framebuffer::Create( giSpec );
-        m_GIBuffer->Resize( m_TargetFramebuffer->GetFramebufferWidth(),
-                            m_TargetFramebuffer->GetFramebufferHeight() );
-
         // Reflective Shadow Map: a G-buffer rendered from the sun. The attachment layout MUST mirror
         // m_GBuffer (including the emissive target) — the RSM pass reuses the G-buffer pipeline, and that
         // only works while the two render passes stay compatible. Fixed light-space resolution, so it does
@@ -1077,12 +1070,12 @@ namespace Desert::Graphic
         m_RSMBuffer = Graphic::Framebuffer::Create( rsmSpec );
         m_RSMBuffer->Resize( kRSMResolution, kRSMResolution );
 
-        RegisterSystem<System::GIResolveRenderer>( "GISystem", this, m_GIBuffer, m_RenderGraphBuilder );
+        // The gather is a per-frame graph transient (AddFrameGIResolve); the system reads the scene target's size.
+        RegisterSystem<System::GIResolveRenderer>( "GISystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
         if ( !SP_CAST( System::GIResolveRenderer, m_RenderSystems["GISystem"] )->Initialize() )
         {
             LOG_WARN( "[SceneRenderer] GI resolve system unavailable — RSM GI produces no indirect light." );
             m_GIResourcesFailed = true;
-            m_GIBuffer.reset();
             m_RSMBuffer.reset();
             return false;
         }
@@ -1172,8 +1165,6 @@ namespace Desert::Graphic
             resolve->Resize( width, height );
         if ( m_SceneColorCopy )
             m_SceneColorCopy->Resize( width, height );
-        if ( m_GIBuffer )
-            m_GIBuffer->Resize( width, height );
         // m_RSMBuffer is deliberately NOT resized: it is a fixed-resolution light-space target, unrelated
         // to the viewport. Its accumulation history is invalidated by the GI system's own size check.
 

@@ -4,21 +4,35 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp> // MaterialSSRResolve (shared temporal resolve)
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
 
+#include <string_view>
+
 namespace Desert::Graphic::System
 {
+    // The graph textures the GI gather reads, bound by shader name (RecordGather).
+    struct GIGatherInputs
+    {
+        RDG::TextureRef GBufferNormal;   // GBufferB
+        RDG::TextureRef GBufferWorldPos; // GBufferC
+        RDG::TextureRef RSMAlbedo;       // RSM attachment 0 (flux colour)
+        RDG::TextureRef RSMNormal;       // RSM attachment 1
+        RDG::TextureRef RSMWorldPos;     // RSM attachment 2
+    };
+
     // One-bounce RSM GI, two passes:
-    //  1) GATHER: fullscreen jittered VPL gather into the raw GI buffer (the system's target framebuffer).
+    //  1) GATHER: fullscreen jittered VPL gather into a per-frame graph transient (FrameTransients::GIResolve).
     //     The jitter seed changes EVERY frame.
     //  2) RESOLVE: the SAME temporal+spatial denoiser SSR uses (SSRResolve shader) — 5x5 alpha-weighted
     //     spatial filter + reprojected, AABB-clamped exponential history (ping-pong targets). Close-up
     //     camera angles make the per-pixel VPL variance huge; only accumulation over frames converges it.
-    // The deferred lighting then blur-reads the RESOLVED buffer.
+    // The deferred lighting then blur-reads the RESOLVED buffer. The target framebuffer is the scene target:
+    // only its size is read (the accumulation pair follows it).
     class GIResolveRenderer final : public RenderSystem
     {
     public:
@@ -33,7 +47,7 @@ namespace Desert::Graphic::System
 
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
-                return Common::MakeError( "GI buffer missing" );
+                return Common::MakeError( "GI: the scene target framebuffer is missing" );
 
             for ( uint32_t i = 0; i < 2; ++i )
             {
@@ -46,7 +60,8 @@ namespace Desert::Graphic::System
 
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "GIResolve";
-            spec.Framebuffer       = target;
+            // The gather is a graph transient: built against the graph's canonical pass for that one target.
+            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kGIResolve } };
             spec.Shader            = m_Shader;
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
@@ -113,44 +128,62 @@ namespace Desert::Graphic::System
             return true;
         }
 
-        // Pass 1, inside the render pass the graph opens on GetGatherImage() (cleared to 0): jittered VPL
-        // gather into the raw GI buffer.
-        void RecordGather( const std::shared_ptr<Framebuffer>& gbuffer, const std::shared_ptr<Image2D>& rsmAlbedo,
-                           const std::shared_ptr<Image2D>& rsmNormal, const std::shared_ptr<Image2D>& rsmWorldPos,
-                           const glm::mat4& rsmViewProj, const glm::vec4& sunColorIntensity, float giIntensity )
+        // Pass 1, inside the render pass the graph opens on the gather transient (cleared to 0): jittered VPL
+        // gather. Every texture of @p inputs is bound by shader name through RDG::PassBindings.
+        [[nodiscard]] Common::BoolResultStr RecordGather( const RDG::PassContext& context, const GIGatherInputs& inputs,
+                                                          const glm::mat4& rsmViewProj,
+                                                          const glm::vec4& sunColorIntensity, float giIntensity )
         {
-            m_Material->BindInputs( gbuffer->GetColorAttachmentImage( 1 ), gbuffer->GetColorAttachmentImage( 2 ),
-                                    rsmAlbedo, rsmNormal, rsmWorldPos, rsmViewProj, sunColorIntensity, giIntensity,
+            m_Material->BindInputs( rsmViewProj, sunColorIntensity, giIntensity,
                                     static_cast<float>( m_FrameIndex % 1024u ) );
-            Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
-                                                              m_Material->GetMaterialExecutor() );
+            // The sampler the material route sampled these images with (the image's own: linear, REPEAT).
+            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
+            RDG::PassBindings          bindings( context );
+            const auto                 sampled = [&]( std::string_view name, RDG::TextureRef texture )
+            {
+                bindings.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                                  kSampler );
+            };
+            sampled( "u_GBufferB", inputs.GBufferNormal );
+            sampled( "u_GBufferC", inputs.GBufferWorldPos );
+            sampled( "u_RSMAlbedo", inputs.RSMAlbedo );
+            sampled( "u_RSMNormal", inputs.RSMNormal );
+            sampled( "u_RSMWorldPos", inputs.RSMWorldPos );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, m_Material->GetMaterialExecutor() );
         }
 
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): temporal
-        // accumulation (shared SSRResolve denoiser) of the gather over GetHistoryImage(). Advances the ping-pong.
-        void RecordTemporal( const std::shared_ptr<Framebuffer>& gbuffer, const glm::mat4& cameraViewProj )
+        // accumulation (shared SSRResolve denoiser) of @p gather over @p history (GetHistoryImage, imported).
+        // Advances the ping-pong; the graph imported both accumulation images before this runs.
+        [[nodiscard]] Common::BoolResultStr RecordTemporal( const RDG::PassContext& context, RDG::TextureRef gather,
+                                                            RDG::TextureRef history, RDG::TextureRef worldPos,
+                                                            const glm::mat4& cameraViewProj )
         {
-            const auto&     target = m_TargetFramebuffer.lock();
+            const auto& target = m_TargetFramebuffer.lock();
+            if ( !target )
+                return Common::MakeError( "Deferred: GITemporal: the scene target framebuffer is gone" );
             const glm::vec2 texel( 1.0f / static_cast<float>( target->GetFramebufferWidth() ),
                                    1.0f / static_cast<float>( target->GetFramebufferHeight() ) );
-            m_ResolveMaterial->BindTrace( target->GetColorAttachmentImage( 0 ) );
-            m_ResolveMaterial->BindInputs( GetHistoryImage(), gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj, texel,
-                                           m_HistoryValid ? 0.92f : 0.0f );
-            Renderer::GetInstance().SubmitFullscreenTriangle( m_ResolvePipeline.get(),
-                                                              m_ResolveMaterial->GetMaterialExecutor() );
+            m_ResolveMaterial->BindValues( m_PrevViewProj, texel, m_HistoryValid ? 0.92f : 0.0f );
+            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
+            RDG::PassBindings          bindings( context );
+            bindings
+                 .Sampled( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(), kSampler )
+                 .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler )
+                 .Sampled( "u_GBufferWorldPos", worldPos, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), kSampler );
+            const auto drawn = Renderer::GetInstance().DrawFullscreen( bindings, *m_ResolvePipeline,
+                                                                       m_ResolveMaterial->GetMaterialExecutor() );
 
             m_PrevViewProj = cameraViewProj;
             m_HistoryValid = true;
             m_AccumIndex   = 1u - m_AccumIndex;
             ++m_FrameIndex;
+            return drawn;
         }
 
-        // Before RecordTemporal: the raw gather, the target it writes this frame, the one it reprojects.
-        std::shared_ptr<Image2D> GetGatherImage() const
-        {
-            const auto& target = m_TargetFramebuffer.lock();
-            return target ? target->GetColorAttachmentImage( 0 ) : nullptr;
-        }
+        // Before RecordTemporal: the target it writes this frame, the one it reprojects.
         std::shared_ptr<Image2D> GetAccumImage() const
         {
             return m_AccumFB[m_AccumIndex] ? m_AccumFB[m_AccumIndex]->GetColorAttachmentImage( 0 ) : nullptr;
@@ -159,13 +192,6 @@ namespace Desert::Graphic::System
         {
             const uint32_t prv = 1u - m_AccumIndex;
             return m_AccumFB[prv] ? m_AccumFB[prv]->GetColorAttachmentImage( 0 ) : nullptr;
-        }
-
-        // The temporally-resolved (denoised) indirect light — what the lighting pass should read.
-        std::shared_ptr<Image2D> GetGIImage() const
-        {
-            const uint32_t last = 1u - m_AccumIndex; // Execute flipped the index after writing
-            return m_AccumFB[last] ? m_AccumFB[last]->GetColorAttachmentImage( 0 ) : nullptr;
         }
 
     private:

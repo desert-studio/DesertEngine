@@ -24,19 +24,10 @@ namespace Desert::Graphic
              : Material( "MaterialSSRResolve",
                          variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
-            // The tiled variant's trace is a transient of the frame graph, bound by name through RDG::PassBindings
-            // (SSRRenderer::RecordResolve); only the fullscreen (GI) variant reads it through the material.
-            if ( variant == SSRResolveVariant::Fullscreen )
-                m_Trace = m_MaterialExecutor->GetTexture2DProperty( "u_Trace" ).get();
+            // u_Trace is a transient of the frame graph in both variants, bound by name through RDG::PassBindings
+            // (SSRRenderer::RecordResolve, GIResolveRenderer::RecordTemporal).
             m_History  = m_MaterialExecutor->GetTexture2DProperty( "u_History" ).get();
             m_WorldPos = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferWorldPos" ).get();
-        }
-
-        // The fullscreen (GI) variant's trace; the tiled variant has no material slot for it.
-        void BindTrace( const std::shared_ptr<Image2D>& trace )
-        {
-            if ( m_Trace && trace )
-                m_Trace->SetImage( trace.get(), RDG::Access::SampledGraphics );
         }
 
         void BindInputs( const std::shared_ptr<Image2D>& history, const std::shared_ptr<Image2D>& worldPos,
@@ -46,7 +37,13 @@ namespace Desert::Graphic
                 m_History->SetImage( history.get(), RDG::Access::SampledGraphics );
             if ( m_WorldPos && worldPos )
                 m_WorldPos->SetImage( worldPos.get(), RDG::Access::SampledGraphics );
+            BindValues( prevViewProj, texelSize, historyBlend );
+        }
 
+        // The SSRResolveUB values only, for a caller that binds u_History / u_GBufferWorldPos through
+        // RDG::PassBindings (GIResolveRenderer::RecordTemporal).
+        void BindValues( const glm::mat4& prevViewProj, const glm::vec2& texelSize, float historyBlend )
+        {
             struct SSRResolveUBData
             {
                 glm::mat4 PrevViewProj;
@@ -60,7 +57,6 @@ namespace Desert::Graphic
         }
 
     private:
-        Texture2DProperty* m_Trace    = nullptr; // Fullscreen variant only
         Texture2DProperty* m_History  = nullptr;
         Texture2DProperty* m_WorldPos = nullptr;
     };
