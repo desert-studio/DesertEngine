@@ -28,6 +28,7 @@
 #include "Editor/Core/DocumentPlacement.hpp"
 #include "Editor/Core/FlightRules.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
+#include "Editor/Core/ShotRecordGate.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
 #include "Editor/Widgets/ToolbarLayout.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
@@ -894,6 +895,10 @@ namespace Desert::Editor
         void UpdateContentSettling();
 
         // Screenshot mode counters (see Editor/Core/ShotOptions.hpp).
+        // Which frames are frames of the capture — one verdict per frame, read by the world and the writer.
+        ShotRecordGate m_ShotGate;
+        /// Takes this frame's verdict from m_ShotGate; false outside a headless capture.
+        bool AdmitShotFrame();
         int  m_ShotFrame        = 0;
         bool m_ShotCameraPlaced = false;
         // Set when any PNG of this capture could not be written; becomes the process exit status.
