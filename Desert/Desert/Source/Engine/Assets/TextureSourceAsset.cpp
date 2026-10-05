@@ -15,6 +15,7 @@
 
 #include <fstream>
 #include <mutex>
+#include <span>
 #include <utility>
 
 namespace Desert::Assets
@@ -286,10 +287,8 @@ namespace Desert::Assets
         const auto raw = Common::Utils::FileSystem::ReadFileContent( file );
         if ( !raw.IsSuccess() )
             return Common::MakeError<std::vector<std::byte>>( raw.GetError() );
-        const std::string& s = raw.GetValue();
-        return Common::MakeSuccess(
-             std::vector<std::byte>( reinterpret_cast<const std::byte*>( s.data() ),
-                                     reinterpret_cast<const std::byte*>( s.data() ) + s.size() ) );
+        const auto bytes = std::as_bytes( std::span( raw.GetValue() ) );
+        return Common::MakeSuccess( std::vector<std::byte>( bytes.begin(), bytes.end() ) );
     }
 
     bool IsTextureSourceAssetFile( const std::filesystem::path& file )

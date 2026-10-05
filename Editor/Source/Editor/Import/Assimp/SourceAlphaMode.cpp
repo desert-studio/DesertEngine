@@ -25,6 +25,9 @@ namespace Desert::Editor
             int width    = 0;
             int height   = 0;
             int channels = 0;
+            // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes;
+            // the bytes reach it only through this cast.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
             if ( stbi_info_from_memory( reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() ),
                                         static_cast<int>( bytes.GetValue().size() ), &width, &height,
                                         &channels ) == 0 )
