@@ -294,7 +294,10 @@ REM inside a parenthesised block closes the block at PARSE time, so `echo %%V | 
 REM body is a syntax error that reports the wrong line. findstr does the matching in the pipe instead,
 REM and token 6 is the version — the banner has had this shape since premake4.
 set "PREMAKE_FOUND="
-for /f "tokens=6" %%V in ('""%PREMAKE%" --version 2^>NUL" ^| findstr /C:"Premake Build Script Generator"') do set "PREMAKE_FOUND=%%V"
+REM Asked from %%TEMP%%, where no premake5.lua exists: from the repository root `--version` also RUNS every
+REM project script, and their output (2026-10-06: a line ending in 'ThirdParty/:') shifted the tokens so the
+REM version read as 'ThirdParty/:' and Windows CI generated nothing. The question is the binary's version only.
+for /f "tokens=6" %%V in ('"cd /d "%TEMP%" ^&^& "%PREMAKE%" --version 2^>NUL" ^| findstr /C:"Premake Build Script Generator"') do set "PREMAKE_FOUND=%%V"
 if not defined PREMAKE_FOUND (
     call :fail "premake5 did not report a version ('%PREMAKE%' --version); cannot tell whether it is %PREMAKE_VERSION%"
     exit /b 1
