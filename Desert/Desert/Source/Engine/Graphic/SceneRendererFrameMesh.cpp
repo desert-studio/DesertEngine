@@ -247,13 +247,14 @@ namespace Desert::Graphic
         const auto accum =
              TargetsOf( textures, meshRenderer->GetOverdrawFramebuffer(), "Overdraw", "Debug: Overdraw" );
         const auto scene = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Debug: Overdraw Resolve" );
-        if ( !accum || !scene )
+        if ( !accum || !scene || accum->Colors.empty() )
             return;
         AddRaster( graph, "Debug: Overdraw", *accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                    RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
                    [meshRenderer]() { meshRenderer->RenderOverdrawAccumManual(); } );
         AddRaster( graph, "Debug: Overdraw Resolve", *scene, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
-                   accum->Colors, [meshRenderer]() { meshRenderer->RenderOverdrawResolveManual(); } );
+                   accum->Colors, [meshRenderer, overdraw = accum->Colors[0]]( const RDG::PassContext& context )
+                   { return meshRenderer->RecordOverdrawResolve( context, overdraw ); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 } // namespace Desert::Graphic

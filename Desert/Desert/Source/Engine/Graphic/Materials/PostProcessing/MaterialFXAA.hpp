@@ -4,15 +4,11 @@
 
 namespace Desert::Graphic
 {
-    // Binds the input (tonemapped) image for the FXAA post-process pass.
+    // The FXAA program's material: it carries no values and no textures -- the input (tonemapped) image is a
+    // graph texture the FXAA exec binds through RDG::PassBindings (FXAARenderer::Record).
     class MaterialFXAA final : public Material
     {
     public:
         MaterialFXAA();
-
-        void BindInputs( const std::shared_ptr<Image2D>& inputImage );
-
-    private:
-        Texture2DProperty* m_InputTexture = nullptr;
     };
 } // namespace Desert::Graphic

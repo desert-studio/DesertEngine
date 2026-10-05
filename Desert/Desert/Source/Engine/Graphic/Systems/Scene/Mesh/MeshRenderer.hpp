@@ -216,7 +216,10 @@ namespace Desert::Graphic::System
         // accumulation buffer, then heat-map the per-pixel overdraw count over the finished scene colour.
         // Path-independent (re-draws geometry; ignores the G-buffer), so it works in Forward and Deferred.
         void RenderOverdrawAccumManual();   // node "Debug: Overdraw" (m_OverdrawFB)
-        void RenderOverdrawResolveManual(); // node "Debug: Overdraw Resolve" (the scene target)
+        // node "Debug: Overdraw Resolve" (the scene target): samples @p overdraw, the accumulation the node
+        // "Debug: Overdraw" wrote, as u_Overdraw through RDG::PassBindings.
+        [[nodiscard]] Common::BoolResultStr RecordOverdrawResolve( const RDG::PassContext& context,
+                                                                   RDG::TextureRef         overdraw );
 
         const std::shared_ptr<Framebuffer>& GetOverdrawFramebuffer() const
         {

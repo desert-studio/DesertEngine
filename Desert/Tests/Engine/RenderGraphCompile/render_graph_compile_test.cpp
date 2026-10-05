@@ -1737,7 +1737,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // RDG-A2-W4: the SSR passes sample the G-buffer as graph refs by name, never a framebuffer image.
     declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target)",
                                "GBufferInputsinputs{gbuffer[0],gbuffer[1],gbuffer[2]}",
-                               "RecordResolve(context,trace,tiles,inputs)" } );
+                               "RecordResolve(context,trace,tiles,history,inputs)",
+                               "RecordComposite(context,accum,tiles,inputs,viewProj)" } );
 }
 
 // DepthResolve is a Copy node: G-buffer depth CopySrc -> target depth CopyDst, so the graph plans the barriers
@@ -2224,7 +2225,7 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
            "RenderOverdrawAccumManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
-           "RenderOverdrawResolveManual" } };
+           "RecordOverdrawResolve" } };
     for ( const auto& [file, function] : bodies )
     {
         const std::string body = bodyOf( read( file ), function );

@@ -1,6 +1,7 @@
 // MeshRenderer's overlays: the selection-silhouette mask and the developer instruments (debug lines,
 // overdraw) that only DESERT_DEV_INSTRUMENTS builds carry.
 #include "MeshRendererInternal.hpp"
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -240,15 +241,19 @@ namespace Desert::Graphic::System
                                      m_OverdrawMaterial->GetMaterialExecutor() );
     }
 
-    void MeshRenderer::RenderOverdrawResolveManual()
+    Common::BoolResultStr MeshRenderer::RecordOverdrawResolve( const RDG::PassContext& context,
+                                                               RDG::TextureRef         overdraw )
     {
         if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline )
-            return;
+            return BOOLSUCCESS;
         // 2) Resolve: heat-map the accumulation over the scene colour (the graph opens the target with LOAD;
-        //    the resolve discards empty texels).
-        m_OverdrawResolveMaterial->BindInputs( m_OverdrawFB->GetColorAttachmentImage( 0 ) );
-        Renderer::GetInstance().SubmitFullscreenTriangle( m_OverdrawResolvePipeline.get(),
-                                                          m_OverdrawResolveMaterial->GetMaterialExecutor() );
+        //    the resolve discards empty texels). The sampler the material route sampled it with (the image's
+        //    own: linear, REPEAT).
+        RDG::PassBindings bindings( context );
+        bindings.Sampled( "u_Overdraw", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                          RDG::SamplerDesc::LinearRepeat() );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_OverdrawResolvePipeline,
+                                                       m_OverdrawResolveMaterial->GetMaterialExecutor() );
     }
 
     void MeshRenderer::RegisterDebugPass( RenderGraphBuilder& builder )

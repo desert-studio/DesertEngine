@@ -455,8 +455,8 @@ namespace Desert::Graphic
                  ReadAll( pass, { trace, tiles, history }, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [ssr, trace, tiles, inputs]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssr->RecordResolve( context, trace, tiles, inputs ); } );
+             [ssr, trace, tiles, history, inputs]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordResolve( context, trace, tiles, history, inputs ); } );
         graph.AddPass(
              "Deferred: SSRComposite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -465,7 +465,7 @@ namespace Desert::Graphic
                  ReadAll( pass, { accum, tiles }, RDG::Access::SampledGraphics );
                  DeferredFrameNodes::LoadTarget( pass, target ); // blend over the scene
              },
-             [ssr, tiles, inputs, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssr->RecordComposite( context, tiles, inputs, viewProj ); } );
+             [ssr, accum, tiles, inputs, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordComposite( context, accum, tiles, inputs, viewProj ); } );
     }
 } // namespace Desert::Graphic

@@ -203,16 +203,18 @@ namespace Desert::Graphic::System
         }
 
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): spatial + temporal
-        // resolve of @p trace (read bilinearly - the upscale) over GetHistoryImage(), drawn over the tiles
-        // @p tiles marks.
+        // resolve of @p trace (read bilinearly - the upscale) over @p history (GetHistoryImage(), imported),
+        // drawn over the tiles @p tiles marks.
         [[nodiscard]] Common::BoolResultStr RecordResolve( const RDG::PassContext& context, RDG::TextureRef trace,
-                                                           RDG::TextureRef tiles, const GBufferInputs& gbuffer )
+                                                           RDG::TextureRef tiles, RDG::TextureRef history,
+                                                           const GBufferInputs& gbuffer )
         {
             DESERT_PROFILE_PASS( "SSR: Resolve" );
-            m_ResolveMaterial->BindInputs( GetHistoryImage(), m_PrevViewProj, Texel(),
-                                           m_HistoryValid ? 0.88f : 0.0f );
+            m_ResolveMaterial->BindValues( m_PrevViewProj, Texel(), m_HistoryValid ? 0.88f : 0.0f );
             RDG::PassBindings bindings( context );
             bindings
+                 .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_GBufferWorldPos", gbuffer[2], RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_Trace", trace, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
@@ -224,16 +226,19 @@ namespace Desert::Graphic::System
         }
 
         // Pass 3, inside the render pass the graph opens on the scene target with LOAD: roughness-scaled blur
-        // of the RESOLVED buffer, blended over the scene, over the tiles @p tiles marks. Advances the ping-pong
-        // only when the draw was recorded.
+        // of the RESOLVED buffer @p resolved (GetAccumImage(), imported), blended over the scene, over the tiles
+        // @p tiles marks. Advances the ping-pong only when the draw was recorded.
         [[nodiscard]] Common::BoolResultStr RecordComposite( const RDG::PassContext& context,
-                                                             RDG::TextureRef tiles, const GBufferInputs& gbuffer,
-                                                             const glm::mat4& viewProj )
+                                                             RDG::TextureRef resolved, RDG::TextureRef tiles,
+                                                             const GBufferInputs& gbuffer,
+                                                             const glm::mat4&     viewProj )
         {
             DESERT_PROFILE_PASS( "SSR: Composite" );
-            m_CompositeMaterial->BindInputs( GetAccumImage(), Texel() );
+            m_CompositeMaterial->BindValues( Texel() );
             RDG::PassBindings bindings( context );
             bindings
+                 .Sampled( "u_SSR", resolved, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
                            RDG::SamplerDesc::PointClamp() )
                  .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledGraphics,

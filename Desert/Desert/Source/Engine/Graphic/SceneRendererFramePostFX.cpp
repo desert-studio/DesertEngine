@@ -357,10 +357,11 @@ namespace Desert::Graphic
         if ( !tonemap )
             return;
         const System::TonemapRenderer::Inputs inputs = tonemap->GetInputs();
-        const std::vector<RDG::TextureRef>    reads  = {
-             textures.Import( inputs.Source, "Tonemap.Source" ),
-             textures.Import( inputs.AutoExposure, "AutoExposure.Adapted" ),
-        };
+        const RDG::TextureRef                 source = textures.Import( inputs.Source, "Tonemap.Source" );
+        // Without an auto-exposure node the shader's u_AvgLuminance reads System.White; the manual exposure is
+        // used then (the auto flag is off), so the value is never read as a measurement.
+        const RDG::TextureRef adapted      = textures.Import( inputs.AutoExposure, "AutoExposure.Adapted" );
+        const RDG::TextureRef avgLuminance = adapted.IsValid() ? adapted : textures.System.White;
         // Bloom is this graph's transient when the chain ran; otherwise the graph's system black texture with
         // zero intensity (TonemapRenderer::GraphInputs), an explicit choice rather than a stale image.
         const bool bloomProduced = textures.Transients.Bloom.IsValid();
@@ -368,17 +369,20 @@ namespace Desert::Graphic
         const bool                           shaftsProduced = textures.Transients.LightShafts.IsValid();
         const bool                           flareProduced  = textures.Transients.LensFlare.IsValid();
         System::TonemapRenderer::GraphInputs graphInputs{
+             .Source              = source,
+             .AvgLuminance        = avgLuminance,
              .Bloom               = bloomProduced ? textures.Transients.Bloom : textures.System.Black,
              .BloomProduced       = bloomProduced,
              .LightShafts         = shaftsProduced ? textures.Transients.LightShafts : textures.System.Black,
              .LightShaftsProduced = shaftsProduced,
              .LensFlare           = flareProduced ? textures.Transients.LensFlare : textures.System.Black,
              .LensFlareProduced   = flareProduced };
-        if ( !graphInputs.Bloom.IsValid() || !graphInputs.LightShafts.IsValid() ||
+        if ( !graphInputs.Source.IsValid() || !graphInputs.AvgLuminance.IsValid() ||
+             !graphInputs.Bloom.IsValid() || !graphInputs.LightShafts.IsValid() ||
              !graphInputs.LensFlare.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (System.Black is not in this graph); "
-                       "the tonemap pass is not recorded this frame" );
+            LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (no scene colour, or System.Black / "
+                       "System.White is not in this graph); the tonemap pass is not recorded this frame" );
             return;
         }
         const RDG::TextureRef output = textures.Import( tonemap->GetOutputImage(), "Tonemap" );
@@ -386,9 +390,8 @@ namespace Desert::Graphic
              "PostFX: Tonemap", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 for ( const RDG::TextureRef read : reads )
-                     if ( read.IsValid() )
-                         pass.Read( read, RDG::Access::SampledGraphics );
+                 pass.Read( graphInputs.Source, RDG::Access::SampledGraphics );
+                 pass.Read( graphInputs.AvgLuminance, RDG::Access::SampledGraphics );
                  pass.Read( graphInputs.Bloom, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
                  // Any of the three may be System.Black: a texture the node already reads is not declared again
                  // (every binding reads mip 0, the shaft and flare images' only level).
@@ -420,11 +423,8 @@ namespace Desert::Graphic
                  pass.Read( input, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
-             [fxaa]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 fxaa->Record();
-                 return BOOLSUCCESS;
-             } );
+             [fxaa, input]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return fxaa->Record( context, input ); } );
     }
 
     void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures )

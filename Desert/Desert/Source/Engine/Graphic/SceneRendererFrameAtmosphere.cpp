@@ -98,7 +98,14 @@ namespace Desert::Graphic
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
-        if ( clouds )
-            clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes( graph ) ) );
+        if ( !clouds )
+            return;
+        clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes( graph ) ) );
+        // The composite (a Transparency phase pass, declared after this) samples the pair by graph ref.
+        const System::VolumetricCloudRenderer::FrameResult result = clouds->GetFrameResult();
+        textures.Transients.CloudScatter =
+             textures.Import( result.Scatter, std::format( "Clouds.History{}", result.Slot ) );
+        textures.Transients.CloudGuide =
+             textures.Import( result.Guide, std::format( "Clouds.HistoryGuide{}", result.Slot ) );
     }
 } // namespace Desert::Graphic

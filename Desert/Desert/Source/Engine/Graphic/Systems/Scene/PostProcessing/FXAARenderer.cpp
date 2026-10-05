@@ -1,5 +1,6 @@
 #include "FXAARenderer.hpp"
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -47,17 +48,13 @@ namespace Desert::Graphic::System
             m_Framebuffer->Resize( width, height );
     }
 
-    void FXAARenderer::Record()
+    Common::BoolResultStr FXAARenderer::Record( const RDG::PassContext& context, RDG::TextureRef input )
     {
-        const auto& inputFramebuffer = m_TargetFramebuffer.lock();
-        if ( !inputFramebuffer )
-        {
-            LOG_ERROR( "FXAARenderer::Record: input framebuffer was destroyed or not set up" );
-            return;
-        }
-
-        auto& renderer = Renderer::GetInstance();
-        m_MaterialFXAA->BindInputs( inputFramebuffer->GetColorAttachmentImage() );
-        renderer.SubmitFullscreenTriangle( m_Pipeline.get(), m_MaterialFXAA->GetMaterialExecutor() );
+        // The sampler the material route sampled the input with (the image's own: linear, REPEAT).
+        RDG::PassBindings bindings( context );
+        bindings.Sampled( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                          RDG::SamplerDesc::LinearRepeat() );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
+                                                       m_MaterialFXAA->GetMaterialExecutor() );
     }
 } // namespace Desert::Graphic::System

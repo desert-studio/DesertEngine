@@ -26,6 +26,10 @@ namespace Desert::Graphic
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         RDG::TextureRef BackdropBlur;   // BackdropBlurRenderer pyramid (all mips) -> UI glass (Render2D)
         RDG::TextureRef HeightFog;      // HeightFogRenderer evaluation (RGBA16F) -> HeightFogApply
+        // The clouds' reconstruction pair written this frame (VolumetricCloudRenderer::GetFrameResult, imported:
+        // the ping-pong is the renderer's own); invalid when the frame has none   -> CloudComposite
+        RDG::TextureRef CloudScatter;
+        RDG::TextureRef CloudGuide;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered
