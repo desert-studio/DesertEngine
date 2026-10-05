@@ -297,7 +297,9 @@ set "PREMAKE_FOUND="
 REM Asked from %%TEMP%%, where no premake5.lua exists: from the repository root `--version` also RUNS every
 REM project script, and their output (2026-10-06: a line ending in 'ThirdParty/:') shifted the tokens so the
 REM version read as 'ThirdParty/:' and Windows CI generated nothing. The question is the binary's version only.
-for /f "tokens=6" %%V in ('"cd /d "%TEMP%" ^&^& "%PREMAKE%" --version 2^>NUL" ^| findstr /C:"Premake Build Script Generator"') do set "PREMAKE_FOUND=%%V"
+pushd "%TEMP%"
+for /f "tokens=6" %%V in ('""%PREMAKE%" --version 2^>NUL" ^| findstr /C:"Premake Build Script Generator"') do set "PREMAKE_FOUND=%%V"
+popd
 if not defined PREMAKE_FOUND (
     call :fail "premake5 did not report a version ('%PREMAKE%' --version); cannot tell whether it is %PREMAKE_VERSION%"
     exit /b 1
