@@ -100,6 +100,8 @@ project "Editor"
         -- The name it replaced carried the MSVC toolset in it (`assimp-vc142-mtd`).
         "Assimp",
         "OpenEXRCore", -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
+        "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
+        "Opus",
     }
 
     -- Optional: real face tracking via dlib (davisking/dlib). Auto-enabled when the sources are present
