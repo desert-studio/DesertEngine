@@ -155,6 +155,20 @@ namespace Desert::Editor::Core
             s_ControlInteraction = held;
         }
 
+        // THE SAME BIT FOR AN ACTOR. The entity gizmo's drag (`GizmoController::Render`) — what a level
+        // sequence's Auto Key keys on the release of (`ECS::LevelSequenceAutoKey`). A third bit rather than
+        // either of the two above: an actor gesture writes no bone and no control, and the transactions
+        // reading those must not open on it.
+        static bool EntityInteraction()
+        {
+            return s_EntityInteraction;
+        }
+
+        static void SetEntityInteraction( bool held )
+        {
+            s_EntityInteraction = held;
+        }
+
         // Snap increments, owned by EditorPreferences (~/.desertengine/editor.json). Snapping is active
         // when the persistent toggle is ON, or while Ctrl is held — and Ctrl INVERTS the toggle (so with
         // snap-always on, Ctrl gives a temporary free drag).
@@ -181,5 +195,6 @@ namespace Desert::Editor::Core
         inline static Space     s_Space     = Space::World; // UE's default, and the behaviour before this existed
         inline static bool      s_PoseInteraction = false;
         inline static bool      s_ControlInteraction = false;
+        inline static bool      s_EntityInteraction  = false;
     };
 } // namespace Desert::Editor::Core

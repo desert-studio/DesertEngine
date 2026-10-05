@@ -456,3 +456,83 @@ TEST( LevelSequenceDocument, AnAnimationTrackPosesTheBoundEntitysSkeleton )
     preview.Restore( world.registry );
     EXPECT_TRUE( animation.Playing ) << "closing the preview gives the Animation component its playback back";
 }
+
+// ── KEY EDITING ON THE LEVEL SEQUENCE (ANIM-FIX2): move / delete / Auto Key, on the model, no UI ─────────────
+TEST( LevelSequenceKeys, MoveCarriesEveryLaneAndRefusesAnOccupiedTick )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  door     = sequence.Bindings.front().Guid;
+    ASSERT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U );
+
+    // Onto the other key: refused, and the sequence is exactly as it was.
+    const T::Sequence before = sequence;
+    EXPECT_FALSE( ECS::MoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 0 } }, 100 ).IsSuccess() );
+    EXPECT_EQ( sequence.Revision, before.Revision );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).front().Value, 0 );
+
+    // Out of the playback range: refused.
+    EXPECT_FALSE( ECS::MoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 100 } }, 10 ).IsSuccess() );
+
+    // The 100 key to 60: every lane goes with it, and the door evaluates X 100 there.
+    ASSERT_TRUE( ECS::MoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 100 } }, -40 ).IsSuccess() );
+    const auto ticks = ECS::EntityTransformKeyTicks( sequence, door );
+    ASSERT_EQ( ticks.size(), 2U );
+    EXPECT_EQ( ticks[1].Value, 60 );
+    EXPECT_GT( sequence.Revision, before.Revision );
+
+    // A selection moved by less than its own spread: both keys move together.
+    ASSERT_TRUE( ECS::MoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 0 }, A::FrameNumber{ 60 } }, 30 )
+                      .IsSuccess() );
+    const auto shifted = ECS::EntityTransformKeyTicks( sequence, door );
+    ASSERT_EQ( shifted.size(), 2U );
+    EXPECT_EQ( shifted[0].Value, 30 );
+    EXPECT_EQ( shifted[1].Value, 90 );
+}
+
+TEST( LevelSequenceKeys, DeleteRemovesThePoseAndRefusesAMissingKeyWhole )
+{
+    T::Sequence       sequence = AuthoredDoor();
+    const auto        door     = sequence.Bindings.front().Guid;
+    const T::Sequence before   = sequence;
+    EXPECT_FALSE( ECS::RemoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 0 }, A::FrameNumber{ 7 } } )
+                       .IsSuccess() );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U ) << "a refusal must change nothing";
+    EXPECT_EQ( sequence.Revision, before.Revision );
+
+    ASSERT_TRUE( ECS::RemoveEntityTransformKeys( sequence, door, { A::FrameNumber{ 100 } } ).IsSuccess() );
+    const auto ticks = ECS::EntityTransformKeyTicks( sequence, door );
+    ASSERT_EQ( ticks.size(), 1U );
+    EXPECT_EQ( ticks[0].Value, 0 );
+}
+
+TEST( LevelSequenceKeys, AutoKeyWritesOnePoseKeyOnTheReleaseOfAGestureThatMovedTheActor )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  door     = sequence.Bindings.front().Guid;
+    World       world;
+    ECS::LevelSequenceAutoKey autoKey;
+    const A::FrameNumber      at{ 40 };
+
+    // A gesture that moves nothing keys nothing.
+    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, true ).GetValue(), 0U );
+    EXPECT_TRUE( autoKey.Releasing( false ) );
+    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, false ).GetValue(), 0U );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U );
+
+    // Press, drag (nothing written while held), release: one key at the playhead with the live pose.
+    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, true ).GetValue(), 0U );
+    world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 777.0F;
+    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, true ).GetValue(), 0U );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U ) << "nothing is keyed mid-gesture";
+    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, false ).GetValue(), 1U );
+    const auto ticks = ECS::EntityTransformKeyTicks( sequence, door );
+    ASSERT_EQ( ticks.size(), 3U );
+    EXPECT_EQ( ticks[1].Value, 40 );
+
+    // Reset mid-gesture (REC switched off): the release keys nothing.
+    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, true ).GetValue(), 0U );
+    world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 5.0F;
+    autoKey.Reset();
+    EXPECT_FALSE( autoKey.Releasing( false ) );
+    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, false ).GetValue(), 0U );
+}

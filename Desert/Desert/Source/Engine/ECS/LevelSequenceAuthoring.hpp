@@ -58,6 +58,59 @@ namespace Desert::ECS
                                                                Animation::FrameNumber                  tick,
                                                                const Animation::BoneTransform&         pose );
 
+    /// The ticks of @p binding's Transform keys, ascending, one per keyed pose (a pose key writes every lane,
+    /// so the ticks are the union over Location / Rotation / Scale). Empty for no Transform track.
+    [[nodiscard]] std::vector<Animation::FrameNumber>
+    EntityTransformKeyTicks( const Animation::Timeline::Sequence&    sequence,
+                             const Animation::Timeline::BindingGuid& binding );
+
+    /**
+     * @brief Moves every pose key of @p binding's Transform track on a tick of @p from by @p delta ticks —
+     * every lane of each, as one edit (a dragged selection on the dope sheet). ALL OR NOTHING: a key that
+     * would leave the playback range or land on a key that is not itself moving refuses the whole move and
+     * leaves the sequence as it was. Revision++ when anything moved.
+     */
+    [[nodiscard]] Common::BoolResultStr MoveEntityTransformKeys( Animation::Timeline::Sequence&            sequence,
+                                                                 const Animation::Timeline::BindingGuid&   binding,
+                                                                 const std::vector<Animation::FrameNumber>& from,
+                                                                 int32_t                                   delta );
+
+    /// Deletes the pose keys of @p binding on @p ticks (every lane). All or nothing: a tick with no key refuses
+    /// and leaves the sequence as it was. Revision++.
+    [[nodiscard]] Common::BoolResultStr RemoveEntityTransformKeys( Animation::Timeline::Sequence&            sequence,
+                                                                   const Animation::Timeline::BindingGuid&   binding,
+                                                                   const std::vector<Animation::FrameNumber>& ticks );
+
+    /**
+     * @brief Auto Key for a level sequence (UE's Auto Key with the Sequencer open): ONE pose key per bound actor
+     * a GESTURE moved, written when the gesture ends — the rule `Animation::ControlKeyer` applies to a bone,
+     * here for actors.
+     *
+     * `Observe` is called once per frame with the editor's one gizmo bit (`held`). On the rising edge it
+     * remembers the live Transform of every Entity binding the registry resolves; on the falling edge it keys,
+     * at @p tick, every one whose Transform differs from what it remembered. Every other frame it writes
+     * nothing. `Releasing` answers whether this frame's `Observe` is the falling edge, so the caller can open
+     * its undo step around exactly the frame that writes.
+     */
+    class LevelSequenceAutoKey
+    {
+    public:
+        [[nodiscard]] bool Releasing( bool held ) const
+        {
+            return m_Held && !held;
+        }
+        /// Keys written this call (0 off the falling edge), or the first refusal.
+        [[nodiscard]] Common::ResultStr<uint32_t> Observe( entt::registry&                registry,
+                                                           Animation::Timeline::Sequence& sequence,
+                                                           Animation::FrameNumber tick, bool held );
+        /// Forget a gesture in flight (REC switched off mid-drag): its release keys nothing.
+        void Reset();
+
+    private:
+        bool m_Held = false;
+        std::vector<std::pair<Animation::Timeline::BindingGuid, Animation::BoneTransform>> m_Before;
+    };
+
     /**
      * @brief A Camera Cut section over [@p start, @p end] looking through @p camera (an Entity binding), on the
      * sequence-level Camera Cut track (its master binding and track created when missing). Whatever `Validate`

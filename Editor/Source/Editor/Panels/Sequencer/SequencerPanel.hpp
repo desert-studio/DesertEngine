@@ -17,7 +17,9 @@
 
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Animation/TimeModel.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Animation/TrackEditing.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -221,6 +223,46 @@ namespace Desert::Editor
         /// Poses the scene at m_LevelTick when the tick or the sequence's Revision moved since the last pose.
         void PreviewLevelIfChanged( const Animation::Timeline::Sequence& sequence );
 
+        // ── Level Sequence: transport, keys, Auto Key, curves (ANIM-FIX2) ──
+        /// The transport row: play/pause, stop, to start / to end, Loop. The playhead is the PLAYER's, and
+        /// `m_LevelTick` is read off it every frame — the one clock the preview poses the scene at.
+        void DrawLevelTransport( const Animation::Timeline::Sequence& sequence );
+        /// The player, (re)built when the sequence's range is not the one it was built for.
+        Animation::Timeline::Player& LevelPlayer( const Animation::Timeline::Sequence& sequence );
+        void                         JumpLevel( const Animation::Timeline::Sequence& sequence, int32_t tick );
+        /// The pose-key lane of one binding: click selects (Shift adds), a drag on the empty lane draws a
+        /// marquee, a drag on a selected key retimes the selection on the display grid — one undo step on
+        /// release (`ECS::MoveEntityTransformKeys`).
+        void DrawLevelKeyLane( Animation::Timeline::Sequence& sequence, const Animation::Timeline::BindingGuid& binding,
+                               float laneX0, float laneW, float rowY, float rowH );
+        /// Delete: every selected key, one undo step (`ECS::RemoveEntityTransformKeys`).
+        void DeleteSelectedLevelKeys();
+        void SetLevelRecord( bool on );
+        /// Per frame: the gizmo bit into `m_LevelAutoKey`; the release writes its keys inside one undo step.
+        void UpdateLevelAutoKey( Animation::Timeline::Sequence& sequence );
+        /// The curve view of a Transform track — the selected key's binding, else the first keyed one.
+        void DrawLevelCurve( Animation::Timeline::Sequence& sequence, float contentX0, float gutter, float laneW );
+
+        struct LevelKeyRef
+        {
+            Animation::Timeline::BindingGuid Binding;
+            Animation::FrameNumber           Tick;
+        };
+        std::vector<LevelKeyRef>                   m_LevelSelKeys;
+        std::optional<Animation::Timeline::Player> m_LevelPlayer;
+        Animation::Timeline::LoopMode              m_LevelLoop = Animation::Timeline::LoopMode::Loop;
+        Animation::FrameNumber                     m_LevelPlayerStart{ INT32_MIN };
+        Animation::FrameNumber                     m_LevelPlayerEnd{ INT32_MIN };
+        bool                                       m_LevelKeyDrag   = false; ///< a selected key is held
+        float                                      m_LevelDragX0    = 0.0f;
+        int32_t                                    m_LevelDragDelta = 0; ///< ticks, on the display grid
+        bool                                       m_LevelMarquee   = false;
+        glm::vec2                                  m_LevelMarqueeFrom{ 0.0f };
+        bool                                       m_LevelRecord    = false;
+        bool                                       m_LevelCurveView = false;
+        int                                        m_LevelCurvePart = 0; ///< 0 Location, 2 Scale
+        ECS::LevelSequenceAutoKey                  m_LevelAutoKey;
+
         ECS::LevelSequencePreview m_LevelPreview;
         Animation::FrameNumber    m_LevelTick;
         int32_t                   m_LevelTickShown     = INT32_MIN;
@@ -258,6 +300,34 @@ namespace Desert::Editor
         // would be a format change rather than a view.
         void DrawCurveView( Animation::AnimationClip* clip, Animation::Animator* animator, float contentX0,
                             float gutter, float laneW, float duration );
+
+        // ONE CURVE EDITOR FOR EVERY TIMELINE THAT OWNS TRANSFORM KEYS (UE's Sequencer has one curve editor for
+        // a rig and a level sequence alike). `CurvePlot` is everything that differs between the owners — which
+        // channel is shown, what the playhead is, how a key is selected, retimed and taken back — and
+        // `DrawTransformCurve` is the one drawing and the one drag that both the skeletal `DrawCurveView` and
+        // the level sequence's `DrawLevelCurve` hand theirs to.
+        struct CurvePlot
+        {
+            Animation::Timeline::Sequence*         Sequence   = nullptr;
+            Animation::Timeline::TransformChannel* Shown      = nullptr;
+            Animation::TrackChannel                Channel    = Animation::TrackChannel::Position;
+            int                                    FitTrack   = -1; ///< what a value-range refit is keyed on
+            int                                    FitChannel = -1;
+            std::string                            Label;
+            float                                  ContentX0       = 0.0f;
+            float                                  Gutter          = 0.0f;
+            float                                  LaneW           = 1.0f;
+            float                                  DurationSeconds = 1.0f;
+            Animation::FrameNumber                 DurationTicks;
+            double                                 PlayheadSeconds = 0.0;
+            std::optional<Animation::FrameNumber>  SelectedTick;
+            std::function<void( Animation::FrameNumber )>                         Select;
+            std::function<void()>                                                 BeginEdit;
+            std::function<void()>                                                 EndEdit;
+            std::function<bool( Animation::FrameNumber, Animation::FrameNumber )> Retime;
+            std::function<void()>                                                 AfterEdit;
+        };
+        void DrawTransformCurve( const CurvePlot& plot );
 
         // ── SECTIONS (A32) ────────────────────────────────────────────────────────────────────────
         //

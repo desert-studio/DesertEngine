@@ -185,6 +185,7 @@ namespace Desert::Editor::Tools
         // One undo entry per drag: when the drag STARTS this frame, capture the pre-drag TRS of every
         // selected top-level root NOW — before any of this frame's deltas are written below.
         const bool usingNow = ImGuizmo::IsUsing();
+        Core::GizmoState::SetEntityInteraction( usingNow );
         if ( usingNow && !m_DragActive )
         {
             m_DragActive = true;
@@ -266,6 +267,7 @@ namespace Desert::Editor::Tools
     {
         m_Hovered = false;
         Core::GizmoState::SetPoseInteraction( false );
+        Core::GizmoState::SetEntityInteraction( false );
     }
 
     void GizmoController::RenderBone( ::Desert::Core::Scene&                         scene,
