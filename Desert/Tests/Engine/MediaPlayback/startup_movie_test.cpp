@@ -108,10 +108,17 @@ TEST( MediaPlayback, StartupMovieThatDoesNotOpenIsReportedAndPassedOver )
 // not time the movie played unseen.
 TEST( MediaPlayback, StartupMovieClockStartsAtTheFirstPresentedFrame )
 {
-    StartupMoviePlayer movies( { { kRed, kPattern }, true, true } );
+    StartupMoviePlayer       movies( { { kRed, kPattern }, true, true } );
+    std::vector<std::size_t> shown; // the play order as OnMovieShown reports it
+    movies.OnMovieShown = [&]( const std::filesystem::path&, std::size_t index, std::size_t count )
+    {
+        EXPECT_EQ( count, 2u );
+        shown.push_back( index );
+    };
     movies.SetBlockOnTime( true );
     movies.Start();
     ASSERT_FALSE( movies.Finished() );
+    EXPECT_TRUE( shown.empty() ) << "a movie opened but not yet on screen is not shown";
     EXPECT_EQ( movies.Player().GetState(), MediaPlayerState::Stopped ); // on its first frame, paused
     for ( int i = 0; i < 120; ++i )                                     // two seconds of frames never shown
         movies.Tick( 1.0 / 60.0 );
@@ -132,6 +139,8 @@ TEST( MediaPlayback, StartupMovieClockStartsAtTheFirstPresentedFrame )
     EXPECT_EQ( movies.Player().GetTime(), 0.0 );
     movies.NotifyFramePresented();
     EXPECT_EQ( movies.Player().GetState(), MediaPlayerState::Playing );
+    EXPECT_EQ( shown, ( std::vector<std::size_t>{ 0, 1 } ) )
+         << "each movie is reported once, when it is on screen";
 }
 
 TEST( MediaPlayback, StartupMoviesEndWithTheLoadOnlyWhenNotWaitingForCompletion )

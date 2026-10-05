@@ -42,6 +42,8 @@ namespace Desert::Media
             return;
         m_AwaitingShown = false;
         m_Player.Play();
+        if ( OnMovieShown )
+            OnMovieShown( m_Settings.Movies[m_Index], m_Index, m_Settings.Movies.size() );
     }
 
     void StartupMoviePlayer::Tick( double deltaSeconds )

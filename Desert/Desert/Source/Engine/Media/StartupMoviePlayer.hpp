@@ -38,6 +38,9 @@ namespace Desert::Media
 
         // (movie path, the player's / demuxer's error). Set before Start.
         std::function<void( const std::filesystem::path&, const std::string& )> OnMovieFailed;
+        // (movie path, its place in the list from 0, the list's length) when a movie's first frame is on screen
+        // and its clock starts — the play order as the player sees it. Set before Start.
+        std::function<void( const std::filesystem::path&, std::size_t, std::size_t )> OnMovieShown;
 
         // Opens the first movie that opens, ON ITS FIRST FRAME AND PAUSED: its clock starts at the first
         // NotifyFramePresented. A list with none that opens is Finished at once.
@@ -83,8 +86,8 @@ namespace Desert::Media
 
         StartupMovieSettings m_Settings;
         MediaPlayer          m_Player;
-        std::size_t          m_Index = 0;
-        bool                 m_Ended = false; // set by OnEndReached inside Tick, acted on after it
+        std::size_t          m_Index         = 0;
+        bool                 m_Ended         = false; // set by OnEndReached inside Tick, acted on after it
         bool                 m_AwaitingShown = false; // opened, paused until its picture is presented
     };
 } // namespace Desert::Media

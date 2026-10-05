@@ -24,6 +24,7 @@
 #include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
 #include "Editor/Panels/Modeling/ModelingPanel.hpp"
 #include "Editor/Panels/Photogrammetry/PhotogrammetryPanel.hpp"
+#include "Editor/Panels/ProjectSettings/ProjectSettingsPanel.hpp"
 #include "Editor/Panels/Scalability/ScalabilityPanel.hpp"
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
 #include "Editor/Panels/SceneProperties/ScenePropertiesPanel.hpp"
@@ -66,6 +67,7 @@ namespace Desert::Editor
         panels.Add<Editor::LandscapePanel>( workspace.ActiveScene() );
         panels.Add<Editor::WorldSettingsPanel>( workspace.ActiveScene() );
         panels.Add<Editor::ScalabilityPanel>();
+        panels.Add<Editor::ProjectSettingsPanel>();
         // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through
         // the getter each frame, because Stop and a streaming error destroy it from this side.
         handles.WorldPartition = &panels.Add<Editor::WorldPartitionPanel>(

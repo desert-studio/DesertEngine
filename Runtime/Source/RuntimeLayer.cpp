@@ -147,7 +147,7 @@ namespace Desert::Player
         const auto window = EngineContext::GetInstance().GetWindow();
         m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(
              Graphic::ViewExtent{ window->GetWidth(), window->GetHeight() } );
-        m_Scene            = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get() );
+        m_Scene = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get() );
     }
 
     RuntimeLayer::~RuntimeLayer() = default;
@@ -361,6 +361,11 @@ namespace Desert::Player
             LOG_ERROR( "[StartupMovies] '{}' is listed in Config/Game.json and does not play: {}", movie.string(),
                        error );
         };
+        m_StartupMovies->OnMovieShown = []( const std::filesystem::path& movie, std::size_t index,
+                                            std::size_t count ) {
+            LOG_INFO( "[StartupMovies] '{}' is on screen ({} of {})", movie.filename().string(), index + 1,
+                      count );
+        };
         // NOT started here: the sound is the movie's clock, and the first frames of a debug boot take seconds
         // (pipelines), so a movie started now would have played out before it was ever on screen. It starts
         // on the tick after the first presented frame; until then the cover is black.
@@ -382,7 +387,8 @@ namespace Desert::Player
             deltaSeconds = 0.0;
         }
         if ( m_SkipStartupMovie && m_StartupMovies->Skip() )
-            LOG_INFO( "[StartupMovies] skipped by the player's press after {} presented frame(s)", m_PresentedFrames );
+            LOG_INFO( "[StartupMovies] skipped by the player's press after {} presented frame(s)",
+                      m_PresentedFrames );
         m_SkipStartupMovie = false;
         // Capped like VideoService's catch-up: a stalled frame must not jump the movie when it runs on the
         // tick clock (no audio device); with sound the clock is the samples played and this is moot.
@@ -927,12 +933,12 @@ namespace Desert::Player
 
         // Fullscreen blit pipeline (vertexless: the VS synthesizes the quad), opaque, into the swapchain.
         Graphic::GraphicsPipelineSpecification spec;
-        spec.DebugName         = "SwapchainBlitPipeline";
-        spec.Shader            = blitShader;
-        spec.Framebuffer       = swapFb;
-        spec.DepthTestEnabled  = false;
-        spec.DepthWriteEnabled = false;
-        spec.CullMode          = Graphic::CullMode::None;
+        spec.DebugName          = "SwapchainBlitPipeline";
+        spec.Shader             = blitShader;
+        spec.Framebuffer        = swapFb;
+        spec.DepthTestEnabled   = false;
+        spec.DepthWriteEnabled  = false;
+        spec.CullMode           = Graphic::CullMode::None;
         const auto blitPipeline = Graphic::GraphicsPipeline::Create( spec );
         if ( !blitPipeline )
             return Common::MakeError( "InitPresent: " + blitPipeline.GetError() );
@@ -940,7 +946,7 @@ namespace Desert::Player
         m_BlitExecutor = Graphic::MaterialExecutor::Create( "SwapchainBlit", blitShader );
 
         m_UIRenderTextures = std::make_unique<Graphic::Render2D::UIRenderTextureCache>();
-        m_Render2D = std::make_unique<Graphic::Render2D::Render2D>();
+        m_Render2D         = std::make_unique<Graphic::Render2D::Render2D>();
         if ( const auto r = m_Render2D->Init( swapFb ); !r )
             return r;
 
