@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -77,8 +78,8 @@ namespace Common::Settings
     //     MSAA (n)      | MSAA, n samples, no post | FXAA, 1 sample  (MSAAUnavailableOnPath)
     //
     // The stored choice is never rewritten: a machine set to MSAA 4x gets it back in the next forward
-    // scene. The fallback is never silent — the renderer logs it once per scene (AntiAliasingFallbackNotice)
-    // and the Scalability panel says it.
+    // scene. The fallback is never silent: MachineSettings::ResolveAA logs it once per change of the resolved
+    // value (AntiAliasingResolution), and the Scalability panel shows requested -> effective with the reason.
     struct EffectiveAntiAliasing
     {
         AntiAliasingMethod Method  = AntiAliasingMethod::FXAA; // what the frame runs
@@ -91,26 +92,19 @@ namespace Common::Settings
         bool operator==( const EffectiveAntiAliasing& ) const = default;
     };
 
-    // WHEN THE "MSAA DOES NOT APPLY HERE" LINE IS WRITTEN: once when a scene starts falling back, and not
-    // again while the same scene keeps doing so — a per-frame line would bury the log, and no line would
-    // be the silent fallback contract §1.4 forbids. A different scene, or the fallback ending and coming
-    // back (the method switched away and back), writes it again. `scene` is any stable identity of the
-    // scene being rendered.
-    class AntiAliasingFallbackNotice
+    // THE REQUESTED ANTI-ALIASING AND WHAT A FRAME RUNS INSTEAD, resolved in one place
+    // (MachineSettings::ResolveAA) as UE resolves scalability CVars before any renderer reads them. Every
+    // SceneRenderer (viewport, preview, game) and the Scalability panel read this value; none of them
+    // decides the downgrade or writes the line about it.
+    struct AntiAliasingResolution
     {
-    public:
-        // True when the caller must write the line for this frame.
-        [[nodiscard]] bool Observe( std::uintptr_t scene, const EffectiveAntiAliasing& effective )
-        {
-            const bool changed = scene != m_Scene || effective.MSAAUnavailableOnPath != m_FellBack;
-            m_Scene            = scene;
-            m_FellBack         = effective.MSAAUnavailableOnPath;
-            return changed && m_FellBack;
-        }
+        AntiAliasingMethod    RequestedMethod  = AntiAliasingMethod::FXAA; // the machine's stored choice
+        int                   RequestedSamples = 1; // the stored MSAA count; > 1 only when the request is MSAA
+        EffectiveAntiAliasing Effective;            // what the frame runs on this path
+        // Why Effective differs from the request; empty when it does not. A static string.
+        std::string_view Reason;
 
-    private:
-        std::uintptr_t m_Scene    = 0;
-        bool           m_FellBack = false;
+        bool operator==( const AntiAliasingResolution& ) const = default;
     };
 
     // Global texture sampler filter. Live: SceneRenderer pushes it into Graphic::RenderConfig and the
@@ -216,6 +210,17 @@ namespace Common::Settings
         // The path arrives as a capability, not as Core::RenderPath, because Common does not link the
         // engine; Core::RenderPathSupportsMSAA (SceneSettings.hpp) is the one mapping from a path to it.
         EffectiveAntiAliasing EffectiveAA( bool pathSupportsMSAA ) const;
+
+        // THE RESOLUTION EVERY READER TAKES (AA-LOG): the request, EffectiveAA for the path, and the reason
+        // for a downgrade. The downgrade line is written HERE, once per change of the resolved value on a
+        // path that cannot multisample — not per renderer, per scene or per frame: a viewport and a preview
+        // resolving the same request produce one line, and switching the request away and back produces
+        // one more. Thread-safe; the memory of the last line is process-wide, like the store itself.
+        AntiAliasingResolution ResolveAA( bool pathSupportsMSAA ) const;
+
+        // How many downgrade lines ResolveAA has written in this process. For the tests that pin the
+        // once-per-change rule; nothing else reads it.
+        static std::size_t AADowngradeLinesWritten();
 
         // THE MIGRATION OF THE RETIRED SCHEMA, applied by Load() and by the re-read before every Save().
         // The old file stored two independent keys, `AA` (None/FXAA/SMAA post filter) and `MSAASamples`

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <mutex>
 #include <optional>
 
 namespace Common::Settings
@@ -231,6 +232,60 @@ namespace Common::Settings
             return { AntiAliasingMethod::MSAA, MSAASamples, AntiAliasingMethod::None, false };
         // UE's fallback for a deferred scene: FXAA at one sample. MSAASamples is kept for the next forward scene.
         return { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, true };
+    }
+
+    namespace
+    {
+        // The last resolution ResolveAA saw for a path that cannot multisample. Only that path can
+        // downgrade, so it is the only one remembered: a forward resolution in between (a forward preview
+        // next to a deferred viewport) neither repeats nor suppresses the line.
+        struct AADowngradeLog
+        {
+            std::mutex                            Mutex;
+            std::optional<AntiAliasingResolution> LastWithoutMSAA;
+            std::size_t                           LinesWritten = 0;
+        };
+
+        AADowngradeLog& DowngradeLog()
+        {
+            static AADowngradeLog log;
+            return log;
+        }
+
+        constexpr std::string_view kMSAAOnlyForward =
+             "MSAA applies to forward scenes only: deferred lighting shades one sample per pixel";
+    } // namespace
+
+    AntiAliasingResolution MachineSettings::ResolveAA( const bool pathSupportsMSAA ) const
+    {
+        AntiAliasingResolution resolved;
+        resolved.RequestedMethod  = AAMethod;
+        resolved.RequestedSamples = AAMethod == AntiAliasingMethod::MSAA ? MSAASamples : 1;
+        resolved.Effective        = EffectiveAA( pathSupportsMSAA );
+        resolved.Reason = resolved.Effective.MSAAUnavailableOnPath ? kMSAAOnlyForward : std::string_view{};
+        if ( pathSupportsMSAA )
+            return resolved;
+
+        AADowngradeLog&                   log = DowngradeLog();
+        const std::lock_guard<std::mutex> lock( log.Mutex );
+        const bool                        changed = log.LastWithoutMSAA != resolved;
+        log.LastWithoutMSAA                       = resolved;
+        if ( changed && resolved.Effective.MSAAUnavailableOnPath )
+        {
+            ++log.LinesWritten;
+            LOG_INFO( "[Anti-Aliasing] requested MSAA {}x; effective {} ({} sample) on the deferred path: {}. The "
+                      "machine's choice is kept for forward scenes.",
+                      resolved.RequestedSamples, rfl::enum_to_string( resolved.Effective.Method ),
+                      resolved.Effective.Samples, resolved.Reason );
+        }
+        return resolved;
+    }
+
+    std::size_t MachineSettings::AADowngradeLinesWritten()
+    {
+        AADowngradeLog&                   log = DowngradeLog();
+        const std::lock_guard<std::mutex> lock( log.Mutex );
+        return log.LinesWritten;
     }
 
     bool MachineSettings::MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson )

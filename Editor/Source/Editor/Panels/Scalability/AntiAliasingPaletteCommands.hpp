@@ -20,7 +20,7 @@ namespace Desert::Editor
     //
     // MSAA entries stay in the list in every scene (AA2): they STORE the machine's choice, which applies in
     // forward scenes. What the command reports is the EFFECTIVE result for the active scene's path
-    // (`activeSceneIsForward`, MachineSettings::EffectiveAA), so picking MSAA in a deferred scene says that
+    // (`activeSceneIsForward`, MachineSettings::ResolveAA), so picking MSAA in a deferred scene says that
     // the frame runs FXAA instead of pretending it applied.
     [[nodiscard]] inline std::vector<PaletteCommand>
     AntiAliasingPaletteCommands( const int maxMsaaSamples, std::function<bool()> activeSceneIsForward )
@@ -39,13 +39,13 @@ namespace Desert::Editor
                 if ( !MachineSettings::Save() )
                     return Common::MakeError( "the anti-aliasing method applies but machine.json was not saved" );
                 const bool forward   = activeSceneIsForward();
-                const auto effective = quality.EffectiveAA( forward );
-                LOG_INFO( "[Anti-Aliasing] chosen {}{}; effective in this {} scene: {}, {} sample(s){}",
+                const auto resolved  = quality.ResolveAA( forward );
+                LOG_INFO( "[Anti-Aliasing] chosen {}{}; effective in this {} scene: {}, {} sample(s){}{}{}",
                           rfl::enum_to_string( method ),
                           method == AntiAliasingMethod::MSAA ? std::format( " {}x", quality.MSAASamples ) : "",
-                          forward ? "forward" : "deferred", rfl::enum_to_string( effective.Method ),
-                          effective.Samples,
-                          effective.MSAAUnavailableOnPath ? " (MSAA applies to forward scenes only)" : "" );
+                          forward ? "forward" : "deferred", rfl::enum_to_string( resolved.Effective.Method ),
+                          resolved.Effective.Samples, resolved.Reason.empty() ? "" : " (", resolved.Reason,
+                          resolved.Reason.empty() ? "" : ")" );
                 return PaletteCommandDone();
             };
         };

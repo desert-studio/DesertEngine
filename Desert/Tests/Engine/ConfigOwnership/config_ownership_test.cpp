@@ -214,7 +214,7 @@ namespace
 
         // The type's own member functions through which consumers read this field, when the field is
         // never meant to be read raw (AAMethod/MSAASamples: MSAASamples means nothing unless the method is
-        // MSAA, so every reader goes through EffectiveAA). A call of one of these on
+        // MSAA, so every reader goes through ResolveAA). A call of one of these on
         // a value of the census type in `Where` counts as the read ONLY because `ViaImpl`, the file that
         // defines them, is checked to read the field inside each getter's own body.
         std::array<const char*, 2> Via{};
@@ -384,7 +384,7 @@ namespace
     // game also runs. One kind, two audiences, two files — and one SCHEMA, whose location is a parameter.
     //
     // The consumer named is SceneRenderer.cpp for the fields the renderer reads per frame. AAMethod and
-    // MSAASamples reach it only through MachineSettings::EffectiveAA (AA1/AA2), the one
+    // MSAASamples reach it only through MachineSettings::ResolveAA (AA1/AA2/AA-LOG), the one
     // place the pair is interpreted; the rows name that getter and the test checks their bodies.
     // ------------------------------------------------------------------------------------------------
 
@@ -394,13 +394,13 @@ namespace
     constexpr Row kMachineSettingsRows[] = {
          // A per-machine cost (sample count of every scene target), which is exactly the property that
          // makes it the machine's and not the level's. Applied on the next frame since AA1.
-         { "MSAASamples", Owner::Machine, kSceneRendererImpl, { "EffectiveAA" }, kMachineSettingsImpl },
+         { "MSAASamples", Owner::Machine, kSceneRendererImpl, { "ResolveAA" }, kMachineSettingsImpl },
 
          // The five К3 took out of the level file. Each passes the mis-authored/rendered-worse test on the
          // "rendered worse" side: MeshLOD off is byte-identical geometry near the camera, Anisotropy 1 and
          // Nearest filtering and AA None are the same picture blurrier or harsher, and CloudQuality High
          // reproduces the calibrated constants to the digit.
-         { "AAMethod", Owner::Machine, kSceneRendererImpl, { "EffectiveAA" }, kMachineSettingsImpl },
+         { "AAMethod", Owner::Machine, kSceneRendererImpl, { "ResolveAA" }, kMachineSettingsImpl },
          { "MeshLOD", Owner::Machine, kSceneRendererImpl },
          { "TextureFilterMode", Owner::Machine, kSceneRendererImpl },
          { "Anisotropy", Owner::Machine, kSceneRendererImpl },
@@ -1464,24 +1464,62 @@ TEST( ConfigOwnership, NoMultisampledSceneTargetOnTheDeferredPath )
     EXPECT_EQ( calls, 2u );
 }
 
-// AA2: the fallback line is written once per scene, not per frame, and again only when something changed.
-TEST( ConfigOwnership, TheMsaaFallbackIsLoggedOncePerScene )
+// AA-LOG: the downgrade is resolved once, in the settings layer, and every reader takes that value. With
+// MSAA 4x requested on the deferred path, a viewport and a preview resolving every frame write ONE line and
+// both run FXAA; switching the request to FXAA and back writes exactly one more.
+TEST( ConfigOwnership, TheMsaaDowngradeIsResolvedOnceAndLoggedOncePerChange )
 {
     using Common::Settings::AntiAliasingMethod;
-    Common::Settings::MachineSettings msaa;
-    msaa.AAMethod                              = AntiAliasingMethod::MSAA;
-    const auto                        fellBack = msaa.EffectiveAA( false );
-    const auto                        forward  = msaa.EffectiveAA( true );
-    Common::Settings::MachineSettings fxaa;
-    const auto                        plain = fxaa.EffectiveAA( false );
+    using Common::Settings::MachineSettings;
+    MachineSettings msaa4;
+    msaa4.AAMethod    = AntiAliasingMethod::MSAA;
+    msaa4.MSAASamples = 4;
+    const MachineSettings fxaa; // the default request
 
-    Common::Settings::AntiAliasingFallbackNotice notice;
-    EXPECT_TRUE( notice.Observe( 1, fellBack ) ); // first frame of a deferred scene under MSAA
+    // The memory is process-wide: start from a resolution that is not a downgrade.
+    EXPECT_TRUE( fxaa.ResolveAA( false ).Reason.empty() );
+    const std::size_t before = MachineSettings::AADowngradeLinesWritten();
+
     for ( int frame = 0; frame < 100; ++frame )
-        EXPECT_FALSE( notice.Observe( 1, fellBack ) ); // same scene: silent from here on
-    EXPECT_TRUE( notice.Observe( 2, fellBack ) );      // another deferred scene: said again
-    EXPECT_FALSE( notice.Observe( 3, forward ) );      // a forward scene runs MSAA: nothing to say
-    EXPECT_FALSE( notice.Observe( 4, plain ) );        // FXAA chosen: nothing to say
-    EXPECT_TRUE( notice.Observe( 4, fellBack ) );      // MSAA picked again in the same deferred scene
-    EXPECT_FALSE( notice.Observe( 4, fellBack ) );
+    {
+        const auto viewport = msaa4.ResolveAA( false );
+        const auto preview  = msaa4.ResolveAA( false );
+        EXPECT_EQ( viewport, preview );
+        EXPECT_EQ( viewport.RequestedMethod, AntiAliasingMethod::MSAA );
+        EXPECT_EQ( viewport.RequestedSamples, 4 );
+        EXPECT_EQ( viewport.Effective.Method, AntiAliasingMethod::FXAA );
+        EXPECT_EQ( viewport.Effective.Samples, 1 );
+        EXPECT_FALSE( viewport.Reason.empty() );
+    }
+    EXPECT_EQ( MachineSettings::AADowngradeLinesWritten(), before + 1 );
+
+    // A forward reader in between runs MSAA, says nothing, and does not make the deferred line repeat.
+    const auto forward = msaa4.ResolveAA( true );
+    EXPECT_EQ( forward.Effective.Method, AntiAliasingMethod::MSAA );
+    EXPECT_EQ( forward.Effective.Samples, 4 );
+    EXPECT_TRUE( forward.Reason.empty() );
+    EXPECT_EQ( msaa4.ResolveAA( false ).Effective.Method, AntiAliasingMethod::FXAA );
+    EXPECT_EQ( MachineSettings::AADowngradeLinesWritten(), before + 1 );
+
+    // Request FXAA, then MSAA 4x again: one more line, however many readers.
+    EXPECT_TRUE( fxaa.ResolveAA( false ).Reason.empty() );
+    EXPECT_EQ( MachineSettings::AADowngradeLinesWritten(), before + 1 );
+    for ( int reader = 0; reader < 3; ++reader )
+        EXPECT_EQ( msaa4.ResolveAA( false ).Effective.Samples, 1 );
+    EXPECT_EQ( MachineSettings::AADowngradeLinesWritten(), before + 2 );
+
+    // The renderer and the panel READ the resolution: neither interprets the pair nor words the downgrade.
+    for ( const char* reader :
+          { kSceneRendererImpl, "Editor/Source/Editor/Panels/Scalability/ScalabilityPanel.cpp" } )
+    {
+        SCOPED_TRACE( reader );
+        const std::string text =
+             Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + reader ) );
+        ASSERT_FALSE( text.empty() );
+        EXPECT_NE( text.find( ".ResolveAA(" ), std::string::npos );
+        EXPECT_EQ( text.find( "EffectiveAA(" ), std::string::npos );
+    }
+    const std::string renderer =
+         Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + kSceneRendererImpl ) );
+    EXPECT_EQ( renderer.find( "MSAAUnavailableOnPath" ), std::string::npos );
 }
