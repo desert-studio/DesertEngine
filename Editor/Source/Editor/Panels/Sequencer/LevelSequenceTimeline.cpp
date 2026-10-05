@@ -183,6 +183,37 @@ namespace Desert::Editor
             ToastManager::Push( std::format( "Camera Cut refused: {}", cut.GetError() ), ToastLevel::Error, 6.0f );
     }
 
+    void SequencerPanel::AddLevelVisibilityTrack( const LevelTL::BindingGuid& binding )
+    {
+        const auto asset = ResolveLevelAsset();
+        const auto scene = m_Scene.lock();
+        if ( !asset || !scene )
+            return;
+        LevelTL::Sequence& sequence = asset->EditSequence();
+        const auto*        bound    = LevelTL::FindBinding( sequence, binding );
+        const auto         entity   = bound != nullptr ? BoundEntity( *scene, *bound ) : std::nullopt;
+        // What the actor shows now is the track's first key (UE keys the current value when a property track
+        // is added); an entity with no VisibilityComponent renders, so it is visible.
+        const bool current = !entity || !entity->HasComponent<ECS::VisibilityComponent>() ||
+                             entity->GetComponent<ECS::VisibilityComponent>().Visible;
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto added = ECS::AddVisibilityTrack( sequence, binding, current ); !added.IsSuccess() )
+            ToastManager::Push( std::format( "+ Track → Visibility refused: {}", added.GetError() ),
+                                ToastLevel::Error, 6.0f );
+    }
+
+    void SequencerPanel::KeyLevelVisibility( const LevelTL::BindingGuid& binding, const bool visible )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return;
+        LevelTL::Sequence&       sequence = asset->EditSequence();
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto keyed = ECS::SetVisibilityKey( sequence, binding, m_LevelTick, visible ); !keyed.IsSuccess() )
+            ToastManager::Push( std::format( "Key Visibility refused: {}", keyed.GetError() ), ToastLevel::Error,
+                                6.0f );
+    }
+
     std::vector<std::shared_ptr<Assets::AnimationAsset>>
     SequencerPanel::LevelAnimationClips( const LevelTL::BindingGuid& binding ) const
     {
@@ -355,27 +386,28 @@ namespace Desert::Editor
                 if ( ImGui::SmallButton( ICON_MDI_VIDEO " Cut" ) )
                     AddLevelCameraCut( binding.Guid );
             }
-            if ( entity && entity->HasComponent<ECS::SkinnedMeshComponent>() &&
-                 entity->HasComponent<ECS::AnimationComponent>() )
+            // "+ Track" on the actor's row (UE: the binding's "+ Track" menu): Visibility for ANY actor,
+            // Animation <clip> for one with a skeletal mesh.
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( ICON_MDI_PLUS " Track" ) )
+                ImGui::OpenPopup( "##LevelBindingTrack" );
+            if ( ImGui::BeginPopup( "##LevelBindingTrack" ) )
             {
-                // "+ Track ▸ Animation <clip>" on the actor's row (UE: the binding's "+ Track → Animation").
-                ImGui::SameLine();
-                if ( ImGui::SmallButton( ICON_MDI_PLUS " Track" ) )
-                    ImGui::OpenPopup( "##LevelBindingTrack" );
-                if ( ImGui::BeginPopup( "##LevelBindingTrack" ) )
+                if ( ImGui::MenuItem( ICON_MDI_EYE " Visibility", nullptr, false,
+                                      !ECS::HasVisibilityTrack( sequence, binding.Guid ) ) )
+                    AddLevelVisibilityTrack( binding.Guid );
+                if ( entity && entity->HasComponent<ECS::SkinnedMeshComponent>() &&
+                     entity->HasComponent<ECS::AnimationComponent>() && ImGui::BeginMenu( "Animation" ) )
                 {
-                    if ( ImGui::BeginMenu( "Animation" ) )
-                    {
-                        const auto clips = LevelAnimationClips( binding.Guid );
-                        if ( clips.empty() )
-                            ImGui::TextDisabled( "No clip plays on this mesh's skeleton." );
-                        for ( const auto& clip : clips )
-                            if ( clip && ImGui::MenuItem( clip->GetClip().AnimationName.c_str() ) )
-                                AddLevelAnimation( binding.Guid, clip );
-                        ImGui::EndMenu();
-                    }
-                    ImGui::EndPopup();
+                    const auto clips = LevelAnimationClips( binding.Guid );
+                    if ( clips.empty() )
+                        ImGui::TextDisabled( "No clip plays on this mesh's skeleton." );
+                    for ( const auto& clip : clips )
+                        if ( clip && ImGui::MenuItem( clip->GetClip().AnimationName.c_str() ) )
+                            AddLevelAnimation( binding.Guid, clip );
+                    ImGui::EndMenu();
                 }
+                ImGui::EndPopup();
             }
             const float rowH  = ImGui::GetFrameHeight();
             const float nextY = ImGui::GetCursorScreenPos().y;
@@ -404,6 +436,47 @@ namespace Desert::Editor
             if ( LevelTL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceTransformProperty ) != nullptr )
                 DrawLevelKeyLane( sequence, binding.Guid, laneX0, laneW, rowY, rowH );
             ImGui::SetCursorScreenPos( ImVec2( contentX0, std::max( nextY, rowY + rowH + 4.0f ) ) );
+
+            // The Visibility track, a row under its actor (UE: the property track nested in the binding): the
+            // checkbox shows the value at the playhead and toggling it keys the new value there; the lane
+            // shades where the actor is hidden and draws each key (filled = visible, hollow = hidden).
+            if ( const auto shown = ECS::VisibilityAt( sequence, binding.Guid, m_LevelTick ) )
+            {
+                const float visY = ImGui::GetCursorScreenPos().y;
+                ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, visY ) );
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted( ICON_MDI_EYE " Visibility" );
+                ImGui::SameLine( 160.0f );
+                bool visible = *shown;
+                if ( ImGui::Checkbox( "##LevelVisible", &visible ) )
+                    KeyLevelVisibility( binding.Guid, visible );
+                const auto  keys = ECS::VisibilityKeys( sequence, binding.Guid );
+                const float y0   = visY + 2.0f;
+                const float y1   = visY + rowH - 2.0f;
+                for ( size_t i = 0; i < keys.size(); ++i )
+                {
+                    if ( keys[i].Visible )
+                        continue;
+                    // A bool holds its first key before it: a hidden first key hides from the range start.
+                    const int32_t from = i == 0 ? sequence.Start.Value : keys[i].Tick.Value;
+                    const int32_t to   = i + 1 < keys.size() ? keys[i + 1].Tick.Value : sequence.End.Value;
+                    draw->AddRectFilled( ImVec2( xOf( from ), y0 ), ImVec2( xOf( to ), y1 ),
+                                         IM_COL32( 20, 20, 24, 200 ) );
+                }
+                for ( const auto& key : keys )
+                {
+                    const float  x = xOf( key.Tick.Value );
+                    const float  r = 5.0f;
+                    const float  c = ( y0 + y1 ) * 0.5f;
+                    const ImVec2 diamond[] = { ImVec2( x, c - r ), ImVec2( x + r, c ), ImVec2( x, c + r ),
+                                               ImVec2( x - r, c ) };
+                    if ( key.Visible )
+                        draw->AddConvexPolyFilled( diamond, 4, IM_COL32( 230, 230, 230, 255 ) );
+                    else
+                        draw->AddPolyline( diamond, 4, IM_COL32( 230, 230, 230, 255 ), ImDrawFlags_Closed, 1.5f );
+                }
+                ImGui::SetCursorScreenPos( ImVec2( contentX0, visY + rowH + 4.0f ) );
+            }
             ImGui::PopID();
         }
 
@@ -829,6 +902,16 @@ namespace Desert::Editor
                                                [this, guid] { KeyLevelTransform( guid ); } } );
             actions.push_back( DocumentAction{ std::format( "Camera Cut {}", binding.Label ),
                                                [this, guid] { AddLevelCameraCut( guid ); } } );
+            if ( !ECS::HasVisibilityTrack( asset->GetSequence(), guid ) )
+                actions.push_back( DocumentAction{ std::format( "Add Visibility Track {}", binding.Label ),
+                                                   [this, guid] { AddLevelVisibilityTrack( guid ); } } );
+            else
+            {
+                actions.push_back( DocumentAction{ std::format( "Key Visible {}", binding.Label ),
+                                                   [this, guid] { KeyLevelVisibility( guid, true ); } } );
+                actions.push_back( DocumentAction{ std::format( "Key Hidden {}", binding.Label ),
+                                                   [this, guid] { KeyLevelVisibility( guid, false ); } } );
+            }
             for ( const auto& clip : LevelAnimationClips( guid ) )
             {
                 if ( !clip )

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <optional>
 #include <utility>
 
 namespace Desert::ECS
@@ -348,6 +349,148 @@ namespace Desert::ECS
         edited.Revision = sequence.Revision + 1;
         sequence        = std::move( edited );
         return Common::MakeSuccess( true );
+    }
+
+    namespace
+    {
+        template <typename SequenceT>
+        auto* VisibilityTrack( SequenceT& sequence, const T::BindingGuid& binding )
+        {
+            for ( auto& candidate : sequence.Tracks )
+                if ( candidate.Binding == binding && candidate.Kind == T::TrackKind::Bool &&
+                     candidate.Property == kLevelSequenceVisibilityProperty )
+                    return &candidate;
+            return static_cast<decltype( &sequence.Tracks.front() )>( nullptr );
+        }
+
+        /// Upsert a Constant 0/1 key, keeping `Keys` sorted with one key per tick (FloatChannel's invariant).
+        void UpsertBit( T::FloatChannel& bits, const Animation::FrameNumber tick, const bool value )
+        {
+            Animation::ScalarKey key;
+            key.Tick   = tick;
+            key.Value  = value ? 1.0F : 0.0F;
+            key.Interp = Animation::KeyInterp::Constant;
+            const auto at = std::ranges::lower_bound( bits.Keys, tick, {}, &Animation::ScalarKey::Tick );
+            if ( at != bits.Keys.end() && at->Tick == tick )
+                *at = key;
+            else
+                bits.Keys.insert( at, key );
+        }
+
+        /// The section a key at @p tick lands on and a value at @p tick is read from: the highest-row section
+        /// whose range holds the tick (the one the fold lets win), else the first section.
+        template <typename TrackT>
+        auto* VisibilityChannelAt( TrackT& track, const Animation::FrameNumber tick )
+        {
+            decltype( std::get_if<T::BoolChannel>( std::get_if<T::Channel>( &track.Sections.front().Content ) ) )
+                    target    = nullptr;
+            decltype( target ) first     = nullptr;
+            int32_t            targetRow = -1;
+            for ( auto& section : track.Sections )
+            {
+                auto* channel = std::get_if<T::Channel>( &section.Content );
+                auto* bits    = channel != nullptr ? std::get_if<T::BoolChannel>( channel ) : nullptr;
+                if ( bits == nullptr )
+                    continue;
+                if ( first == nullptr )
+                    first = bits;
+                if ( !( tick < section.Start ) && !( section.End < tick ) && section.Row > targetRow )
+                {
+                    target    = bits;
+                    targetRow = section.Row;
+                }
+            }
+            return target != nullptr ? target : first;
+        }
+    } // namespace
+
+    Common::BoolResultStr AddVisibilityTrack( T::Sequence& sequence, const T::BindingGuid& binding,
+                                              const bool current )
+    {
+        const T::Binding* bound = T::FindBinding( sequence, binding );
+        if ( bound == nullptr || bound->Kind != T::BindingKind::Entity )
+            return Common::MakeError( "Visibility track: the binding is not an actor (Entity) binding" );
+        if ( VisibilityTrack( sequence, binding ) != nullptr )
+            return Common::MakeFormattedError<bool>( "Visibility track: '{}' already has one", bound->Label );
+
+        T::Sequence edited = sequence;
+        T::Track    created;
+        created.Binding  = binding;
+        created.Property = kLevelSequenceVisibilityProperty;
+        created.Kind     = T::TrackKind::Bool;
+        T::BoolChannel channel;
+        channel.Bits.Default = current ? 1.0F : 0.0F;
+        UpsertBit( channel.Bits, sequence.Start, current );
+        T::Section section;
+        section.Start   = sequence.Start;
+        section.End     = sequence.End;
+        section.Content = T::Channel{ channel };
+        created.Sections.push_back( std::move( section ) );
+        edited.Tracks.push_back( std::move( created ) );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "Visibility track: {}", valid.GetError() );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    bool HasVisibilityTrack( const T::Sequence& sequence, const T::BindingGuid& binding )
+    {
+        return VisibilityTrack( sequence, binding ) != nullptr;
+    }
+
+    Common::BoolResultStr SetVisibilityKey( T::Sequence& sequence, const T::BindingGuid& binding,
+                                            const Animation::FrameNumber tick, const bool visible )
+    {
+        T::Sequence edited = sequence;
+        T::Track*   track  = VisibilityTrack( edited, binding );
+        if ( track == nullptr )
+            return Common::MakeError( "Visibility key: the binding has no Visibility track (+ Track ▸ Visibility)" );
+
+        T::BoolChannel* target = VisibilityChannelAt( *track, tick );
+        if ( target == nullptr )
+            return Common::MakeError( "Visibility key: the Visibility track has no section" );
+        UpsertBit( target->Bits, tick, visible );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "Visibility key: {}", valid.GetError() );
+        // A key changes what the actor shows at a tick the preview may already be posed at: Revision++ is how
+        // every cache of this sequence (the preview, the Player) learns it changed.
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    std::optional<bool> VisibilityAt( const T::Sequence& sequence, const T::BindingGuid& binding,
+                                      const Animation::FrameNumber tick )
+    {
+        const T::Track* track = VisibilityTrack( sequence, binding );
+        if ( track == nullptr || track->Sections.empty() )
+            return std::nullopt;
+        const T::BoolChannel* bits = VisibilityChannelAt( *track, tick );
+        if ( bits == nullptr )
+            return std::nullopt;
+        return T::Evaluate( *bits, Animation::FrameTime{ tick, 0.0F }, sequence.TickRate );
+    }
+
+    std::vector<VisibilityKey> VisibilityKeys( const T::Sequence& sequence, const T::BindingGuid& binding )
+    {
+        std::vector<VisibilityKey> keys;
+        const T::Track*            track = VisibilityTrack( sequence, binding );
+        if ( track == nullptr )
+            return keys;
+        for ( const T::Section& section : track->Sections )
+        {
+            const auto* channel = std::get_if<T::Channel>( &section.Content );
+            const auto* bits    = channel != nullptr ? std::get_if<T::BoolChannel>( channel ) : nullptr;
+            if ( bits == nullptr )
+                continue;
+            for ( const Animation::ScalarKey& key : bits->Bits.Keys )
+                keys.push_back( VisibilityKey{ key.Tick, key.Value != 0.0F } );
+        }
+        std::ranges::stable_sort( keys, {}, &VisibilityKey::Tick );
+        return keys;
     }
 
     LevelSequenceStep LevelSequencePreview::Scrub( entt::registry& registry, const T::Sequence& sequence,

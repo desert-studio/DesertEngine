@@ -209,6 +209,11 @@ namespace Desert::Editor
         /// Keys @p binding's entity's live Transform at the playhead (UE: "Key Transform" on the track row).
         void KeyLevelTransform( const Animation::Timeline::BindingGuid& binding );
         void AddLevelCameraCut( const Animation::Timeline::BindingGuid& camera );
+        /// "+ Track ▸ Visibility" on any actor: the Bool "Visible" track, keyed at the range start with the
+        /// actor's current visibility (ECS::AddVisibilityTrack), one undo step.
+        void AddLevelVisibilityTrack( const Animation::Timeline::BindingGuid& binding );
+        /// A Visibility key @p visible at the playhead on @p binding's track, one undo step.
+        void KeyLevelVisibility( const Animation::Timeline::BindingGuid& binding, bool visible );
         /// The clips that play on @p binding's entity (SkinnedMesh + Animation): the AnimationLibrary's clips
         /// for the mesh's skeleton (UE: "+ Track → Animation" lists the assets compatible with the skeleton).
         /// Empty when the binding names no such entity.

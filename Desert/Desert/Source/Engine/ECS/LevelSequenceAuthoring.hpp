@@ -22,6 +22,7 @@
 
 #include <entt/entt.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,9 @@ namespace Desert::ECS
     inline constexpr const char* kLevelSequenceCameraCutProperty = "CameraCut";
     /// The Property of the Animation track an actor binding carries (UE: the Skeletal Animation track).
     inline constexpr const char* kLevelSequenceAnimationProperty = "Animation";
+    /// The Property of an actor's Visibility track — the bool `LevelSequenceEntityHost::Apply` writes into
+    /// VisibilityComponent (UE: the actor's "Visibility" bool property track, bHiddenInGame inverted).
+    inline constexpr const char* kLevelSequenceVisibilityProperty = "Visible";
 
     /**
      * @brief "+ Track → Actor" (UE: a Possessable): the Entity binding naming @p entity, created when missing.
@@ -132,6 +136,48 @@ namespace Desert::ECS
                                                              const Common::Content::AssetGuid&       clip,
                                                              Animation::FrameNumber                  start,
                                                              Animation::FrameNumber end, bool loop );
+
+    /**
+     * @brief "+ Track ▸ Visibility" on an actor (UE: the Visibility property track of any actor binding): a Bool
+     * track "Visible" on @p binding with ONE section over the playback range, keyed at its start with the
+     * actor's @p current visibility. The start key is what makes a later key a CHANGE: a bool channel holds its
+     * first key before it (UE's FMovieSceneBoolChannel), so a lone "hidden at N" key would hide the actor from
+     * the first frame. Refuses a binding that is not an Entity binding of this sequence and a binding that
+     * already has the track; whatever `Validate` refuses leaves the sequence as it was. Revision++.
+     */
+    [[nodiscard]] Common::BoolResultStr AddVisibilityTrack( Animation::Timeline::Sequence&          sequence,
+                                                            const Animation::Timeline::BindingGuid& binding,
+                                                            bool                                    current );
+
+    /// Whether @p binding has a Visibility track — the Sequencer offers "+ Track ▸ Visibility" only where not.
+    [[nodiscard]] bool HasVisibilityTrack( const Animation::Timeline::Sequence&    sequence,
+                                           const Animation::Timeline::BindingGuid& binding );
+
+    /**
+     * @brief Upsert a Constant key @p visible at @p tick on @p binding's Visibility track — on the highest-row
+     * section whose range holds @p tick, else on the first section. Refuses a binding with no Visibility track
+     * (add the track first); the sequence is left as it was on any refusal. Revision++ (the preview re-poses).
+     */
+    [[nodiscard]] Common::BoolResultStr SetVisibilityKey( Animation::Timeline::Sequence&          sequence,
+                                                          const Animation::Timeline::BindingGuid& binding,
+                                                          Animation::FrameNumber tick, bool visible );
+
+    /// What @p binding's Visibility track says at @p tick (the bool channel's own Evaluate, on the section a key
+    /// at that tick would land on); nullopt for no track.
+    [[nodiscard]] std::optional<bool> VisibilityAt( const Animation::Timeline::Sequence&    sequence,
+                                                    const Animation::Timeline::BindingGuid& binding,
+                                                    Animation::FrameNumber                  tick );
+
+    /// One key of an actor's Visibility track, as the dope sheet draws it.
+    struct VisibilityKey
+    {
+        Animation::FrameNumber Tick;
+        bool                   Visible = true;
+    };
+
+    /// Every key of @p binding's Visibility track, ascending by tick (every section). Empty for no track.
+    [[nodiscard]] std::vector<VisibilityKey> VisibilityKeys( const Animation::Timeline::Sequence&    sequence,
+                                                             const Animation::Timeline::BindingGuid& binding );
 
     /**
      * @brief The Sequencer's preview of a level sequence over a scene's registry (UE: the editor's sequence

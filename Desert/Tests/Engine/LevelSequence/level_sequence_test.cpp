@@ -401,6 +401,42 @@ TEST( LevelSequenceDocument, AnOverlappingCameraCutLeavesTheSequenceAsItWas )
     EXPECT_EQ( sequence.Tracks.back().Sections.size(), 1U );
 }
 
+TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  door     = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" ).GetValue();
+    ASSERT_TRUE( ECS::AddVisibilityTrack( sequence, door, true ).IsSuccess() );
+    EXPECT_FALSE( ECS::AddVisibilityTrack( sequence, door, true ).IsSuccess() ) << "one Visibility track per actor";
+    ASSERT_TRUE( ECS::SetVisibilityKey( sequence, door, A::FrameNumber{ 60 }, false ).IsSuccess() );
+    ASSERT_TRUE( T::Validate( sequence ).IsSuccess() ) << T::Validate( sequence ).GetError();
+
+    const auto keys = ECS::VisibilityKeys( sequence, door );
+    ASSERT_EQ( keys.size(), 2U ) << "the start key (current value) and the hidden key";
+    EXPECT_EQ( keys[0].Tick.Value, 0 );
+    EXPECT_TRUE( keys[0].Visible );
+    EXPECT_EQ( keys[1].Tick.Value, 60 );
+    EXPECT_FALSE( keys[1].Visible );
+
+    // Through the .dseq text, as the component plays it.
+    const auto text   = Desert::Assets::LevelSequenceAsset::Write( sequence, AssetGuid{ 1, 2 } );
+    ASSERT_TRUE( text.IsSuccess() ) << text.GetError();
+    const auto parsed = Desert::Assets::LevelSequenceAsset::Parse( text.GetValue() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+
+    World                             world;
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback        playback( parsed.GetValue().Sequence );
+    for ( const auto [tick, visible] : { std::pair{ 0, true }, std::pair{ 59, true }, std::pair{ 60, false },
+                                         std::pair{ 100, false } } )
+    {
+        const auto step = ECS::StepLevelSequence( world.registry, component, playback, Step( tick ) );
+        EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
+        ASSERT_TRUE( world.registry.has<ECS::VisibilityComponent>( world.door ) ) << "tick " << tick;
+        EXPECT_EQ( world.registry.get<ECS::VisibilityComponent>( world.door ).Visible, visible ) << "tick " << tick;
+    }
+    EXPECT_FALSE( world.registry.has<ECS::VisibilityComponent>( world.other ) );
+}
+
 TEST( LevelSequenceDocument, AnAnimationTrackPosesTheBoundEntitysSkeleton )
 {
     // A two-bone chain; the clip holds "child" at +5 on Y for one second.
