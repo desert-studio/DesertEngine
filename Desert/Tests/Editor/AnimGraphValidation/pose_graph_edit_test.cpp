@@ -234,6 +234,22 @@ TEST( PoseGraphEdit, ANewNodeIsNeverPlacedOnTheOutputPoseNode )
     EXPECT_FALSE( next.first == 0.0f && next.second == 0.0f );
 }
 
+TEST( PoseGraphEdit, ANewNodeLandsLeftOfOutputPoseSoItsWireRunsForward )
+{
+    G::AnimGraph graph = G::MakeStateMachineGraph( "Fox" );
+    for ( int added = 0; added < 6; ++added )
+    {
+        const std::pair<float, float> next =
+             EG::NextPoseNodePosition( graph.Nodes, { graph.OutputPoseX, graph.OutputPoseY } );
+        EXPECT_LT( next.first, graph.OutputPoseX ) << "node " << added << " sits right of Output Pose";
+        G::PoseNode node;
+        node.Name = std::format( "Probe{}", added );
+        node.X    = next.first;
+        node.Y    = next.second;
+        graph.Nodes.push_back( node );
+    }
+}
+
 TEST( PoseGraphEdit, TheOutputPoseNodeIsDraggedIntoTheFile )
 {
     const std::string source = ReadSource( "Editor/Source/Editor/Panels/Animation/AnimGraphPanelPoseGraph.cpp" );

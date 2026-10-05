@@ -414,8 +414,10 @@ namespace Desert::Editor::Graph
         {
             const int   column = cell % kPoseGridCols;
             const int   row    = cell / kPoseGridCols; // whole rows: the grid is filled row by row
-            const float x      = static_cast<float>( column ) * kPoseGridStepX;
-            const float y      = static_cast<float>( row ) * kPoseGridStepY;
+            // The grid grows LEFT of Output Pose (UE: the graph's result sits on the right and poses flow into
+            // it), so a new node's wire into Output Pose never runs backwards.
+            const float x      = outputPosition.first - static_cast<float>( column + 1 ) * kPoseGridStepX;
+            const float y      = outputPosition.second + static_cast<float>( row ) * kPoseGridStepY;
             const auto  covers = [&]( float nx, float ny )
             { return std::abs( nx - x ) < kPoseGridStepX * 0.5f && std::abs( ny - y ) < kPoseGridStepY * 0.5f; };
             const bool taken = covers( outputPosition.first, outputPosition.second ) ||
