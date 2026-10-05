@@ -85,7 +85,10 @@ namespace
         sources.Sample = [&rig]( size_t, G::GraphPose& out )
         {
             for ( size_t b = 0; b < rig.GetBones().size(); ++b )
-                out.Pose[b] = A::BoneTransform::FromMatrix( rig.GetBones()[b].LocalBindTransform ).GetValue();
+            {
+                const auto decomposed = A::BoneTransform::FromMatrix( rig.GetBones()[b].LocalBindTransform );
+                out.Pose[b]           = decomposed.GetValue();
+            }
         };
         sources.Parameter = [boundAlpha]( const std::string& ) { return boundAlpha; };
         G::GraphPose out;
@@ -118,8 +121,8 @@ TEST( BoneControlNodes, AHalfAlphaNodeStopsHalfwayAndZeroIsBitExact )
 
     for ( size_t b = 0; b < rig.GetBones().size(); ++b )
     {
-        const A::BoneTransform expected =
-             A::BoneTransform::FromMatrix( rig.GetBones()[b].LocalBindTransform ).GetValue();
+        const auto             decomposed = A::BoneTransform::FromMatrix( rig.GetBones()[b].LocalBindTransform );
+        const A::BoneTransform expected   = decomposed.GetValue();
         EXPECT_EQ( bind[b].Translation, expected.Translation ) << b;
         EXPECT_EQ( bind[b].Rotation, expected.Rotation ) << b;
     }
