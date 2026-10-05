@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -111,10 +112,10 @@ namespace Desert::Graphic::System
         {
             e.MaxParticles = cap;
             // Binding 1: the graphics descriptor write uses the buffer's OWN binding (VulkanMaterialBackend),
-            // and the billboard shader reads it at ReadBuffer(1). The compute pass binds it at 0 via the
-            // explicit SetStorageBuffer(0, ...) arg (compute uses the arg, not the buffer's binding), matching
-            // ParticleSimulate's Buffer(0). Mismatching this (buffer binding 0) aliased the camera UB at
-            // binding 0 -> VUID-VkWriteDescriptorSet-descriptorType-00319.
+            // and the billboard shader reads it at ReadBuffer(1). The compute pass binds it at 0 by its shader
+            // name through PassBindings (ParticleSimulate's Buffer(0) Particles), not by the buffer's binding.
+            // Mismatching this (buffer binding 0) aliased the camera UB at binding 0 ->
+            // VUID-VkWriteDescriptorSet-descriptorType-00319.
             e.Particles = ShaderResources::StorageBuffer::Create(
                  "ParticleState", static_cast<uint32_t>( cap ) * kParticleStride, 1, /*persistent=*/true );
             e.Counter    = ShaderResources::StorageBuffer::Create( "ParticleSpawn", sizeof( uint32_t ), 1 );
@@ -152,7 +153,7 @@ namespace Desert::Graphic::System
             return;
 
         // m_FrameEmitters holds raw pointers INTO m_Emitters, so it goes first. Nothing will consume it
-        // before the next PrepareFrame refills it — SimulateInFrame and the draw pass both run later in a
+        // before the next PrepareFrame refills it — Simulate and the draw pass both run later in a
         // frame than this, and this runs between frames.
         m_FrameEmitters.clear();
 
@@ -228,7 +229,7 @@ namespace Desert::Graphic::System
                  fe.Additive        = ( d.Blend == ECS::ParticleBlendMode::Additive );
                  fe.SpawnRate       = d.SpawnRate;
                  fe.Looping         = d.Looping;
-                 // .w of both (dt, simulated time) and the spawn budget are the frame's time: SimulateInFrame.
+                 // .w of both (dt, simulated time) and the spawn budget are the frame's time: Simulate.
                  fe.Push.EmitterPos = glm::vec4( worldPos, 0.0f );
                  fe.Push.Gravity    = glm::vec4( d.Gravity, 0.0f );
                  fe.Push.Direction  = glm::vec4( dir, glm::radians( d.ConeAngle ) );
@@ -272,7 +273,7 @@ namespace Desert::Graphic::System
         }
     }
 
-    void ParticleRenderer::SimulateInFrame( const float frameSeconds )
+    Common::BoolResultStr ParticleRenderer::Simulate( const RDG::PassContext& context, const float frameSeconds )
     {
         // The frame's step, clamped so a stall (a hitch, a breakpoint) is not one huge integration step.
         // Advanced even on a frame with nothing to simulate, so the seed stays the simulated time and not
@@ -282,7 +283,7 @@ namespace Desert::Graphic::System
         const float time = static_cast<float>( m_SimSeconds );
 
         if ( !m_SimPipeline || m_FrameEmitters.empty() )
-            return;
+            return BOOLSUCCESS;
 
         for ( auto& fe : m_FrameEmitters )
         {
@@ -304,18 +305,24 @@ namespace Desert::Graphic::System
             // why) is not written: its barrier against the previous frame's simulation would be missing.
             if ( !fe.Declared )
                 continue;
-            m_SimPipeline->SetStorageBuffer( 0, fe.Gpu->Particles.get() );
-            m_SimPipeline->SetStorageBuffer( 1, fe.Gpu->Counter.get() );
-            m_SimPipeline->SetPushConstants( &fe.Push, sizeof( fe.Push ) );
-
-            const uint32_t groups =
-                 ( static_cast<uint32_t>( fe.Gpu->MaxParticles ) + kParticleLocalSize - 1 ) / kParticleLocalSize;
             // The graph node that runs this ("Particles: Simulate") declares both buffers StorageWrite, and the
             // billboard draw (ParticlePass) declares the state StorageRead, so the graph places the compute ->
             // vertex barrier between them and the vertex -> compute one before the next frame's write.
-            // DispatchComputeInFrame records the dispatch alone: no barrier of its own.
-            renderer.DispatchComputeInFrame( m_SimPipeline.get(), groups, 1, 1 );
+            // DispatchCompute records the dispatch alone, on this node's command buffer, binding the two graph
+            // buffers by their shader names (ParticleSimulate's Buffer(0) Particles / Buffer(1) SpawnCounter).
+            RDG::PassBindings bindings( context );
+            bindings.Storage( "Particles", fe.ParticlesRef, RDG::Access::StorageWrite )
+                 .Storage( "SpawnCounter", fe.CounterRef, RDG::Access::StorageWrite )
+                 .PushConstants( &fe.Push, sizeof( fe.Push ) );
+
+            const uint32_t groups =
+                 ( static_cast<uint32_t>( fe.Gpu->MaxParticles ) + kParticleLocalSize - 1 ) / kParticleLocalSize;
+            const Common::BoolResultStr dispatched =
+                 renderer.DispatchCompute( bindings, *m_SimPipeline, groups, 1, 1 );
+            if ( !dispatched )
+                return dispatched;
         }
+        return BOOLSUCCESS;
     }
 
     std::vector<RDG::BufferRef> ParticleRenderer::ImportSimulationBuffers( RDG::Builder& graph )
@@ -345,7 +352,8 @@ namespace Desert::Graphic::System
             }
             fe.ParticlesRef = graph.RegisterExternal( fe.ParticlesImport, std::format( "ParticleState{}", i ) );
             written.push_back( fe.ParticlesRef );
-            written.push_back( graph.RegisterExternal( fe.CounterImport, std::format( "ParticleSpawn{}", i ) ) );
+            fe.CounterRef   = graph.RegisterExternal( fe.CounterImport, std::format( "ParticleSpawn{}", i ) );
+            written.push_back( fe.CounterRef );
             fe.Declared = true;
         }
         return written;

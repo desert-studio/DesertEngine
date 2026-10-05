@@ -2381,9 +2381,21 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
                std::string::npos );
     EXPECT_NE( importBody.find( "renderer.ImportBuffer(fe.Gpu->Counter,fe.CounterImport)" ), std::string::npos );
     // An emitter the graph was not told about is not dispatched.
-    const size_t simulateAt = particleText.find( "voidParticleRenderer::SimulateInFrame(" );
+    const size_t simulateAt = particleText.find( "ParticleRenderer::Simulate(constRDG::PassContext&context," );
     ASSERT_NE( simulateAt, std::string::npos );
     EXPECT_NE( particleText.find( "if(!fe.Declared)continue;", simulateAt ), std::string::npos );
+    // The node's exec binds this frame's graph handles of both buffers by their shader names, as the declared
+    // StorageWrite, and dispatches through DispatchCompute (no pipeline setter carries a graph buffer).
+    const std::string simulateBody =
+         particleText.substr( simulateAt, particleText.find( "ParticleRenderer::ImportSimulationBuffers(", simulateAt ) -
+                                               simulateAt );
+    EXPECT_NE( simulateBody.find( "bindings.Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageWrite)"
+                                  ".Storage(\"SpawnCounter\",fe.CounterRef,RDG::Access::StorageWrite)" ),
+               std::string::npos );
+    EXPECT_NE( simulateBody.find( "renderer.DispatchCompute(bindings,*m_SimPipeline,groups,1,1)" ), std::string::npos );
+    EXPECT_EQ( simulateBody.find( "SetStorageBuffer" ), std::string::npos );
+    EXPECT_NE( importBody.find( "fe.CounterRef=graph.RegisterExternal(fe.CounterImport," ), std::string::npos );
+    EXPECT_NE( importBody.find( "written.push_back(fe.CounterRef);" ), std::string::npos );
 
     // The same shape in a graph: two frames of a persistent buffer written by the node. The second frame's
     // write waits on the first's, from the state the first graph wrote back.

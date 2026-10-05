@@ -1710,14 +1710,14 @@ TEST_F( ShaderRootFixture, TheParticleStructIsCompiledFromOneTextByBothStages )
 TEST_F( ShaderRootFixture, TheParticleDispatchDividesByTheWorkgroupTheShaderDeclares )
 {
     // The second of the two numbers, and the one whose failure is the quietest of any in this file: too
-    // large a group size in C++ and SimulateInFrame launches too few groups, so the tail of every emitter
+    // large a group size in C++ and Simulate launches too few groups, so the tail of every emitter
     // is never touched by the simulation. Those particles keep their zeroed state — dead, alpha 0, never
     // respawned — so the emitter simply carries fewer particles than it was configured for, forever, with
     // nothing logged and nothing invalid anywhere.
     const auto local = ComputeLocalSize( ShaderPath( "Particles/ParticleSimulate.shader" ) );
 
     EXPECT_EQ( local[0], Desert::Graphic::System::kParticleLocalSize )
-         << "ParticleSimulate runs " << local[0] << " threads per group and SimulateInFrame divides by "
+         << "ParticleSimulate runs " << local[0] << " threads per group and Simulate divides by "
          << Desert::Graphic::System::kParticleLocalSize;
 
     // One thread per particle over a one-dimensional dispatch: the group count C++ computes is a division

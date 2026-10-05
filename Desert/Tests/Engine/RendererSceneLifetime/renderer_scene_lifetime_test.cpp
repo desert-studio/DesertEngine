@@ -484,14 +484,14 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
     // the particles when it executes.
     EXPECT_NE( renderer.find( "static_cast<float>( sceneRenderInfo.Timestep.GetSeconds() )" ), std::string::npos )
          << "SceneRenderer no longer takes the particles' step from the frame's timestep.";
-    EXPECT_NE( renderer.find( "->SimulateInFrame( seconds )" ), std::string::npos )
+    EXPECT_NE( renderer.find( "->Simulate( context, seconds )" ), std::string::npos )
          << "SceneRenderer no longer hands the particles the frame's timestep.";
 
     const std::string particles =
          StripComments( EngineSource( "Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" ) );
-    const std::string simulate = BodyAfter( particles, "ParticleRenderer::SimulateInFrame(" );
+    const std::string simulate = BodyAfter( particles, "ParticleRenderer::Simulate(" );
     ASSERT_FALSE( simulate.empty() );
-    EXPECT_NE( simulate.find( "frameSeconds" ), std::string::npos ) << "SimulateInFrame ignores its timestep.";
+    EXPECT_NE( simulate.find( "frameSeconds" ), std::string::npos ) << "Simulate ignores its timestep.";
     EXPECT_NE( simulate.find( "m_SimSeconds += dt" ), std::string::npos )
          << "the shader seed is not the accumulated simulated time.";
     EXPECT_NE( simulate.find( "SpawnAccum += fe.SpawnRate * dt" ), std::string::npos )

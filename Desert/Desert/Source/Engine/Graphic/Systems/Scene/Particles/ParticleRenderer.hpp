@@ -23,6 +23,7 @@ namespace Desert::Core
 namespace Desert::Graphic::RDG
 {
     class Builder;
+    class PassContext;
 }
 
 namespace Desert::Graphic::System
@@ -30,8 +31,9 @@ namespace Desert::Graphic::System
     // GPU particle system. Per emitter: a PERSISTENT storage buffer of particle state that a compute shader
     // (ParticleSimulate) integrates + respawns each frame, drawn as camera-facing billboards (ParticleBillboard)
     // in the Transparency phase. The flow is: PrepareFrame snapshots emitters (CPU) in
-    // BeginScene, SimulateInFrame dispatches the compute (command buffer active) BEFORE the render graph, and
-    // the registered Transparency pass draws the result.
+    // BeginScene, Simulate dispatches the compute from the frame graph's "Particles: Simulate" node (its
+    // PassContext, the emitters' buffers bound by shader name), and the registered Transparency pass draws the
+    // result.
     class ParticleRenderer final : public RenderSystem
     {
     public:
@@ -71,13 +73,16 @@ namespace Desert::Graphic::System
         // time) all come from it. Outside a `--play` capture that is the measured wall-clock step, so the
         // editor sees what it always saw; under one it is the fixed step, so two runs simulate alike. This
         // system reads no clock of its own - the ParticleTimestep suite holds it to that.
-        void SimulateInFrame( float frameSeconds );
+        // Records one DispatchCompute per declared emitter on @p context's command buffer, binding that emitter's
+        // imported state and spawn counter (ImportSimulationBuffers) as StorageWrite; the first refused dispatch
+        // is returned, naming the pass and the slot.
+        [[nodiscard]] Common::BoolResultStr Simulate( const RDG::PassContext& context, float frameSeconds );
 
         // Imports every emitter of this frame's particle-state and spawn-counter buffers into @p graph
-        // (Renderer::ImportBuffer) and returns their handles, which the node that runs SimulateInFrame
+        // (Renderer::ImportBuffer) and returns their handles, which the node that runs Simulate
         // ("Particles: Simulate") declares as StorageWrite: the graph then places the barrier against the
         // previous graph's use of the same buffer (last frame's simulation of the persistent state). An
-        // emitter whose buffers cannot be imported is logged and sits the frame out: SimulateInFrame
+        // emitter whose buffers cannot be imported is logged and sits the frame out: Simulate
         // dispatches only emitters whose writes the graph was told about. Call once per frame graph, after
         // PrepareFrame. The ExternalBuffers live in m_FrameEmitters, which the graph points at until its
         // Execute ends; only the next PrepareFrame refills it.
@@ -114,19 +119,20 @@ namespace Desert::Graphic::System
             float SpawnAccum   = 0.0f; // fractional spawn carry
         };
 
-        // This frame's active emitters (built by PrepareFrame, consumed by SimulateInFrame + the draw pass).
+        // This frame's active emitters (built by PrepareFrame, consumed by Simulate + the draw pass).
         struct FrameEmitter
         {
             EmitterGpu* Gpu = nullptr;
             SimPush     Push;
             bool        Additive  = true;
-            float       SpawnRate = 0.0f; // particles/s; turned into this frame's budget by SimulateInFrame
+            float       SpawnRate = 0.0f; // particles/s; turned into this frame's budget by Simulate
             bool        Looping   = true;
             // This frame's graph imports of Gpu->Particles and Gpu->Counter (ImportSimulationBuffers), and
-            // whether both were imported: SimulateInFrame dispatches only a declared emitter.
+            // whether both were imported: Simulate dispatches only a declared emitter.
             RDG::ExternalBuffer ParticlesImport;
             RDG::ExternalBuffer CounterImport;
             RDG::BufferRef      ParticlesRef; // this frame's graph handle of ParticlesImport, read by ParticlePass
+            RDG::BufferRef      CounterRef;   // this frame's graph handle of CounterImport, written by Simulate
             bool                Declared = false;
         };
 
