@@ -818,6 +818,12 @@ namespace
          { "GlowRadius", kCanvasRenderer }, { "GlowStrength", kCanvasRenderer },
     };
 
+    constexpr Row kRetainerRows[] = {
+         { "Opacity", kCanvasRenderer },    { "Mask", kCanvasRenderer },      { "MaskElement", kCanvasRenderer },
+         { "InvertMask", kCanvasRenderer }, { "Haze", kCanvasRenderer },      { "HazeAmplitude", kCanvasRenderer },
+         { "HazeScale", kCanvasRenderer },  { "HazeSpeed", kCanvasRenderer },
+    };
+
     constexpr Row kToggleRows[] = {
          { "Value", kCanvasRenderer },
          { "BoxColor", kCanvasRenderer },
@@ -988,6 +994,7 @@ namespace
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIPathData", "UIPathComponent", nullptr, CENSUS_ROWS( kPathRows ) },
+         { "UIRetainerData", "UIRetainerComponent", nullptr, CENSUS_ROWS( kRetainerRows ) },
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
          { "UIScrollViewData", "UIScrollViewComponent", nullptr, CENSUS_ROWS( kScrollViewRows ) },
@@ -1184,7 +1191,11 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     //
     // -> 49 with WP24's StreamingSourceData: all four fields are WIRED to Core::WorldStreamer::GatherSources,
     // which turns every enabled source into what the residency streams around.
-    EXPECT_EQ( all.size(), 49u );
+    //
+    // -> 50 with VIDEO-2a's UIPathData (kPathRows, every field read by the canvas walk's path branch).
+    // -> 51 with VIDEO-2c's UIRetainerData (kRetainerRows, read by the walk's retainer branch and
+    // ResolveRetainerMasks in UICanvasRenderer2D.cpp).
+    EXPECT_EQ( all.size(), 51u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

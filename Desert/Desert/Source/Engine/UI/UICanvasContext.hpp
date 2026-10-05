@@ -78,6 +78,8 @@ namespace Desert::UI
         // canvas's tree. Per canvas rather than per view because that is what gives them a death: the cell
         // goes when the canvas does, instead of accumulating a row per element the scene ever had.
         std::unordered_map<entt::entity, float>    HoverT;    // 0 = rest, 1 = hovered; eased each frame
+        // Retainers whose Mask Element name was refused (not exactly one match) — logged once per element.
+        std::unordered_set<entt::entity>           RetainerMaskRefused;
         std::unordered_map<entt::entity, float>    TweenT;    // per-element tween playhead
         std::unordered_map<entt::entity, uint64_t> TweenSeen; // FrameIndex the tween was last evaluated on
 

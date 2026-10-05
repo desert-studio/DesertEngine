@@ -519,3 +519,31 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+TEST( UIComponentRoundTrip, EveryRetainerFieldComesBack )
+{
+    ECS::UIRetainerData written;
+    written.Opacity       = 0.61f;
+    written.Mask          = true;
+    written.MaskElement   = "Dune";
+    written.InvertMask    = true;
+    written.Haze          = true;
+    written.HazeAmplitude = 5.5f;
+    written.HazeScale     = 33.0f;
+    written.HazeSpeed     = 2.25f;
+
+    const AssetResolver resolver = KeyResolver();
+    const auto          object   = SerializeReflected( Type( "UIRetainerData" ), &written, &resolver );
+
+    ECS::UIRetainerData read;
+    ReadReflectedValue( Type( "UIRetainerData" ), &read, ThroughJsonText( object ), &resolver );
+
+    EXPECT_FLOAT_EQ( read.Opacity, written.Opacity );
+    EXPECT_EQ( read.Mask, written.Mask );
+    EXPECT_EQ( read.MaskElement, written.MaskElement );
+    EXPECT_EQ( read.InvertMask, written.InvertMask );
+    EXPECT_EQ( read.Haze, written.Haze );
+    EXPECT_FLOAT_EQ( read.HazeAmplitude, written.HazeAmplitude );
+    EXPECT_FLOAT_EQ( read.HazeScale, written.HazeScale );
+    EXPECT_FLOAT_EQ( read.HazeSpeed, written.HazeSpeed );
+}

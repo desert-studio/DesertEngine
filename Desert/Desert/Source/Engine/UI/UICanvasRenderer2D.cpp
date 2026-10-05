@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <span>
+#include <unordered_set>
 #include <array>
 #include <optional>
 #include <chrono>
@@ -70,7 +71,47 @@ namespace Desert::UI
             // (no theme, scale 1, contrast off) is what every canvas authored before Ю13 gets, and it
             // makes every query below return the element's own authored value.
             CanvasStyle Style;
+
+            // RETAINED LAYERS (UE Retainer Box). Root = the frame's own list (mask layers live there, shared
+            // by every canvas of the frame); Retaining = the retainer whose layer is being recorded (so the
+            // recursion into it draws instead of retaining again); MaskCapture = the mask element being
+            // captured (drawn even when hidden). MaskOf / MaskTargets are resolved once per walk.
+            Graphic::Render2D::DrawList2D*                 Root        = nullptr;
+            entt::entity                                   Retaining   = entt::null;
+            entt::entity                                   MaskCapture = entt::null;
+            std::unordered_map<entt::entity, entt::entity> MaskOf;
+            std::unordered_set<entt::entity>               MaskTargets;
         };
+
+        // Resolve every retainer's Mask Element NAME to an element, once per walk. A name that matches no
+        // UI element, or more than one, is refused with the reason — the retainer then draws unmasked and
+        // says so, rather than guessing which of two "Dune"s was meant.
+        void ResolveRetainerMasks( WalkCtx& ctx, entt::registry& reg )
+        {
+            for ( const auto [r, ret] : reg.view<ECS::UIRetainerComponent>().each() )
+            {
+                if ( !ret.Data.Mask || ret.Data.MaskElement.empty() )
+                    continue;
+                entt::entity found = entt::null;
+                int          hits  = 0;
+                for ( const auto [m, tag] : reg.view<ECS::TagComponent, ECS::UILayoutComponent>().each() )
+                    if ( tag.Tag == ret.Data.MaskElement && m != r )
+                    {
+                        found = m;
+                        ++hits;
+                    }
+                if ( hits != 1 )
+                {
+                    if ( ctx.Canvas.RetainerMaskRefused.insert( r ).second )
+                        LOG_ERROR( "[UI] retainer mask '{}': {} UI elements carry that name (exactly one must); "
+                                   "the layer draws unmasked",
+                                   ret.Data.MaskElement, hits );
+                    continue;
+                }
+                ctx.MaskOf.emplace( r, found );
+                ctx.MaskTargets.insert( found );
+            }
+        }
 
         // THE STYLE ONE ELEMENT RESOLVES THROUGH — the only place an element is paired with a style.
         //
@@ -1264,8 +1305,69 @@ namespace Desert::UI
             // of a layout group never reaches this function at all, because the group left no slot for it
             // and its siblings closed the gap. A Hidden one reaches it with a slot and leaves a hole. Under
             // plain anchor layout the two are the same picture, because there is no packing to close.
-            if ( !IsElementVisible( reg, e ) )
+            // An element some retainer names as its mask: capture its subtree into the frame's mask layer for
+            // it, before (and regardless of) its own visibility — a hidden element is a pure mask, UE's mask
+            // texture as an element. Input is not routed through the capture.
+            if ( ctx.Root && ctx.MaskCapture != e && ctx.MaskTargets.contains( e ) )
+            {
+                auto& mask = ctx.Root->MaskLayer( static_cast<int64_t>( entt::to_integral( e ) ) );
+                if ( mask.Empty() )
+                {
+                    if ( dl.HasTransform() )
+                        mask.PushTransform( dl.GetTransform() );
+                    std::vector<PopupInfo>    noPopups;
+                    std::vector<entt::entity> noFocus;
+                    std::string               noClick;
+                    entt::entity              noFocused = entt::null;
+                    const entt::entity        outer     = ctx.MaskCapture;
+                    ctx.MaskCapture                     = e;
+                    DrawElement( ctx, reg, e, parent, scale, mask, nullptr, &noClick, &noFocused, &noPopups,
+                                 &noFocus, clipRegion, scope, forcedRect );
+                    ctx.MaskCapture = outer;
+                }
+            }
+
+            if ( !IsElementVisible( reg, e ) && ctx.MaskCapture != e )
                 return;
+
+            // UE Retainer Box: the element and its subtree are recorded into their own layer and shown
+            // through one composite with the element's effect. Render2D::RenderRetained renders the layer.
+            if ( ctx.Retaining != e && reg.has<ECS::UIRetainerComponent>( e ) )
+            {
+                const ECS::UIRetainerData& rd    = reg.get<ECS::UIRetainerComponent>( e ).Data;
+                uint32_t                   index = 0;
+                auto&                      layer = dl.BeginRetainedLayer( &index );
+                if ( dl.HasTransform() )
+                    layer.PushTransform( dl.GetTransform() );
+                const entt::entity outer = ctx.Retaining;
+                ctx.Retaining            = e;
+                DrawElement( ctx, reg, e, parent, scale, layer, input, outClicked, focused, popups, focusables,
+                             clipRegion, scope, forcedRect );
+                ctx.Retaining = outer;
+
+                Graphic::Render2D::RetainerEffect fx;
+                fx.Opacity       = rd.Opacity;
+                fx.Haze          = rd.Haze;
+                fx.HazeAmplitude = rd.HazeAmplitude * scale;
+                fx.HazeScale     = rd.HazeScale * scale;
+                fx.HazeSpeed     = rd.HazeSpeed;
+                fx.Time          = static_cast<float>( ctx.View.Time );
+                // A keyed clip REPLACES the authored amplitude while it drives it (never written back).
+                if ( const auto clip = ctx.View.AnimClips.Samples.find( e );
+                     clip != ctx.View.AnimClips.Samples.end() && clip->second.HazeAmplitude )
+                    fx.HazeAmplitude = *clip->second.HazeAmplitude * scale;
+
+                int64_t maskKey = -1;
+                if ( rd.Mask )
+                    if ( const auto m = ctx.MaskOf.find( e ); m != ctx.MaskOf.end() )
+                    {
+                        fx.Mask       = true;
+                        fx.InvertMask = rd.InvertMask;
+                        maskKey       = static_cast<int64_t>( entt::to_integral( m->second ) );
+                    }
+                dl.AddRetainedComposite( index, maskKey, fx, glm::vec4( 1.0f ) );
+                return;
+            }
 
             // THIS ELEMENT'S STYLE, resolved once, before the rect: a themed padding changes what the
             // Content Size Fitter measures, so the style has to exist before the geometry does.
@@ -2283,6 +2385,8 @@ namespace Desert::UI
 
         // THE PAIR, BOUND HERE AND NOWHERE ELSE: this view's own cell for this canvas.
         WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };
+        ctx.Root = &dl;
+        ResolveRetainerMasks( ctx, reg );
 
         const auto& canvasData = reg.get<ECS::UICanvasComponent>( canvasEntity ).Data;
         if ( !canvasData.Visible )

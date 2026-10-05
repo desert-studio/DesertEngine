@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 
 namespace Desert::Graphic::Render2D
 {
@@ -37,6 +38,8 @@ namespace Desert::Graphic::Render2D
         m_Vertices.clear();
         m_Indices.clear();
         m_Commands.clear();
+        m_Layers.clear();
+        m_MaskLayers.clear();
         m_ClipStack.clear();
         m_Clip = ClipRegion2D{};
         m_TransformStack.clear();
@@ -570,5 +573,72 @@ namespace Desert::Graphic::Render2D
         }
 
         EmitStrip( cmd, m_Scratch.data(), static_cast<uint32_t>( segments + 1 ) );
+    }
+
+    DrawList2D& DrawList2D::BeginRetainedLayer( uint32_t* outIndex )
+    {
+        m_Layers.push_back( std::make_unique<DrawList2D>() );
+        if ( outIndex )
+            *outIndex = static_cast<uint32_t>( m_Layers.size() - 1 );
+        return *m_Layers.back();
+    }
+
+    DrawList2D& DrawList2D::MaskLayer( int64_t key )
+    {
+        if ( const auto it = m_MaskLayers.find( key ); it != m_MaskLayers.end() )
+            return *m_Layers[it->second];
+        uint32_t    index = 0;
+        DrawList2D& layer = BeginRetainedLayer( &index );
+        m_MaskLayers.emplace( key, index );
+        return layer;
+    }
+
+    bool DrawList2D::Bounds( glm::vec4& out ) const
+    {
+        if ( m_Indices.empty() )
+            return false;
+        glm::vec2 mn( std::numeric_limits<float>::max() );
+        glm::vec2 mx( -std::numeric_limits<float>::max() );
+        for ( const uint32_t i : m_Indices )
+        {
+            mn = glm::min( mn, m_Vertices[i].Position );
+            mx = glm::max( mx, m_Vertices[i].Position );
+        }
+        out = glm::vec4( mn, mx );
+        return true;
+    }
+
+    bool DrawList2D::AddRetainedComposite( uint32_t layer, int64_t maskKey, const RetainerEffect& effect,
+                                           const glm::vec4& tint )
+    {
+        glm::vec4 b;
+        if ( layer >= m_Layers.size() || !m_Layers[layer]->Bounds( b ) )
+            return false;
+        const float grow = effect.Haze ? std::ceil( effect.HazeAmplitude ) : 0.0f;
+        // Whole pixels: the target is sized from this rect, and a fractional origin would resample the
+        // layer by a sub-pixel shift on every frame it moves.
+        const glm::vec2 mn = glm::floor( glm::vec2( b.x, b.y ) - grow );
+        const glm::vec2 mx = glm::ceil( glm::vec2( b.z, b.w ) + grow );
+
+        // Its own command, never merged: each composite binds its own layer picture and effect.
+        DrawCommand cmd;
+        cmd.ClipRect      = ScissorBox();
+        cmd.IndexOffset   = static_cast<uint32_t>( m_Indices.size() );
+        cmd.Retained      = true;
+        cmd.RetainedLayer = layer;
+        cmd.RetainedMask  = maskKey;
+        cmd.RetainedRect  = glm::vec4( mn, mx );
+        cmd.Effect        = effect;
+        m_Commands.push_back( cmd );
+        DrawCommand& c = m_Commands.back();
+
+        // The layer was recorded with this list's transforms already applied, so the quad is in plain
+        // screen px: applying the current transform again would rotate it twice.
+        const Vertex2D corners[4] = { { mn, { 0.0f, 0.0f }, tint },
+                                      { { mx.x, mn.y }, { 1.0f, 0.0f }, tint },
+                                      { mx, { 1.0f, 1.0f }, tint },
+                                      { { mn.x, mx.y }, { 0.0f, 1.0f }, tint } };
+        EmitPoly( c, corners, 4 );
+        return true;
     }
 } // namespace Desert::Graphic::Render2D

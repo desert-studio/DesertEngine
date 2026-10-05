@@ -35,6 +35,9 @@ namespace Desert::UI
         /// "Reveal" (UIPath): the keyed fraction of the line's length, REPLACING the authored one while the
         /// clip drives it. Unset = the clip does not touch it.
         std::optional<float> Reveal;
+        /// "HazeAmplitude" (UIRetainer): the keyed heat-haze amplitude in design px, REPLACING the authored one
+        /// while the clip drives it. Unset = the clip does not touch it.
+        std::optional<float> HazeAmplitude;
     };
 
     /// One view's clip results for the frame. Cleared and refilled by `PlayUIAnimations`.

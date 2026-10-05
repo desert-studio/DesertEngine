@@ -972,6 +972,16 @@ namespace Desert::Player
                          wait != nullptr && wait->Assessment.Blocks() )
                         UI::DrawStreamingWaitOverlay( dl, w, h, wait->FramesWaiting );
 
+                // Retained UI layers (UE Retainer Box) render into their own targets, which needs no pass open:
+                // close this one, render them, and reopen it LOADING what the blit and nothing else put there.
+                // The swapchain pass has no loading re-open yet (Renderer::BeginSwapChainRenderPass clears), so
+                // there the composites are refused by Flush with its log line — see REMAINDER VIDEO-2c.
+                if ( m_Movie.has_value() && !m_Render2D->GetDrawList().GetLayers().empty() )
+                {
+                    renderer.EndRenderPass();
+                    m_Render2D->RenderRetained();
+                    renderer.BeginRenderPass( m_MoviePass.get(), false );
+                }
                 m_Render2D->Flush();
             }
         }
