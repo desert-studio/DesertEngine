@@ -560,7 +560,7 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
 TEST( PointerOwnership, VulkanRendererDeclaresItsFrameObjectsBeforeTheGraphBackend )
 {
     // FOUR ROWS REST ON ONE LINE ORDER: VulkanRdgBackend::m_Queues / m_Transients / m_Descriptors point at
-    // members of VulkanRendererAPI, and VulkanRdgQueueSet::Objects (inside m_RdgQueues) at m_RdgQueueObjects.
+    // members of VulkanRendererAPI, and VulkanRdgQueueSet::Objects (inside m_RdgQueues) at the queue objects m_FrameLoop owns (FRAME-OUT1).
     // Each pointee outlives its holder only because it is declared BEFORE it. Until RDG-INT3 the backend was
     // declared first and outlived all three; asserted so the next tidy-up cannot put it back.
     const std::string root = RepoRoot();
@@ -575,7 +575,7 @@ TEST( PointerOwnership, VulkanRendererDeclaresItsFrameObjectsBeforeTheGraphBacke
     const std::size_t queues = src.find( "VulkanRdgQueueSet                            m_RdgQueues;" );
     ASSERT_NE( queues, std::string::npos ) << "VulkanRendererAPI no longer declares m_RdgQueues.";
 
-    for ( const char* host : { "m_RdgTransients;", "m_RdgDescriptors;", "m_RdgQueueObjects;" } )
+    for ( const char* host : { "m_RdgTransients;", "m_RdgDescriptors;", "m_FrameLoop;" } )
     {
         const std::size_t at = src.find( host );
         ASSERT_NE( at, std::string::npos ) << host << " is no longer a member of VulkanRendererAPI.";
@@ -584,8 +584,8 @@ TEST( PointerOwnership, VulkanRendererDeclaresItsFrameObjectsBeforeTheGraphBacke
                                     "the backend that holds a raw pointer to it.";
     }
     EXPECT_LT( queues, backend ) << "m_RdgQueues is now declared AFTER m_RdgBackend, which holds `&m_RdgQueues`.";
-    EXPECT_LT( src.find( "m_RdgQueueObjects;" ), queues )
-         << "m_RdgQueueObjects is now declared AFTER m_RdgQueues, whose Objects points at it.";
+    EXPECT_LT( src.find( "m_FrameLoop;" ), queues )
+         << "m_FrameLoop is now declared AFTER m_RdgQueues, whose Objects points at the queue objects it owns.";
 }
 
 // ------------------------------------------------------------------------------------------------
