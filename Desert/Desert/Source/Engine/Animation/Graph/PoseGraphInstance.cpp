@@ -238,13 +238,13 @@ namespace Desert::Animation::Graph
                     // UE FAnimNode_SkeletalControlBase: the input pose, a few bones overridden at Alpha. A
                     // refused solve (a bone the rig lacks, an unreachable degenerate goal) passes the input on
                     // bit-identical, as the bone-control stage does.
-                    const GraphPose& in = m_Poses[static_cast<size_t>( wired[0] )];
-                    pose                = in;
-                    const bool ik       = kind == PoseNodeKind::TwoBoneIK;
-                    const float alpha   = PinValue( node, kBoneControlAlphaPin,
-                                                    ik ? ( node.TwoBoneIK ? node.TwoBoneIK->Alpha : 0.0F )
-                                                         : ( node.LookAt ? node.LookAt->Alpha : 0.0F ),
-                                                    sources.Parameter );
+                    const GraphPose& in               = m_Poses[static_cast<size_t>( wired[0] )];
+                    pose                              = in;
+                    const bool                  ik    = kind == PoseNodeKind::TwoBoneIK;
+                    const float                 alpha = PinValue( node, kBoneControlAlphaPin,
+                                                  ik ? ( node.TwoBoneIK ? node.TwoBoneIK->Alpha : 0.0F )
+                                                                     : ( node.LookAt ? node.LookAt->Alpha : 0.0F ),
+                                                                  sources.Parameter );
                     const Common::BoolResultStr solved =
                          ik ? ( node.TwoBoneIK ? ApplyTwoBoneIKNode( *node.TwoBoneIK, skeleton, alpha, pose.Pose,
                                                                      m_ControlScratch )

@@ -26,7 +26,10 @@ namespace
     A::Skeleton MakeArm()
     {
         const auto place = []( const glm::vec3& t, float degrees, const glm::vec3& axis )
-        { return glm::translate( glm::mat4( 1.0F ), t ) * glm::rotate( glm::mat4( 1.0F ), glm::radians( degrees ), axis ); };
+        {
+            return glm::translate( glm::mat4( 1.0F ), t ) *
+                   glm::rotate( glm::mat4( 1.0F ), glm::radians( degrees ), axis );
+        };
         std::vector<A::BoneInfo> bones( 4 );
         bones[0].Name               = "Spine";
         bones[0].LocalBindTransform = place( { 0.0F, 100.0F, 0.0F }, 15.0F, { 0.0F, 0.0F, 1.0F } );
@@ -52,9 +55,9 @@ namespace
         G::AnimGraph graph;
         graph.Name = "Controls";
         G::PoseNode source;
-        source.Name     = "Source";
-        source.Kind     = static_cast<int>( G::PoseNodeKind::SequencePlayer );
-        source.Sequence = G::SequencePlayerNode{ "Bind", true };
+        source.Name        = "Source";
+        source.Kind        = static_cast<int>( G::PoseNodeKind::SequencePlayer );
+        source.Sequence    = G::SequencePlayerNode{ "Bind", true };
         control.Name       = "Control";
         control.PoseInputs = { "Source" };
         graph.Nodes        = { source, control };
@@ -99,7 +102,7 @@ namespace
 
 TEST( BoneControlNodes, ATwoBoneIKNodeLandsTheEndOfTheChainOnItsGoal )
 {
-    const A::Skeleton  rig  = MakeArm();
+    const A::Skeleton  rig = MakeArm();
     const glm::vec3    goal( 30.0F, 70.0F, 20.0F );
     const A::LocalPose pose = Evaluate( rig, ControlGraph( IKNode( goal, 1.0F ) ) );
     EXPECT_LT( glm::length( ComponentPosition( rig, pose, kHand ) - goal ), 0.01F );
@@ -142,11 +145,12 @@ TEST( BoneControlNodes, ABoundAlphaPinOverridesTheNodesOwnAlpha )
 
 TEST( BoneControlNodes, AGoalInABonesSpaceRidesWithThatBone )
 {
-    const A::Skeleton rig = MakeArm();
-    G::PoseNode       node = IKNode( glm::vec3( 0.0F ), 1.0F );
-    node.TwoBoneIK->Goal   = G::BoneControlTarget{ { 20.0F, -30.0F, 10.0F }, "Spine" };
+    const A::Skeleton rig   = MakeArm();
+    G::PoseNode       node  = IKNode( glm::vec3( 0.0F ), 1.0F );
+    node.TwoBoneIK->Goal    = G::BoneControlTarget{ { 20.0F, -30.0F, 10.0F }, "Spine" };
     const A::LocalPose pose = Evaluate( rig, ControlGraph( node ) );
-    const glm::vec3 goal = glm::vec3( rig.GetBones()[0].LocalBindTransform * glm::vec4( 20.0F, -30.0F, 10.0F, 1.0F ) );
+    const glm::vec3    goal =
+         glm::vec3( rig.GetBones()[0].LocalBindTransform * glm::vec4( 20.0F, -30.0F, 10.0F, 1.0F ) );
     EXPECT_LT( glm::length( ComponentPosition( rig, pose, kHand ) - goal ), 0.01F );
 }
 
@@ -176,10 +180,10 @@ TEST( BoneControlNodes, ANodeWithoutItsSetupOrWithAnUnknownBoneIsRefusedOrPasses
     G::PoseGraphInstance instance;
     EXPECT_FALSE( instance.Bind( ControlGraph( bare ), rig ).IsSuccess() );
 
-    G::PoseNode unknown           = IKNode( glm::vec3( 30.0F, 70.0F, 20.0F ), 1.0F );
-    unknown.TwoBoneIK->EndBone    = "Tentacle";
-    const A::LocalPose pose       = Evaluate( rig, ControlGraph( unknown ) );
-    const A::LocalPose untouched  = Evaluate( rig, ControlGraph( IKNode( glm::vec3( 0.0F ), 0.0F ) ) );
+    G::PoseNode unknown          = IKNode( glm::vec3( 30.0F, 70.0F, 20.0F ), 1.0F );
+    unknown.TwoBoneIK->EndBone   = "Tentacle";
+    const A::LocalPose pose      = Evaluate( rig, ControlGraph( unknown ) );
+    const A::LocalPose untouched = Evaluate( rig, ControlGraph( IKNode( glm::vec3( 0.0F ), 0.0F ) ) );
     for ( size_t b = 0; b < rig.GetBones().size(); ++b )
         EXPECT_EQ( pose[b].Rotation, untouched[b].Rotation ) << b;
 }

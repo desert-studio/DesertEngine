@@ -391,14 +391,14 @@ TEST( AnimGraphAsset, TwoBoneIKAndLookAtNodesRoundTrip )
     AnimGraph graph = PG::MakeStateMachineGraph( "Reach" );
 
     PG::PoseNode ik;
-    ik.Name                      = "IK";
-    ik.Kind                      = static_cast<int>( PG::PoseNodeKind::TwoBoneIK );
-    ik.PoseInputs                = { graph.OutputPose };
-    ik.TwoBoneIK                 = PG::TwoBoneIKNode{};
-    ik.TwoBoneIK->EndBone        = "Hand";
-    ik.TwoBoneIK->Goal.Position  = { 30.0F, 70.0F, 20.0F };
-    ik.TwoBoneIK->PoleTarget     = PG::BoneControlTarget{ { 0.0F, 0.0F, 50.0F }, "Spine" };
-    ik.TwoBoneIK->Alpha          = 0.25F;
+    ik.Name                     = "IK";
+    ik.Kind                     = static_cast<int>( PG::PoseNodeKind::TwoBoneIK );
+    ik.PoseInputs               = { graph.OutputPose };
+    ik.TwoBoneIK                = PG::TwoBoneIKNode{};
+    ik.TwoBoneIK->EndBone       = "Hand";
+    ik.TwoBoneIK->Goal.Position = { 30.0F, 70.0F, 20.0F };
+    ik.TwoBoneIK->PoleTarget    = PG::BoneControlTarget{ { 0.0F, 0.0F, 50.0F }, "Spine" };
+    ik.TwoBoneIK->Alpha         = 0.25F;
     PG::PoseNode look;
     look.Name                    = "Look";
     look.Kind                    = static_cast<int>( PG::PoseNodeKind::LookAt );

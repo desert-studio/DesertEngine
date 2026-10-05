@@ -55,10 +55,11 @@ namespace Desert::Animation::Graph
         if ( !end )
             return Common::MakeError<bool>( std::format( "Two Bone IK {}", end.GetError() ) );
         const uint32_t joint = skeleton.ResolveParent( end.GetValue() );
-        const uint32_t root  = joint == Skeleton::NO_PARENT ? Skeleton::NO_PARENT : skeleton.ResolveParent( joint );
+        const uint32_t root = joint == Skeleton::NO_PARENT ? Skeleton::NO_PARENT : skeleton.ResolveParent( joint );
         if ( root == Skeleton::NO_PARENT )
-            return Common::MakeError<bool>( std::format(
-                 "Two Bone IK: end bone '{}' has no parent and grandparent to close a two-bone chain", node.EndBone ) );
+            return Common::MakeError<bool>(
+                 std::format( "Two Bone IK: end bone '{}' has no parent and grandparent to close a two-bone chain",
+                              node.EndBone ) );
 
         ComponentPose component( skeleton, pose );
         auto          goal = ComponentSpaceTarget( node.Goal, skeleton, component );
@@ -74,7 +75,8 @@ namespace Desert::Animation::Graph
                                                 Solvers::TwoBoneIKGoal{ goal.GetValue(), pole.GetValue() },
                                                 solution, scratch.Overrides );
              !solved )
-            return Common::MakeError<bool>( std::format( "Two Bone IK on '{}' {}", node.EndBone, solved.GetError() ) );
+            return Common::MakeError<bool>(
+                 std::format( "Two Bone IK on '{}' {}", node.EndBone, solved.GetError() ) );
         scratch.Before.clear();
         return ApplyBoneOverrides( skeleton, pose, component, scratch.Overrides, alpha, scratch.Before );
     }

@@ -92,8 +92,10 @@ namespace Desert::Animation
     }
 
     Common::BoolResultStr SolveTwoBoneIKChain( const Skeleton& skeleton, ComponentPose& component, uint32_t root,
-                                               uint32_t joint, uint32_t endBone, const Solvers::TwoBoneIKGoal& goal,
-                                               Solvers::TwoBoneIKSolution& solution, std::vector<BoneOverride>& out )
+                                               uint32_t joint, uint32_t endBone,
+                                               const Solvers::TwoBoneIKGoal& goal,
+                                               Solvers::TwoBoneIKSolution&   solution,
+                                               std::vector<BoneOverride>&    out )
     {
         auto rootTransform = ComponentTransformOf( skeleton, component, root );
         if ( !rootTransform.IsSuccess() )
@@ -114,7 +116,7 @@ namespace Desert::Animation
         const Solvers::TwoBoneIKChain chain{ rootTransform.GetValue().Translation,
                                              jointTransform.GetValue().Translation,
                                              endTransform.GetValue().Translation };
-        
+
         solution = Solvers::SolveTwoBoneIK( chain, goal );
 
         if ( solution.Reach == Solvers::TwoBoneIKReach::GoalAtRoot ||
@@ -168,10 +170,11 @@ namespace Desert::Animation
         }
 
         Solvers::TwoBoneIKSolution solution;
-        const auto solved = SolveTwoBoneIKChain( skeleton, component, m_RootBone, m_JointBone, m_EndBone.GetIndex(),
-                                                 Solvers::TwoBoneIKGoal{ m_Goal, m_PoleTarget }, solution, out );
-        m_LastReach       = solution.Reach;
-        m_LastPlane       = solution.Plane;
+        const auto                 solved =
+             SolveTwoBoneIKChain( skeleton, component, m_RootBone, m_JointBone, m_EndBone.GetIndex(),
+                                  Solvers::TwoBoneIKGoal{ m_Goal, m_PoleTarget }, solution, out );
+        m_LastReach = solution.Reach;
+        m_LastPlane = solution.Plane;
         if ( !solved.IsSuccess() )
         {
             return Common::MakeFormattedError<bool>( "two-bone IK on '{}' {}", m_EndBone.GetName(),
