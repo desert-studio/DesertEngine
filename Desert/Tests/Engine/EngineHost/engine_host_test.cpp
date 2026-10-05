@@ -9,6 +9,8 @@
 //   * VulkanRenderer.cpp DispatchCompute: drop the vkCmdBindDescriptorSets call -> the bytes differ.
 //   * VulkanRenderer.cpp DispatchCompute: pass groupCountX - 1 to vkCmdDispatch -> the last 64 words differ.
 //   * VulkanRenderer.cpp SubmitHeadlessFrame: delete device->WaitIdle() -> the readback races the GPU.
+//   * Renderer::DrawFullscreen: draw fewer than 3 vertices -> pixels keep the clear colour;
+//     FullscreenTriangle.glslh ScreenUVToNdc without the y flip -> every row lands mirrored.
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
@@ -76,6 +78,18 @@ Shader "EngineHostFill"
         static Host host = []
         {
             Host h;
+            // The engine resolves Resources/Shaders (and their #includes) from the Editor directory, the working
+            // directory the Editor and the packaged game start in; walk up from wherever the runner started.
+            for ( fs::path dir = fs::current_path(); !dir.empty(); dir = dir.parent_path() )
+            {
+                if ( fs::exists( dir / "Editor" / "Resources" / "Shaders" ) )
+                {
+                    fs::current_path( dir / "Editor" );
+                    break;
+                }
+                if ( dir == dir.parent_path() )
+                    break;
+            }
             if ( glfwInit() != GLFW_TRUE ) // the instance asks glfwVulkanSupported(); no window is created
             {
                 h.Error = "glfwInit failed";
@@ -127,6 +141,60 @@ Shader "EngineHostFill"
         if ( !shader )
             return Common::MakeError<std::shared_ptr<ComputePipeline>>( "Shader::Create returned null" );
         return ComputePipeline::Create( { .Shader = shader, .DebugName = "EngineHostFill" } );
+    }
+
+    constexpr uint32_t kSide = 64; // the DrawFullscreen target: kSide x kSide RGBA8 UNORM
+
+    // Each pixel writes its own texel coordinate from the interpolated v_TexCoord: (x, y, 255, 255). A triangle
+    // that misses a pixel leaves the clear colour; a flipped or shifted uv writes another pixel's coordinate.
+    constexpr const char* kCoordShader = R"DSL(// DesertAsset {"Kind":"Shader","Guid":"7c1d2e3f4a5b46c7d8e9f0a1b2c3d4e5","Versions":{"SHDR":1},"Dependencies":[]}
+Shader "EngineHostCoord"
+{
+    Fragment
+    {
+        In(0) vec2 v_TexCoord;
+        Out(0) vec4 o_Color;
+
+        void main()
+        {
+            vec2 texel = floor( v_TexCoord * 64.0 );
+            o_Color = vec4( texel / 255.0, 1.0, 1.0 );
+        }
+    }
+
+    Vertex
+    {
+        #include <Common/FullscreenTriangle.glslh>
+
+        Out(0) vec2 v_TexCoord;
+
+        void main()
+        {
+            v_TexCoord = FullscreenTriangleUV();
+            gl_Position = vec4( FullscreenTriangleNdc(), 0.0, 1.0 );
+        }
+    }
+}
+)DSL";
+
+    Common::ResultStr<std::shared_ptr<GraphicsPipeline>> MakeCoordPipeline()
+    {
+        const fs::path file = fs::temp_directory_path() / "EngineHostCoord.shader";
+        {
+            std::ofstream out( file, std::ios::binary | std::ios::trunc );
+            out << kCoordShader;
+        }
+        auto asset = std::make_shared<Assets::ShaderAsset>( Common::Filepath( file.string() ) );
+        if ( const auto loaded = asset->LoadFromFile(); !loaded )
+            return Common::MakeError<std::shared_ptr<GraphicsPipeline>>( loaded.GetError() );
+        const std::shared_ptr<Shader> shader = Shader::Create( asset );
+        if ( !shader )
+            return Common::MakeError<std::shared_ptr<GraphicsPipeline>>( "Shader::Create returned null" );
+        GraphicsPipelineSpecification spec;
+        spec.DebugName    = "EngineHostCoord";
+        spec.Shader       = shader;
+        spec.TargetLayout = RenderTargetLayout{ .ColorFormats = { Core::Formats::ImageFormat::RGBA8F } };
+        return GraphicsPipeline::Create( spec );
     }
 } // namespace
 
@@ -209,6 +277,96 @@ TEST( EngineHost, DispatchComputeThroughPassBindingsIsByteExact )
             if ( got[i] != Expected( i ) && mismatches++ == 0 )
                 first = i;
         EXPECT_EQ( mismatches, 0u ) << "frame " << frame << ": first mismatch at word " << first;
+    }
+}
+
+// One raster pass whose exec is Renderer::DrawFullscreen (DrawProcedural(3, 1)) into a graph texture cleared to 0;
+// a copy pass reads the image back. Every pixel must hold its own coordinate: the one triangle covers the whole
+// target and its uv is the screen texture coordinate with (0,0) at the top-left texel. Two frames.
+TEST( EngineHost, DrawFullscreenCoversEveryPixelWithItsOwnTexCoord )
+{
+    const Host& host = GetHost();
+    ASSERT_TRUE( host.Error.empty() ) << host.Error;
+    auto pipeline = MakeCoordPipeline();
+    ASSERT_TRUE( pipeline.IsSuccess() ) << pipeline.GetError();
+
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        auto&                       renderer = Renderer::GetInstance();
+        const Common::BoolResultStr begun    = renderer.BeginFrame();
+        ASSERT_TRUE( begun.IsSuccess() ) << "frame " << frame << ": " << begun.GetError();
+
+        RDG::TextureDesc desc;
+        desc.Size   = { kSide, kSide, 1 };
+        desc.Format = Core::Formats::ImageFormat::RGBA8F;
+
+        RDG::ExternalBuffer   readback;
+        RDG::Builder          graph( "engine-host-fullscreen" );
+        const RDG::TextureRef target = graph.CreateTexture( desc, "Coords" );
+        const RDG::BufferRef  bytes  = graph.CreateBuffer( RDG::BufferDesc{ kSide * kSide * 4u }, "Readback" );
+        graph.AddPass(
+             "Draw", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             { pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ); },
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context );
+                 return Renderer::GetInstance().DrawFullscreen( bindings, *pipeline.GetValue(), nullptr );
+             } );
+        graph.AddPass(
+             "Copy", RDG::PassFlags::Copy,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Read( target, RDG::Access::CopySrc );
+                 pass.Write( bytes, RDG::Access::CopyDst );
+             },
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const auto cmd    = API::Vulkan::VulkanRdgBackend::CommandBufferOf( context );
+                 auto       source = context.GetTexture( target, RDG::Access::CopySrc );
+                 auto       into   = context.GetBuffer( bytes, RDG::Access::CopyDst );
+                 if ( !cmd || !source || !into )
+                     return Common::MakeError( "Copy: no command buffer, image or buffer" );
+                 auto image  = API::Vulkan::VulkanRdgBackend::TextureOf( source.GetValue() );
+                 auto buffer = API::Vulkan::VulkanRdgBackend::BufferOf( into.GetValue() );
+                 if ( !image || !buffer )
+                     return Common::MakeError( "Copy: no Vulkan image or buffer" );
+                 VkBufferImageCopy region{};
+                 region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                 region.imageExtent      = { kSide, kSide, 1 };
+                 vkCmdCopyImageToBuffer( cmd.GetValue(), image.GetValue()->GetImage(),
+                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(), 1,
+                                         &region );
+                 return Common::MakeSuccess( true );
+             } );
+        graph.Extract( bytes, readback, RDG::Access::HostRead );
+
+        const Common::BoolResultStr executed = renderer.ExecuteGraph( graph );
+        ASSERT_TRUE( executed.IsSuccess() ) << executed.GetError();
+        const Common::BoolResultStr presented = renderer.PresentFinalImage();
+        ASSERT_TRUE( presented.IsSuccess() ) << presented.GetError();
+
+        ASSERT_TRUE( readback.Physical && readback.Physical->GetBackendKind() == RDG::BackendKind::Vulkan );
+        const auto& buffer = static_cast<const API::Vulkan::VulkanRdgBuffer&>( *readback.Physical );
+        buffer.InvalidateForHost();
+        ASSERT_NE( buffer.GetMapped(), nullptr );
+        const auto* px         = static_cast<const uint8_t*>( buffer.GetMapped() );
+        uint32_t    mismatches = 0;
+        uint32_t    firstX     = 0;
+        uint32_t    firstY     = 0;
+        for ( uint32_t y = 0; y < kSide; ++y )
+            for ( uint32_t x = 0; x < kSide; ++x )
+            {
+                const uint8_t* p  = px + ( y * kSide + x ) * 4u;
+                const bool     ok = p[0] == x && p[1] == y && p[2] == 255u && p[3] == 255u;
+                if ( !ok && mismatches++ == 0 )
+                {
+                    firstX = x;
+                    firstY = y;
+                }
+            }
+        EXPECT_EQ( mismatches, 0u ) << "frame " << frame << ": first wrong pixel (" << firstX << ", " << firstY
+                                    << ")";
     }
 }
 
