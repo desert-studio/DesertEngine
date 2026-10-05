@@ -40,8 +40,10 @@ namespace
         EXPECT_TRUE( read.IsSuccess() ) << ( read.IsSuccess() ? "" : read.GetError() );
         if ( !read.IsSuccess() )
             return {};
-        const auto& source = read.GetValue().Source;
-        return std::string( reinterpret_cast<const char*>( source.data() ), source.size() );
+        std::string carried;
+        std::ranges::transform( read.GetValue().Source, std::back_inserter( carried ),
+                                []( std::byte b ) { return std::to_integer<char>( b ); } );
+        return carried;
     }
 
     Common::Content::AssetGuid GuidOf( const std::filesystem::path& asset )
@@ -257,8 +259,11 @@ TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclus
     int      h  = 0;
     int      n  = 0;
     const std::string carried = CarriedImage( packed );
-    uint8_t*          px      = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( carried.data() ),
-                                                       static_cast<int>( carried.size() ), &w, &h, &n, 4 );
+    // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes;
+    // the bytes reach it only through this cast.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    uint8_t* px = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( carried.data() ),
+                                         static_cast<int>( carried.size() ), &w, &h, &n, 4 );
     ASSERT_NE( px, nullptr );
     uint8_t* src = stbi_load( ( file.parent_path() / "mr.png" ).string().c_str(), &w, &h, &n, 4 );
     ASSERT_NE( src, nullptr );
@@ -570,8 +575,11 @@ TEST( MaterialImportAdapter, AnUncompressedEmbeddedTextureIsEncodedToPng )
     int               w       = 0;
     int               h       = 0;
     int               n       = 0;
-    uint8_t*          rgba    = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( carried.data() ),
-                                                       static_cast<int>( carried.size() ), &w, &h, &n, 4 );
+    // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes;
+    // the bytes reach it only through this cast.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    uint8_t* rgba = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( carried.data() ),
+                                           static_cast<int>( carried.size() ), &w, &h, &n, 4 );
     ASSERT_NE( rgba, nullptr );
     EXPECT_EQ( w, 2 );
     EXPECT_EQ( h, 1 );

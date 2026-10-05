@@ -49,7 +49,8 @@ TEST( AnimGraphMigration, AV2GraphGetsItsOutputPoseRightOfTheRightmostNodeLevelW
     EXPECT_FLOAT_EQ( now.OutputPoseX, 520.0f + G::kOutputPoseSpacingX );
     EXPECT_FLOAT_EQ( now.OutputPoseY, 150.0f );
     EXPECT_EQ( now.OutputPose, "StateMachine" );
-    ASSERT_TRUE( now.Header );
+    if ( !now.Header || !graph.Header )
+        FAIL() << "both the raised graph and the minted one carry a header";
     EXPECT_EQ( now.Header->Guid, graph.Header->Guid ) << "the graph's identity survives the raise";
     EXPECT_EQ( now.Header->Versions.at( "ANGR" ), Desert::Assets::kAnimGraphSchemaVersion );
 }

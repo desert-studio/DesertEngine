@@ -159,6 +159,18 @@ namespace Desert::Editor
                 return { icon, std::format( "{:.0f} m", Gz::TranslateSnap() / 100.0f ) };
             return { icon, std::format( "{:.0f} cm", Gz::TranslateSnap() ) };
         }
+
+        // The transform-space button's tooltip: a forced space (Scale) explains why it cannot flip, otherwise
+        // it names the space the handles honour and the one a click switches to.
+        const char* SpaceTooltip( const bool forced, const bool isLocal )
+        {
+            if ( forced )
+                return "Scaling is always along the object's own axes — a world-axis scale of a rotated object "
+                       "is a shear, which a transform cannot hold";
+            if ( isLocal )
+                return "Transform space: Local — drag along the object's own axes (click for World)";
+            return "Transform space: World — drag along the world axes (click for Local)";
+        }
     } // namespace
 
     bool LevelToolbar::ToolbarButton( const char* icon, const char* label, bool active, const char* tooltip,
@@ -300,13 +312,9 @@ namespace Desert::Editor
         // Transform space: one button that both REPORTS the space and flips it. It asks EffectiveSpace(), not
         // GetSpace(), because ImGuizmo throws the mode away while scaling (ImGuizmo.cpp:2653) — during a Scale
         // the honest face is Local, disabled, rather than a "World" the handles will not honour.
-        const bool  forced  = Gz::SpaceIsForced( op );
-        const bool  isLocal = Gz::EffectiveSpace( op ) == Gz::Space::Local;
-        std::string spaceTip =
-             forced ? "Scaling is always along the object's own axes — a world-axis scale of a rotated object "
-                      "is a shear, which a transform cannot hold"
-             : isLocal ? "Transform space: Local — drag along the object's own axes (click for World)"
-                       : "Transform space: World — drag along the world axes (click for Local)";
+        const bool  forced   = Gz::SpaceIsForced( op );
+        const bool  isLocal  = Gz::EffectiveSpace( op ) == Gz::Space::Local;
+        std::string spaceTip = SpaceTooltip( forced, isLocal );
 
         // The two snap values: each button REPORTS its step and opens the list that changes it (DrawSnapPopup);
         // the shared magnet toggle sits at the top of both lists — snapping is one state, read in one place.

@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <format>
 #include <memory>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -64,6 +65,9 @@ namespace Desert::Editor
                 return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
                                                                     slot.Slot, part.Source.generic_string(),
                                                                     bytes.GetError() ) );
+            // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes;
+            // the bytes reach it only through this cast.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
             image.Data.reset( stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() ),
                                                      static_cast<int>( bytes.GetValue().size() ), &image.Width,
                                                      &image.Height, &components, 4 ) );
@@ -117,11 +121,10 @@ namespace Desert::Editor
         const std::filesystem::path onDisk = Common::Constants::Path::FullPath( asset );
         std::filesystem::path       image  = onDisk;
         image.replace_extension( imageExtension );
-        const auto written = Assets::WriteTextureSource(
-             onDisk, Common::Content::ContentKind::Texture, Common::AssetHandle::StableKeyForPath( image ),
-             std::vector<std::byte>( reinterpret_cast<const std::byte*>( bytes.data() ),
-                                     reinterpret_cast<const std::byte*>( bytes.data() ) + bytes.size() ),
-             {} );
+        const auto view    = std::as_bytes( std::span( bytes ) );
+        const auto written = Assets::WriteTextureSource( onDisk, Common::Content::ContentKind::Texture,
+                                                         Common::AssetHandle::StableKeyForPath( image ),
+                                                         std::vector<std::byte>( view.begin(), view.end() ), {} );
         if ( !written.IsSuccess() )
             return Common::MakeError<PackOutcome>( std::format( "cannot write the texture asset '{}': {}",
                                                                 asset.generic_string(), written.GetError() ) );
