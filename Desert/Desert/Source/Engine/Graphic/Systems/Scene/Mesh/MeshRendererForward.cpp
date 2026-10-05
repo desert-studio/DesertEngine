@@ -2,6 +2,9 @@
 // reuses the static one), the manual forward passes drawn over the deferred composite, and their pipelines.
 #include "MeshRendererInternal.hpp"
 
+#include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
+
 #include <format>
 #include <iterator>
 
@@ -9,6 +12,41 @@ namespace Desert::Graphic::System
 {
     namespace
     {
+        // Every scene-input slot of the glass shader is filled by exactly ONE route every frame (the
+        // deferred composite's rule, MaterialDeferredLighting::BindInputs): PBRSceneFrame::ApplyTo writes
+        // what this frame has, and this writes the explicit engine default for what it does not - never the
+        // material's construction-time fallback, which BindGraphicsPassState refuses as "filled neither".
+        //   env cubes absent    -> the fallback cube (the split-sum ambient reads zero)
+        //   BRDF LUT absent     -> Black (no specular ambient term)
+        //   cloud shadow absent -> White (the sun is not occluded by clouds)
+        //   cascades past CascadeCount -> cascade 0's own map: same format and sampler, and the shader's
+        //                         cascade loop is bounded by CascadeCount, so it is never sampled.
+        void BindGlassFrameDefaults( Material& material, const PBRSceneFrame& frame )
+        {
+            const auto& emptyCube = FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
+            if ( !frame.IrradianceMap )
+                if ( auto* tex = material.Get<TextureCubeProperty>( MaterialPBRBase::kEnvIrradianceName ) )
+                    tex->SetTexture( emptyCube.get() );
+            if ( !frame.PrefilteredMap )
+                if ( auto* tex = material.Get<TextureCubeProperty>( MaterialPBRBase::kEnvSpecularName ) )
+                    tex->SetTexture( emptyCube.get() );
+            if ( !frame.BrdfLut )
+                if ( auto* tex = material.Get<Texture2DProperty>( MaterialPBRBase::kBrdfLutName ) )
+                    tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::Black ).get(),
+                                   RDG::Access::SampledGraphics );
+            if ( !frame.CloudShadow.IsLive() )
+                if ( auto* tex = material.Get<Texture2DProperty>( "u_CloudShadowMap" ) )
+                    tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::White ).get(),
+                                   RDG::Access::SampledGraphics );
+            Image2D* const firstCascade = frame.CascadeMaps[0];
+            if ( !firstCascade )
+                return; // no cascade at all this frame: REMAINDER-W4D (piece 3, cascades as graph refs)
+            for ( uint32_t i = 0; i < MaterialPBRBase::kMaxCascades; ++i )
+                if ( i >= frame.CascadeCount || !frame.CascadeMaps[i] )
+                    if ( auto* tex = material.Get<Texture2DProperty>( MaterialPBRBase::kShadowMapNames[i] ) )
+                        tex->SetImage( firstCascade, RDG::Access::SampledGraphics );
+        }
+
         constexpr std::string_view kGenericMeshNameFormat = "GenericMesh_{}";
 
         // The texture half of a shared generic material's identity.
@@ -491,8 +529,10 @@ namespace Desert::Graphic::System
 
         // The whole scene contribution in one snapshot (see Graphic::PBRSceneFrame) — the glass pass
         // needs every part of it, including the env cube + BRDF bindings it epsilon-touches.
-        MaterialInstance* gi = m_GlassInstance.get();
-        CaptureFrameState( camera ).ApplyTo( gi );
+        MaterialInstance*   gi         = m_GlassInstance.get();
+        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        frameState.ApplyTo( gi );
+        BindGlassFrameDefaults( *m_GlassMaterial, frameState );
 
         // The scene snapshot the glass samples for refraction (binding 19, glass-shader-only) is this frame's
         // graph transient, bound by name; the sampler is the one the material route sampled the copy with (the
