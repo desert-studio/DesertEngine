@@ -54,7 +54,7 @@ namespace Desert::Graphic::System
             // Inside the render pass the frame graph opens on GetImage() ("Deferred: SceneCopy").
             auto& renderer = Renderer::GetInstance();
             m_Material->BindInputs( src );
-            renderer.SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
+            renderer.SubmitFullscreenTriangle( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
         }
 
         std::shared_ptr<Image2D> GetImage() const

@@ -122,7 +122,8 @@ namespace Desert::Graphic::System
             m_Material->BindInputs( gbuffer->GetColorAttachmentImage( 1 ), gbuffer->GetColorAttachmentImage( 2 ),
                                     rsmAlbedo, rsmNormal, rsmWorldPos, rsmViewProj, sunColorIntensity, giIntensity,
                                     static_cast<float>( m_FrameIndex % 1024u ) );
-            Renderer::GetInstance().SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
+            Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
+                                                              m_Material->GetMaterialExecutor() );
         }
 
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): temporal
@@ -135,8 +136,8 @@ namespace Desert::Graphic::System
             m_ResolveMaterial->BindInputs( target->GetColorAttachmentImage( 0 ), GetHistoryImage(),
                                            gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj, texel,
                                            m_HistoryValid ? 0.92f : 0.0f );
-            Renderer::GetInstance().SubmitFullscreenQuad( m_ResolvePipeline.get(),
-                                                          m_ResolveMaterial->GetMaterialExecutor() );
+            Renderer::GetInstance().SubmitFullscreenTriangle( m_ResolvePipeline.get(),
+                                                              m_ResolveMaterial->GetMaterialExecutor() );
 
             m_PrevViewProj = cameraViewProj;
             m_HistoryValid = true;

@@ -74,7 +74,8 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !gbufferDepth )
                 return Common::MakeError( "DepthExpand recorded without its pipeline or the G-buffer depth" );
             m_Material->BindInputs( gbufferDepth );
-            Renderer::GetInstance().SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
+            Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
+                                                              m_Material->GetMaterialExecutor() );
             return BOOLSUCCESS;
         }
 

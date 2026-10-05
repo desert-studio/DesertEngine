@@ -78,7 +78,7 @@ namespace Desert::Graphic::System
                                     gbuffer->GetColorAttachmentImage( 2 ), gbuffer->GetColorAttachmentImage( 3 ),
                                     lightDir, lightColor, cameraPos, debugMode, pointLights, spotLights, shadow,
                                     aoImage, giIntensity, ssaoEnabled, giMode, giImage, cloudShadow, environment );
-            renderer.SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
+            renderer.SubmitFullscreenTriangle( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
         }
 
     private:

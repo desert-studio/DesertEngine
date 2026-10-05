@@ -469,8 +469,15 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
-    void VulkanRendererAPI::SubmitFullscreenQuad( const GraphicsPipeline* pipeline,
-                                                  const MaterialExecutor* materialExecutor )
+    namespace
+    {
+        // One triangle covering the viewport (Common/FullscreenTriangle.glslh): the vertex stage builds it from
+        // gl_VertexIndex with no vertex buffer, so every fullscreen draw is Draw(3, 1, 0, 0).
+        constexpr uint32_t kFullscreenTriangleVertexCount = 3;
+    } // namespace
+
+    void VulkanRendererAPI::SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
+                                                      const MaterialExecutor* materialExecutor )
     {
         if ( !IsRecording() )
             return;
@@ -507,7 +514,7 @@ namespace Desert::Graphic::API::Vulkan
                                 pcBuffer.Data );
         }
 
-        DrawCounted( 6, 1, 0, 0 );
+        DrawCounted( kFullscreenTriangleVertexCount, 1, 0, 0 );
     }
 
     void VulkanRendererAPI::SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
@@ -907,9 +914,8 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(),
                                 static_cast<VkShaderStageFlags>( reflection.PushConstantRanges->ShaderStage ), 0,
                                 static_cast<uint32_t>( push.size() ), push.data() );
-        // The draw SubmitFullscreenQuad records: the fullscreen vertex shaders build their quad from
-        // gl_VertexIndex over six vertices.
-        DrawCounted( 6, 1, 0, 0 );
+        // The draw SubmitFullscreenTriangle records: one triangle covering the viewport.
+        DrawCounted( kFullscreenTriangleVertexCount, 1, 0, 0 );
         return Common::MakeSuccess( true );
     }
 

@@ -169,8 +169,8 @@ namespace Desert::Graphic::System
         if ( !mask )
             return;
         m_MaterialInit->BindInputs( mask.get() );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_InitPipeline.get(),
-                                                      m_MaterialInit->GetMaterialExecutor() );
+        Renderer::GetInstance().SubmitFullscreenTriangle( m_InitPipeline.get(),
+                                                          m_MaterialInit->GetMaterialExecutor() );
     }
 
     void JumpFloodOutlineRenderer::RecordStep( uint32_t step )
@@ -178,8 +178,8 @@ namespace Desert::Graphic::System
         // Ping-pong propagation with halving sample distance.
         m_StepMaterials[step]->BindInputs( GetSeedImage( GetStepSource( step ) ).get(),
                                            1 << ( m_StepCount - 1 - step ) );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_StepPipeline.get(),
-                                                      m_StepMaterials[step]->GetMaterialExecutor() );
+        Renderer::GetInstance().SubmitFullscreenTriangle( m_StepPipeline.get(),
+                                                          m_StepMaterials[step]->GetMaterialExecutor() );
     }
 
     void JumpFloodOutlineRenderer::RecordFinal()
@@ -190,7 +190,7 @@ namespace Desert::Graphic::System
         const float effectiveWidth = RunsSteps() ? m_OutlineWidth : 0.0f;
         m_MaterialComposite->BindInputs( GetSeedImage( GetFinalSeedIndex() ).get(), sceneColor.get(),
                                          glm::vec4( m_OutlineColor, 1.0f ), effectiveWidth, m_Smoothness );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_FinalPipeline.get(),
-                                                      m_MaterialComposite->GetMaterialExecutor() );
+        Renderer::GetInstance().SubmitFullscreenTriangle( m_FinalPipeline.get(),
+                                                          m_MaterialComposite->GetMaterialExecutor() );
     }
 } // namespace Desert::Graphic::System

@@ -22,7 +22,7 @@ Shader "ProceduralSky"
 
         In(0) vec3 v_RayDir;
         // The camera position, forwarded from the vertex stage the way every mesh shader forwards it —
-        // this engine keeps CameraUB a vertex-stage block. Constant across the quad, so interpolation
+        // this engine keeps CameraUB a vertex-stage block. Constant across the triangle, so interpolation
         // returns it exactly.
         In(1) vec3 v_CameraPos;
         Out(0) vec4 oColor;
@@ -153,17 +153,17 @@ Shader "ProceduralSky"
 
     Vertex
     {
-        #include <Common/QuadPositions.glslh>
+        #include <Common/FullscreenTriangle.glslh>
         #include <Common/CameraUB.glslh>
 
         // World-space view ray for this fullscreen pixel (un-normalized; normalized in the fragment).
         Out(0) vec3 v_RayDir;
-        // Camera position for the physical model's altitude (constant across the quad).
+        // Camera position for the physical model's altitude (constant across the triangle).
         Out(1) vec3 v_CameraPos;
 
         void main()
         {
-            vec4 position = vec4(QUAD_POSITIONS[gl_VertexIndex], 1.0, 1.0);
+            vec4 position = vec4(FullscreenTriangleNdc(), 1.0, 1.0);
             gl_Position = position;
 
             // DIRECTION-ONLY world-space view ray (camera rotation only — NO far-plane-worldPos minus cameraPos).

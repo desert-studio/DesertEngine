@@ -1,0 +1,32 @@
+// #pragma once
+//
+// THE fullscreen vertex stage: one triangle covering the viewport (3 vertices), built from gl_VertexIndex with
+// no vertex buffer, drawn by Renderer::DrawFullscreen / Renderer::SubmitFullscreenTriangle as Draw(3, 1, 0, 0).
+// The pattern is UE's FScreenPassVS (DrawRectangle with EDRF_UseTriangleOptimization): one triangle instead of
+// two, so no pixel quad along a diagonal is shaded twice.
+//
+// The triangle spans uv (0,0)-(0,2)-(2,0); the half beyond uv 1 is clipped away, and inside the viewport the
+// interpolated uv is exactly the screen texture coordinate (texel / size). The vertex order keeps the winding
+// counter-clockwise in NDC, the winding of the two-triangle quad it replaced; fullscreen pipelines cull nothing.
+
+const vec2 FULLSCREEN_TRIANGLE_UV[3] = vec2[](vec2(0.0, 0.0), vec2(0.0, 2.0), vec2(2.0, 0.0));
+
+// Texture coordinate -> NDC xy, the one mapping every screen-space vertex stage shares (the fullscreen triangle
+// and the SSR tiles). uv (0,0) is the top-left texel: the engine's viewport has a negative height
+// (VulkanRendererAPI::SetViewportAndScissor), so NDC y = +1 is the top row.
+vec2 ScreenUVToNdc(vec2 uv)
+{
+	return vec2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+}
+
+// This vertex's screen texture coordinate.
+vec2 FullscreenTriangleUV()
+{
+	return FULLSCREEN_TRIANGLE_UV[gl_VertexIndex];
+}
+
+// This vertex's NDC xy: (-1,1), (-1,-3), (3,1).
+vec2 FullscreenTriangleNdc()
+{
+	return ScreenUVToNdc(FullscreenTriangleUV());
+}

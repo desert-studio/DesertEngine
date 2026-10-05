@@ -247,8 +247,8 @@ namespace Desert::Graphic::System
         // 2) Resolve: heat-map the accumulation over the scene colour (the graph opens the target with LOAD;
         //    the resolve discards empty texels).
         m_OverdrawResolveMaterial->BindInputs( m_OverdrawFB->GetColorAttachmentImage( 0 ) );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_OverdrawResolvePipeline.get(),
-                                                      m_OverdrawResolveMaterial->GetMaterialExecutor() );
+        Renderer::GetInstance().SubmitFullscreenTriangle( m_OverdrawResolvePipeline.get(),
+                                                          m_OverdrawResolveMaterial->GetMaterialExecutor() );
     }
 
     void MeshRenderer::RegisterDebugPass( RenderGraphBuilder& builder )

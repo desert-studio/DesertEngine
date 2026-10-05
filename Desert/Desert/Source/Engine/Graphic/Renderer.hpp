@@ -53,7 +53,10 @@ namespace Desert::Graphic
                          const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,
                          uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0, uint32_t lodLevel = 0 );
 
-        void SubmitFullscreenQuad( const GraphicsPipeline* pipeline, const MaterialExecutor* materialExecutor );
+        // One triangle covering the viewport (3 vertices, Common/FullscreenTriangle.glslh) in the open render
+        // pass.
+        void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
+                                       const MaterialExecutor* materialExecutor );
 
         // Indexed draw from a caller-supplied dynamic VB+IB (the 2D/UI batcher). One call per state batch.
         void SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer, IndexBuffer* indexBuffer,
@@ -88,8 +91,9 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings,
                                                              const ComputePipeline& pipeline, uint32_t groupCountX,
                                                              uint32_t groupCountY, uint32_t groupCountZ );
-        // The fullscreen quad (the six-vertex draw the fullscreen vertex shaders expect) inside the render pass the graph opened for this pass (its ColorTarget /
-        // DepthTarget declarations). @p material supplies uniform values and asset textures only; may be null.
+        // One triangle covering the viewport (3 vertices, Common/FullscreenTriangle.glslh), drawn inside the
+        // render pass the graph opened for this pass (its ColorTarget / DepthTarget declarations). @p material
+        // supplies uniform values and asset textures only; may be null.
         [[nodiscard]] Common::BoolResultStr DrawFullscreen( const RDG::PassBindings& bindings,
                                                             const GraphicsPipeline&  pipeline,
                                                             const MaterialExecutor*  material );

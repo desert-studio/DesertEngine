@@ -9,7 +9,7 @@ Shader "SSRComposite"
         // Drawn over the SSR tiles only (Common/SSRTiles.glslh): two tiles around them, because the resolved
         // buffer is non-zero up to ~6 px past a marked tile (half-resolution trace read bilinearly, 5x5 resolve)
         // and the blur reads it up to 4 px away; elsewhere the output alpha is 0 and the blend is a no-op.
-        #include <Common/QuadTextureCoords.glslh>
+        #include <Common/FullscreenTriangle.glslh>
         #include <Common/SSRTiles.glslh>
 
         Out(0) vec2 v_TexCoord;

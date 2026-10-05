@@ -78,6 +78,6 @@ namespace Desert::Graphic::System
         auto& renderer = Renderer::GetInstance();
         m_MaterialTonemap->BindInputs( framebuffer->GetColorAttachmentImage(), bloomImage, avgLuminance,
                                        lightShafts, lensFlare, params );
-        renderer.SubmitFullscreenQuad( m_Pipeline.get(), m_MaterialTonemap->GetMaterialExecutor() );
+        renderer.SubmitFullscreenTriangle( m_Pipeline.get(), m_MaterialTonemap->GetMaterialExecutor() );
     }
 } // namespace Desert::Graphic::System

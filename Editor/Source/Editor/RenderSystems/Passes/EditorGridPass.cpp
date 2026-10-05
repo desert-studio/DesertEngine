@@ -55,8 +55,8 @@ namespace Desert::Editor::Render
                 return;
 
             m_Material->Update( ctx.Camera );
-            Graphic::Renderer::GetInstance().SubmitFullscreenQuad( m_Pipeline.get(),
-                                                                   m_Material->GetMaterialExecutor() );
+            Graphic::Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
+                                                                       m_Material->GetMaterialExecutor() );
         };
 
         scene->RegisterExternalPass( std::move( pass ) );

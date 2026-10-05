@@ -3,15 +3,15 @@ Shader "SceneDepthResolve"
 {
     // "Scene: DepthResolve" (SceneDepthResolveRenderer): the multisampled scene depth (deferred AND forward
     // geometry) into the single-sample SceneDepthResolved that the compute passes reading scene depth (height
-    // fog, volumetric clouds) sample at MSAA > 1. A full-screen quad; depth test ALWAYS, depth write on.
+    // fog, volumetric clouds) sample at MSAA > 1. A full-screen triangle; depth test ALWAYS, depth write on.
 
     Vertex
     {
-        #include <Common/QuadPositions.glslh>
+        #include <Common/FullscreenTriangle.glslh>
 
         void main()
         {
-        	gl_Position = vec4(QUAD_POSITIONS[gl_VertexIndex], 0.0, 1.0);
+        	gl_Position = vec4(FullscreenTriangleNdc(), 0.0, 1.0);
         }
     }
 

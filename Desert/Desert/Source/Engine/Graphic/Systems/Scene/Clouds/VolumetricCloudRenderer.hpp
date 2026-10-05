@@ -60,7 +60,7 @@ namespace Desert::Graphic::System
      *                  inside or below the layer with one fetch. See Common/CloudShadowMap.glslh for the
      *                  encoding and Engine/Graphic/Clouds/CloudShadowPayload.hpp for the projection.
      *                  Independent of S1 and S2: it needs no scene depth and no view.
-     *   S3  COMPOSITE  a fullscreen quad registered in RenderPhase::Transparency at
+     *   S3  COMPOSITE  a fullscreen triangle registered in RenderPhase::Transparency at
      *                  RenderPassOrder::FarField — ABOVE the height fog and BELOW everything else the
      *                  phase composites, so particles land over the clouds rather than under them. It
      *                  upsamples the HALF-resolution reconstruction, unchanged by mode 0.

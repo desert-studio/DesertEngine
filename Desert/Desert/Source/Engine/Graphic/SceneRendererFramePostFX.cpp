@@ -364,7 +364,7 @@ namespace Desert::Graphic
                  for ( const RDG::TextureRef read : reads )
                      if ( read.IsValid() )
                          pass.Read( read, RDG::Access::SampledGraphics );
-                 // A fullscreen quad writes every pixel: the old contents are not loaded.
+                 // A fullscreen triangle writes every pixel: the old contents are not loaded.
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
              [tonemap]( RDG::PassContext& ) -> Common::BoolResultStr

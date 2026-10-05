@@ -10,7 +10,7 @@
 namespace Desert::Graphic
 {
     // Infinite ground-plane grid material. Feeds the "Grid" shader a single UB with the camera matrices
-    // (+ inverses, for the per-pixel world ray) and grid appearance params. Drawn as a fullscreen quad.
+    // (+ inverses, for the per-pixel world ray) and grid appearance params. Drawn as a fullscreen triangle.
     class MaterialGrid final : public Material
     {
     public:

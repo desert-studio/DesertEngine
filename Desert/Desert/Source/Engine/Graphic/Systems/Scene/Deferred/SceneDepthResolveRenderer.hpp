@@ -118,7 +118,8 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !sceneDepth )
                 return Common::MakeError( "SceneDepthResolve recorded without its pipeline or the scene depth" );
             m_Material->BindInputs( sceneDepth );
-            Renderer::GetInstance().SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
+            Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
+                                                              m_Material->GetMaterialExecutor() );
             return BOOLSUCCESS;
         }
 

@@ -145,21 +145,23 @@ namespace Desert::Graphic::System
     void SMAARenderer::RecordEdges()
     {
         m_MatEdges->BindInputs( GetInputImage() );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_EdgesPipeline.get(), m_MatEdges->GetMaterialExecutor() );
+        Renderer::GetInstance().SubmitFullscreenTriangle( m_EdgesPipeline.get(),
+                                                          m_MatEdges->GetMaterialExecutor() );
     }
 
     void SMAARenderer::RecordWeights()
     {
         m_MatWeights->BindInputs( m_EdgesFB->GetColorAttachmentImage().get(), m_AreaTex.get(), m_SearchTex.get() );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_WeightsPipeline.get(),
-                                                      m_MatWeights->GetMaterialExecutor() );
+        Renderer::GetInstance().SubmitFullscreenTriangle( m_WeightsPipeline.get(),
+                                                          m_MatWeights->GetMaterialExecutor() );
     }
 
     void SMAARenderer::RecordBlend()
     {
         m_MatBlend->BindInputs( GetInputImage(), m_WeightsFB->GetColorAttachmentImage().get(),
                                 m_EdgesFB->GetColorAttachmentImage().get(), m_AreaTex.get() );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_BlendPipeline.get(), m_MatBlend->GetMaterialExecutor() );
+        Renderer::GetInstance().SubmitFullscreenTriangle( m_BlendPipeline.get(),
+                                                          m_MatBlend->GetMaterialExecutor() );
     }
 
     void SMAARenderer::Resize( uint32_t width, uint32_t height )

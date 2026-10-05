@@ -9,7 +9,7 @@ namespace Desert::Editor::Render
 {
     // The Material Editor preview's cubemap presenter: a Debug-phase external pass that ray-traces a
     // ball at the origin and wraps a cubemap onto it (shader "CubemapSphere" — see it for why the ball
-    // is a fullscreen quad and why nothing lights it).
+    // is a fullscreen triangle and why nothing lights it).
     //
     // WHY A PASS AND NOT A MESH IN THE PREVIEW SCENE. The mesh path draws Surface-domain materials
     // only (MeshRenderer::DrawGenericMeshes refuses everything else BY NAME, and rightly), so a

@@ -55,8 +55,8 @@ namespace Desert::Graphic::API::Vulkan
                                  uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0,
                                  uint32_t lodLevel = 0 ) override;
 
-        virtual void SubmitFullscreenQuad( const GraphicsPipeline*         pipeline,
-                                           const MaterialExecutor* materialExecutor ) override;
+        virtual void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
+                                               const MaterialExecutor* materialExecutor ) override;
 
         virtual void SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
                                     IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,

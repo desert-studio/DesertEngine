@@ -91,7 +91,7 @@ namespace Desert::Graphic::System
         spec.Shader      = applyShader;
         spec.Framebuffer = target;
 
-        // A fullscreen quad has no meaningful depth of its own; occlusion was resolved inside the
+        // A fullscreen triangle has no meaningful depth of its own; occlusion was resolved inside the
         // compute pass, which evaluated every pixel at the distance the depth attachment reported.
         spec.DepthTestEnabled  = false;
         spec.DepthWriteEnabled = false;
@@ -303,8 +303,8 @@ namespace Desert::Graphic::System
                 return;
 
             m_ApplyMaterial->BindInputs( m_FogImage.get() );
-            Renderer::GetInstance().SubmitFullscreenQuad( m_ApplyPipeline.get(),
-                                                          m_ApplyMaterial->GetMaterialExecutor() );
+            Renderer::GetInstance().SubmitFullscreenTriangle( m_ApplyPipeline.get(),
+                                                              m_ApplyMaterial->GetMaterialExecutor() );
         };
         config.PipelineSpec      = m_ApplyPipeline->GetSpecification();
         config.TargetFramebuffer = target;

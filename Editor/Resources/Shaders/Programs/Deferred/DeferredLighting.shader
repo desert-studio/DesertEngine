@@ -5,15 +5,14 @@ Shader "DeferredLighting"
 
     Vertex
     {
-        #include <Common/QuadPositions.glslh>
-        #include <Common/QuadTextureCoords.glslh>
+        #include <Common/FullscreenTriangle.glslh>
 
         Out(0) vec2 v_TexCoord;
 
         void main()
         {
-        	v_TexCoord  = QUAD_TEXTURE_COORDINATES[gl_VertexIndex];
-        	gl_Position = vec4(QUAD_POSITIONS[gl_VertexIndex], 0.0, 1.0);
+        	v_TexCoord  = FullscreenTriangleUV();
+        	gl_Position = vec4(FullscreenTriangleNdc(), 0.0, 1.0);
         }
     }
 
@@ -56,7 +55,7 @@ Shader "DeferredLighting"
         //
         // New slots (17..19) rather than the forward path's 8..10: those three are already taken here by
         // u_SSAO / u_GBufferEmissive / u_GI, and this pass shares no descriptor layout with the mesh
-        // shaders — it is a fullscreen quad with its own material. Only the NAMES have to match, because
+        // shaders — it is a fullscreen triangle with its own material. Only the NAMES have to match, because
         // the material binds by name.
         Uniform(17) samplerCube u_EnvIrradianceTex; // diffuse irradiance (cosine-convolved sky)
         Uniform(18) samplerCube u_EnvSpecularTex;   // GGX-prefiltered radiance, roughness across mips
