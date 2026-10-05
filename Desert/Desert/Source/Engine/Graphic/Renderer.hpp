@@ -113,6 +113,18 @@ namespace Desert::Graphic
                                                          const MaterialExecutor* material, VertexBuffer& vertexBuffer,
                                                          IndexBuffer& indexBuffer, uint32_t indexCount,
                                                          uint32_t firstIndex );
+        // The PassBindings route for mesh draws (UE: a mesh pass binds its graph textures through the pass
+        // parameters): RenderMesh's submesh / LOD walk (same hidden-submesh mask, same LOD clamp, same instance
+        // offset), every submesh drawn with the graph textures bound by shader name from @p bindings, e.g. the
+        // forward glass sampling u_SceneColor from this frame's scene copy. @p material is required: it carries
+        // the per-submesh transform in its push block (written here for each submesh, as RenderMesh does) plus
+        // uniform values / asset textures; a @p bindings with push constants of its own is refused (the block is
+        // the transform's). Same contract as DrawFullscreen otherwise. The first refused submesh ends the draw.
+        [[nodiscard]] Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings,
+                                                        const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                        const glm::mat4& transform, MaterialExecutor& material,
+                                                        uint32_t instanceCount, uint32_t firstInstance,
+                                                        uint64_t hiddenSubmeshMask, uint32_t lodLevel );
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).

@@ -6,6 +6,7 @@
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
@@ -180,8 +181,12 @@ namespace Desert::Graphic::System
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
         void RenderGBufferManual();
         // Forward transparent (glass) pass: draws meshes with material Transmission > 0 over the composited
-        // scene. sceneColor = a snapshot of the opaque scene the glass samples for refraction (may be null).
-        void RenderGlassManual( const std::shared_ptr<Image2D>& sceneColor );
+        // scene, inside the "Deferred: Glass" graph node whose @p context this is. @p sceneCopy is this frame's
+        // snapshot of the opaque scene (FrameTransients::SceneColorCopy, declared as a read of the node); the
+        // glass samples it for refraction as u_SceneColor through RDG::PassBindings and draws every object via
+        // Renderer::RenderMesh( bindings, ... ). Nothing to draw is success; a refused draw is the error.
+        [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context,
+                                                               RDG::TextureRef         sceneCopy );
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
         // this they simply vanish in Deferred. Forward path draws them inside MeshGeometryPass.

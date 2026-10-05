@@ -154,6 +154,12 @@ namespace Desert::Graphic
                                                                  const MaterialExecutor*  material,
                                                                  VertexBuffer& vertexBuffer, IndexBuffer& indexBuffer,
                                                                  uint32_t indexCount, uint32_t firstIndex ) = 0;
+        // The PassBindings route of RenderMesh (see Renderer::RenderMesh( const RDG::PassBindings&, ... )).
+        [[nodiscard]] virtual Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings,
+                                                                const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                                const glm::mat4& transform, MaterialExecutor& material,
+                                                                uint32_t instanceCount, uint32_t firstInstance,
+                                                                uint64_t hiddenSubmeshMask, uint32_t lodLevel ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

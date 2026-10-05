@@ -81,6 +81,10 @@ namespace Desert::Graphic::API::Vulkan
                                            const MaterialExecutor* material, VertexBuffer& vertexBuffer,
                                            IndexBuffer& indexBuffer, uint32_t indexCount,
                                            uint32_t firstIndex ) override;
+        Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                          const Mesh& mesh, const glm::mat4& transform, MaterialExecutor& material,
+                                          uint32_t instanceCount, uint32_t firstInstance, uint64_t hiddenSubmeshMask,
+                                          uint32_t lodLevel ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;
