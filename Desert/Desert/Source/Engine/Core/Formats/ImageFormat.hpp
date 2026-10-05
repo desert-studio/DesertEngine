@@ -92,6 +92,10 @@ namespace Desert::Core::Formats
         /// ever carries depth in .r (Shadow.shader). Full float, not half: half precision would band a
         /// normalised depth across a 150 m cascade. APPENDED for the same renumbering reason as R16_UNORM.
         R32F,
+        /// `VK_FORMAT_R8_UNORM`. One 8-bit channel: a video frame's Y, U or V plane as the AV1 decoder
+        /// hands it over (Engine/Media/MediaTexture.hpp), converted to RGB on the GPU. APPENDED for the
+        /// same renumbering reason as R16_UNORM.
+        R8_UNORM,
 
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
