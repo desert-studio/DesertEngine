@@ -3,6 +3,7 @@
 #include <Engine/Media/WebmDemuxer.hpp>
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -46,22 +47,29 @@ namespace Desert::Media
         {
             if ( bytes == m_Size )
                 return;
-            m_Bytes.reset( new uint8_t[bytes] ); // default-initialised: no pass over the bytes
+            m_Bytes =
+                 std::make_unique_for_overwrite<uint8_t[]>( bytes ); // default-initialised: no pass over the bytes
             m_Size = bytes;
         }
         uint8_t* data()
         {
             return m_Bytes.get();
         }
-        const uint8_t* data() const
+        [[nodiscard]] const uint8_t* data() const
         {
             return m_Bytes.get();
         }
-        size_t size() const
+        // The GPU upload API (Core::Formats::ImagePixelData) takes a mutable byte pointer; it only reads it,
+        // copying into staging once.
+        [[nodiscard]] std::byte* UploadBytes() const
+        {
+            return std::bit_cast<std::byte*>( m_Bytes.get() );
+        }
+        [[nodiscard]] size_t size() const
         {
             return m_Size;
         }
-        bool empty() const
+        [[nodiscard]] bool empty() const
         {
             return m_Size == 0;
         }
@@ -92,7 +100,7 @@ namespace Desert::Media
         std::array<uint32_t, 3>   PlaneWidth{};  // in samples
         std::array<uint32_t, 3>   PlaneHeight{}; // in rows
 
-        uint32_t BytesPerSample() const
+        [[nodiscard]] uint32_t BytesPerSample() const
         {
             return BitDepth > 8 ? 2u : 1u;
         }
@@ -111,7 +119,7 @@ namespace Desert::Media
         bool        Decode( const MediaPacket& packet, std::vector<VideoFrame>& out ); // false: corrupt stream
         void        Drain( std::vector<VideoFrame>& out ); // end of stream: frames still queued
         void        Flush();                               // seek: drop everything in flight
-        const std::string& Error() const
+        [[nodiscard]] const std::string& Error() const
         {
             return m_Error;
         }
@@ -140,11 +148,11 @@ namespace Desert::Media
         // Appends the packet's samples to `interleaved`; returns the number of frames appended, -1 on error.
         int64_t  Decode( const MediaPacket& packet, std::vector<float>& interleaved );
         void     Reset( bool fromStart ); // seek: decoder state cleared; pre-skip again when fromStart
-        uint32_t Channels() const
+        [[nodiscard]] uint32_t Channels() const
         {
             return m_Channels;
         }
-        const std::string& Error() const
+        [[nodiscard]] const std::string& Error() const
         {
             return m_Error;
         }

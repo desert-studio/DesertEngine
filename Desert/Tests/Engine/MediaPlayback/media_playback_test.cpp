@@ -37,7 +37,7 @@ namespace
     public:
         std::string Start( uint32_t sampleRate, uint32_t channels ) override
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             SampleRate = sampleRate;
             Channels   = channels;
             return {};
@@ -45,7 +45,7 @@ namespace
         void Push( const float*, uint64_t frames ) override
         {
             {
-                std::lock_guard lock( m_Lock );
+                const std::lock_guard lock( m_Lock );
                 m_Queued += frames;
                 m_Pushed += frames;
             }
@@ -53,22 +53,22 @@ namespace
         }
         uint64_t PlayedFrames() const override
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             return m_Played;
         }
         uint64_t QueuedFrames() const override
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             return m_Queued;
         }
         void SetPaused( bool paused ) override
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             m_Paused = paused;
         }
         void Flush() override
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             m_Queued            = 0;
             m_Played            = 0;
             m_PushedBeforeFlush = m_Pushed; // one pass's sound: a flush ends a pass (the end, a seek)
@@ -86,12 +86,12 @@ namespace
         }
         bool Paused() const
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             return m_Paused;
         }
         uint64_t PushedBeforeFlush() const
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             return m_PushedBeforeFlush;
         }
 
@@ -282,15 +282,17 @@ TEST( MediaPlayback, APlaneIsSizedWithoutAPassOverItsBytesAndComparesByContent )
 TEST( MediaPlayback, DecodeThroughputIsPrinted )
 {
     std::vector<std::string> clips{ DESERT_MEDIA_PATTERN_CLIP };
-    if ( const char* extra = std::getenv( "DESERT_MEDIA_BENCH_CLIP" ); extra && *extra )
-        clips.emplace_back( extra );
+#ifdef DESERT_MEDIA_BENCH_CLIP // a second, heavier clip: build with -DDESERT_MEDIA_BENCH_CLIP='"<path>"'
+    clips.emplace_back( DESERT_MEDIA_BENCH_CLIP );
+#endif
     for ( const std::string& clip : clips )
     {
         MediaPlayer player;
         player.SetBlockOnTime( true ); // every frame made current: the decode thread's throughput
         ASSERT_EQ( player.Open( MediaSource{ clip } ), "" ) << clip;
         ASSERT_NE( player.GetCurrentFrame(), nullptr ) << clip;
-        const uint32_t width = player.GetCurrentFrame()->Width, height = player.GetCurrentFrame()->Height;
+        const uint32_t width       = player.GetCurrentFrame()->Width;
+        const uint32_t height      = player.GetCurrentFrame()->Height;
         bool           ended       = false;
         player.OnEndReached        = [&] { ended = true; };
         const uint64_t firstSerial = player.FrameSerial();

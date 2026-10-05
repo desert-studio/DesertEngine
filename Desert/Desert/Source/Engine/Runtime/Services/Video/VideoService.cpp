@@ -45,7 +45,7 @@ namespace Desert::Runtime
         std::unique_ptr<Media::MediaAudioOutput> sound;
         if ( player->HasAudio() )
         {
-            if ( Audio::AudioEngine::Get().GetNativeEngine() )
+            if ( Audio::AudioEngine::Get().GetNativeEngine() != nullptr )
             {
                 sound = std::make_unique<Media::MediaAudioOutput>();
                 sound->SetVolume( 0.0f ); // silent until a panel that draws it asks for a volume
