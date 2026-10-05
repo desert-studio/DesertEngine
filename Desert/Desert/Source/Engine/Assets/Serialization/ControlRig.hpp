@@ -394,8 +394,10 @@ namespace Desert::Assets::Serialization
 
     /// The exact mirror of `BuildControlRig`, and it lives beside it for `BuildAssetDataFromClip`'s reason:
     /// a format whose two directions are not testable together is a format whose round trip is an
-    /// assumption. Needs the skeleton to turn the stage's bone indices back into names.
+    /// assumption. Needs the skeleton to turn the stage's bone indices back into names; @p targetSkeleton is that
+    /// skeleton's asset reference, which the stage does not carry.
     NO_DISCARD Common::ResultStr<ControlRigData> BuildDataFromControlRig( const std::string&                name,
+                                                                          const AssetGuidRef& targetSkeleton,
                                                                           const Animation::ControlRigStage& rig,
                                                                           const Animation::Skeleton& skeleton );
 } // namespace Desert::Assets::Serialization

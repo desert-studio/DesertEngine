@@ -1169,7 +1169,7 @@ TEST( RigGraphTest, ARigWithAGraphRoundTripsByValueThroughTextAndThroughTheRunti
     ASSERT_TRUE( stage.HasGraph() );
     EXPECT_EQ( stage.GetGraph().GetNodes().size(), 3U );
 
-    const auto back = Serialization::BuildDataFromControlRig( source.Name, stage, skeleton );
+    const auto back = Serialization::BuildDataFromControlRig( source.Name, source.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_TRUE( back.GetValue() == source ) << "the runtime round trip changed the rig";
 }
@@ -1231,7 +1231,7 @@ TEST( RigGraphTest, ARigWithoutAGraphDoesNotGainTheFieldAndStillLoadsAsTheIdenti
     ASSERT_TRUE( Serialization::BuildControlRig( plain, skeleton, stage ).IsSuccess() );
     EXPECT_FALSE( stage.HasGraph() );
 
-    const auto back = Serialization::BuildDataFromControlRig( plain.Name, stage, skeleton );
+    const auto back = Serialization::BuildDataFromControlRig( plain.Name, plain.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_FALSE( back.GetValue().Graph.has_value() ) << "a rig without a graph grew one on the way out";
 }

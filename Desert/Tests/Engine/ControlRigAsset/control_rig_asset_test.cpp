@@ -337,7 +337,7 @@ TEST( ControlRigAssetTest, ARigThatHasBeenThroughTheRuntimeFormIsStillTheSameRig
     const auto      built = RigFile::BuildControlRig( original, skeleton, stage );
     ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
 
-    auto back = RigFile::BuildDataFromControlRig( original.Name, stage, skeleton );
+    auto back = RigFile::BuildDataFromControlRig( original.Name, original.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
 
     // THIS IS THE TRIP A RIG ACTUALLY TAKES, and the one where a name could quietly become an index: the
@@ -495,13 +495,13 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
 
     // THE WRITER PICKS ONE SPELLING. A rig whose controls are all identity comes back without the field,
     // so a generation-1 file round-trips through the runtime unchanged instead of gaining ones.
-    auto legacyBack = RigFile::BuildDataFromControlRig( "Legacy", legacyStage, skeleton );
+    auto legacyBack = RigFile::BuildDataFromControlRig( "Legacy", ArmRigFile().TargetSkeleton, legacyStage, skeleton );
     ASSERT_TRUE( legacyBack.IsSuccess() ) << legacyBack.GetError();
     EXPECT_FALSE( legacyBack.GetValue().Controls[0].ShapeTransform.has_value() );
     EXPECT_EQ( RigFile::WriteControlRig( legacyBack.GetValue() ).find( "ShapeTransform" ), std::string::npos )
          << "the absent spelling must not be written out as an identity block";
 
-    auto sizedBack = RigFile::BuildDataFromControlRig( "Sized", sizedStage, skeleton );
+    auto sizedBack = RigFile::BuildDataFromControlRig( "Sized", ArmRigFile().TargetSkeleton, sizedStage, skeleton );
     ASSERT_TRUE( sizedBack.IsSuccess() ) << sizedBack.GetError();
     const auto hand = std::find_if( sizedBack.GetValue().Controls.begin(), sizedBack.GetValue().Controls.end(),
                                     []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
@@ -538,7 +538,7 @@ TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTh
     EXPECT_EQ( rig.Get( rig.Find( "Hand_L_CTRL" ) ).Color, Animation::ControlSideColor( "Hand_L_CTRL" ) );
     EXPECT_EQ( rig.Get( rig.Find( "Tail_CTRL" ) ).Color, glm::vec3( 0.0F, 1.0F, 0.0F ) );
 
-    auto back = RigFile::BuildDataFromControlRig( "Painted", stage, skeleton );
+    auto back = RigFile::BuildDataFromControlRig( "Painted", ArmRigFile().TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     for ( const RigFile::ControlElementData& c : back.GetValue().Controls )
     {
