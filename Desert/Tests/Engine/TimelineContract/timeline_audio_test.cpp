@@ -209,7 +209,7 @@ TEST( TimelineAudio, AddAudioTrackPutsASoundOnTheMasterBindingOverThePlaybackRan
 TEST( TimelineAudio, SoundDocumentRoundTripsAndRefusesByName )
 {
     using Desert::Assets::SoundAsset;
-    const Desert::Common::Content::AssetGuid guid{ 0x4b929a7a753845f0ULL, 0xbfc66441fce02ab6ULL };
+    const decltype( SoundAsset::Parsed::Guid ) guid{ 0x4b929a7a753845f0ULL, 0xbfc66441fce02ab6ULL };
 
     const auto text = SoundAsset::Write( guid, "DesertStudio.wav" );
     ASSERT_TRUE( text ) << text.GetError();

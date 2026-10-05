@@ -708,7 +708,7 @@ namespace
             {
                 using T = ::Desert::ECS::AudioSourceData;
                 TypeBuilder( "AudioSourceData", sizeof( T ) )
-                    .Field( FieldInfo{ .Name = "Clip", .Type = FieldType::String, .Offset = offsetof( T, Clip ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Clip )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Clip", .Category = "Audio", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "Sound", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Sound ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Sound )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Sound", .Category = "Audio", .IsAsset = true, .AssetType = "SoundAsset", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "Volume", .Type = FieldType::Float, .Offset = offsetof( T, Volume ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Volume )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Volume", .Category = "Audio", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 2.0f, } } )
                     .Field( FieldInfo{ .Name = "Loop", .Type = FieldType::Bool, .Offset = offsetof( T, Loop ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Loop )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Loop", .Category = "Audio", } } )
                     .Field( FieldInfo{ .Name = "AutoPlay", .Type = FieldType::Bool, .Offset = offsetof( T, AutoPlay ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AutoPlay )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Auto Play", .Category = "Audio", } } )
