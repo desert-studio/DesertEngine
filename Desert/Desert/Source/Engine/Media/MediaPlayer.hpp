@@ -3,13 +3,17 @@
 #include <Engine/Media/MediaCodecs.hpp>
 #include <Engine/Media/WebmDemuxer.hpp>
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace Desert::Media
@@ -26,6 +30,8 @@ namespace Desert::Media
 
     // Where decoded sound goes. The sink's PLAYED-frame count is the master clock whenever a sink is
     // attached: the picture follows the sound (frames are skipped or held), never the other way round.
+    // THREAD-SAFE: the player's decode thread pushes and reads the counts while the owner's thread reads
+    // them too; Start and Flush are only ever called while that thread is stopped.
     class IMediaAudioSink
     {
     public:
@@ -55,6 +61,11 @@ namespace Desert::Media
         // loop (and playback carries on from the start); with it off, once (and the player stops).
         std::function<void()> OnEndReached;
 
+        MediaPlayer() = default;
+        ~MediaPlayer(); // stops the decode thread
+        MediaPlayer( const MediaPlayer& )            = delete;
+        MediaPlayer& operator=( const MediaPlayer& ) = delete;
+
         std::string Open( const MediaSource& source ); // empty on success; Stopped at 0 with the first frame
         void        Close();
 
@@ -74,9 +85,19 @@ namespace Desert::Media
         // Attach before Play. nullptr: the clock is advanced by Tick's delta instead (no sound).
         void SetAudioSink( IMediaAudioSink* sink );
 
-        // Once per frame: advances the clock (when Playing), decodes what the clock needs and selects the
-        // frame to show. The current frame changes ⇔ FrameSerial() changes.
+        // Once per frame: advances the clock (when Playing) and selects the frame to show from what the
+        // decode thread has ready — it never decodes and, unless SetBlockOnTime, never waits: a frame not
+        // decoded yet leaves the current one up (UE's media sample queue). The current frame changes ⇔
+        // FrameSerial() changes.
         void Tick( double deltaSeconds );
+
+        // UE's UMediaPlayer::SetBlockOnTime: Tick waits until the frame due at the clock is decoded, so the
+        // picture is exact for the time rather than the latest ready (an offline render, a test driving the
+        // clock faster than real time). Off by default.
+        void SetBlockOnTime( bool block )
+        {
+            m_BlockOnTime = block;
+        }
 
         MediaPlayerState GetState() const
         {
@@ -126,27 +147,47 @@ namespace Desert::Media
     private:
         int64_t ClockNs() const;
         void    Rewind( int64_t targetNs );
-        bool    Pump( int64_t clockNs );
         void    Present( int64_t clockNs );
         void    Fail( std::string error );
 
+        // THE DECODE THREAD (UE's media decoder thread): demux, AV1 and Opus decoding run there, ahead of
+        // the clock into a queue of at most kMaxQueuedVideo pictures; the owner's thread only takes from it.
+        // It runs between StartDecoding and StopDecoding; everything below the line "decode thread's" is
+        // touched by the owner only while it is stopped (Open, Rewind, Seek, SetAudioSink, Close).
+        void StartDecoding();
+        void StopDecoding();
+        void DecodeLoop();
+        bool DecodeOne(); // one packet; false when there was nothing to do or it failed
+        void WaitForFrameAt( int64_t clockNs );
+
+        // decode thread's
         WebmDemuxer                       m_Demuxer;
         std::unique_ptr<Av1VideoDecoder>  m_Video;
         std::unique_ptr<OpusAudioDecoder> m_Audio;
         IMediaAudioSink*                  m_Sink = nullptr;
+        int64_t                           m_OriginNs          = 0; // media time of the sink's played-frame 0
+        int64_t                           m_DropAudioBeforeNs = 0;
+        std::vector<VideoFrame>           m_Decoded; // scratch
+        std::vector<float>                m_Pcm;     // scratch
 
-        MediaPlayerState          m_State             = MediaPlayerState::Closed;
-        bool                      m_Looping           = false;
-        int64_t                   m_DurationNs        = 0;
-        int64_t                   m_OriginNs          = 0; // media time of the sink's played-frame 0
-        int64_t                   m_InternalNs        = 0; // the clock when there is no sink
-        int64_t                   m_DropAudioBeforeNs = 0;
-        bool                      m_DemuxDone         = false;
-        std::deque<VideoFrame>    m_Queue; // decoded, not yet shown, in presentation order
+        // shared with the decode thread, under m_Lock
+        std::mutex              m_Lock;
+        std::condition_variable m_Changed; // a frame queued, the clock moved, the end, an error, a stop
+        std::deque<VideoFrame>  m_Queue;   // decoded, not yet shown, in presentation order
+        bool                    m_DemuxDone    = false;
+        bool                    m_StopDecoding = false;
+        std::string             m_DecodeError;
+        std::atomic<int64_t>    m_DecodeClockNs{ 0 }; // the clock the thread decodes toward (no sink)
+        std::thread             m_Decoder;
+
+        // the owner's
+        MediaPlayerState          m_State       = MediaPlayerState::Closed;
+        bool                      m_Looping     = false;
+        bool                      m_BlockOnTime = false;
+        int64_t                   m_DurationNs  = 0;
+        int64_t                   m_InternalNs  = 0; // the clock when there is no sink
         std::optional<VideoFrame> m_Current;
         uint64_t                  m_FrameSerial = 0;
-        std::vector<VideoFrame>   m_Decoded; // scratch
-        std::vector<float>        m_Pcm;     // scratch
         std::string               m_Error;
     };
 } // namespace Desert::Media

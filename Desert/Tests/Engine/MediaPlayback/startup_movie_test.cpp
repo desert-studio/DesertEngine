@@ -17,17 +17,29 @@ namespace
     const std::filesystem::path kRed     = DESERT_MEDIA_TEST_CLIP;    // 320x180, 1 s
     const std::filesystem::path kPattern = DESERT_MEDIA_PATTERN_CLIP; // 1920x1080, 5 s
 
+    // A host's frame loop: tick, then the frame showing the picture is presented.
     void TickFor( StartupMoviePlayer& movies, double seconds )
     {
         for ( double t = 0.0; t < seconds; t += 1.0 / 60.0 )
+        {
             movies.Tick( 1.0 / 60.0 );
+            movies.NotifyFramePresented();
+        }
+    }
+
+    // Started, and its first picture presented: the movie's clock runs from here.
+    void StartShown( StartupMoviePlayer& movies )
+    {
+        movies.SetBlockOnTime( true ); // the test's clock runs faster than real time
+        movies.Start();
+        movies.NotifyFramePresented();
     }
 } // namespace
 
 TEST( MediaPlayback, StartupMoviesPlayInTheListedOrderAndFinishAfterTheLast )
 {
     StartupMoviePlayer movies( { { kRed, kPattern }, true, true } );
-    movies.Start();
+    StartShown( movies );
     ASSERT_FALSE( movies.Finished() );
     EXPECT_EQ( movies.CurrentIndex(), 0u );
     EXPECT_EQ( movies.Player().GetVideoWidth(), 320u );
@@ -51,7 +63,7 @@ TEST( MediaPlayback, StartupMoviesPlayInTheListedOrderAndFinishAfterTheLast )
 TEST( MediaPlayback, StartupMovieSkipMovesToTheNextOnlyWhenSkippable )
 {
     StartupMoviePlayer skippable( { { kPattern, kRed }, true, true } );
-    skippable.Start();
+    StartShown( skippable );
     EXPECT_TRUE( skippable.Skip() );
     EXPECT_EQ( skippable.CurrentIndex(), 1u );
     EXPECT_EQ( skippable.Player().GetVideoWidth(), 320u );
@@ -60,7 +72,7 @@ TEST( MediaPlayback, StartupMovieSkipMovesToTheNextOnlyWhenSkippable )
     EXPECT_FALSE( skippable.Skip() ); // nothing left to skip
 
     StartupMoviePlayer unskippable( { { kRed, kRed }, false, true } );
-    unskippable.Start();
+    StartShown( unskippable );
     EXPECT_FALSE( unskippable.Skip() );
     EXPECT_EQ( unskippable.CurrentIndex(), 0u );
     EXPECT_EQ( unskippable.Player().GetState(), MediaPlayerState::Playing );
@@ -76,7 +88,7 @@ TEST( MediaPlayback, StartupMovieThatDoesNotOpenIsReportedAndPassedOver )
         failed.push_back( movie );
         EXPECT_FALSE( error.empty() );
     };
-    movies.Start();
+    StartShown( movies );
     ASSERT_EQ( failed.size(), 1u );
     EXPECT_EQ( movies.CurrentIndex(), 1u ); // the first one that opens plays
 
@@ -85,17 +97,47 @@ TEST( MediaPlayback, StartupMovieThatDoesNotOpenIsReportedAndPassedOver )
     EXPECT_TRUE( movies.Finished() );
 
     StartupMoviePlayer none( { { missing }, true, true } );
-    none.Start();
+    StartShown( none );
     EXPECT_TRUE( none.Finished() );
     StartupMoviePlayer empty( {} );
-    empty.Start();
+    StartShown( empty );
     EXPECT_TRUE( empty.Finished() );
+}
+
+// The clock starts with the first PRESENTED frame, not at the open: a long boot frame between the two is
+// not time the movie played unseen.
+TEST( MediaPlayback, StartupMovieClockStartsAtTheFirstPresentedFrame )
+{
+    StartupMoviePlayer movies( { { kRed, kPattern }, true, true } );
+    movies.SetBlockOnTime( true );
+    movies.Start();
+    ASSERT_FALSE( movies.Finished() );
+    EXPECT_EQ( movies.Player().GetState(), MediaPlayerState::Stopped ); // on its first frame, paused
+    for ( int i = 0; i < 120; ++i )                                     // two seconds of frames never shown
+        movies.Tick( 1.0 / 60.0 );
+    EXPECT_EQ( movies.CurrentIndex(), 0u );
+    EXPECT_EQ( movies.Player().GetTime(), 0.0 );
+
+    movies.NotifyFramePresented();
+    EXPECT_EQ( movies.Player().GetState(), MediaPlayerState::Playing );
+    movies.Tick( 0.5 );
+    EXPECT_NEAR( movies.Player().GetTime(), 0.5, 1e-9 );
+
+    // The next movie waits for ITS first presented frame as well.
+    for ( int i = 0; i < 60 && movies.CurrentIndex() == 0; ++i )
+        movies.Tick( 1.0 / 60.0 );
+    ASSERT_EQ( movies.CurrentIndex(), 1u );
+    EXPECT_EQ( movies.Player().GetState(), MediaPlayerState::Stopped );
+    movies.Tick( 1.0 );
+    EXPECT_EQ( movies.Player().GetTime(), 0.0 );
+    movies.NotifyFramePresented();
+    EXPECT_EQ( movies.Player().GetState(), MediaPlayerState::Playing );
 }
 
 TEST( MediaPlayback, StartupMoviesEndWithTheLoadOnlyWhenNotWaitingForCompletion )
 {
     StartupMoviePlayer waiting( { { kRed, kRed }, true, true } );
-    waiting.Start();
+    StartShown( waiting );
     waiting.NotifyContentReady();
     EXPECT_FALSE( waiting.Finished() );
     EXPECT_EQ( waiting.CurrentIndex(), 0u );
@@ -103,7 +145,7 @@ TEST( MediaPlayback, StartupMoviesEndWithTheLoadOnlyWhenNotWaitingForCompletion 
     EXPECT_TRUE( waiting.Finished() );
 
     StartupMoviePlayer notWaiting( { { kRed, kRed }, true, false } );
-    notWaiting.Start();
+    StartShown( notWaiting );
     TickFor( notWaiting, 0.25 );
     EXPECT_FALSE( notWaiting.Finished() ); // the game is not ready yet: the movie plays on
     notWaiting.NotifyContentReady();

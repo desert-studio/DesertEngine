@@ -206,6 +206,7 @@ namespace Desert::Player
         std::unique_ptr<Media::MediaTexture>       m_StartupPicture;
         bool                                       m_SkipStartupMovie = false; // a key / click since the last tick
         bool m_StartupMoviesStarted = false; // on the tick after the first presented frame
+        bool m_StartupPictureCurrent = false; // the movie texture holds the player's current frame this tick
         bool                                       m_PrevAnyMouseDown = false; // for the press edge that skips
         bool m_SplashAfterMovies = false; // the world completed under a movie: its splash waits for the end
         void BeginStartupMovies();

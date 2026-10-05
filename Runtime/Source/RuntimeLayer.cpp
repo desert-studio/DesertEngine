@@ -389,11 +389,15 @@ namespace Desert::Player
         m_StartupMovies->Tick( std::clamp( deltaSeconds, 0.0, 0.25 ) );
         if ( !m_StartupMovies->Finished() )
         {
-            if ( const std::string error = m_StartupPicture->Update( m_StartupMovies->Player() ); !error.empty() )
+            const std::string error = m_StartupPicture->Update( m_StartupMovies->Player() );
+            if ( !error.empty() )
                 LOG_ERROR( "[StartupMovies] a decoded frame did not reach the GPU and will be retried: {}",
                            error );
+            // Drawn this frame ⇒ on screen at OnFramePresented, where the movie's clock may start.
+            m_StartupPictureCurrent = error.empty() && m_StartupPicture->GetImage() != nullptr;
             return;
         }
+        m_StartupPictureCurrent = false;
         LOG_INFO( "[StartupMovies] over after {} presented frame(s); the world is {}", m_PresentedFrames,
                   m_Content.Loading() ? "still loading" : "complete" );
         m_StartupMovies.reset(); // the player first: it holds the sound's pointer
@@ -674,6 +678,8 @@ namespace Desert::Player
     void RuntimeLayer::OnFramePresented()
     {
         ++m_PresentedFrames;
+        if ( m_StartupMovies && m_StartupPictureCurrent )
+            m_StartupMovies->NotifyFramePresented(); // the first shown frame of a movie starts its clock
         if ( m_Movie.has_value() )
         {
             CollectMovieFrame();

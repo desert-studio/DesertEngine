@@ -22,54 +22,78 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <mutex>
 #include <vector>
 
 using namespace Desert::Media;
 
 namespace
 {
-    // An audio "device" the test drives: what is pushed is queued, Consume() plays it.
+    // An audio "device" the test drives: what is pushed is queued, Consume() plays it. Thread-safe like a
+    // real sink: the player's decode thread pushes while the test consumes and reads.
     class CountingSink final : public IMediaAudioSink
     {
     public:
         std::string Start( uint32_t sampleRate, uint32_t channels ) override
         {
+            std::lock_guard lock( m_Lock );
             SampleRate = sampleRate;
             Channels   = channels;
             return {};
         }
         void Push( const float*, uint64_t frames ) override
         {
-            Queued += frames;
-            Pushed += frames;
+            std::lock_guard lock( m_Lock );
+            m_Queued += frames;
+            m_Pushed += frames;
         }
         uint64_t PlayedFrames() const override
         {
-            return Played;
+            std::lock_guard lock( m_Lock );
+            return m_Played;
         }
         uint64_t QueuedFrames() const override
         {
-            return Queued;
+            std::lock_guard lock( m_Lock );
+            return m_Queued;
         }
         void SetPaused( bool paused ) override
         {
-            Paused = paused;
+            std::lock_guard lock( m_Lock );
+            m_Paused = paused;
         }
         void Flush() override
         {
-            Queued = 0;
-            Played = 0;
+            std::lock_guard lock( m_Lock );
+            m_Queued            = 0;
+            m_Played            = 0;
+            m_PushedBeforeFlush = m_Pushed; // one pass's sound: a flush ends a pass (the end, a seek)
+            m_Pushed            = 0;
         }
         void Consume( uint64_t frames )
         {
-            const uint64_t n = frames < Queued ? frames : Queued;
-            Queued -= n;
-            Played += n;
+            std::lock_guard lock( m_Lock );
+            const uint64_t  n = frames < m_Queued ? frames : m_Queued;
+            m_Queued -= n;
+            m_Played += n;
+        }
+        bool Paused() const
+        {
+            std::lock_guard lock( m_Lock );
+            return m_Paused;
+        }
+        uint64_t PushedBeforeFlush() const
+        {
+            std::lock_guard lock( m_Lock );
+            return m_PushedBeforeFlush;
         }
 
         uint32_t SampleRate = 0, Channels = 0;
-        uint64_t Queued = 0, Played = 0, Pushed = 0;
-        bool     Paused = true;
+
+    private:
+        mutable std::mutex m_Lock;
+        uint64_t           m_Queued = 0, m_Played = 0, m_Pushed = 0, m_PushedBeforeFlush = 0;
+        bool               m_Paused = true;
     };
 
     MediaSource Clip()
@@ -120,6 +144,7 @@ TEST( MediaPlayback, DurationIsTheContainers )
 TEST( MediaPlayback, EndReachedFiresExactlyOnceAndEveryFrameIsShown )
 {
     MediaPlayer player;
+    player.SetBlockOnTime( true ); // the clock runs faster than real time here
     ASSERT_EQ( player.Open( Clip() ), "" );
     int      ends        = 0;
     uint64_t serialAtEnd = 0;
@@ -141,6 +166,7 @@ TEST( MediaPlayback, EndReachedFiresExactlyOnceAndEveryFrameIsShown )
 TEST( MediaPlayback, LoopingRewindsAndKeepsPlaying )
 {
     MediaPlayer player;
+    player.SetBlockOnTime( true );
     ASSERT_EQ( player.Open( Clip() ), "" );
     player.SetLooping( true );
     int ends            = 0;
@@ -159,6 +185,7 @@ TEST( MediaPlayback, SoundDecodesToTheExpectedSampleCountAndDrivesTheClock )
 {
     CountingSink sink;
     MediaPlayer  player;
+    player.SetBlockOnTime( true );
     player.SetAudioSink( &sink );
     ASSERT_EQ( player.Open( Clip() ), "" );
     EXPECT_EQ( sink.SampleRate, 48000u );
@@ -166,7 +193,7 @@ TEST( MediaPlayback, SoundDecodesToTheExpectedSampleCountAndDrivesTheClock )
     int ends            = 0;
     player.OnEndReached = [&] { ++ends; };
     player.Play();
-    EXPECT_FALSE( sink.Paused );
+    EXPECT_FALSE( sink.Paused() );
 
     // The clock is the sink's played count: half a second played ⇒ the picture is half a second in.
     for ( int i = 0; i < 30; ++i )
@@ -184,7 +211,7 @@ TEST( MediaPlayback, SoundDecodesToTheExpectedSampleCountAndDrivesTheClock )
         player.Tick( 0.0 );
     }
     EXPECT_EQ( ends, 1 );
-    EXPECT_EQ( sink.Pushed, 48000u );
+    EXPECT_EQ( sink.PushedBeforeFlush(), 48000u ); // the end flushed the pass
 }
 
 TEST( MediaPlayback, SeekLandsOnTheFrameAtTheTarget )
@@ -203,6 +230,7 @@ TEST( MediaPlayback, SeekLandsOnTheFrameAtTheTarget )
 TEST( MediaPlayback, PatternClipFramesOneSecondApartDiffer )
 {
     MediaPlayer player;
+    player.SetBlockOnTime( true );
     ASSERT_EQ( player.Open( MediaSource{ DESERT_MEDIA_PATTERN_CLIP } ), "" );
     ASSERT_NE( player.GetCurrentFrame(), nullptr );
     EXPECT_EQ( player.GetCurrentFrame()->Width, 1920u );
@@ -251,6 +279,7 @@ TEST( MediaPlayback, DecodeThroughputIsPrinted )
     for ( const std::string& clip : clips )
     {
         MediaPlayer player;
+        player.SetBlockOnTime( true ); // every frame made current: the decode thread's throughput
         ASSERT_EQ( player.Open( MediaSource{ clip } ), "" ) << clip;
         ASSERT_NE( player.GetCurrentFrame(), nullptr ) << clip;
         const uint32_t width = player.GetCurrentFrame()->Width, height = player.GetCurrentFrame()->Height;
@@ -268,6 +297,24 @@ TEST( MediaPlayback, DecodeThroughputIsPrinted )
         std::printf( "[decode] %s: %ux%u, %llu frames in %.3f s = %.1f fps\n", clip.c_str(), width, height,
                      static_cast<unsigned long long>( frames ), seconds, static_cast<double>( frames ) / seconds );
     }
+}
+
+// Without SetBlockOnTime a Tick only takes what the decode thread has ready: the clock may run ahead of
+// the decoder (frames are then skipped, never waited for), and the clip still reaches its end once.
+TEST( MediaPlayback, TickWithoutBlockOnTimeNeverWaitsAndStillReachesTheEnd )
+{
+    MediaPlayer player;
+    ASSERT_EQ( player.Open( MediaSource{ DESERT_MEDIA_PATTERN_CLIP } ), "" );
+    ASSERT_NE( player.GetCurrentFrame(), nullptr ); // the open is a preroll: the first frame is there
+    int ends            = 0;
+    player.OnEndReached = [&] { ++ends; };
+    player.Play();
+    player.Tick( 10.0 ); // past the 5 s clip at once
+    const auto start = std::chrono::steady_clock::now();
+    while ( ends == 0 && std::chrono::steady_clock::now() - start < std::chrono::seconds( 30 ) )
+        player.Tick( 0.0 );
+    EXPECT_EQ( ends, 1 );
+    EXPECT_EQ( player.GetState(), MediaPlayerState::Stopped );
 }
 
 int main( int argc, char** argv )

@@ -178,6 +178,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr Invalidate() override;
         Common::BoolResultStr Release() override;
         NO_DISCARD Common::BoolResultStr SetData( const Core::Formats::ImagePixelData& data ) override;
+        NO_DISCARD Common::BoolResultStr RecordSetData( GpuBatch&                            batch,
+                                                        const Core::Formats::ImagePixelData& data ) override;
 
         // --- IVulkanImage Interface ---
         [[nodiscard]] const VulkanImageResource& GetResource() const override { return m_Resource; }

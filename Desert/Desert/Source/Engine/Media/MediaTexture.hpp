@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 
@@ -25,10 +26,12 @@ namespace Desert::Media
     // (Programs/Media/MediaYuvToRgb.shader) converts them with the frame's own matrix and range. There is no
     // CPU colour conversion anywhere in the engine: this is the one path from a VideoFrame to pixels.
     //
-    // The conversion is RECORDED into a GpuBatch on the graphics queue and submitted without waiting, so
-    // the frame that samples the image is ordered after it by submission alone. The next frame's planes
-    // overwrite the ones that batch reads, so a new upload first makes sure the previous batch finished
-    // (one display frame later it has, so the wait is a fence check, not a stall).
+    // The plane uploads AND the conversion are RECORDED into one GpuBatch on the graphics queue and
+    // submitted without waiting (UE's media texture resource: the render thread never blocks on a sample),
+    // so the frame that samples the image is ordered after it by submission alone. The next frame's plane
+    // copies overwrite what an earlier batch reads; their barrier orders them after every earlier read on
+    // the queue, so no fence is waited for. Batches stay alive until their fence signals; at most
+    // kMaxInFlight are pending (a GPU slower than the video is throttled there, not the decoder).
     class MediaTexture
     {
     public:
@@ -71,7 +74,7 @@ namespace Desert::Media
         MediaChroma                                      m_Chroma     = MediaChroma::I420;
         uint64_t                                         m_SeenSerial = 0;
         bool                                             m_HasSerial  = false;
-        std::unique_ptr<Graphic::GpuBatch>               m_InFlight; // the last conversion, until it is seen done
+        std::deque<std::unique_ptr<Graphic::GpuBatch>>   m_InFlight; // submitted, oldest first, until seen done
     };
 
     // Kr and Kb of the matrix a frame names (Rec.601/709/2020): the two numbers the conversion is built from.

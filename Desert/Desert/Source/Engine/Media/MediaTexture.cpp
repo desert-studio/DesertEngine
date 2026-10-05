@@ -14,6 +14,7 @@ namespace Desert::Media
     namespace
     {
         constexpr uint32_t kMediaYuvGroupSize = 16; // LocalSize of MediaYuvToRgb.shader
+        constexpr size_t   kMaxInFlight = 3; // conversions pending on the GPU before the oldest is waited for
 
         // Must match MediaYuvToRgb.shader's PushConstants block.
         struct MediaYuvPush
@@ -130,22 +131,28 @@ namespace Desert::Media
 
     std::string MediaTexture::Upload( const VideoFrame& frame )
     {
-        // The planes about to be overwritten are what the previous conversion reads.
-        if ( m_InFlight )
+        // Finished batches let go of their staging copies; a GPU kMaxInFlight conversions behind is waited for.
+        while ( !m_InFlight.empty() && m_InFlight.front()->IsComplete() )
+            m_InFlight.pop_front();
+        while ( m_InFlight.size() >= kMaxInFlight )
         {
-            if ( !m_InFlight->IsComplete() )
-                m_InFlight->Wait();
-            m_InFlight.reset();
+            m_InFlight.front()->Wait();
+            m_InFlight.pop_front();
         }
         if ( std::string error = Prepare( frame ); !error.empty() )
             return error;
 
+        auto begun = Graphic::GpuBatch::Begin();
+        if ( !begun )
+            return std::format( "the video conversion batch was refused: {}", begun.GetError() );
+        std::unique_ptr<Graphic::GpuBatch> batch = begun.ExtractValue();
         for ( uint32_t i = 0; i < 3; ++i )
         {
             if ( !m_Planes[i] )
                 continue;
-            const auto uploaded = m_Planes[i]->SetData( Core::Formats::ImagePixelData(
-                 reinterpret_cast<std::byte*>( const_cast<uint8_t*>( frame.Planes[i].data() ) ) ) ); // no 12 MB copy
+            const auto uploaded = m_Planes[i]->RecordSetData(
+                 *batch, Core::Formats::ImagePixelData( reinterpret_cast<std::byte*>(
+                              const_cast<uint8_t*>( frame.Planes[i].data() ) ) ) ); // copied once, into staging
             if ( !uploaded.IsSuccess() )
                 return std::format( "video plane {} did not reach the GPU: {}", i, uploaded.GetError() );
         }
@@ -168,10 +175,6 @@ namespace Desert::Media
         m_Pipeline->SetInput( 2, lumaOnly ? y : m_Planes[2].get() );
         m_Pipeline->SetOutput( 3, m_Output.get(), 0 );
         m_Pipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-        auto begun = Graphic::GpuBatch::Begin();
-        if ( !begun )
-            return std::format( "the video conversion batch was refused: {}", begun.GetError() );
-        std::unique_ptr<Graphic::GpuBatch> batch = begun.ExtractValue();
         m_Pipeline->Record( *batch, ( m_Width + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize,
                             ( m_Height + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize, 1u );
         batch->Retain( m_Pipeline );
@@ -181,7 +184,7 @@ namespace Desert::Media
                 batch->Retain( plane );
         if ( const auto submitted = batch->Submit(); !submitted )
             return std::format( "the video conversion batch did not submit: {}", submitted.GetError() );
-        m_InFlight = std::move( batch );
+        m_InFlight.push_back( std::move( batch ) );
         return {};
     }
 } // namespace Desert::Media

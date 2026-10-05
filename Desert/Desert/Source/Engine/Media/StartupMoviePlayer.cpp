@@ -27,12 +27,21 @@ namespace Desert::Media
                     OnMovieFailed( movie, error );
                 continue;
             }
-            m_Player.Play();
-            m_Index = index;
+            m_AwaitingShown = true; // Play comes with the first presented frame of it
+            m_Index         = index;
             return;
         }
         m_Player.Close(); // the sound stops with the last movie
-        m_Index = m_Settings.Movies.size();
+        m_AwaitingShown = false;
+        m_Index         = m_Settings.Movies.size();
+    }
+
+    void StartupMoviePlayer::NotifyFramePresented()
+    {
+        if ( Finished() || !m_AwaitingShown )
+            return;
+        m_AwaitingShown = false;
+        m_Player.Play();
     }
 
     void StartupMoviePlayer::Tick( double deltaSeconds )

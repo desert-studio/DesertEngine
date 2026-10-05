@@ -39,8 +39,20 @@ namespace Desert::Media
         // (movie path, the player's / demuxer's error). Set before Start.
         std::function<void( const std::filesystem::path&, const std::string& )> OnMovieFailed;
 
-        // Opens and plays the first movie that opens. A list with none that opens is Finished at once.
+        // Opens the first movie that opens, ON ITS FIRST FRAME AND PAUSED: its clock starts at the first
+        // NotifyFramePresented. A list with none that opens is Finished at once.
         void Start();
+
+        // The host put the current movie's picture on the screen. A movie's clock (and its sound) starts on
+        // the first of these after it opened, not at the open: a boot hitch or the first upload between the
+        // two would otherwise be time the movie "played" unseen (UE's movie player starts on the shown frame).
+        void NotifyFramePresented();
+
+        // Forwarded to the player (MediaPlayer::SetBlockOnTime): an offline driver of the clock.
+        void SetBlockOnTime( bool block )
+        {
+            m_Player.SetBlockOnTime( block );
+        }
 
         // Once per frame: advances the current movie and moves on to the next when it ends.
         void Tick( double deltaSeconds );
@@ -73,5 +85,6 @@ namespace Desert::Media
         MediaPlayer          m_Player;
         std::size_t          m_Index = 0;
         bool                 m_Ended = false; // set by OnEndReached inside Tick, acted on after it
+        bool                 m_AwaitingShown = false; // opened, paused until its picture is presented
     };
 } // namespace Desert::Media
