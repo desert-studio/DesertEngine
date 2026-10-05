@@ -177,7 +177,7 @@ TEST( SceneInitDeferral, EveryWorldReplacementDropsTheOldWorldsSelection )
     ASSERT_FALSE( root.empty() );
     const std::string workspace = StripLineComments( ReadAll(
          ( std::filesystem::path( root ) / "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp" ).string() ) );
-    const std::size_t replaced = workspace.find( "void SceneWorkspace::ActiveSceneReplaced()" );
+    const std::size_t replaced  = workspace.find( "void SceneWorkspace::ActiveSceneReplaced()" );
     ASSERT_NE( replaced, std::string::npos ) << "the one world-replaced path is gone";
     const std::size_t body_end = workspace.find( "\n    }", replaced );
     const std::string body     = workspace.substr( replaced, body_end - replaced );
