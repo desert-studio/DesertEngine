@@ -1,3 +1,9 @@
 {
-    "Company": "Desert Studio"
+    "Company": "Desert Studio",
+    "StartupMovies": [
+        "Content/Movies/DesertEngine.webm",
+        "Content/Movies/DesertStudio.webm"
+    ],
+    "MoviesAreSkippable": true,
+    "WaitForMoviesToComplete": true
 }

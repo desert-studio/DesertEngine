@@ -4,6 +4,11 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include "RuntimeShot.hpp"
+#include <Engine/Audio/AudioEngine.hpp>
+#include <Engine/Media/MediaAudioOutput.hpp>
+#include <Engine/Media/MediaTexture.hpp>
+#include <Engine/Media/StartupMoviePlayer.hpp>
+#include <Engine/Project/GameSettings.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -327,8 +332,92 @@ namespace Desert::Player
         // nothing else in the process can tell them apart (§T2.4).
         LOG_INFO( "[ContentScan] boot finished — {}", Common::Utils::ContentScanLedger::Report() );
         if ( m_Movie.has_value() )
-            return InitMovieTarget();
+            return InitMovieTarget(); // rendering a movie is not launching the game: no startup movies
+        BeginStartupMovies();
         return BOOLSUCCESS;
+    }
+
+    void RuntimeLayer::BeginStartupMovies()
+    {
+        const Project::GameSettings& game = Project::CurrentGameSettings();
+        if ( game.StartupMovies.empty() )
+            return;
+        Media::StartupMovieSettings settings;
+        settings.Skippable         = game.MoviesAreSkippable;
+        settings.WaitForCompletion = game.WaitForMoviesToComplete;
+        const std::filesystem::path project( Project::ProjectContext::Directory() );
+        for ( const std::string& movie : game.StartupMovies )
+            settings.Movies.push_back( project / movie );
+
+        if ( Audio::AudioEngine::Get().GetNativeEngine() )
+            m_StartupSound = std::make_unique<Media::MediaAudioOutput>();
+        else
+            LOG_WARN( "[StartupMovies] no audio device on this machine: the movies play their picture only" );
+        m_StartupMovies =
+             std::make_unique<Media::StartupMoviePlayer>( std::move( settings ), m_StartupSound.get() );
+        m_StartupPicture               = std::make_unique<Media::MediaTexture>();
+        m_StartupMovies->OnMovieFailed = []( const std::filesystem::path& movie, const std::string& error )
+        {
+            LOG_ERROR( "[StartupMovies] '{}' is listed in Config/Game.json and does not play: {}", movie.string(),
+                       error );
+        };
+        m_StartupMovies->Start();
+        // The first picture is converted now, outside any pass, so the very first presented frame has it.
+        TickStartupMovies( 0.0 );
+    }
+
+    void RuntimeLayer::TickStartupMovies( double deltaSeconds )
+    {
+        if ( !m_StartupMovies )
+            return;
+        if ( m_SkipStartupMovie )
+            m_StartupMovies->Skip();
+        m_SkipStartupMovie = false;
+        // Capped like VideoService's catch-up: a stalled frame must not jump the movie when it runs on the
+        // tick clock (no audio device); with sound the clock is the samples played and this is moot.
+        m_StartupMovies->Tick( std::clamp( deltaSeconds, 0.0, 0.25 ) );
+        if ( !m_StartupMovies->Finished() )
+        {
+            if ( const std::string error = m_StartupPicture->Update( m_StartupMovies->Player() ); !error.empty() )
+                LOG_ERROR( "[StartupMovies] a decoded frame did not reach the GPU and will be retried: {}",
+                           error );
+            return;
+        }
+        LOG_INFO( "[StartupMovies] over after {} presented frame(s); the world is {}", m_PresentedFrames,
+                  m_Content.Loading() ? "still loading" : "complete" );
+        m_StartupMovies.reset(); // the player first: it holds the sound's pointer
+        m_StartupSound.reset();
+        if ( m_SplashAfterMovies )
+        {
+            m_SplashAfterMovies = false;
+            TriggerSplash();
+        }
+    }
+
+    bool RuntimeLayer::StartupMoviesPlaying() const
+    {
+        return m_StartupMovies != nullptr && !m_StartupMovies->Finished();
+    }
+
+    void RuntimeLayer::DrawStartupMovie( Graphic::Render2D::DrawList2D& dl, float w, float h )
+    {
+        // Opaque black first: the letterbox bars, and the whole screen before the first picture converts.
+        dl.AddRectFilled( { 0.0f, 0.0f }, { w, h }, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) );
+        if ( auto* picture = m_StartupPicture->GetImage();
+             picture != nullptr && picture->GetWidth() > 0 && picture->GetHeight() > 0 )
+            DrawFittedSprite( dl, *picture, w, h, 1.0f );
+    }
+
+    void RuntimeLayer::DiscardHeldInput()
+    {
+        m_PrevMouseDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left );
+        m_ScrollAccum   = 0.0f;
+        m_TypedText.clear();
+        m_Backspace     = false;
+        m_TabPressed    = false;
+        m_SubmitPressed = false;
+        m_EscapePressed = false;
+        m_Navigate      = 0;
     }
 
     Common::BoolResultStr RuntimeLayer::InitMovieTarget()
@@ -417,6 +506,9 @@ namespace Desert::Player
 
     Common::BoolResultStr RuntimeLayer::OnDetach()
     {
+        m_StartupMovies.reset(); // before the sound: the player holds its pointer
+        m_StartupSound.reset();
+        m_StartupPicture.reset(); // a GPU image: released while the device is alive
         // Release the present GPU resources while the device is still alive (before engine teardown).
         m_Render2D.reset();
         m_UIRenderTextures.reset(); // destroying the captures is what returns their renderer slots
@@ -654,7 +746,14 @@ namespace Desert::Player
         // THE AUTHORED SPLASH STARTS HERE, over a world that exists. Armed at the top of the boot (where
         // it used to be) its duration was spent on top of frames the player was not going to see anyway,
         // so a two-second splash was two seconds of nothing in particular.
-        TriggerSplash();
+        // A STARTUP MOVIE STILL UP is told the game is ready (it ends now unless the project waits for the
+        // movies), and the splash waits for the movies' end rather than running out under them.
+        if ( m_StartupMovies )
+            m_StartupMovies->NotifyContentReady();
+        if ( StartupMoviesPlaying() )
+            m_SplashAfterMovies = true;
+        else
+            TriggerSplash();
     }
 
     void RuntimeLayer::DrawLoadingScreen( Graphic::Render2D::DrawList2D& dl, float w, float h )
@@ -702,6 +801,17 @@ namespace Desert::Player
             if ( m_Content.Tick( work.Outstanding, work.Started ) )
                 OnContentReady();
         }
+
+        // A press (any mouse button, edge) skips a startup movie; keys arrive through OnKeyPressed.
+        {
+            const bool anyDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left ) ||
+                                 Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Right ) ||
+                                 Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Middle );
+            if ( anyDown && !m_PrevAnyMouseDown && StartupMoviesPlaying() )
+                m_SkipStartupMovie = true;
+            m_PrevAnyMouseDown = anyDown;
+        }
+        TickStartupMovies( static_cast<double>( ts.GetMilliseconds() ) * 0.001 );
 
         if ( m_SplashTimer > 0.0f )
             m_SplashTimer -= ts.GetMilliseconds() * 0.001f;
@@ -770,10 +880,10 @@ namespace Desert::Player
 
         // Time also stops while streaming waits for the cell under a streaming source (WP12): the loader keeps
         // reading on its workers and Tick above keeps collecting, but no script or physics step runs over a hole.
+        // And while a startup movie covers the screen: the level begins when the player can first see it.
         const bool streamingWaits = m_WorldStreamer && m_WorldStreamer->BlocksPlay();
-        if ( const auto frame =
-                  m_Scene->OnUpdate( m_Content.Loading() || streamingWaits ? Common::Timestep( 0.0f ) : ts );
-             !frame )
+        const bool timeHeld       = m_Content.Loading() || streamingWaits || StartupMoviesPlaying();
+        if ( const auto frame = m_Scene->OnUpdate( timeHeld ? Common::Timestep( 0.0f ) : ts ); !frame )
             return Common::MakeError( frame.GetError() );
 
         return BOOLSUCCESS;
@@ -853,15 +963,23 @@ namespace Desert::Player
                 const bool loading = m_Content.Loading();
                 // Frame 0 of a movie is the first frame of a complete world; loading frames are not written.
                 m_MovieFrameDrawn = m_Movie.has_value() && !loading;
+                // A startup movie covers the frame like the loading screen does, and the world keeps being
+                // rendered (and so keeps loading) underneath it.
+                const bool startupMovie = StartupMoviesPlaying();
 
                 // The scene's final (tonemapped) image is blitted over the whole target once the pass opens.
-                presentScene = !loading;
+                presentScene = !loading && !startupMovie;
 
                 // UI + splash via Render2D, composed on top of it.
                 m_Render2D->BeginFrame( { 0.0f, 0.0f, w, h } );
                 auto& dl = m_Render2D->GetDrawList();
 
-                if ( loading )
+                if ( startupMovie )
+                {
+                    DrawStartupMovie( dl, w, h );
+                    DiscardHeldInput(); // the press that skips a movie is not the game's either
+                }
+                else if ( loading )
                 {
                     ++m_LoadingFramesPresented;
                     DrawLoadingScreen( dl, w, h );
@@ -870,14 +988,7 @@ namespace Desert::Player
                     // accumulators keep filling while the cover is up and empty themselves into the first
                     // frame the player can see -- a character that starts the level already walking, from
                     // a key held down during the wait.
-                    m_PrevMouseDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left );
-                    m_ScrollAccum   = 0.0f;
-                    m_TypedText.clear();
-                    m_Backspace     = false;
-                    m_TabPressed    = false;
-                    m_SubmitPressed = false;
-                    m_EscapePressed = false;
-                    m_Navigate      = 0;
+                    DiscardHeldInput();
                 }
                 else
                 {
@@ -963,7 +1074,7 @@ namespace Desert::Player
 
                 // WORLD STREAMING WAITS FOR THE CELL UNDER THE CAMERA (WP12, decision O2): over the game's UI, so
                 // the player reads "loading" rather than a frozen HUD. Only while the level itself is shown.
-                if ( !loading )
+                if ( !loading && !startupMovie )
                     if ( const auto* wait = m_Scene->GetRegistry().try_ctx<Core::WorldStreamingWait>();
                          wait != nullptr && wait->Assessment.Blocks() )
                         UI::DrawStreamingWaitOverlay( dl, w, h, wait->FramesWaiting );
@@ -1107,6 +1218,12 @@ namespace Desert::Player
 
     bool RuntimeLayer::OnKeyPressed( Common::KeyPressedEvent& key )
     {
+        // Any key during a startup movie is the skip, and only the skip (UE's movie player takes the input).
+        if ( StartupMoviesPlaying() )
+        {
+            m_SkipStartupMovie = true;
+            return true;
+        }
         switch ( key.GetKeyCode() )
         {
             case Common::KeyCode::Backspace:

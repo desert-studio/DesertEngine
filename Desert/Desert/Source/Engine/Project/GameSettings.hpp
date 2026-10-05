@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace Desert::Project
 {
@@ -10,6 +11,13 @@ namespace Desert::Project
     struct GameSettings
     {
         std::string Company; // the studio, as the credits and the menu show it
+
+        // UE Project Settings ▸ Movies. The movies the game plays full screen at launch, in this order, over
+        // its loading and before its first level is shown (Engine/Media/StartupMoviePlayer.hpp). Paths are
+        // relative to the project directory (`Content/Movies/Intro.webm`).
+        std::vector<std::string> StartupMovies;
+        bool                     MoviesAreSkippable      = true; // a key or a click ends the current movie
+        bool                     WaitForMoviesToComplete = true; // false: they end as soon as the game has loaded
     };
 
     // The open project's Config/Game.json, read once per project directory. A project that has no such file

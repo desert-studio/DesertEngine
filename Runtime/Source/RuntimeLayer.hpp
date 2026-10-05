@@ -24,6 +24,12 @@ namespace Desert::Graphic
     class GraphicsPipeline;
     class MaterialExecutor;
 } // namespace Desert::Graphic
+namespace Desert::Media
+{
+    class MediaAudioOutput;
+    class MediaTexture;
+    class StartupMoviePlayer;
+} // namespace Desert::Media
 namespace Desert::Graphic::Render2D
 {
     class DrawList2D;
@@ -189,5 +195,24 @@ namespace Desert::Player
         float               m_SplashDuration = 0.0f;
         float               m_SplashFade     = 0.4f;
         void                TriggerSplash();
+
+        // ===== Startup movies (Config/Game.json StartupMovies; UE Project Settings ▸ Movies) =====
+        // Full screen, one after another, from the first presented frame; the level is shown only once
+        // they are over AND the world is complete. The sound is declared before the sequence because the
+        // sequence's player holds a raw pointer to it; the texture outlives both until OnDetach, since the
+        // frame that drew the last movie picture may still be sampling it when the sequence ends.
+        std::unique_ptr<Media::MediaAudioOutput>   m_StartupSound;
+        std::unique_ptr<Media::StartupMoviePlayer> m_StartupMovies;
+        std::unique_ptr<Media::MediaTexture>       m_StartupPicture;
+        bool                                       m_SkipStartupMovie = false; // a key / click since the last tick
+        bool                                       m_PrevAnyMouseDown = false; // for the press edge that skips
+        bool m_SplashAfterMovies = false; // the world completed under a movie: its splash waits for the end
+        void BeginStartupMovies();
+        void TickStartupMovies( double deltaSeconds );
+        bool StartupMoviesPlaying() const;
+        void DrawStartupMovie( Graphic::Render2D::DrawList2D& dl, float w, float h );
+        /// What a covered frame (loading screen, startup movie) does with input: drops it, so nothing
+        /// pressed during the cover reaches the first frame the player can see.
+        void DiscardHeldInput();
     };
 } // namespace Desert::Player
