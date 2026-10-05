@@ -11,6 +11,9 @@
 #include <Common/Core/UUID.hpp>
 
 #include <cstdint>
+#include <filesystem>
+
+#include <glm/glm.hpp>
 
 #include <Engine/Assets/Common.hpp>
 
@@ -48,6 +51,12 @@ namespace Desert::Assets
 
 namespace Desert::Editor
 {
+    class PreviewViewport;
+    namespace UI
+    {
+        class UIHelper;
+    }
+
     // ── THE ANIM GRAPH OF ONE `.danimgraph`: A DOCUMENT, NOT A TOOL ──────────────────────────────────
     //
     // An imgui-node-editor canvas over ONE anim-graph asset — STATES are nodes, TRANSITIONS are
@@ -86,7 +95,7 @@ namespace Desert::Editor
         }
 
         AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
-                        const Animation::AnimationLibrary* library, Assets::AssetManager* assetManager );
+                        Animation::AnimationLibrary* library, Assets::AssetManager* assetManager );
         ~AnimGraphPanel() override;
 
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -107,19 +116,21 @@ namespace Desert::Editor
         // existing. Same answer as the registration's liveness test, and ResolveComponent rests on it.
         [[nodiscard]] bool IsSubjectAlive() const override;
 
-        // A NODE CANVAS COSTS NO RENDERER SLOT. Everything this window draws is ImGui geometry; there is
-        // no Scene, no SceneRenderer and no offscreen target, so it is not pending demand for one of the
-        // six and closing it would free nothing. Answering the base class's conservative `true` would have
-        // it refuse a sixth window over a slot it was never going to take.
+        // THE PREVIEW VIEWPORT COSTS ONE RENDERER SLOT (UE: the Animation Blueprint Editor's viewport). The
+        // window holds a PreviewViewport — a SceneRenderer — from its first drawn frame until ReleaseView,
+        // which destroys it; the canvas and the side panel keep working without it on the document's own
+        // instance. Same contract as the Animation Editor (AnimationEditorIdentity).
         [[nodiscard]] bool HoldsView() const override
         {
-            return false;
+            return m_Preview != nullptr;
         }
-
-        [[nodiscard]] bool ClaimsView() const override
+        void ReleaseView() override;
+        [[nodiscard]] bool HasPreview() const override
         {
-            return false;
+            return true;
         }
+        void SetPreviewViewpoint( const PreviewViewpoint& viewpoint ) override;
+        void OnPreUpdate() override;
 
         // A NO-OP: the scene fanout (EditorLayer::SetActiveScene) is for the Outliner, Details and Settings.
         // This window's subject is a file, which belongs to no scene, so there is nothing to repoint.
@@ -251,8 +262,26 @@ namespace Desert::Editor
         // THE PREVIEW INSTANCE (UE: the editor's preview AnimInstance): owned by this document, never a
         // scene entity's component — editing a graph must not need, or disturb, a character in the level.
         // Its `GraphAsset` is the subject and its `Graph` the asset's shared object.
+        /// The preview pane: created on the first frame the window is drawn, its target given the chosen
+        /// skeletal mesh and an AnimationComponent naming this graph (PreviewViewport::SetGraphCharacter).
+        void EnsurePreview();
+        void SetPreviewMesh( size_t candidate );
+        void TogglePreview();
+        void DrawPreviewPane( float width, float height );
+
+        std::unique_ptr<PreviewViewport>   m_Preview;
+        std::unique_ptr<UI::UIHelper>      m_UIHelper;
+        std::vector<std::filesystem::path> m_MeshCandidates; // every registered .skmesh (ContentRegistry rows)
+        size_t                             m_MeshIndex = 0;
+        Assets::AssetHandle                m_PreviewMesh{ static_cast<uint64_t>( 0 ) };
+        glm::uvec2                         m_RenderSize{ 0u };
+        bool                               m_DrewThisFrame = false;
+        std::optional<glm::vec2>           m_PendingOrbitDegrees;
+        // The instance the canvas edits while no preview character exists (before the first frame, after
+        // ReleaseView, headless): bound to the same shared graph. Once the preview exists, ResolveComponent
+        // answers the preview target's AnimationComponent — the one the AnimationECSSystem evaluates.
         std::unique_ptr<ECS::AnimationComponent> m_Instance;
-        const Animation::AnimationLibrary*   m_Library      = nullptr;
+        Animation::AnimationLibrary*         m_Library      = nullptr;
         Assets::AssetManager*                m_AssetManager = nullptr;
         std::string                          m_Status; // last save result line
         bool                                 m_StatusIsError = false;

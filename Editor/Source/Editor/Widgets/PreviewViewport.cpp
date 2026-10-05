@@ -1,4 +1,5 @@
 #include "PreviewViewport.hpp"
+#include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include "PreviewPaneLayout.hpp"
 
 #include <Editor/RenderSystems/Passes/EditorCubemapPreviewPass.hpp>
@@ -857,6 +858,7 @@ namespace Desert::Editor
     void PreviewViewport::DropSkinned()
     {
         m_Clip.reset();
+        m_GraphDriven = false;
         m_AnimationTime = 0.0;
         if ( !m_Target )
             return;
@@ -912,6 +914,59 @@ namespace Desert::Editor
         ++m_ContentRevision;
     }
 
+    void PreviewViewport::EnableAnimationSystem( Animation::AnimationLibrary* library, Assets::AssetManager* assets )
+    {
+        EnsureInit();
+        if ( m_AnimationSystemOn )
+            return;
+        m_Scene->AddSystem<ECS::AnimationECSSystem>( library, assets );
+        m_AnimationSystemOn = true;
+    }
+
+    void PreviewViewport::SetGraphCharacter( const Assets::AssetHandle&              mesh,
+                                             const std::vector<Assets::AssetHandle>& materials,
+                                             const Assets::AssetHandle&              graph )
+    {
+        const bool wasPlaying = IsGraphPlaying();
+        if ( static_cast<uint64_t>( mesh ) != 0 )
+            SetSkinnedMesh( mesh, materials, nullptr );
+        else
+        {
+            SetMesh( Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+            EnsureInit();
+            m_Target.AddComponent<ECS::AnimationComponent>();
+        }
+        auto& anim                   = m_Target.GetComponent<ECS::AnimationComponent>();
+        anim.CurrentClip.clear();
+        anim.GraphAsset              = graph;
+        anim.Playing                 = true; // the graph is evaluated; whether its clock moves is SetGraphPlaying
+        anim.Loop                    = true;
+        anim.UpdateAnimationInEditor = wasPlaying;
+        m_GraphDriven                = true;
+        ++m_ContentRevision;
+    }
+
+    void PreviewViewport::SetGraphPlaying( const bool playing )
+    {
+        if ( auto* anim = GetAnimationComponent() )
+            anim->UpdateAnimationInEditor = playing;
+        SetRealtime( playing );
+        ++m_ContentRevision;
+    }
+
+    bool PreviewViewport::IsGraphPlaying() const
+    {
+        const auto* anim = GetAnimationComponent();
+        return m_GraphDriven && anim != nullptr && anim->UpdateAnimationInEditor;
+    }
+
+    ECS::AnimationComponent* PreviewViewport::GetAnimationComponent() const
+    {
+        if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+            return nullptr;
+        return &m_Target.GetComponent<ECS::AnimationComponent>();
+    }
+
     const Animation::Animator* PreviewViewport::GetAnimator() const
     {
         if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
@@ -964,8 +1019,8 @@ namespace Desert::Editor
 
     bool PreviewViewport::ApplyAnimationTime()
     {
-        if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
-            return true;
+        if ( m_GraphDriven || !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+            return true; // a graph character is posed by the scene's AnimationECSSystem, not by a playhead
         auto& anim = m_Target.GetComponent<ECS::AnimationComponent>();
         {
             // THIS SCENE HAS NO AnimationECSSystem (it needs the editor's AnimationLibrary and AssetManager,
