@@ -3127,7 +3127,8 @@ namespace Desert::Editor
         // --- selected Audio section (UE: the section's Details) --------------------------------------
         if ( m_UITrack >= 0 && m_UITrack < static_cast<int>( sequence.Tracks.size() ) && m_UIAudioSection >= 0 &&
              sequence.Tracks[static_cast<size_t>( m_UITrack )].Kind == TL::TrackKind::Audio &&
-             m_UIAudioSection < static_cast<int>( sequence.Tracks[static_cast<size_t>( m_UITrack )].Sections.size() ) )
+             m_UIAudioSection <
+                  static_cast<int>( sequence.Tracks[static_cast<size_t>( m_UITrack )].Sections.size() ) )
         {
             DrawUIAudioSectionDetails( clip, static_cast<size_t>( m_UITrack ),
                                        static_cast<size_t>( m_UIAudioSection ) );
@@ -3272,9 +3273,9 @@ namespace Desert::Editor
         // Every field is shown in DISPLAY FRAMES, as the clip's End frame is; ticks are what is stored.
         const auto toFrame = [&]( Animation::FrameNumber tick )
         {
-            return static_cast<int>(
-                 std::lround( Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0f }, sequence.TickRate ) *
-                              sequence.DisplayRate.AsDouble() ) );
+            return static_cast<int>( std::lround(
+                 Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0f }, sequence.TickRate ) *
+                 sequence.DisplayRate.AsDouble() ) );
         };
         const auto toTick = [&]( int frame )
         {
@@ -3308,7 +3309,8 @@ namespace Desert::Editor
         ImGui::SetNextItemWidth( 200.0f );
         if ( ImGui::DragInt2( "Start / End frame", range.data(), 1.0f, 0, 100000 ) )
         {
-            if ( const auto set = TL::SetSectionRange( track, sectionIndex, toTick( range[0] ), toTick( range[1] ) );
+            if ( const auto set =
+                      TL::SetSectionRange( track, sectionIndex, toTick( range[0] ), toTick( range[1] ) );
                  set.IsSuccess() )
             {
                 ++sequence.Revision;

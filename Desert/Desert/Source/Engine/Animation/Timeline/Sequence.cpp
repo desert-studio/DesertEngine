@@ -548,10 +548,10 @@ namespace Desert::Animation::Timeline
             property = std::format( "Audio {}", n );
         }
         Track track;
-        track.Binding  = master;
-        track.Property = std::move( property );
-        track.Kind     = TrackKind::Audio;
-        Section& section = AddSection( track, sequence.Start, sequence.End );
+        track.Binding                                          = master;
+        track.Property                                         = std::move( property );
+        track.Kind                                             = TrackKind::Audio;
+        Section& section                                       = AddSection( track, sequence.Start, sequence.End );
         std::get<AudioSectionContent>( section.Content ).Sound = std::move( sound );
         sequence.Tracks.push_back( std::move( track ) );
         ++sequence.Revision;

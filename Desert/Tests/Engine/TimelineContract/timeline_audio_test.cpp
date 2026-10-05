@@ -184,7 +184,8 @@ TEST( TimelineAudio, AddAudioTrackPutsASoundOnTheMasterBindingOverThePlaybackRan
     ASSERT_EQ( track.Sections.size(), 1u );
     EXPECT_EQ( track.Sections[0].Start.Value, 0 );
     EXPECT_EQ( track.Sections[0].End.Value, 900 );
-    EXPECT_EQ( std::get<AudioSectionContent>( track.Sections[0].Content ).Sound, "Movies/Source/DesertStudio.wav" );
+    EXPECT_EQ( std::get<AudioSectionContent>( track.Sections[0].Content ).Sound,
+               "Movies/Source/DesertStudio.wav" );
     EXPECT_TRUE( Validate( sequence ).IsSuccess() ) << Validate( sequence ).GetError();
 
     const Sequence before = sequence;

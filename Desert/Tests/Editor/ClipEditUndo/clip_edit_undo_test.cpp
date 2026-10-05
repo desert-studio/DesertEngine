@@ -278,7 +278,7 @@ TEST( UIAnimationUndo, AnAudioTrackAddedAndItsSectionEditedAreOneStepEachAndUndo
 {
     CommandHistory::Get().Clear();
     Desert::ECS::UIAnimData animation;
-    animation.Sequence.End = Animation::FrameNumber{ 1000 };
+    animation.Sequence.End         = Animation::FrameNumber{ 1000 };
     const Timeline::Sequence empty = animation.Sequence;
 
     SequenceEditTransaction transaction;
@@ -303,7 +303,8 @@ TEST( UIAnimationUndo, AnAudioTrackAddedAndItsSectionEditedAreOneStepEachAndUndo
     ASSERT_TRUE( CommandHistory::Get().Redo() );
     ASSERT_TRUE( CommandHistory::Get().Redo() );
     EXPECT_FLOAT_EQ(
-         std::get<Timeline::AudioSectionContent>( animation.Sequence.Tracks[0].Sections[0].Content ).Volume, 0.25F );
+         std::get<Timeline::AudioSectionContent>( animation.Sequence.Tracks[0].Sections[0].Content ).Volume,
+         0.25F );
     CommandHistory::Get().Clear();
 }
 
