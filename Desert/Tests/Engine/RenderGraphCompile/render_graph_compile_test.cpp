@@ -2562,9 +2562,12 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
 
     // Each system names what its pass samples, in its own RegisterPasses.
     const std::pair<const char*, const char*> declared[] = {
-         { "Systems/Scene/Skybox/SkyboxRenderer.cpp", "declared.Read(m_SkyViewLut,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           "declared.Read(m_TransmittanceLut,RDG::Access::SampledGraphics" },
+           "declared.Read(refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,RDG::Access::"
+           "SampledGraphics" },
+         { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
+           "declared.Read(refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients.SkyTransmittanceLut:white,"
+           "RDG::Access::SampledGraphics" },
          { "Systems/Scene/Mesh/MeshRenderer.cpp",
            "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
            "SampledGraphics" },
