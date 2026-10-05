@@ -46,6 +46,8 @@ namespace Desert::Graphic
         MaterialPropertyValue GetProperty( const std::string& name ) const;
         MaterialPropertyType  GetPropertyType( const std::string& name ) const;
         bool                  HasProperty( const std::string& name ) const;
+        /// Drop @p name's entry; false when there was none.
+        bool                  RemoveProperty( const std::string& name );
 
         const auto& GetProperties() const
         {

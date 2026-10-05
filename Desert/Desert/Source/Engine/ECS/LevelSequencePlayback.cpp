@@ -26,10 +26,32 @@ namespace Desert::ECS
         }
     } // namespace
 
+    std::optional<LevelSequenceMaterialParameter> ParseLevelSequenceMaterialProperty( std::string_view property )
+    {
+        if ( !property.starts_with( kLevelSequenceMaterialPropertyPrefix ) )
+            return std::nullopt;
+        property.remove_prefix( kLevelSequenceMaterialPropertyPrefix.size() );
+        const auto dot = property.find( '.' );
+        if ( dot == std::string_view::npos || dot == 0 || dot + 1 == property.size() )
+            return std::nullopt;
+        uint32_t   slot = 0;
+        const auto read = std::from_chars( property.data(), property.data() + dot, slot );
+        if ( read.ec != std::errc() || read.ptr != property.data() + dot )
+            return std::nullopt;
+        return LevelSequenceMaterialParameter{ slot, std::string( property.substr( dot + 1 ) ) };
+    }
+
+    std::string LevelSequenceMaterialProperty( const LevelSequenceMaterialParameter& parameter )
+    {
+        return std::format( "{}{}.{}", kLevelSequenceMaterialPropertyPrefix, parameter.Slot, parameter.Name );
+    }
+
     LevelSequenceEntityHost::LevelSequenceEntityHost( entt::registry&               registry,
                                                       const LevelSequenceComponent& component,
-                                                      LevelSequenceClipSource       clips )
-         : m_Registry( registry ), m_Component( component ), m_Clips( std::move( clips ) )
+                                                      LevelSequenceClipSource       clips,
+                                                      LevelSequenceMaterialSlots    materials )
+         : m_Registry( registry ), m_Component( component ), m_Clips( std::move( clips ) ),
+           m_Materials( std::move( materials ) )
     {
     }
 
@@ -74,6 +96,35 @@ namespace Desert::ECS
             m_Refusals.push_back( std::format( "track '{}' ({}): no entity property of that name and kind",
                                                property, KindName( value ) ) );
         };
+
+        if ( const auto parameter = ParseLevelSequenceMaterialProperty( property ) )
+        {
+            if ( !m_Materials )
+            {
+                m_Refusals.push_back(
+                     std::format( "track '{}': this player has no access to material slots", property ) );
+                return;
+            }
+            std::optional<glm::vec4> written;
+            if ( const float* scalar = std::get_if<float>( &value ) )
+                written = glm::vec4( *scalar, 0.0F, 0.0F, 0.0F );
+            else if ( const glm::vec3* color = std::get_if<glm::vec3>( &value ) )
+            {
+                // The track keys rgb; the alpha the slot already overrides stays (UE: a colour track's
+                // unkeyed channel keeps the instance's value), 1 when the slot has no override yet.
+                const auto current = m_Materials.Get( m_Registry, entity, *parameter );
+                written            = glm::vec4( *color, current ? current->w : 1.0F );
+            }
+            if ( !written )
+            {
+                refuse();
+                return;
+            }
+            if ( !m_Materials.Set( m_Registry, entity, *parameter, written ) )
+                m_Refusals.push_back( std::format( "track '{}': its entity has no own material in slot {}",
+                                                   property, parameter->Slot ) );
+            return;
+        }
 
         if ( property == "Visible" )
         {
@@ -210,10 +261,11 @@ namespace Desert::ECS
 
     LevelSequenceStep StepLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
                                          LevelSequencePlayback& playback, const T::TimeStep& step,
-                                         const LevelSequenceClipSource& clips )
+                                         const LevelSequenceClipSource&    clips,
+                                         const LevelSequenceMaterialSlots& materials )
     {
         playback.Evaluator.Evaluate( step, playback.Frame );
-        LevelSequenceEntityHost host( registry, component, clips );
+        LevelSequenceEntityHost host( registry, component, clips, materials );
         LevelSequenceStep       out;
         out.Report      = playback.Evaluator.Apply( playback.Frame, host );
         out.CameraCut   = host.CameraCut();

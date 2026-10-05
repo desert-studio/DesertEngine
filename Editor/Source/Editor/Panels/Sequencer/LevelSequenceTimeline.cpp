@@ -130,7 +130,8 @@ namespace Desert::Editor
         const auto step =
              m_LevelPreview.Scrub( scene->GetRegistry(), sequence, m_LevelTick,
                                    m_AssetManager != nullptr ? ECS::LevelSequenceClips( *m_AssetManager )
-                                                             : ECS::LevelSequenceClipSource{} );
+                                                             : ECS::LevelSequenceClipSource{},
+                                   ECS::LevelSequenceMaterialSlotOverrides() );
         for ( const auto& refusal : step.Refusals )
             LOG_WARN( "[Sequencer] level preview: {}", refusal );
         m_LevelTickShown     = m_LevelTick.Value;

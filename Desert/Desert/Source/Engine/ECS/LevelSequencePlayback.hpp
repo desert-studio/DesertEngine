@@ -5,11 +5,14 @@
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
 #include <entt/entt.hpp>
+#include <glm/glm.hpp>
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Animation
@@ -30,6 +33,51 @@ namespace Desert::ECS
     using LevelSequenceClipSource =
          std::function<const Animation::AnimationClip*( const Common::Content::AssetGuid& clip )>;
 
+    /// The Property prefix of a Material Parameter track: "Material.<slot>.<Parameter>".
+    inline constexpr std::string_view kLevelSequenceMaterialPropertyPrefix = "Material.";
+
+    /// What a Material Parameter track's Property names: one parameter of one material slot of its actor.
+    struct LevelSequenceMaterialParameter
+    {
+        uint32_t    Slot = 0;
+        std::string Name;
+        bool        operator==( const LevelSequenceMaterialParameter& ) const = default;
+    };
+
+    /// "Material.<slot>.<Parameter>" → (slot, parameter); nullopt for any other property (a slot that is not a
+    /// decimal number, an empty parameter name).
+    [[nodiscard]] std::optional<LevelSequenceMaterialParameter>
+         ParseLevelSequenceMaterialProperty( std::string_view property );
+    /// The Property of the Material Parameter track for @p parameter — the inverse of the parse above.
+    [[nodiscard]] std::string LevelSequenceMaterialProperty( const LevelSequenceMaterialParameter& parameter );
+
+    /**
+     * @brief Where the host reaches an entity's per-slot material parameter overrides (UE: the dynamic material
+     * instance MovieSceneComponentMaterialTrack creates on the component — the ACTOR's instance, never the
+     * material asset). The overrides live on the entity's runtime material instance of that slot (the one the
+     * PBR and slot draws bind, and the one Lua's SetMaterialParam writes); `LevelSequenceMaterialSlotOverrides()`
+     * (System/LevelSequenceSystem.hpp) is that one implementation, which the ECS system and the
+     * editor preview inject. The suite injects its own map: this header stays free of the renderer.
+     *
+     * `Get` is the slot's OWN override (nullopt = not overridden: the material's value shows); `Set` writes one
+     * (a value) or drops it (nullopt) and is false when the entity has no such slot of its own material — a
+     * mesh with no authored material shares the engine default instance, which is not the actor's to write.
+     */
+    struct LevelSequenceMaterialSlots
+    {
+        std::function<std::optional<glm::vec4>( entt::registry& registry, entt::entity entity,
+                                                const LevelSequenceMaterialParameter& parameter )>
+             Get;
+        std::function<bool( entt::registry& registry, entt::entity entity,
+                            const LevelSequenceMaterialParameter& parameter, const std::optional<glm::vec4>& value )>
+             Set;
+
+        [[nodiscard]] explicit operator bool() const
+        {
+            return Get && Set;
+        }
+    };
+
     /**
      * @brief The LevelSequence host of the Timeline seam (Evaluator.hpp `ITimelineHost`): the entities of ONE
      * registry. UE: the level sequence player's object binding resolution + property track setters.
@@ -46,6 +94,10 @@ namespace Desert::ECS
      *   "Transform"   BoneTransform → TransformComponent Translation / Rotation (Euler) / Scale
      *   "Translation" | "Location" vec3, "Rotation" quat, "Scale" vec3 → that one member
      *   "Visible"     bool → VisibilityComponent::Visible
+     *   "Material.<slot>.<Parameter>"  float → the slot's scalar override (vec4(x, 0, 0, 0), unpacked by the
+     *                 parameter's own type); vec3 → the slot's vector override as (rgb, the override's own alpha,
+     *                 1 when none) — through the injected `LevelSequenceMaterialSlots`; no source, no such slot,
+     *                 or a value of another kind is refused by name
      * Any other property, or a value of the wrong kind, is REFUSED by name into `Refusals()` — never skipped
      * in silence.
      *
@@ -60,7 +112,7 @@ namespace Desert::ECS
     {
     public:
         LevelSequenceEntityHost( entt::registry& registry, const LevelSequenceComponent& component,
-                                 LevelSequenceClipSource clips = {} );
+                                 LevelSequenceClipSource clips = {}, LevelSequenceMaterialSlots materials = {} );
 
         [[nodiscard]] std::optional<Animation::Timeline::ResolvedBinding>
              Resolve( const Animation::Timeline::Binding& binding ) override;
@@ -89,6 +141,7 @@ namespace Desert::ECS
         entt::registry&               m_Registry;
         const LevelSequenceComponent& m_Component;
         LevelSequenceClipSource       m_Clips;
+        LevelSequenceMaterialSlots    m_Materials;
         std::optional<entt::entity>   m_CameraCut;
         std::vector<std::string>      m_Refusals;
         std::vector<std::string>      m_Fired;
@@ -118,7 +171,8 @@ namespace Desert::ECS
                                                        const LevelSequenceComponent&        component,
                                                        LevelSequencePlayback&               playback,
                                                        const Animation::Timeline::TimeStep& step,
-                                                       const LevelSequenceClipSource&       clips = {} );
+                                                       const LevelSequenceClipSource&       clips     = {},
+                                                       const LevelSequenceMaterialSlots&    materials = {} );
 
     /**
      * @brief What an actor remembers between steps for the Scene half: which errors it already reported

@@ -24,6 +24,9 @@
 
 #include <gtest/gtest.h>
 
+#include <map>
+#include <tuple>
+
 #include <string>
 #include <vector>
 
@@ -439,6 +442,107 @@ TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
              << "tick " << tick;
     }
     EXPECT_FALSE( world.registry.has<ECS::VisibilityComponent>( world.other ) );
+}
+
+// The suite's stand-in for MeshECSSystem's per-entity slot instances: (entity, slot, parameter) → override.
+// The "asset" is a separate value no Set may reach — what the material asset says before and after.
+struct FakeMaterialSlots
+{
+    std::map<std::tuple<entt::entity, uint32_t, std::string>, glm::vec4> Overrides;
+    entt::entity                                                         Owner = entt::null;
+    uint32_t                                                             Slots = 1;
+
+    ECS::LevelSequenceMaterialSlots Access()
+    {
+        ECS::LevelSequenceMaterialSlots access;
+        access.Get = [this]( entt::registry&, entt::entity entity,
+                             const ECS::LevelSequenceMaterialParameter& parameter ) -> std::optional<glm::vec4>
+        {
+            const auto at = Overrides.find( { entity, parameter.Slot, parameter.Name } );
+            return at != Overrides.end() ? std::optional<glm::vec4>( at->second ) : std::nullopt;
+        };
+        access.Set = [this]( entt::registry&, entt::entity entity, const ECS::LevelSequenceMaterialParameter& parameter,
+                             const std::optional<glm::vec4>& value )
+        {
+            if ( entity != Owner || parameter.Slot >= Slots )
+                return false;
+            if ( value )
+                Overrides[{ entity, parameter.Slot, parameter.Name }] = *value;
+            else
+                Overrides.erase( { entity, parameter.Slot, parameter.Name } );
+            return true;
+        };
+        return access;
+    }
+};
+
+TEST( LevelSequenceDocument, AMaterialParameterTrackDrivesTheActorsSlotOverrideNotTheAsset )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  added    = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
+    ASSERT_TRUE( added.IsSuccess() );
+    const T::BindingGuid                    door = added.GetValue();
+    const ECS::LevelSequenceMaterialParameter glow{ 0, "Emissive" };
+    const ECS::LevelSequenceMaterialParameter tint{ 0, "BaseColor" };
+    EXPECT_EQ( ECS::ParseLevelSequenceMaterialProperty( ECS::LevelSequenceMaterialProperty( glow ) ), glow );
+    EXPECT_FALSE( ECS::ParseLevelSequenceMaterialProperty( "Material.x.Emissive" ) );
+
+    const glm::vec4 asset( 0.25F, 0.0F, 0.0F, 0.0F ); // what the material asset says; nothing may write it
+    ASSERT_TRUE( ECS::AddMaterialParameterTrack( sequence, door, glow, T::TrackKind::Float, asset ).IsSuccess() );
+    EXPECT_FALSE( ECS::AddMaterialParameterTrack( sequence, door, glow, T::TrackKind::Float, asset ).IsSuccess() )
+         << "one track per (slot, parameter)";
+    EXPECT_FALSE( ECS::AddMaterialParameterTrack( sequence, door, tint, T::TrackKind::Bool, asset ).IsSuccess() );
+    ASSERT_TRUE( ECS::AddMaterialParameterTrack( sequence, door, tint, T::TrackKind::Vector, glm::vec4( 1.0F ) )
+                      .IsSuccess() );
+    ASSERT_TRUE( ECS::SetMaterialParameterKey( sequence, door, glow, A::FrameNumber{ 0 }, glm::vec4( 0.0F ) )
+                      .IsSuccess() );
+    ASSERT_TRUE( ECS::SetMaterialParameterKey( sequence, door, glow, A::FrameNumber{ 60 }, glm::vec4( 1.0F ) )
+                      .IsSuccess() );
+    ASSERT_TRUE( ECS::SetMaterialParameterKey( sequence, door, tint, A::FrameNumber{ 60 },
+                                               glm::vec4( 0.0F, 0.5F, 1.0F, 0.0F ) )
+                      .IsSuccess() );
+    ASSERT_TRUE( T::Validate( sequence ).IsSuccess() ) << T::Validate( sequence ).GetError();
+
+    // Through the .dseq text, as the component plays it.
+    const auto text = Desert::Assets::LevelSequenceAsset::Write( sequence, AssetGuid{ 1, 2 } );
+    ASSERT_TRUE( text.IsSuccess() ) << text.GetError();
+    const auto parsed = Desert::Assets::LevelSequenceAsset::Parse( text.GetValue() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+
+    World             world;
+    FakeMaterialSlots slots;
+    slots.Owner = world.door;
+    slots.Overrides[{ world.door, 0, "BaseColor" }] = glm::vec4( 1.0F, 1.0F, 1.0F, 0.75F ); // an alpha of its own
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback        playback( parsed.GetValue().Sequence );
+
+    const auto step = ECS::StepLevelSequence( world.registry, component, playback, Step( 30 ), {}, slots.Access() );
+    EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
+    const auto emissive = slots.Overrides.find( { world.door, 0U, std::string( "Emissive" ) } );
+    ASSERT_NE( emissive, slots.Overrides.end() );
+    EXPECT_FLOAT_EQ( emissive->second.x, 0.5F ) << "keys 0 @0 and 1 @60 → 0.5 @30";
+    const glm::vec4 color = slots.Overrides.at( { world.door, 0U, std::string( "BaseColor" ) } );
+    EXPECT_FLOAT_EQ( color.y, 0.75F );
+    EXPECT_FLOAT_EQ( color.w, 0.75F ) << "the unkeyed alpha keeps the slot's own";
+    EXPECT_EQ( asset, glm::vec4( 0.25F, 0.0F, 0.0F, 0.0F ) );
+
+    // No slot access, or no such slot: refused by name, never skipped in silence.
+    ECS::LevelSequencePlayback blind( parsed.GetValue().Sequence );
+    EXPECT_EQ( ECS::StepLevelSequence( world.registry, component, blind, Step( 30 ) ).Refusals.size(), 2U );
+    slots.Slots = 0;
+    EXPECT_EQ( ECS::StepLevelSequence( world.registry, component, blind, Step( 30 ), {}, slots.Access() )
+                    .Refusals.size(),
+               2U );
+
+    // The preview gives the overrides back: the one the slot had, and none where it had none.
+    slots.Slots     = 1;
+    slots.Overrides = { { { world.door, 0, "BaseColor" }, glm::vec4( 1.0F, 1.0F, 1.0F, 0.75F ) } };
+    ECS::LevelSequencePreview preview;
+    (void)preview.Scrub( world.registry, parsed.GetValue().Sequence, A::FrameNumber{ 30 }, {}, slots.Access() );
+    EXPECT_EQ( slots.Overrides.size(), 2U );
+    preview.Restore( world.registry );
+    ASSERT_EQ( slots.Overrides.size(), 1U ) << "the Emissive override the preview added is dropped";
+    EXPECT_EQ( slots.Overrides.begin()->second, glm::vec4( 1.0F, 1.0F, 1.0F, 0.75F ) );
 }
 
 TEST( LevelSequenceDocument, AnAnimationTrackPosesTheBoundEntitysSkeleton )

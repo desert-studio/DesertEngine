@@ -494,11 +494,167 @@ namespace Desert::ECS
         return keys;
     }
 
+    namespace
+    {
+        template <typename SequenceT>
+        auto* MaterialParameterTrack( SequenceT& sequence, const T::BindingGuid& binding,
+                                      const LevelSequenceMaterialParameter& parameter )
+        {
+            for ( auto& candidate : sequence.Tracks )
+                if ( candidate.Binding == binding &&
+                     ( candidate.Kind == T::TrackKind::Float || candidate.Kind == T::TrackKind::Vector ) &&
+                     ParseLevelSequenceMaterialProperty( candidate.Property ) == parameter )
+                    return &candidate;
+            return static_cast<decltype( &sequence.Tracks.front() )>( nullptr );
+        }
+
+        /// Upsert a Linear key, keeping `Keys` sorted with one key per tick (FloatChannel's invariant).
+        void UpsertLinear( T::FloatChannel& channel, const Animation::FrameNumber tick, const float value )
+        {
+            Animation::ScalarKey key;
+            key.Tick      = tick;
+            key.Value     = value;
+            const auto at = std::ranges::lower_bound( channel.Keys, tick, {}, &Animation::ScalarKey::Tick );
+            if ( at != channel.Keys.end() && at->Tick == tick )
+                *at = key;
+            else
+                channel.Keys.insert( at, key );
+        }
+
+        /// Key @p value into @p channel (a Float channel takes .x, a Vector channel .xyz); false for any other.
+        bool UpsertParameter( T::Channel& channel, const Animation::FrameNumber tick, const glm::vec4& value )
+        {
+            if ( auto* scalar = std::get_if<T::FloatChannel>( &channel ) )
+            {
+                UpsertLinear( *scalar, tick, value.x );
+                return true;
+            }
+            if ( auto* vector = std::get_if<T::VectorChannel>( &channel ) )
+            {
+                UpsertLinear( vector->X, tick, value.x );
+                UpsertLinear( vector->Y, tick, value.y );
+                UpsertLinear( vector->Z, tick, value.z );
+                return true;
+            }
+            return false;
+        }
+    } // namespace
+
+    Common::BoolResultStr AddMaterialParameterTrack( T::Sequence& sequence, const T::BindingGuid& binding,
+                                                     const LevelSequenceMaterialParameter& parameter,
+                                                     const T::TrackKind kind, const glm::vec4& current )
+    {
+        const T::Binding* bound = T::FindBinding( sequence, binding );
+        if ( bound == nullptr || bound->Kind != T::BindingKind::Entity )
+            return Common::MakeError( "Material Parameter track: the binding is not an actor (Entity) binding" );
+        if ( kind != T::TrackKind::Float && kind != T::TrackKind::Vector )
+            return Common::MakeError( "Material Parameter track: a parameter is a Scalar (Float) or a Vector" );
+        if ( parameter.Name.empty() || parameter.Name.find( '.' ) != std::string::npos )
+            return Common::MakeError( "Material Parameter track: the parameter name is empty or holds a '.'" );
+        if ( MaterialParameterTrack( sequence, binding, parameter ) != nullptr )
+            return Common::MakeFormattedError<bool>( "Material Parameter track: '{}' already has one for {}",
+                                                     bound->Label, LevelSequenceMaterialProperty( parameter ) );
+
+        T::Sequence edited = sequence;
+        T::Track    created;
+        created.Binding  = binding;
+        created.Property = LevelSequenceMaterialProperty( parameter );
+        created.Kind     = kind;
+        T::Channel channel = T::MakeChannel( static_cast<T::ChannelKind>( kind ) );
+        if ( auto* scalar = std::get_if<T::FloatChannel>( &channel ) )
+            scalar->Default = current.x;
+        else if ( auto* vector = std::get_if<T::VectorChannel>( &channel ) )
+        {
+            vector->X.Default = current.x;
+            vector->Y.Default = current.y;
+            vector->Z.Default = current.z;
+        }
+        UpsertParameter( channel, sequence.Start, current );
+        T::Section section;
+        section.Start   = sequence.Start;
+        section.End     = sequence.End;
+        section.Content = std::move( channel );
+        created.Sections.push_back( std::move( section ) );
+        edited.Tracks.push_back( std::move( created ) );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "Material Parameter track: {}", valid.GetError() );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    bool HasMaterialParameterTrack( const T::Sequence& sequence, const T::BindingGuid& binding,
+                                    const LevelSequenceMaterialParameter& parameter )
+    {
+        return MaterialParameterTrack( sequence, binding, parameter ) != nullptr;
+    }
+
+    Common::BoolResultStr SetMaterialParameterKey( T::Sequence& sequence, const T::BindingGuid& binding,
+                                                   const LevelSequenceMaterialParameter& parameter,
+                                                   const Animation::FrameNumber tick, const glm::vec4& value )
+    {
+        T::Sequence edited = sequence;
+        T::Track*   track  = MaterialParameterTrack( edited, binding, parameter );
+        if ( track == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "Material Parameter key: the binding has no track for {} (+ Track ▸ Material Parameter)",
+                 LevelSequenceMaterialProperty( parameter ) );
+
+        // The highest-row section whose range holds the tick (the one the fold lets win), else the first.
+        T::Channel* target    = nullptr;
+        T::Channel* first     = nullptr;
+        int32_t     targetRow = -1;
+        for ( T::Section& section : track->Sections )
+        {
+            auto* channel = std::get_if<T::Channel>( &section.Content );
+            if ( channel == nullptr )
+                continue;
+            if ( first == nullptr )
+                first = channel;
+            if ( !( tick < section.Start ) && !( section.End < tick ) && section.Row > targetRow )
+            {
+                target    = channel;
+                targetRow = section.Row;
+            }
+        }
+        if ( target == nullptr )
+            target = first;
+        if ( target == nullptr || !UpsertParameter( *target, tick, value ) )
+            return Common::MakeError( "Material Parameter key: the track has no Float / Vector section" );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "Material Parameter key: {}", valid.GetError() );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
     LevelSequenceStep LevelSequencePreview::Scrub( entt::registry& registry, const T::Sequence& sequence,
-                                                   const Animation::FrameNumber   tick,
-                                                   const LevelSequenceClipSource& clips )
+                                                   const Animation::FrameNumber      tick,
+                                                   const LevelSequenceClipSource&    clips,
+                                                   const LevelSequenceMaterialSlots& materials )
     {
         LevelSequenceEntityHost host( registry, m_NoOverrides );
+        m_Materials = materials;
+
+        // Every slot override a Material Parameter track is about to write, before its first write.
+        if ( materials )
+            for ( const T::Track& track : sequence.Tracks )
+            {
+                const auto parameter = ParseLevelSequenceMaterialProperty( track.Property );
+                const T::Binding* bound = parameter ? T::FindBinding( sequence, track.Binding ) : nullptr;
+                const auto resolved = bound != nullptr ? host.Resolve( *bound ) : std::nullopt;
+                if ( !resolved )
+                    continue;
+                const auto entity = static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) );
+                if ( std::any_of( m_SavedMaterials.begin(), m_SavedMaterials.end(),
+                                  [&]( const SavedMaterialParameter& saved )
+                                  { return saved.Entity == entity && saved.Parameter == *parameter; } ) )
+                    continue;
+                m_SavedMaterials.push_back(
+                     SavedMaterialParameter{ entity, *parameter, materials.Get( registry, entity, *parameter ) } );
+            }
 
         // RECORD BEFORE THE FIRST WRITE, per entity: what the preview gives back is the scene as it was when
         // the sequence first touched it, not as the previous scrub left it.
@@ -533,7 +689,7 @@ namespace Desert::ECS
 
         LevelSequencePlayback      playback( sequence );
         const Animation::FrameTime at{ tick, 0.0F };
-        return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at }, clips );
+        return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at }, clips, materials );
     }
 
     void LevelSequencePreview::Restore( entt::registry& registry )
@@ -564,5 +720,9 @@ namespace Desert::ECS
             }
         }
         m_Saved.clear();
+        for ( const SavedMaterialParameter& saved : m_SavedMaterials )
+            if ( registry.valid( saved.Entity ) && m_Materials )
+                (void)m_Materials.Set( registry, saved.Entity, saved.Parameter, saved.Override );
+        m_SavedMaterials.clear();
     }
 } // namespace Desert::ECS

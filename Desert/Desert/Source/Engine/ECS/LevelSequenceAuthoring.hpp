@@ -180,12 +180,45 @@ namespace Desert::ECS
                                                              const Animation::Timeline::BindingGuid& binding );
 
     /**
+     * @brief "+ Track ▸ Material Parameter" on an actor (UE: MovieSceneComponentMaterialTrack — a Scalar or Vector
+     * parameter of one material slot of the actor's mesh): a @p kind (Float = scalar, Vector = rgb) track
+     * "Material.<slot>.<Parameter>" on @p binding with ONE section over the playback range, keyed at its start
+     * with @p current (the parameter's value on the actor now: .x for a scalar, .xyz for a vector) — the same
+     * start-key rule as Visibility, so a later key is a change and not a jump from the channel default. The
+     * track drives the ACTOR's slot instance; the material asset is never written. Refuses a binding that is not
+     * an Entity binding of this sequence, a kind other than Float / Vector, an empty parameter name and a
+     * parameter that already has a track; the sequence is left as it was on any refusal. Revision++.
+     */
+    [[nodiscard]] Common::BoolResultStr AddMaterialParameterTrack( Animation::Timeline::Sequence&          sequence,
+                                                                   const Animation::Timeline::BindingGuid& binding,
+                                                                   const LevelSequenceMaterialParameter& parameter,
+                                                                   Animation::Timeline::TrackKind        kind,
+                                                                   const glm::vec4&                      current );
+
+    /// Whether @p binding has a Material Parameter track for @p parameter (either kind).
+    [[nodiscard]] bool HasMaterialParameterTrack( const Animation::Timeline::Sequence&    sequence,
+                                                  const Animation::Timeline::BindingGuid& binding,
+                                                  const LevelSequenceMaterialParameter&   parameter );
+
+    /**
+     * @brief Upsert a key @p value (.x for a scalar track, .xyz for a vector one; Linear, like every new key) at
+     * @p tick on @p binding's Material Parameter track for @p parameter — on the highest-row section whose range
+     * holds @p tick, else on the first section. Refuses a parameter with no track (add it first); the sequence
+     * is left as it was on any refusal. Revision++ (the preview re-poses).
+     */
+    [[nodiscard]] Common::BoolResultStr SetMaterialParameterKey( Animation::Timeline::Sequence&          sequence,
+                                                                 const Animation::Timeline::BindingGuid& binding,
+                                                                 const LevelSequenceMaterialParameter&   parameter,
+                                                                 Animation::FrameNumber tick, const glm::vec4& value );
+
+    /**
      * @brief The Sequencer's preview of a level sequence over a scene's registry (UE: the editor's sequence
      * player with "Restore State" on close).
      *
      * `Scrub` poses the registry at a tick through `LevelSequenceEntityHost`, having first RECORDED the state of
      * every entity it is about to write (its Transform, whether it had a VisibilityComponent and its value, and
-     * its Animator's clip, playhead, loop and the component's Playing — an Animation section repoints them).
+     * its Animator's clip, playhead, loop and the component's Playing — an Animation section repoints them —
+     * and the slot override of every material parameter a track drives, or that it had none).
      * `Restore` writes every recorded state back — the component the preview added is removed again — and
      * forgets it. An entity destroyed while previewed is skipped. The destructor does NOT restore: it has no
      * registry, and a registry that died first has nothing to give back to.
@@ -194,12 +227,13 @@ namespace Desert::ECS
     {
     public:
         LevelSequenceStep Scrub( entt::registry& registry, const Animation::Timeline::Sequence& sequence,
-                                 Animation::FrameNumber tick, const LevelSequenceClipSource& clips = {} );
+                                 Animation::FrameNumber tick, const LevelSequenceClipSource& clips = {},
+                                 const LevelSequenceMaterialSlots& materials = {} );
         void              Restore( entt::registry& registry );
 
         [[nodiscard]] bool Active() const
         {
-            return !m_Saved.empty();
+            return !m_Saved.empty() || !m_SavedMaterials.empty();
         }
 
     private:
@@ -217,6 +251,16 @@ namespace Desert::ECS
             bool                            Playing = true;
         };
         std::vector<Saved> m_Saved;
+        /// A material parameter override as it was before the first scrub wrote it (nullopt = none: dropped).
+        struct SavedMaterialParameter
+        {
+            entt::entity                   Entity = entt::null;
+            LevelSequenceMaterialParameter Parameter;
+            std::optional<glm::vec4>       Override;
+        };
+        std::vector<SavedMaterialParameter> m_SavedMaterials;
+        /// The slot access the scrubs wrote through — `Restore` gives the overrides back through the same.
+        LevelSequenceMaterialSlots m_Materials;
         /// No overrides: the document is about the ASSET, not about one placed actor's re-pointing of it.
         LevelSequenceComponent m_NoOverrides;
     };
