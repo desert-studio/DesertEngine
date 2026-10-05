@@ -64,26 +64,26 @@ namespace
 {
     // A sound's name as the registry knows it: its `.desound`'s stem, "None" for the null GUID, "(missing)"
     // for a GUID no row states.
-    std::string SoundDisplayName( const Desert::Common::Content::AssetGuid& guid )
+    std::string SoundDisplayName( const Common::Content::AssetGuid& guid )
     {
         if ( guid.IsNull() )
             return "None";
         const auto* row =
-             Desert::Assets::ContentRegistry::Get().FindByHandle( Desert::Common::Content::HandleForGuid( guid ) );
+             Desert::Assets::ContentRegistry::Get().FindByHandle( Common::Content::HandleForGuid( guid ) );
         if ( row == nullptr )
             return "(missing)";
         return std::filesystem::path( row->Key ).stem().string();
     }
 
     // UE's sound-wave asset picker: every `.desound` the registry lists. True when @p guid changed.
-    bool PickSound( const char* label, Desert::Common::Content::AssetGuid& guid )
+    bool PickSound( const char* label, Common::Content::AssetGuid& guid )
     {
         bool changed = false;
         if ( ImGui::BeginCombo( label, SoundDisplayName( guid ).c_str() ) )
         {
             const auto& registry = Desert::Assets::ContentRegistry::Get();
-            for ( const auto* row : registry.OfKind( Desert::Common::Content::KindName(
-                       Desert::Common::Content::ContentKind::Sound ) ) )
+            for ( const auto* row : registry.OfKind( Common::Content::KindName(
+                       Common::Content::ContentKind::Sound ) ) )
             {
                 if ( !row->Guid.has_value() )
                     continue;
