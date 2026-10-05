@@ -44,7 +44,7 @@ FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
 # grep -r over a build log directory or the scratch is reading logs, not searching the tree (09-29: L10b refused)
 LOG_SEARCH = re.compile(r"grep\s+-[A-Za-z]*[rR][A-Za-z]*\s+(\S+\s+)?[\"']?(\S*build/DevLogs|/private/tmp/|/tmp/)")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
-BRIEF_PATH = re.compile(r"/[^\s'\";|&]*BRIEF\.md")
+BRIEF_PATH = re.compile(r"/[^\s'\";|&]*BRIEF[A-Za-z0-9_-]*\.md")
 # the body of a heredoc (python/C++ written to a file) is data, not shell: `str.find(` is not a tree search
 HEREDOC_BODY = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\b", re.S)
 EDITOR_BUILD = re.compile(r"((^|[;&|(]\s*|\s)make\s|build_quiet\.sh\s)[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
@@ -66,6 +66,32 @@ EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
 LEAD_ONLY_RUNS = re.compile(r"scripts/Dev/suite\.sh|scripts/CI/CheckTidy\.sh|scripts/CI/CheckGluedText\.sh|handoff_check\.sh|build/Bin/Tests/")
 CI_WAIT = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^;&|]*--watch)|"
                      r"\b(while|until|for)\b[^\n]*\bgh\s+(run|pr)\b|\bgh\s+(run|pr)\b[^\n]*\bsleep\b")
+
+
+MAX_BRIEF_ITEMS = 2
+MAX_BRIEF_DO_CHARS = 900  # calibrated 10-05: done = M18f 749, ANIM-AUDIT 839; wip = MEDIA-2 1106, MEDIA-3 1083, VIDEO-1 2100, VIDEO-2a 1017
+
+
+def brief_size_denial(prompt):
+    """None when the prompt points at a brief whose «## Сделать» fits one agent (60 calls), else the refusal text."""
+    found = BRIEF_PATH.search(prompt)
+    if not found:
+        return ("[agent_guard] Тимлид: рабочий агент запускается только по файлу брифа (…/BRIEF*.md в промпте) — "
+                "размер задачи проверяется по нему (владелец 10-05: «гарантия, что крупно не повторится»).")
+    try:
+        text = open(found.group(0), encoding="utf-8").read()
+    except OSError:
+        return f"[agent_guard] Тимлид: бриф {found.group(0)} не читается."
+    section = re.search(r"^## Сделать[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    if not section:
+        return f"[agent_guard] Тимлид: в брифе {found.group(0)} нет раздела «## Сделать»."
+    body = section.group(1)
+    items = re.findall(r"^\s*\d+[.)]\s", body, re.M)
+    if len(items) > MAX_BRIEF_ITEMS or len(body) > MAX_BRIEF_DO_CHARS:
+        return (f"[agent_guard] Тимлид: задача крупнее одного агента — «## Сделать» {len(items)} пунктов / {len(body)} знаков "
+                f"(предел {MAX_BRIEF_ITEMS} / {MAX_BRIEF_DO_CHARS}). 10-05: 3 из 4 агентов с 4–6 пунктами упёрлись в 60 вызовов. "
+                "Режь на задачи с ОДНИМ результатом, остальное — отдельными брифами в очередь.")
+    return None
 
 
 def runs_editor(cmd):
@@ -331,9 +357,26 @@ def self_check():
             os.remove(os.path.join(STATE_DIR, payload["agent_id"] + ".json"))
         except OSError:
             pass
+    # Lead-side rule (no agent id): a fat brief must be refused (owner 10-05).
+    fat = os.path.join(STATE_DIR, "selfcheck-BRIEF.md")
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(fat, "w", encoding="utf-8") as f:
+            f.write("## Сделать\n1. a\n2. b\n3. c\n## Чем доказать\n")
+        out = subprocess.run([sys.executable, __file__], input=json.dumps({
+            "tool_name": "Agent", "hook_event_name": "PreToolUse",
+            "tool_input": {"subagent_type": "general-purpose", "prompt": f"brief {fat}"}}), capture_output=True, text=True)
+        cases["lead launches a fat brief"] = None
+        if '"deny"' not in out.stdout:
+            failed.append("lead launches a fat brief")
+    finally:
+        try:
+            os.remove(fat)
+        except OSError:
+            pass
     rules = ", ".join(cases)
     msg = (f"[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (UE или лучше), не замер/бюджет/урезанный охват "
-           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗА после текущей очереди (SHM1, SKEL-TREE, UI, ANIM-UNIFY, EDL-SPLIT) — новых задач не брать без слова владельца (LEAD_PROTOCOL §000b). Статистика: ledger.py + process_event.py на каждый запуск/приём. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
+           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Бриф = ОДИН результат (хук: ≤ 2 пункта / 900 знаков в «## Сделать»). Статистика: ledger.py + process_event.py на каждый запуск/приём. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
            f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
            f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
     emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}})
@@ -389,6 +432,15 @@ def main():
         if len(running) >= MAX_WORKING_AGENTS:
             deny(f"[agent_guard] Тимлид: лимит владельца 09-30 — не более {MAX_WORKING_AGENTS} агентов одновременно; идут: "
                  f"{', '.join(running)}. Дождись сдачи (ledger + process_event done|wip), потом запускай.", data, "lead")
+    # Owner 10-05 («можно дать гарантию, что не повторится?»): three of four agents that day hit the 60-call cap with
+    # 4-6-item briefs (VIDEO-1, MEDIA-3, VIDEO-2a: done 25 % vs 59 % baseline) and the next agent re-read the same files.
+    # So a working agent is launched ONLY from a brief file whose «## Сделать» is ONE result: ≤ MAX_BRIEF_ITEMS numbered
+    # items and ≤ MAX_BRIEF_DO_CHARS characters (packing items into one paragraph is caught by the length).
+    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
+            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() != "explore":
+        denial = brief_size_denial(str((data.get("tool_input") or {}).get("prompt") or ""))
+        if denial:
+            deny(denial, data, "lead")
     if not agent or agent_type == "explore":
         sys.exit(0)  # the lead's own session, or a discovery agent: unrestricted
 
