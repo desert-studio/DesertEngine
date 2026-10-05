@@ -3,6 +3,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Animation/AlphaBlend.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 #include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
@@ -221,6 +222,10 @@ namespace Desert::Animation::Graph
         /// it was loaded with; absent only on a graph never written - Serialize mints it then.
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         std::string                                               Name = "AnimGraph";
+        /// The `.skeleton` this graph animates (UE: UAnimBlueprint::TargetSkeleton; ANGR 4): every bone name the
+        /// graph states (BranchFilter) is a bone of it, and a Rename Bone finds the graph by this GUID
+        /// (SkeletonReferrers). Path relative to the assets root. Required - Deserialize refuses it absent.
+        Assets::AssetGuidRef   TargetSkeleton;
         std::vector<Parameter> Parameters;
         /// The pose graph (UE's AnimGraph of an AnimBlueprint): nodes whose Pose pins are wired to other
         /// nodes by NAME, evaluated from `OutputPose` back through the wires. A state machine is ONE node

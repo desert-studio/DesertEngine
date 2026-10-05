@@ -17,19 +17,44 @@ namespace
 {
     namespace G = Desert::Animation::Graph;
 
+    constexpr const char* kFoxGuid  = "0123456789abcdef0123456789abcdef";
+    constexpr const char* kWolfGuid = "fedcba9876543210fedcba9876543210";
+
+    // A graph of one state playing `Fox_Walk`, stating the Fox rig.
+    G::AnimGraph FoxGraph()
+    {
+        G::AnimGraph graph = G::MakeStateMachineGraph( "Fox" );
+        G::State     walk;
+        walk.Name = "Walk";
+        walk.Clip = "Fox_Walk";
+        graph.Nodes[0].Machine->States.push_back( walk );
+        graph.Nodes[0].Machine->Entry = "Walk";
+        graph.TargetSkeleton          = { kFoxGuid, "Meshes/Fox.skeleton" };
+        return graph;
+    }
+
+    // An ANGR 3 file: the current writer's text with TargetSkeleton taken out and the generation stated as 3.
+    std::string AsV3( const G::AnimGraph& graph )
+    {
+        std::string text = G::Serialize( graph );
+        text             = std::regex_replace( text, std::regex( R"(,\s*"TargetSkeleton"\s*:\s*\{[^}]*\})" ), "" );
+        text             = std::regex_replace( text, std::regex( R"("ANGR"\s*:\s*4)" ), "\"ANGR\": 3" );
+        return text;
+    }
+
     // An ANGR 2 file: the current writer's text with the v3 fields taken out and the generation stated as 2.
     std::string AsV2( const G::AnimGraph& graph )
     {
-        std::string text = G::Serialize( graph );
-        text = std::regex_replace( text, std::regex( R"(,\s*"OutputPose[XY]"\s*:\s*[-0-9.eE+]+)" ), "" );
-        text = std::regex_replace( text, std::regex( R"("ANGR"\s*:\s*3)" ), "\"ANGR\": 2" );
+        std::string text =
+             std::regex_replace( AsV3( graph ), std::regex( R"(,\s*"OutputPose[XY]"\s*:\s*[-0-9.eE+]+)" ), "" );
+        text = std::regex_replace( AsV3( graph ), std::regex( R"("ANGR"\s*:\s*3)" ), "\"ANGR\": 2" );
         return text;
     }
 } // namespace
 
 TEST( AnimGraphMigration, AV2GraphGetsItsOutputPoseRightOfTheRightmostNodeLevelWithTheWiredOne )
 {
-    G::AnimGraph graph = G::MakeStateMachineGraph( "Fox" );
+    G::AnimGraph graph = FoxGraph();
     graph.Nodes[0].X   = 520.0f;
     graph.Nodes[0].Y   = 150.0f;
     const auto minted  = G::Deserialize( G::Serialize( graph ) ); // the header minted, as on disk
@@ -41,7 +66,14 @@ TEST( AnimGraphMigration, AV2GraphGetsItsOutputPoseRightOfTheRightmostNodeLevelW
     ASSERT_NE( v2.find( "\"ANGR\": 2" ), std::string::npos );
     ASSERT_FALSE( G::Deserialize( v2 ).IsSuccess() ) << "the engine reads ANGR 3 only";
 
-    const auto raised = Desert::Migration::MigrateAnimGraphV2ToV3( v2 );
+    const auto v3 = Desert::Migration::MigrateAnimGraphV2ToV3( v2 );
+    ASSERT_TRUE( v3.IsSuccess() ) << v3.GetError();
+    ASSERT_NE( v3.GetValue().find( "\"ANGR\": 3" ), std::string::npos )
+         << "the step writes ANGR 3, not the current";
+    const std::vector<Desert::Migration::TargetSkeletonRig> rigs{
+         { kFoxGuid, "Meshes/Fox.skeleton", { "Root" } } };
+    const auto raised =
+         Desert::Migration::StateTargetSkeleton( v3.GetValue(), "ANGR", rigs, { { "Fox_Walk", kFoxGuid } } );
     ASSERT_TRUE( raised.IsSuccess() ) << raised.GetError();
     const auto read = G::Deserialize( raised.GetValue() );
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
@@ -57,9 +89,40 @@ TEST( AnimGraphMigration, AV2GraphGetsItsOutputPoseRightOfTheRightmostNodeLevelW
 
 TEST( AnimGraphMigration, AFileAlreadyAtV3IsRefusedByTheStep )
 {
-    const std::string v3     = G::Serialize( G::MakeStateMachineGraph( "Fox" ) );
-    const auto        raised = Desert::Migration::MigrateAnimGraphV2ToV3( v3 );
+    const auto raised = Desert::Migration::MigrateAnimGraphV2ToV3( AsV3( FoxGraph() ) );
     EXPECT_FALSE( raised.IsSuccess() );
+}
+
+// ANIM-SKELREF: ANGR 3 -> 4 states the rig the graph's clips are authored on (UE UAnimBlueprint::TargetSkeleton).
+TEST( AnimGraphMigration, AV3GraphStatesTheSkeletonItsClipsAreAuthoredOn )
+{
+    const std::vector<Desert::Migration::TargetSkeletonRig> rigs{
+         { kFoxGuid, "Meshes/Fox.skeleton", { "Root" } }, { kWolfGuid, "Meshes/Wolf.skeleton", { "Root" } } };
+    const std::string v3 = AsV3( FoxGraph() );
+    ASSERT_FALSE( G::Deserialize( v3 ).IsSuccess() ) << "the engine reads ANGR 4 only";
+
+    const auto raised = Desert::Migration::StateTargetSkeleton( v3, "ANGR", rigs, { { "Fox_Walk", kFoxGuid } } );
+    ASSERT_TRUE( raised.IsSuccess() ) << raised.GetError();
+    const auto read = G::Deserialize( raised.GetValue() );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_EQ( read.GetValue().TargetSkeleton.Guid, kFoxGuid );
+    EXPECT_EQ( read.GetValue().TargetSkeleton.Path, "Meshes/Fox.skeleton" );
+}
+
+TEST( AnimGraphMigration, AGraphWhoseClipNoAnimNamesIsRefusedNotGuessed )
+{
+    const std::vector<Desert::Migration::TargetSkeletonRig> rigs{
+         { kFoxGuid, "Meshes/Fox.skeleton", { "Root" } } };
+    EXPECT_FALSE( Desert::Migration::StateTargetSkeleton( AsV3( FoxGraph() ), "ANGR", rigs, {} ).IsSuccess() );
+}
+
+TEST( AnimGraphMigration, AGraphTheRigsFitTwiceIsRefusedNotGuessed )
+{
+    const std::vector<Desert::Migration::TargetSkeletonRig> rigs{
+         { kFoxGuid, "Meshes/Fox.skeleton", { "Root" } }, { kFoxGuid, "Meshes/FoxCopy.skeleton", { "Root" } } };
+    EXPECT_FALSE(
+         Desert::Migration::StateTargetSkeleton( AsV3( FoxGraph() ), "ANGR", rigs, { { "Fox_Walk", kFoxGuid } } )
+              .IsSuccess() );
 }
 
 TEST( AnimGraphMigration, ANewGraphPlacesItsOutputPoseOneColumnRightOfTheMachine )

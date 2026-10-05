@@ -39,12 +39,14 @@ namespace Desert::Assets
     inline constexpr uint32_t kUIThemeSchemaTag     = Common::Content::FourCC( "UITH" );
     inline constexpr uint32_t kUIThemeSchemaVersion = 2;
     // A .derig: the control rig file layout, stated in the header since v2 (T7c; v1 as the string table's).
+    // v3 (ANIM-SKELREF): the rig states its TargetSkeleton {Guid, Path}.
     inline constexpr uint32_t kControlRigSchemaTag     = Common::Content::FourCC( "CRIG" );
-    inline constexpr uint32_t kControlRigSchemaVersion = 2;
+    inline constexpr uint32_t kControlRigSchemaVersion = 3;
     // A .retarget: the retarget file layout, stated in the header since v2 (T7c; v1 as the string table's).
     // v3 (T7f): the source rig is named by {Guid, Path} and stated as the header's one Dependency.
+    // v4 (ANIM-SKELREF): the target rig is named too (TargetSkeleton {Guid, Path}); not a Dependency.
     inline constexpr uint32_t kRetargetSchemaTag     = Common::Content::FourCC( "RTGT" );
-    inline constexpr uint32_t kRetargetSchemaVersion = 3;
+    inline constexpr uint32_t kRetargetSchemaVersion = 4;
     // A .defoliage: the foliage type file layout, stated in the header from its first version (FO-1).
     inline constexpr uint32_t kFoliageTypeSchemaTag     = Common::Content::FourCC( "FOLT" );
     inline constexpr uint32_t kFoliageTypeSchemaVersion = 6;
@@ -63,8 +65,9 @@ namespace Desert::Assets
     // v2 (ANIM-I12): the graph is a pose graph (Nodes + OutputPose); v1's lone Entry/States became one
     // StateMachine node wired to Output Pose, in the files. v3 (TAIL-ANIM): the Output Pose node's canvas
     // position (OutputPoseX/Y, graph and every layer graph); Tools/SceneMigrator raises v2 through
-    // Migration::MigrateAnimGraphV2ToV3 at Animation::Graph::DefaultOutputPosePosition.
-    inline constexpr uint32_t kAnimGraphSchemaVersion = 3;
+    // Migration::MigrateAnimGraphV2ToV3 at Animation::Graph::DefaultOutputPosePosition. v4 (ANIM-SKELREF): the
+    // graph states its TargetSkeleton {Guid, Path} (UE UAnimBlueprint::TargetSkeleton).
+    inline constexpr uint32_t kAnimGraphSchemaVersion = 4;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
     // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
     // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the

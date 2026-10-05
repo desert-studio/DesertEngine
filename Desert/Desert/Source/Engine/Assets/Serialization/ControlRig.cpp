@@ -571,6 +571,12 @@ namespace Desert::Assets::Serialization
 
     Common::BoolResultStr ValidateControlRigData( const ControlRigData& data )
     {
+        if ( auto target = CheckTargetSkeletonRef( data.TargetSkeleton, std::format( "rig '{}'", data.Name ) );
+             !target )
+        {
+            return Common::MakeFormattedError<bool>( "{}", target.GetError() );
+        }
+
         if ( data.Controls.empty() )
         {
             return Common::MakeFormattedError<bool>( "rig '{}' defines no controls", data.Name );

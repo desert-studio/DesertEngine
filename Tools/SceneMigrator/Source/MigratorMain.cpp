@@ -1252,9 +1252,57 @@ namespace Desert::Migration
 
         int foliageRaised    = 0;
         int animGraphsRaised = 0;
+
+        // ANIM-SKELREF: what the TargetSkeleton step matches a graph, rig or retarget against - every rig's bones,
+        // and every clip's skeleton by the clip's Name (what a graph's state plays it by).
+        std::vector<Desert::Migration::TargetSkeletonRig> targetRigs;
+        std::unordered_map<std::string, std::string>      clipRigs;
+        for ( const auto& path : texts )
+        {
+            if ( path.extension() != ".skeleton" )
+                continue;
+            if ( auto rig = Desert::Migration::ReadTargetSkeletonRig( path, ReadAll( path ) ) )
+                targetRigs.push_back( rig.ExtractValue() );
+        }
+        for ( const auto& path : clips )
+        {
+            const auto clip = rfl::json::read<rfl::Generic::Object>( ReadAll( path ) );
+            if ( !clip )
+                continue;
+            const auto name     = clip.value().get( "Name" ).value_or( rfl::Generic() ).to_string();
+            const auto skeleton = clip.value().get( "Skeleton" ).value_or( rfl::Generic() ).to_object();
+            if ( name.has_value() && skeleton.has_value() )
+                if ( const auto guid = skeleton.value().get( "Guid" ).value_or( rfl::Generic() ).to_string() )
+                    clipRigs[name.value()] = guid.value();
+        }
+
         for ( const auto& path : texts )
         {
             const std::string text = ReadAll( path );
+            if ( const auto ext = path.extension().string();
+                 ext == ".danimgraph" || ext == ".derig" || ext == ".retarget" )
+            {
+                // ANGR 3 -> 4, CRIG 2 -> 3, RTGT 3 -> 4 (ANIM-SKELREF): the file states its TargetSkeleton.
+                const std::string tag    = ext == ".danimgraph" ? "ANGR" : ext == ".derig" ? "CRIG" : "RTGT";
+                const uint32_t    from   = tag == "CRIG" ? 2u : 3u;
+                const auto        stated = ReadStatedVersion( path, text, tag.c_str() );
+                if ( stated && stated.GetValue() == from )
+                {
+                    const auto raised = Desert::Migration::StateTargetSkeleton( text, tag, targetRigs, clipRigs );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — " << tag << " " << from << " -> " << from + 1
+                            << ": " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " " << tag << " " << from
+                        << " -> " << from + 1 << " (TargetSkeleton)\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                        ++failed;
+                    continue;
+                }
+            }
             if ( path.extension() == ".skeleton" )
             {
                 // SKEL 1/2 -> 3: SKEL 2 (SKEL-TREE) gave the rig PreviewMesh / CompatibleSkeletons, SKEL 3 dropped

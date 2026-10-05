@@ -33,21 +33,26 @@ namespace Desert::Assets
      * Editing renames the bone in the skeleton and in the assets that reference it by name).
      *
      * `ClipFiles`: every .anim whose header names the skeleton (the registry's Rig tag, ReferrersOfSkeleton),
-     * loaded or not. `RetargetFiles`: every .retarget the registry knows; the ones whose SourceSkeleton is this
-     * skeleton are the referrers (the file states the pair's source rig by GUID, UE's IK Retargeter source IK
-     * Rig). `Loaded`: the manager whose resident AnimationAssets of the skeleton are renamed in memory and whose
-     * resident RetargetAssets of a rewritten file re-read it; null = none resident.
+     * loaded or not. `RetargetFiles`: every .retarget whose SourceSkeleton or TargetSkeleton is this skeleton (the
+     * file states both rigs of the pair by GUID, UE's IK Retargeter source/target IK Rig). `AnimGraphFiles` /
+     * `ControlRigFiles`: every .danimgraph / .derig whose TargetSkeleton is this skeleton (UE
+     * UAnimBlueprint::TargetSkeleton). `Loaded`: the manager whose resident AnimationAssets of the skeleton are
+     * renamed in memory and whose resident RetargetAssets of a rewritten file re-read it; null = none resident.
      */
     struct SkeletonReferrers
     {
         std::vector<std::filesystem::path> ClipFiles;
         std::vector<std::filesystem::path> RetargetFiles;
+        std::vector<std::filesystem::path> AnimGraphFiles;
+        std::vector<std::filesystem::path> ControlRigFiles;
         AssetManager*                      Loaded = nullptr;
     };
 
-    /// The referrers of @p skeleton as the content registry knows them, plus @p loaded's resident clips.
-    [[nodiscard]] SkeletonReferrers ReferrersOfSkeleton( const Common::Content::AssetGuid& skeleton,
-                                                         AssetManager*                     loaded );
+    /// The referrers of @p skeleton as the content registry knows them, plus @p loaded's resident clips. Every
+    /// registered retarget, anim graph and control rig is read for the skeleton GUIDs it states; one that does not
+    /// read is refused by path (a referrer that cannot be checked is not silently left out of a rename).
+    [[nodiscard]] Common::ResultStr<SkeletonReferrers>
+    ReferrersOfSkeleton( const Common::Content::AssetGuid& skeleton, AssetManager* loaded );
 
     /**
      * @brief THE ONE POINT A BONE RENAME REACHES THE SKELETON'S ASSETS: every clip file of @p referrers is read,

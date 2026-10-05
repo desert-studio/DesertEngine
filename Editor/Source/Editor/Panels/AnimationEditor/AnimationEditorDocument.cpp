@@ -676,8 +676,10 @@ namespace Desert::Editor
         // A RENAMED BONE IS CARRIED INTO THE SKELETON'S CLIPS AND RETARGETS (files by the registry, and the ones
         // resident in this manager in memory) by the save itself - the one point
         // (Assets::RenameBonesInSkeletonAssets).
-        if ( const auto saved = Assets::Serialization::SaveSkeletonAsset(
-                  *m_SkeletonAsset, Assets::ReferrersOfSkeleton( m_Skeleton, m_Assets ) );
+        const auto referrers = Assets::ReferrersOfSkeleton( m_Skeleton, m_Assets );
+        if ( !referrers )
+            return Common::MakeFormattedError<bool>( "not saved: {}", referrers.GetError() );
+        if ( const auto saved = Assets::Serialization::SaveSkeletonAsset( *m_SkeletonAsset, referrers.GetValue() );
              !saved )
             return saved;
         // THE READERS RE-READ THE FILE (UE: a saved USkeleton is what every mesh and clip on it loads). The reload
