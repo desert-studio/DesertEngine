@@ -130,7 +130,7 @@ namespace Desert::Player
     RuntimeLayer::RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play,
                                 std::optional<MovieRenderRequest> movie, Engine::Application* application )
          : Common::Layer( "RuntimeLayer" ), m_ScenePathOverride( std::move( scenePathOverride ) ),
-           m_PlayRequest( std::move( play ) ), m_Movie( std::move( movie ) ), m_Application( application )
+           m_PlayRequest( std::move( play ) ), m_Application( application ), m_Movie( std::move( movie ) )
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
         // Filled by the "Indexing animation clips" stage of the boot, the same call the editor makes. This
