@@ -309,8 +309,8 @@ namespace Desert::Migration
     // What MigrateSceneDependenciesV42ToV43 did to one scene.
     struct SceneDependenciesReport
     {
-        std::size_t              Stated = 0;  // GUIDs the header lists after the step
-        std::vector<std::string> Refused;     // one line per prefab instance whose file states no GUID
+        std::size_t              Stated = 0; // GUIDs the header lists after the step
+        std::vector<std::string> Refused;    // one line per prefab instance whose file states no GUID
     };
 
     // Header.Dependencies under the rule kSceneVersionSceneDependencies states. Prefab paths are located
@@ -479,7 +479,7 @@ namespace Desert::Migration
         bool            SoundRefsRaised = false; // below kSceneVersionSoundAssets
         SoundRefsReport SoundRefs;
 
-        bool                   SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
+        bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
@@ -491,8 +491,7 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised || SoundRefsRaised || UIAnimationTimelinesRaised ||
-                   SceneDependenciesRaised;
+                   UIAnimationsRaised || SoundRefsRaised || UIAnimationTimelinesRaised || SceneDependenciesRaised;
         }
     };
 

@@ -79,8 +79,8 @@ namespace Desert::Core::Serialize
         std::vector<std::string> Guids() const;
 
     private:
-        std::vector<std::string>  m_Guids;
-        AssetReferenceRecording*  m_Outer = nullptr; // restored on destruction: an inner save records alone
+        std::vector<std::string> m_Guids;
+        AssetReferenceRecording* m_Outer = nullptr; // restored on destruction: an inner save records alone
         friend void              RecordAssetReference( const std::string& guidText );
     };
 

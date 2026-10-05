@@ -2042,7 +2042,8 @@ namespace Desert::Migration
                     {
                         if ( const auto array = field.to_array(); array.has_value() )
                             for ( const auto& element : array.value() )
-                                if ( const auto text = element.to_string(); text.has_value() && !text.value().empty() )
+                                if ( const auto text = element.to_string();
+                                     text.has_value() && !text.value().empty() )
                                     out.push_back( text.value() );
                         continue;
                     }
@@ -2075,8 +2076,8 @@ namespace Desert::Migration
                 report.Refused.push_back( site + ": " + located.GetError() );
                 continue;
             }
-            const auto header = Common::Content::ReadAssetHeader( located.GetValue().File,
-                                                                  Common::Content::AssetHeaderReadContext{ {}, true } );
+            const auto header = Common::Content::ReadAssetHeader(
+                 located.GetValue().File, Common::Content::AssetHeaderReadContext{ {}, true } );
             if ( !header || header.GetValue().Guid.IsNull() )
             {
                 report.Refused.push_back( site + ": its file states no header GUID" );
@@ -2154,7 +2155,14 @@ namespace Desert::Migration
             }
         }
 
-        // Scene-only, last: it reads what every earlier step left the records stating.
+        // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
+        // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.
+        scene.Header =
+             MigrationHeader( scene.Header, Common::Content::ContentKind::Scene, assetsRoot, sourceFile );
+        scene.SceneVersion = std::nullopt;
+        scene.UnitVersion  = std::nullopt;
+
+        // Scene-only, after the stamp (MigrationHeader restates the header): it reads what every step left stated.
         if ( statedSceneVersion < kSceneVersionSceneDependencies )
         {
             report.SceneDependenciesRaised = true;
@@ -2165,13 +2173,6 @@ namespace Desert::Migration
                 return report;
             }
         }
-
-        // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
-        // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.
-        scene.Header =
-             MigrationHeader( scene.Header, Common::Content::ContentKind::Scene, assetsRoot, sourceFile );
-        scene.SceneVersion = std::nullopt;
-        scene.UnitVersion  = std::nullopt;
 
         return report;
     }
