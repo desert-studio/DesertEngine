@@ -166,8 +166,8 @@ namespace
             else
                 UnsetEnv( "HOME" );
             Common::Utils::VFS::Unmount();
-            // Back to the built-in sandbox mapping the process started with.
-            Common::Constants::Path::SetProjectRoot( "", "Resources/Assets" );
+            // Back to no project, the state the process started in.
+            Common::Constants::Path::ClearProject();
         }
     };
 } // namespace

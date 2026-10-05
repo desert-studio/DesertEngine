@@ -510,7 +510,7 @@ namespace Desert::Editor
 
         // Resolve the material's texture references RELATIVE TO THE SOURCE FILE's own folder (how FBX/glTF
         // store them, e.g. Poly Haven's "textures/<name>.jpg" sits next to the .fbx). The old code looked in
-        // a hardcoded Resources/Assets/Textures/<stem>/ and never found them.
+        // a hardcoded <assets root>/Textures/<stem>/ and never found them.
         const auto materialData = ExtractMaterials( scene, sourcePath );
 
         std::unordered_map<std::string, uint32_t> boneMapping;

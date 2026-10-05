@@ -1629,7 +1629,7 @@ namespace Desert::Editor
                             // SAID, not an empty popup that reads as a broken menu. The list is what the
                             // project has imported, so "there is nothing here" is an instruction.
                             ImGui::TextDisabled( "No textures imported yet - drop an image into\n"
-                                                 "Resources/Assets/Textures, or drag one onto this slot." );
+                                                 "the project's Content/Textures, or drag one onto this slot." );
                         }
                     }
                     ImGui::EndPopup();

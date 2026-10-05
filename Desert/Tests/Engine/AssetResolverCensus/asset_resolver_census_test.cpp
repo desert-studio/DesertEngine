@@ -248,7 +248,7 @@ TEST( AssetResolverCensus, TheEngineResourceTreesAreDeliberatelyNotProjectCensus
     EXPECT_NE( P::ASSETS_PATH, assetsBefore )
          << "the assets root did NOT follow the project root, so this test proves nothing about the "
             "difference between the two kinds";
-    P::ResetToSandbox();
+    P::ClearProject();
 
     // The two kinds must be TOLD APART by the one table that has to know: AssetHandle's root tags. This
     // is what let I10 write `engine:Fonts/x.ttf` and `assets:Fonts/x.ttf` as different references at all.

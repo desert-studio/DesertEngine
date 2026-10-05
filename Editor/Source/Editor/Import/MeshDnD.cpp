@@ -27,14 +27,14 @@ namespace Desert::Editor::MeshDnD
             return ImportOptions::SharedImporter();
         }
 
-        // Source (Resources/Assets/Meshes/foo.obj) -> its mesh asset beside it
-        // (Resources/Assets/Meshes/foo.stmesh).
+        // Source (Content/Meshes/foo.obj) -> its mesh asset beside it
+        // (Content/Meshes/foo.stmesh).
         std::filesystem::path CookedStaticMeshPath( const std::string& sourcePath )
         {
             return CookPaths::MeshAsset( sourcePath );
         }
 
-        // Same, for a rigged source that imports to a skinned mesh beside it (Resources/Assets/Meshes/foo.skmesh).
+        // Same, for a rigged source that imports to a skinned mesh beside it (Content/Meshes/foo.skmesh).
         std::filesystem::path CookedSkinnedMeshPath( const std::string& sourcePath )
         {
             return CookPaths::SkinnedAsset( sourcePath, ".skmesh" );

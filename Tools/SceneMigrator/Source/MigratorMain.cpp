@@ -589,7 +589,7 @@ namespace Desert::Migration
 
         // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
         // second run changes nothing. A mesh under <project>/Cooked/Meshes translates its material numbers
-        // through the register of <project>/Resources/Assets; one under an assets root's Meshes/ through
+        // through the register of <project>/<AssetsRoot> (Content/); one under an assets root's Meshes/ through
         // that root's. A file that is not a cooked mesh this build reads (a JSON-era mesh, a foreign file, a
         // later version) FAILS by name and is left untouched - never "ok".
         // THE SKELETONS the SKEL-TREE raises (ANIM 4 -> 5, MeshBinary 3/4 -> 5) resolve a bone hash against.

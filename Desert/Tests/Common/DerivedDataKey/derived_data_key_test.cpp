@@ -162,7 +162,7 @@ TEST( DerivedDataKey, PutThenGetAndAPackagedGameLooksUnderCooked )
 
     EXPECT_EQ( Common::DDC::PlatformCookedDir(),
                ( project / "Saved" / "Cooked" / Common::DDC::CookPlatformName() ).lexically_normal() );
-    Common::Constants::Path::ResetToSandbox();
+    Common::Constants::Path::ClearProject();
     fs::remove_all( project, ec );
 }
 
@@ -200,7 +200,7 @@ TEST( DerivedDataKey, ParallelPutsOfOneKeyBothSucceedAndLeaveOneWholeEntry )
     for ( const auto& e : fs::directory_iterator( Common::DDC::PathFor( kTestDeriver, 77 ).parent_path(), ec ) )
         EXPECT_NE( e.path().extension(), ".tmp" ) << "a working file survived: " << e.path();
 
-    Common::Constants::Path::ResetToSandbox();
+    Common::Constants::Path::ClearProject();
     fs::remove_all( project, ec );
 }
 
@@ -250,7 +250,7 @@ TEST( DerivedDataKey, ConcurrentMissesOfOneKeyBuildOnce )
     EXPECT_FALSE( failed.IsSuccess() );
     EXPECT_FALSE( Common::DDC::Get( kTestDeriver, 92 ).has_value() );
 
-    Common::Constants::Path::ResetToSandbox();
+    Common::Constants::Path::ClearProject();
     fs::remove_all( project, ec );
 }
 

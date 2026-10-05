@@ -97,9 +97,8 @@ TEST_F( EngineContentMount, TheMountHoldsNoSandboxContent )
     }
 }
 
-TEST_F( EngineContentMount, TheSandboxWalksItsAssetsAndTheMount )
+TEST_F( EngineContentMount, AProjectWalksItsAssetsAndTheMount )
 {
-    Path::ResetToSandbox();
     const auto& skeleton = Common::Content::KindSpec( ContentKind::Skeleton );
     EXPECT_EQ( Common::Content::ScanRootsOf( skeleton ).size(), 2U );
 }

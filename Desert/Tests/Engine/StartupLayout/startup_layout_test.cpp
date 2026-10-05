@@ -379,11 +379,11 @@ TEST( StartupLayout, WithNoMarkerAnywhereTheRefusalNamesEveryPlaceItLooked )
 
 // THE SERVICE HALF: what ResolveEngineDir answers is handed to Constants::Path::SetEngineDir, and every
 // engine resource spelling must follow it — absolute, under that directory, at the SAME address (tables
-// hold `&SHADERDIR_PATH` and must follow for free), with the no-project sandbox following too.
+// hold `&SHADERDIR_PATH` and must follow for free); project content never hangs off it (no project, no content).
 TEST( StartupLayout, SettingTheEngineDirMakesEveryEngineResourcePathAbsoluteAtStableAddresses )
 {
     namespace P = Common::Constants::Path;
-    P::ResetToSandbox();
+    P::ClearProject();
     const fs::path* shadersAddress = &P::SHADERDIR_PATH;
     P::SetEngineDir( {} );
     // Unset is an error, not a cwd-relative guess: nothing is derived until a host sets the directory.
@@ -405,10 +405,9 @@ TEST( StartupLayout, SettingTheEngineDirMakesEveryEngineResourcePathAbsoluteAtSt
     EXPECT_EQ( P::EngineContentDir(), P::ENGINE_CONTENT_PATH );
     EXPECT_TRUE( P::SHADERDIR_PATH.is_absolute() );
 
-    // The sandbox (no project) is engine content, so it follows the engine directory...
-    EXPECT_EQ( P::ProjectDir(), P::EngineDir() );
-    EXPECT_EQ( fs::path( P::ASSETS_PATH ).lexically_normal(),
-               ( engine / P::SANDBOX_ASSETS_ROOT / "" ).lexically_normal() );
+    // Setting the engine directory derives no content: without a project there is none (UE)...
+    EXPECT_FALSE( P::HasProject() );
+    EXPECT_TRUE( P::ASSETS_PATH.empty() ) << "the engine dir invented a content root: " << P::ASSETS_PATH;
 
     // ...and an opened project does not move the engine resources.
     const fs::path project = FreshDirectory( "engine_dir_service_project" );
@@ -417,7 +416,7 @@ TEST( StartupLayout, SettingTheEngineDirMakesEveryEngineResourcePathAbsoluteAtSt
     EXPECT_EQ( P::SHADERDIR_PATH, engine / "Resources" / "Shaders" / "" );
 
     P::SetEngineDir( {} );
-    P::ResetToSandbox();
+    P::ClearProject();
     EXPECT_FALSE( P::HasEngineDir() );
     EXPECT_TRUE( P::SHADERDIR_PATH.empty() ) << P::SHADERDIR_PATH;
 }

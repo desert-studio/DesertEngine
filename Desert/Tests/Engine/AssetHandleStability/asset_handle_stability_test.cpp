@@ -762,16 +762,15 @@ TEST( AssetHandleStability, AStringWithNoRootTagIsHandedBackUnchanged )
 TEST( AssetHandleStability, TwoRootsThatShareAPrefixDoNotSwapKeysOnExpansion )
 {
     // The companion: an inverse that ignored the tag and joined everything to one root would satisfy the
-    // round trip for whichever root it picked and quietly move every other asset. Under the DEFAULT
-    // sandbox this is not hypothetical — ASSETS_PATH (`Resources/Assets/`) is nested inside
-    // RESOURCE_PATH (`Resources/`), and the two tags must still land in different places.
-    ProjectRootGuard guard;
-    Common::Constants::Path::ResetToSandbox();
+    // round trip for whichever root it picked and quietly move every other asset. A project whose assets
+    // root lies inside the engine's resources makes this concrete — ASSETS_PATH (`Resources/Assets/`) is
+    // nested inside RESOURCE_PATH (`Resources/`), and the two tags must still land in different places.
+    ProjectRootGuard            guard;
+    const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
+    Common::Constants::Path::SetProjectRoot( engineDir / "Resources", "Assets" );
 
     EXPECT_NE( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ),
                Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ) );
-    // The sandbox's roots hang off the engine directory (ENG-ROOT), so the expansions are absolute there.
-    const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ),
                ( engineDir / "Resources/Assets/Textures/T.png" ).lexically_normal() );
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ),
@@ -836,15 +835,16 @@ TEST( AssetHandleStability, EngineResourcesAreKeyedOnTheirOwnRootAndDoNotMoveWit
     EXPECT_EQ( HandleValue( shader ), beforeAnyProject );
 }
 
-TEST( AssetHandleStability, TheDefaultSandboxNestsAssetsInsideResourcesAndAssetsStillWins )
+TEST( AssetHandleStability, AProjectNestedInsideResourcesStillKeysItsAssetsAsAssets )
 {
-    // With no project open ASSETS_PATH is `Resources/Assets/` -- INSIDE RESOURCE_PATH (`Resources/`).
+    // A project whose ASSETS_PATH is `<engine>/Resources/Assets/` -- INSIDE RESOURCE_PATH (`Resources/`).
     // Both roots contain the file, so the answer must not depend on which one the code happens to test
     // first. Longest match is what makes that true, and this is the case that proves it.
-    ProjectRootGuard guard;
-    Common::Constants::Path::ResetToSandbox();
+    ProjectRootGuard            guard;
+    const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
+    Common::Constants::Path::SetProjectRoot( engineDir / "Resources", "Assets" );
 
-    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "Resources/Assets/Clouds/Cumulus.dcnv" ),
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( engineDir / "Resources/Assets/Clouds/Cumulus.dcnv" ),
                "assets:Clouds/Cumulus.dcnv" )
          << "a content asset was keyed as an engine resource because a shorter root matched first";
 }

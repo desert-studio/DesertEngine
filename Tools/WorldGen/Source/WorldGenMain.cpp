@@ -11,6 +11,7 @@
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Project/ProjectFormat.hpp>
 
 #include <Common/Json/Json.hpp>
 
@@ -359,7 +360,7 @@ namespace Desert::WorldGen
         // No project is guessed: not from the working directory and not from the engine directory (the
         // engine is not a project). A run that needs a project — no --assets to read materials from, or a
         // corpus preset, whose meshes are project paths — without --project is refused with the flag to
-        // pass; an absent --assets is the named project's Resources/Assets.
+        // pass; an absent --assets is the assets root the named project's .deproj states (AssetsRoot).
         std::string        assetsRoot;
         std::string        projectRoot;
         std::string        presetKey  = "world";
@@ -508,12 +509,41 @@ namespace Desert::WorldGen
                           : std::string( "Without --assets the materials "
                                          "come from the project" ) )
                 << ", and no project is assumed — pass --project <the folder holding the .deproj> "
-                   "(the development project is <checkout>/Editor).\n"
+                   "(the development project is <checkout>/Projects/Desert).\n"
                 << Usage() << "\n";
             return 2;
         }
         if ( assetsRoot.empty() )
-            assetsRoot = ( std::filesystem::path( projectRoot ) / "Resources" / "Assets" ).string();
+        {
+            // The assets root is the project's own setting (.deproj AssetsRoot), read from the one descriptor
+            // in the folder - never a spelled-out folder name.
+            std::vector<std::filesystem::path> descriptors;
+            std::error_code                    listError;
+            for ( const auto& entry : std::filesystem::directory_iterator( projectRoot, listError ) )
+                if ( entry.is_regular_file() && entry.path().extension() == ".deproj" )
+                    descriptors.push_back( entry.path() );
+            if ( listError || descriptors.size() != 1 )
+            {
+                err << "WorldGen: --project '" << projectRoot << "' must hold exactly one .deproj (found "
+                    << descriptors.size() << ( listError ? ", " + listError.message() : std::string() ) << ").\n";
+                return 2;
+            }
+            const auto json = Common::Utils::FileSystem::ReadFileContent( descriptors.front().string() );
+            if ( !json )
+            {
+                err << "WorldGen: cannot read " << descriptors.front().generic_string() << ": " << json.GetError()
+                    << "\n";
+                return 2;
+            }
+            const auto project = Common::Project::ReadProjectFile( json.GetValue() );
+            if ( !project )
+            {
+                err << "WorldGen: " << descriptors.front().generic_string()
+                    << " is not a readable project: " << project.GetError() << "\n";
+                return 2;
+            }
+            assetsRoot = ( std::filesystem::path( projectRoot ) / project.GetValue().AssetsRoot ).string();
+        }
 
         const std::filesystem::path assets( assetsRoot );
         std::vector<MaterialRef>    palette;

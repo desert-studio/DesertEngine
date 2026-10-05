@@ -67,7 +67,7 @@ namespace Desert::Editor
         constexpr float kDomeDefaultPitch = 0.5236f; // 30 degrees, radians
         constexpr float kDomeDefaultYaw   = -0.6f;
         // THE GRADE A CLOUD SKY IS LOOKED AT THROUGH IN THIS REPOSITORY. Counted rather than chosen: of the
-        // 51 scenes under Resources/Assets/Scenes carrying a VolumetricCloud component, 50 author
+        // 51 scenes under Projects/Desert/Content/Scenes carrying a VolumetricCloud component, 50 author
         // Exposure 0.26 and one (Clouds_Sunset) authors 1.0. The dome takes the modal value so that the
         // material is tuned at the exposure it will be shipped at; the row on the Preview Scene tab is
         // there for the level that disagrees.
@@ -823,7 +823,7 @@ namespace Desert::Editor
             // the sky's diffuse contribution dominates a lit ground, so a shadow that removes all of the
             // sun still moves the pixel very little and the frame reads as a uniform slab. 22 is the value
             // the engine's own outdoor reference scene authors for this sun
-            // (Resources/Assets/Scenes/Clouds_ShadowsOnGround.desce), taken rather than derived — the sky's
+            // (Content/Scenes/Clouds_ShadowsOnGround.desce), taken rather than derived — the sky's
             // SunIntensity is a radiance and this is an illuminance, and Components.hpp is explicit that
             // the two are different quantities that must not be computed from one another.
             m_Setup.LightIntensity = 22.0f;

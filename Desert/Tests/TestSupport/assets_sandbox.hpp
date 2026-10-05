@@ -7,8 +7,9 @@
 // so it cannot be swapped for an absolute temporary directory. Since SCNE 27 the chain also OPENS every
 // `.demat` a slot names by path alone, to read its header GUID - and a synthetic scene's materials exist
 // nowhere. This sandbox makes the relative root real for the length of one test: it creates the named files
-// under <temp>/Resources/Assets/, points the engine directory at <temp> (the sandbox content root hangs off it),
-// and on destruction points it back and removes the tree. The files carry no header, which is exactly a `.demat`
+// under <temp>/Resources/Assets/, points the engine directory at <temp> and OPENS <temp> as a project whose
+// assets root is `Resources/Assets` (no project, no content: the tree is only content once a project names it),
+// and on destruction restores both and removes the tree. The files carry no header, which is exactly a `.demat`
 // whose own header step has not run yet.
 
 #include <Common/Core/Constants.hpp>
@@ -30,6 +31,7 @@ namespace Desert::TestSupport
     public:
         AssetsSandbox( std::string_view suite, std::initializer_list<const char*> headerlessFiles )
              : m_Previous( Common::Constants::Path::EngineDir() )
+             , m_PreviousProject( Common::Constants::Path::CurrentProjectRoot() )
         {
             static std::atomic<int> sequence = 0;
             m_Root                           = std::filesystem::temp_directory_path() /
@@ -46,12 +48,14 @@ namespace Desert::TestSupport
             }
             std::filesystem::create_directories( m_Root / "Resources/Assets" );
             Common::Constants::Path::SetEngineDir( m_Root );
+            Common::Constants::Path::SetProjectRoot( m_Root, "Resources/Assets" );
         }
 
         ~AssetsSandbox()
         {
             std::error_code ec;
             Common::Constants::Path::SetEngineDir( m_Previous );
+            Common::Constants::Path::SetProjectRoot( m_PreviousProject.ProjectDir, m_PreviousProject.AssetsRoot );
             std::filesystem::remove_all( m_Root, ec );
         }
 
@@ -62,6 +66,7 @@ namespace Desert::TestSupport
 
     private:
         std::filesystem::path m_Root;
-        std::filesystem::path m_Previous;
+        std::filesystem::path                             m_Previous;
+        Common::Constants::Path::ProjectRootState         m_PreviousProject;
     };
 } // namespace Desert::TestSupport

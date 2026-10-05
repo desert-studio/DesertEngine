@@ -141,13 +141,10 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         }
         Common::Constants::Path::SetEngineDir( engine.Dir );
         startedInCheckout = engine.FromCheckout;
-        // The log lives in <ProjectDir>/Saved/Logs wherever the process was started (UE's layout) — the one
-        // place a developer looks for engine_log.txt.
-        Common::Logger::RelocateLogFile( Common::Constants::Path::ProjectDir() / "Saved" / "Logs" );
 
-        // A binary started where it was built: an IDE passes the run scripts' `--project Desert.deproj`
-        // but starts in the solution root, where no such file is. The name then means the one in the
-        // checkout's Editor/, which is where the scripts pass it from.
+        // A binary started where it was built: an IDE passes the run scripts' `--project
+        // ../Projects/Desert/Desert.deproj` but starts in the solution root, where no such file is. The
+        // name is then read off the checkout's Editor/, which is where the scripts pass it from.
         if ( startedInCheckout && !options.Project.empty() &&
              std::filesystem::path( options.Project ).is_relative() )
         {
@@ -174,15 +171,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     //    did.
     if ( options.Project.empty() )
     {
+        // No project, no content (UE): a development build has no descriptor beside it and its run scripts
+        // and IDE debug arguments pass `--project`; there is no built-in project to fall back to.
         auto beside = Desert::Project::ProjectBesideExecutable( executableIn );
-        // A binary started where it was built (an IDE's F5): the development project lives in its
-        // checkout's Editor/ (the engine directory) - the same one the run scripts pass.
-        if ( !beside.IsSuccess() && startedInCheckout )
-        {
-            if ( auto inEditor = Desert::Project::ProjectBesideExecutable( Common::Constants::Path::EngineDir() );
-                 inEditor.IsSuccess() )
-                beside = std::move( inEditor );
-        }
         if ( !beside.IsSuccess() )
         {
             Desert::Editor::RefuseToStart( 1, beside.GetError() );
@@ -206,6 +197,10 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                                    "' (missing or corrupt .deproj)." );
         }
     }
+
+    // The log lives in <ProjectDir>/Saved/Logs wherever the process was started (UE's layout) — the one
+    // place a developer looks for engine_log.txt. Only now is there a project directory to put it in.
+    Common::Logger::RelocateLogFile( Common::Constants::Path::ProjectDir() / "Saved" / "Logs" );
 
     // THE CRASH HANDLER, INSTALLED THE MOMENT THE REPORT CAN BE FILED SOMEWHERE USEFUL — after the
     // project is open (so reports land in <project>/Saved/Crashes and travel with the project) and

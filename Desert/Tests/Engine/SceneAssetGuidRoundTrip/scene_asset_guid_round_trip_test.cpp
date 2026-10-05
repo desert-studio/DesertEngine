@@ -150,6 +150,9 @@ TEST( SceneAssetGuidRoundTrip, AssetWithNoHeaderGuidIsRefusedNamingTheField )
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    // No project, no content: the table's assets are spelled under an explicit throwaway project.
+    Common::Constants::Path::SetProjectRoot( std::filesystem::temp_directory_path() / "SceneAssetGuidRoundTrip",
+                                             "Content" );
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
