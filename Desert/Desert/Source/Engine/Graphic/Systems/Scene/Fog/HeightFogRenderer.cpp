@@ -3,6 +3,7 @@
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderGraphSort.hpp>
 #include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -248,7 +249,8 @@ namespace Desert::Graphic::System
         fog.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
         m_SceneRenderer->DeclareAtmosphereReads( fog.Access, RDG::Access::SampledCompute );
         fog.Access.Write( m_FogImage, RDG::Access::StorageWrite, "HeightFog.Fog" );
-        fog.Record = [this, push, apActive, atmosphere, depthImage = depth.get()]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
+        fog.Record = [this, push, apActive, atmosphere,
+                      depthImage = depth.get()]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "HeightFog: ExecuteInFrame" );
             auto& renderer = Renderer::GetInstance();
@@ -279,9 +281,10 @@ namespace Desert::Graphic::System
                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_FogPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
-            renderer.DispatchComputeInFrame( m_FogPipeline.get(), GroupCount( m_FogWidth ),
+            // Every resource is the renderer's own (imported), bound by the pipeline's setters.
+            const RDG::PassBindings bindings( context );
+            return renderer.DispatchCompute( bindings, *m_FogPipeline, GroupCount( m_FogWidth ),
                                              GroupCount( m_FogHeight ), 1 );
-            return BOOLSUCCESS;
         };
         nodes.push_back( std::move( fog ) );
 

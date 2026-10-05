@@ -152,16 +152,15 @@ namespace Desert::Graphic::System
         bool EnsureDistantLightResources();
 
         // The cached pair, in dependency order (the multi-scattering march samples the transmittance).
-        // @p inFrame picks the recording path: true records into the current frame's command buffer
-        // (ExecuteAtmosphereLuts' slot), false submits immediate dispatches — the bake path, which runs
-        // OUTSIDE a frame and cannot wait for the in-frame slot that only comes later.
         // Recorded by the SkyAtmosphereLuts graph nodes only: the graph places every barrier and records the
-        // layout each LUT is left in. Nothing dispatches them outside the frame graph.
-        void DispatchTransmittanceLut();
-        void DispatchMultiScatterLut();
-        void DispatchSkyViewLut();
-        void DispatchAerialPerspectiveLut();
-        void DispatchDistantLight();
+        // layout each LUT is left in. Nothing dispatches them outside the frame graph. Each records into
+        // @p context through Renderer::DispatchCompute; every LUT is this renderer's own (imported, cached
+        // across frames), so the pipeline's setters bind them and the returned error names the refused slot.
+        [[nodiscard]] Common::BoolResultStr DispatchTransmittanceLut( const RDG::PassContext& context );
+        [[nodiscard]] Common::BoolResultStr DispatchMultiScatterLut( const RDG::PassContext& context );
+        [[nodiscard]] Common::BoolResultStr DispatchSkyViewLut( const RDG::PassContext& context );
+        [[nodiscard]] Common::BoolResultStr DispatchAerialPerspectiveLut( const RDG::PassContext& context );
+        [[nodiscard]] Common::BoolResultStr DispatchDistantLight( const RDG::PassContext& context );
 
         // True when an earlier frame's graph has written the transmittance and multi-scattering LUTs for the
         // atmosphere's current parameters, so the environment bake (outside the graph) may sample them.
