@@ -80,7 +80,8 @@ namespace Desert::Editor
         const glm::mat4 before = *current;
         if ( !skeleton->SetLocalBindTransform( bone, localBind ) )
             return false;
-        CommandHistory::Get().PushCommand( std::make_unique<SkeletonBindCommand>( skeleton, bone, before, localBind ) );
+        CommandHistory::Get().PushCommand(
+             std::make_unique<SkeletonBindCommand>( skeleton, bone, before, localBind ) );
         return true;
     }
 

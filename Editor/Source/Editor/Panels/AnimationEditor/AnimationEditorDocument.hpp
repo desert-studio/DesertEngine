@@ -131,7 +131,7 @@ namespace Desert::Editor
         void                                 DrawSkeletonDetails();
         // Writes the `.skeleton` (references and Reference Pose) and reloads it, so every reader by GUID - a scene
         // Animator rebuilds on the rig's content signature - stands in what the file now says.
-        Common::BoolResultStr                SaveSkeleton();
+        Common::BoolResultStr SaveSkeleton();
         // Skeleton mode: the bone's Reference Pose rows and gizmo write the rest pose.
         void                                 DrawBindGizmo( const glm::vec2& origin, const glm::vec2& size );
         void                                 DrawOverlay( const glm::vec2& origin ) const;
@@ -212,9 +212,9 @@ namespace Desert::Editor
         // Compatible Skeletons, the Asset Details of Skeleton mode).
         Common::Content::AssetGuid                m_Skeleton;
         std::shared_ptr<Assets::SkeletonAsset>    m_SkeletonAsset;
-        // SKELETON MODE AUTHORS THE REFERENCE POSE (SkeletonBindEdit.hpp): the file's rest pose as read on open or last
-        // written (the "Save*" rule and "Don't Save"), the bind revision the preview's Animator last stood in, and
-        // the gizmo drag on the rest pose (one undo record per drag).
+        // SKELETON MODE AUTHORS THE REFERENCE POSE (SkeletonBindEdit.hpp): the file's rest pose as read on open or
+        // last written (the "Save*" rule and "Don't Save"), the bind revision the preview's Animator last stood
+        // in, and the gizmo drag on the rest pose (one undo record per drag).
         std::optional<ReferencePoseOnDisk> m_BindOnDisk;
         // Rename Bone in the Skeleton Tree (F2 / context menu): the row being renamed, its text, and the last
         // refusal (empty name, another bone's name) shown under the tree until the next rename.

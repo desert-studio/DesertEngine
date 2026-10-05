@@ -90,7 +90,8 @@ namespace Desert::ECS
         }
 
         /// Whether any lane of @p part has a key on @p tick in any section of @p track.
-        bool PartKeyedOn( const T::Track& track, const Animation::TrackChannel part, const Animation::FrameNumber tick )
+        bool PartKeyedOn( const T::Track& track, const Animation::TrackChannel part,
+                          const Animation::FrameNumber tick )
         {
             for ( const T::Section& section : track.Sections )
             {
@@ -100,7 +101,8 @@ namespace Desert::ECS
                     continue;
                 std::vector<Animation::FrameNumber> ticks;
                 if ( part == Animation::TrackChannel::Position )
-                    for ( const T::FloatChannel* lane : { &pose->Translation.X, &pose->Translation.Y, &pose->Translation.Z } )
+                    for ( const T::FloatChannel* lane :
+                          { &pose->Translation.X, &pose->Translation.Y, &pose->Translation.Z } )
                         AddTicks( *lane, ticks );
                 else if ( part == Animation::TrackChannel::Scale )
                     for ( const T::FloatChannel* lane : { &pose->Scale.X, &pose->Scale.Y, &pose->Scale.Z } )
@@ -200,7 +202,8 @@ namespace Desert::ECS
             {
                 if ( !PartKeyedOn( *track, part, tick ) )
                     continue;
-                if ( const auto removed = Animation::RemoveTrackKey( edited, *track, label, part, tick ); !removed )
+                if ( const auto removed = Animation::RemoveTrackKey( edited, *track, label, part, tick );
+                     !removed )
                     return Common::MakeFormattedError<bool>( "Delete keys: {}", removed.GetError() );
                 removedAny = true;
             }
@@ -245,7 +248,7 @@ namespace Desert::ECS
         uint32_t keyed = 0;
         for ( const auto& [guid, before] : m_Before )
         {
-            const T::Binding* binding = T::FindBinding( sequence, guid );
+            const T::Binding*         binding   = T::FindBinding( sequence, guid );
             const TransformComponent* transform = binding != nullptr ? transformOf( *binding ) : nullptr;
             if ( transform == nullptr )
                 continue;
@@ -777,9 +780,9 @@ namespace Desert::ECS
 
     Common::BoolResultStr AddEventTrack( T::Sequence& sequence, const T::BindingGuid& binding )
     {
-        T::Sequence    edited = sequence;
-        const bool     master = binding == LevelSequenceMasterBinding();
-        const T::Binding* bound = T::FindBinding( edited, binding );
+        T::Sequence       edited = sequence;
+        const bool        master = binding == LevelSequenceMasterBinding();
+        const T::Binding* bound  = T::FindBinding( edited, binding );
         if ( master && bound == nullptr )
             edited.Bindings.push_back( T::Binding{ binding, T::BindingKind::Sequence, {}, "Sequence", {} } );
         else if ( !master && ( bound == nullptr || bound->Kind != T::BindingKind::Entity ) )
@@ -878,8 +881,8 @@ namespace Desert::ECS
         return Commit( sequence, edited, "Rename event" );
     }
 
-    Common::ResultStr<size_t> MoveEventKey( T::Sequence& sequence, const T::BindingGuid& binding, const size_t index,
-                                            const int32_t delta )
+    Common::ResultStr<size_t> MoveEventKey( T::Sequence& sequence, const T::BindingGuid& binding,
+                                            const size_t index, const int32_t delta )
     {
         T::Sequence edited = sequence;
         T::Track*   track  = EventTrack( edited, binding );
@@ -898,7 +901,8 @@ namespace Desert::ECS
         return Common::MakeSuccess( flat );
     }
 
-    Common::BoolResultStr RemoveEventKey( T::Sequence& sequence, const T::BindingGuid& binding, const size_t index )
+    Common::BoolResultStr RemoveEventKey( T::Sequence& sequence, const T::BindingGuid& binding,
+                                          const size_t index )
     {
         T::Sequence edited = sequence;
         T::Track*   track  = EventTrack( edited, binding );

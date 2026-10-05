@@ -58,7 +58,8 @@ namespace Desert::Player
 {
     static std::string       s_SceneOverride;
     static Core::PlayRequest s_PlayRequest;
-    static std::optional<MovieRenderRequest> s_Movie; // --render-movie: offline render of a level (MovieRender.hpp)
+    static std::optional<MovieRenderRequest>
+         s_Movie; // --render-movie: offline render of a level (MovieRender.hpp)
 
     class RuntimeApp : public Engine::Application
     {

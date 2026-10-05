@@ -65,8 +65,8 @@ namespace Desert::UI
      *
      * A clip without a player gets one — from the driving view (@p advance) only — from its sequence's
      * TickRate/Start/End, its LoopMode, and — when AutoPlay and @p gameWorld — started; a view that does not
-     * drive evaluates such a clip at its Start. A Widget binding whose element is not in the scene, and a property the UI host does
-     * not know, are reported by name once and skipped.
+     * drive evaluates such a clip at its Start. A Widget binding whose element is not in the scene, and a property
+     * the UI host does not know, are reported by name once and skipped.
      */
     void PlayUIAnimations( entt::registry& reg, float dtSeconds, bool advance, bool gameWorld,
                            UIClipFrame& frame );

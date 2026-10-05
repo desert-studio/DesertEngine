@@ -78,10 +78,10 @@ namespace Desert::Assets
         void SetPreviewMesh( Common::Content::AssetGuid mesh );
         void SetCompatibleSkeletons( std::vector<Common::Content::AssetGuid> skeletons );
 
-        /// Reference Pose authoring (Skeleton Editor, UE's Skeleton Tree bone transform): one bone's LocalBindTransform
-        /// on the loaded rig, in memory - Serialization::SaveSkeletonAsset writes it to the `.skeleton`. The structure
-        /// does not move, so GetSignature (the identity a mesh and a clip match on) stays. False when the rig is not
-        /// loaded or @p bone is out of range.
+        /// Reference Pose authoring (Skeleton Editor, UE's Skeleton Tree bone transform): one bone's
+        /// LocalBindTransform on the loaded rig, in memory - Serialization::SaveSkeletonAsset writes it to the
+        /// `.skeleton`. The structure does not move, so GetSignature (the identity a mesh and a clip match on)
+        /// stays. False when the rig is not loaded or @p bone is out of range.
         bool SetLocalBindTransform( uint32_t bone, const glm::mat4& localBind );
 
         /// RENAME BONE (Skeleton Editor; UE Skeleton Editing's Rename Bone): @p bone answers to @p name on the
@@ -93,8 +93,8 @@ namespace Desert::Assets
         /// already another bone's. The same name is a success that changes nothing.
         [[nodiscard]] Common::BoolResultStr RenameBone( uint32_t bone, const std::string& name );
 
-        /// Moves on every write of the rest pose - an authoring edit or a (re)load from the file - so a reader that
-        /// decomposed it once (an Animator's bind pose) knows to read it again (Animator::RebindRestPose).
+        /// Moves on every write of the rest pose - an authoring edit or a (re)load from the file - so a reader
+        /// that decomposed it once (an Animator's bind pose) knows to read it again (Animator::RebindRestPose).
         [[nodiscard]] uint64_t GetBindRevision() const
         {
             return m_BindRevision;

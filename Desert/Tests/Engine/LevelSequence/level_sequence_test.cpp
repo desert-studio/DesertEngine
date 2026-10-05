@@ -559,7 +559,8 @@ TEST( LevelSequenceDocument, AnEventKeyFiresOnTheStepThatCrossesItsTickAndOnlyTh
     ASSERT_TRUE( ECS::AddEventTrack( sequence, master ).IsSuccess() );
     ASSERT_TRUE( ECS::AddEventTrack( sequence, door ).IsSuccess() ) << "an actor carries an Event track too";
     EXPECT_FALSE( ECS::AddEventTrack( sequence, door ).IsSuccess() ) << "one Event track per binding";
-    EXPECT_FALSE( ECS::AddEventKey( sequence, door, A::FrameNumber{ 10 }, "" ).IsSuccess() ) << "a name is required";
+    EXPECT_FALSE( ECS::AddEventKey( sequence, door, A::FrameNumber{ 10 }, "" ).IsSuccess() )
+         << "a name is required";
 
     ASSERT_TRUE( ECS::AddEventKey( sequence, master, A::FrameNumber{ 30 }, "Open" ).IsSuccess() );
     const auto knock = ECS::AddEventKey( sequence, door, A::FrameNumber{ 60 }, "Knock" );
@@ -589,7 +590,7 @@ TEST( LevelSequenceDocument, AnEventKeyFiresOnTheStepThatCrossesItsTickAndOnlyTh
     World                             world;
     const ECS::LevelSequenceComponent component;
     ECS::LevelSequencePlayback        playback( parsed.GetValue().Sequence );
-    const auto fired = [&]( int32_t from, int32_t to )
+    const auto                        fired = [&]( int32_t from, int32_t to )
     {
         return ECS::StepLevelSequence( world.registry, component, playback, T::TimeStep{ At( from ), At( to ) } )
              .FiredEvents;
@@ -709,9 +710,9 @@ TEST( LevelSequenceKeys, DeleteRemovesThePoseAndRefusesAMissingKeyWhole )
 
 TEST( LevelSequenceKeys, AutoKeyWritesOnePoseKeyOnTheReleaseOfAGestureThatMovedTheActor )
 {
-    T::Sequence sequence = AuthoredDoor();
-    const auto  door     = sequence.Bindings.front().Guid;
-    World       world;
+    T::Sequence               sequence = AuthoredDoor();
+    const auto                door     = sequence.Bindings.front().Guid;
+    World                     world;
     ECS::LevelSequenceAutoKey autoKey;
     const A::FrameNumber      at{ 40 };
     const auto                observe = [&]( const bool held ) -> uint32_t

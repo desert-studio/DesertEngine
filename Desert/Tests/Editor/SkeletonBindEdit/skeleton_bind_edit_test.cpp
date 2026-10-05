@@ -37,10 +37,10 @@ namespace
         child.ParentBoneID       = 0U;
         child.LocalBindTransform = glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 10.0f, 0.0f ) );
         Assets::Serialization::SkeletonAssetData data;
-        data.Header    = Common::Content::MakeTextHeader( Common::Content::ContentKind::Skeleton, kRigGuid,
-                                                          Assets::Serialization::SkeletonTextSubsystems() );
-        data.Bones     = { root, child };
-        data.Signature = Animation::Skeleton::ComputeSignature( data.Bones );
+        data.Header        = Common::Content::MakeTextHeader( Common::Content::ContentKind::Skeleton, kRigGuid,
+                                                              Assets::Serialization::SkeletonTextSubsystems() );
+        data.Bones         = { root, child };
+        data.Signature     = Animation::Skeleton::ComputeSignature( data.Bones );
         const auto    path = dir / "bind.skeleton";
         std::ofstream out( path, std::ios::binary | std::ios::trunc );
         out << Assets::Serialization::WriteSkeletonJson( data );

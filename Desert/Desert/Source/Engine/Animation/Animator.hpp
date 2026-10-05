@@ -252,10 +252,11 @@ namespace Desert::Animation
         // Loads `clip`'s sampled LOCAL transforms at `time` into the authoring pose (bind for untracked
         // bones), so the user can edit an existing keyed pose and re-key from it.
         void SampleClipIntoLocalPose( const AnimationClip& clip, FrameTime time );
-        /// The rig's rest pose was authored (SkeletonAsset::SetLocalBindTransform - the Skeleton Editor's Reference
-        /// Pose): decompose it again, as the constructor does, and stand the rig in it (authoring and rendered pose
-        /// = the new bind). The rig is the same one - same bones, same signature - so the Animator is kept rather
-        /// than rebuilt. Refuses, naming the reason, a bind that does not decompose, keeping the old one.
+        /// The rig's rest pose was authored (SkeletonAsset::SetLocalBindTransform - the Skeleton Editor's
+        /// Reference Pose): decompose it again, as the constructor does, and stand the rig in it (authoring and
+        /// rendered pose = the new bind). The rig is the same one - same bones, same signature - so the Animator
+        /// is kept rather than rebuilt. Refuses, naming the reason, a bind that does not decompose, keeping the
+        /// old one.
         [[nodiscard]] Common::BoolResultStr RebindRestPose();
         // Rebuilds GetPose() from the authoring pose, ignoring any playing clip — call after editing it to
         // show the posed skeleton in the viewport.

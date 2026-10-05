@@ -247,7 +247,8 @@ namespace Desert::Editor
             if ( auto onDisk = ReadBindPoseOnDisk( *m_SkeletonAsset ) )
                 m_BindOnDisk = onDisk.ExtractValue();
             else
-                LOG_ERROR( "Skeleton Editor: '{}': the Reference Pose is not editable: {}", name, onDisk.GetError() );
+                LOG_ERROR( "Skeleton Editor: '{}': the Reference Pose is not editable: {}", name,
+                           onDisk.GetError() );
         }
         // UE: the skeleton's PreviewSkeletalMesh is what Skeleton and Animation modes show (Mesh shows itself).
         if ( preferredMesh.empty() && !m_SkeletonAsset->GetPreviewMesh().IsNull() )
@@ -644,8 +645,9 @@ namespace Desert::Editor
         {
             const auto saved = SaveSkeleton();
             m_SaveFailed     = !saved;
-            m_SaveStatus     = saved ? std::format( "Saved {}", m_SkeletonAsset->GetMetadata().Filepath.filename().string() )
-                                     : std::format( "Save failed: {}", saved.GetError() );
+            m_SaveStatus =
+                 saved ? std::format( "Saved {}", m_SkeletonAsset->GetMetadata().Filepath.filename().string() )
+                       : std::format( "Save failed: {}", saved.GetError() );
             if ( !saved )
                 LOG_ERROR( "Skeleton Editor: {}", m_SaveStatus );
             return saved.IsSuccess();
@@ -685,7 +687,8 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "saved, but the reload refused: {}", reloaded.GetError() );
         auto onDisk = ReadBindPoseOnDisk( *m_SkeletonAsset );
         if ( !onDisk )
-            return Common::MakeFormattedError<bool>( "saved, but the file does not read back: {}", onDisk.GetError() );
+            return Common::MakeFormattedError<bool>( "saved, but the file does not read back: {}",
+                                                     onDisk.GetError() );
         m_BindOnDisk = onDisk.ExtractValue();
         return BOOLSUCCESS;
     }
@@ -1098,7 +1101,8 @@ namespace Desert::Editor
                              parent < skeleton.GetBones().size() ? skeleton.GetBones()[parent].Name.c_str()
                                                                  : "(root)" );
 
-        // One row set per transform; `editable` rows commit on Enter. The reference pose is editable in Skeleton mode.
+        // One row set per transform; `editable` rows commit on Enter. The reference pose is editable in Skeleton
+        // mode.
         const auto section = [index]( const char* label, BoneTransformRows& rows, const bool editable )
         {
             SectionHeader( label );
@@ -1125,7 +1129,7 @@ namespace Desert::Editor
              m_Posed ? animator->GetAuthoringPose()[index] : animator->GetLocalPose()[index];
         BoneTransformRows posed{ shown.Translation, glm::degrees( glm::eulerAngles( shown.Rotation ) ),
                                  shown.Scale };
-        const bool authorsBind = Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk;
+        const bool        authorsBind = Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk;
         if ( !authorsBind &&
              section( std::format( "Bone (frame {})", m_Transport.FrameIndex() ).c_str(), posed, true ) )
             (void)PoseSelectedBone( Animation::BoneTransform{ posed.Location,
@@ -1262,8 +1266,8 @@ namespace Desert::Editor
         const bool held  = ImGuizmo::IsUsing();
         m_GizmoHovered   = held || ImGuizmo::IsOver();
 
-        // World -> the bone's parent-relative RAW matrix (GizmoController's rest-pose branch): the bind is a matrix,
-        // and a TRS round trip would not invert what the OffsetMatrix was cooked against.
+        // World -> the bone's parent-relative RAW matrix (GizmoController's rest-pose branch): the bind is a
+        // matrix, and a TRS round trip would not invert what the OffsetMatrix was cooked against.
         std::optional<glm::mat4> local;
         if ( moved )
         {
@@ -2069,7 +2073,8 @@ namespace Desert::Editor
         // document of its own to hold the edit, so the slot is the save).
         const auto save = [this]( const char* what )
         {
-            // The one write of the file (SaveSkeleton): it carries the Reference Pose too, so the disk state follows.
+            // The one write of the file (SaveSkeleton): it carries the Reference Pose too, so the disk state
+            // follows.
             if ( const auto saved = SaveSkeleton(); !saved )
             {
                 m_AssignStatus = std::format( "{} was not saved: {}", what, saved.GetError() );

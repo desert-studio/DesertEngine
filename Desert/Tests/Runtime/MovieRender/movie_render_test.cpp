@@ -16,8 +16,11 @@ namespace
 {
     std::vector<std::string> Full()
     {
-        return { "--render-movie", "Movies/Source/Title.desce", "--movie-out", "out", "--resolution", "64x36",
-                 "--fps", "60", "--duration", "0.1666667" };
+        return { "--render-movie", "Movies/Source/Title.desce",
+                 "--movie-out",    "out",
+                 "--resolution",   "64x36",
+                 "--fps",          "60",
+                 "--duration",     "0.1666667" };
     }
 } // namespace
 
@@ -60,10 +63,15 @@ TEST( MovieRender, EveryFlagIsRequired )
 
 TEST( MovieRender, MalformedValuesAreRefused )
 {
-    for ( const auto& [flag, value] : std::vector<std::pair<std::string, std::string>>{
-               { "--resolution", "3840" }, { "--resolution", "0x10" }, { "--resolution", "axb" },
-               { "--fps", "0" }, { "--fps", "6o" }, { "--duration", "-1" }, { "--duration", "3s" },
-               { "--duration", "0.001" } } )
+    for ( const auto& [flag, value] :
+          std::vector<std::pair<std::string, std::string>>{ { "--resolution", "3840" },
+                                                            { "--resolution", "0x10" },
+                                                            { "--resolution", "axb" },
+                                                            { "--fps", "0" },
+                                                            { "--fps", "6o" },
+                                                            { "--duration", "-1" },
+                                                            { "--duration", "3s" },
+                                                            { "--duration", "0.001" } } )
     {
         auto args = Full();
         for ( size_t i = 0; i < args.size(); i += 2 )
@@ -114,8 +122,8 @@ TEST( MovieRender, FractionalDurationsParse )
     EXPECT_DOUBLE_EQ( ParsedDuration( "2.5" ), 2.5 );
     EXPECT_DOUBLE_EQ( ParsedDuration( "4" ), 4.0 );
     EXPECT_DOUBLE_EQ( ParsedDuration( "0.1666667" ), 0.1666667 );
-    auto args   = Full();
-    args.back() = "2.5";
+    auto args              = Full();
+    args.back()            = "2.5";
     const auto twoAndAHalf = ParseMovieRender( args );
     ASSERT_TRUE( twoAndAHalf.IsSuccess() ) << twoAndAHalf.GetError();
     EXPECT_EQ( twoAndAHalf.GetValue()->FrameCount(), 150u ); // 2.5 s at 60 fps

@@ -81,16 +81,16 @@ namespace Desert::Media
 
     struct VideoFrame
     {
-        int64_t                             PtsNs     = 0;
-        uint32_t                            Width     = 0;
-        uint32_t                            Height    = 0;
-        uint32_t                            BitDepth  = 8; // 8, 10 or 12; above 8 each sample is a uint16
-        MediaChroma                         Chroma    = MediaChroma::I420;
-        MediaColorMatrix                    Matrix    = MediaColorMatrix::BT601;
-        bool                                FullRange = false;
-        std::array<MediaPlane, 3>           Planes;       // Y, U, V; rows tightly packed (stride = width × bytes)
-        std::array<uint32_t, 3>             PlaneWidth{}; // in samples
-        std::array<uint32_t, 3>             PlaneHeight{}; // in rows
+        int64_t                   PtsNs     = 0;
+        uint32_t                  Width     = 0;
+        uint32_t                  Height    = 0;
+        uint32_t                  BitDepth  = 8; // 8, 10 or 12; above 8 each sample is a uint16
+        MediaChroma               Chroma    = MediaChroma::I420;
+        MediaColorMatrix          Matrix    = MediaColorMatrix::BT601;
+        bool                      FullRange = false;
+        std::array<MediaPlane, 3> Planes;        // Y, U, V; rows tightly packed (stride = width × bytes)
+        std::array<uint32_t, 3>   PlaneWidth{};  // in samples
+        std::array<uint32_t, 3>   PlaneHeight{}; // in rows
 
         uint32_t BytesPerSample() const
         {

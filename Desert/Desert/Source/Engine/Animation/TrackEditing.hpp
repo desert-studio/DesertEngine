@@ -159,7 +159,8 @@ namespace Desert::Animation
     /// track shares (a bone's in a clip, an actor's in a level sequence); @p label names the track in the
     /// refusal. Revision++.
     [[nodiscard]] Common::BoolResultStr RemoveTrackKey( Timeline::Sequence& sequence, Timeline::Track& track,
-                                                        std::string_view label, TrackChannel part, FrameNumber tick );
+                                                        std::string_view label, TrackChannel part,
+                                                        FrameNumber tick );
 
     /// `MoveKey` on the topmost section of @p track holding a @p part key on @p from; @p to must lie in the
     /// playback range. The track-level form `MoveBoneKey` is written over. Revision++.

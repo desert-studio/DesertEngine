@@ -13,10 +13,10 @@ namespace Desert::Scripting
         auto&      lua     = implRef.Lua;
         sol::table project = lua.create_named_table( "project" );
         project.set_function( "name",
-                              []
-                              {
-                                  return Project::ProjectContext::HasProject() ? Project::ProjectContext::Current().Name
-                                                                               : std::string{};
+                              [] {
+                                  return Project::ProjectContext::HasProject()
+                                              ? Project::ProjectContext::Current().Name
+                                              : std::string{};
                               } );
         project.set_function( "company", [] { return Project::CurrentGameSettings().Company; } );
     }

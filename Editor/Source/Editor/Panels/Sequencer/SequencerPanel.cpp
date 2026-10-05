@@ -2373,7 +2373,6 @@ namespace Desert::Editor
             return;
         }
 
-
         // WITH NOTHING SELECTED IT SHOWS THE FIRST CHANNEL THAT HAS KEYS, rather than an instruction to go
         // and select something. A curve view whose empty state is "select a key in the other view" makes the
         // animator do the tool's work, and it also makes the panel unreachable from the control channel,
@@ -2480,7 +2479,7 @@ namespace Desert::Editor
         {
             plot.SelectedTick = m_SelKeyTick;
         }
-        plot.Select    = [this, viewTrack, viewChannel, &sequence]( Animation::FrameNumber tick )
+        plot.Select = [this, viewTrack, viewChannel, &sequence]( Animation::FrameNumber tick )
         { SelectKey( viewTrack, viewChannel, tick, sequence ); };
         plot.BeginEdit = [this, clip, animator]
         {
@@ -2594,7 +2593,8 @@ namespace Desert::Editor
         ImVec2 previous[3] = {};
         for ( int sample = 0; sample <= kSamples; ++sample )
         {
-            const double seconds = static_cast<double>( plot.DurationSeconds ) * static_cast<double>( sample ) / kSamples;
+            const double seconds =
+                 static_cast<double>( plot.DurationSeconds ) * static_cast<double>( sample ) / kSamples;
             const Animation::FrameTime at    = Animation::SecondsToFrameTime( seconds, tickRate );
             const Animation::BoneTransform pose = TL::Evaluate( *shown, at, tickRate );
             const glm::vec3                value =

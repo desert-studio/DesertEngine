@@ -30,8 +30,8 @@ namespace Desert::Editor
     class SkeletonBindCommand final : public ICommand
     {
     public:
-        SkeletonBindCommand( std::shared_ptr<Assets::SkeletonAsset> skeleton, uint32_t bone, const glm::mat4& before,
-                             const glm::mat4& after );
+        SkeletonBindCommand( std::shared_ptr<Assets::SkeletonAsset> skeleton, uint32_t bone,
+                             const glm::mat4& before, const glm::mat4& after );
 
         bool Undo() override;
         bool Redo() override;

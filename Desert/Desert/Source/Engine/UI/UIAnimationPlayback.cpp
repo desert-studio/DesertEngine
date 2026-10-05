@@ -114,7 +114,7 @@ namespace Desert::UI
             if ( !clip.Playback.has_value() && !advance )
             {
                 const Animation::FrameTime start{ clip.Sequence.Start, 0.0f };
-                TL::Evaluator       evaluator( clip.Sequence );
+                TL::Evaluator              evaluator( clip.Sequence );
                 evaluator.Evaluate( TL::TimeStep{ start, start }, frame.Scratch );
                 ReportUnresolved( evaluator.Apply( frame.Scratch, host ), frame );
                 continue;

@@ -201,7 +201,7 @@ namespace Desert::Engine
         bool m_IsRunningApplication = true;
         Core::WindowCloseGate m_CloseGate;
         int  m_ExitCode             = 0;
-        std::optional<float> m_FixedDeltaTime; // SetFixedDeltaTime: offline (movie) time, unset = wall clock
+        std::optional<float>  m_FixedDeltaTime; // SetFixedDeltaTime: offline (movie) time, unset = wall clock
         std::string m_StartupRefusal;
 
         // Failures already reported by ReportLayerFailure, keyed on stage + layer + message. Not a

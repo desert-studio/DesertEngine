@@ -462,10 +462,10 @@ TEST( UICanvasContext, AnAuthoredLevelHoldsAnAutoPlayClipAtItsPlayheadAndAGameWo
     namespace TL = Desert::Animation::Timeline;
     namespace AN = Desert::Animation;
     Fixture f;
-    auto&   clip      = f.Registry.emplace<ECS::UIAnimComponent>( f.Button ).Data;
-    clip.AutoPlay     = true;
-    clip.Loop         = TL::LoopMode::Once;
-    clip.Sequence.End = AN::FrameNumber{ 100 * AN::PROJECT_TICK_RATE.Numerator };
+    auto&   clip       = f.Registry.emplace<ECS::UIAnimComponent>( f.Button ).Data;
+    clip.AutoPlay      = true;
+    clip.Loop          = TL::LoopMode::Once;
+    clip.Sequence.End  = AN::FrameNumber{ 100 * AN::PROJECT_TICK_RATE.Numerator };
     const auto seconds = [&clip]
     { return AN::FrameTimeToSeconds( clip.Playback->Current(), clip.Sequence.TickRate ); };
 

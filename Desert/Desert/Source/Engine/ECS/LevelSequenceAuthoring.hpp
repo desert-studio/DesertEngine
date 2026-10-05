@@ -78,16 +78,17 @@ namespace Desert::ECS
      * would leave the playback range or land on a key that is not itself moving refuses the whole move and
      * leaves the sequence as it was. Revision++ when anything moved.
      */
-    [[nodiscard]] Common::BoolResultStr MoveEntityTransformKeys( Animation::Timeline::Sequence&            sequence,
-                                                                 const Animation::Timeline::BindingGuid&   binding,
+    [[nodiscard]] Common::BoolResultStr MoveEntityTransformKeys( Animation::Timeline::Sequence&          sequence,
+                                                                 const Animation::Timeline::BindingGuid& binding,
                                                                  const std::vector<Animation::FrameNumber>& from,
-                                                                 int32_t                                   delta );
+                                                                 int32_t delta );
 
     /// Deletes the pose keys of @p binding on @p ticks (every lane). All or nothing: a tick with no key refuses
     /// and leaves the sequence as it was. Revision++.
-    [[nodiscard]] Common::BoolResultStr RemoveEntityTransformKeys( Animation::Timeline::Sequence&            sequence,
-                                                                   const Animation::Timeline::BindingGuid&   binding,
-                                                                   const std::vector<Animation::FrameNumber>& ticks );
+    [[nodiscard]] Common::BoolResultStr
+    RemoveEntityTransformKeys( Animation::Timeline::Sequence&             sequence,
+                               const Animation::Timeline::BindingGuid&    binding,
+                               const std::vector<Animation::FrameNumber>& ticks );
 
     /**
      * @brief Auto Key for a level sequence (UE's Auto Key with the Sequencer open): ONE pose key per bound actor
@@ -115,7 +116,7 @@ namespace Desert::ECS
         void Reset();
 
     private:
-        bool m_Held = false;
+        bool                                                                               m_Held = false;
         std::vector<std::pair<Animation::Timeline::BindingGuid, Animation::BoneTransform>> m_Before;
     };
 

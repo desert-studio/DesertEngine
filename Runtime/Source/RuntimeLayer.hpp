@@ -53,8 +53,8 @@ namespace Desert::Player
         // worker threads — see the quit handler in OnUpdate).
         // @p play: how the FIRST level begins Play (`--player-start`); a level switch begins with the default
         // start, since a tag names a start in the level it was given for.
-        RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play, std::optional<MovieRenderRequest> movie,
-                      Engine::Application* application );
+        RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play,
+                      std::optional<MovieRenderRequest> movie, Engine::Application* application );
         ~RuntimeLayer();
 
         [[nodiscard]] Common::BoolResultStr OnAttach() override;
@@ -143,7 +143,7 @@ namespace Desert::Player
         std::optional<MovieRenderRequest>     m_Movie;
         std::shared_ptr<Graphic::Framebuffer> m_MovieTarget;
         std::shared_ptr<Graphic::RenderPass>  m_MoviePass;
-        uint32_t                              m_MovieFrame     = 0;     // index of the next PNG
+        uint32_t                              m_MovieFrame      = 0;     // index of the next PNG
         bool                                  m_MovieFrameDrawn = false; // this frame showed the world -> write it
         Common::BoolResultStr                 InitMovieTarget();
         void                                  CollectMovieFrame();
@@ -208,10 +208,10 @@ namespace Desert::Player
         std::unique_ptr<Media::StartupMoviePlayer> m_StartupMovies;
         std::unique_ptr<Media::MediaTexture>       m_StartupPicture;
         bool                                       m_SkipStartupMovie = false; // a key / click since the last tick
-        bool m_StartupMoviesStarted = false; // on the tick after the first presented frame
+        bool m_StartupMoviesStarted  = false; // on the tick after the first presented frame
         bool m_StartupPictureCurrent = false; // the movie texture holds the player's current frame this tick
-        bool                                       m_PrevAnyMouseDown = false; // for the press edge that skips
-        bool m_SplashAfterMovies = false; // the world completed under a movie: its splash waits for the end
+        bool m_PrevAnyMouseDown      = false; // for the press edge that skips
+        bool m_SplashAfterMovies     = false; // the world completed under a movie: its splash waits for the end
         void BeginStartupMovies();
         void TickStartupMovies( double deltaSeconds );
         bool StartupMoviesPlaying() const;
