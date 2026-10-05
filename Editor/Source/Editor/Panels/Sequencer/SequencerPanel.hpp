@@ -447,7 +447,7 @@ namespace Desert::Editor
         /// The selected section of an Audio lane (m_UITrack is its track); -1 when a key, or nothing, is.
         int m_UIAudioSection = -1;
         /// "+ Track > Audio"'s sound: an Assets-relative path, as AudioSectionContent::Sound names it.
-        char m_UIAudioSound[260] = {};
+        Common::Content::AssetGuid m_UIAudioSound; // the `.desound` the next "+ Track > Audio" plays
 
         // ── SECTION AUTHORING STATE ───────────────────────────────────────────────────────────────
         //

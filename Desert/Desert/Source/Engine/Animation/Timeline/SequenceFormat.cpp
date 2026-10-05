@@ -245,8 +245,9 @@ namespace Desert::Animation::Timeline
             }
             else if ( const auto* audio = std::get_if<AudioSectionContent>( &section.Content ) )
             {
-                out.Audio = AudioData{ audio->Sound, audio->StartOffset.Value, audio->Volume, audio->FadeIn.Value,
-                                       audio->FadeOut.Value };
+                out.Audio = AudioData{ AssetGuidToText( audio->Sound ), audio->StartOffset.Value, audio->Volume,
+                                       audio->FadeIn.Value, audio->FadeOut.Value };
+                clips.push_back( out.Audio->Sound ); // a sound is a dependency as a clip is
             }
             else
             {
@@ -415,7 +416,12 @@ namespace Desert::Animation::Timeline
             }
             else if ( data.Audio )
             {
-                section.Content = AudioSectionContent{ data.Audio->Sound, FrameNumber{ data.Audio->StartOffset },
+                auto sound = AssetGuidFromText( data.Audio->Sound );
+                if ( !sound )
+                {
+                    return Common::MakeFormattedError<Section>( "Audio sound: {}", sound.GetError() );
+                }
+                section.Content = AudioSectionContent{ sound.GetValue(), FrameNumber{ data.Audio->StartOffset },
                                                        data.Audio->Volume, FrameNumber{ data.Audio->FadeIn },
                                                        FrameNumber{ data.Audio->FadeOut } };
             }

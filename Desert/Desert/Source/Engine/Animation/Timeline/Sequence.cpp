@@ -383,7 +383,7 @@ namespace Desert::Animation::Timeline
             }
             if ( const auto* audio = std::get_if<AudioSectionContent>( &section.Content ) )
             {
-                if ( audio->Sound.empty() )
+                if ( audio->Sound.IsNull() )
                 {
                     return Common::MakeFormattedError<bool>( "an Audio section names no sound" );
                 }
@@ -513,12 +513,12 @@ namespace Desert::Animation::Timeline
         return CheckTracks( sequence );
     }
 
-    Common::ResultStr<size_t> AddAudioTrack( Sequence& sequence, std::string sound )
+    Common::ResultStr<size_t> AddAudioTrack( Sequence& sequence, const Common::Content::AssetGuid& sound )
     {
-        if ( sound.empty() )
+        if ( sound.IsNull() )
         {
             return Common::MakeFormattedError<size_t>( "an Audio track plays a sound: name it ({})",
-                                                       "an Assets-relative path" );
+                                                       "a .desound GUID" );
         }
         if ( !HostHoldsTrack( sequence.Host, BindingKind::Sequence, TrackKind::Audio ) )
         {
@@ -552,7 +552,7 @@ namespace Desert::Animation::Timeline
         track.Property                                         = std::move( property );
         track.Kind                                             = TrackKind::Audio;
         Section& section                                       = AddSection( track, sequence.Start, sequence.End );
-        std::get<AudioSectionContent>( section.Content ).Sound = std::move( sound );
+        std::get<AudioSectionContent>( section.Content ).Sound = sound;
         sequence.Tracks.push_back( std::move( track ) );
         ++sequence.Revision;
         return Common::MakeSuccess( sequence.Tracks.size() - 1 );

@@ -77,6 +77,7 @@ namespace Common::Content
         Prefab,
         Redirector,
         LevelSequence,
+        Sound,
         COUNT,
     };
 
@@ -161,6 +162,9 @@ namespace Common::Content
              /* Redirector           */ { "Redirector", "", nullptr },
              // UE's ULevelSequence: a TMLN block whose header states this kind (LevelSequenceAsset.hpp).
              /* LevelSequence        */ { "LevelSequence", ".dseq", &P::LEVEL_SEQUENCE_PATH },
+             // UE's USoundWave: a text asset naming its imported audio source beside it (SoundAsset.hpp). Under
+             // the assets root, as a texture is: a sound sits beside whatever uses it.
+             /* Sound                */ { "Sound", ".desound", &P::ASSETS_PATH },
         } };
     }
 

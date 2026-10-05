@@ -80,7 +80,7 @@ namespace Desert::Animation::Timeline
     {
         uint32_t                   TrackIndex   = 0;
         uint32_t                   SectionIndex = 0;
-        std::string                Sound;
+        Common::Content::AssetGuid Sound;
         double                     SoundSeconds = 0.0; ///< position in the sound
         float                      Gain         = 1.0F; ///< Volume × fades × section weight
     };

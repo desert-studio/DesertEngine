@@ -19,7 +19,12 @@ using namespace TimelineFixtures;
 namespace
 {
     // A UI clip at 100 ticks/s: one Audio track on the master binding, one section [100, 300] playing
-    // "Audio/Title.wav" at volume 0.5 with a 50-tick fade-in and a 50-tick fade-out.
+    // the Title sound at volume 0.5 with a 50-tick fade-in and a 50-tick fade-out.
+    // `.desound` GUIDs: a section names a sound's identity, never its file (SoundAsset).
+    const Common::Content::AssetGuid kTitleSound{ 0x5A0D, 0x0001 };
+    const Common::Content::AssetGuid kStudioSound{ 0x5A0D, 0x0002 };
+    const Common::Content::AssetGuid kWindSound{ 0x5A0D, 0x0003 };
+
     Sequence UIClipWithSound()
     {
         Sequence sequence;
@@ -35,7 +40,7 @@ namespace
         Section section;
         section.Start   = Tick( 100 );
         section.End     = Tick( 300 );
-        section.Content = AudioSectionContent{ "Audio/Title.wav", Tick( 0 ), 0.5F, Tick( 50 ), Tick( 50 ) };
+        section.Content = AudioSectionContent{ kTitleSound, Tick( 0 ), 0.5F, Tick( 50 ), Tick( 50 ) };
         track.Sections.push_back( std::move( section ) );
         sequence.Tracks.push_back( std::move( track ) );
         return sequence;
@@ -69,7 +74,7 @@ TEST( TimelineAudio, UIClipHoldsAudioOnItsMasterBindingOnly )
     EXPECT_FALSE( Validate( onWidget ).IsSuccess() ) << "a sound binds no widget";
 
     Sequence silent = sequence;
-    std::get<AudioSectionContent>( silent.Tracks[0].Sections[0].Content ).Sound.clear();
+    std::get<AudioSectionContent>( silent.Tracks[0].Sections[0].Content ).Sound = Common::Content::AssetGuid{};
     EXPECT_FALSE( Validate( silent ).IsSuccess() ) << "an Audio section names its sound";
 }
 
@@ -81,7 +86,7 @@ TEST( TimelineAudio, SectionMapsThePlayheadIntoTheSoundWithFades )
 
     const auto fadingIn = SoundsAt( sequence, 125 );
     ASSERT_EQ( fadingIn.size(), 1u );
-    EXPECT_EQ( fadingIn[0].Sound, "Audio/Title.wav" );
+    EXPECT_EQ( fadingIn[0].Sound, kTitleSound );
     EXPECT_DOUBLE_EQ( fadingIn[0].SoundSeconds, 0.25 );
     EXPECT_FLOAT_EQ( fadingIn[0].Gain, 0.25F ); // volume 0.5 × half the fade-in
 
@@ -105,7 +110,7 @@ TEST( TimelineAudio, VoicesFollowThePlayheadFrameByFrame )
     voices.Update( Frame( sequence, 125, 0.75 ), out ); // the playhead entered: Start where the picture is
     ASSERT_EQ( out.size(), 1u );
     EXPECT_EQ( out[0].Kind, AudioCommandKind::Start );
-    EXPECT_EQ( out[0].Sound, "Audio/Title.wav" );
+    EXPECT_EQ( out[0].Sound, kTitleSound );
     EXPECT_DOUBLE_EQ( out[0].Seconds, 0.25 );
     EXPECT_FLOAT_EQ( out[0].Gain, 0.25F );
 
@@ -151,7 +156,7 @@ TEST( TimelineAudio, AudioSectionRoundTripsThroughTheFormat )
     auto read = ReadSequence( bytes.GetValue() );
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
     const auto& audio = std::get<AudioSectionContent>( read.GetValue().Tracks[0].Sections[0].Content );
-    EXPECT_EQ( audio.Sound, "Audio/Title.wav" );
+    EXPECT_EQ( audio.Sound, kTitleSound );
     EXPECT_FLOAT_EQ( audio.Volume, 0.5F );
     EXPECT_EQ( audio.FadeIn.Value, 50 );
     EXPECT_EQ( audio.FadeOut.Value, 50 );
@@ -168,9 +173,9 @@ TEST( TimelineAudio, AddAudioTrackPutsASoundOnTheMasterBindingOverThePlaybackRan
     sequence.Bindings.push_back( Binding{ Guid( 2 ), BindingKind::Widget, "5007", "Rim", {} } );
     const uint32_t revision = sequence.Revision;
 
-    const auto first = AddAudioTrack( sequence, "Movies/Source/DesertStudio.wav" );
+    const auto first = AddAudioTrack( sequence, kStudioSound );
     ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
-    const auto second = AddAudioTrack( sequence, "Audio/Wind.wav" );
+    const auto second = AddAudioTrack( sequence, kWindSound );
     ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
     EXPECT_GT( sequence.Revision, revision );
 
@@ -185,15 +190,15 @@ TEST( TimelineAudio, AddAudioTrackPutsASoundOnTheMasterBindingOverThePlaybackRan
     EXPECT_EQ( track.Sections[0].Start.Value, 0 );
     EXPECT_EQ( track.Sections[0].End.Value, 900 );
     EXPECT_EQ( std::get<AudioSectionContent>( track.Sections[0].Content ).Sound,
-               "Movies/Source/DesertStudio.wav" );
+               kStudioSound );
     EXPECT_TRUE( Validate( sequence ).IsSuccess() ) << Validate( sequence ).GetError();
 
     const Sequence before = sequence;
-    EXPECT_FALSE( AddAudioTrack( sequence, "" ).IsSuccess() ) << "an Audio section names its sound";
+    EXPECT_FALSE( AddAudioTrack( sequence, Common::Content::AssetGuid{} ).IsSuccess() ) << "an Audio section names its sound";
     EXPECT_EQ( sequence.Tracks.size(), before.Tracks.size() ) << "a refusal writes nothing";
 
     Sequence level;
     level.Host = SequenceHost::LevelSequence;
-    EXPECT_FALSE( AddAudioTrack( level, "Audio/Wind.wav" ).IsSuccess() ) << "a level sequence plays no sound yet";
+    EXPECT_FALSE( AddAudioTrack( level, kWindSound ).IsSuccess() ) << "a level sequence plays no sound yet";
     EXPECT_TRUE( level.Bindings.empty() && level.Tracks.empty() );
 }

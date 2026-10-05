@@ -4,6 +4,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Audio/AudioEngine.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
 
 #include <glm/glm.hpp>
 
@@ -135,8 +136,15 @@ namespace Desert::ECS
                 {
                     case TL::AudioCommandKind::Start:
                     {
-                        const uint32_t id =
-                             audio.CreateSource( command.Sound, false, false, command.Gain ); // 2D, as UE's master track
+                        // The section names the sound's GUID; its file is the `.desound`'s to say (SoundAsset).
+                        const auto file = Assets::SoundAsset::ResolveSourceFile( command.Sound );
+                        if ( !file )
+                        {
+                            LOG_ERROR( "[Audio] Sequence sound: {}", file.GetError() );
+                            break; // the diff still holds the voice: one line, no retry spam
+                        }
+                        const uint32_t id = audio.CreateSource( file.GetValue().string(), false, false,
+                                                                command.Gain ); // 2D, as UE's master track
                         if ( id == 0 )
                             break; // CreateSource logged the path; the diff still holds the voice, no retry spam
                         audio.SeekSource( id, command.Seconds );

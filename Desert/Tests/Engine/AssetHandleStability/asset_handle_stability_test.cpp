@@ -46,6 +46,7 @@
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -174,6 +175,8 @@ namespace
              { AssetTypeID::LevelSequence, "LevelSequenceAsset", &HandleOf<Desert::Assets::LevelSequenceAsset>,
                &MetadataTypeOf<Desert::Assets::LevelSequenceAsset>,
                &DeclaredTypeOf<Desert::Assets::LevelSequenceAsset> },
+             { AssetTypeID::Sound, "SoundAsset", &HandleOf<Desert::Assets::SoundAsset>,
+               &MetadataTypeOf<Desert::Assets::SoundAsset>, &DeclaredTypeOf<Desert::Assets::SoundAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1311,6 +1314,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::FoliageType,
          AssetTypeID::LandscapeLayerInfo,
          AssetTypeID::LevelSequence,
+         AssetTypeID::Sound,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

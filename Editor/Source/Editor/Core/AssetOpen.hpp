@@ -64,6 +64,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Retarget:
             case Assets::AssetTypeID::LandscapeLayerInfo: // edited in the landscape panel's layer list
             case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel
+            case Assets::AssetTypeID::Sound:              // picked into slots; UE's sound wave has no editor here
                 return kNoEditor;
             case Assets::AssetTypeID::Count:
                 return "AssetTypeID::Count is the number of types, not a type";

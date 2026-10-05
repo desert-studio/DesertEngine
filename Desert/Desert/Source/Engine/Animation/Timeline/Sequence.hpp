@@ -88,14 +88,15 @@ namespace Desert::Animation::Timeline
 
     /**
      * @brief UE's "+ Track > Audio": an Audio track on the master binding with ONE section over the playback
-     * range playing @p sound (an Assets-relative path, as `AudioSectionContent::Sound` names it).
+     * range playing @p sound (a `.desound` GUID, as `AudioSectionContent::Sound` names it).
      *
      * The master (Sequence) binding is found, or created once. The track is named "Audio", "Audio 2", ... —
      * (Binding, Property, Kind) is unique, so a second sound is a second track, as in UE. Refuses an empty
      * sound and a host whose master binding holds no Audio track (`Validate`'s rule, not a second one).
      * Bumps `Revision`. Returns the new track's index.
      */
-    [[nodiscard]] Common::ResultStr<size_t> AddAudioTrack( Sequence& sequence, std::string sound );
+    [[nodiscard]] Common::ResultStr<size_t> AddAudioTrack( Sequence& sequence,
+                                                            const Common::Content::AssetGuid& sound );
 
     /**
      * @brief Every invariant stated in this folder, checked. The FIRST violation, named.

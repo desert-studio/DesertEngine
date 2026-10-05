@@ -57,6 +57,49 @@
 #include <string_view>
 #include <system_error>
 #include <vector>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Common/Content/ContentKinds.hpp>
+
+namespace
+{
+    // A sound's name as the registry knows it: its `.desound`'s stem, "None" for the null GUID, "(missing)"
+    // for a GUID no row states.
+    std::string SoundDisplayName( const Desert::Common::Content::AssetGuid& guid )
+    {
+        if ( guid.IsNull() )
+            return "None";
+        const auto* row =
+             Desert::Assets::ContentRegistry::Get().FindByHandle( Desert::Common::Content::HandleForGuid( guid ) );
+        if ( row == nullptr )
+            return "(missing)";
+        return std::filesystem::path( row->Key ).stem().string();
+    }
+
+    // UE's sound-wave asset picker: every `.desound` the registry lists. True when @p guid changed.
+    bool PickSound( const char* label, Desert::Common::Content::AssetGuid& guid )
+    {
+        bool changed = false;
+        if ( ImGui::BeginCombo( label, SoundDisplayName( guid ).c_str() ) )
+        {
+            const auto& registry = Desert::Assets::ContentRegistry::Get();
+            for ( const auto* row : registry.OfKind( Desert::Common::Content::KindName(
+                       Desert::Common::Content::ContentKind::Sound ) ) )
+            {
+                if ( !row->Guid.has_value() )
+                    continue;
+                const std::string name = std::filesystem::path( row->Key ).stem().string();
+                if ( ImGui::Selectable( name.c_str(), *row->Guid == guid ) && *row->Guid != guid )
+                {
+                    guid    = *row->Guid;
+                    changed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        return changed;
+    }
+} // namespace
+
 
 namespace Desert::Editor
 {
@@ -2919,8 +2962,7 @@ namespace Desert::Editor
         {
             ImGui::SameLine();
             ImGui::SetNextItemWidth( 220.0f );
-            ImGui::InputTextWithHint( "##uisound", "Sound (Assets-relative .wav)", m_UIAudioSound,
-                                      sizeof( m_UIAudioSound ) );
+            PickSound( "##uisound", m_UIAudioSound );
         }
         ImGui::SameLine();
         const bool addTrack = ImGui::Button( ICON_MDI_PLUS "  Track" );
@@ -3048,7 +3090,7 @@ namespace Desert::Editor
                                    sel ? IM_COL32( 70, 130, 110, 255 ) : IM_COL32( 50, 95, 82, 255 ), 3.0f );
                 if ( audio != nullptr )
                 {
-                    const std::string name = std::filesystem::path( audio->Sound ).filename().string();
+                    const std::string name = SoundDisplayName( audio->Sound );
                     dl->PushClipRect( ImVec2( x0, laneY ), ImVec2( x1, laneY + laneH ), true );
                     dl->AddText( ImVec2( x0 + 4.0f, laneY + 3.0f ), IM_COL32( 225, 240, 232, 255 ), name.c_str() );
                     dl->PopClipRect();
@@ -3286,22 +3328,14 @@ namespace Desert::Editor
         ImGui::Separator();
         ImGui::Text( "Audio section %zu of %s", sectionIndex, track.Property.c_str() );
 
-        // THE SOUND is written on Enter only: a half-typed path is not a sound, and an empty one is refused.
-        std::array<char, 260> sound{};
-        std::snprintf( sound.data(), sound.size(), "%s", audio->Sound.c_str() );
+        // THE SOUND is picked from the `.desound` assets (a GUID, never a path); one pick is one undo step.
+        Common::Content::AssetGuid sound = audio->Sound;
         ImGui::SetNextItemWidth( 260.0f );
-        if ( ImGui::InputText( "Sound", sound.data(), sound.size(), ImGuiInputTextFlags_EnterReturnsTrue ) )
+        if ( PickSound( "Sound", sound ) )
         {
-            if ( sound[0] == '\0' )
-            {
-                ToastRefusal( "Audio section", "an Audio section names its sound", 6.0f );
-            }
-            else if ( audio->Sound != sound.data() )
-            {
-                const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
-                audio->Sound = sound.data();
-                ++sequence.Revision;
-            }
+            const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+            audio->Sound = sound;
+            ++sequence.Revision;
         }
 
         // THE RANGE goes through the one track function every section edit calls (its range rule).

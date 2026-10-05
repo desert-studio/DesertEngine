@@ -97,6 +97,11 @@ namespace Desert::Assets
         // Entity bindings name entities of the scene that places it through a LevelSequenceComponent. See
         // Engine/Assets/LevelSequenceAsset.hpp.
         LevelSequence,
+        // A SOUND (`.desound`): UE's USoundWave — a text asset naming its imported source file (.wav/.ogg/
+        // .mp3/.flac beside it) under a GUID. Every reference to a sound (a sequence's Audio section, an
+        // AudioSourceComponent) names this GUID; the source path lives only here — see
+        // Engine/Assets/SoundAsset.hpp.
+        Sound,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -183,6 +188,9 @@ namespace Desert::Assets
             // A LEVEL SEQUENCE IS SCENE-SCOPED for the retarget's reason: `LevelSequenceComponent::Sequence`
             // is an `AssetHandle` held by a live entity.
             case AssetTypeID::LevelSequence:
+            // A SOUND IS SCENE-SCOPED for the retarget's reason: `AudioSourceData::Sound` is an `AssetHandle`
+            // held by a live entity.
+            case AssetTypeID::Sound:
             case AssetTypeID::Count:
                 return false;
         }
@@ -249,6 +257,8 @@ namespace Desert::Assets
                 return "LandscapeLayerInfo";
             case AssetTypeID::LevelSequence:
                 return "LevelSequence";
+            case AssetTypeID::Sound:
+                return "Sound";
             case AssetTypeID::Count:
                 return "Count";
         }

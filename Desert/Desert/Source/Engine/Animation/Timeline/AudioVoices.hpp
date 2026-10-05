@@ -22,6 +22,8 @@
  * paused or backwards), so the diff stops them, and the next forward frame starts them where the picture is.
  */
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -35,7 +37,7 @@ namespace Desert::Animation::Timeline
         uint64_t    Owner   = 0;
         uint32_t    Track   = 0;
         uint32_t    Section = 0;
-        std::string Sound;
+        Common::Content::AssetGuid Sound; ///< the `.desound` GUID
         double      Seconds  = 0.0; ///< position in the sound at the frame's playhead
         double      Advanced = 0.0; ///< seconds the playhead moved forward this frame
         float       Gain     = 1.0F;
@@ -57,7 +59,7 @@ namespace Desert::Animation::Timeline
         uint64_t         Owner   = 0;
         uint32_t         Track   = 0;
         uint32_t         Section = 0;
-        std::string      Sound;          ///< Start only
+        Common::Content::AssetGuid Sound; ///< Start only
         double           Seconds = 0.0;  ///< Start, Seek
         float            Gain    = 1.0F; ///< Start, SetGain
     };
