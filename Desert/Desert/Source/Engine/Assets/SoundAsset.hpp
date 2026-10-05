@@ -59,6 +59,9 @@ namespace Desert::Assets
         /// Refuses a header of another kind, a null/malformed GUID and an empty Source, by name.
         [[nodiscard]] static Common::ResultStr<Parsed> Parse( std::string_view text );
 
+        /// Reads and parses the `.desound` at @p desound. Refuses an unreadable file and every Parse refusal.
+        [[nodiscard]] static Common::ResultStr<Parsed> ReadFile( const std::filesystem::path& desound );
+
         /// The `.desound` text naming @p source under @p guid. Refuses a null GUID and an empty source.
         [[nodiscard]] static Common::ResultStr<std::string> Write( const Common::Content::AssetGuid& guid,
                                                                    std::string_view                  source );
@@ -68,6 +71,9 @@ namespace Desert::Assets
         /// refusal, by name. What a sound REFERENCE resolves through — the path is never stored by a user.
         [[nodiscard]] static Common::ResultStr<std::filesystem::path>
         ResolveSourceFile( const Common::Content::AssetGuid& guid );
+
+        /// The same, for a reference held as the GUID's handle (`AudioSourceData::Sound`).
+        [[nodiscard]] static Common::ResultStr<std::filesystem::path> ResolveSourceFile( AssetHandle handle );
 
         /// Writes a `.desound` beside its source (creating the directory). Static: saving is what CREATES one.
         static Common::BoolResultStr Save( const Common::Filepath& filepath, const Common::Content::AssetGuid& guid,

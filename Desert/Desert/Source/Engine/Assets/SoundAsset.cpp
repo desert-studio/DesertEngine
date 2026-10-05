@@ -10,14 +10,6 @@
 
 namespace Desert::Assets
 {
-    namespace
-    {
-        struct SoundDocument
-        {
-            Common::Content::TextAssetHeaderSerialized Header;
-            std::string                                Source;
-        };
-    } // namespace
 
     SoundAsset::SoundAsset( const Common::Filepath& filepath ) : AssetBase( filepath, AssetTypeID::Sound )
     {
@@ -29,61 +21,43 @@ namespace Desert::Assets
         }
     }
 
-    Common::ResultStr<SoundAsset::Parsed> SoundAsset::Parse( std::string_view text )
-    {
-        const auto document = Common::Json::Read<SoundDocument>( text );
-        if ( !document )
-            return Common::MakeFormattedError<Parsed>( "not a .desound document: {}", document.GetError() );
-        const SoundDocument& data = document.GetValue();
-        if ( data.Header.Kind != kSoundKind )
-            return Common::MakeFormattedError<Parsed>( "header states Kind '{}', a .desound states '{}'",
-                                                       data.Header.Kind, kSoundKind );
-        const auto guid = Common::Content::AssetGuidFromText( data.Header.Guid );
-        if ( !guid )
-            return Common::MakeFormattedError<Parsed>( "header GUID: {}", guid.GetError() );
-        if ( guid.GetValue().IsNull() )
-            return Common::MakeError<Parsed>( "header GUID is null; the null GUID names no sound" );
-        if ( data.Source.empty() )
-            return Common::MakeError<Parsed>( "Source is empty; a sound names the audio file it was imported from" );
-        return Common::MakeSuccess( Parsed{ guid.GetValue(), data.Source } );
-    }
-
-    Common::ResultStr<std::string> SoundAsset::Write( const Common::Content::AssetGuid& guid, std::string_view source )
-    {
-        if ( guid.IsNull() )
-            return Common::MakeError<std::string>( "a .desound needs a GUID; the null GUID names no sound" );
-        if ( source.empty() )
-            return Common::MakeError<std::string>( "a .desound names its source audio file; none was given" );
-        SoundDocument data;
-        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Sound, guid, {} );
-        data.Source = std::string( source );
-        return Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( data ) );
-    }
-
     Common::ResultStr<std::filesystem::path> SoundAsset::ResolveSourceFile( const Common::Content::AssetGuid& guid )
     {
-        using Result = std::filesystem::path;
         if ( guid.IsNull() )
-            return Common::MakeError<Result>( "no sound: the null GUID names none" );
+            return Common::MakeError<std::filesystem::path>( "no sound: the null GUID names none" );
+        return ResolveSourceFile( Common::Content::HandleForGuid( guid ) );
+    }
+
+    Common::ResultStr<std::filesystem::path> SoundAsset::ResolveSourceFile( AssetHandle handle )
+    {
+        using Result = std::filesystem::path;
+        if ( static_cast<uint64_t>( handle ) == 0 )
+            return Common::MakeError<Result>( "no sound: the slot is unset" );
         const Common::Utils::AssetRegistry&      registry = ContentRegistry::Get();
-        const Common::Utils::AssetRegistryEntry* row =
-             registry.FindByHandle( Common::Content::HandleForGuid( guid ) );
+        const Common::Utils::AssetRegistryEntry* row      = registry.FindByHandle( handle );
         if ( row == nullptr )
-            return Common::MakeFormattedError<Result>( "sound {} is in no registry row",
-                                                       Common::Content::AssetGuidToText( guid ) );
+            return Common::MakeFormattedError<Result>( "sound (handle {}) is in no registry row",
+                                                       static_cast<uint64_t>( handle ) );
         auto followed = registry.FollowRedirectors( *row );
         if ( !followed )
-            return Common::MakeFormattedError<Result>( "sound {}: {}", Common::Content::AssetGuidToText( guid ),
-                                                       followed.GetError() );
+            return Common::MakeFormattedError<Result>( "sound '{}': {}", row->Key, followed.GetError() );
         const std::filesystem::path desound = Common::AssetHandle::PathForStableKey( followed.GetValue()->Key );
-        const std::string           text    = ReadTextForIdentity( ContentRegistry::FileToOpen( desound ) );
-        if ( text.empty() )
-            return Common::MakeFormattedError<Result>( "sound '{}' is empty or could not be opened",
-                                                       desound.string() );
-        const auto parsed = Parse( text );
+        const auto                  parsed  = ReadFile( desound );
         if ( !parsed )
-            return Common::MakeFormattedError<Result>( "sound '{}': {}", desound.string(), parsed.GetError() );
+            return Common::MakeError<Result>( parsed.GetError() );
         return Common::MakeSuccess( desound.parent_path() / parsed.GetValue().Source );
+    }
+
+    Common::ResultStr<SoundAsset::Parsed> SoundAsset::ReadFile( const std::filesystem::path& desound )
+    {
+        const std::string text = ReadTextForIdentity( ContentRegistry::FileToOpen( desound ) );
+        if ( text.empty() )
+            return Common::MakeFormattedError<Parsed>( "sound '{}' is empty or could not be opened",
+                                                       desound.string() );
+        auto parsed = Parse( text );
+        if ( !parsed )
+            return Common::MakeFormattedError<Parsed>( "sound '{}': {}", desound.string(), parsed.GetError() );
+        return parsed;
     }
 
     Common::BoolResultStr SoundAsset::LoadFromFile()

@@ -2742,8 +2742,10 @@ namespace Desert::ECS
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "Clip" ), Category( "Audio" ), Summary )
-        std::string Clip; // audio file (wav/mp3/flac), absolute or Assets-relative
+        // The SOUND asset (`.desound`, UE's USoundWave) by its GUID's handle: the audio file is the asset's to
+        // name (SoundAsset::ResolveSourceFile), so moving the pair moves no reference. Unset = silent.
+        PROPERTY( DisplayName( "Sound" ), Category( "Audio" ), Summary, Asset<SoundAsset> )
+        Assets::AssetHandle Sound;
 
         PROPERTY( DisplayName( "Volume" ), Category( "Audio" ), Range( 0.0f, 2.0f ) )
         float Volume = 1.0f;

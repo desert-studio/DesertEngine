@@ -7,6 +7,7 @@
 #include <Engine/Animation/Timeline/AudioVoices.hpp>
 #include <Engine/Animation/Timeline/Evaluator.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
 
 #include <gtest/gtest.h>
 
@@ -201,4 +202,30 @@ TEST( TimelineAudio, AddAudioTrackPutsASoundOnTheMasterBindingOverThePlaybackRan
     level.Host = SequenceHost::LevelSequence;
     EXPECT_FALSE( AddAudioTrack( level, kWindSound ).IsSuccess() ) << "a level sequence plays no sound yet";
     EXPECT_TRUE( level.Bindings.empty() && level.Tracks.empty() );
+}
+
+// The `.desound` an Audio section names (SOUND-ASSET): Write then Parse is the identity, and each malformed
+// document is refused by name rather than read as a sound with no file.
+TEST( TimelineAudio, SoundDocumentRoundTripsAndRefusesByName )
+{
+    using Desert::Assets::SoundAsset;
+    const Desert::Common::Content::AssetGuid guid{ 0x4b929a7a753845f0ULL, 0xbfc66441fce02ab6ULL };
+
+    const auto text = SoundAsset::Write( guid, "DesertStudio.wav" );
+    ASSERT_TRUE( text ) << text.GetError();
+    const auto parsed = SoundAsset::Parse( text.GetValue() );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    EXPECT_EQ( parsed.GetValue().Guid, guid );
+    EXPECT_EQ( parsed.GetValue().Source, "DesertStudio.wav" );
+
+    EXPECT_FALSE( SoundAsset::Write( {}, "DesertStudio.wav" ) );
+    EXPECT_FALSE( SoundAsset::Write( guid, "" ) );
+
+    std::string otherKind = text.GetValue();
+    otherKind.replace( otherKind.find( "\"Sound\"" ), 7, "\"Video\"" );
+    EXPECT_FALSE( SoundAsset::Parse( otherKind ) );
+
+    std::string noSource = text.GetValue();
+    noSource.replace( noSource.find( "DesertStudio.wav" ), 16, "" );
+    EXPECT_FALSE( SoundAsset::Parse( noSource ) );
 }

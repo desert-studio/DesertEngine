@@ -8,7 +8,8 @@ namespace Desert::Scripting
     //   Audio.play("Sounds/shot.wav")          -- 2D one-shot, full volume
     //   Audio.play("Sounds/shot.wav", 0.5)     -- with volume
     //   Audio.stopAll()                        -- silence everything (managed sources restart via AutoPlay)
-    // Paths resolve like AudioSourceComponent clips: absolute or Assets-relative, VFS-aware.
+    // Paths are audio FILES (absolute or Assets-relative, VFS-aware), not Sound assets: scripting is deferred
+    // by the owner, and Audio Source components name `.desound` assets instead.
     void RegisterAudioBindings( ScriptEngine::Impl& implRef )
     {
         sol::table audio = implRef.Lua.create_named_table( "Audio" );

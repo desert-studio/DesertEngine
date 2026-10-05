@@ -173,7 +173,15 @@ namespace Desert::Migration
     //       refused by name: an override that restates a clip has no v40 whole to lift. Scenes and prefabs alike.
     inline constexpr int kSceneVersionUIAnimationSequences = 41;
 
-    static_assert( kSceneVersionUIAnimationSequences == kSceneVersion,
+    //  42 - A SOUND IS AN ASSET (SOUND-ASSET, UE's USoundWave). AudioSource.Clip, an audio FILE path, becomes
+    //       AudioSource.Sound {Guid, Path}: the `.desound` beside that file whose Source names it. Every
+    //       sequence an UIAnim block hosts has each Audio section's Sound path replaced by that GUID, and is
+    //       rewritten by the TMLN writer (which lists the sound in the sequence header's Dependencies). An
+    //       audio file with no `.desound` beside it refuses the file by name — create the asset first.
+    //       (MigrateSoundRefsV41ToV42.) Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSoundAssets = 42;
+
+    static_assert( kSceneVersionSoundAssets == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -271,6 +279,24 @@ namespace Desert::Migration
     // Lifts every record's v40 UIAnim block into the v41 {Sequence, Loop, AutoPlay} form under the rule
     // kSceneVersionUIAnimationSequences states; refuses a UIAnim in a prefab override. PURE.
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateSoundRefsV41ToV42 did to one file.
+    struct SoundRefsReport
+    {
+        std::size_t              Sources  = 0; // AudioSource blocks whose Clip became a Sound reference
+        std::size_t              Sections = 0; // sequence Audio sections whose Sound path became a GUID
+        std::vector<std::string> Refused;      // one line per reference with no `.desound`; nothing written
+    };
+
+    // The `.desound` whose Source names the audio file @p audioFile (absolute): searched beside it, the way
+    // UE keeps the imported source beside its asset. Refuses none and more than one, by name.
+    Common::ResultStr<std::pair<Common::Content::AssetGuid, std::filesystem::path>>
+    SoundForAudioFile( const std::filesystem::path& audioFile );
+
+    // Raises AudioSource.Clip and every hosted sequence's Audio Sound path to GUID references under the rule
+    // kSceneVersionSoundAssets states. Paths are relative to @p assetsRoot (or absolute). Reads `.desound`s.
+    SoundRefsReport MigrateSoundRefsV41ToV42( std::vector<Assets::EntityData>& entities,
+                                              const std::filesystem::path&     assetsRoot );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -430,6 +456,9 @@ namespace Desert::Migration
         bool               UIAnimationsRaised = false; // below kSceneVersionUIAnimationSequences
         UIAnimationsReport UIAnimations;
 
+        bool            SoundRefsRaised = false; // below kSceneVersionSoundAssets
+        SoundRefsReport SoundRefs;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -439,7 +468,7 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised || UIAnimationTimelinesRaised;
+                   UIAnimationsRaised || SoundRefsRaised || UIAnimationTimelinesRaised;
         }
     };
 

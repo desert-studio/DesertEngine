@@ -62,7 +62,11 @@ namespace Desert::Core
     // MigrateUndeclaredKeysV38ToV39), and the corpus is the saver's canonical text.
     // v40 (SPAWN1): Camera.IsMainCamera is Camera.AutoActivateForPlayer, default false; only a scene's sole
     // camera keeps it set (Tools/SceneMigrator, MigratePlayerViewFlagV39ToV40).
-    inline constexpr int kSceneVersion = 41;
+    // v41 (ANIM-I9): UIAnim is a Timeline sequence.
+    // v42 (SOUND-ASSET): a sound is a `.desound` asset named by GUID — AudioSource.Clip (a file path) is
+    // AudioSource.Sound {Guid, Path}, and a sequence's Audio section names the sound's GUID (Tools/SceneMigrator,
+    // MigrateSoundRefsV41ToV42).
+    inline constexpr int kSceneVersion = 42;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

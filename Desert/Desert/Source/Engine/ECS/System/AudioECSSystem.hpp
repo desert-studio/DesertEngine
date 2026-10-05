@@ -70,10 +70,17 @@ namespace Desert::ECS
                 auto it = m_Sources.find( entity );
                 if ( it == m_Sources.end() )
                 {
-                    if ( !source.AutoPlay || source.Clip.empty() )
+                    if ( !source.AutoPlay || static_cast<uint64_t>( source.Sound ) == 0 )
                         continue;
-                    const uint32_t id =
-                         audio.CreateSource( source.Clip, source.Loop, source.Spatial, source.Volume );
+                    const auto file = Assets::SoundAsset::ResolveSourceFile( source.Sound );
+                    if ( !file )
+                    {
+                        LOG_ERROR( "[Audio] Audio Source: {}", file.GetError() );
+                        m_Sources.emplace( entity, 0 ); // one line, no retry every frame
+                        continue;
+                    }
+                    const uint32_t id = audio.CreateSource( file.GetValue().string(), source.Loop, source.Spatial,
+                                                            source.Volume );
                     if ( id == 0 )
                     {
                         m_Sources.emplace( entity, 0 ); // failed clip: don't retry every frame
