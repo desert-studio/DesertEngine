@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <optional>
 #include <utility>
 
 namespace Desert::ECS
@@ -350,11 +351,382 @@ namespace Desert::ECS
         return Common::MakeSuccess( true );
     }
 
+    namespace
+    {
+        template <typename SequenceT>
+        auto* VisibilityTrack( SequenceT& sequence, const T::BindingGuid& binding )
+        {
+            for ( auto& candidate : sequence.Tracks )
+                if ( candidate.Binding == binding && candidate.Kind == T::TrackKind::Bool &&
+                     candidate.Property == kLevelSequenceVisibilityProperty )
+                    return &candidate;
+            return static_cast<decltype( &sequence.Tracks.front() )>( nullptr );
+        }
+
+        /// Upsert a Constant 0/1 key, keeping `Keys` sorted with one key per tick (FloatChannel's invariant).
+        void UpsertBit( T::FloatChannel& bits, const Animation::FrameNumber tick, const bool value )
+        {
+            Animation::ScalarKey key;
+            key.Tick      = tick;
+            key.Value     = value ? 1.0F : 0.0F;
+            key.Interp    = Animation::KeyInterp::Constant;
+            const auto at = std::ranges::lower_bound( bits.Keys, tick, {}, &Animation::ScalarKey::Tick );
+            if ( at != bits.Keys.end() && at->Tick == tick )
+                *at = key;
+            else
+                bits.Keys.insert( at, key );
+        }
+
+        /// The section a key at @p tick lands on and a value at @p tick is read from: the highest-row section
+        /// whose range holds the tick (the one the fold lets win), else the first section.
+        template <typename TrackT>
+        auto* VisibilityChannelAt( TrackT& track, const Animation::FrameNumber tick )
+        {
+            decltype( std::get_if<T::BoolChannel>(
+                 std::get_if<T::Channel>( &track.Sections.front().Content ) ) ) target    = nullptr;
+            decltype( target )                                                  first     = nullptr;
+            int32_t                                                             targetRow = -1;
+            for ( auto& section : track.Sections )
+            {
+                auto* channel = std::get_if<T::Channel>( &section.Content );
+                auto* bits    = channel != nullptr ? std::get_if<T::BoolChannel>( channel ) : nullptr;
+                if ( bits == nullptr )
+                    continue;
+                if ( first == nullptr )
+                    first = bits;
+                if ( !( tick < section.Start ) && !( section.End < tick ) && section.Row > targetRow )
+                {
+                    target    = bits;
+                    targetRow = section.Row;
+                }
+            }
+            return target != nullptr ? target : first;
+        }
+    } // namespace
+
+    Common::BoolResultStr AddVisibilityTrack( T::Sequence& sequence, const T::BindingGuid& binding,
+                                              const bool current )
+    {
+        const T::Binding* bound = T::FindBinding( sequence, binding );
+        if ( bound == nullptr || bound->Kind != T::BindingKind::Entity )
+            return Common::MakeError( "Visibility track: the binding is not an actor (Entity) binding" );
+        if ( VisibilityTrack( sequence, binding ) != nullptr )
+            return Common::MakeFormattedError<bool>( "Visibility track: '{}' already has one", bound->Label );
+
+        T::Sequence edited = sequence;
+        T::Track    created;
+        created.Binding  = binding;
+        created.Property = kLevelSequenceVisibilityProperty;
+        created.Kind     = T::TrackKind::Bool;
+        T::BoolChannel channel;
+        channel.Bits.Default = current ? 1.0F : 0.0F;
+        UpsertBit( channel.Bits, sequence.Start, current );
+        T::Section section;
+        section.Start   = sequence.Start;
+        section.End     = sequence.End;
+        section.Content = T::Channel{ channel };
+        created.Sections.push_back( std::move( section ) );
+        edited.Tracks.push_back( std::move( created ) );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "Visibility track: {}", valid.GetError() );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    bool HasVisibilityTrack( const T::Sequence& sequence, const T::BindingGuid& binding )
+    {
+        return VisibilityTrack( sequence, binding ) != nullptr;
+    }
+
+    Common::BoolResultStr SetVisibilityKey( T::Sequence& sequence, const T::BindingGuid& binding,
+                                            const Animation::FrameNumber tick, const bool visible )
+    {
+        T::Sequence edited = sequence;
+        T::Track*   track  = VisibilityTrack( edited, binding );
+        if ( track == nullptr )
+            return Common::MakeError(
+                 "Visibility key: the binding has no Visibility track (+ Track ▸ Visibility)" );
+
+        T::BoolChannel* target = VisibilityChannelAt( *track, tick );
+        if ( target == nullptr )
+            return Common::MakeError( "Visibility key: the Visibility track has no section" );
+        UpsertBit( target->Bits, tick, visible );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "Visibility key: {}", valid.GetError() );
+        // A key changes what the actor shows at a tick the preview may already be posed at: Revision++ is how
+        // every cache of this sequence (the preview, the Player) learns it changed.
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    std::optional<bool> VisibilityAt( const T::Sequence& sequence, const T::BindingGuid& binding,
+                                      const Animation::FrameNumber tick )
+    {
+        const T::Track* track = VisibilityTrack( sequence, binding );
+        if ( track == nullptr || track->Sections.empty() )
+            return std::nullopt;
+        const T::BoolChannel* bits = VisibilityChannelAt( *track, tick );
+        if ( bits == nullptr )
+            return std::nullopt;
+        return T::Evaluate( *bits, Animation::FrameTime{ tick, 0.0F }, sequence.TickRate );
+    }
+
+    std::vector<VisibilityKey> VisibilityKeys( const T::Sequence& sequence, const T::BindingGuid& binding )
+    {
+        std::vector<VisibilityKey> keys;
+        const T::Track*            track = VisibilityTrack( sequence, binding );
+        if ( track == nullptr )
+            return keys;
+        for ( const T::Section& section : track->Sections )
+        {
+            const auto* channel = std::get_if<T::Channel>( &section.Content );
+            const auto* bits    = channel != nullptr ? std::get_if<T::BoolChannel>( channel ) : nullptr;
+            if ( bits == nullptr )
+                continue;
+            for ( const Animation::ScalarKey& key : bits->Bits.Keys )
+                keys.push_back( VisibilityKey{ key.Tick, key.Value != 0.0F } );
+        }
+        std::ranges::stable_sort( keys, {}, &VisibilityKey::Tick );
+        return keys;
+    }
+
+    namespace
+    {
+        template <typename SequenceT>
+        auto* MaterialParameterTrack( SequenceT& sequence, const T::BindingGuid& binding,
+                                      const LevelSequenceMaterialParameter& parameter )
+        {
+            for ( auto& candidate : sequence.Tracks )
+                if ( candidate.Binding == binding &&
+                     ( candidate.Kind == T::TrackKind::Float || candidate.Kind == T::TrackKind::Vector ) &&
+                     ParseLevelSequenceMaterialProperty( candidate.Property ) == parameter )
+                    return &candidate;
+            return static_cast<decltype( &sequence.Tracks.front() )>( nullptr );
+        }
+
+        /// Upsert a Linear key, keeping `Keys` sorted with one key per tick (FloatChannel's invariant).
+        void UpsertLinear( T::FloatChannel& channel, const Animation::FrameNumber tick, const float value )
+        {
+            Animation::ScalarKey key;
+            key.Tick      = tick;
+            key.Value     = value;
+            const auto at = std::ranges::lower_bound( channel.Keys, tick, {}, &Animation::ScalarKey::Tick );
+            if ( at != channel.Keys.end() && at->Tick == tick )
+                *at = key;
+            else
+                channel.Keys.insert( at, key );
+        }
+
+        /// Key @p value into @p channel (a Float channel takes .x, a Vector channel .xyz); false for any other.
+        bool UpsertParameter( T::Channel& channel, const Animation::FrameNumber tick, const glm::vec4& value )
+        {
+            if ( auto* scalar = std::get_if<T::FloatChannel>( &channel ) )
+            {
+                UpsertLinear( *scalar, tick, value.x );
+                return true;
+            }
+            if ( auto* vector = std::get_if<T::VectorChannel>( &channel ) )
+            {
+                UpsertLinear( vector->X, tick, value.x );
+                UpsertLinear( vector->Y, tick, value.y );
+                UpsertLinear( vector->Z, tick, value.z );
+                return true;
+            }
+            return false;
+        }
+
+        /// The channel of @p track a key at @p tick goes to and a read at @p tick comes from: the highest-row
+        /// section whose range holds the tick (the one the fold lets win), else the first channel section.
+        template <typename TrackT>
+        auto* MaterialChannelAt( TrackT& track, const Animation::FrameNumber tick )
+        {
+            decltype( std::get_if<T::Channel>( &track.Sections.front().Content ) ) target    = nullptr;
+            decltype( target )                                                     first     = nullptr;
+            int32_t                                                                targetRow = -1;
+            for ( auto& section : track.Sections )
+            {
+                auto* channel = std::get_if<T::Channel>( &section.Content );
+                if ( channel == nullptr )
+                    continue;
+                if ( first == nullptr )
+                    first = channel;
+                if ( !( tick < section.Start ) && !( section.End < tick ) && section.Row > targetRow )
+                {
+                    target    = channel;
+                    targetRow = section.Row;
+                }
+            }
+            return target != nullptr ? target : first;
+        }
+    } // namespace
+
+    Common::BoolResultStr AddMaterialParameterTrack( T::Sequence& sequence, const T::BindingGuid& binding,
+                                                     const LevelSequenceMaterialParameter& parameter,
+                                                     const T::TrackKind kind, const glm::vec4& current )
+    {
+        const T::Binding* bound = T::FindBinding( sequence, binding );
+        if ( bound == nullptr || bound->Kind != T::BindingKind::Entity )
+            return Common::MakeError( "Material Parameter track: the binding is not an actor (Entity) binding" );
+        if ( kind != T::TrackKind::Float && kind != T::TrackKind::Vector )
+            return Common::MakeError( "Material Parameter track: a parameter is a Scalar (Float) or a Vector" );
+        if ( parameter.Name.empty() || parameter.Name.find( '.' ) != std::string::npos )
+            return Common::MakeError( "Material Parameter track: the parameter name is empty or holds a '.'" );
+        if ( MaterialParameterTrack( sequence, binding, parameter ) != nullptr )
+            return Common::MakeFormattedError<bool>( "Material Parameter track: '{}' already has one for {}",
+                                                     bound->Label, LevelSequenceMaterialProperty( parameter ) );
+
+        T::Sequence edited = sequence;
+        T::Track    created;
+        created.Binding    = binding;
+        created.Property   = LevelSequenceMaterialProperty( parameter );
+        created.Kind       = kind;
+        T::Channel channel = T::MakeChannel( static_cast<T::ChannelKind>( kind ) );
+        if ( auto* scalar = std::get_if<T::FloatChannel>( &channel ) )
+            scalar->Default = current.x;
+        else if ( auto* vector = std::get_if<T::VectorChannel>( &channel ) )
+        {
+            vector->X.Default = current.x;
+            vector->Y.Default = current.y;
+            vector->Z.Default = current.z;
+        }
+        UpsertParameter( channel, sequence.Start, current );
+        T::Section section;
+        section.Start   = sequence.Start;
+        section.End     = sequence.End;
+        section.Content = std::move( channel );
+        created.Sections.push_back( std::move( section ) );
+        edited.Tracks.push_back( std::move( created ) );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "Material Parameter track: {}", valid.GetError() );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    bool HasMaterialParameterTrack( const T::Sequence& sequence, const T::BindingGuid& binding,
+                                    const LevelSequenceMaterialParameter& parameter )
+    {
+        return MaterialParameterTrack( sequence, binding, parameter ) != nullptr;
+    }
+
+    Common::BoolResultStr SetMaterialParameterKey( T::Sequence& sequence, const T::BindingGuid& binding,
+                                                   const LevelSequenceMaterialParameter& parameter,
+                                                   const Animation::FrameNumber tick, const glm::vec4& value )
+    {
+        T::Sequence edited = sequence;
+        T::Track*   track  = MaterialParameterTrack( edited, binding, parameter );
+        if ( track == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "Material Parameter key: the binding has no track for {} (+ Track ▸ Material Parameter)",
+                 LevelSequenceMaterialProperty( parameter ) );
+
+        T::Channel* target = track->Sections.empty() ? nullptr : MaterialChannelAt( *track, tick );
+        if ( target == nullptr || !UpsertParameter( *target, tick, value ) )
+            return Common::MakeError( "Material Parameter key: the track has no Float / Vector section" );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "Material Parameter key: {}", valid.GetError() );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    std::optional<glm::vec4> MaterialParameterAt( const T::Sequence& sequence, const T::BindingGuid& binding,
+                                                  const LevelSequenceMaterialParameter& parameter,
+                                                  const Animation::FrameNumber          tick )
+    {
+        const T::Track* track = MaterialParameterTrack( sequence, binding, parameter );
+        if ( track == nullptr || track->Sections.empty() )
+            return std::nullopt;
+        const T::Channel* channel = MaterialChannelAt( *track, tick );
+        if ( channel == nullptr )
+            return std::nullopt;
+        const Animation::FrameTime at{ tick, 0.0F };
+        if ( const auto* scalar = std::get_if<T::FloatChannel>( channel ) )
+            return glm::vec4( T::Evaluate( *scalar, at, sequence.TickRate ), 0.0F, 0.0F, 0.0F );
+        if ( const auto* vector = std::get_if<T::VectorChannel>( channel ) )
+            return glm::vec4( T::Evaluate( *vector, at, sequence.TickRate ), 0.0F );
+        return std::nullopt;
+    }
+
+    std::vector<Animation::FrameNumber>
+    MaterialParameterKeyTicks( const T::Sequence& sequence, const T::BindingGuid& binding,
+                               const LevelSequenceMaterialParameter& parameter )
+    {
+        std::vector<Animation::FrameNumber> ticks;
+        const T::Track*                     track = MaterialParameterTrack( sequence, binding, parameter );
+        if ( track == nullptr )
+            return ticks;
+        const auto collect = [&ticks]( const T::FloatChannel& channel )
+        {
+            for ( const Animation::ScalarKey& key : channel.Keys )
+                ticks.push_back( key.Tick );
+        };
+        for ( const T::Section& section : track->Sections )
+        {
+            const auto* channel = std::get_if<T::Channel>( &section.Content );
+            if ( channel == nullptr )
+                continue;
+            if ( const auto* scalar = std::get_if<T::FloatChannel>( channel ) )
+                collect( *scalar );
+            else if ( const auto* vector = std::get_if<T::VectorChannel>( channel ) )
+            {
+                collect( vector->X );
+                collect( vector->Y );
+                collect( vector->Z );
+            }
+        }
+        std::ranges::sort( ticks, {}, &Animation::FrameNumber::Value );
+        const auto repeated = std::ranges::unique( ticks, {}, &Animation::FrameNumber::Value );
+        ticks.erase( repeated.begin(), repeated.end() );
+        return ticks;
+    }
+
+    std::vector<std::pair<LevelSequenceMaterialParameter, T::TrackKind>>
+    MaterialParameterTracks( const T::Sequence& sequence, const T::BindingGuid& binding )
+    {
+        std::vector<std::pair<LevelSequenceMaterialParameter, T::TrackKind>> tracks;
+        for ( const T::Track& track : sequence.Tracks )
+        {
+            if ( track.Binding != binding ||
+                 ( track.Kind != T::TrackKind::Float && track.Kind != T::TrackKind::Vector ) )
+                continue;
+            if ( auto parameter = ParseLevelSequenceMaterialProperty( track.Property ) )
+                tracks.emplace_back( std::move( *parameter ), track.Kind );
+        }
+        return tracks;
+    }
+
     LevelSequenceStep LevelSequencePreview::Scrub( entt::registry& registry, const T::Sequence& sequence,
-                                                   const Animation::FrameNumber   tick,
-                                                   const LevelSequenceClipSource& clips )
+                                                   const Animation::FrameNumber      tick,
+                                                   const LevelSequenceClipSource&    clips,
+                                                   const LevelSequenceMaterialSlots& materials )
     {
         LevelSequenceEntityHost host( registry, m_NoOverrides );
+        m_Materials = materials;
+
+        // Every slot override a Material Parameter track is about to write, before its first write.
+        if ( materials )
+            for ( const T::Track& track : sequence.Tracks )
+            {
+                const auto        parameter = ParseLevelSequenceMaterialProperty( track.Property );
+                const T::Binding* bound     = parameter ? T::FindBinding( sequence, track.Binding ) : nullptr;
+                const auto        resolved  = bound != nullptr ? host.Resolve( *bound ) : std::nullopt;
+                if ( !resolved )
+                    continue;
+                const auto entity = static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) );
+                if ( std::any_of( m_SavedMaterials.begin(), m_SavedMaterials.end(),
+                                  [&]( const SavedMaterialParameter& saved )
+                                  { return saved.Entity == entity && saved.Parameter == *parameter; } ) )
+                    continue;
+                m_SavedMaterials.push_back(
+                     SavedMaterialParameter{ entity, *parameter, materials.Get( registry, entity, *parameter ) } );
+            }
 
         // RECORD BEFORE THE FIRST WRITE, per entity: what the preview gives back is the scene as it was when
         // the sequence first touched it, not as the previous scrub left it.
@@ -389,7 +761,7 @@ namespace Desert::ECS
 
         LevelSequencePlayback      playback( sequence );
         const Animation::FrameTime at{ tick, 0.0F };
-        return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at }, clips );
+        return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at }, clips, materials );
     }
 
     void LevelSequencePreview::Restore( entt::registry& registry )
@@ -420,5 +792,9 @@ namespace Desert::ECS
             }
         }
         m_Saved.clear();
+        for ( const SavedMaterialParameter& saved : m_SavedMaterials )
+            if ( registry.valid( saved.Entity ) && m_Materials )
+                (void)m_Materials.Set( registry, saved.Entity, saved.Parameter, saved.Override );
+        m_SavedMaterials.clear();
     }
 } // namespace Desert::ECS

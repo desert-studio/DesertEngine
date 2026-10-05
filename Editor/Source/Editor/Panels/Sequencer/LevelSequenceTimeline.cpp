@@ -8,6 +8,7 @@
 // file draws and routes, it does not decide.
 
 #include "SequencerPanel.hpp"
+#include "LevelMaterialProperties.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/CommandHistory.hpp>
@@ -25,11 +26,14 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
 #include <Engine/ECS/System/LevelSequenceSystem.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -130,7 +134,8 @@ namespace Desert::Editor
         const auto step =
              m_LevelPreview.Scrub( scene->GetRegistry(), sequence, m_LevelTick,
                                    m_AssetManager != nullptr ? ECS::LevelSequenceClips( *m_AssetManager )
-                                                             : ECS::LevelSequenceClipSource{} );
+                                                             : ECS::LevelSequenceClipSource{},
+                                   ECS::LevelSequenceMaterialSlotOverrides() );
         for ( const auto& refusal : step.Refusals )
             LOG_WARN( "[Sequencer] level preview: {}", refusal );
         m_LevelTickShown     = m_LevelTick.Value;
@@ -181,6 +186,214 @@ namespace Desert::Editor
         const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
         if ( const auto cut = ECS::AddCameraCut( sequence, camera, m_LevelTick, sequence.End ); !cut.IsSuccess() )
             ToastManager::Push( std::format( "Camera Cut refused: {}", cut.GetError() ), ToastLevel::Error, 6.0f );
+    }
+
+    void SequencerPanel::AddLevelVisibilityTrack( const LevelTL::BindingGuid& binding )
+    {
+        const auto asset = ResolveLevelAsset();
+        const auto scene = m_Scene.lock();
+        if ( !asset || !scene )
+            return;
+        LevelTL::Sequence& sequence = asset->EditSequence();
+        const auto*        bound    = LevelTL::FindBinding( sequence, binding );
+        const auto         entity   = bound != nullptr ? BoundEntity( *scene, *bound ) : std::nullopt;
+        // What the actor shows now is the track's first key (UE keys the current value when a property track
+        // is added); an entity with no VisibilityComponent renders, so it is visible.
+        const bool current = !entity || !entity->HasComponent<ECS::VisibilityComponent>() ||
+                             entity->GetComponent<ECS::VisibilityComponent>().Visible;
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto added = ECS::AddVisibilityTrack( sequence, binding, current ); !added.IsSuccess() )
+            ToastManager::Push( std::format( "+ Track → Visibility refused: {}", added.GetError() ),
+                                ToastLevel::Error, 6.0f );
+    }
+
+    void SequencerPanel::KeyLevelVisibility( const LevelTL::BindingGuid& binding, const bool visible )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return;
+        LevelTL::Sequence&       sequence = asset->EditSequence();
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto keyed = ECS::SetVisibilityKey( sequence, binding, m_LevelTick, visible );
+             !keyed.IsSuccess() )
+            ToastManager::Push( std::format( "Key Visibility refused: {}", keyed.GetError() ), ToastLevel::Error,
+                                6.0f );
+    }
+
+    namespace
+    {
+        /// What @p instance shows for @p param now: its own override, else the nearest parent instance's, else
+        /// the schema default (packed as SetParamFromVec4 unpacks it: .x scalar, .xyz vector).
+        glm::vec4 MaterialParameterNow( const Graphic::MaterialInstance&            instance,
+                                        const ::Desert::Core::Formats::ShaderParam& param )
+        {
+            if ( const auto own = instance.GetOverrideAsVec4( param.Name ) )
+                return *own;
+            for ( auto parent = instance.GetParentInstance(); parent; parent = parent->GetParentInstance() )
+                if ( const auto held = parent->GetOverrideAsVec4( param.Name ) )
+                    return *held;
+            return param.Default;
+        }
+    } // namespace
+
+    std::vector<SequencerPanel::LevelMaterialSlotChoice>
+    SequencerPanel::LevelMaterialSlots( const LevelTL::BindingGuid& binding ) const
+    {
+        std::vector<LevelMaterialSlotChoice> slots;
+        const auto                           asset = ResolveLevelAsset();
+        const auto                           scene = m_Scene.lock();
+        if ( !asset || !scene )
+            return slots;
+        const auto* bound  = LevelTL::FindBinding( asset->GetSequence(), binding );
+        const auto  entity = bound != nullptr ? BoundEntity( *scene, *bound ) : std::nullopt;
+        if ( !entity )
+            return slots;
+        // The slots the track host can write (LevelSequenceMaterialSlotOverrides): an authored slot whose
+        // per-entity instance is built. A mesh drawing the shared default instance offers none.
+        // The slot is named by the material ASSET it holds ("Slot 0 (MP_Default)"), as the Details panel and
+        // UE's Material Parameter track name it — not by the runtime instance, whose name is the shader path.
+        const auto materialName = [this]( const Assets::AssetHandle handle ) -> std::string
+        {
+            const auto asset = m_AssetManager != nullptr && handle
+                                    ? m_AssetManager->FindByHandle<Assets::SurfaceMaterialAsset>( handle )
+                                    : nullptr;
+            return asset ? std::filesystem::path( asset->GetMetadata().Filepath ).stem().string() : std::string{};
+        };
+        const auto collect = [&slots, &materialName]( const auto& mesh )
+        {
+            const size_t count = std::min( mesh.MaterialSlots.size(), mesh.RuntimeMaterialInstances.size() );
+            for ( size_t slot = 0; slot < count; ++slot )
+            {
+                const Graphic::MaterialInstance* instance = mesh.RuntimeMaterialInstances[slot].get();
+                const Graphic::Material* material = instance != nullptr ? instance->GetParentMaterial() : nullptr;
+                const auto* executor = material != nullptr ? material->GetMaterialExecutor() : nullptr;
+                const auto  shader   = executor != nullptr ? executor->GetShader() : nullptr;
+                if ( !shader )
+                    continue;
+                LevelMaterialSlotChoice choice;
+                choice.Slot  = static_cast<uint32_t>( slot );
+                choice.Label =
+                     LevelMaterialEdit::SlotLabel( choice.Slot, materialName( mesh.MaterialSlots[slot] ) );
+                using VT     = ::Desert::Core::Formats::ShaderValueType;
+                for ( const auto& param : shader->GetProgramMeta().Params )
+                {
+                    if ( param.IsTexture || param.Name.empty() || param.Name.find( '.' ) != std::string::npos )
+                        continue;
+                    LevelMaterialParameterChoice offered;
+                    if ( param.Type == VT::Float )
+                        offered.Kind = LevelTL::TrackKind::Float;
+                    else if ( param.Type == VT::Float3 || param.Type == VT::Float4 )
+                        offered.Kind = LevelTL::TrackKind::Vector;
+                    else
+                        continue;
+                    offered.Parameter = ECS::LevelSequenceMaterialParameter{ choice.Slot, param.Name };
+                    offered.Label     = param.DisplayName.empty() ? param.Name : param.DisplayName;
+                    offered.Current   = MaterialParameterNow( *instance, param );
+                    offered.Color     = param.Widget == ::Desert::Core::Formats::ShaderParamWidget::Color;
+                    offered.Min       = param.Min;
+                    offered.Max       = param.Max;
+                    choice.Parameters.push_back( std::move( offered ) );
+                }
+                if ( !choice.Parameters.empty() )
+                    slots.push_back( std::move( choice ) );
+            }
+        };
+        if ( entity->HasComponent<ECS::StaticMeshComponent>() )
+            collect( entity->GetComponent<ECS::StaticMeshComponent>() );
+        else if ( entity->HasComponent<ECS::SkinnedMeshComponent>() )
+            collect( entity->GetComponent<ECS::SkinnedMeshComponent>() );
+        return slots;
+    }
+
+    void SequencerPanel::AddLevelMaterialParameterTrack( const LevelTL::BindingGuid&                binding,
+                                                         const ECS::LevelSequenceMaterialParameter& parameter )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return;
+        // Kind and the start key come from the slot's schema and the actor's instance NOW (UE keys the current
+        // value when a property track is added), not from whatever the menu saw when it opened.
+        const LevelMaterialParameterChoice* offered = nullptr;
+        const auto                          slots   = LevelMaterialSlots( binding );
+        for ( const auto& slot : slots )
+            for ( const auto& choice : slot.Parameters )
+                if ( choice.Parameter == parameter )
+                    offered = &choice;
+        if ( offered == nullptr )
+        {
+            ToastManager::Push( std::format( "+ Track → Material Parameter refused: slot {} of this actor has no "
+                                             "Float / Vector parameter '{}' of its own instance",
+                                             parameter.Slot, parameter.Name ),
+                                ToastLevel::Error, 6.0f );
+            return;
+        }
+        LevelTL::Sequence&       sequence = asset->EditSequence();
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto added =
+                  ECS::AddMaterialParameterTrack( sequence, binding, parameter, offered->Kind, offered->Current );
+             !added.IsSuccess() )
+            ToastManager::Push( std::format( "+ Track → Material Parameter refused: {}", added.GetError() ),
+                                ToastLevel::Error, 6.0f );
+    }
+
+    Common::BoolResultStr
+    SequencerPanel::KeyLevelMaterialParameter( const LevelTL::BindingGuid&                binding,
+                                               const ECS::LevelSequenceMaterialParameter& parameter,
+                                               const glm::vec4&                           value )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return Common::MakeError<bool>( "the Level Sequence this window edits is no longer loaded." );
+        auto keyed = LevelMaterialEdit::Key( asset->EditSequence(), m_LevelEdit, LevelOwner(), binding, parameter,
+                                             m_LevelTick, value );
+        if ( !keyed.IsSuccess() )
+            ToastManager::Push( std::format( "Key Material Parameter refused: {}", keyed.GetError() ),
+                                ToastLevel::Error, 6.0f );
+        return keyed;
+    }
+
+    std::vector<LevelMaterialEdit::Schema> SequencerPanel::LevelMaterialSchema() const
+    {
+        std::vector<LevelMaterialEdit::Schema> schema;
+        const auto                             asset = ResolveLevelAsset();
+        if ( !asset )
+            return schema;
+        for ( const auto& binding : asset->GetSequence().Bindings )
+        {
+            if ( binding.Kind != LevelTL::BindingKind::Entity )
+                continue;
+            for ( const auto& slot : LevelMaterialSlots( binding.Guid ) )
+                for ( const auto& choice : slot.Parameters )
+                    schema.push_back( LevelMaterialEdit::Schema{ binding.Guid, choice.Parameter, slot.Label,
+                                                                 choice.Label, choice.Color, choice.Min,
+                                                                 choice.Max } );
+        }
+        return schema;
+    }
+
+    std::vector<EditableProperty> SequencerPanel::EditableProperties() const
+    {
+        const auto asset = IsLevelTimeline() ? ResolveLevelAsset() : nullptr;
+        if ( !asset )
+            return {};
+        return LevelMaterialEdit::Describe( asset->GetSequence(), m_LevelTick, LevelMaterialSchema() );
+    }
+
+    Common::BoolResultStr SequencerPanel::SetEditableProperty( const std::string&        name,
+                                                               const std::vector<float>& value )
+    {
+        if ( !IsLevelTimeline() )
+            return ISubjectDocument::SetEditableProperty( name, value );
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return Common::MakeError<bool>( "the Level Sequence this window edits is no longer loaded." );
+        // The row's field, by name: checked against the same census `properties` lists, then keyed at the
+        // playhead through the one setter the field calls.
+        const auto write = LevelMaterialEdit::Resolve( asset->GetSequence(), LevelMaterialSchema(), name, value );
+        if ( !write.IsSuccess() )
+            return Common::MakeError<bool>( write.GetError() );
+        return KeyLevelMaterialParameter( write.GetValue().Binding, write.GetValue().Parameter,
+                                          write.GetValue().Value );
     }
 
     std::vector<std::shared_ptr<Assets::AnimationAsset>>
@@ -355,27 +568,53 @@ namespace Desert::Editor
                 if ( ImGui::SmallButton( ICON_MDI_VIDEO " Cut" ) )
                     AddLevelCameraCut( binding.Guid );
             }
-            if ( entity && entity->HasComponent<ECS::SkinnedMeshComponent>() &&
-                 entity->HasComponent<ECS::AnimationComponent>() )
+            // "+ Track" on the actor's row (UE: the binding's "+ Track" menu): Visibility for ANY actor,
+            // Animation <clip> for one with a skeletal mesh.
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( ICON_MDI_PLUS " Track" ) )
+                ImGui::OpenPopup( "##LevelBindingTrack" );
+            if ( ImGui::BeginPopup( "##LevelBindingTrack" ) )
             {
-                // "+ Track ▸ Animation <clip>" on the actor's row (UE: the binding's "+ Track → Animation").
-                ImGui::SameLine();
-                if ( ImGui::SmallButton( ICON_MDI_PLUS " Track" ) )
-                    ImGui::OpenPopup( "##LevelBindingTrack" );
-                if ( ImGui::BeginPopup( "##LevelBindingTrack" ) )
+                if ( ImGui::MenuItem( ICON_MDI_EYE " Visibility", nullptr, false,
+                                      !ECS::HasVisibilityTrack( sequence, binding.Guid ) ) )
+                    AddLevelVisibilityTrack( binding.Guid );
+                // UE: "+ Track ▸ Material Parameter" on a mesh component — slot, then a scalar / vector
+                // parameter of that slot's shader; a parameter that already has a track is greyed out.
+                if ( entity &&
+                     ( entity->HasComponent<ECS::StaticMeshComponent>() ||
+                       entity->HasComponent<ECS::SkinnedMeshComponent>() ) &&
+                     ImGui::BeginMenu( ICON_MDI_PALETTE " Material Parameter" ) )
                 {
-                    if ( ImGui::BeginMenu( "Animation" ) )
+                    const auto slots = LevelMaterialSlots( binding.Guid );
+                    if ( slots.empty() )
+                        ImGui::TextDisabled( "No slot of this mesh has its own material instance." );
+                    for ( const auto& slot : slots )
                     {
-                        const auto clips = LevelAnimationClips( binding.Guid );
-                        if ( clips.empty() )
-                            ImGui::TextDisabled( "No clip plays on this mesh's skeleton." );
-                        for ( const auto& clip : clips )
-                            if ( clip && ImGui::MenuItem( clip->GetClip().AnimationName.c_str() ) )
-                                AddLevelAnimation( binding.Guid, clip );
+                        if ( !ImGui::BeginMenu( slot.Label.c_str() ) )
+                            continue;
+                        for ( const auto& choice : slot.Parameters )
+                            if ( ImGui::MenuItem( choice.Label.c_str(),
+                                                  choice.Kind == LevelTL::TrackKind::Vector ? "Vector" : "Scalar",
+                                                  false,
+                                                  !ECS::HasMaterialParameterTrack( sequence, binding.Guid,
+                                                                                   choice.Parameter ) ) )
+                                AddLevelMaterialParameterTrack( binding.Guid, choice.Parameter );
                         ImGui::EndMenu();
                     }
-                    ImGui::EndPopup();
+                    ImGui::EndMenu();
                 }
+                if ( entity && entity->HasComponent<ECS::SkinnedMeshComponent>() &&
+                     entity->HasComponent<ECS::AnimationComponent>() && ImGui::BeginMenu( "Animation" ) )
+                {
+                    const auto clips = LevelAnimationClips( binding.Guid );
+                    if ( clips.empty() )
+                        ImGui::TextDisabled( "No clip plays on this mesh's skeleton." );
+                    for ( const auto& clip : clips )
+                        if ( clip && ImGui::MenuItem( clip->GetClip().AnimationName.c_str() ) )
+                            AddLevelAnimation( binding.Guid, clip );
+                    ImGui::EndMenu();
+                }
+                ImGui::EndPopup();
             }
             const float rowH  = ImGui::GetFrameHeight();
             const float nextY = ImGui::GetCursorScreenPos().y;
@@ -404,6 +643,114 @@ namespace Desert::Editor
             if ( LevelTL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceTransformProperty ) != nullptr )
                 DrawLevelKeyLane( sequence, binding.Guid, laneX0, laneW, rowY, rowH );
             ImGui::SetCursorScreenPos( ImVec2( contentX0, std::max( nextY, rowY + rowH + 4.0f ) ) );
+
+            // The Visibility track, a row under its actor (UE: the property track nested in the binding): the
+            // checkbox shows the value at the playhead and toggling it keys the new value there; the lane
+            // shades where the actor is hidden and draws each key (filled = visible, hollow = hidden).
+            if ( const auto shown = ECS::VisibilityAt( sequence, binding.Guid, m_LevelTick ) )
+            {
+                const float visY = ImGui::GetCursorScreenPos().y;
+                ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, visY ) );
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted( ICON_MDI_EYE " Visibility" );
+                ImGui::SameLine( 160.0f );
+                bool visible = *shown;
+                if ( ImGui::Checkbox( "##LevelVisible", &visible ) )
+                    KeyLevelVisibility( binding.Guid, visible );
+                const auto  keys = ECS::VisibilityKeys( sequence, binding.Guid );
+                const float y0   = visY + 2.0f;
+                const float y1   = visY + rowH - 2.0f;
+                for ( size_t i = 0; i < keys.size(); ++i )
+                {
+                    if ( keys[i].Visible )
+                        continue;
+                    // A bool holds its first key before it: a hidden first key hides from the range start.
+                    const int32_t from = i == 0 ? sequence.Start.Value : keys[i].Tick.Value;
+                    const int32_t to   = i + 1 < keys.size() ? keys[i + 1].Tick.Value : sequence.End.Value;
+                    draw->AddRectFilled( ImVec2( xOf( from ), y0 ), ImVec2( xOf( to ), y1 ),
+                                         IM_COL32( 20, 20, 24, 200 ) );
+                }
+                for ( const auto& key : keys )
+                {
+                    const float  x         = xOf( key.Tick.Value );
+                    const float  r         = 5.0f;
+                    const float  c         = ( y0 + y1 ) * 0.5f;
+                    const ImVec2 diamond[] = { ImVec2( x, c - r ), ImVec2( x + r, c ), ImVec2( x, c + r ),
+                                               ImVec2( x - r, c ) };
+                    if ( key.Visible )
+                        draw->AddConvexPolyFilled( diamond, 4, IM_COL32( 230, 230, 230, 255 ) );
+                    else
+                        draw->AddPolyline( diamond, 4, IM_COL32( 230, 230, 230, 255 ), ImDrawFlags_Closed, 1.5f );
+                }
+                ImGui::SetCursorScreenPos( ImVec2( contentX0, visY + rowH + 4.0f ) );
+            }
+
+            // The Material Parameter tracks, a row each under the actor (UE: the material track nested in the
+            // mesh component): the field shows the track's value at the playhead; a committed edit (release of
+            // a drag, Enter, a picked colour) keys it there — one key, one undo step. The lane draws the keys.
+            const auto materialTracks = ECS::MaterialParameterTracks( sequence, binding.Guid );
+            const auto offeredSlots   = materialTracks.empty() ? std::vector<LevelMaterialSlotChoice>{}
+                                                               : LevelMaterialSlots( binding.Guid );
+            for ( const auto& [parameter, kind] : materialTracks )
+            {
+                const auto value = ECS::MaterialParameterAt( sequence, binding.Guid, parameter, m_LevelTick );
+                if ( !value )
+                    continue;
+                const LevelMaterialParameterChoice* schema    = nullptr;
+                std::string                         slotLabel = LevelMaterialEdit::SlotLabel( parameter.Slot, {} );
+                for ( const auto& slot : offeredSlots )
+                    for ( const auto& choice : slot.Parameters )
+                        if ( choice.Parameter == parameter )
+                        {
+                            schema    = &choice;
+                            slotLabel = slot.Label;
+                        }
+                const std::string property = ECS::LevelSequenceMaterialProperty( parameter );
+                ImGui::PushID( property.c_str() );
+                const float matY = ImGui::GetCursorScreenPos().y;
+                ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, matY ) );
+                ImGui::AlignTextToFramePadding();
+                // UE: the material track's slot, then the parameter — "Slot 0 (MP_Default) ▸ Blend".
+                ImGui::TextUnformatted( std::format( ICON_MDI_PALETTE " {} ▸ {}", slotLabel,
+                                                     schema != nullptr ? schema->Label : parameter.Name )
+                                             .c_str() );
+                ImGui::SameLine( 160.0f );
+                ImGui::SetNextItemWidth( std::max( 60.0f, laneX0 - ImGui::GetCursorScreenPos().x - 8.0f ) );
+                const std::string draftId = std::format( "{}/{}", binding.Locator, property );
+                glm::vec4         shown   = *value;
+                if ( m_LevelMaterialDraft && m_LevelMaterialDraft->first == draftId )
+                    shown = m_LevelMaterialDraft->second;
+                bool changed = false;
+                if ( kind == LevelTL::TrackKind::Float )
+                    changed = schema != nullptr && schema->Min && schema->Max
+                                   ? ImGui::SliderFloat( "##LevelMaterial", &shown.x, *schema->Min, *schema->Max )
+                                   : ImGui::DragFloat( "##LevelMaterial", &shown.x, 0.01f );
+                else if ( schema != nullptr && schema->Color )
+                    changed = ImGui::ColorEdit3( "##LevelMaterial", &shown.x, ImGuiColorEditFlags_Float );
+                else
+                    changed = ImGui::DragFloat3( "##LevelMaterial", &shown.x, 0.01f );
+                if ( changed )
+                    m_LevelMaterialDraft = std::make_pair( draftId, shown );
+                if ( ImGui::IsItemDeactivatedAfterEdit() )
+                {
+                    (void)KeyLevelMaterialParameter( binding.Guid, parameter, shown );
+                    m_LevelMaterialDraft.reset();
+                }
+                else if ( !ImGui::IsItemActive() && !changed && m_LevelMaterialDraft &&
+                          m_LevelMaterialDraft->first == draftId )
+                    m_LevelMaterialDraft.reset();
+                const float c = matY + rowH * 0.5f;
+                for ( const auto tick : ECS::MaterialParameterKeyTicks( sequence, binding.Guid, parameter ) )
+                {
+                    const float  x         = xOf( tick.Value );
+                    const float  r         = 5.0f;
+                    const ImVec2 diamond[] = { ImVec2( x, c - r ), ImVec2( x + r, c ), ImVec2( x, c + r ),
+                                               ImVec2( x - r, c ) };
+                    draw->AddConvexPolyFilled( diamond, 4, IM_COL32( 230, 230, 230, 255 ) );
+                }
+                ImGui::SetCursorScreenPos( ImVec2( contentX0, matY + rowH + 4.0f ) );
+                ImGui::PopID();
+            }
             ImGui::PopID();
         }
 
@@ -829,6 +1176,40 @@ namespace Desert::Editor
                                                [this, guid] { KeyLevelTransform( guid ); } } );
             actions.push_back( DocumentAction{ std::format( "Camera Cut {}", binding.Label ),
                                                [this, guid] { AddLevelCameraCut( guid ); } } );
+            if ( !ECS::HasVisibilityTrack( asset->GetSequence(), guid ) )
+                actions.push_back( DocumentAction{ std::format( "Add Visibility Track {}", binding.Label ),
+                                                   [this, guid] { AddLevelVisibilityTrack( guid ); } } );
+            else
+            {
+                actions.push_back( DocumentAction{ std::format( "Key Visible {}", binding.Label ),
+                                                   [this, guid] { KeyLevelVisibility( guid, true ); } } );
+                actions.push_back( DocumentAction{ std::format( "Key Hidden {}", binding.Label ),
+                                                   [this, guid] { KeyLevelVisibility( guid, false ); } } );
+            }
+            for ( const auto& slot : LevelMaterialSlots( guid ) )
+                for ( const auto& choice : slot.Parameters )
+                {
+                    const ECS::LevelSequenceMaterialParameter parameter = choice.Parameter;
+                    if ( !ECS::HasMaterialParameterTrack( asset->GetSequence(), guid, parameter ) )
+                        actions.push_back( DocumentAction{
+                             std::format( "Add Material Parameter Track {} {} {}", binding.Label, slot.Label,
+                                          choice.Label ),
+                             [this, guid, parameter] { AddLevelMaterialParameterTrack( guid, parameter ); } } );
+                    else
+                        // Keys what the track says at the playhead (UE: the track row's key button).
+                        actions.push_back(
+                             DocumentAction{ std::format( "Key Material Parameter {} {} {}", binding.Label,
+                                                          slot.Label, choice.Label ),
+                                             [this, guid, parameter]
+                                             {
+                                                 const auto live = ResolveLevelAsset();
+                                                 if ( !live )
+                                                     return;
+                                                 if ( const auto value = ECS::MaterialParameterAt(
+                                                           live->GetSequence(), guid, parameter, m_LevelTick ) )
+                                                     (void)KeyLevelMaterialParameter( guid, parameter, *value );
+                                             } } );
+                }
             for ( const auto& clip : LevelAnimationClips( guid ) )
             {
                 if ( !clip )

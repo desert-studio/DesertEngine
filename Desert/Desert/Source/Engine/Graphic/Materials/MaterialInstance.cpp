@@ -173,6 +173,34 @@ namespace Desert::Graphic
         return m_Properties.HasProperty( name );
     }
 
+    std::optional<glm::vec4> MaterialInstance::GetOverrideAsVec4( const std::string& name ) const
+    {
+        if ( !m_Properties.HasProperty( name ) )
+            return std::nullopt;
+        const MaterialPropertyValue value = m_Properties.GetProperty( name );
+        if ( const auto* f = std::get_if<float>( &value ) )
+            return glm::vec4( *f, 0.0f, 0.0f, 0.0f );
+        if ( const auto* i = std::get_if<int>( &value ) )
+            return glm::vec4( static_cast<float>( *i ), 0.0f, 0.0f, 0.0f );
+        if ( const auto* b = std::get_if<bool>( &value ) )
+            return glm::vec4( *b ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f );
+        if ( const auto* v2 = std::get_if<glm::vec2>( &value ) )
+            return glm::vec4( *v2, 0.0f, 0.0f );
+        if ( const auto* v3 = std::get_if<glm::vec3>( &value ) )
+            return glm::vec4( *v3, 0.0f );
+        if ( const auto* v4 = std::get_if<glm::vec4>( &value ) )
+            return *v4;
+        return std::nullopt;
+    }
+
+    void MaterialInstance::ClearOverride( const std::string& name )
+    {
+        if ( !m_Properties.RemoveProperty( name ) )
+            return;
+        m_bNeedsApply = true;
+        PropagateToChildren();
+    }
+
     bool MaterialInstance::SetParamFromVec4( const std::string& name, const glm::vec4& value )
     {
         // Resolve the param's type so the vec4 is unpacked correctly. When this instance has never held the
