@@ -496,7 +496,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             const auto& pcInfo = *pushConstant;
             vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                (VkShaderStageFlags)pcInfo.ShaderStage, 0, (uint32_t)pcBuffer.Size,
+                                (VkShaderStageFlags)pcInfo.ShaderStage, 0, pcInfo.Size,
                                 pcBuffer.Data );
         }
 
@@ -541,7 +541,7 @@ namespace Desert::Graphic::API::Vulkan
             {
                 const auto& pcInfo = *pushConstant;
                 vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                    (VkShaderStageFlags)pcInfo.ShaderStage, 0, (uint32_t)pcBuffer.Size,
+                                    (VkShaderStageFlags)pcInfo.ShaderStage, 0, pcInfo.Size,
                                     pcBuffer.Data );
             }
         }
