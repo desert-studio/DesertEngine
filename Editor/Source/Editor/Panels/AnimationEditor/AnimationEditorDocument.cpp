@@ -1421,16 +1421,17 @@ namespace Desert::Editor
             (void)SetClipLength( m_ClipAsset->GetClipForAuthoring(), ClipLengthTicks( clip, lengthSeconds ), {} );
         row( "Frames", std::format( "{}", m_Transport.LastFrame() + 1 ) );
         labelled( "Display Rate" );
-        const auto shownRate = std::ranges::find( kClipDisplayRates, clip.Sequence.DisplayRate, &NamedFrameRate::Rate );
-        const std::string rateLabel =
-             shownRate != kClipDisplayRates.end()
-                  ? std::string( shownRate->Label )
-                  : std::format( "{}/{} fps", clip.Sequence.DisplayRate.Numerator,
-                                 clip.Sequence.DisplayRate.Denominator );
+        const auto shownRate =
+             std::ranges::find( kClipDisplayRates, clip.Sequence.DisplayRate, &NamedFrameRate::Rate );
+        const std::string rateLabel = shownRate != kClipDisplayRates.end()
+                                           ? std::string( shownRate->Label )
+                                           : std::format( "{}/{} fps", clip.Sequence.DisplayRate.Numerator,
+                                                          clip.Sequence.DisplayRate.Denominator );
         if ( ImGui::BeginCombo( "##clipdisplayrate", rateLabel.c_str() ) )
         {
             for ( const auto& named : kClipDisplayRates )
-                if ( ImGui::Selectable( std::string( named.Label ).c_str(), named.Rate == clip.Sequence.DisplayRate ) )
+                if ( ImGui::Selectable( std::string( named.Label ).c_str(),
+                                        named.Rate == clip.Sequence.DisplayRate ) )
                     (void)SetClipDisplayRate( m_ClipAsset->GetClipForAuthoring(), named.Rate, {} );
             ImGui::EndCombo();
         }
