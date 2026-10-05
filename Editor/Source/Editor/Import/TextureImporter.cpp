@@ -861,24 +861,17 @@ namespace Desert::Editor
         const std::string&     raw = rawRead.GetValue();
         std::vector<std::byte> bytes( reinterpret_cast<const std::byte*>( raw.data() ),
                                       reinterpret_cast<const std::byte*>( raw.data() ) + raw.size() );
-        const uint64_t         hash      = Common::Utils::PakContentHash( bytes.data(), bytes.size() );
         const std::string      sourceKey = Common::AssetHandle::StableKeyForPath( source );
 
-        // REIMPORT: the asset exists. Identity (GUID -> handle) and settings are the asset's and are kept;
-        // only a source whose CONTENT changed is taken in again. Same hash = nothing to do (no mtime).
+        // REIMPORT keeps the asset's identity (GUID -> handle) and settings and re-takes only a source whose
+        // CONTENT changed (Assets::WriteTextureSource, the one rule). The authored intent below is read only for
+        // a FIRST import: at an existing asset's path it would be the asset itself, not a sidecar.
         if ( Assets::IsTextureSourceAssetFile( assetPath ) )
         {
-            auto existing = Assets::ReadTextureSourceAssetFile( assetPath );
-            if ( !existing.IsSuccess() )
-                return Common::MakeError<fs::path>( existing.GetError() );
-            if ( existing.GetValue().Import.SourceHash == hash )
-                return Common::MakeSuccess( assetPath );
-            Assets::TextureSourceAsset updated = existing.ExtractValue();
-            updated.Import.SourceFile          = sourceKey;
-            updated.Import.SourceHash          = hash;
-            updated.Source                     = std::move( bytes );
-            if ( auto w = Assets::WriteTextureSourceAssetFile( assetPath, updated ); !w.IsSuccess() )
-                return Common::MakeError<fs::path>( w.GetError() );
+            const auto kept = Assets::WriteTextureSource( assetPath, Common::Content::ContentKind::Texture,
+                                                          sourceKey, std::move( bytes ), {} );
+            if ( !kept.IsSuccess() )
+                return Common::MakeError<fs::path>( kept.GetError() );
             return Common::MakeSuccess( assetPath );
         }
 
@@ -904,10 +897,10 @@ namespace Desert::Editor
              fs::relative( Common::Constants::Path::FullPath( source ), Common::Constants::Path::SKYBOX_PATH );
         const bool     sky  = !rel.empty() && rel.begin()->string() != "..";
         const auto     kind = sky ? Common::Content::ContentKind::Skybox : Common::Content::ContentKind::Texture;
-        const Assets::TextureSourceAsset asset =
-             Assets::MakeTextureSourceAsset( kind, sourceKey, std::move( bytes ), settings );
-        if ( auto w = Assets::WriteTextureSourceAssetFile( assetPath, asset ); !w.IsSuccess() )
-            return Common::MakeError<fs::path>( w.GetError() );
+        const auto     created =
+             Assets::WriteTextureSource( assetPath, kind, sourceKey, std::move( bytes ), settings );
+        if ( !created.IsSuccess() )
+            return Common::MakeError<fs::path>( created.GetError() );
         return Common::MakeSuccess( assetPath );
     }
 

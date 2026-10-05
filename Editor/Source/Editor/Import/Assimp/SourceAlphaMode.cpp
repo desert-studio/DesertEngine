@@ -1,5 +1,7 @@
 #include "SourceAlphaMode.hpp"
 
+#include <Engine/Assets/TextureSourceAsset.hpp>
+
 #include <assimp/GltfMaterial.h>
 #include <assimp/material.h>
 
@@ -11,13 +13,21 @@ namespace Desert::Editor
 {
     namespace
     {
-        // True only when the image header was read and states no alpha channel (grey or RGB).
+        // True only when the image header was read and states no alpha channel (grey or RGB). `file` is a loose
+        // image or the texture asset an embedded image was imported into (its carried source is read).
         bool ImageLacksAlpha( const std::filesystem::path& file )
         {
+            if ( file.empty() )
+                return false;
+            const auto bytes = Assets::ReadTextureSourceImage( file );
+            if ( !bytes.IsSuccess() )
+                return false;
             int width    = 0;
             int height   = 0;
             int channels = 0;
-            if ( file.empty() || stbi_info( file.string().c_str(), &width, &height, &channels ) == 0 )
+            if ( stbi_info_from_memory( reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() ),
+                                        static_cast<int>( bytes.GetValue().size() ), &width, &height,
+                                        &channels ) == 0 )
                 return false;
             return channels == 1 || channels == 3;
         }

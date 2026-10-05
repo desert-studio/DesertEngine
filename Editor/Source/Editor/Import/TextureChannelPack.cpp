@@ -1,6 +1,8 @@
 #include <Editor/Import/TextureChannelPack.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 // STB_IMAGE(_WRITE)_IMPLEMENTATION is compiled into stb_image.cpp; declarations only here.
 #include <stb_image/stb_image.h>
@@ -9,8 +11,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -43,7 +43,8 @@ namespace Desert::Editor
         std::string_view slotName = slot.Slot;
         if ( slotName.starts_with( "u_" ) )
             slotName.remove_prefix( 2 );
-        return slot.Parts.front().Source.parent_path() / std::format( "{}_{}.png", name, slotName );
+        return slot.Parts.front().Source.parent_path() /
+               std::format( "{}_{}{}", name, slotName, Assets::kTextureAssetExtension );
     }
 
     Common::ResultStr<PackOutcome> PackTextureChannels( const ImportedTextureSlot&   slot,
@@ -58,8 +59,14 @@ namespace Desert::Editor
         {
             Pixels& image      = images.emplace_back();
             int     components = 0;
-            image.Data.reset( stbi_load( Common::Constants::Path::FullPath( part.Source ).string().c_str(),
-                                         &image.Width, &image.Height, &components, 4 ) );
+            const auto bytes = Assets::ReadTextureSourceImage( Common::Constants::Path::FullPath( part.Source ) );
+            if ( !bytes.IsSuccess() )
+                return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
+                                                                    slot.Slot, part.Source.generic_string(),
+                                                                    bytes.GetError() ) );
+            image.Data.reset( stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() ),
+                                                     static_cast<int>( bytes.GetValue().size() ), &image.Width,
+                                                     &image.Height, &components, 4 ) );
             if ( !image.Data )
                 return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
                                                                     slot.Slot, part.Source.generic_string(),
@@ -93,30 +100,33 @@ namespace Desert::Editor
             return Common::MakeError<PackOutcome>(
                  std::format( "[Import] slot '{}': cannot encode '{}'", slot.Slot, out.generic_string() ) );
 
-        auto written = WriteDerivedTexture( encoded, out );
+        auto written = WriteDerivedTexture( encoded, out, ".png" );
         if ( !written.IsSuccess() )
             return Common::MakeError<PackOutcome>(
                  std::format( "[Import] slot '{}': {}", slot.Slot, written.GetError() ) );
         return written;
     }
 
-    Common::ResultStr<PackOutcome> WriteDerivedTexture( std::string_view bytes, const std::filesystem::path& out )
+    Common::ResultStr<PackOutcome> WriteDerivedTexture( std::string_view bytes, const std::filesystem::path& asset,
+                                                        std::string_view imageExtension )
     {
-        // `out` is a project key (relative) or absolute; the bytes land off the project (FullPath), the root
-        // the texture importer reads that key from - never off the working directory.
-        const std::filesystem::path onDisk = Common::Constants::Path::FullPath( out );
-        {
-            std::ifstream existing( onDisk, std::ios::binary );
-            if ( existing && std::string( std::istreambuf_iterator<char>( existing ),
-                                          std::istreambuf_iterator<char>() ) == bytes )
-                return Common::MakeSuccess( PackOutcome::Unchanged );
-        }
-        std::ofstream file( onDisk, std::ios::binary | std::ios::trunc );
-        file.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
-        // The verdict is the file's, not the buffer's: close() flushes, and a short write surfaces only there.
-        file.close();
-        if ( !file.good() )
-            return Common::MakeError<PackOutcome>( std::format( "cannot write '{}'", out.generic_string() ) );
-        return Common::MakeSuccess( PackOutcome::Written );
+        // `asset` is a project key (relative) or absolute; it lands off the project (FullPath), the root the
+        // texture importer reads that key from - never off the working directory. The provenance key names the
+        // image the bytes are (`<asset stem><imageExtension>` beside it): its extension is what the cook reads
+        // the format from, and nothing ever opens it as a file.
+        const std::filesystem::path onDisk = Common::Constants::Path::FullPath( asset );
+        std::filesystem::path       image  = onDisk;
+        image.replace_extension( imageExtension );
+        const auto written = Assets::WriteTextureSource(
+             onDisk, Common::Content::ContentKind::Texture, Common::AssetHandle::StableKeyForPath( image ),
+             std::vector<std::byte>( reinterpret_cast<const std::byte*>( bytes.data() ),
+                                     reinterpret_cast<const std::byte*>( bytes.data() ) + bytes.size() ),
+             {} );
+        if ( !written.IsSuccess() )
+            return Common::MakeError<PackOutcome>( std::format( "cannot write the texture asset '{}': {}",
+                                                                asset.generic_string(), written.GetError() ) );
+        return Common::MakeSuccess( written.GetValue() == Assets::TextureSourceWrite::Unchanged
+                                         ? PackOutcome::Unchanged
+                                         : PackOutcome::Written );
     }
 } // namespace Desert::Editor

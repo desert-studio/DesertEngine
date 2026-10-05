@@ -25,6 +25,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -379,13 +380,19 @@ TEST_F( SkinnedImport, EveryFileTheImportWroteTracesBackToItsSource )
 }
 
 // THM1l-b19: the texture EMBEDDED in the file ("*0" to assimp, a data-URI image here, a bufferView image in a
-// .glb) is written out beside the source as a texture of its own and the material names it. Live on Fox.glb:
-// "texture '*0' (type 1) NOT FOUND" and the fox drew white.
-TEST_F( SkinnedImport, TheEmbeddedBaseColourIsWrittenBesideTheSource )
+// .glb) is imported as a texture ASSET of its own beside the source (UE Interchange: a UTexture2D in the import
+// folder) and the material names it. Live on Fox.glb: "texture '*0' (type 1) NOT FOUND" and the fox drew white.
+// TAIL-TEX: no bare image is written into the content for it — the asset carries the bytes.
+TEST_F( SkinnedImport, TheEmbeddedBaseColourIsImportedAsATextureAssetBesideTheSource )
 {
-    const std::filesystem::path extracted =
+    const std::filesystem::path asset = m_Source.parent_path() / std::format( "{}_0{}", m_Source.stem().string(),
+                                                                              Assets::kTextureAssetExtension );
+    EXPECT_TRUE( Assets::IsTextureSourceAssetFile( Common::Constants::Path::FullPath( asset ) ) )
+         << asset.string();
+    const std::filesystem::path image =
          m_Source.parent_path() / std::format( "{}_0.png", m_Source.stem().string() );
-    EXPECT_TRUE( std::filesystem::exists( Common::Constants::Path::FullPath( extracted ) ) ) << extracted.string();
+    EXPECT_FALSE( std::filesystem::exists( Common::Constants::Path::FullPath( image ) ) )
+         << image.string() << ": a source without an asset was left in the content";
 }
 
 // THM1l-b21: THE SKINNED MESH NAMES ITS MATERIAL AS THE STATIC ONE DOES: every .skmesh submesh states the GUID of
