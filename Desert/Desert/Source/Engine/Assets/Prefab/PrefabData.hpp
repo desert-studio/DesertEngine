@@ -166,6 +166,9 @@ namespace Desert::Assets
         bool                       Playing       = true;
         bool                       Loop          = true;
         float                      PlaybackSpeed = 1.0f;
+        /// AnimationComponent::UpdateAnimationInEditor. Absent = false, which is UE's default and the
+        /// intended behaviour for every file written before ANIM-FIX1 (the Edit-mode preview was the defect).
+        bool                       UpdateAnimationInEditor = false;
         std::optional<std::string> Graph;
         /// AnimationComponent::LinkedLayerGraphs as project paths, in link order; absent = nothing linked
         /// (every file written before ANIM-I14b), so no scene needs a migration step.

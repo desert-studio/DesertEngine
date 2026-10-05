@@ -37,18 +37,6 @@ namespace Desert::Editor
 
     namespace
     {
-        // A live parameter write can now be REFUSED (see Evaluator::SetBool and friends), and a panel that
-        // dropped the result would be the silence those refusals exist to remove. It can only happen when
-        // the parameter was renamed in the same frame the slider moved, so this is a diagnostic and not a
-        // modal — but it is a diagnostic that exists.
-        void ReportParamWrite( const Common::BoolResultStr& result )
-        {
-            if ( !result.IsSuccess() )
-            {
-                LOG_ERROR( "[AnimGraphPanel] {}", result.GetError() );
-            }
-        }
-
         const char* kTypeNames[] = { "Bool", "Int", "Float" };
 
         // THE COMBO IS AS WIDE AS ITS WIDEST LABEL, AND THAT IS A DERIVATION RATHER THAN A NUMBER.
@@ -76,8 +64,8 @@ namespace Desert::Editor
         const char* kOpNames[] = { ">", "<", ">=", "<=", "==", "!=", "is true", "is false" };
 
         /// One float, drawn as whatever the graph DECLARED it to be. Used by the `def` control; the
-        /// `live` one below cannot share it, because each of its three arms calls a different, refusable
-        /// setter on the evaluator rather than writing a float.
+        /// live control (Details ▸ Animation) cannot share it, because each of its three arms calls a
+        /// different, refusable setter on the evaluator rather than writing a float.
         ///
         /// The store is a float for both — that is the evaluator's uniform store and not a claim about
         /// the type — so a Bool default is 0/1 and an Int default is a whole number, exactly as
@@ -848,12 +836,14 @@ namespace Desert::Editor
     {
         auto&            graph   = *anim.Graph;
         G::StateMachine& machine = *ResolveMachine( graph ); // OnUIRender refused a graph without one
-        auto* eval  = anim.GraphEvaluator.get();
-        bool  dirty = false;
+        bool             dirty   = false;
 
         ImGui::BeginChild( "##agSide", ImVec2( 290.0f, height ), true );
 
-        // ---- Parameters (with live value controls) ----
+        // ---- Parameters (authored: name, type, default) ----
+        // THE LIVE VALUES ARE NOT HERE (07 §14.1). A graph instance's parameters belong to the component
+        // that owns the evaluator, so they are drawn once, in Details ▸ Animation (AnimationComponentWidget),
+        // as UE draws an Anim Instance's variables in the actor's Details and not in the graph window.
         ImGui::TextUnformatted( "Parameters" );
         for ( int i = 0; i < static_cast<int>( graph.Parameters.size() ); ++i )
         {
@@ -893,11 +883,10 @@ namespace Desert::Editor
                 break;
             }
 
-            // ── def AND live, ON THE ROW BELOW, AND THEY ARE NOT THE SAME KIND OF THING ───────────────
+            // ── def, ON THE ROW BELOW ───────────────────────────────────────────────────────────────────
             //
             // `def` is AUTHORED: it is `Parameter::Default`, it travels into the .danimgraph, and
-            // `Evaluator::Reset` / `SyncGraph` seed the live value from it. `live` is the value in THIS
-            // session's evaluator and is written to no file.
+            // `Evaluator::Reset` / `SyncGraph` seed the live value from it.
             //
             // THE `def` CONTROL IS NEW, AND ITS ABSENCE WAS NOT COSMETIC (07 §3.1, §17.3). The field has
             // existed in the model and in the file format all along with nothing anywhere able to set
@@ -908,38 +897,6 @@ namespace Desert::Editor
             ImGui::SameLine();
             ImGui::SetNextItemWidth( 70 );
             dirty |= DrawTypedValue( "##pd", declaredType, p.Default );
-
-            ImGui::SameLine();
-            ImGui::TextDisabled( "live" );
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth( 70 );
-            float live = eval ? eval->GetFloat( p.Name ) : p.Default;
-
-            // THE CONTROL MATCHES THE DECLARED TYPE, all three of them. An `Int` parameter was drawn
-            // as a float drag and pushed through SetFloat, which the evaluator accepted because its
-            // setters did no checking at all; now it would be refused, and the honest fix is the control
-            // the type always deserved. The live value is still stored as one float — that is the
-            // evaluator's uniform store, not a type.
-            if ( declaredType == G::ParamType::Bool )
-            {
-                bool b = live != 0.0f;
-                if ( ImGui::Checkbox( "##pv", &b ) && eval != nullptr )
-                {
-                    ReportParamWrite( eval->SetBool( p.Name, b ) );
-                }
-            }
-            else if ( declaredType == G::ParamType::Int )
-            {
-                auto whole = static_cast<int>( std::lround( live ) );
-                if ( ImGui::DragInt( "##pv", &whole, 1.0f ) && eval != nullptr )
-                {
-                    ReportParamWrite( eval->SetInt( p.Name, whole ) );
-                }
-            }
-            else if ( ImGui::DragFloat( "##pv", &live, 0.05f ) && eval != nullptr )
-            {
-                ReportParamWrite( eval->SetFloat( p.Name, live ) );
-            }
             ImGui::PopID();
         }
         if ( ImGui::SmallButton( "+ Parameter" ) )

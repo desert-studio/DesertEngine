@@ -485,6 +485,13 @@ namespace Desert::Core
                 system->SetCameraSnapshot( camView, camPos );
         }
 
+        // THE EDITOR WORLD'S CLOCK, separate from gameplay's: real time in Edit, nothing in Play/Paused.
+        // A system previews in the editor only on the author's request (UE bUpdateAnimationInEditor), so it
+        // needs to know which world this is — a zero gameplay timestep alone cannot tell Edit from Paused.
+        const Common::Timestep editorTs = m_State == SceneState::Edit ? ts : Common::Timestep( 0.0f );
+        for ( auto& system : m_Systems )
+            system->SetEditorTick( editorTs );
+
         // Prefab foliage (FO-8) before the systems: a field's instances are entities, and the systems below must
         // see them where the field's transforms say they stand this frame — after a stroke, an undo or a cell
         // streaming in. Main thread: it creates and destroys entities.
