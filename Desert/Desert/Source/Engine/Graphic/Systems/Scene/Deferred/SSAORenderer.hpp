@@ -3,6 +3,8 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSAO.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -10,9 +12,9 @@
 
 namespace Desert::Graphic::System
 {
-    // Screen-space ambient occlusion. Fullscreen: reads the scene renderer's G-buffer (world position +
-    // normal) and writes an AO factor into its own target framebuffer, which the deferred lighting pass then
-    // multiplies into the ambient term. Runs in the manual chain (like DeferredLighting), only when Deferred.
+    // Screen-space ambient occlusion. Fullscreen: reads the G-buffer (world position + normal) and writes an AO
+    // factor into a per-frame graph transient (FrameTransients::SSAO, SceneRendererFrameDeferred.cpp
+    // "Deferred: SSAO"), which the deferred Composite then multiplies into the ambient term. Deferred only.
     class SSAORenderer final : public RenderSystem
     {
     public:
@@ -24,13 +26,11 @@ namespace Desert::Graphic::System
             if ( !m_Shader )
                 return Common::MakeError( "SSAO shader not found" );
 
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target )
-                return Common::MakeError( "SSAO target framebuffer missing" );
-
+            // The AO image is a graph transient: the pipeline is built against the graph's canonical render
+            // pass for that one colour target (no framebuffer of its own).
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "SSAO";
-            spec.Framebuffer       = target;
+            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kSSAO } };
             spec.Shader            = m_Shader;
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
@@ -47,28 +47,30 @@ namespace Desert::Graphic::System
         {
         }
 
-        // Records AO from the G-buffer into the SSAO target (GetAOImage), inside the render pass the frame
-        // graph opens on it (SceneRendererFrameDeferred.cpp "Deferred: SSAO"). viewProj = world->clip; cameraPos.xyz = camera.
-        // radius and bias are WORLD distances (the shader offsets samples in world space), and a world
-        // unit is a centimetre - callers passing literature values must convert through Common::Units.
-        void Execute( const std::shared_ptr<Framebuffer>& gbuffer, const glm::mat4& viewProj,
-                      const glm::vec4& cameraPos, float radius, float bias, float power, int sampleCount )
+        // Records AO into the colour target the graph node opened (the SSAO transient). @p worldPos = GBufferC,
+        // @p normal = GBufferB, bound by shader name through RDG::PassBindings. viewProj = world->clip;
+        // cameraPos.xyz = camera. radius and bias are WORLD distances (the shader offsets samples in world
+        // space), and a world unit is a centimetre - callers passing literature values must convert through
+        // Common::Units.
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, RDG::TextureRef worldPos,
+                                                    RDG::TextureRef normal, const glm::mat4& viewProj,
+                                                    const glm::vec4& cameraPos, float radius, float bias,
+                                                    float power, int sampleCount )
         {
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target || !gbuffer || !m_Pipeline || !m_Material )
-                return;
+            if ( !m_Pipeline || !m_Material )
+                return Common::MakeError( "Deferred: SSAO: the SSAO pipeline is not initialised" );
 
-            auto& renderer = Renderer::GetInstance();
-            // GBufferC(2) = world position, GBufferB(1) = normal.
-            m_Material->BindInputs( gbuffer->GetColorAttachmentImage( 2 ), gbuffer->GetColorAttachmentImage( 1 ),
-                                    viewProj, cameraPos, radius, bias, power, sampleCount );
-            renderer.SubmitFullscreenTriangle( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
-        }
+            m_Material->BindInputs( viewProj, cameraPos, radius, bias, power, sampleCount );
 
-        std::shared_ptr<Image2D> GetAOImage() const
-        {
-            const auto& target = m_TargetFramebuffer.lock();
-            return target ? target->GetColorAttachmentImage( 0 ) : nullptr;
+            // The sampler the material route sampled the G-buffer with (the image's own: linear, REPEAT).
+            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
+            RDG::PassBindings          bindings( context );
+            bindings
+                 .Sampled( "u_GBufferPos", worldPos, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler )
+                 .Sampled( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, m_Material->GetMaterialExecutor() );
         }
 
     private:

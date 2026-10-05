@@ -231,13 +231,6 @@ namespace Desert::Graphic
         m_GBuffer = Graphic::Framebuffer::Create( gbufferSpec );
         m_GBuffer->Resize( width, height );
 
-        // SSAO target: a single-channel-ish AO factor (RGBA8F, AO in .r) the deferred lighting reads.
-        FramebufferSpecification ssaoSpec;
-        ssaoSpec.DebugName = "SSAO";
-        ssaoSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSAO );
-        m_SSAOBuffer = Graphic::Framebuffer::Create( ssaoSpec );
-        m_SSAOBuffer->Resize( width, height );
-
         // Scene-colour snapshot (same format as the target) the glass pass samples for refraction.
         FramebufferSpecification copySpec;
         copySpec.DebugName = "SceneColorCopy";
@@ -342,9 +335,9 @@ namespace Desert::Graphic
         if ( const auto flareInit = lensFlareSystem->Initialize(); !flareInit )
             LOG_WARN( "[SceneRenderer] Lens flare system unavailable: {}", flareInit.GetError() );
 
-        // SSAO (fullscreen G-buffer -> AO factor). Its target is the dedicated SSAO buffer; deferred lighting
-        // reads the result. Runs in the manual chain only when Deferred. Non-fatal.
-        RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_SSAOBuffer, m_RenderGraphBuilder );
+        // SSAO (fullscreen G-buffer -> AO factor). Its target is a per-frame graph transient (AddFrameSSAO);
+        // the deferred Composite reads it. Deferred only. Non-fatal.
+        RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
         if ( !SP_CAST( System::SSAORenderer, m_RenderSystems["SSAOSystem"] )->Initialize() )
             LOG_WARN( "[SceneRenderer] SSAO system unavailable." );
 
@@ -1177,8 +1170,6 @@ namespace Desert::Graphic
         if ( auto resolve =
                   SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] ) )
             resolve->Resize( width, height );
-        if ( m_SSAOBuffer )
-            m_SSAOBuffer->Resize( width, height );
         if ( m_SceneColorCopy )
             m_SceneColorCopy->Resize( width, height );
         if ( m_GIBuffer )

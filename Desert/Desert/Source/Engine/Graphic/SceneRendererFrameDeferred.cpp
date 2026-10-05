@@ -157,23 +157,43 @@ namespace Desert::Graphic
         if ( !m_EnableSSAO )
             return;
         auto* ssao = UNIQUE_GET_AS( System::SSAORenderer, m_RenderSystems["SSAOSystem"] );
-        if ( !ssao || !ssao->GetAOImage() )
+        if ( !ssao )
             return;
-        const std::shared_ptr<Image2D> aoImage = ssao->GetAOImage();
-        const RDG::TextureRef          ao      = textures.Import( aoImage, "SSAO" );
-        textures.Transients.SSAO = ao; // -> Deferred: Composite (u_SSAO)
+        if ( gbuffer.size() < 3 )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: SSAO needs the G-buffer normal and position, the graph has {}",
+                       gbuffer.size() );
+            return;
+        }
+        // The AO image lives within this graph (UE: a transient from the scene textures' desc): the G-buffer's
+        // size, the SSAO format, one mip, one sample.
+        auto desc = graph.GetTextureDesc( gbuffer[0] );
+        if ( !desc )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: SSAO: {}", desc.GetError() );
+            return;
+        }
+        RDG::TextureDesc aoDesc = desc.GetValue();
+        aoDesc.Format           = ViewTargetFormats::kSSAO;
+        aoDesc.Mips             = 1;
+        aoDesc.Layers           = 1;
+        aoDesc.Samples          = 1;
+        const RDG::TextureRef ao       = graph.CreateTexture( aoDesc, "SSAO" );
+        const RDG::TextureRef worldPos = gbuffer[2]; // GBufferC
+        const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
+        textures.Transients.SSAO       = ao;         // -> Deferred: Composite (u_SSAO)
         graph.AddPass(
              "Deferred: SSAO", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadAll( pass, gbuffer, RDG::Access::SampledGraphics );
+                 pass.Read( worldPos, RDG::Access::SampledGraphics );
+                 pass.Read( normal, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, ao, EngineClearColor() ); // AO is fully recomputed each frame
              },
-             [this, ssao, viewProj, cameraPos]( RDG::PassContext& ) -> Common::BoolResultStr
+             [ssao, worldPos, normal, viewProj, cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 ssao->Execute( m_GBuffer, viewProj, cameraPos, kSSAORadius, kSSAOBias, /*power*/ 1.5f,
-                                /*samples*/ 16 );
-                 return BOOLSUCCESS;
+                 return ssao->Record( context, worldPos, normal, viewProj, cameraPos, kSSAORadius, kSSAOBias,
+                                      /*power*/ 1.5f, /*samples*/ 16 );
              } );
     }
 

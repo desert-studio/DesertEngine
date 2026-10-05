@@ -643,7 +643,6 @@ namespace Desert::Graphic
     private:
         std::shared_ptr<Framebuffer> m_TargetFramebuffer;
         std::shared_ptr<Framebuffer> m_GBuffer;                    // deferred G-buffer (MRT)
-        std::shared_ptr<Framebuffer> m_SSAOBuffer;                 // deferred SSAO (AO factor)
         std::shared_ptr<Framebuffer> m_SceneColorCopy;             // scene snapshot for glass refraction
         std::shared_ptr<Framebuffer> m_GIBuffer;                   // RSM-GI resolve target (blur-read by lighting)
         std::shared_ptr<Framebuffer> m_RSMBuffer;                  // reflective shadow map (G-buffer from the sun)

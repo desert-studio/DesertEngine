@@ -283,8 +283,9 @@ namespace Desert::Graphic
         add( { "GBufferC.WorldPosition", "SceneRenderer.cpp", F::kGBufferC, width, height } );
         add( { "GBuffer.Emissive", "SceneRenderer.cpp", F::kGBufferEmissive, width, height } );
         add( { "GBuffer.Depth", "SceneRenderer.cpp", F::kGBufferDepth, width, height } );
-        add( { "SSAO", "SceneRenderer.cpp", F::kSSAO, width, height } );
         add( { "SceneColorCopy", "SceneRenderer.cpp", F::kSceneColorCopy, width, height } );
+        // Graph transients still cost their pooled memory while the view is open (like SMAA / Bloom below).
+        add( { "SSAO", "SceneRendererFrameDeferred.cpp", F::kSSAO, width, height } );
 
         // Post stack, all built in Init.
         add( { "SilhouetteMask", "MeshRenderer.cpp", F::kSilhouetteMask, width, height } );
