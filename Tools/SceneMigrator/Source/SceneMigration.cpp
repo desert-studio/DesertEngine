@@ -539,10 +539,11 @@ namespace Desert::Migration
                         continue;
                     rfl::Generic::Object block = std::move( audio.value() );
                     const auto           sound = block.get( "Sound" );
-                    const auto           text  = sound.has_value() ? sound.value().to_string() : rfl::Error( "" );
-                    if ( text && !text.value().empty() && !Common::Content::AssetGuidFromText( text.value() ) )
+                    const std::string    text =
+                         sound.has_value() ? sound.value().to_string().value_or( std::string() ) : std::string();
+                    if ( !text.empty() && !Common::Content::AssetGuidFromText( text ) )
                     {
-                        const auto asset = SoundForAudioFile( absolute( text.value() ) );
+                        const auto asset = SoundForAudioFile( absolute( text ) );
                         if ( !asset )
                             report.Refused.push_back( std::format( "entity {}: Audio section: {}", who,
                                                                    asset.GetError() ) );
