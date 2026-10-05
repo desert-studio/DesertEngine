@@ -210,9 +210,10 @@ namespace
     // what the writers in SceneLightingBinding.hpp look the blocks up under. Nothing here is a literal
     // repeated from the engine — a rename that reaches only one side fails to compile, not to pass.
     //
-    // The cloud-shadow pair (u_CloudShadowMap / CloudShadowUB) is deliberately NOT here: ApplyTo writes it
-    // through Graphic::CloudShadowBind, and Tests/Engine/CloudShadow already asserts that every sun-lit
-    // shader in the tree — these three included — declares it.
+    // The cloud-shadow pair (u_CloudShadowMap / CloudShadowUB) is deliberately NOT here: ApplyTo uploads the
+    // block through Graphic::CloudShadowUpload, the map is a pass parameter every mesh node binds (see
+    // TheCloudShadowMapIsAPassParameterNotTheFrameSnapshots below), and Tests/Engine/CloudShadow already asserts
+    // that every sun-lit shader in the tree — these three included — declares it.
     std::vector<std::string> SceneBindingNames()
     {
         std::vector<std::string> names = {
@@ -327,8 +328,8 @@ TEST_F( ShaderRootFixture, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
     // itself rather than by the frame snapshot: the GPU-scene material row and the surface maps
     // (MaterialFactory binds these three by name from the material asset).
     const char* kPerObject[] = { "Materials", "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" };
-    // The cloud-shadow pair, filled by Graphic::CloudShadowBind out of the same snapshot — see the note on
-    // SceneBindingNames().
+    // The cloud-shadow pair: the block uploaded by Graphic::CloudShadowUpload out of the same snapshot, the
+    // map bound by the mesh node through RDG::PassBindings — see the note on SceneBindingNames().
     const char* kCloudShadow[] = { "u_CloudShadowMap", "CloudShadowUB" };
 
     for ( const auto& shader : kMeshShaders )
@@ -507,6 +508,22 @@ TEST_F( ShaderRootFixture, TheLitShaderGraphSurfaceIsOneOfThoseConsumers )
 
     EXPECT_TRUE( graph ) << "no shader-graph surface compiles the cascade text — a graph material ticked "
                             "\"Lit\" is shadowed by clouds and not by geometry again";
+}
+
+// MESH-PB1: u_CloudShadowMap is a PASS parameter (UE: a view/scene texture, never a material parameter). The
+// mesh nodes (MeshGeometryPass, Deferred: Generic / Skinned / Glass) bind CloudShadowMapOrWhite by name through
+// RDG::PassBindings, so the frame snapshot must upload only the block: writing the map onto the material as
+// well is the "filled both" refusal on every lit draw.
+TEST_F( ShaderRootFixture, TheCloudShadowMapIsAPassParameterNotTheFrameSnapshots )
+{
+    const std::string applier =
+         ReadFile( "../Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.cpp" );
+    ASSERT_FALSE( applier.empty() ) << "PBRSceneFrame.cpp not found from " << std::filesystem::current_path();
+    EXPECT_NE( applier.find( "CloudShadowUpload( material, CloudShadow )" ), std::string::npos )
+         << "PBRSceneFrame::ApplyTo must upload CloudShadowUB through CloudShadowUpload";
+    EXPECT_EQ( applier.find( "CloudShadowBind(" ), std::string::npos )
+         << "PBRSceneFrame::ApplyTo binds u_CloudShadowMap on the material; the mesh node binds it as a pass "
+            "parameter, so the slot would be filled by both routes";
 }
 
 int main( int argc, char** argv )

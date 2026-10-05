@@ -18,10 +18,10 @@ namespace Desert::Graphic::System
         // material's construction-time fallback, which BindGraphicsPassState refuses as "filled neither".
         //   env cubes absent    -> the fallback cube (the split-sum ambient reads zero)
         //   BRDF LUT absent     -> Black (no specular ambient term)
-        //   cloud shadow absent -> White (the sun is not occluded by clouds)
         //   normal map          -> FlatNormal (the glass draws share one material; no object has normal
         //                         detail, which the old route expressed by leaving the slot on the fallback)
         // The glass shader (StaticMeshGlass) samples no shadow cascade, so there is nothing to write for them.
+        // u_CloudShadowMap is not the material's: the "Deferred: Glass" node binds it (CloudShadowMapOrWhite).
         void BindGlassFrameDefaults( Material& material, const PBRSceneFrame& frame )
         {
             const auto& emptyCube =
@@ -35,10 +35,6 @@ namespace Desert::Graphic::System
             if ( !frame.BrdfLut )
                 if ( auto* tex = material.Get<Texture2DProperty>( MaterialPBRBase::kBrdfLutName ) )
                     tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::Black ).get(),
-                                   RDG::Access::SampledGraphics );
-            if ( !frame.CloudShadow.IsLive() )
-                if ( auto* tex = material.Get<Texture2DProperty>( "u_CloudShadowMap" ) )
-                    tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::White ).get(),
                                    RDG::Access::SampledGraphics );
             if ( auto* tex = material.Get<Texture2DProperty>( "u_NormalTexture" ) )
                 tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::FlatNormal ).get(),
@@ -77,16 +73,16 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
-    void MeshRenderer::DrawGenericMeshes( bool useLoadPass )
+    Common::BoolResultStr MeshRenderer::DrawGenericMeshes( const bool useLoadPass, const MeshPassBindings& pass )
     {
         const auto  targetFb = m_TargetFramebuffer.lock();
         const auto* camera   = m_SceneRenderer->GetMainCamera();
         if ( !targetFb || camera == nullptr )
-            return;
+            return BOOLSUCCESS;
 
         PrecacheRequestedMaterials( targetFb, useLoadPass );
         if ( m_GenericQueue.empty() )
-            return;
+            return BOOLSUCCESS;
 
         // THE SAME per-frame scene snapshot the PBR queue is drawn with — camera, lights, cascades, the
         // baked environment and the cloud shadow — gathered once here as it is there.
@@ -322,7 +318,7 @@ namespace Desert::Graphic::System
         }
 
         if ( draws.empty() )
-            return;
+            return BOOLSUCCESS;
 
         // ── Upload every row BEFORE recording any draw ──────────────────────────────────────────────
         //
@@ -377,10 +373,13 @@ namespace Desert::Graphic::System
         {
             const auto& g = *d.Data;
             d.Material->SetMaterialIndex( d.Row );
-            Renderer::GetInstance().RenderMesh( d.Pipeline.get(), g.Mesh, g.Transform,
-                                                d.Material->GetMaterialExecutor(), 1, 0, ~g.VisibleSubmeshMask,
-                                                ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) );
+            if ( auto drawn =
+                      DrawMesh( pass, d.Pipeline.get(), g.Mesh, g.Transform, d.Material->GetMaterialExecutor(), 1,
+                                0, ~g.VisibleSubmeshMask, ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) );
+                 !drawn.IsSuccess() )
+                return drawn;
         }
+        return BOOLSUCCESS;
     }
 
     GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>&      shader,
@@ -469,23 +468,25 @@ namespace Desert::Graphic::System
         return built.GetValue();
     }
 
-    void MeshRenderer::RenderGenericManual()
+    Common::BoolResultStr MeshRenderer::RenderGenericManual( const RDG::PassContext& context,
+                                                             const RDG::TextureRef   cloudShadowMap )
     {
         const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
-            return;
+            return BOOLSUCCESS;
         if ( m_GenericQueue.empty() )
         {
             PrecacheRequestedMaterials( target, /*useLoadPass*/ true );
-            return;
+            return BOOLSUCCESS;
         }
 
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        DrawGenericMeshes( /*useLoadPass*/ true );
+        return DrawGenericMeshes( /*useLoadPass*/ true, MeshPassBindings( context, cloudShadowMap ) );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context,
-                                                           RDG::TextureRef         sceneCopy )
+                                                           const RDG::TextureRef   sceneCopy,
+                                                           const RDG::TextureRef   cloudShadowMap )
     {
         if ( !m_StaticGlassPipeline || !m_GlassMaterial || !m_GlassInstance || m_StaticQueue.empty() )
             return BOOLSUCCESS;
@@ -539,6 +540,9 @@ namespace Desert::Graphic::System
         RDG::PassBindings bindings( context );
         bindings.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                           RDG::SamplerDesc::LinearRepeat() );
+        // The cloud layer's shadow map (or System.White), a pass parameter of the node like the scene copy.
+        bindings.Sampled( "u_CloudShadowMap", cloudShadowMap, RDG::Access::SampledGraphics,
+                          RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
 
         // --- Draw the glass over the composited scene: the graph opens the render pass (LOAD + blend) ---
         const MaterialExecutor& executor = *m_GlassMaterial->GetMaterialExecutor();
@@ -564,7 +568,7 @@ namespace Desert::Graphic::System
     // in here cannot land without either this line or a split that is a task of its own. Named in Г26's
     // report as debt rather than hidden.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-    void MeshRenderer::DrawStaticMeshes()
+    Common::BoolResultStr MeshRenderer::DrawStaticMeshes( const MeshPassBindings& pass )
     {
         // BOTH QUEUES, AND THE SECOND ONE WAS MISSING. The instanced batches at the bottom of this
         // function are drawn INSIDE it, so `if ( m_StaticQueue.empty() ) return;` meant an Instanced
@@ -583,12 +587,11 @@ namespace Desert::Graphic::System
         // empty it. The shadow pass has its own loop and never had this guard, which is why the draw
         // counter still reported thousands of instances while the colour frame held none.
         if ( m_StaticQueue.empty() && m_InstancedQueue.empty() )
-            return;
+            return BOOLSUCCESS;
 
-        auto&       renderer = Renderer::GetInstance();
         auto* const camera   = m_SceneRenderer->GetMainCamera();
         if ( camera == nullptr )
-            return;
+            return BOOLSUCCESS;
 
         // The scene's whole contribution to a lit draw, gathered ONCE (camera, lights, shadow cascades and
         // the resolved IBL cubes + BRDF LUT). Applied per material GROUP below, not per object: only the
@@ -986,8 +989,10 @@ namespace Desert::Graphic::System
                                                    ? m_StaticGBufferPipeline.get()
                                                    : WireframePipelineOr( m_StaticPipeline.get() );
                     const uint32_t lod = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias );
-                    renderer.RenderMesh( pipeline, obj->Mesh, obj->Transform, drawMat->GetMaterialExecutor(), 1, 0,
-                                         obj->HiddenSubmeshes, lod );
+                    if ( auto drawn = DrawMesh( pass, pipeline, obj->Mesh, obj->Transform,
+                                                drawMat->GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes, lod );
+                         !drawn.IsSuccess() )
+                        return drawn;
                 }
             }
         }
@@ -1116,20 +1121,22 @@ namespace Desert::Graphic::System
                     set.Mat->SetMaterialIndex( d.MaterialIndex );
                     set.Mat->SetInstancedWind( d.Wind );
                     set.Mat->Bind( set.Inst );
-                    renderer.RenderMesh( instancedPipeline, d.Mesh, unusedModelTransform,
-                                         set.Mat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance,
-                                         /*hiddenSubmeshMask*/ 0, d.LodLevel );
+                    if ( auto drawn = DrawMesh( pass, instancedPipeline, d.Mesh, unusedModelTransform,
+                                                set.Mat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance,
+                                                /*hiddenSubmeshMask*/ 0, d.LodLevel );
+                         !drawn.IsSuccess() )
+                        return drawn;
                 }
             }
         }
+        return BOOLSUCCESS;
     }
 
-    void MeshRenderer::DrawSkinnedMeshes( bool useLoadPass )
+    Common::BoolResultStr MeshRenderer::DrawSkinnedMeshes( const bool useLoadPass, const MeshPassBindings& pass )
     {
         if ( m_SkinnedQueue.empty() )
-            return;
+            return BOOLSUCCESS;
 
-        auto&       renderer = Renderer::GetInstance();
         auto* const camera   = m_SceneRenderer->GetMainCamera();
 
         // The SAME snapshot, from the SAME gather, that lights every static mesh in this frame — the
@@ -1225,21 +1232,26 @@ namespace Desert::Graphic::System
                 mat->SetBoneOffset( boneOffsets[i] );
                 mat->Bind( obj->Instance );
 
-                renderer.RenderMesh( pipeline, obj->Mesh, obj->Transform, mat->GetMaterialExecutor() );
+                if ( auto drawn =
+                          DrawMesh( pass, pipeline, obj->Mesh, obj->Transform, mat->GetMaterialExecutor() );
+                     !drawn.IsSuccess() )
+                    return drawn;
             }
         }
+        return BOOLSUCCESS;
     }
 
-    void MeshRenderer::RenderSkinnedManual()
+    Common::BoolResultStr MeshRenderer::RenderSkinnedManual( const RDG::PassContext& context,
+                                                             const RDG::TextureRef   cloudShadowMap )
     {
         if ( m_SkinnedQueue.empty() )
-            return;
+            return BOOLSUCCESS;
         const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
-            return;
+            return BOOLSUCCESS;
 
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        DrawSkinnedMeshes( /*useLoadPass*/ true );
+        return DrawSkinnedMeshes( /*useLoadPass*/ true, MeshPassBindings( context, cloudShadowMap ) );
     }
 
     bool MeshRenderer::SetupGeometryPass()

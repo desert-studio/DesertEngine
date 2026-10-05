@@ -161,7 +161,8 @@ namespace Desert::Graphic
         // sky by dot(normal, normal).
         AddRaster( graph, "Deferred: GBuffer", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                    RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
-                   [meshRenderer]() { meshRenderer->RenderGBufferManual(); } );
+                   [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderGBufferManual( context ); } );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
@@ -204,9 +205,13 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || !meshRenderer )
             return;
-        AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
-                   ShadowSamples( *this, textures, "Deferred: Generic" ),
-                   [meshRenderer]() { meshRenderer->RenderGenericManual(); } );
+        // The cloud layer's shadow map is a pass parameter of the node, read beside the shadow cascades.
+        const RDG::TextureRef        cloud   = CloudShadowMapOrWhite( textures.GraphRefs() );
+        std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Generic" );
+        sampled.push_back( cloud );
+        AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
+                   [meshRenderer, cloud]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderGenericManual( context, cloud ); } );
     }
 
     void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,
@@ -215,9 +220,13 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
         if ( !targets || !meshRenderer )
             return;
-        AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
-                   ShadowSamples( *this, textures, "Deferred: Skinned" ),
-                   [meshRenderer]() { meshRenderer->RenderSkinnedManual(); } );
+        // The cloud layer's shadow map is a pass parameter of the node, read beside the shadow cascades.
+        const RDG::TextureRef        cloud   = CloudShadowMapOrWhite( textures.GraphRefs() );
+        std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Skinned" );
+        sampled.push_back( cloud );
+        AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
+                   [meshRenderer, cloud]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderSkinnedManual( context, cloud ); } );
     }
 
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
@@ -230,11 +239,13 @@ namespace Desert::Graphic
             return;
         // The glass samples the scene copy for its refraction (bound by name in the body), and the shadow maps as
         // every lit forward pass does.
+        const RDG::TextureRef        cloud   = CloudShadowMapOrWhite( textures.GraphRefs() );
         std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Glass" );
         sampled.push_back( sceneCopy );
+        sampled.push_back( cloud );
         AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, sceneCopy]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGlassManual( context, sceneCopy ); } );
+                   [meshRenderer, sceneCopy, cloud]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderGlassManual( context, sceneCopy, cloud ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS

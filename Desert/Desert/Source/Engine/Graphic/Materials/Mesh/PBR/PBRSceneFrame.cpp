@@ -30,7 +30,9 @@ namespace Desert::Graphic
                          ShadowDebugMode, ShowNormals, CascadeTexelWorld, LightingDebug );
 
         SceneEnvironmentBind( material, IrradianceMap, PrefilteredMap, BrdfLut, EnvironmentLook );
-        CloudShadowBind( material, CloudShadow );
+        // The block only: u_CloudShadowMap is a pass parameter, bound by every mesh node that draws these
+        // materials (CloudShadowMapOrWhite through RDG::PassBindings).
+        CloudShadowUpload( material, CloudShadow );
     }
 
     void PBRSceneFrame::ApplyTo( MaterialInstance* instance ) const

@@ -36,6 +36,11 @@
 
 namespace Desert::Graphic::System
 {
+    namespace MeshRendererDetail
+    {
+        class MeshPassBindings;
+    }
+
     struct MeshRenderData
     {
         class Mesh* Mesh;
@@ -179,22 +184,27 @@ namespace Desert::Graphic::System
         // Deferred: renders the static-mesh queue into the scene renderer's G-buffer via a MANUAL render pass
         // (outside the graph — see the note in RegisterPasses). No-op unless the deferred pipeline exists.
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
-        void RenderGBufferManual();
+        [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
         // Forward transparent (glass) pass: draws meshes with material Transmission > 0 over the composited
         // scene, inside the "Deferred: Glass" graph node whose @p context this is. @p sceneCopy is this frame's
         // snapshot of the opaque scene (FrameTransients::SceneColorCopy, declared as a read of the node); the
         // glass samples it for refraction as u_SceneColor through RDG::PassBindings and draws every object via
         // Renderer::RenderMesh( bindings, ... ). Nothing to draw is success; a refused draw is the error.
+        // @p cloudShadowMap (CloudShadowMapOrWhite, declared by the node) is bound as u_CloudShadowMap.
         [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context,
-                                                               RDG::TextureRef         sceneCopy );
+                                                               RDG::TextureRef         sceneCopy,
+                                                               RDG::TextureRef         cloudShadowMap );
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
         // this they simply vanish in Deferred. Forward path draws them inside MeshGeometryPass.
-        void RenderGenericManual();
+        // @p cloudShadowMap (declared by the node) is the u_CloudShadowMap of every draw whose shader samples it.
+        [[nodiscard]] Common::BoolResultStr RenderGenericManual( const RDG::PassContext& context,
+                                                                 RDG::TextureRef         cloudShadowMap );
         // Deferred path: draws SKINNED meshes forward over the deferred lighting composite (they have no
         // G-buffer variant, so without this they only appear in the silhouette/outline pass — invisible
         // otherwise). Forward path draws them inside MeshGeometryPass.
-        void RenderSkinnedManual();
+        [[nodiscard]] Common::BoolResultStr RenderSkinnedManual( const RDG::PassContext& context,
+                                                                 RDG::TextureRef         cloudShadowMap );
         // Reflective Shadow Map: the G-buffer rasterized from the SUN instead of the camera, into the scene
         // renderer's RSM buffer. Every lit texel becomes a virtual point light for the RSM GI mode, which is
         // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists.
@@ -406,9 +416,13 @@ namespace Desert::Graphic::System
         // path is a line whose absence means two different things.
         void LogShadowBudget( double allocMs ) const;
 
-        void DrawStaticMeshes();
-        void DrawSkinnedMeshes( bool useLoadPass = false );
-        void DrawGenericMeshes( bool useLoadPass = false ); // per-object data-driven materials (v3 slots + overrides)
+        // The draws of one mesh node through its pass parameters (@p pass); the first refused draw is the error.
+        [[nodiscard]] Common::BoolResultStr DrawStaticMeshes( const MeshRendererDetail::MeshPassBindings& pass );
+        [[nodiscard]] Common::BoolResultStr DrawSkinnedMeshes( bool useLoadPass,
+                                                               const MeshRendererDetail::MeshPassBindings& pass );
+        // per-object data-driven materials (v3 slots + overrides)
+        [[nodiscard]] Common::BoolResultStr DrawGenericMeshes( bool useLoadPass,
+                                                               const MeshRendererDetail::MeshPassBindings& pass );
 
         // Material pipelines on demand (AL1-12). The spec a data-driven material draws with in this renderer;
         // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,
