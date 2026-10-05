@@ -124,7 +124,10 @@ TEST_F( AnimationLibraryOnDemand, AWrongNameCountsTheIndexedClipsAndNamesTheRigs
     const auto row = Assets::ContentRegistry::RowOfPath(
          Common::Content::ContentKind::Animation,
          Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim" );
-    ASSERT_TRUE( row ) << "the probe clip has no registry row";
+    if ( !row.has_value() )
+    {
+        FAIL() << "the probe clip has no registry row";
+    }
     ASSERT_FALSE( row->Skeleton.IsNull() ) << "the probe clip's row carries no Rig tag";
     const Animation::MeshSkeletonIdentity rig{ { row->Skeleton, "the probe's skeleton" }, {} };
 

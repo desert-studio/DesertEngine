@@ -258,7 +258,7 @@ namespace Desert::Editor
             }
         }
 
-        const bool emptyGraph = !animation.GraphAsset;
+        const bool emptyGraph = static_cast<uint64_t>( animation.GraphAsset ) == 0;
         if ( emptyGraph )
             preview = "None";
         const ImGuiID pickingGraph = ImGui::GetID( "##pickingGraph" );
@@ -293,12 +293,12 @@ namespace Desert::Editor
         }
         DrawAssetFieldOpen( static_cast<uint64_t>( animation.GraphAsset ) );
         DrawAssetFieldButtons( static_cast<uint64_t>( animation.GraphAsset ) );
-        if ( animation.GraphAsset )
+        if ( !emptyGraph )
             ImGui::GetStateStorage()->SetBool( pickingGraph, false );
 
         if ( ImGui::BeginPopup( "animgraph_selector" ) )
         {
-            if ( ImGui::Selectable( "None (plays the Clip)", !animation.GraphAsset ) )
+            if ( ImGui::Selectable( "None (plays the Clip)", emptyGraph ) )
             {
                 // THE SLOT IS CLEARED, THE FILE IS NOT DELETED. A picker that removed content from disk
                 // would make "I picked the wrong one" unrecoverable; the graph object goes too, because

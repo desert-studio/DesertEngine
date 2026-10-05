@@ -111,7 +111,8 @@ namespace Desert::Runtime
     }
     Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
     {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
+        ADD_FAILURE() << "VideoService::Resolve reached with no video service (instance "
+                      << static_cast<const void*>( this ) << ")";
         return nullptr;
     }
     const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )

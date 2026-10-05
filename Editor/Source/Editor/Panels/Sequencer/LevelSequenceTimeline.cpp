@@ -255,7 +255,7 @@ namespace Desert::Editor
         // UE's Material Parameter track name it — not by the runtime instance, whose name is the shader path.
         const auto materialName = [this]( const Assets::AssetHandle handle ) -> std::string
         {
-            const auto asset = m_AssetManager != nullptr && handle
+            const auto asset = m_AssetManager != nullptr && static_cast<uint64_t>( handle ) != 0
                                     ? m_AssetManager->FindByHandle<Assets::SurfaceMaterialAsset>( handle )
                                     : nullptr;
             return asset ? std::filesystem::path( asset->GetMetadata().Filepath ).stem().string() : std::string{};
@@ -521,7 +521,7 @@ namespace Desert::Editor
         const float     contentX0           = ImGui::GetCursorScreenPos().x;
         const float     laneX0              = contentX0 + gutter;
         const float     laneW               = std::max( 40.0f, ImGui::GetContentRegionAvail().x - gutter - 10.0f );
-        const float     endSeconds          = static_cast<float>( SecondsAt( sequence, sequence.End.Value ) );
+        const auto      endSeconds          = static_cast<float>( SecondsAt( sequence, sequence.End.Value ) );
         const Sequencer::CurveViewport axis = Sequencer::TimeAxis( laneX0, laneW, endSeconds );
         const auto  xOf  = [&]( const int32_t tick ) { return axis.TimeToX( SecondsAt( sequence, tick ) ); };
         ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -1021,10 +1021,10 @@ namespace Desert::Editor
         // The marquee adds every key of this lane inside it.
         if ( m_LevelMarquee )
         {
-            const float x0 = std::min( m_LevelMarqueeFrom.x, mouse.x ),
-                        x1 = std::max( m_LevelMarqueeFrom.x, mouse.x );
-            const float y0 = std::min( m_LevelMarqueeFrom.y, mouse.y ),
-                        y1 = std::max( m_LevelMarqueeFrom.y, mouse.y );
+            const float x0 = std::min( m_LevelMarqueeFrom.x, mouse.x );
+            const float x1 = std::max( m_LevelMarqueeFrom.x, mouse.x );
+            const float y0 = std::min( m_LevelMarqueeFrom.y, mouse.y );
+            const float y1 = std::max( m_LevelMarqueeFrom.y, mouse.y );
             if ( y >= y0 && y <= y1 )
                 for ( const auto tick : ticks )
                     if ( const float x = xOf( tick.Value );
@@ -1389,18 +1389,19 @@ namespace Desert::Editor
             for ( const auto& slot : LevelMaterialSlots( guid ) )
                 for ( const auto& choice : slot.Parameters )
                 {
-                    const ECS::LevelSequenceMaterialParameter parameter = choice.Parameter;
-                    if ( !ECS::HasMaterialParameterTrack( asset->GetSequence(), guid, parameter ) )
+                    // Captured by an init-capture, not from a const local: a const capture is a const member
+                    // of the closure, and the closure's move would then copy it (and could throw).
+                    if ( !ECS::HasMaterialParameterTrack( asset->GetSequence(), guid, choice.Parameter ) )
                         actions.push_back( DocumentAction{
                              std::format( "Add Material Parameter Track {} {} {}", binding.Label, slot.Label,
                                           choice.Label ),
-                             [this, guid, parameter] { AddLevelMaterialParameterTrack( guid, parameter ); } } );
+                             [this, guid, parameter = choice.Parameter] { AddLevelMaterialParameterTrack( guid, parameter ); } } );
                     else
                         // Keys what the track says at the playhead (UE: the track row's key button).
                         actions.push_back(
                              DocumentAction{ std::format( "Key Material Parameter {} {} {}", binding.Label,
                                                           slot.Label, choice.Label ),
-                                             [this, guid, parameter]
+                                             [this, guid, parameter = choice.Parameter]
                                              {
                                                  const auto live = ResolveLevelAsset();
                                                  if ( !live )

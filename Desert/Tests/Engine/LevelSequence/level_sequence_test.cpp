@@ -27,6 +27,7 @@
 #include <gtest/gtest.h>
 
 #include <map>
+#include <optional>
 #include <tuple>
 
 #include <string>
@@ -38,6 +39,14 @@ namespace
     namespace T   = Desert::Animation::Timeline;
     namespace ECS = Desert::ECS;
     using Common::Content::AssetGuid;
+
+    // A sampled parameter that must exist: an absent one fails the test here and reads as zero after.
+    template <typename V>
+    V Engaged( const std::optional<V>& value )
+    {
+        EXPECT_TRUE( value.has_value() ) << "the track has no value at that frame";
+        return value.has_value() ? *value : V{};
+    }
 
     constexpr uint64_t kDoorUuid   = 4101;
     constexpr uint64_t kOtherUuid  = 4102;
@@ -863,8 +872,8 @@ TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneU
                           .IsSuccess() );
     }
     ASSERT_EQ( history.UndoStack().size(), 2U ) << "the key is one more step";
-    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.75F );
-    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 20 } )->x, 0.5F )
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x, 0.75F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 20 } ) ).x, 0.5F )
          << "Linear between the start key and the new one";
     ASSERT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, roughness ).size(), 2U );
 
@@ -880,7 +889,7 @@ TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneU
     EXPECT_EQ( rows[0].first, roughness );
     EXPECT_EQ( rows[1].first, albedo );
     EXPECT_EQ( rows[1].second, T::TrackKind::Vector );
-    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, albedo, A::FrameNumber{ 70 } )->z, 0.3F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, albedo, A::FrameNumber{ 70 } ) ).z, 0.3F );
     EXPECT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, albedo ).size(), 1U );
 
     // Ctrl+Z ×3: the vector track goes, then only the key (the start key stays), then the scalar track.
@@ -889,7 +898,7 @@ TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneU
     ASSERT_TRUE( history.Undo() );
     ASSERT_TRUE( ECS::HasMaterialParameterTrack( sequence, door, roughness ) );
     EXPECT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, roughness ).size(), 1U );
-    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.25F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x, 0.25F );
     ASSERT_TRUE( history.Undo() );
     EXPECT_FALSE( ECS::HasMaterialParameterTrack( sequence, door, roughness ) );
     EXPECT_FALSE( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ).has_value() );
@@ -898,9 +907,9 @@ TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneU
 
     // Ctrl+Y ×2: the track, then its key, each by value.
     ASSERT_TRUE( history.Redo() );
-    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.25F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x, 0.25F );
     ASSERT_TRUE( history.Redo() );
-    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.75F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x, 0.75F );
     history.Clear();
 }
 
@@ -962,13 +971,13 @@ TEST( LevelSequenceMaterialProperties, SetKeysTheTrackAtThePlayheadAsOneUndoStep
                       .IsSuccess() );
     ASSERT_EQ( history.UndoStack().size(), 1U ) << "the set is one step";
     EXPECT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, blend ).size(), 2U );
-    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, blend, playhead )->x, 1.0F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, blend, playhead ) ).x, 1.0F );
     EXPECT_FLOAT_EQ( LM::Describe( sequence, playhead, schema )[0].Value[0], 1.0F )
          << "the census reads the keyed value back at the playhead";
 
     ASSERT_TRUE( history.Undo() );
     EXPECT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, blend ).size(), 1U ) << "Ctrl+Z takes the key back";
-    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, blend, playhead )->x, 0.0F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, blend, playhead ) ).x, 0.0F );
     EXPECT_FALSE( history.Undo() ) << "nothing else was recorded";
     history.Clear();
 }

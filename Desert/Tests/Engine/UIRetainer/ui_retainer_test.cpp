@@ -24,9 +24,14 @@ namespace
         { return ( b.x - a.x ) * ( c.y - a.y ) - ( b.y - a.y ) * ( c.x - a.x ); };
         for ( size_t i = 0; i + 2 < idx.size(); i += 3 )
         {
-            const glm::vec2 A = v[idx[i]].Position, B = v[idx[i + 1]].Position, C = v[idx[i + 2]].Position;
-            const float     d1 = cross( A, B, p ), d2 = cross( B, C, p ), d3 = cross( C, A, p );
-            const bool      neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
+            const glm::vec2 A   = v[idx[i]].Position;
+            const glm::vec2 B   = v[idx[i + 1]].Position;
+            const glm::vec2 C   = v[idx[i + 2]].Position;
+            const float     d1  = cross( A, B, p );
+            const float     d2  = cross( B, C, p );
+            const float     d3  = cross( C, A, p );
+            const bool      neg = d1 < 0 || d2 < 0 || d3 < 0;
+            const bool      pos = d1 > 0 || d2 > 0 || d3 > 0;
             if ( !( neg && pos ) )
                 a = v[idx[i]].Color.a;
         }
@@ -59,7 +64,8 @@ TEST( UIRetainer, ThePixelUnderTheMaskIsHiddenWhenInvertedAndShownWhenNot )
     ASSERT_EQ( root.GetMaskLayers().at( 7 ), 0u );
 
     const DrawList2D& mask = *root.GetLayers()[root.GetMaskLayers().at( 7 )];
-    const glm::vec2   underDune( 25.5f, 50.5f ), clearSky( 75.5f, 50.5f );
+    const glm::vec2   underDune( 25.5f, 50.5f );
+    const glm::vec2   clearSky( 75.5f, 50.5f );
     EXPECT_EQ( RetainerMaskCoverage( AlphaAt( mask, underDune ), true ), 0.0f );
     EXPECT_EQ( RetainerMaskCoverage( AlphaAt( mask, clearSky ), true ), 1.0f );
     EXPECT_EQ( RetainerMaskCoverage( AlphaAt( mask, underDune ), false ), 1.0f );
@@ -82,7 +88,7 @@ TEST( UIRetainer, HazeIsAPureFunctionOfThePixelAndTheClock )
         std::vector<glm::vec2> out;
         for ( int y = 0; y < 64; ++y )
             for ( int x = 0; x < 64; ++x )
-                out.push_back( RetainerHazeOffsetPx( at, glm::vec2( x + 0.5f, y + 0.5f ) ) );
+                out.push_back( RetainerHazeOffsetPx( at, glm::vec2( static_cast<float>( x ) + 0.5f, static_cast<float>( y ) + 0.5f ) ) );
         return out;
     };
     const float step = 1.0f / 60.0f;

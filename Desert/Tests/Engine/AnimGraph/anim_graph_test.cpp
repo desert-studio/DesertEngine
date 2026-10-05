@@ -52,17 +52,17 @@ namespace
         g.Parameters.push_back( { "GoB", static_cast<int>( ParamType::Bool ), 0.0f } );
         g.Parameters.push_back( { "GoC", static_cast<int>( ParamType::Bool ), 0.0f } );
 
-        State      a{ .Name = "A", .Clip = "a" };
+        State      a{ .Name = "A", .Clip = "a", .Transitions = {} };
         Transition ab{
              .To = "B", .Blend = 1.0f, .Conditions = { { "GoB", static_cast<int>( CompareOp::IsTrue ), 0.0f } } };
         ab.BlendCurve   = abCurve;
         ab.CanInterrupt = abCanInterrupt;
         a.Transitions.push_back( ab );
-        State b{ .Name = "B", .Clip = "b" };
+        State b{ .Name = "B", .Clip = "b", .Transitions = {} };
         b.Transitions.push_back( { .To         = "C",
                                    .Blend      = 1.0f,
                                    .Conditions = { { "GoC", static_cast<int>( CompareOp::IsTrue ), 0.0f } } } );
-        State c{ .Name = "C", .Clip = "c" };
+        const State c{ .Name = "C", .Clip = "c", .Transitions = {} };
         OutputMachine( g )->States = { a, b, c };
         return g;
     }
@@ -154,12 +154,12 @@ namespace
         g.Name                    = "FoxLocomotion";
         OutputMachine( g )->Entry = "Survey";
         g.Parameters.push_back( { "Speed", static_cast<int>( ParamType::Float ), 0.0f } );
-        State survey{ .Name = "Survey", .Clip = "Survey" };
+        State survey{ .Name = "Survey", .Clip = "Survey", .Transitions = {} };
         survey.Transitions.push_back(
              { .To         = "Walk",
                .Blend      = 0.5f,
                .Conditions = { { "Speed", static_cast<int>( CompareOp::Greater ), 0.1f } } } );
-        State walk{ .Name = "Walk", .Clip = "Walk" };
+        const State walk{ .Name = "Walk", .Clip = "Walk", .Transitions = {} };
         OutputMachine( g )->States = { survey, walk };
         return g;
     }
@@ -197,7 +197,10 @@ TEST( AnimGraph, AHalfSecondBlendClimbsOverThirtyTicksFromTheTickItsConditionHol
 
         // What a clip arriving on this tick joins: the transition at its own elapsed time.
         const auto entering = eval.EnteringTransition();
-        ASSERT_TRUE( entering.has_value() ) << "nothing is fading into Walk on tick " << tick;
+        if ( !entering.has_value() )
+        {
+            FAIL() << "nothing is fading into Walk on tick " << tick;
+        }
         EXPECT_FLOAT_EQ( entering->Duration, 0.5f );
         EXPECT_NEAR( entering->Elapsed, static_cast<float>( tick - kSetOn ) * kStep, 1e-5f ) << "tick " << tick;
 

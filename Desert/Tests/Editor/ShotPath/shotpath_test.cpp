@@ -356,7 +356,7 @@ TEST( ShotRecordGate, UnderPlayAnUnrecordedFrameAdvancesNothing )
     ShotOptions shot;
     shot.Play     = true;
     shot.Sequence = "/tmp/seq";
-    for ( float wall : { 0.0f, 0.016f, 0.5f } )
+    for ( const float wall : { 0.0f, 0.016f, 0.5f } )
     {
         EXPECT_EQ( shot.FrameSeconds( wall, false ), 0.0f );
         EXPECT_EQ( shot.FrameSeconds( wall, true ), ShotOptions::PlayStepSeconds );

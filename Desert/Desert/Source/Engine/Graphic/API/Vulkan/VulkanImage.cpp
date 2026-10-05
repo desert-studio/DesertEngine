@@ -352,9 +352,16 @@ namespace Desert::Graphic::API::Vulkan
         // copy, then visible to every shader that reads it after this batch.
         TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT );
-        VkBufferImageCopy copy = {
-             .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
-             .imageExtent      = { m_Specification.Width, m_Specification.Height, 1 } };
+        const VkBufferImageCopy copy = {
+             .bufferOffset      = 0,
+             .bufferRowLength   = 0,
+             .bufferImageHeight = 0,
+             .imageSubresource  = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                    .mipLevel       = 0,
+                                    .baseArrayLayer = 0,
+                                    .layerCount     = 1 },
+             .imageOffset       = { 0, 0, 0 },
+             .imageExtent       = { m_Specification.Width, m_Specification.Height, 1 } };
         vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
         TransitionLayout( cmd, Utils::GetDefaultLayout( m_Specification.Format, m_Specification.Properties ),
                           VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,

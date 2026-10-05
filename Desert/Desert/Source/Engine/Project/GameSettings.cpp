@@ -43,7 +43,7 @@ namespace Desert::Project
             LOG_ERROR( "[Project] {} does not parse: {}", path.string(), parsed.GetError() );
             return settings;
         }
-        settings = std::move( parsed.GetValue() );
+        settings = parsed.GetValue();
         return settings;
     }
 

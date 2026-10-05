@@ -116,7 +116,8 @@ namespace Desert::Runtime
     }
     Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
     {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
+        ADD_FAILURE() << "VideoService::Resolve reached with no video service (instance "
+                      << static_cast<const void*>( this ) << ")";
         return nullptr;
     }
     const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
@@ -489,7 +490,10 @@ TEST( UICanvasContext, AnAuthoredLevelHoldsAnAutoPlayClipAtItsPlayheadAndAGameWo
     clip.Playback.reset();
     UIViewContext game; // GameWorld defaults to true: the packaged game and the movie render
     Frame( game, f, nullptr );
-    ASSERT_TRUE( clip.Playback.has_value() );
+    if ( !clip.Playback.has_value() )
+    {
+        FAIL() << "the clip has no player";
+    }
     EXPECT_EQ( clip.Playback->State(), TL::PlayState::Playing ) << "a game world did not start an AutoPlay clip";
     EXPECT_NEAR( seconds(), 0.0, 1e-6 ) << "the game's first frame of the clip is not its first frame";
 }
@@ -513,7 +517,10 @@ TEST( UICanvasContext, AViewThatDoesNotDriveTheSceneNeverCreatesAClipsPlayer )
 
     UIViewContext viewport;
     Frame( viewport, f, nullptr );
-    ASSERT_TRUE( clip.Playback.has_value() );
+    if ( !clip.Playback.has_value() )
+    {
+        FAIL() << "the clip has no player";
+    }
     EXPECT_EQ( clip.Playback->State(), TL::PlayState::Playing )
          << "the driving game view inherited a player a preview had already decided about";
 }

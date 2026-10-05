@@ -310,7 +310,7 @@ namespace
     std::pair<glm::mat4, glm::mat4> TwoTicks( float seconds )
     {
         static const Skeleton skel = MakeChain();
-        static AnimationClip  clip = ChildRisingClip();
+        static const AnimationClip clip = ChildRisingClip();
         Animator              anim( skel );
         anim.Play( clip );
         anim.SetTime( 0.2f );

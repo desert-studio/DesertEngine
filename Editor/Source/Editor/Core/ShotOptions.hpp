@@ -264,7 +264,7 @@ namespace Desert::Editor
         // recorded advances the world by NOTHING: frame N of the sequence is tick N of game time, so a tick
         // spent under the splash, at a viewport size still settling or while content loads would be motion
         // no file shows. Outside `--play` the verdict is irrelevant and the wall clock passes through.
-        float FrameSeconds( float wallClockSeconds, bool recordedFrame ) const
+        [[nodiscard]] float FrameSeconds( float wallClockSeconds, bool recordedFrame ) const
         {
             if ( !PlayActive() )
                 return wallClockSeconds;

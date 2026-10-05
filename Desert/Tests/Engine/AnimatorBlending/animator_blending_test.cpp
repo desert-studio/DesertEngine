@@ -200,9 +200,9 @@ TEST( AnimatorBlending, ACrossFadeDuringACrossFadeStacksInsteadOfCuttingTheIncom
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
-    AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0F, 80.0F, 0.0F ) );
-    AnimationClip c = StaticClip( "C", "spine", glm::vec3( 0.0F, 10.0F, 0.0F ) );
+    const AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    const AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0F, 80.0F, 0.0F ) );
+    const AnimationClip c = StaticClip( "C", "spine", glm::vec3( 0.0F, 10.0F, 0.0F ) );
 
     animator.Play( a );
     animator.CrossFade( b, 1.0F );
@@ -240,8 +240,8 @@ TEST( AnimatorBlending, ACrossFadeJoinedLateStartsAtTheTransitionsElapsedTimeAnd
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
-    AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0F, 80.0F, 0.0F ) );
+    const AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    const AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0F, 80.0F, 0.0F ) );
 
     constexpr float kStep = 1.0F / 60.0F;
     animator.Play( a );
