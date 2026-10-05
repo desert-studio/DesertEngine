@@ -8,6 +8,7 @@
 // file draws and routes, it does not decide.
 
 #include "SequencerPanel.hpp"
+#include "LevelMaterialProperties.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/CommandHistory.hpp>
@@ -25,6 +26,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -248,7 +250,16 @@ namespace Desert::Editor
             return slots;
         // The slots the track host can write (LevelSequenceMaterialSlotOverrides): an authored slot whose
         // per-entity instance is built. A mesh drawing the shared default instance offers none.
-        const auto collect = [&slots]( const auto& mesh )
+        // The slot is named by the material ASSET it holds ("Slot 0 (MP_Default)"), as the Details panel and
+        // UE's Material Parameter track name it — not by the runtime instance, whose name is the shader path.
+        const auto materialName = [this]( const Assets::AssetHandle handle ) -> std::string
+        {
+            const auto asset = m_AssetManager != nullptr && handle
+                                    ? m_AssetManager->FindByHandle<Assets::SurfaceMaterialAsset>( handle )
+                                    : nullptr;
+            return asset ? std::filesystem::path( asset->GetMetadata().Filepath ).stem().string() : std::string{};
+        };
+        const auto collect = [&slots, &materialName]( const auto& mesh )
         {
             const size_t count = std::min( mesh.MaterialSlots.size(), mesh.RuntimeMaterialInstances.size() );
             for ( size_t slot = 0; slot < count; ++slot )
@@ -261,9 +272,8 @@ namespace Desert::Editor
                     continue;
                 LevelMaterialSlotChoice choice;
                 choice.Slot  = static_cast<uint32_t>( slot );
-                choice.Label = instance->GetName().empty()
-                                    ? std::format( "Slot {}", slot )
-                                    : std::format( "Slot {} · {}", slot, instance->GetName() );
+                choice.Label =
+                     LevelMaterialEdit::SlotLabel( choice.Slot, materialName( mesh.MaterialSlots[slot] ) );
                 using VT     = ::Desert::Core::Formats::ShaderValueType;
                 for ( const auto& param : shader->GetProgramMeta().Params )
                 {
@@ -326,19 +336,64 @@ namespace Desert::Editor
                                 ToastLevel::Error, 6.0f );
     }
 
-    void SequencerPanel::KeyLevelMaterialParameter( const LevelTL::BindingGuid&                binding,
-                                                    const ECS::LevelSequenceMaterialParameter& parameter,
-                                                    const glm::vec4&                           value )
+    Common::BoolResultStr
+    SequencerPanel::KeyLevelMaterialParameter( const LevelTL::BindingGuid&                binding,
+                                               const ECS::LevelSequenceMaterialParameter& parameter,
+                                               const glm::vec4&                           value )
     {
         const auto asset = ResolveLevelAsset();
         if ( !asset )
-            return;
-        LevelTL::Sequence&       sequence = asset->EditSequence();
-        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
-        if ( const auto keyed = ECS::SetMaterialParameterKey( sequence, binding, parameter, m_LevelTick, value );
-             !keyed.IsSuccess() )
+            return Common::MakeError<bool>( "the Level Sequence this window edits is no longer loaded." );
+        auto keyed = LevelMaterialEdit::Key( asset->EditSequence(), m_LevelEdit, LevelOwner(), binding, parameter,
+                                             m_LevelTick, value );
+        if ( !keyed.IsSuccess() )
             ToastManager::Push( std::format( "Key Material Parameter refused: {}", keyed.GetError() ),
                                 ToastLevel::Error, 6.0f );
+        return keyed;
+    }
+
+    std::vector<LevelMaterialEdit::Schema> SequencerPanel::LevelMaterialSchema() const
+    {
+        std::vector<LevelMaterialEdit::Schema> schema;
+        const auto                             asset = ResolveLevelAsset();
+        if ( !asset )
+            return schema;
+        for ( const auto& binding : asset->GetSequence().Bindings )
+        {
+            if ( binding.Kind != LevelTL::BindingKind::Entity )
+                continue;
+            for ( const auto& slot : LevelMaterialSlots( binding.Guid ) )
+                for ( const auto& choice : slot.Parameters )
+                    schema.push_back( LevelMaterialEdit::Schema{ binding.Guid, choice.Parameter, slot.Label,
+                                                                 choice.Label, choice.Color, choice.Min,
+                                                                 choice.Max } );
+        }
+        return schema;
+    }
+
+    std::vector<EditableProperty> SequencerPanel::EditableProperties() const
+    {
+        const auto asset = IsLevelTimeline() ? ResolveLevelAsset() : nullptr;
+        if ( !asset )
+            return {};
+        return LevelMaterialEdit::Describe( asset->GetSequence(), m_LevelTick, LevelMaterialSchema() );
+    }
+
+    Common::BoolResultStr SequencerPanel::SetEditableProperty( const std::string&        name,
+                                                               const std::vector<float>& value )
+    {
+        if ( !IsLevelTimeline() )
+            return ISubjectDocument::SetEditableProperty( name, value );
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return Common::MakeError<bool>( "the Level Sequence this window edits is no longer loaded." );
+        // The row's field, by name: checked against the same census `properties` lists, then keyed at the
+        // playhead through the one setter the field calls.
+        const auto write = LevelMaterialEdit::Resolve( asset->GetSequence(), LevelMaterialSchema(), name, value );
+        if ( !write.IsSuccess() )
+            return Common::MakeError<bool>( write.GetError() );
+        return KeyLevelMaterialParameter( write.GetValue().Binding, write.GetValue().Parameter,
+                                          write.GetValue().Value );
     }
 
     std::vector<std::shared_ptr<Assets::AnimationAsset>>
@@ -641,17 +696,22 @@ namespace Desert::Editor
                 const auto value = ECS::MaterialParameterAt( sequence, binding.Guid, parameter, m_LevelTick );
                 if ( !value )
                     continue;
-                const LevelMaterialParameterChoice* schema = nullptr;
+                const LevelMaterialParameterChoice* schema    = nullptr;
+                std::string                         slotLabel = LevelMaterialEdit::SlotLabel( parameter.Slot, {} );
                 for ( const auto& slot : offeredSlots )
                     for ( const auto& choice : slot.Parameters )
                         if ( choice.Parameter == parameter )
-                            schema = &choice;
+                        {
+                            schema    = &choice;
+                            slotLabel = slot.Label;
+                        }
                 const std::string property = ECS::LevelSequenceMaterialProperty( parameter );
                 ImGui::PushID( property.c_str() );
                 const float matY = ImGui::GetCursorScreenPos().y;
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, matY ) );
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted( std::format( ICON_MDI_PALETTE " {}.{}", parameter.Slot,
+                // UE: the material track's slot, then the parameter — "Slot 0 (MP_Default) ▸ Blend".
+                ImGui::TextUnformatted( std::format( ICON_MDI_PALETTE " {} ▸ {}", slotLabel,
                                                      schema != nullptr ? schema->Label : parameter.Name )
                                              .c_str() );
                 ImGui::SameLine( 160.0f );
@@ -673,7 +733,7 @@ namespace Desert::Editor
                     m_LevelMaterialDraft = std::make_pair( draftId, shown );
                 if ( ImGui::IsItemDeactivatedAfterEdit() )
                 {
-                    KeyLevelMaterialParameter( binding.Guid, parameter, shown );
+                    (void)KeyLevelMaterialParameter( binding.Guid, parameter, shown );
                     m_LevelMaterialDraft.reset();
                 }
                 else if ( !ImGui::IsItemActive() && !changed && m_LevelMaterialDraft &&
@@ -1147,7 +1207,7 @@ namespace Desert::Editor
                                                      return;
                                                  if ( const auto value = ECS::MaterialParameterAt(
                                                            live->GetSequence(), guid, parameter, m_LevelTick ) )
-                                                     KeyLevelMaterialParameter( guid, parameter, *value );
+                                                     (void)KeyLevelMaterialParameter( guid, parameter, *value );
                                              } } );
                 }
             for ( const auto& clip : LevelAnimationClips( guid ) )

@@ -16,6 +16,7 @@
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Commands/SequenceEdit.hpp>
+#include <Editor/Panels/Sequencer/LevelMaterialProperties.hpp>
 
 #include "../ClipFixture.hpp"
 
@@ -847,5 +848,74 @@ TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneU
     EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.25F );
     ASSERT_TRUE( history.Redo() );
     EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.75F );
+    history.Clear();
+}
+
+// UE: a Material Parameter key's value is edited by the track row's field, and the control channel reaches that
+// field as a property of the Level Sequence document ("<actor>.<slot>.<parameter>"). `set` resolves the name
+// against the census and keys at the playhead through the row's setter: one key with the sent value, one undo
+// step.
+TEST( LevelSequenceMaterialProperties, SetKeysTheTrackAtThePlayheadAsOneUndoStep )
+{
+    namespace Ed  = Desert::Editor;
+    namespace LM  = Desert::Editor::LevelMaterialEdit;
+    auto& history = Ed::CommandHistory::Get();
+    history.Clear();
+    T::Sequence                               sequence = AuthoredDoor();
+    const auto                                door     = sequence.Bindings.front().Guid;
+    const ECS::LevelSequenceMaterialParameter blend{ 0, "Blend" };
+    const ECS::LevelSequenceMaterialParameter tint{ 0, "TintB" };
+    ASSERT_TRUE( ECS::AddMaterialParameterTrack( sequence, door, blend, T::TrackKind::Float, glm::vec4( 0.0F ) )
+                      .IsSuccess() );
+    ASSERT_TRUE( ECS::AddMaterialParameterTrack( sequence, door, tint, T::TrackKind::Vector,
+                                                 glm::vec4( 0.1F, 0.2F, 0.3F, 0.0F ) )
+                      .IsSuccess() );
+    const std::vector<LM::Schema> schema{
+         LM::Schema{ door, blend, LM::SlotLabel( 0, "MP_Default" ), "Blend", false, 0.0F, 1.0F },
+         LM::Schema{ door, tint, LM::SlotLabel( 0, "MP_Default" ), "Tint B", true, std::nullopt, std::nullopt } };
+
+    // The census: one property per track, named <actor>.<slot>.<parameter>, grouped under the material's name.
+    const A::FrameNumber playhead{ 75 };
+    const auto           census = LM::Describe( sequence, playhead, schema );
+    ASSERT_EQ( census.size(), 2U );
+    EXPECT_EQ( census[0].Name, "Door.0.Blend" );
+    EXPECT_EQ( census[0].Group, "Door ▸ Slot 0 (MP_Default)" );
+    EXPECT_EQ( census[0].Components, 1 );
+    EXPECT_EQ( census[0].Max, std::optional<float>( 1.0F ) );
+    EXPECT_EQ( census[1].Name, "Door.0.TintB" );
+    EXPECT_EQ( census[1].Type, "color" );
+    EXPECT_EQ( census[1].Components, 3 );
+    EXPECT_FLOAT_EQ( census[1].Value[2], 0.3F );
+    EXPECT_EQ( LM::SlotLabel( 1, "" ), "Slot 1" );
+
+    // Refusals say why: an unknown track, a vector for a scalar, a value the slider cannot reach.
+    EXPECT_FALSE( LM::Resolve( sequence, schema, "Door.0.Roughness", { 0.5F } ).IsSuccess() );
+    EXPECT_FALSE( LM::Resolve( sequence, schema, "Door.0.Blend", { 0.5F, 0.5F, 0.5F } ).IsSuccess() );
+    EXPECT_FALSE( LM::Resolve( sequence, schema, "Door.0.Blend", { 1.5F } ).IsSuccess() );
+
+    Ed::SequenceOwner owner;
+    owner.Identity = &sequence;
+    owner.Resolve  = [&sequence]() -> T::Sequence* { return &sequence; };
+    owner.Volatile = false;
+    owner.Name     = "Level Sequence";
+    Ed::SequenceEditTransaction transaction;
+
+    const auto write = LM::Resolve( sequence, schema, "Door.0.Blend", { 1.0F } );
+    ASSERT_TRUE( write.IsSuccess() ) << write.GetError();
+    EXPECT_EQ( write.GetValue().Binding, door );
+    EXPECT_EQ( write.GetValue().Parameter, blend );
+    ASSERT_TRUE( LM::Key( sequence, transaction, owner, write.GetValue().Binding, write.GetValue().Parameter,
+                          playhead, write.GetValue().Value )
+                      .IsSuccess() );
+    ASSERT_EQ( history.UndoStack().size(), 1U ) << "the set is one step";
+    EXPECT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, blend ).size(), 2U );
+    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, blend, playhead )->x, 1.0F );
+    EXPECT_FLOAT_EQ( LM::Describe( sequence, playhead, schema )[0].Value[0], 1.0F )
+         << "the census reads the keyed value back at the playhead";
+
+    ASSERT_TRUE( history.Undo() );
+    EXPECT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, blend ).size(), 1U ) << "Ctrl+Z takes the key back";
+    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, blend, playhead )->x, 0.0F );
+    EXPECT_FALSE( history.Undo() ) << "nothing else was recorded";
     history.Clear();
 }
