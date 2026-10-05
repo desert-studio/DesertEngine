@@ -39,6 +39,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace
@@ -231,8 +232,7 @@ namespace
          { "VulkanRdgTransient.cpp", "vmaGetAllocationInfo", 1, "void" },
          // RDG-ALIAS A1: the frame slot's per-pass descriptor pools are reset after its fence. The
          // specification gives vkResetDescriptorPool no failure code: it always returns VK_SUCCESS.
-         { "VulkanRenderGraph.cpp", "vkResetDescriptorPool", 1,
-           "dropped: always VK_SUCCESS" },
+         { "VulkanRenderGraph.cpp", "vkResetDescriptorPool", 1, "dropped: always VK_SUCCESS" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFormatProperties", 3, "void" },
          // В2, шаг 2 программы по миру: чтение бюджета памяти устройства. Возвращает void — результат
          // приходит через цепочку `pNext` (`VkPhysicalDeviceMemoryBudgetPropertiesEXT`), которую
@@ -243,6 +243,8 @@ namespace
          { "VulkanGpuProfiler.cpp", "vkGetPhysicalDeviceQueueFamilyProperties", 2, "void" },
          { "VulkanMaterialBackend.cpp", "vkUpdateDescriptorSets", 1, "void" },
          { "VulkanPipelineCompute.cpp", "vkUpdateDescriptorSets", 1, "void" },
+         // RDG-A2: PassBindings copies the material's value/asset slots into the pass's set 0 (copy writes only).
+         { "VulkanRenderer.cpp", "vkUpdateDescriptorSets", 1, "void" },
 
          // ---- returns VkResult and the result is DROPPED. Five, each with its reason --------------
          // The count-then-fill enumeration idiom, at startup. Both halves can only fail with
@@ -516,8 +518,13 @@ TEST( DeviceLostCensus, OnlyGatedFunctionsCanArmTheCommandBuffer )
             armedOutside.push_back( 1 + static_cast<int>( std::count( src.begin(), src.begin() + at, '\n' ) ) );
     }
 
+    // BeginFrame arms once on each of its two exclusive paths: the headless frame (the graph's own graphics
+    // command buffer, Desert/Tests/Engine/EngineHost) returns before the windowed one (the swapchain's).
     for ( const Armer& armer : armers )
-        EXPECT_EQ( armer.Count, 1 ) << armer.Name << " must arm the command buffer exactly once";
+    {
+        const int paths = std::string_view( armer.Name ) == "VulkanRendererAPI::BeginFrame" ? 2 : 1;
+        EXPECT_EQ( armer.Count, paths ) << armer.Name << " must arm the command buffer exactly once per path";
+    }
     for ( int line : armedOutside )
         ADD_FAILURE() << file.filename().string() << ":" << line
                       << " assigns a command buffer to m_CurrentCommandBuffer OUTSIDE BeginFrame, "

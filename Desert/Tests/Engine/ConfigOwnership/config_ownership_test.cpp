@@ -1367,8 +1367,18 @@ TEST( ConfigOwnership, RetiredMsaaCountBecomesTheMsaaMethod )
     EXPECT_EQ( settings.EffectiveAA( true ).PostProcess, Common::Settings::AntiAliasingMethod::None );
 
     const std::string written = Common::Json::Write( settings );
-    EXPECT_EQ( written.find( "\"AA\"" ), std::string::npos ) << written;
-    EXPECT_NE( written.find( "\"AAMethod\":\"MSAA\"" ), std::string::npos ) << written;
+    {
+        const auto parsed = Common::Json::Parse( written );
+        ASSERT_TRUE( parsed.IsSuccess() ) << written;
+        const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
+        EXPECT_FALSE( root.Find( "AA" ).has_value() ) << written;
+        const auto method = root.Find( "AAMethod" );
+        ASSERT_TRUE( method.has_value() ) << written;
+        const Common::Json::Node& methodNode = *method;
+        const auto                text       = methodNode.AsString();
+        ASSERT_TRUE( text.IsSuccess() ) << written;
+        EXPECT_EQ( text.GetValue(), "MSAA" ) << written;
+    }
 
     // Round trip: the written text reads back as the same method and is not migrated again.
     auto again = Common::Json::Read<Common::Settings::MachineSettings>( written );
@@ -1602,6 +1612,6 @@ TEST( ConfigOwnership, ResolvingAntiAliasingIsPureAndCommittingMsaaLogsOnce )
              Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + writer ) );
         ASSERT_FALSE( text.empty() );
         EXPECT_NE( text.find( "CommitAntiAliasing(" ), std::string::npos );
-        EXPECT_FALSE( std::regex_search( text, std::regex( R"((AAMethod|MSAASamples)\s*=[^=])" ) ) );
+        EXPECT_FALSE( std::regex_search( text, std::regex( R"(\b(AAMethod|MSAASamples)\s*=[^=])" ) ) );
     }
 }

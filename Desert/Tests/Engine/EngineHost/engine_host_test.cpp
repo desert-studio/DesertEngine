@@ -11,6 +11,8 @@
 //   * VulkanRenderer.cpp SubmitHeadlessFrame: delete device->WaitIdle() -> the readback races the GPU.
 //   * Renderer::DrawFullscreen: draw fewer than 3 vertices -> pixels keep the clear colour;
 //     FullscreenTriangle.glslh ScreenUVToNdc without the y flip -> every row lands mirrored.
+//   * Renderer::DrawProcedural: draw one instance instead of instanceCount -> the right half keeps the clear
+//   colour.
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
@@ -23,7 +25,9 @@
 #include <GLFW/glfw3.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstring>
+#include <functional>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -177,12 +181,51 @@ Shader "EngineHostCoord"
 }
 )DSL";
 
-    Common::ResultStr<std::shared_ptr<GraphicsPipeline>> MakeCoordPipeline()
+    // Two instances of a six-vertex quad, each covering one half of the target in x: instance i spans
+    // ndc x in [-1 + i, i]. Each pixel writes its coordinate and 10 + gl_InstanceIndex. An instance count
+    // dropped to 1 leaves the right half at the clear colour; a lost gl_InstanceIndex writes 10 there.
+    constexpr const char* kInstancedShader =
+         R"DSL(// DesertAsset {"Kind":"Shader","Guid":"8d2e3f4a5b6c47d8e9f0a1b2c3d4e5f6","Versions":{"SHDR":1},"Dependencies":[]}
+Shader "EngineHostInstanced"
+{
+    Fragment
     {
-        const fs::path file = fs::temp_directory_path() / "EngineHostCoord.shader";
+        In(0) vec2 v_TexCoord;
+        In(1) float v_Instance;
+        Out(0) vec4 o_Color;
+
+        void main()
+        {
+            vec2 texel = floor( v_TexCoord * 64.0 );
+            o_Color = vec4( texel / 255.0, ( 10.0 + v_Instance ) / 255.0, 1.0 );
+        }
+    }
+
+    Vertex
+    {
+        Out(0) vec2 v_TexCoord;
+        Out(1) float v_Instance;
+
+        void main()
+        {
+            const vec2 corners[6] = vec2[]( vec2( 0.0, 0.0 ), vec2( 1.0, 0.0 ), vec2( 0.0, 1.0 ),
+                                            vec2( 1.0, 0.0 ), vec2( 1.0, 1.0 ), vec2( 0.0, 1.0 ) );
+            vec2 uv = vec2( ( corners[gl_VertexIndex].x + float( gl_InstanceIndex ) ) * 0.5, corners[gl_VertexIndex].y );
+            v_TexCoord = uv;
+            v_Instance = float( gl_InstanceIndex );
+            gl_Position = vec4( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0 );
+        }
+    }
+}
+)DSL";
+
+    // @p name is both the shader's name and its temp file's stem.
+    Common::ResultStr<std::shared_ptr<GraphicsPipeline>> MakeRasterPipeline( const char* source, const char* name )
+    {
+        const fs::path file = fs::temp_directory_path() / ( std::string( name ) + ".shader" );
         {
             std::ofstream out( file, std::ios::binary | std::ios::trunc );
-            out << kCoordShader;
+            out << source;
         }
         auto asset = std::make_shared<Assets::ShaderAsset>( Common::Filepath( file.string() ) );
         if ( const auto loaded = asset->LoadFromFile(); !loaded )
@@ -191,7 +234,7 @@ Shader "EngineHostCoord"
         if ( !shader )
             return Common::MakeError<std::shared_ptr<GraphicsPipeline>>( "Shader::Create returned null" );
         GraphicsPipelineSpecification spec;
-        spec.DebugName    = "EngineHostCoord";
+        spec.DebugName    = name;
         spec.Shader       = shader;
         spec.TargetLayout = RenderTargetLayout{ .ColorFormats = { Core::Formats::ImageFormat::RGBA8F } };
         return GraphicsPipeline::Create( spec );
@@ -280,29 +323,25 @@ TEST( EngineHost, DispatchComputeThroughPassBindingsIsByteExact )
     }
 }
 
-// One raster pass whose exec is Renderer::DrawFullscreen (DrawProcedural(3, 1)) into a graph texture cleared to 0;
-// a copy pass reads the image back. Every pixel must hold its own coordinate: the one triangle covers the whole
-// target and its uv is the screen texture coordinate with (0,0) at the top-left texel. Two frames.
-TEST( EngineHost, DrawFullscreenCoversEveryPixelWithItsOwnTexCoord )
+namespace
 {
-    const Host& host = GetHost();
-    ASSERT_TRUE( host.Error.empty() ) << host.Error;
-    auto pipeline = MakeCoordPipeline();
-    ASSERT_TRUE( pipeline.IsSuccess() ) << pipeline.GetError();
-
-    for ( int frame = 0; frame < 2; ++frame )
+    // One frame: a raster pass whose exec is @p draw, into a kSide x kSide RGBA8 graph texture cleared to 0, and a
+    // copy pass reading it back. Returns the kSide * kSide * 4 bytes, or the step that failed.
+    Common::ResultStr<std::vector<uint8_t>>
+    DrawAndReadBack( const char* name, const std::function<Common::BoolResultStr( RDG::PassBindings& )>& draw )
     {
         auto&                       renderer = Renderer::GetInstance();
         const Common::BoolResultStr begun    = renderer.BeginFrame();
-        ASSERT_TRUE( begun.IsSuccess() ) << "frame " << frame << ": " << begun.GetError();
+        if ( !begun )
+            return Common::MakeError<std::vector<uint8_t>>( "BeginFrame: " + begun.GetError() );
 
         RDG::TextureDesc desc;
         desc.Size   = { kSide, kSide, 1 };
         desc.Format = Core::Formats::ImageFormat::RGBA8F;
 
         RDG::ExternalBuffer   readback;
-        RDG::Builder          graph( "engine-host-fullscreen" );
-        const RDG::TextureRef target = graph.CreateTexture( desc, "Coords" );
+        RDG::Builder          graph( name );
+        const RDG::TextureRef target = graph.CreateTexture( desc, "Target" );
         const RDG::BufferRef  bytes  = graph.CreateBuffer( RDG::BufferDesc{ kSide * kSide * 4u }, "Readback" );
         graph.AddPass(
              "Draw", RDG::PassFlags::Raster,
@@ -311,7 +350,7 @@ TEST( EngineHost, DrawFullscreenCoversEveryPixelWithItsOwnTexCoord )
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context );
-                 return Renderer::GetInstance().DrawFullscreen( bindings, *pipeline.GetValue(), nullptr );
+                 return draw( bindings );
              } );
         graph.AddPass(
              "Copy", RDG::PassFlags::Copy,
@@ -341,33 +380,90 @@ TEST( EngineHost, DrawFullscreenCoversEveryPixelWithItsOwnTexCoord )
              } );
         graph.Extract( bytes, readback, RDG::Access::HostRead );
 
-        const Common::BoolResultStr executed = renderer.ExecuteGraph( graph );
-        ASSERT_TRUE( executed.IsSuccess() ) << executed.GetError();
-        const Common::BoolResultStr presented = renderer.PresentFinalImage();
-        ASSERT_TRUE( presented.IsSuccess() ) << presented.GetError();
+        if ( const Common::BoolResultStr executed = renderer.ExecuteGraph( graph ); !executed )
+            return Common::MakeError<std::vector<uint8_t>>( "ExecuteGraph: " + executed.GetError() );
+        if ( const Common::BoolResultStr presented = renderer.PresentFinalImage(); !presented )
+            return Common::MakeError<std::vector<uint8_t>>( "PresentFinalImage: " + presented.GetError() );
 
-        ASSERT_TRUE( readback.Physical && readback.Physical->GetBackendKind() == RDG::BackendKind::Vulkan );
+        if ( !readback.Physical || readback.Physical->GetBackendKind() != RDG::BackendKind::Vulkan )
+            return Common::MakeError<std::vector<uint8_t>>( "the readback buffer was not extracted" );
         const auto& buffer = static_cast<const API::Vulkan::VulkanRdgBuffer&>( *readback.Physical );
         buffer.InvalidateForHost();
-        ASSERT_NE( buffer.GetMapped(), nullptr );
-        const auto* px         = static_cast<const uint8_t*>( buffer.GetMapped() );
-        uint32_t    mismatches = 0;
-        uint32_t    firstX     = 0;
-        uint32_t    firstY     = 0;
+        if ( buffer.GetMapped() == nullptr )
+            return Common::MakeError<std::vector<uint8_t>>( "the readback buffer is not mapped" );
+        const auto* px = static_cast<const uint8_t*>( buffer.GetMapped() );
+        return Common::MakeSuccess( std::vector<uint8_t>( px, px + kSide * kSide * 4u ) );
+    }
+
+    // Empty when every pixel equals @p expected( x, y ) (RGBA); else how many differ and the first that does.
+    std::string Mismatches( const std::vector<uint8_t>&                                        px,
+                            const std::function<std::array<uint8_t, 4>( uint32_t, uint32_t )>& expected )
+    {
+        uint32_t    count = 0;
+        std::string first;
         for ( uint32_t y = 0; y < kSide; ++y )
             for ( uint32_t x = 0; x < kSide; ++x )
             {
-                const uint8_t* p  = px + ( y * kSide + x ) * 4u;
-                const bool     ok = p[0] == x && p[1] == y && p[2] == 255u && p[3] == 255u;
-                if ( !ok && mismatches++ == 0 )
-                {
-                    firstX = x;
-                    firstY = y;
-                }
+                const uint8_t*               p    = px.data() + ( y * kSide + x ) * 4u;
+                const std::array<uint8_t, 4> want = expected( x, y );
+                if ( std::memcmp( p, want.data(), 4 ) != 0 && count++ == 0 )
+                    first = "(" + std::to_string( x ) + ", " + std::to_string( y ) + ") holds " +
+                            std::to_string( p[0] ) + "," + std::to_string( p[1] ) + "," + std::to_string( p[2] ) +
+                            "," + std::to_string( p[3] );
             }
-        EXPECT_EQ( mismatches, 0u ) << "frame " << frame << ": first wrong pixel (" << firstX << ", " << firstY
-                                    << ")";
+        return count == 0 ? std::string() : std::to_string( count ) + " wrong pixels, first " + first;
     }
+} // namespace
+
+// One raster pass whose exec is Renderer::DrawFullscreen (DrawProcedural(3, 1)) into a graph texture cleared to 0;
+// a copy pass reads the image back. Every pixel must hold its own coordinate: the one triangle covers the whole
+// target and its uv is the screen texture coordinate with (0,0) at the top-left texel. Two frames.
+TEST( EngineHost, DrawFullscreenCoversEveryPixelWithItsOwnTexCoord )
+{
+    const Host& host = GetHost();
+    ASSERT_TRUE( host.Error.empty() ) << host.Error;
+    auto pipeline = MakeRasterPipeline( kCoordShader, "EngineHostCoord" );
+    ASSERT_TRUE( pipeline.IsSuccess() ) << pipeline.GetError();
+
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        const auto px = DrawAndReadBack(
+             "engine-host-fullscreen", [&]( RDG::PassBindings& bindings )
+             { return Renderer::GetInstance().DrawFullscreen( bindings, *pipeline.GetValue(), nullptr ); } );
+        ASSERT_TRUE( px.IsSuccess() ) << "frame " << frame << ": " << px.GetError();
+        EXPECT_EQ( Mismatches( px.GetValue(),
+                               []( uint32_t x, uint32_t y ) {
+                                   return std::array<uint8_t, 4>{ static_cast<uint8_t>( x ),
+                                                                  static_cast<uint8_t>( y ), 255u, 255u };
+                               } ),
+                   "" )
+             << "frame " << frame;
+    }
+}
+
+// DrawProcedural with instanceCount 2: two six-vertex quads, instance i covering x in [i * kSide / 2, (i + 1) *
+// kSide / 2). Every pixel holds its own coordinate and 10 + the instance that covers it. Mutations:
+// Renderer::DrawProcedural passing 1 instead of instanceCount -> the right half keeps the clear colour;
+// firstInstance 1 -> the left half's blue is 11.
+TEST( EngineHost, DrawProceduralDrawsEveryInstance )
+{
+    const Host& host = GetHost();
+    ASSERT_TRUE( host.Error.empty() ) << host.Error;
+    auto pipeline = MakeRasterPipeline( kInstancedShader, "EngineHostInstanced" );
+    ASSERT_TRUE( pipeline.IsSuccess() ) << pipeline.GetError();
+
+    const auto px = DrawAndReadBack(
+         "engine-host-instanced", [&]( RDG::PassBindings& bindings )
+         { return Renderer::GetInstance().DrawProcedural( bindings, *pipeline.GetValue(), nullptr, 6, 2 ); } );
+    ASSERT_TRUE( px.IsSuccess() ) << px.GetError();
+    EXPECT_EQ( Mismatches( px.GetValue(),
+                           []( uint32_t x, uint32_t y )
+                           {
+                               return std::array<uint8_t, 4>{ static_cast<uint8_t>( x ), static_cast<uint8_t>( y ),
+                                                              static_cast<uint8_t>( x < kSide / 2 ? 10u : 11u ),
+                                                              255u };
+                           } ),
+               "" );
 }
 
 int main( int argc, char** argv )

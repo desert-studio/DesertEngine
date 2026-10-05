@@ -325,8 +325,11 @@ TEST( EnvironmentViewMemory, TheDeferredCompositeStatesAbsence )
             "reads as caution and is how one scene's sky survives into the next: a slot that is not "
             "written keeps what it had. Completeness is reported by "
             "DeferredLightingRenderer::ReportEnvironmentGap; it must not decide whether to write.";
-    EXPECT_NE( body.find( "SetTexture( environment.Irradiance )" ), std::string::npos );
-    EXPECT_NE( body.find( "SetTexture( environment.Prefiltered )" ), std::string::npos );
+    // Every frame writes both slots: the scene's cube, or the empty cube when the scene has none.
+    EXPECT_NE( body.find( "SetTexture( environment.Irradiance ? environment.Irradiance : emptyCube.get() )" ),
+               std::string::npos );
+    EXPECT_NE( body.find( "SetTexture( environment.Prefiltered ? environment.Prefiltered : emptyCube.get() )" ),
+               std::string::npos );
 }
 
 // The slot property itself, read as text: the guard that was removed must not come back wearing a
