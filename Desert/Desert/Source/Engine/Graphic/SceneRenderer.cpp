@@ -888,8 +888,9 @@ namespace Desert::Graphic
                 viewProj  = cam->GetProjectionMatrix() * cam->GetViewMatrix();
             }
 
-            std::vector<RDG::TextureRef> compositeReads = gbuffer;
-            AddFrameSSAO( graph, textures, gbuffer, viewProj, cameraPos, values, compositeReads );
+            AddFrameSSAO( graph, textures, gbuffer, viewProj, cameraPos );
+
+            RDG::TextureRef giAccum;
 
             if ( m_GIMode == Core::GIMode::RSM && meshRenderer && EnsureGIResources() )
             {
@@ -898,20 +899,20 @@ namespace Desert::Graphic
                 AddFrameRSM( graph, textures, meshRenderer, sunDir );
                 m_RSMFrameCounter = ( m_RSMFrameCounter + 1 ) % kRSMRefreshEvery;
 
-                AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, viewProj, lightColor, values,
-                                   compositeReads );
+                giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, viewProj, lightColor );
             }
 
+            std::vector<RDG::TextureRef> shadowReads;
             {
                 // The lighting pass shades with the cascades and the cloud layer's shadow map.
                 RenderPassDeclaration shadows;
                 DeclareShadowReads( shadows );
                 std::vector<RDG::TextureRef> shadowMaps;
                 if ( ResolveDeclared( textures, shadows, "Deferred: Composite", shadowMaps ) )
-                    compositeReads.insert( compositeReads.end(), shadowMaps.begin(), shadowMaps.end() );
+                    shadowReads = std::move( shadowMaps );
             }
-            AddFrameComposite( graph, textures, compositeReads, meshRenderer, lightDir, lightColor, cameraPos,
-                               values );
+            AddFrameComposite( graph, textures, gbuffer, giAccum, shadowReads, meshRenderer, lightDir, lightColor,
+                               cameraPos );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 

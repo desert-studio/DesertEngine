@@ -143,8 +143,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                                       const std::vector<RDG::TextureRef>& gbuffer, const glm::mat4& viewProj,
-                                      const glm::vec4& cameraPos, const std::shared_ptr<FrameValues>& values,
-                                      std::vector<RDG::TextureRef>& compositeReads )
+                                      const glm::vec4& cameraPos )
     {
         // SSAO first (reads the G-buffer world pos + normal into the AO buffer); the lighting pass below
         // multiplies its ambient term by this. Skipped when disabled (the shader uses AO=1 then).
@@ -162,7 +161,7 @@ namespace Desert::Graphic
             return;
         const std::shared_ptr<Image2D> aoImage = ssao->GetAOImage();
         const RDG::TextureRef          ao      = textures.Import( aoImage, "SSAO" );
-        compositeReads.push_back( ao );
+        textures.Transients.SSAO = ao; // -> Deferred: Composite (u_SSAO)
         graph.AddPass(
              "Deferred: SSAO", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -170,30 +169,27 @@ namespace Desert::Graphic
                  ReadAll( pass, gbuffer, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, ao, EngineClearColor() ); // AO is fully recomputed each frame
              },
-             [this, ssao, aoImage, viewProj, cameraPos, values]( RDG::PassContext& ) -> Common::BoolResultStr
+             [this, ssao, viewProj, cameraPos]( RDG::PassContext& ) -> Common::BoolResultStr
              {
                  ssao->Execute( m_GBuffer, viewProj, cameraPos, kSSAORadius, kSSAOBias, /*power*/ 1.5f,
                                 /*samples*/ 16 );
-                 values->AoImage = aoImage;
                  return BOOLSUCCESS;
              } );
     }
 
-    void SceneRenderer::AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
+    RDG::TextureRef SceneRenderer::AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer,
                                            const std::vector<RDG::TextureRef>& rsm,
                                            System::MeshRenderer* meshRenderer, const glm::mat4& viewProj,
-                                           const glm::vec4& lightColor, const std::shared_ptr<FrameValues>& values,
-                                           std::vector<RDG::TextureRef>& compositeReads )
+                                           const glm::vec4& lightColor )
     {
         auto* gi = UNIQUE_GET_AS( System::GIResolveRenderer, m_RenderSystems["GISystem"] );
         if ( !gi || !gi->Prepare() )
-            return;
+            return {};
         const std::shared_ptr<Image2D> accumImage = gi->GetAccumImage();
         const RDG::TextureRef          gather     = textures.Import( gi->GetGatherImage(), "GI.Gather" );
         const RDG::TextureRef          accum      = textures.Import( accumImage, "GI" );
         const RDG::TextureRef          history    = textures.Import( gi->GetHistoryImage(), "GI.History" );
-        compositeReads.push_back( accum );
         graph.AddPass(
              "Deferred: GIResolve", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -218,19 +214,19 @@ namespace Desert::Graphic
                  pass.Read( history, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [this, gi, viewProj, accumImage, values]( RDG::PassContext& ) -> Common::BoolResultStr
+             [this, gi, viewProj]( RDG::PassContext& ) -> Common::BoolResultStr
              {
                  gi->RecordTemporal( m_GBuffer, viewProj );
-                 values->GiImage = accumImage;
                  return BOOLSUCCESS;
              } );
+        return accum;
     }
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& compositeReads,
+                                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
+                                           const std::vector<RDG::TextureRef>& shadowReads,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const glm::vec4& cameraPos,
-                                           const std::shared_ptr<FrameValues>& values )
+                                           const glm::vec4& lightColor, const glm::vec4& cameraPos )
     {
         // LOAD/STORE on every scene-target attachment. The depth is declared written because the passes after
         // this one that are not graph nodes yet (forward meshes, glass, fog, clouds, overlays) begin their own
@@ -238,59 +234,88 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Composite" );
         if ( !targets )
             return;
+        if ( gbuffer.size() < 4 )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: Composite needs the 4 G-buffer colours, the graph has {}",
+                       gbuffer.size() );
+            return;
+        }
         const RDG::ImportedFramebuffer& target = *targets;
+
+        // Every input by name; an input not produced this frame is the system texture neutral for it (UE
+        // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not RSM, fewer cascades).
+        const FrameGraphRefs            refs = textures.GraphRefs();
+        System::DeferredCompositeInputs inputs;
+        inputs.GBufferA        = gbuffer[0];
+        inputs.GBufferB        = gbuffer[1];
+        inputs.GBufferC        = gbuffer[2];
+        inputs.GBufferEmissive = gbuffer[3];
+        inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
+        inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
+        const uint32_t cascades = meshRenderer ? meshRenderer->GetValidCascadeCount() : 0u;
+        for ( uint32_t c = 0; c < inputs.ShadowMaps.size(); ++c )
+        {
+            const std::shared_ptr<Image2D> map  = c < cascades ? meshRenderer->GetCascadeShadowImage( c ) : nullptr;
+            const RDG::TextureRef          ref  = map ? textures.Import( map, std::format( "CSM.Cascade{}", c ) )
+                                                      : RDG::TextureRef{};
+            inputs.ShadowMaps[c]                = ref.IsValid() ? ref : refs.System.White;
+        }
+        std::vector<RDG::TextureRef> reads = shadowReads; // + the cloud shadow map (material route)
+        for ( const RDG::TextureRef ref : { inputs.GBufferA, inputs.GBufferB, inputs.GBufferC,
+                                            inputs.GBufferEmissive, inputs.SSAO, inputs.GI } )
+            reads.push_back( ref );
+        reads.insert( reads.end(), inputs.ShadowMaps.begin(), inputs.ShadowMaps.end() );
+        std::vector<RDG::TextureRef> declared; // one declaration per texture (System.White can fill several slots)
+        for ( const RDG::TextureRef ref : reads )
+            if ( ref.IsValid() && std::find( declared.begin(), declared.end(), ref ) == declared.end() )
+                declared.push_back( ref );
+
         graph.AddPass(
              "Deferred: Composite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadAll( pass, compositeReads, RDG::Access::SampledGraphics );
+                 ReadAll( pass, declared, RDG::Access::SampledGraphics );
                  DeferredFrameNodes::LoadTarget( pass, target );
              },
-             [this, meshRenderer, lightDir, lightColor, cameraPos, values]( RDG::PassContext& ) -> Common::BoolResultStr
-                   {
-                       DeferredShadowInput shadow;
-                       if ( meshRenderer )
-                       {
-                           shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
-                           shadow.Count                = meshRenderer->GetValidCascadeCount();
-                           shadow.Bias                 = meshRenderer->GetShadowBias();
-                           shadow.Enabled              = meshRenderer->AreShadowsEnabled();
-                           shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
-                           for ( uint32_t c = 0; c < shadow.Count && c < 4u; ++c )
-                           {
-                               const auto img        = meshRenderer->GetCascadeShadowImage( c );
-                               shadow.CascadeMaps[c] = img ? img.get() : nullptr;
-                           }
-                       }
+             [this, inputs, meshRenderer, lightDir, lightColor, cameraPos](
+                  RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 DeferredShadowInput shadow;
+                 if ( meshRenderer )
+                 {
+                     shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
+                     shadow.Count                = meshRenderer->GetValidCascadeCount();
+                     shadow.Bias                 = meshRenderer->GetShadowBias();
+                     shadow.Enabled              = meshRenderer->AreShadowsEnabled();
+                     shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
+                 }
 
-                       const CloudShadowInput cloudShadow = GetCloudShadowInput();
+                 const CloudShadowInput cloudShadow = GetCloudShadowInput();
 
-                       DeferredEnvironmentInput environment;
-                       {
-                           auto* imageService = Runtime::ResourceRegistry::GetImageService();
-                           if ( const auto& env = GetEnvironment(); env.has_value() )
-                           {
-                               environment.Look = env->Look;
-                               if ( env->IrradianceMap.IsValid() )
-                                   environment.Irradiance =
-                                        static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
-                               if ( env->PreFilteredMap.IsValid() )
-                                   environment.Prefiltered =
-                                        static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
-                           }
-                           if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
-                                brdf && brdf->GetImageHandle().IsValid() )
-                               environment.BrdfLut =
-                                    static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
-                       }
+                 DeferredEnvironmentInput environment;
+                 {
+                     auto* imageService = Runtime::ResourceRegistry::GetImageService();
+                     if ( const auto& env = GetEnvironment(); env.has_value() )
+                     {
+                         environment.Look = env->Look;
+                         if ( env->IrradianceMap.IsValid() )
+                             environment.Irradiance =
+                                  static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
+                         if ( env->PreFilteredMap.IsValid() )
+                             environment.Prefiltered =
+                                  static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
+                     }
+                     if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
+                          brdf && brdf->GetImageHandle().IsValid() )
+                         environment.BrdfLut = static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
+                 }
 
-                       const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
-                       UNIQUE_GET_AS( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
-                            ->Execute( m_GBuffer, lightDir, lightColor, cameraPos,
-                                       static_cast<int>( m_DebugView.DeferredDebug ), GetPointLights(),
-                                       GetSpotLights(), shadow, values->AoImage, giIntensity, m_EnableSSAO,
-                                       static_cast<int>( m_GIMode ), values->GiImage, cloudShadow, environment );
-                       return BOOLSUCCESS;
+                 const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
+                 return UNIQUE_GET_AS( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
+                      ->Record( context, inputs, lightDir, lightColor, cameraPos,
+                                static_cast<int>( m_DebugView.DeferredDebug ), GetPointLights(), GetSpotLights(),
+                                shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ), cloudShadow,
+                                environment );
              } );
     }
 

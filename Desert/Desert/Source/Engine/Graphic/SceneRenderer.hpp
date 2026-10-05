@@ -559,19 +559,17 @@ namespace Desert::Graphic
         void ApplySceneSampleCount( uint32_t samples );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                            const std::vector<RDG::TextureRef>& gbuffer, const glm::mat4& viewProj,
-                           const glm::vec4& cameraPos, const std::shared_ptr<FrameValues>& values,
-                           std::vector<RDG::TextureRef>& compositeReads );
-        void AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
+                           const glm::vec4& cameraPos );
+        // The GI accumulation ref the composite samples (u_GI), invalid when GI did not run this frame.
+        RDG::TextureRef AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer,
                                 const std::vector<RDG::TextureRef>& rsm, System::MeshRenderer* meshRenderer,
-                                const glm::mat4& viewProj, const glm::vec4& lightColor,
-                                const std::shared_ptr<FrameValues>& values,
-                                std::vector<RDG::TextureRef>&       compositeReads );
+                                const glm::mat4& viewProj, const glm::vec4& lightColor );
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                const std::vector<RDG::TextureRef>& compositeReads,
+                                const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
+                                const std::vector<RDG::TextureRef>& shadowReads,
                                 System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                const glm::vec4& lightColor, const glm::vec4& cameraPos,
-                                const std::shared_ptr<FrameValues>& values );
+                                const glm::vec4& lightColor, const glm::vec4& cameraPos );
         void AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& sceneColor, System::CopyRenderer* copy,
                                 const std::shared_ptr<FrameValues>& values,
