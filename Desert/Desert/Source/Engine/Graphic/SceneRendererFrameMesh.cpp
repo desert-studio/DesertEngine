@@ -110,7 +110,7 @@ namespace Desert::Graphic
                 continue;
             RenderPassDeclaration declared;
             if ( pass.Declare )
-                pass.Declare( declared );
+                pass.Declare( declared, textures.GraphRefs() );
             std::vector<RDG::TextureRef> images;
             if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
                 continue;
@@ -133,11 +133,8 @@ namespace Desert::Graphic
                      for ( uint32_t slot = 0; slot < targets->Resolves.size(); ++slot )
                          node.ResolveTarget( slot, targets->Resolves[slot] );
                  },
-                 [execute = pass.ExecuteFunc]( RDG::PassContext& ) -> Common::BoolResultStr
-                 {
-                     execute();
-                     return BOOLSUCCESS;
-                 } );
+                 [execute = pass.ExecuteFunc, refs = textures.GraphRefs()]( RDG::PassContext& context )
+                      -> Common::BoolResultStr { return execute( context, refs ); } );
         }
     }
 

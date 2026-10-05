@@ -1416,19 +1416,20 @@ namespace Desert::Graphic
                 RenderGraphBuilder::PassConfig config;
                 config.Name              = m_Spec.Name;
                 config.Phase             = m_Spec.Phase;
-                config.ExecuteFunc       = [this]() { m_Spec.Execute( Context() ); };
+                config.ExecuteFunc       = [this]( RDG::PassContext& pass, const FrameGraphRefs& refs )
+                { return m_Spec.Execute( Context( refs ), pass ); };
                 config.PipelineSpec      = m_Spec.PipelineSpecification;
                 config.TargetFramebuffer = target;
                 config.Dependencies      = m_Spec.Dependencies;
                 // What the editor's pass samples besides the scene target it draws over, in its own words.
                 if ( m_Spec.Declare )
-                    config.Declare = [this]( RenderPassDeclaration& declared )
-                    { m_Spec.Declare( declared, Context() ); };
+                    config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+                    { m_Spec.Declare( declared, Context( refs ) ); };
                 builder.AddPass( config );
             }
 
         private:
-            ExternalPassContext Context() const
+            ExternalPassContext Context( const FrameGraphRefs& refs ) const
             {
                 const auto&         target = m_Renderer->GetTargetFramebuffer();
                 ExternalPassContext ctx;
@@ -1439,6 +1440,7 @@ namespace Desert::Graphic
                                         : nullptr;
                 ctx.ScenePlaying = m_Renderer->IsScenePlaying();
                 ctx.Renderer     = m_Renderer;
+                ctx.Graph        = refs;
                 return ctx;
             }
 

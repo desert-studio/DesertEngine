@@ -266,6 +266,14 @@ namespace Desert::Graphic
             }
             images.push_back( ref );
         }
+        for ( const RenderPassDeclaration::TextureUse& use : declared.Textures() )
+            if ( !use.Texture.IsValid() )
+            {
+                LOG_ERROR( "[SceneRenderer] '{}' is not recorded: it declares a graph texture this frame did not "
+                           "produce",
+                           node );
+                return false;
+            }
         for ( const RenderPassDeclaration::BufferUse& use : declared.Buffers() )
             if ( !use.Buffer.IsValid() )
             {
@@ -288,6 +296,13 @@ namespace Desert::Graphic
                 pass.Write( images[i], uses[i].Access );
             else
                 pass.Read( images[i], uses[i].Access );
+        }
+        for ( const RenderPassDeclaration::TextureUse& use : declared.Textures() )
+        {
+            if ( use.Writes )
+                pass.Write( use.Texture, use.Access, use.Range );
+            else
+                pass.Read( use.Texture, use.Access, use.Range );
         }
         for ( const RenderPassDeclaration::BufferUse& use : declared.Buffers() )
         {
@@ -318,11 +333,8 @@ namespace Desert::Graphic
             graph.AddPass(
                  node.Name, RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
                  [&]( RDG::PassBuilder& pass ) { DeclareOn( pass, images[i], node.Access ); },
-                 [record = std::move( node.Record )]( RDG::PassContext& ) -> Common::BoolResultStr
-                 {
-                     record();
-                     return BOOLSUCCESS;
-                 } );
+                 [record = std::move( node.Record ), refs = textures.GraphRefs()](
+                      RDG::PassContext& context ) -> Common::BoolResultStr { return record( context, refs ); } );
         }
         return true;
     }

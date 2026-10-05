@@ -196,6 +196,14 @@ namespace Desert::Graphic
         return s_RendererAPI->DrawProcedural( bindings, pipeline, material, vertexCount, instanceCount );
     }
 
+    Common::BoolResultStr Renderer::DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                                 const MaterialExecutor* material, VertexBuffer& vertexBuffer,
+                                                 IndexBuffer& indexBuffer, uint32_t indexCount, uint32_t firstIndex )
+    {
+        return s_RendererAPI->DrawIndexed( bindings, pipeline, material, vertexBuffer, indexBuffer, indexCount,
+                                           firstIndex );
+    }
+
     void Renderer::ComputeImageBeginWrite( Image* image )
     {
         s_RendererAPI->ComputeImageBeginWrite( image );

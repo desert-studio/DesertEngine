@@ -814,6 +814,40 @@ namespace Desert::Graphic::API::Vulkan
         if ( vertexCount == 0u || instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a procedural draw of {} vertices x {} instances",
                                                bindings.GetContext().GetPassName(), vertexCount, instanceCount );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+            return bound;
+        // The vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
+        DrawCounted( vertexCount, instanceCount, 0, 0 );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::DrawIndexed( const RDG::PassBindings& bindings,
+                                                          const GraphicsPipeline& pipeline,
+                                                          const MaterialExecutor* material, VertexBuffer& vertexBuffer,
+                                                          IndexBuffer& indexBuffer, uint32_t indexCount,
+                                                          uint32_t firstIndex )
+    {
+        if ( indexCount == 0u )
+            return Common::MakeFormattedError( "{}: an indexed draw of zero indices",
+                                               bindings.GetContext().GetPassName() );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+            return bound;
+        const VkDeviceSize offsets[] = { 0 };
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
+        const VkBuffer vbuffer = static_cast<API::Vulkan::VulkanVertexBuffer&>( vertexBuffer ).GetVulkanBuffer();
+        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
+        const VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
+        vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
+        // As SubmitIndexed: vertices are addressed absolutely, only firstIndex selects the batch's slice.
+        DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::BindGraphicsPassState( const RDG::PassBindings& bindings,
+                                                                    const GraphicsPipeline&  pipeline,
+                                                                    const MaterialExecutor*  material )
+    {
         const RDG::PassContext&                  context = bindings.GetContext();
         const std::string_view                   pass    = context.GetPassName();
         const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
@@ -911,8 +945,6 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(),
                                 static_cast<VkShaderStageFlags>( reflection.PushConstantRanges->ShaderStage ), 0,
                                 static_cast<uint32_t>( push.size() ), push.data() );
-        // The vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
-        DrawCounted( vertexCount, instanceCount, 0, 0 );
         return Common::MakeSuccess( true );
     }
 

@@ -35,7 +35,12 @@ namespace Desert::Graphic
         PassConfig config;
         config.Name              = name;
         config.Phase             = phase;
-        config.ExecuteFunc       = executeFunc;
+        config.ExecuteFunc       = [execute = std::move( executeFunc )]( RDG::PassContext&,
+                                                                    const FrameGraphRefs& ) -> Common::BoolResultStr
+        {
+            execute();
+            return BOOLSUCCESS;
+        };
         config.PipelineSpec      = pipelineSpec;
         config.TargetFramebuffer = targetFramebuffer;
         config.Dependencies      = dependencies;
