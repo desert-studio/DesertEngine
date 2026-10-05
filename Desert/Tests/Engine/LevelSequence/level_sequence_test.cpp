@@ -14,6 +14,8 @@
 
 #include <Common/Json/Document.hpp>
 
+#include <Editor/Core/CommandHistory.hpp>
+
 #include "../ClipFixture.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -541,4 +543,86 @@ TEST( LevelSequenceKeys, AutoKeyWritesOnePoseKeyOnTheReleaseOfAGestureThatMovedT
     autoKey.Reset();
     EXPECT_FALSE( autoKey.Releasing( false ) );
     EXPECT_EQ( observe( false ), 0U );
+}
+
+namespace
+{
+    /// A recorded half of the gesture: whatever it captured is put back on Undo and re-applied on Redo.
+    template <typename Value>
+    class Restore final : public Desert::Editor::ICommand
+    {
+    public:
+        Restore( Value& live, Value before ) : m_Live( live ), m_Before( std::move( before ) ), m_After( live )
+        {
+        }
+        bool Undo() override
+        {
+            m_Live = m_Before;
+            return true;
+        }
+        bool Redo() override
+        {
+            m_Live = m_After;
+            return true;
+        }
+
+    private:
+        Value& m_Live;
+        Value  m_Before;
+        Value  m_After;
+    };
+} // namespace
+
+// UE: an actor dragged with Auto Key on is ONE FScopedTransaction — the move and its key. The editor records
+// the move (the gizmo's entry) and the key (the Sequencer's) separately; `JoinFollowUp` makes them one Ctrl+Z,
+// and only when nothing else was recorded between them.
+TEST( LevelSequenceKeys, AutoKeyedGizmoReleaseIsOneUndoStep )
+{
+    auto& history = Desert::Editor::CommandHistory::Get();
+    history.Clear();
+    T::Sequence               sequence = AuthoredDoor();
+    const auto                door     = sequence.Bindings.front().Guid;
+    World                     world;
+    auto&                     moved = world.registry.get<ECS::TransformComponent>( world.door ).Translation;
+    ECS::LevelSequenceAutoKey autoKey;
+    const A::FrameNumber      at{ 40 };
+
+    // The gesture: press, drag, release — the gizmo pushes the move and remembers the revision it stood at.
+    ASSERT_TRUE( autoKey.Observe( world.registry, sequence, at, true ).IsSuccess() );
+    const glm::vec3 before = moved;
+    moved.x                = 777.0F;
+    history.PushCommand( std::make_unique<Restore<glm::vec3>>( moved, before ) );
+    const uint64_t move = history.Revision();
+
+    // The Sequencer's release frame: its undo step opens, the key is written, the step closes.
+    const uint64_t    opened  = history.Revision();
+    const T::Sequence unkeyed = sequence;
+    const auto        keyed   = autoKey.Observe( world.registry, sequence, at, false );
+    ASSERT_TRUE( keyed.IsSuccess() );
+    ASSERT_EQ( keyed.GetValue(), 1U );
+    history.PushCommand( std::make_unique<Restore<T::Sequence>>( sequence, unkeyed ) );
+    ASSERT_TRUE( history.JoinFollowUp( move, opened ) );
+
+    // One Ctrl+Z: the actor is back AND the key is gone.
+    ASSERT_TRUE( history.Undo() );
+    EXPECT_EQ( moved.x, before.x );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U );
+    EXPECT_FALSE( history.Undo() ) << "the move and its key were one entry";
+    // One Ctrl+Y: both come back.
+    ASSERT_TRUE( history.Redo() );
+    EXPECT_EQ( moved.x, 777.0F );
+    EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 3U );
+
+    // Anything recorded between the move and the key's step keeps them apart.
+    history.Clear();
+    history.PushCommand( std::make_unique<Restore<glm::vec3>>( moved, before ) );
+    const uint64_t lone  = history.Revision();
+    float          other = 0.0F;
+    history.PushCommand( std::make_unique<Restore<float>>( other, 1.0F ) );
+    const uint64_t late = history.Revision();
+    history.PushCommand( std::make_unique<Restore<T::Sequence>>( sequence, unkeyed ) );
+    EXPECT_FALSE( history.JoinFollowUp( lone, late ) );
+    // A step that pushed nothing joins nothing either.
+    EXPECT_FALSE( history.JoinFollowUp( history.Revision(), history.Revision() ) );
+    history.Clear();
 }

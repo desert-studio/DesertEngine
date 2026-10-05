@@ -10,6 +10,7 @@
 #include "SequencerPanel.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
+#include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/GizmoState.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -537,14 +538,30 @@ namespace Desert::Editor
         const auto scene = m_Scene.lock();
         if ( !scene || !m_LevelRecord )
             return;
-        const bool held = Core::GizmoState::EntityInteraction();
-        // The undo step opens around exactly the frame that writes: the release.
-        std::optional<ScopedSequenceEdit> undoStep;
-        if ( m_LevelAutoKey.Releasing( held ) )
-            undoStep.emplace( m_LevelEdit, LevelOwner() );
-        const auto keyed = m_LevelAutoKey.Observe( scene->GetRegistry(), sequence, m_LevelTick, held );
+        const bool held      = Core::GizmoState::EntityInteraction();
+        const bool releasing = m_LevelAutoKey.Releasing( held );
+        // The history's revision as the key's undo step opens: the gizmo's move entry must be the last thing
+        // recorded for the two to become one transaction.
+        const uint64_t opened = CommandHistory::Get().Revision();
+        // The key's undo step closes (pushes its entry) when this scope ends, before the join below.
+        const auto keyed = [&]
+        {
+            // The undo step opens around exactly the frame that writes: the release.
+            std::optional<ScopedSequenceEdit> undoStep;
+            if ( releasing )
+                undoStep.emplace( m_LevelEdit, LevelOwner() );
+            return m_LevelAutoKey.Observe( scene->GetRegistry(), sequence, m_LevelTick, held );
+        }();
         if ( !keyed.IsSuccess() )
             ToastManager::Push( std::format( "Auto Key refused: {}", keyed.GetError() ), ToastLevel::Error, 6.0f );
+        else if ( releasing && keyed.GetValue() > 0U )
+        {
+            // UE: one FScopedTransaction holds the actor's move AND its auto-key — one Ctrl+Z takes both back.
+            if ( const auto move = Core::GizmoState::EntityGestureEntry() )
+                (void)CommandHistory::Get().JoinFollowUp( *move, opened );
+        }
+        if ( releasing )
+            Core::GizmoState::SetEntityGestureEntry( std::nullopt );
     }
 
     void SequencerPanel::DrawLevelKeyLane( LevelTL::Sequence& sequence, const LevelTL::BindingGuid& binding,

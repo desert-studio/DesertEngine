@@ -190,6 +190,7 @@ namespace Desert::Editor::Tools
         {
             m_DragActive = true;
             m_DragEntity = *selected;
+            Core::GizmoState::SetEntityGestureEntry( std::nullopt );
             m_DragSnapshots.clear();
             for ( const auto& id : Core::SelectionManager::GetSelection() )
             {
@@ -257,8 +258,10 @@ namespace Desert::Editor::Tools
         if ( !usingNow && m_DragActive )
         {
             m_DragActive = false;
-            if ( m_DragEntity == *selected )
-                Commands::RecordTransformEdits( m_DragSnapshots );
+            // The revision of the move's entry is what the level sequence's Auto Key joins its key to.
+            const bool recorded = m_DragEntity == *selected && Commands::RecordTransformEdits( m_DragSnapshots );
+            Core::GizmoState::SetEntityGestureEntry(
+                 recorded ? std::optional<uint64_t>( CommandHistory::Get().Revision() ) : std::nullopt );
             m_DragSnapshots.clear();
         }
     }
