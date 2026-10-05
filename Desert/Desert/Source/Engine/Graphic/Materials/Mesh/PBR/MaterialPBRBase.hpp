@@ -50,7 +50,8 @@ namespace Desert::Graphic
         static constexpr const char* kBrdfLutName                  = "u_BRDFLUTTexture";
 
     protected:
-        MaterialPBRBase( std::string&& debugName, std::string&& shaderName );
+        MaterialPBRBase( std::string&& debugName, std::string&& shaderName,
+                         const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
         ~MaterialPBRBase() override = default;
 
         // The five per-frame uploads (camera / lights / cascades / environment / cloud shadow) used to be

@@ -299,7 +299,7 @@ namespace
 
     constexpr const char* kParamRow  = "Desert/Desert/Source/Engine/Core/Formats/MaterialParamRow.hpp";
     constexpr const char* kFactory   = "Desert/Desert/Source/Engine/Graphic/Materials/MaterialFactory.cpp";
-    constexpr const char* kMaterial  = "Desert/Desert/Source/Engine/Graphic/Materials/Material.cpp";
+    constexpr const char* kExecutor  = "Desert/Desert/Source/Engine/Graphic/Materials/MaterialExecutor.cpp";
     constexpr const char* kDDM       = "Desert/Desert/Source/Engine/Graphic/Materials/DataDrivenMaterial.hpp";
     constexpr const char* kPipeline  = "Desert/Desert/Source/Engine/Graphic/PipelineCache.hpp";
     constexpr const char* kMeshRend =
@@ -340,9 +340,14 @@ namespace
          { "ShaderParam", "Max", kMatEdit, nullptr },
          { "ShaderParam", "Default", kDDM, nullptr },
 
-         // The row this suite was born from. Read since М9 by Material::BindSchemaDefaultTexture, which
-         // is what makes an empty texture slot expressible at all.
-         { "ShaderParam", "DefaultTexture", kMaterial, nullptr },
+         // The row this suite was born from. Read since М9 to make an empty texture slot expressible; since
+         // MESH-PB1 by MaterialExecutor::InitializeProperties, which gives each material texture property
+         // its default AT CREATION (Material::BindSchemaDefaultTexture now restores that, it decides nothing).
+         { "ShaderParam", "DefaultTexture", kExecutor, nullptr },
+
+         // A texture the ENGINE writes per draw: MaterialEdit::PlanParameterGroups keeps it out of Details
+         // (and MaterialFactory::ApplyShaderAsset out of the .demat read).
+         { "ShaderParam", "EngineSet", kMatEditStates, nullptr },
 
          // ---- ShaderRenderState: all fifteen land in the pipeline specification ----------------------
          { "ShaderRenderState", "Cull", kPipeline, nullptr },
@@ -580,7 +585,8 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // which is a program FRAGMENT rather than a program: ShaderService recognises it at registration and
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
-    EXPECT_EQ( std::size( k_Census ), 41u )
+    // FORTY-TWO since MESH-PB1 added `ShaderParam::EngineSet`.
+    EXPECT_EQ( std::size( k_Census ), 42u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 

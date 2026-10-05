@@ -11,6 +11,15 @@ Shader "TerrainShadow"
     // No render state for depth compare: the cascades are STANDARD-Z (SetupShadowPass), so the
     // TerrainRenderer sets LessOrEqual itself; a `ZTest` here would be mirrored for the reversed-Z camera.
 
+    // The tile's maps, as in Terrain.shader: material parameters the TerrainRenderer writes per tile. A
+    // textures-only block generates no declaration (no Binding/TextureBinding); the samplers are
+    // TerrainVertex.glslh's and this file's own.
+    Properties
+    {
+        Texture2D   u_Heightmap ("Heightmap", EngineSet)
+        Texture2D   u_Weightmap ("Weightmap", EngineSet)
+    }
+
     State
     {
         Topology Triangles

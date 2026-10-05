@@ -917,6 +917,24 @@ TEST( MaterialEditStates, TheSlotAcceptsThePayloadTheBrowserActuallyEmitsAndPass
 //   - "no categories in this shader" and "one group called nothing" stay distinguishable, because six
 //     shipped shaders are in the first state and must keep the flat table they have always drawn.
 
+// An EngineSet texture (the landscape tile's maps) is written by the engine every draw: Details never lists
+// it, so an artist is never offered a slot the next frame overwrites.
+TEST( MaterialEditStates, EngineSetParametersAreNotInTheDetailsPlan )
+{
+    Formats::ShaderParam tint      = Value( "Tint", Formats::ShaderValueType::Float );
+    Formats::ShaderParam heightmap = Value( "u_Heightmap", Formats::ShaderValueType::Float );
+    heightmap.IsTexture            = true;
+    heightmap.EngineSet            = true;
+    Formats::ShaderParam detail    = Value( "u_Detail", Formats::ShaderValueType::Float );
+    detail.IsTexture               = true;
+
+    const auto               groups = MaterialEdit::PlanParameterGroups( SchemaOf( { tint, heightmap, detail } ) );
+    std::vector<std::size_t> listed;
+    for ( const auto& group : groups )
+        listed.insert( listed.end(), group.Params.begin(), group.Params.end() );
+    EXPECT_EQ( listed, ( std::vector<std::size_t>{ 0u, 2u } ) );
+}
+
 TEST( MaterialEditStates, GroupsAreTheShadersOwnCategoriesInTheOrderTheFileDeclaresThem )
 {
     Formats::ShaderParam coverage = Ranged( "Coverage", 0.0f, 1.0f, 0.45f );

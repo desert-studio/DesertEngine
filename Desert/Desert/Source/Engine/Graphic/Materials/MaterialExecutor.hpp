@@ -17,8 +17,14 @@ namespace Desert::Graphic
     class MaterialExecutor
     {
     public:
+        // @p parameterSchema is the program whose `Properties` block lists this material's OWN textures
+        // (Core::Formats::MaterialTextureParameters): only those become Texture2D/TextureCube properties,
+        // each holding its declared default from creation. It is read here and not kept. A pass program
+        // that deliberately declares no Properties (SkinnedMeshPBR, the GBuffer and glass variants) is
+        // given the schema of the program that owns them (StaticMeshPBR) by its creator.
         MaterialExecutor( std::string&& debugName, const std::shared_ptr<Shader>& shader,
-                          std::unique_ptr<MaterialBackend>&& materialBackend );
+                          const Core::Formats::ShaderProgramMeta& parameterSchema,
+                          std::unique_ptr<MaterialBackend>&&      materialBackend );
 
         virtual ~MaterialExecutor() = default;
 
@@ -76,12 +82,16 @@ namespace Desert::Graphic
             return m_MaterialBackend;
         }
 
-        static std::unique_ptr<MaterialExecutor> Create( std::string&& debugName, std::string&& shaderName );
-        static std::unique_ptr<MaterialExecutor> Create( std::string&&                  debugName,
-                                                         const std::shared_ptr<Shader>& shader );
+        // A null @p parameterSchema means the shader's OWN ProgramMeta.
+        static std::unique_ptr<MaterialExecutor>
+        Create( std::string&& debugName, std::string&& shaderName,
+                const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
+        static std::unique_ptr<MaterialExecutor>
+        Create( std::string&& debugName, const std::shared_ptr<Shader>& shader,
+                const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
 
     protected:
-        void InitializeProperties();
+        void InitializeProperties( const Core::Formats::ShaderProgramMeta& parameterSchema );
 
     private:
         std::string                      m_DebugName;

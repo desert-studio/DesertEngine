@@ -26,11 +26,11 @@ namespace Desert::Core
             requires std::is_same_v<std::remove_const_t<Self>, Formats::ShaderParam>
         void VisitFields( Self& p, Fn&& fn )
         {
-            auto& [name, displayName, category, tooltip, type, widget, isTexture, timing, assetKind, isCube, lo,
-                   hi, defaultValue, defaultTexture] = p;
+            auto& [name, displayName, category, tooltip, type, widget, isTexture, timing, assetKind, isCube,
+                   engineSet, lo, hi, defaultValue, defaultTexture] = p;
             fn( name ), fn( displayName ), fn( category ), fn( tooltip ), fn( type ), fn( widget ),
                  fn( isTexture );
-            fn( timing ), fn( assetKind ), fn( isCube ), fn( lo ), fn( hi ), fn( defaultValue ),
+            fn( timing ), fn( assetKind ), fn( isCube ), fn( engineSet ), fn( lo ), fn( hi ), fn( defaultValue ),
                  fn( defaultTexture );
         }
 

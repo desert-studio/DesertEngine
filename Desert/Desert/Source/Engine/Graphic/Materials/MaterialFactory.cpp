@@ -123,7 +123,9 @@ namespace Desert::Graphic
         {
             // A non-texture asset reference (its service reads it out of MaterialData directly) or a cube
             // slot (bound by MaterialSkybox from the environment, not from here). Neither is this loop's.
-            if ( !param.IsTexture || param.IsCubeTexture || param.IsAssetRef() )
+            // An EngineSet texture is written by the engine per draw (the landscape tile's maps): a .demat
+            // never carries a value for it, so none is read either.
+            if ( !param.IsTexture || param.IsCubeTexture || param.IsAssetRef() || param.EngineSet )
                 continue;
 
             const uint64_t handle = data.GetTexture( param.Name );

@@ -2,6 +2,8 @@
 
 #include <Engine/Graphic/Materials/Properties/MaterialProperty.hpp>
 
+#include <Engine/Core/Formats/DefaultTexture.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/ShaderResources/UniformImage2D.hpp>
 
@@ -15,14 +17,36 @@ namespace Desert::Graphic
     class Texture2DProperty : public MaterialProperty
     {
     public:
-        Texture2DProperty( std::shared_ptr<ShaderResources::UniformImage2D> uniform ) : m_Uniform( uniform )
+        // A Texture2D property exists only for a material parameter (a `Properties` texture of the
+        // material's schema), and it is born holding that parameter's default: the declared `= "kind"`, or
+        // White when none is declared (ShaderParam::DefaultTexture). The first Apply binds it if nothing
+        // else was assigned, so no slot of a material ever shows "whatever was bound last".
+        Texture2DProperty( std::shared_ptr<ShaderResources::UniformImage2D> uniform,
+                           Core::Formats::DefaultTextureKind                defaultTexture )
+             : m_Uniform( uniform ), m_Default( defaultTexture )
         {
+        }
+
+        // THE ONE RULE for "this slot holds nothing the material chose": point it at the schema's default.
+        // false only when DefaultTextures could not produce that image (Resolve() has said which kind).
+        bool RestoreDefault()
+        {
+            const Image2D* image = DefaultTextures::Get().Resolve( m_Default );
+            if ( !image )
+                return false;
+            SetImage( image, RDG::Access::SampledGraphics );
+            return true;
+        }
+
+        Core::Formats::DefaultTextureKind GetDefault() const
+        {
+            return m_Default;
         }
 
         void Apply( MaterialBackend* backend ) override
         {
-            if ( m_Texture == nullptr )
-                return; // nothing assigned yet: every set keeps the fallback it was born with
+            if ( m_Texture == nullptr && !RestoreDefault() )
+                return;
 
             // The uniform is shared by every view, so it is re-pointed once per write, not per view.
             if ( m_UniformVersion != GetVersion() )
@@ -82,6 +106,7 @@ namespace Desert::Graphic
 
     private:
         std::shared_ptr<ShaderResources::UniformImage2D> m_Uniform;
+        Core::Formats::DefaultTextureKind                m_Default;
         const Image2D*                                   m_Texture        = nullptr;
         RDG::Access m_Declared = RDG::Access::SampledGraphics; // the access m_Texture is read under
         uint64_t                                         m_UniformVersion = PropertyVersion::kNeverWritten;
