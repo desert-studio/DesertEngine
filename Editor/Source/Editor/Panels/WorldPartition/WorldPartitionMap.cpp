@@ -14,7 +14,7 @@ namespace Desert::Editor::WorldPartitionMap
 {
     namespace
     {
-        bool Overlaps( const Core::Rules::CellBounds& a, glm::dvec2 lo, glm::dvec2 hi )
+        bool Overlaps( const ::Desert::Core::Rules::CellBounds& a, glm::dvec2 lo, glm::dvec2 hi )
         {
             return a.MinX < hi.x && a.MaxX > lo.x && a.MinZ < hi.y && a.MaxZ > lo.y;
         }
@@ -51,7 +51,7 @@ namespace Desert::Editor::WorldPartitionMap
         view.Trans += screenDelta / view.Scale;
     }
 
-    void Focus( View& view, glm::dvec2 screenSize, const Core::Rules::CellBounds& box )
+    void Focus( View& view, glm::dvec2 screenSize, const ::Desert::Core::Rules::CellBounds& box )
     {
         const glm::dvec2 lo( box.MinX, box.MinZ );
         const glm::dvec2 hi( box.MaxX, box.MaxZ );
@@ -75,12 +75,13 @@ namespace Desert::Editor::WorldPartitionMap
         return view;
     }
 
-    std::optional<Core::Rules::CellBounds> PlanBounds( const Core::Rules::WorldPartitionPlan& plan )
+    std::optional<::Desert::Core::Rules::CellBounds>
+    PlanBounds( const ::Desert::Core::Rules::WorldPartitionPlan& plan )
     {
         if ( plan.Cells.empty() )
             return std::nullopt;
-        Core::Rules::CellBounds bounds = plan.Cells.front().Square;
-        for ( const Core::Rules::PlannedCell& cell : plan.Cells )
+        ::Desert::Core::Rules::CellBounds bounds = plan.Cells.front().Square;
+        for ( const ::Desert::Core::Rules::PlannedCell& cell : plan.Cells )
         {
             bounds.MinX = std::min( bounds.MinX, cell.Square.MinX );
             bounds.MinZ = std::min( bounds.MinZ, cell.Square.MinZ );
@@ -90,7 +91,7 @@ namespace Desert::Editor::WorldPartitionMap
         return bounds;
     }
 
-    std::vector<std::size_t> VisibleCells( const Core::Rules::WorldPartitionPlan& plan, const View& view,
+    std::vector<std::size_t> VisibleCells( const ::Desert::Core::Rules::WorldPartitionPlan& plan, const View& view,
                                            glm::dvec2 screenSize, int level )
     {
         const glm::dvec2         lo = ScreenToWorld( view, screenSize, { 0.0, 0.0 } );
@@ -104,12 +105,13 @@ namespace Desert::Editor::WorldPartitionMap
         return visible;
     }
 
-    std::optional<std::size_t> CellAt( const Core::Rules::WorldPartitionPlan& plan, glm::dvec2 world, int level )
+    std::optional<std::size_t> CellAt( const ::Desert::Core::Rules::WorldPartitionPlan& plan, glm::dvec2 world,
+                                       int level )
     {
         std::optional<std::size_t> found;
         for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
         {
-            const Core::Rules::PlannedCell& candidate = plan.Cells[cell];
+            const ::Desert::Core::Rules::PlannedCell& candidate = plan.Cells[cell];
             const bool inside = world.x >= candidate.Square.MinX && world.x < candidate.Square.MaxX &&
                                 world.y >= candidate.Square.MinZ && world.y < candidate.Square.MaxZ;
             if ( inside && Shown( candidate.Level, level ) &&
@@ -123,14 +125,14 @@ namespace Desert::Editor::WorldPartitionMap
     {
         // 62: the last level whose 2^L is exact in a double; a view that needs more is a view of nothing.
         for ( int level = 0; level < 62; ++level )
-            if ( Core::Rules::LevelCellSize( cellSize, level ) * view.Scale >= minPixels )
+            if ( ::Desert::Core::Rules::LevelCellSize( cellSize, level ) * view.Scale >= minPixels )
                 return level;
         return 62;
     }
 
     std::string LevelLabel( float cellSize, int level )
     {
-        const double metres = Core::Rules::LevelCellSize( cellSize, level ) / 100.0;
+        const double metres = ::Desert::Core::Rules::LevelCellSize( cellSize, level ) / 100.0;
         char         text[64];
         if ( std::floor( metres ) == metres )
             std::snprintf( text, sizeof( text ), "L%d · %.0f m", level, metres );
@@ -139,8 +141,8 @@ namespace Desert::Editor::WorldPartitionMap
         return text;
     }
 
-    CellState StateOf( const Core::Rules::WorldPartitionPlan& plan, const Core::Rules::ResidencyState* residency,
-                       std::size_t cell )
+    CellState StateOf( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                       const ::Desert::Core::Rules::ResidencyState* residency, std::size_t cell )
     {
         if ( residency == nullptr )
             return CellState::Unstreamed;
@@ -150,15 +152,15 @@ namespace Desert::Editor::WorldPartitionMap
             return CellState::Unloaded;
         switch ( residency->Units[unit].State )
         {
-            case Core::Rules::Residency::Unloaded:
+            case ::Desert::Core::Rules::Residency::Unloaded:
                 return CellState::Unloaded;
-            case Core::Rules::Residency::Loading:
+            case ::Desert::Core::Rules::Residency::Loading:
                 return CellState::Loading;
-            case Core::Rules::Residency::Loaded:
+            case ::Desert::Core::Rules::Residency::Loaded:
                 return CellState::Loaded;
-            case Core::Rules::Residency::Activated:
+            case ::Desert::Core::Rules::Residency::Activated:
                 return CellState::Resident;
-            case Core::Rules::Residency::Failed:
+            case ::Desert::Core::Rules::Residency::Failed:
                 return CellState::Failed;
         }
         return CellState::Failed;
@@ -218,8 +220,8 @@ namespace Desert::Editor::WorldPartitionMap
         return kEdit;
     }
 
-    std::vector<LegendRow> Legend( const Core::Rules::WorldPartitionPlan& plan,
-                                   const Core::Rules::ResidencyState* residency, int level )
+    std::vector<LegendRow> Legend( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                                   const ::Desert::Core::Rules::ResidencyState* residency, int level )
     {
         std::vector<LegendRow> rows;
         for ( const CellState state : LegendStates( residency != nullptr ) )

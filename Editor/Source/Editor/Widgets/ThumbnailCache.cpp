@@ -110,15 +110,15 @@ namespace Desert::Editor
             const int                                 th       = decoded->Height;
             const double                              decodeMs = decoded->DecodeMs;
             const bool                                onMain   = decoded->DecodedOn == std::this_thread::get_id();
-            const Core::Formats::Image2DSpecification spec     = {
-                     .Tag        = "Thumb_" + std::filesystem::path( sourcePath ).filename().string(),
-                     .Width      = static_cast<uint32_t>( tw ),
-                     .Height     = static_cast<uint32_t>( th ),
-                     .Format     = Core::Formats::ImageFormat::RGBA8F,
-                     .Mips       = 1u,
-                     .Data       = std::move( decoded->Rgba ),
-                     .Usage      = Core::Formats::Image2DUsage::Image2D,
-                     .Properties = Core::Formats::Sample,
+            const ::Desert::Core::Formats::Image2DSpecification spec = {
+                 .Tag        = "Thumb_" + std::filesystem::path( sourcePath ).filename().string(),
+                 .Width      = static_cast<uint32_t>( tw ),
+                 .Height     = static_cast<uint32_t>( th ),
+                 .Format     = ::Desert::Core::Formats::ImageFormat::RGBA8F,
+                 .Mips       = 1u,
+                 .Data       = std::move( decoded->Rgba ),
+                 .Usage      = ::Desert::Core::Formats::Image2DUsage::Image2D,
+                 .Properties = ::Desert::Core::Formats::Sample,
             };
             // THIS IMAGE HAS AN OWNER, AND IT SAYS SO. Every thumbnail in the editor is created on this
             // one line — the browser grid, the Collections cards, both Details slots, the drag ghost —

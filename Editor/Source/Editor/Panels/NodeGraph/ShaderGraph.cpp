@@ -37,9 +37,9 @@ namespace Desert::Editor::ShaderGraph
     // between two GLSL declarations at one binding is silent", which Г17 had already made false (the
     // engine refuses it by name at reflection, in all four consumers); then "a cloud material has no place
     // to keep a value whose name comes from a graph", which is what О1-G-2 built — the medium carries its
-    // own Properties block, its values are filed in the `.demat` under Core::kCloudMediumOverridePrefix so
-    // they can never be read as the shipped schema's, and they reach all four consumers through one
-    // storage buffer and up to Core::kCloudMediumMaxTextures samplers in the reserved window.
+    // own Properties block, its values are filed in the `.demat` under ::Desert::Core::kCloudMediumOverridePrefix
+    // so they can never be read as the shipped schema's, and they reach all four consumers through one storage
+    // buffer and up to ::Desert::Core::kCloudMediumMaxTextures samplers in the reserved window.
     //
     // TextureSample is still not here, and that is a scope fact rather than a leftover: it samples at
     // `v_UV`. A medium samples at a place the march hands it, so it has a node of its own (MediumTexture)
@@ -477,7 +477,7 @@ namespace Desert::Editor::ShaderGraph
             // MSVC right to left. So the same `.dgraph` compiled to DIFFERENT GLSL on macOS and on
             // Windows — `n1 = <noise>; n2 = <density>; n0 = n2 * n1.x;` there against
             // `n1 = <density>; n2 = <noise>; n0 = n1 * n2.x;` here — which is not cosmetic: the emitted
-            // text is hashed by Core::ShaderVariant::Hash(), that hash is mixed into the SPIR-V cache
+            // text is hashed by ::Desert::Core::ShaderVariant::Hash(), that hash is mixed into the SPIR-V cache
             // key and into Graphic::CloudEnvironmentFingerprint, and the text itself is written to a
             // committed `.shader`. One graph, two machines, two artifacts.
             //
@@ -1081,7 +1081,7 @@ namespace Desert::Editor::ShaderGraph
         // Properties block — the medium's own parameters and images — and that block is pure schema: the
         // DSL's `Binding()/TextureBinding()` sugar declares a `Materials[]` row indexed by a push constant
         // no compute program here has, so the declarations are written into the medium body below instead,
-        // at the numbers Core::kCloudMedium*Binding reserve.
+        // at the numbers ::Desert::Core::kCloudMedium*Binding reserve.
         //
         // FIVE FUNCTIONS, EACH COMPILED SEPARATELY. Every output pin gets its own Compiler, so a node is
         // emitted only into the function that actually reads it — the alternative, one body shared by

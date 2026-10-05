@@ -375,15 +375,15 @@ namespace Desert::Editor
 
         const uint32_t n = m_Volume.Params.Resolution;
 
-        const Core::Formats::Image2DSpecification spec{
+        const ::Desert::Core::Formats::Image2DSpecification spec{
              .Tag        = "CloudNoiseSlice",
              .Width      = n,
              .Height     = n,
-             .Format     = Core::Formats::ImageFormat::RGBA8F,
+             .Format     = ::Desert::Core::Formats::ImageFormat::RGBA8F,
              .Mips       = 1,
              .Data       = BuildSlicePixels(),
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Sample,
+             .Usage      = ::Desert::Core::Formats::Image2DUsage::Image2D,
+             .Properties = ::Desert::Core::Formats::Sample,
         };
 
         m_SliceImage = Graphic::Image2D::Create( spec );

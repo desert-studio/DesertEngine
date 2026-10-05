@@ -36,7 +36,7 @@ namespace Desert::Editor
     {
         void CookShaders( bool spirvDebugInfo, bool developerInstruments, CookStats& stats )
         {
-            namespace Preprocess = Core::Preprocess;
+            namespace Preprocess = ::Desert::Core::Preprocess;
 
             for ( const fs::path& file : PackagedShaderPrograms( developerInstruments ) )
             {
@@ -81,16 +81,16 @@ namespace Desert::Editor
                     }
                     for ( const auto& [stage, source] : stages.GetValue() )
                     {
-                        const uint64_t key =
-                             Core::ComputeShaderCacheKeyForProfile( stage, source, file, spirvDebugInfo );
-                        if ( Core::TryLoadCachedSpirv( key ) )
+                        const uint64_t key = ::Desert::Core::ComputeShaderCacheKeyForProfile( stage, source, file,
+                                                                                              spirvDebugInfo );
+                        if ( ::Desert::Core::TryLoadCachedSpirv( key ) )
                         {
                             ++stats.ShadersCached;
                             continue;
                         }
                         // Compiles under the SAME key (same inputs, same profile) and stores it.
-                        if ( !Core::ShaderCompiler::CompileGLSLToSPIRVForProfile( stage, source, file.string(),
-                                                                                  spirvDebugInfo )
+                        if ( !::Desert::Core::ShaderCompiler::CompileGLSLToSPIRVForProfile(
+                                   stage, source, file.string(), spirvDebugInfo )
                                    .IsSuccess() )
                         {
                             ++stats.Failures; // the compiler logged file/stage/diagnostic
@@ -99,12 +99,12 @@ namespace Desert::Editor
                         // A compile whose artifact did not reach the disk is not a cooked artifact:
                         // the pak would ship nothing under this key and the player would pay the
                         // compile. The store is best-effort for the runtime and mandatory here.
-                        if ( !Core::TryLoadCachedSpirv( key ) )
+                        if ( !::Desert::Core::TryLoadCachedSpirv( key ) )
                         {
                             LOG_ERROR( "[PackageCook] {} [{}] compiled but its artifact did not reach {} — "
                                        "the package would ship a shader the runtime must recompile",
                                        file.string(), static_cast<int>( stage ),
-                                       Core::SpirvCachePathForKey( key ).string() );
+                                       ::Desert::Core::SpirvCachePathForKey( key ).string() );
                             ++stats.StoreFailures;
                             continue;
                         }

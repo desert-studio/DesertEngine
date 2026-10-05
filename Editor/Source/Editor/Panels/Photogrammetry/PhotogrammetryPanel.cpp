@@ -322,15 +322,15 @@ namespace Desert::Editor
                 m_CamH        = h;
 
                 std::vector<uint8_t>                data = m_FrameBuf; // copy: spec takes ownership
-                Core::Formats::Image2DSpecification spec = {
+                ::Desert::Core::Formats::Image2DSpecification spec = {
                      .Tag        = "CameraFeed",
                      .Width      = static_cast<uint32_t>( w ),
                      .Height     = static_cast<uint32_t>( h ),
-                     .Format     = Core::Formats::ImageFormat::RGBA8F,
+                     .Format     = ::Desert::Core::Formats::ImageFormat::RGBA8F,
                      .Mips       = 1u,
                      .Data       = std::move( data ),
-                     .Usage      = Core::Formats::Image2DUsage::Image2D,
-                     .Properties = Core::Formats::Sample,
+                     .Usage      = ::Desert::Core::Formats::Image2DUsage::Image2D,
+                     .Properties = ::Desert::Core::Formats::Sample,
                 };
                 m_CameraImage = Graphic::Image2D::Create( spec );
 
@@ -625,7 +625,7 @@ namespace Desert::Editor
 
         // No grid line here: overlays live on the RENDERER (Graphic::DebugViewState) and default to off,
         // and only the main editor loop pushes the user's flags into one.
-        // No PostProcessVolume in this scene, so the grade is Core::PostProcessSettings{} — bloom off.
+        // No PostProcessVolume in this scene, so the grade is ::Desert::Core::PostProcessSettings{} — bloom off.
 
         // `settings.AA = FXAA` used to stand here and restated the default. The mode is machine quality
         // now (К3) and this preview renderer is never pushed to, so it keeps the schema defaults.

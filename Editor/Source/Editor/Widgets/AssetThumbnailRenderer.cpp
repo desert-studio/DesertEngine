@@ -120,7 +120,7 @@ namespace Desert::Editor
         // (Graphic::DebugViewState, all-off by default) and only EditorLayer's main loop ever pushes the
         // editor's flags into a renderer. This used to switch the scene's own ShowGrid off, which worked
         // and said the wrong thing — a thumbnail scene had to know about an editor aid to opt out of it.
-        // No PostProcessVolume in this scene, so the grade is Core::PostProcessSettings{} — bloom off.
+        // No PostProcessVolume in this scene, so the grade is ::Desert::Core::PostProcessSettings{} — bloom off.
 
         // `settings.AA = FXAA` used to stand here and said NOTHING: FXAA is the default, so the line
         // restated it. The mode is machine quality now (К3) and this renderer is simply never pushed to,
@@ -133,7 +133,7 @@ namespace Desert::Editor
 
         // WHERE THIS SCENE'S CAPTURE CAMERA COMES FROM, and why this scene has no camera ENTITY.
         //
-        // Scene::Init() has already made the camera: it constructs a Core::EditorCamera and hands it to
+        // Scene::Init() has already made the camera: it constructs a ::Desert::Core::EditorCamera and hands it to
         // SetActiveCamera, which also publishes it as the scene's MAIN camera — and SceneRenderer::BeginScene
         // captures through `scene.GetMainCamera()`. So the camera that takes the picture is the engine's
         // default editor camera, owned by the engine, positioned by the engine's own defaults.

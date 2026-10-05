@@ -152,7 +152,7 @@ namespace Desert::Editor
             //
             // A phase nobody can name is a phase every brief guesses at, and three of this project's
             // timed investigations went looking in the wrong one.
-            // THE TIMING AND THE LINE COME FROM `Core::BootTimeline` NOW, not from a chrono pair
+            // THE TIMING AND THE LINE COME FROM `::Desert::Core::BootTimeline` NOW, not from a chrono pair
             // here — because the shipping runtime needed the same thing and two copies of an
             // accumulation rule is how the two numbers stop being comparable. The SCHEDULER stays
             // here: running one stage per frame behind a progress overlay is this layer's own
