@@ -211,13 +211,14 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    void MeshRenderer::RenderOverdrawAccumManual()
+    Common::BoolResultStr MeshRenderer::RenderOverdrawAccumManual( const RDG::PassContext& context )
     {
         const auto camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
         if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || !camera )
-            return;
+            return BOOLSUCCESS;
 
-        auto& renderer = Renderer::GetInstance();
+        // The accumulation shader samples nothing: every draw is Plain.
+        const MeshPassBindings pass( context, {} );
 
         // 1) Accumulate into m_OverdrawFB (the graph opens it cleared to 0): every opaque mesh additively
         //    (static + generic; both use the static vertex layout). Skinned meshes are skipped — they'd need
@@ -232,13 +233,18 @@ namespace Desert::Graphic::System
         for ( const auto& rd : m_StaticQueue )
             if ( rd.Mesh != nullptr && IsVisibleInView( overdrawFrustum, rd.Transform,
                                                         Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
-                renderer.RenderMesh( m_OverdrawPipeline.get(), rd.Mesh, rd.Transform,
-                                     m_OverdrawMaterial->GetMaterialExecutor() );
+                if ( auto drawn = DrawMesh( pass, m_OverdrawPipeline.get(), rd.Mesh, rd.Transform,
+                                            m_OverdrawMaterial->GetMaterialExecutor() );
+                     !drawn.IsSuccess() )
+                    return drawn;
         for ( const auto& g : m_GenericQueue )
             if ( g.Mesh != nullptr &&
                  IsVisibleInView( overdrawFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
-                renderer.RenderMesh( m_OverdrawPipeline.get(), g.Mesh, g.Transform,
-                                     m_OverdrawMaterial->GetMaterialExecutor() );
+                if ( auto drawn = DrawMesh( pass, m_OverdrawPipeline.get(), g.Mesh, g.Transform,
+                                            m_OverdrawMaterial->GetMaterialExecutor() );
+                     !drawn.IsSuccess() )
+                    return drawn;
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr MeshRenderer::RecordOverdrawResolve( const RDG::PassContext& context,
@@ -322,13 +328,14 @@ namespace Desert::Graphic::System
 
         builder.AddPass(
              "MeshSilhouettePass", RenderPhase::Outline,
-             [this]()
+             [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
              {
                  auto* const camera = m_SceneRenderer->GetMainCamera();
                  if ( camera == nullptr )
-                     return;
+                     return BOOLSUCCESS;
 
-                 auto& renderer = Renderer::GetInstance();
+                 // The mask shaders sample nothing: every draw is Plain.
+                 const MeshPassBindings pass( context, {} );
                  m_SilhouetteMaterial->UpdateCamera( camera );
 
                  // ===== Static =====
@@ -337,8 +344,11 @@ namespace Desert::Graphic::System
                      if ( !renderData.Outlined || renderData.Mesh == nullptr )
                          continue;
 
-                     renderer.RenderMesh( m_SilhouettePipeline.get(), renderData.Mesh, renderData.Transform,
-                                          m_SilhouetteMaterial->GetMaterialExecutor() );
+                     if ( auto drawn =
+                               DrawMesh( pass, m_SilhouettePipeline.get(), renderData.Mesh, renderData.Transform,
+                                         m_SilhouetteMaterial->GetMaterialExecutor() );
+                          !drawn.IsSuccess() )
+                         return drawn;
                  }
 
                  // ===== Generic (data-driven materials) — same Silhouette pipeline, the
@@ -347,8 +357,10 @@ namespace Desert::Graphic::System
                  {
                      if ( !g.Outlined || g.Mesh == nullptr )
                          continue;
-                     renderer.RenderMesh( m_SilhouettePipeline.get(), g.Mesh, g.Transform,
-                                          m_SilhouetteMaterial->GetMaterialExecutor() );
+                     if ( auto drawn = DrawMesh( pass, m_SilhouettePipeline.get(), g.Mesh, g.Transform,
+                                                 m_SilhouetteMaterial->GetMaterialExecutor() );
+                          !drawn.IsSuccess() )
+                         return drawn;
                  }
 
                  // ===== Skinned ===== — skin the mask by the SAME bone matrices the mesh is
@@ -376,11 +388,15 @@ namespace Desert::Graphic::System
                          for ( const auto& [sd, boneOffset] : outlined )
                          {
                              m_SilhouetteSkinnedMaterial->SetBoneOffset( boneOffset );
-                             renderer.RenderMesh( m_SilhouetteSkinnedPipeline.get(), sd->Mesh, sd->Transform,
-                                                  m_SilhouetteSkinnedMaterial->GetMaterialExecutor() );
+                             if ( auto drawn =
+                                       DrawMesh( pass, m_SilhouetteSkinnedPipeline.get(), sd->Mesh, sd->Transform,
+                                                 m_SilhouetteSkinnedMaterial->GetMaterialExecutor() );
+                                  !drawn.IsSuccess() )
+                                 return drawn;
                          }
                      }
                  }
+                 return BOOLSUCCESS;
              },
              m_SilhouettePipeline->GetSpecification(), m_SilhouetteMaskFramebuffer,
              { RenderPassDependency( RenderPhase::Geometry ) } );

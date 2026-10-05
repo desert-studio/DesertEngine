@@ -366,32 +366,42 @@ namespace Desert::Graphic::System
             return;
 
         builder
-             .AddPass(
-                  "ParticlePass", RenderPhase::Transparency,
-                  [this]()
-                  {
-                      if ( m_FrameEmitters.empty() )
-                          return;
-                      const auto camera = m_SceneRenderer->GetMainCamera();
-                      if ( !camera )
-                          return;
+             .AddPass( "ParticlePass", RenderPhase::Transparency,
+                       [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+                       {
+                           if ( m_FrameEmitters.empty() )
+                               return BOOLSUCCESS;
+                           const auto camera = m_SceneRenderer->GetMainCamera();
+                           if ( !camera )
+                               return BOOLSUCCESS;
 
-                      auto& renderer = Renderer::GetInstance();
-                      for ( auto& fe : m_FrameEmitters )
-                      {
-                          // An emitter the graph was not told about is neither simulated nor drawn.
-                          if ( !fe.Declared || !fe.Gpu || !fe.Gpu->Particles || !fe.Gpu->Material )
-                              continue;
-                          // Each emitter updates and draws ITS OWN material: a shared one here routed every
-                          // emitter through one descriptor set, which is written at most once per frame — so
-                          // every emitter after the first drew the first one's buffer.
-                          fe.Gpu->Material->Update( camera, fe.Gpu->Particles );
-                          auto* pipeline = fe.Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
-                          renderer.SubmitVertices( pipeline, static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u,
-                                                   fe.Gpu->Material->GetMaterialExecutor() );
-                      }
-                  },
-                  m_AddPipeline->GetSpecification(), targetFb, { RenderPassDependency( RenderPhase::Geometry ) } )
+                           auto& renderer = Renderer::GetInstance();
+                           for ( auto& fe : m_FrameEmitters )
+                           {
+                               // An emitter the graph was not told about is neither simulated nor drawn.
+                               if ( !fe.Declared || !fe.Gpu || !fe.Gpu->Particles || !fe.Gpu->Material )
+                                   continue;
+                               // Each emitter updates and draws ITS OWN material: a shared one here routed every
+                               // emitter through one descriptor set, which is written at most once per frame — so
+                               // every emitter after the first drew the first one's buffer.
+                               fe.Gpu->Material->Update( camera );
+                               auto* pipeline = fe.Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
+                               if ( pipeline == nullptr )
+                                   return Common::MakeError( "ParticlePass: no pipeline for the emitter's blend" );
+                               // The integrated state is a pass parameter: the graph buffer the Declare below
+                               // reads.
+                               RDG::PassBindings bindings( context );
+                               bindings.Storage( "Particles", fe.ParticlesRef, RDG::Access::StorageRead );
+                               if ( auto drawn = renderer.DrawProcedural(
+                                         bindings, *pipeline, fe.Gpu->Material->GetMaterialExecutor(),
+                                         static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u, 1 );
+                                    !drawn.IsSuccess() )
+                                   return drawn;
+                           }
+                           return BOOLSUCCESS;
+                       },
+                       m_AddPipeline->GetSpecification(), targetFb,
+                       { RenderPassDependency( RenderPhase::Geometry ) } )
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
         {
             // The billboards read each emitter's integrated state in the vertex stage: StorageRead, so the graph

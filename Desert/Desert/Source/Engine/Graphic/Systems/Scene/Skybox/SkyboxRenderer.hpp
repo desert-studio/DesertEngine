@@ -107,7 +107,7 @@ namespace Desert::Graphic::System
         void RegisterPasses( RenderGraphBuilder& builder ) override;
 
     private:
-        void Render();
+        [[nodiscard]] Common::BoolResultStr Render( const RDG::PassContext& context );
 
         // Writes the packed parameter block into the SSBO. One buffer serves the graphics pass and the
         // bake's compute dispatch, so both are guaranteed to describe the same sky.
