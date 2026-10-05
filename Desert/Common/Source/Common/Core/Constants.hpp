@@ -266,7 +266,7 @@ namespace Common::Constants
         {
             constexpr const ContentDirSpec& Spec( ContentDir d ) noexcept
             {
-                return CONTENT_DIRS[static_cast<std::size_t>( d );
+                return CONTENT_DIRS[static_cast<std::size_t>( d )];
             }
 
             constexpr bool EveryRelIsRelativeAndSlashTerminated() noexcept
@@ -408,7 +408,7 @@ namespace Common::Constants
         {
             if ( !HasProject() )
                 Detail::NoProjectOpen( "Path::Dir()", reader );
-            return Detail::s_Dirs[static_cast<std::size_t>( d );
+            return Detail::s_Dirs[static_cast<std::size_t>( d )];
         }
 
         inline const ProjectRootState& CurrentProjectRoot() noexcept
@@ -448,7 +448,7 @@ namespace Common::Constants
         inline std::optional<std::filesystem::path> RootForContentPath( ContentDir                   d,
                                                                         const std::filesystem::path& contentPath )
         {
-            const ContentDirSpec& spec = CONTENT_DIRS[static_cast<std::size_t>( d );
+            const ContentDirSpec& spec = CONTENT_DIRS[static_cast<std::size_t>( d )];
             if ( spec.Rel.empty() )
                 return std::nullopt;
 
