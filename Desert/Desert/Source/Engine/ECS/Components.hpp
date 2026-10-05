@@ -2264,7 +2264,7 @@ namespace Desert::ECS
         // (SCNE 31, `"Scene": {Guid, Path}`, ComponentRegistry.cpp), so a moved scene is still found.
         PROPERTY( DisplayName( "Scene" ), Category( "UI Render Texture" ),
                   Tooltip( "Path to a .desce rendered live into this element, e.g. "
-                           "Resources/Assets/Scenes/UI_Portrait.desce" ) )
+                           "Content/Scenes/UI_Portrait.desce" ) )
         std::string ScenePath;
 
         PROPERTY( DisplayName( "Tint" ), Category( "UI Render Texture" ), Color )

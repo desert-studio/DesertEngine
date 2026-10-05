@@ -203,7 +203,7 @@ namespace
     {
         std::vector<std::filesystem::path> scenes;
         std::error_code                    ec;
-        const std::filesystem::path        root = Desert::TestSupport::EngineDir() / "Resources/Assets/Scenes";
+        const std::filesystem::path        root = Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content/Scenes";
         for ( auto it = std::filesystem::recursive_directory_iterator( root, ec );
               it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
         {
@@ -293,7 +293,7 @@ TEST( WorldPartitionFormat, TheScenesAreWhereThisSuiteThinksTheyAre )
     for ( const char* expected :
           { "Starter", "G3_TwoTerrains", "Terrain_MatProbe", "Desert_Sandbox", "M4_RampNormalMap", "UI_ListProbe",
             "UI_PrefabWitness", "UI_PrefabWitness_NoOverride" } )
-        EXPECT_TRUE( names.count( expected ) ) << expected << ".desce is not under Editor/Resources/Assets/Scenes";
+        EXPECT_TRUE( names.count( expected ) ) << expected << ".desce is not under Projects/Desert/Content/Scenes";
 }
 
 // 1b. A scene nobody partitioned writes no `WorldPartition` key: the field is a std::optional and

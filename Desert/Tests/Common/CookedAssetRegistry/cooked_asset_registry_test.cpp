@@ -729,7 +729,7 @@ TEST( CookedAssetRegistry, APrefabRowCarriesTheBoxItsFileStates )
 {
     namespace fs          = std::filesystem;
     const fs::path corpus =
-         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
+         Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content/Prefabs/UI_Card.deprefab";
     ASSERT_TRUE( fs::exists( corpus ) ) << corpus.string();
 
     const auto plain = Common::Content::RegistryRowFor(

@@ -500,7 +500,7 @@ namespace
     {
         std::vector<std::filesystem::path> scenes;
         std::error_code                    ec;
-        const std::filesystem::path        root = RepoRoot() + "Editor/Resources/Assets/Scenes";
+        const std::filesystem::path        root = RepoRoot() + "Projects/Desert/Content/Scenes";
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( root, ec ) )
         {
             if ( entry.is_regular_file() && entry.path().extension() == ".desce" )

@@ -28,7 +28,7 @@ namespace Common
     // THE SENTENCE THAT USED TO BE HERE IS NO LONGER TRUE, AND SAYING SO IS THE POINT. It read
     // "nothing in the repository referenced a path-derived handle by number", and it was the licence
     // under which FromCookedPath's derivation was re-stamped project-relative without a migration.
-    // Counted over `Editor/Resources/Assets` on 2026-09-21: 95 `TextureHandle`, 22 `MeshGuid` and 113
+    // Counted over `Projects/Desert/Content` on 2026-09-21: 95 `TextureHandle`, 22 `MeshGuid` and 113
     // `MaterialId`/`ParentMaterialId` occurrences are path-derived handles written down AS NUMBERS in
     // committed content. TextureAsset::Load already knows this — it logs that a stale stored number
     // makes "every `.demat` naming the old number resolve to nothing" — so the two statements had been

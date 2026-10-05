@@ -26,7 +26,7 @@ namespace Desert::Migration
     // assets-root-relative name into the scene. The write site used to resolve that name against
     // `Constants::Path::ASSETS_PATH`, which with no project open is the relative `Resources/Assets/` —
     // i.e. it resolved against the CURRENT DIRECTORY. Run from the repository root over
-    // `Editor/Resources/Assets/Scenes/Autosave/X.desce`, it created a brand-new `Resources/Assets/`
+    // `Projects/Desert/Content/Scenes/Autosave/X.desce`, it created a brand-new `Resources/Assets/`
     // tree AT THE REPOSITORY ROOT and put the material there, while the scene named it relative to the
     // root it actually lives under. Two DIFFERING files, one name, one relative path, two roots — and
     // which one the engine loads decided by where somebody stood when they ran a tool.

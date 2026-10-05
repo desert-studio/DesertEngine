@@ -89,14 +89,14 @@ namespace
 
     std::string ScenePath( const std::string& name )
     {
-        return RepoRoot() + "Editor/Resources/Assets/Scenes/" + name;
+        return RepoRoot() + "Projects/Desert/Content/Scenes/" + name;
     }
 
     // A project-relative asset path (as a scene states it) -> a path this suite can open. The cloud
     // material a layer names since O1 lives here, and comparing two legs' skies means reading it.
     std::string AssetPath( const std::string& relative )
     {
-        return RepoRoot() + "Editor/Resources/Assets/" + relative;
+        return RepoRoot() + "Projects/Desert/Content/" + relative;
     }
 
     std::string ReadAll( const std::string& path )

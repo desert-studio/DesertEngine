@@ -17,7 +17,7 @@
 // below instead, which is the part that could silently move under a measurement.
 //
 // AND WHY THE GENERATED FILE IS CHECKED AGAINST THE CORPUS RULES HERE RATHER THAN BY THE CORPUS. The
-// scene's home is outside Editor/Resources/Assets/Scenes (see Docs/World/WORLD_SCENE.md for the
+// scene's home is outside Projects/Desert/Content/Scenes (see Docs/World/WORLD_SCENE.md for the
 // measurement that decided it), so the nineteen suites that walk that tree never see it. That is a
 // deliberate trade and it comes with a debt: every rule those suites enforce over a shipped scene is
 // restated here, over the generator's output, so the file cannot quietly become one the engine would
@@ -77,7 +77,7 @@ namespace
     // the materials every preset furnishes with.
     std::string AssetsRoot()
     {
-        return ( Desert::TestSupport::EngineDir() / "Resources/Assets" ).generic_string();
+        return ( Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content" ).generic_string();
     }
 
     std::filesystem::path Scratch()

@@ -476,12 +476,12 @@ TEST( GraphCanvasIdentity, EveryCommittedShaderGraphPlansToTheSameCanvasTwice )
     ASSERT_FALSE( root.empty() );
 
     std::vector<std::filesystem::path> files;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / "Editor/Resources/Assets" ) )
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / "Projects/Desert/Content" ) )
         if ( entry.path().extension() == ".dgraph" )
             files.push_back( entry.path() );
     std::sort( files.begin(), files.end() );
 
-    ASSERT_FALSE( files.empty() ) << "no .dgraph under Editor/Resources/Assets";
+    ASSERT_FALSE( files.empty() ) << "no .dgraph under Projects/Desert/Content";
 
     for ( const auto& file : files )
     {

@@ -8,7 +8,7 @@
 // edits to a demo material survive a restart, and the caller's values are a true statement of what the
 // material should be — and a unit test of either passes. What had no owner was the AGREEMENT.
 //
-// What it cost, measured: `Editor/Resources/Assets/Materials/CB_Red.demat` sat in the repository
+// What it cost, measured: `Projects/Desert/Content/Materials/CB_Red.demat` sat in the repository
 // carrying MetallicFactor 1.0 and RoughnessFactor 0.0 — a chrome mirror — against a call site asking
 // for roughness 0.9 and no metalness. A conductor has no diffuse lobe, so the Cornell box's left wall
 // rendered essentially black: 0.010 mean sRGB luminance against the mirror-image right wall's 0.563,
@@ -204,7 +204,7 @@ TEST( MaterialRequestAgreement, EveryShippedDemoMaterialStillSaysWhatItsAuthorAs
 
     for ( const auto& demo : CornellDemoMaterials() )
     {
-        const std::string path = root + "Editor/Resources/Assets/Materials/" + std::string( demo.Name ) + ".demat";
+        const std::string path = root + "Projects/Desert/Content/Materials/" + std::string( demo.Name ) + ".demat";
         ASSERT_TRUE( std::filesystem::exists( path ) )
              << path << " is in the demo material table but not in the repository";
 

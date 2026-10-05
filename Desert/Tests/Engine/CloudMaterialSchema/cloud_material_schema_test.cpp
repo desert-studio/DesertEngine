@@ -707,7 +707,7 @@ TEST( CloudMaterialSchema, TheProtocolScenesMaterialsStateEveryValueParameter )
 
     for ( const char* rel : kProtocolMaterials )
     {
-        const std::string path = RepoRoot() + "Editor/Resources/Assets/" + rel;
+        const std::string path = RepoRoot() + "Projects/Desert/Content/" + rel;
         const std::string json = ReadAll( path );
         ASSERT_FALSE( json.empty() ) << path << " is missing — the protocol scene's look is exposed to "
                                      << "schema defaults again";
@@ -740,7 +740,7 @@ TEST( CloudMaterialSchema, TheProtocolScenesMaterialsStateEveryValueParameter )
 // silently, while an empty-overrides file tracks the schema by construction and cannot.
 TEST( CloudMaterialSchema, TheSharedDefaultMaterialStatesNoOverridesAndSoCannotDriftFromTheSchema )
 {
-    const std::string path = RepoRoot() + "Editor/Resources/Assets/Materials/M_CloudDefault.demat";
+    const std::string path = RepoRoot() + "Projects/Desert/Content/Materials/M_CloudDefault.demat";
     const std::string json = CompactJson( ReadAll( path ) );
     ASSERT_FALSE( json.empty() ) << path << " is missing — every scene the migration points at it "
                                  << "(D-37) fails to resolve a material at load";

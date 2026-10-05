@@ -102,7 +102,7 @@ namespace
     // them is a suite they will stop running.
     std::filesystem::path LibraryDirectory()
     {
-        return Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Clouds" / "Types";
+        return Desert::TestSupport::RepositoryRoot() / "Projects" / "Desert" / "Content" / "Clouds" / "Types";
     }
 
     // Opens one shipped preset by name, or FAILS. Not skipped: a library that is not there is exactly the
@@ -110,7 +110,7 @@ namespace
     CloudTypeData LoadShipped( const char* name )
     {
         const std::filesystem::path dir = LibraryDirectory();
-        EXPECT_FALSE( dir.empty() ) << "Editor/Resources/Assets/Clouds/Types was not found from "
+        EXPECT_FALSE( dir.empty() ) << "Projects/Desert/Content/Clouds/Types was not found from "
                                     << Desert::TestSupport::RepositoryRoot()
                                     << " or any of its six parents — the shipped cloud type library is "
                                        "missing, and every scene raised by the v4 -> v5 migration names it";

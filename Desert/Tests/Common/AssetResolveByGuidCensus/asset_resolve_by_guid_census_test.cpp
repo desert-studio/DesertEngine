@@ -20,7 +20,7 @@
 // that fails is red, and a kind INSIDE the register that now resolves by GUID is red too, so the
 // register cannot outlive the defect it names.
 //
-// FIXTURES ARE THE SHIPPED FILES where the corpus has one (`Editor/Resources/Assets`), because the
+// FIXTURES ARE THE SHIPPED FILES where the corpus has one (`Projects/Desert/Content`), because the
 // question "does this format state a GUID" is a question about the real files, not about what a
 // fixture writer can produce. Only kinds with no committed sample are synthesised (meshes are imported
 // into Cooked/ and never committed; skeletons, animations, shaders and world cells likewise), and the
@@ -141,7 +141,7 @@ namespace
     fs::path RepoRoot()
     {
         for ( fs::path prefix = "."; prefix.string().size() < 20; prefix /= ".." )
-            if ( fs::exists( prefix / "Editor" / "Resources" / "Assets" ) )
+            if ( fs::exists( prefix / "Projects" / "Desert" / "Content" ) )
                 return prefix;
         return {};
     }
@@ -162,7 +162,7 @@ namespace
     // The committed sample of `kind`, found by extension under the kind's directory of the corpus.
     std::optional<fs::path> CorpusSample( ContentKind kind )
     {
-        const fs::path  corpus = RepoRoot() / "Editor/Resources/Assets";
+        const fs::path  corpus = RepoRoot() / "Projects/Desert/Content";
         const auto&     spec   = Common::Content::KindSpec( kind );
         std::error_code ec;
         for ( auto it = fs::recursive_directory_iterator( corpus, ec );
@@ -418,7 +418,7 @@ namespace
 TEST( AssetResolveByGuidCensus, EveryKindSurvivesAMoveOrIsANamedRegisterRow )
 {
     const ProjectRootGuard guard;
-    ASSERT_FALSE( RepoRoot().empty() ) << "no Editor/Resources/Assets above the working directory";
+    ASSERT_FALSE( RepoRoot().empty() ) << "no Projects/Desert/Content above the working directory";
     const fs::path         project = fs::temp_directory_path() / "AF10a_ResolveByGuid";
     fs::remove_all( project );
     fs::create_directories( project );

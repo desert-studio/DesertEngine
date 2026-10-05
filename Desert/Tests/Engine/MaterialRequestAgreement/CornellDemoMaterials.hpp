@@ -10,7 +10,7 @@ namespace Desert::Tests::CornellDemo
 {
     // WHAT THE CORNELL DEMO'S MATERIALS MUST SAY — the expected values of the shipped CB_*.demat files.
     //
-    // The files under Editor/Resources/Assets/Materials are the content (CornellDemo.desce references them);
+    // The files under Projects/Desert/Content/Materials are the content (CornellDemo.desce references them);
     // this table is what their author asked for: roughness 0.9 and no metalness on every wall. It lives with
     // the suite that checks it, because the editor no longer builds the demo — the scene and its materials
     // are files, and CB_Red once shipped as a chrome mirror (MetallicFactor 1.0, RoughnessFactor 0.0) that

@@ -87,7 +87,7 @@ namespace
     {
         std::vector<fs::path> out;
         std::error_code       ec;
-        const fs::path        tree = fs::path( root ) / "Editor" / "Resources" / "Assets";
+        const fs::path        tree = fs::path( root ) / "Projects" / "Desert" / "Content";
 
         for ( fs::recursive_directory_iterator it( tree, ec ), end; it != end && !ec; it.increment( ec ) )
         {
@@ -255,7 +255,7 @@ TEST( ThumbnailFormats, EveryPaintedFormatPaintsTheShippedLibraryAndNotAFlatSqua
         const std::vector<fs::path> assets    = ShippedAssets( root, extension );
         ASSERT_FALSE( assets.empty() )
              << "no '." << extension
-             << "' exists under Editor/Resources/Assets, so this row's producer is asserted against "
+             << "' exists under Projects/Desert/Content, so this row's producer is asserted against "
                 "nothing. Point the row at a format the repository ships, or ship one.";
 
         int paintedThisFormat = 0;

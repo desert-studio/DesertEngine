@@ -322,7 +322,7 @@ TEST( BuildScriptContract, BaseSceneClosureCoversWhatTheSceneNames )
 {
     const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path assetsRoot = ( root / "Editor/Resources/Assets" ).lexically_normal();
+    const fs::path assetsRoot = ( root / "Projects/Desert/Content" ).lexically_normal();
     const fs::path projectDir = ( root / "Editor" ).lexically_normal();
     ASSERT_TRUE( fs::is_directory( assetsRoot ) );
 

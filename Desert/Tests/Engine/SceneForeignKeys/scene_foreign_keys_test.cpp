@@ -152,7 +152,7 @@ namespace
             return scenes;
         std::error_code ec;
         for ( const auto& entry :
-              std::filesystem::recursive_directory_iterator( root + "Editor/Resources/Assets/Scenes", ec ) )
+              std::filesystem::recursive_directory_iterator( root + "Projects/Desert/Content/Scenes", ec ) )
         {
             if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
                 continue;
@@ -438,7 +438,7 @@ TEST( ForeignKeysCorpus, NoSceneOnDiskLosesAnythingItSaysWhenItIsWrittenBack )
     // A scene added later that fails this has not been through the migrator. That is the message.
     EXPECT_EQ( canonical, static_cast<int>( scenes.size() ) )
          << "some scenes are not canonical, so reading and writing them back would rewrite bytes that "
-            "did not change - run Tools/SceneMigrator over Editor/Resources/Assets/Scenes";
+            "did not change - run Tools/SceneMigrator over Projects/Desert/Content/Scenes";
 }
 
 TEST( ForeignKeysCorpus, EverySceneOnDiskIsUnchangedByAWholeDocumentRoundTrip )
@@ -496,7 +496,7 @@ TEST( ForeignKeysCorpus, EverySceneOnDiskComesBackByteIdenticalThroughTheLoaders
 TEST( ForeignKeysCorpus, AnIdAtOrAbove2To63SurvivesLoadAndSaveUnsigned )
 {
     const std::filesystem::path path =
-         std::filesystem::path( RepoRoot() ) / "Editor/Resources/Assets/Scenes/UI_OverScene.desce";
+         std::filesystem::path( RepoRoot() ) / "Projects/Desert/Content/Scenes/UI_OverScene.desce";
     const std::string bytes = ReadAll( path );
     ASSERT_NE( bytes.find( R"("id": 9365333062700381311)" ), std::string::npos ) << "the fixture id moved";
 

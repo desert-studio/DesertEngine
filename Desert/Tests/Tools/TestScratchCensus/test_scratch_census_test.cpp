@@ -91,7 +91,7 @@ namespace
     TEST( TestScratchCensus, TheReadRuleFlagsRepositoryRelativePaths )
     {
         EXPECT_TRUE( ReadsRepositoryRelative(
-             R"(    const fs::path corpus = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";)" ) );
+             R"(    const fs::path corpus = "Projects/Desert/Content/Prefabs/UI_Card.deprefab";)" ) );
         EXPECT_TRUE(
              ReadsRepositoryRelative( R"(std::ifstream in( "Desert/Desert/Source/Engine/Core/Scene.cpp" );)" ) );
         EXPECT_TRUE(

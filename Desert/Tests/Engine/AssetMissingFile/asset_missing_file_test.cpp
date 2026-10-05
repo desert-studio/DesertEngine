@@ -318,7 +318,7 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
     using Desert::Assets::SyncLoadLedger;
 
     const fs::path repo   = Desert::TestSupport::RepositoryRoot();
-    const fs::path source = repo / "Editor/Resources/Assets/Clouds/Types/Cirrus.decloudtype";
+    const fs::path source = repo / "Projects/Desert/Content/Clouds/Types/Cirrus.decloudtype";
     ASSERT_TRUE( fs::exists( source ) );
 
     // A SNAPSHOT, not a reference: the root is changed below and put back from this copy.
@@ -396,7 +396,7 @@ TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGu
     using Common::Content::ContentKind;
 
     const fs::path repo   = Desert::TestSupport::RepositoryRoot();
-    const fs::path source = repo / "Editor/Resources/Assets/Clouds/Layouts/PTP_Channels_Green.dclayout";
+    const fs::path source = repo / "Projects/Desert/Content/Clouds/Layouts/PTP_Channels_Green.dclayout";
     ASSERT_TRUE( fs::exists( source ) );
 
     // A SNAPSHOT, not a reference: the root is changed below and put back from this copy.

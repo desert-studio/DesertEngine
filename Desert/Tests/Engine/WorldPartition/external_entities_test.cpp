@@ -140,7 +140,7 @@ TEST( ExternalEntities, SplitThenJoinIsTheIdentityOverTheCorpus )
     std::size_t           entities = 0;
     std::set<std::string> walked;
     for ( const auto& entry :
-          std::filesystem::recursive_directory_iterator( root + "Editor/Resources/Assets/Scenes" ) )
+          std::filesystem::recursive_directory_iterator( root + "Projects/Desert/Content/Scenes" ) )
     {
         if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
             continue;

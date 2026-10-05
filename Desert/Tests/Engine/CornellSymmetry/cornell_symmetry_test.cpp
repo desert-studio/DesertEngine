@@ -219,7 +219,7 @@ namespace
 
     Material LoadMaterial( const std::string& root, const std::string& relativePath )
     {
-        const std::string         path = root + "Editor/Resources/Assets/" + relativePath;
+        const std::string         path = root + "Projects/Desert/Content/" + relativePath;
         const Common::Json::Value file = ParseObject( ReadAll( path ), path );
 
         Material   material;
@@ -354,7 +354,7 @@ namespace
         const std::string root = RepoRoot();
         EXPECT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
-        const std::string scenePath = root + "Editor/Resources/Assets/Scenes/CornellDemo.desce";
+        const std::string scenePath = root + "Projects/Desert/Content/Scenes/CornellDemo.desce";
 
         Fixture fixture;
         fixture.Scene = ParseObject( ReadAll( scenePath ), scenePath );
@@ -458,7 +458,7 @@ TEST( CornellSymmetry, TheTwoWallsReflectThePointLightEquallyOnceColourIsHeldCom
             "angle, by a factor of "
          << ( dark > 0.0f ? lit / dark : std::numeric_limits<float>::infinity() )
          << ". A Cornell box's side walls may differ in colour and in nothing else; check "
-            "MetallicFactor/RoughnessFactor in Editor/Resources/Assets/Materials/.";
+            "MetallicFactor/RoughnessFactor in Projects/Desert/Content/Materials/.";
 }
 
 // The same claim said as data, one level below the physics: whatever the two walls are made of, they are
@@ -499,7 +499,7 @@ TEST( CornellSymmetry, TheOrangeCubesFrontFaceIsTurnedAwayFromBothLights )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string scenePath = root + "Editor/Resources/Assets/Scenes/CornellDemo.desce";
+    const std::string scenePath = root + "Projects/Desert/Content/Scenes/CornellDemo.desce";
     const auto        scene     = ParseObject( ReadAll( scenePath ), scenePath );
 
     const Entity cube = EntityByTag( scene, "CB_OrangeCube" );
@@ -539,7 +539,7 @@ TEST( CornellSymmetry, TheSunIsOffAxisOnPurposeAndOnlyReachesOneWall )
     const Fixture fixture = LoadFixture();
 
     const std::string root  = RepoRoot();
-    const std::string path  = root + "Editor/Resources/Assets/Scenes/CornellDemo.desce";
+    const std::string path  = root + "Projects/Desert/Content/Scenes/CornellDemo.desce";
     const auto        scene = ParseObject( ReadAll( path ), path );
 
     const glm::vec3 towardSun = -glm::normalize( EntityByTag( scene, "CB_Sun" ).Translation );

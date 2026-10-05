@@ -62,7 +62,7 @@ namespace Desert::Graphic::Render2D
      * slots and the last one on the canvas is the one that goes without. That is a property of the scene
      * and not of a container — see m_Demanded for the measurement that made it one.
      *
-     * Measured on Editor/Resources/Assets/Scenes/UI_RenderTextureBudget.desce, six elements against six
+     * Measured on Projects/Desert/Content/Scenes/UI_RenderTextureBudget.desce, six elements against six
      * slots with the editor viewport already holding one: five build, the sixth is refused, and the log
      * names "all 6 of 6 renderer slots are in use" plus the two ways to get one back.
      *

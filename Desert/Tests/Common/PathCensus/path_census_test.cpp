@@ -240,11 +240,11 @@ TEST( PathCensus, TheInverseRecoversTheRootEveryRowWasDerivedFrom )
 // belongs to a tree the process has not opened.
 TEST( PathCensus, TheInverseResolvesAgainstTheNearestFolderOfThatName )
 {
-    const fs::path nested = "/home/me/Scenes/proj/Editor/Resources/Assets/Scenes/Levels/x.desce";
+    const fs::path nested = "/home/me/Scenes/proj/Projects/Desert/Content/Scenes/Levels/x.desce";
     const auto     root   = Path::RootForContentPath( Path::ContentDir::Scene, nested );
 
     ASSERT_TRUE( root.has_value() );
-    EXPECT_EQ( *root, fs::path( "/home/me/Scenes/proj/Editor/Resources/Assets" ) );
+    EXPECT_EQ( *root, fs::path( "/home/me/Scenes/proj/Projects/Desert/Content" ) );
 }
 
 // The two answers that are not paths. A file under no such folder gets nothing back — the caller has to

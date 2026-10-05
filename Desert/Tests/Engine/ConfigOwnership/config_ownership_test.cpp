@@ -1072,7 +1072,7 @@ TEST( ConfigOwnershipCorpus, NoSceneOnDiskStatesASettingOfAnotherFilesKind )
     std::vector<std::filesystem::path> scenes;
     std::error_code                    ec;
     for ( const auto& entry :
-          std::filesystem::recursive_directory_iterator( root + "Editor/Resources/Assets/Scenes", ec ) )
+          std::filesystem::recursive_directory_iterator( root + "Projects/Desert/Content/Scenes", ec ) )
         if ( entry.is_regular_file() && entry.path().extension() == ".desce" )
             scenes.push_back( entry.path() );
 
@@ -1113,11 +1113,11 @@ TEST( ConfigOwnershipCorpus, TheTrackedProjectDescriptorStatesNoMachineSpecificK
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string text = ReadAll( root + "Editor/Desert.deproj" );
-    ASSERT_FALSE( text.empty() ) << "Editor/Desert.deproj is missing or empty";
+    const std::string text = ReadAll( root + "Projects/Desert/Desert.deproj" );
+    ASSERT_FALSE( text.empty() ) << "Projects/Desert/Desert.deproj is missing or empty";
 
     const auto parsed = Common::Json::Parse( text );
-    ASSERT_TRUE( parsed.IsSuccess() ) << "Editor/Desert.deproj is not readable JSON";
+    ASSERT_TRUE( parsed.IsSuccess() ) << "Projects/Desert/Desert.deproj is not readable JSON";
     const Common::Json::Node object = Common::Json::Root( parsed.GetValue() );
     ASSERT_TRUE( object.GetKind() == Common::Json::Kind::Object );
 
@@ -1130,7 +1130,7 @@ TEST( ConfigOwnershipCorpus, TheTrackedProjectDescriptorStatesNoMachineSpecificK
             if ( r->Kind != Owner::Machine )
                 continue;
             EXPECT_FALSE( object.Find( r->Field ).has_value() )
-                 << "Editor/Desert.deproj now states " << r->Field
+                 << "Projects/Desert/Desert.deproj now states " << r->Field
                  << ", a per-machine value, in a file git tracks and the whole team shares. See К4.";
         }
     }
@@ -1160,7 +1160,7 @@ TEST( ConfigOwnershipCorpus, LoweringTheQualityOnThisMachineChangesNoByteOfAnySc
     std::vector<std::filesystem::path> scenes;
     std::error_code                    ec;
     for ( const auto& entry :
-          std::filesystem::recursive_directory_iterator( root + "Editor/Resources/Assets/Scenes", ec ) )
+          std::filesystem::recursive_directory_iterator( root + "Projects/Desert/Content/Scenes", ec ) )
         if ( entry.is_regular_file() && entry.path().extension() == ".desce" )
             scenes.push_back( entry.path() );
     ASSERT_GE( scenes.size(), 40u ) << "the scene corpus was not found";

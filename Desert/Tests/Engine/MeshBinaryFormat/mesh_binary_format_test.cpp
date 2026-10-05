@@ -729,10 +729,10 @@ namespace
         {
             const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot / "Editor" );
             Common::Constants::Path::SetEngineDir( editorDir );
-            const auto project = Common::Project::ReadProjectFile( ReadFile( editorDir / "Desert.deproj" ) );
+            const auto project = Common::Project::ReadProjectFile( ReadFile( repoRoot / "Projects" / "Desert" / "Desert.deproj" ) );
             if ( !project )
                 return;
-            Common::Constants::Path::SetProjectRoot( editorDir, project.GetValue().AssetsRoot );
+            Common::Constants::Path::SetProjectRoot( std::filesystem::absolute( repoRoot / "Projects" / "Desert" ), project.GetValue().AssetsRoot );
             m_Opened = true;
         }
         ~EditorProject()

@@ -470,12 +470,12 @@ namespace
         return files;
     }
 
-    // `Editor/Resources/Assets` of the checkout the build baked in. Empty if it is not there, which the caller
+    // `Projects/Desert/Content` of the checkout the build baked in. Empty if it is not there, which the caller
     // turns into a failure rather than an empty pass.
     std::filesystem::path ShippedAssetsRoot()
     {
         const std::filesystem::path candidate =
-             Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets";
+             Desert::TestSupport::RepositoryRoot() / "Projects" / "Desert" / "Content";
         return std::filesystem::exists( candidate / "Scenes" ) ? candidate : std::filesystem::path{};
     }
 

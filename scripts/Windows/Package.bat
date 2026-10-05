@@ -43,7 +43,7 @@ if "%CONFIG%"=="" set "CONFIG=Release"
 
 set "BIN=%ROOT%\build\Bin\%CONFIG%"
 set "OUT=%ROOT%\dist\DesertEngine-%CONFIG%"
-set "PROJECT=%ROOT%\Editor\Desert.deproj"
+set "PROJECT=%ROOT%\Projects\Desert\Desert.deproj"
 
 if not exist "%BIN%\Runtime.exe" (
     echo Package.bat: no %CONFIG% binaries in %BIN% — build first 1>&2
@@ -155,7 +155,7 @@ for %%T in (Branding Engine Shaders Fonts Icons Splash) do (
     )
 )
 
-REM The descriptor, verbatim: the drop's Resources\Assets sits exactly where the dev tree's does, so
+REM The descriptor, verbatim: the drop's Content sits beside it exactly as the project's does, so
 REM nothing about it needs rebasing (a GAME's does — see PackagedDescriptor()).
 copy /Y "%PROJECT%" "%OUT%\" >NUL || exit /b 1
 
@@ -172,8 +172,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "ASSETS_SRC=%ROOT%\Editor\Resources\Assets"
-set "ASSETS_DST=%OUT%\Resources\Assets"
+set "ASSETS_SRC=%ROOT%\Projects\Desert\Content"
+set "ASSETS_DST=%OUT%\Content"
 set "COPIED=0"
 for /f "usebackq delims=" %%L in ("!CLOSURE!") do (
     set "REL=%%L"

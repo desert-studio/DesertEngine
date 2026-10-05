@@ -269,7 +269,7 @@ TEST( GenericBlockRead, AnInstancedStaticMeshSurvivesTheTripWithEveryMatrixIntac
 
 // The shape a real `.desce` states, read as text rather than round-tripped — because a round trip can
 // agree with itself while disagreeing with the files on disk. This is the block
-// Editor/Resources/Assets/Scenes/G26_ISMProbe.desce carries under its "InstancedStaticMesh" key, cut to
+// Projects/Desert/Content/Scenes/G26_ISMProbe.desce carries under its "InstancedStaticMesh" key, cut to
 // two instances. (ReadBlock is handed the block's CONTENTS; EntitySerializer looks the key up.)
 TEST( GenericBlockRead, TheBlockShapeASceneFileStatesIsTheOneThisStructReads )
 {

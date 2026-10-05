@@ -174,7 +174,7 @@ TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
         if ( std::filesystem::exists( prefix / "Editor" / "Resources" / "Shaders" ) )
             editorDir = std::filesystem::weakly_canonical( prefix / "Editor" );
     const std::filesystem::path material =
-         editorDir / "Resources" / "Assets" / "Materials" / "M_CubemapCheck.demat";
+         editorDir.parent_path() / "Projects" / "Desert" / "Content" / "Materials" / "M_CubemapCheck.demat";
     ASSERT_TRUE( std::filesystem::exists( material ) ) << material.string();
 
     // The engine resources hang off the engine directory: the checkout's Editor/ for this test.

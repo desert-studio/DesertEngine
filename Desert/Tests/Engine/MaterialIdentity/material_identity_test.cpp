@@ -87,7 +87,7 @@ namespace
     std::vector<ShippedMaterial> ReadShippedMaterials( std::vector<std::string>& refusals )
     {
         std::vector<ShippedMaterial> out;
-        const std::filesystem::path  dir = RepoRoot() + "Editor/Resources/Assets/Materials";
+        const std::filesystem::path  dir = RepoRoot() + "Projects/Desert/Content/Materials";
         if ( !std::filesystem::exists( dir ) )
             return out;
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( dir ) )
@@ -220,7 +220,7 @@ TEST( MaterialIdentity, EveryMaterialGuidAShippedSceneNamesIsCarriedByExactlyOne
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
-    const std::filesystem::path scenes = root + "Editor/Resources/Assets/Scenes";
+    const std::filesystem::path scenes = root + "Projects/Desert/Content/Scenes";
     ASSERT_TRUE( std::filesystem::exists( scenes ) ) << scenes.string() << " is missing";
 
     std::vector<std::string>                        refusals;
@@ -280,7 +280,7 @@ TEST( MaterialIdentity, EveryMaterialPathAShippedSceneNamesResolvesToAFileOnDisk
     ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
     // The assets root as the editor sees it, prefixed by however far up the repository turned out to be.
-    const std::filesystem::path assets = root + "Editor/Resources/Assets";
+    const std::filesystem::path assets = root + "Projects/Desert/Content";
     const std::filesystem::path scenes = assets / "Scenes";
     ASSERT_TRUE( std::filesystem::exists( scenes ) ) << scenes.string() << " is missing";
 

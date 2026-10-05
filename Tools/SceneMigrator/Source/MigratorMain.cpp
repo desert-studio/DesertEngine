@@ -1425,7 +1425,7 @@ namespace Desert::Migration
     }
 
     // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over
-    // Editor/Resources/Assets that rewrote 147 files around the one it refused, so the tree held two
+    // Projects/Desert/Content that rewrote 147 files around the one it refused, so the tree held two
     // generations at once and the refusal had to be fixed against content already half-moved. Now the
     // whole set is migrated in memory first (the --check pass computes every step without writing), and
     // any refusal there writes NOTHING: every refusal is printed and the exit code is 1. Only a set with
