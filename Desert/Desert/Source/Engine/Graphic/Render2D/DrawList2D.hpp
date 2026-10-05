@@ -227,12 +227,12 @@ namespace Desert::Graphic::Render2D
         bool AddRetainedComposite( uint32_t layer, int64_t maskKey, const RetainerEffect& effect,
                                    const glm::vec4& tint );
 
-        const std::vector<std::unique_ptr<DrawList2D>>& GetLayers() const
+        [[nodiscard]] const std::vector<std::unique_ptr<DrawList2D>>& GetLayers() const
         {
             return m_Layers;
         }
         // Mask key -> index into GetLayers().
-        const std::unordered_map<int64_t, uint32_t>& GetMaskLayers() const
+        [[nodiscard]] const std::unordered_map<int64_t, uint32_t>& GetMaskLayers() const
         {
             return m_MaskLayers;
         }

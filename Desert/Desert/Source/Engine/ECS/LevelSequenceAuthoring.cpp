@@ -928,7 +928,7 @@ namespace Desert::ECS
                 const auto        parameter = ParseLevelSequenceMaterialProperty( track.Property );
                 const T::Binding* bound     = parameter ? T::FindBinding( sequence, track.Binding ) : nullptr;
                 const auto        resolved  = bound != nullptr ? host.Resolve( *bound ) : std::nullopt;
-                if ( !resolved )
+                if ( !resolved || !parameter )
                     continue;
                 const auto entity = static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) );
                 if ( std::any_of( m_SavedMaterials.begin(), m_SavedMaterials.end(),

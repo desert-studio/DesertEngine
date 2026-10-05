@@ -263,8 +263,9 @@ namespace Desert::Graphic::Render2D
                 box.w += box.y;
                 box.y = 0.0f;
             }
-            renderer.SetScissor( (int32_t)box.x, (int32_t)box.y, (uint32_t)std::max( box.z, 0.0f ),
-                                 (uint32_t)std::max( box.w, 0.0f ) );
+            renderer.SetScissor( static_cast<int32_t>( box.x ), static_cast<int32_t>( box.y ),
+                                 static_cast<uint32_t>( std::max( box.z, 0.0f ) ),
+                                 static_cast<uint32_t>( std::max( box.w, 0.0f ) ) );
         };
 
         for ( const auto& cmd : list.GetCommands() )
@@ -275,7 +276,7 @@ namespace Desert::Graphic::Render2D
             if ( cmd.Retained )
             {
                 const auto it = m_Retained.find( &cmd );
-                if ( it == m_Retained.end() || !it->second.Content )
+                if ( it == m_Retained.end() || it->second.Content == nullptr )
                 {
                     if ( !m_RefusedUnrendered )
                         LOG_ERROR( "[Render2D] a retained UI layer was not rendered this frame, so its composite "
@@ -287,10 +288,10 @@ namespace Desert::Graphic::Render2D
                 const RetainedPicture& pic = it->second;
                 MaterialExecutor*      rexec =
                      ExecutorFor( m_RetainerExecutors, m_RetainerShader, "u_Content", pic.Content, pic.Content );
-                if ( !rexec )
+                if ( rexec == nullptr )
                     continue;
                 if ( auto mp = rexec->GetTexture2DProperty( "u_Mask" ) )
-                    mp->SetImage( pic.Mask ? pic.Mask : m_WhiteImage );
+                    mp->SetImage( pic.Mask != nullptr ? pic.Mask : m_WhiteImage );
 
                 const RetainerEffect& fx = cmd.Effect;
                 struct RetainerPush
@@ -301,13 +302,13 @@ namespace Desert::Graphic::Render2D
                     glm::vec4 Mask; // x = mask on, y = invert, z = opacity, w = haze on
                     glm::vec4 Haze; // amplitude px, cell px, cells/s, time s
                 } push{ m_Projection, cmd.RetainedRect, pic.Uv,
-                        glm::vec4( fx.Mask && pic.Mask ? 1.0f : 0.0f, fx.InvertMask ? 1.0f : 0.0f, fx.Opacity,
-                                   fx.Haze ? 1.0f : 0.0f ),
+                        glm::vec4( fx.Mask && pic.Mask != nullptr ? 1.0f : 0.0f, fx.InvertMask ? 1.0f : 0.0f,
+                                   fx.Opacity, fx.Haze ? 1.0f : 0.0f ),
                         glm::vec4( fx.HazeAmplitude, fx.HazeScale, fx.HazeSpeed, fx.Time ) };
                 static_assert( sizeof( RetainerPush ) == 128, "UIRetainer.shader push block" );
 
                 ApplyScissor( cmd );
-                rexec->PushConstant( &push, (uint32_t)sizeof( push ) );
+                rexec->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
                 renderer.SubmitIndexed( m_RetainerPipeline.get(), m_VertexBuffer.get(), m_IndexBuffer.get(),
                                         cmd.IndexCount, cmd.IndexOffset, rexec );
                 continue;
@@ -411,9 +412,9 @@ namespace Desert::Graphic::Render2D
         }
 
         // Leave the scissor at the full viewport so nothing downstream inherits a UI clip.
-        renderer.SetScissor( (int32_t)( m_ViewportPx.x - m_TargetOrigin.x ),
-                             (int32_t)( m_ViewportPx.y - m_TargetOrigin.y ), (uint32_t)m_ViewportPx.z,
-                             (uint32_t)m_ViewportPx.w );
+        renderer.SetScissor( static_cast<int32_t>( m_ViewportPx.x - m_TargetOrigin.x ),
+                             static_cast<int32_t>( m_ViewportPx.y - m_TargetOrigin.y ),
+                             static_cast<uint32_t>( m_ViewportPx.z ), static_cast<uint32_t>( m_ViewportPx.w ) );
 
         m_UsedBackdrop = usedBackdrop;
 
@@ -464,7 +465,8 @@ namespace Desert::Graphic::Render2D
                 continue;
 
             RetainedTarget* content = AcquireRetainedTarget( w, h, frame );
-            if ( !content || !DrawIntoTarget( *content, *list.GetLayers()[cmd.RetainedLayer], r, maskRoot ) )
+            if ( content == nullptr ||
+                 !DrawIntoTarget( *content, *list.GetLayers()[cmd.RetainedLayer], r, maskRoot ) )
                 continue;
 
             RetainedPicture pic;
