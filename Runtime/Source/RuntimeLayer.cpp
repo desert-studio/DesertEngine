@@ -349,7 +349,7 @@ namespace Desert::Player
         for ( const std::string& movie : game.StartupMovies )
             settings.Movies.push_back( project / movie );
 
-        if ( Audio::AudioEngine::Get().GetNativeEngine() )
+        if ( Audio::AudioEngine::Get().GetNativeEngine() != nullptr )
             m_StartupSound = std::make_unique<Media::MediaAudioOutput>();
         else
             LOG_WARN( "[StartupMovies] no audio device on this machine: the movies play their picture only" );
@@ -443,20 +443,23 @@ namespace Desert::Player
 
     Common::BoolResultStr RuntimeLayer::InitMovieTarget()
     {
+        if ( !m_Movie.has_value() )
+            return Common::MakeFormattedError<bool>( "--render-movie: no movie request to make a target for" );
+        const MovieRenderRequest&         movie = *m_Movie;
         Graphic::FramebufferSpecification spec;
-        spec.Width       = m_Movie->Width;
-        spec.Height      = m_Movie->Height;
+        spec.Width       = movie.Width;
+        spec.Height      = movie.Height;
         spec.Attachments = { Core::Formats::ImageFormat::RGBA8F };
         spec.DebugName   = "MovieRenderTarget";
         spec.NoResizeble = true;
         m_MovieTarget    = Graphic::Framebuffer::Create( spec );
         if ( !m_MovieTarget )
             return Common::MakeFormattedError<bool>( "--render-movie: could not create the {}x{} target",
-                                                     m_Movie->Width, m_Movie->Height );
+                                                     movie.Width, movie.Height );
         // Create only constructs; the first Resize makes the image, the VkRenderPass and the VkFramebuffer.
-        if ( const auto made = m_MovieTarget->Resize( m_Movie->Width, m_Movie->Height ); !made )
+        if ( const auto made = m_MovieTarget->Resize( movie.Width, movie.Height ); !made )
             return Common::MakeFormattedError<bool>( "--render-movie: could not allocate the {}x{} target: {}",
-                                                     m_Movie->Width, m_Movie->Height, made.GetError() );
+                                                     movie.Width, movie.Height, made.GetError() );
         Graphic::RenderPassSpecification passSpec;
         passSpec.TargetFramebuffer = m_MovieTarget;
         passSpec.DebugName         = "MovieRenderPass";
@@ -467,12 +470,12 @@ namespace Desert::Player
         // (Main.cpp SetFixedDeltaTime), and the UI is handed that step like the world (BeginUIFrame below).
 
         std::error_code ec;
-        std::filesystem::create_directories( m_Movie->OutDir, ec );
-        if ( ec && !std::filesystem::is_directory( m_Movie->OutDir ) )
-            return Common::MakeFormattedError<bool>( "--movie-out '{}' cannot be created: {}", m_Movie->OutDir,
+        std::filesystem::create_directories( movie.OutDir, ec );
+        if ( ec && !std::filesystem::is_directory( movie.OutDir ) )
+            return Common::MakeFormattedError<bool>( "--movie-out '{}' cannot be created: {}", movie.OutDir,
                                                      ec.message() );
-        LOG_INFO( "[Movie] rendering '{}' -> {} at {}x{}, {} fps, {} frame(s)", m_Movie->Map, m_Movie->OutDir,
-                  m_Movie->Width, m_Movie->Height, m_Movie->Fps, m_Movie->FrameCount() );
+        LOG_INFO( "[Movie] rendering '{}' -> {} at {}x{}, {} fps, {} frame(s)", movie.Map, movie.OutDir,
+                  movie.Width, movie.Height, movie.Fps, movie.FrameCount() );
         return BOOLSUCCESS;
     }
 
@@ -481,9 +484,10 @@ namespace Desert::Player
     // draws off the image until frame N is on disk.
     void RuntimeLayer::CollectMovieFrame()
     {
-        if ( !m_MovieFrameDrawn )
+        if ( !m_MovieFrameDrawn || !m_Movie.has_value() )
             return;
-        m_MovieFrameDrawn = false;
+        m_MovieFrameDrawn               = false;
+        const MovieRenderRequest& movie = *m_Movie;
 
         auto pixels = m_MovieTarget->GetColorAttachmentImage( 0 )->ReadPixelsRGBA8();
         if ( !pixels )
@@ -492,18 +496,18 @@ namespace Desert::Player
             m_Application->Close( 1 );
             return;
         }
-        const std::string file = m_Movie->FramePath( m_MovieFrame ).string();
-        const int         w    = static_cast<int>( m_Movie->Width );
-        const int         h    = static_cast<int>( m_Movie->Height );
+        const std::string file = movie.FramePath( m_MovieFrame ).string();
+        const int         w    = static_cast<int>( movie.Width );
+        const int         h    = static_cast<int>( movie.Height );
         if ( stbi_write_png( file.c_str(), w, h, 4, pixels.GetValue().data(), w * 4 ) == 0 )
         {
             LOG_ERROR( "[Movie] could not write '{}'", file );
             m_Application->Close( 1 );
             return;
         }
-        if ( ++m_MovieFrame == m_Movie->FrameCount() )
+        if ( ++m_MovieFrame == movie.FrameCount() )
         {
-            LOG_INFO( "[Movie] wrote {} frame(s) to {}", m_MovieFrame, m_Movie->OutDir );
+            LOG_INFO( "[Movie] wrote {} frame(s) to {}", m_MovieFrame, movie.OutDir );
             m_Application->Close( 0 );
         }
     }
@@ -916,8 +920,10 @@ namespace Desert::Player
         // And while a startup movie covers the screen: the level begins when the player can first see it.
         const bool streamingWaits = m_WorldStreamer && m_WorldStreamer->BlocksPlay();
         m_UIFrameDtSeconds        = ts.GetSeconds();
-        const bool timeHeld       = m_Content.Loading() || streamingWaits || StartupMoviesPlaying();
-        if ( const auto frame = m_Scene->OnUpdate( timeHeld ? Common::Timestep( 0.0f ) : ts ); !frame )
+        const bool moviePlaying   = StartupMoviesPlaying();
+        if ( const auto frame = m_Scene->OnUpdate(
+                  m_Content.Loading() || streamingWaits || moviePlaying ? Common::Timestep( 0.0f ) : ts );
+             !frame )
             return Common::MakeError( frame.GetError() );
 
         return BOOLSUCCESS;
@@ -1128,7 +1134,7 @@ namespace Desert::Player
         // A movie composes into its own offscreen target of the requested size; the game into the swapchain.
         if ( m_Movie.has_value() )
         {
-            if ( const auto begun = renderer.BeginRenderPass( m_MoviePass.get(), true ); !begun )
+            if ( const auto begun = Graphic::Renderer::BeginRenderPass( m_MoviePass.get(), true ); !begun )
             {
                 // A refused pass records nothing: drawing on would land outside every pass. The movie fails
                 // (exit 1), no frame is read back, and the acquired swapchain image still gets its empty pass.

@@ -653,7 +653,9 @@ TEST( TeardownOrder, EveryServiceHoldingATextureConstructsTheImageServiceFirst )
         if ( !entry.is_regular_file() || p.extension() != ".hpp" )
             continue;
         const std::string header = StripLineComments( ReadFile( p ) );
-        if ( header.find( "shared_ptr<Graphic::Texture2D>" ) == std::string::npos )
+        // A video holds its frames through a Media::MediaTexture (MEDIA-2), whose GPU images die with it.
+        if ( header.find( "shared_ptr<Graphic::Texture2D>" ) == std::string::npos &&
+             header.find( "unique_ptr<Media::MediaTexture>" ) == std::string::npos )
             continue;
         ++holders;
 

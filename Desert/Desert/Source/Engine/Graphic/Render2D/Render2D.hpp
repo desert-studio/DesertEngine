@@ -136,10 +136,23 @@ namespace Desert::Graphic::Render2D
             glm::vec4 Uv      = glm::vec4( 0.0f ); // xy = layer extent in target UV, zw = 1 / target size
         };
 
-        void            RenderRetainedOf( const DrawList2D& list, const DrawList2D& maskRoot );
+        // One layer to draw into one target: a retainer's content, or its mask (MaskOf = the content job).
+        struct RetainedJob
+        {
+            Render2D*          Owner  = nullptr; // whose m_Retained receives the picture
+            const DrawCommand* Cmd    = nullptr;
+            RetainedTarget*    Target = nullptr;
+            const DrawList2D*  Layer  = nullptr;
+            uint32_t           Width  = 0;
+            uint32_t           Height = 0;
+            size_t             MaskOf = SIZE_MAX; // SIZE_MAX = this job is content
+            Image2D*           Mask   = nullptr;  // the mask job's image, set before this content job runs
+        };
+
+        void            RenderRetainedOf( const DrawList2D& root );
         RetainedTarget* AcquireRetainedTarget( uint32_t width, uint32_t height, uint64_t frame );
-        bool            DrawIntoTarget( RetainedTarget& target, const DrawList2D& layer, const glm::vec4& rect,
-                                        const DrawList2D& maskRoot );
+        static void     OpenTarget( RetainedTarget& target, const glm::vec4& rect );
+        static bool     DrawJob( const RetainedJob& job );
 
         // Grow the dynamic buffers to hold at least the given counts (reused across frames otherwise).
         void EnsureCapacity( uint32_t vertexCount, uint32_t indexCount );

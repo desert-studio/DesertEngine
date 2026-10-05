@@ -32,5 +32,5 @@ namespace Desert::Project
     // Config/ when the project has none yet, and on success makes CurrentGameSettings() answer @p settings
     // without re-reading — the file and the cache cannot disagree after a save. Refuses with the reason (no
     // project open, the write failed) and then leaves both the file and the cache as they were.
-    Common::BoolResultStr SaveGameSettings( const GameSettings& settings );
+    Common::BoolResultStr SaveGameSettings( const GameSettings& toSave );
 } // namespace Desert::Project

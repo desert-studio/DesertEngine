@@ -554,9 +554,11 @@ namespace Desert::Core::Rules
          { "UIOverlay", ComponentLoading::Spatial }, // lives on a canvas entity
          { "UIOverlayTrigger", ComponentLoading::Spatial },
          { "UIPanel", ComponentLoading::Spatial },
+         { "UIPath", ComponentLoading::Spatial },
          { "UIPointerEvents", ComponentLoading::Spatial },
          { "UIProgressBar", ComponentLoading::Spatial },
          { "UIRenderTexture", ComponentLoading::Spatial },
+         { "UIRetainer", ComponentLoading::Spatial },
          { "UIScreen", ComponentLoading::Spatial },
          { "UIScreenStack", ComponentLoading::Spatial }, // lives on a canvas entity
          { "UIScrollView", ComponentLoading::Spatial },

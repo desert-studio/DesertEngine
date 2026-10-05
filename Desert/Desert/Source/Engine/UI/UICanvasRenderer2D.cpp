@@ -905,7 +905,7 @@ namespace Desert::UI
                     contentW += advEm( sc.ch ) * sM;
                 const float gap    = std::max( 40.0f * scale, rect.W * 0.35f );
                 const float period = std::max( 1.0f, contentW + gap );
-                const float off = static_cast<float>( std::fmod( viewSeconds * t.MarqueeSpeed * scale, period ) );
+                const auto  off = static_cast<float>( std::fmod( viewSeconds * t.MarqueeSpeed * scale, period ) );
                 const float blockH = ( bf.Ascent - bf.Descent ) * sM;
                 const float baseY  = rect.Y + ( rect.H - blockH ) * 0.5f + bf.Ascent * sM;
 
@@ -1292,7 +1292,7 @@ namespace Desert::UI
             // An element some retainer names as its mask: capture its subtree into the frame's mask layer for
             // it, before (and regardless of) its own visibility — a hidden element is a pure mask, UE's mask
             // texture as an element. Input is not routed through the capture.
-            if ( ctx.Root && ctx.MaskCapture != e && ctx.MaskTargets.contains( e ) )
+            if ( ctx.Root != nullptr && ctx.MaskCapture != e && ctx.MaskTargets.contains( e ) )
             {
                 auto& mask = ctx.Root->MaskLayer( static_cast<int64_t>( entt::to_integral( e ) ) );
                 if ( mask.Empty() )
@@ -1338,8 +1338,11 @@ namespace Desert::UI
                 fx.Time          = static_cast<float>( ctx.View.Time );
                 // A keyed clip REPLACES the authored amplitude while it drives it (never written back).
                 if ( const auto clip = ctx.View.AnimClips.Samples.find( e );
-                     clip != ctx.View.AnimClips.Samples.end() && clip->second.HazeAmplitude )
-                    fx.HazeAmplitude = *clip->second.HazeAmplitude * scale;
+                     clip != ctx.View.AnimClips.Samples.end() )
+                {
+                    if ( const std::optional<float> amplitude = clip->second.HazeAmplitude; amplitude.has_value() )
+                        fx.HazeAmplitude = *amplitude * scale;
+                }
 
                 int64_t maskKey = -1;
                 if ( rd.Mask )
@@ -1773,8 +1776,8 @@ namespace Desert::UI
                     // A keyed clip REPLACES the authored Reveal while it drives it (never written back).
                     float      reveal = path.Reveal;
                     const auto clip   = ctx.View.AnimClips.Samples.find( e );
-                    if ( clip != ctx.View.AnimClips.Samples.end() && clip->second.Reveal )
-                        reveal = *clip->second.Reveal;
+                    if ( clip != ctx.View.AnimClips.Samples.end() )
+                        reveal = clip->second.Reveal.value_or( reveal );
 
                     const std::vector<glm::vec2> shown = RevealUIPath( line, reveal );
                     if ( shown.size() >= 2 )
@@ -2943,8 +2946,10 @@ namespace Desert::UI
         // Tab and Down/S advance keyboard focus to the next focusable control, Up/W steps back (both wrap;
         // effective next frame). The list spans every canvas of the frame, so focus can leave a HUD and enter
         // an overlay. With nothing focused, either direction lands on the FIRST control — the top of a menu.
-        const int step = input ? ( input->Tab ? 1 : input->Navigate ) : 0;
-        if ( focused && step != 0 && !view.Focusables.empty() )
+        int step = 0;
+        if ( input != nullptr )
+            step = input->Tab ? 1 : input->Navigate;
+        if ( focused != nullptr && step != 0 && !view.Focusables.empty() )
         {
             const std::size_t n   = view.Focusables.size();
             std::size_t       idx = 0; // not-found -> focus the first

@@ -184,7 +184,7 @@ namespace Desert::Animation
         if ( !bind.IsSuccess() )
             return Common::MakeFormattedError<bool>( "the rest pose of rig {} does not decompose: {}",
                                                      m_Skeleton.GetSignature(), bind.GetError() );
-        m_BindPose      = std::move( bind.GetValue() );
+        m_BindPose      = bind.GetValue();
         m_AuthoringPose = m_BindPose;
         ApplyLocalPose();
         return Common::MakeSuccess( true );
@@ -284,7 +284,7 @@ namespace Desert::Animation
     void Animator::Play( const AnimationClip& clip, bool loop )
     {
         RetireNotifyStates();
-        m_Current = { &clip, FrameTime{}, loop };
+        m_Current = { .Clip = &clip, .Time = FrameTime{}, .Loop = loop, .StepFrom = FrameTime{} };
         m_Fades.clear();
     }
 
@@ -300,7 +300,7 @@ namespace Desert::Animation
         // новым и угасает вместе со всем, что под ним (UE ActiveTransitionArray). Раньше новый кроссфейд
         // выбрасывал входящий клип, и поза прыгала на кадре прерывания.
         IncomingFade fade;
-        fade.Playback = { &clip, FrameTime{}, loop };
+        fade.Playback = { .Clip = &clip, .Time = FrameTime{}, .Loop = loop, .StepFrom = FrameTime{} };
         fade.Curve    = curve;
         // A crossfade of zero would divide by zero in Alpha; the floor is small enough that the first Update
         // already reaches alpha 1, so a zero-length blend behaves as an instant cut.

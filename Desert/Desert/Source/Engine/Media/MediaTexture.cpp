@@ -44,7 +44,7 @@ namespace Desert::Media
     std::string MediaTexture::Update( const MediaPlayer& player )
     {
         const VideoFrame* frame = player.GetCurrentFrame();
-        if ( !frame )
+        if ( frame == nullptr )
             return {};
         if ( m_HasSerial && player.FrameSerial() == m_SeenSerial )
             return {};
@@ -67,7 +67,7 @@ namespace Desert::Media
         if ( !m_Pipeline )
         {
             auto* shaders = Runtime::ResourceRegistry::GetShaderService();
-            if ( !shaders )
+            if ( shaders == nullptr )
                 return "no shader service";
             auto shader = shaders->GetByName( "MediaYuvToRgb" );
             if ( !shader )
@@ -95,28 +95,32 @@ namespace Desert::Media
                 continue;
             if ( frame.PlaneWidth[i] == 0 || frame.PlaneHeight[i] == 0 )
                 return std::format( "video plane {} has no size", i );
-            Core::Formats::Image2DSpecification spec = {
+            const Core::Formats::Image2DSpecification spec = {
                  .Tag        = std::format( "MediaPlane{}", i ),
                  .Width      = frame.PlaneWidth[i],
                  .Height     = frame.PlaneHeight[i],
                  .Format     = planeFormat,
                  .Mips       = 1u,
+                 .Data       = Core::Formats::EmptyPixelData{},
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Sample,
+                 .MipLevels  = {},
             };
             m_Planes[i] = Graphic::Image2D::Create( spec );
             if ( !m_Planes[i] )
                 return std::format( "video plane {} image was not created", i );
         }
 
-        Core::Formats::Image2DSpecification outputSpec = {
+        const Core::Formats::Image2DSpecification outputSpec = {
              .Tag        = "MediaTexture",
              .Width      = frame.Width,
              .Height     = frame.Height,
              .Format     = Core::Formats::ImageFormat::RGBA8F,
              .Mips       = 1u,
+             .Data       = Core::Formats::EmptyPixelData{},
              .Usage      = Core::Formats::Image2DUsage::Image2D,
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
+             .MipLevels  = {},
         };
         m_Output = Graphic::Image2D::Create( outputSpec );
         if ( !m_Output )
@@ -151,14 +155,14 @@ namespace Desert::Media
             if ( !m_Planes[i] )
                 continue;
             const auto uploaded = m_Planes[i]->RecordSetData(
-                 *batch, Core::Formats::ImagePixelData( reinterpret_cast<std::byte*>(
-                              const_cast<uint8_t*>( frame.Planes[i].data() ) ) ) ); // copied once, into staging
+                 *batch,
+                 Core::Formats::ImagePixelData( frame.Planes[i].UploadBytes() ) ); // copied once, into staging
             if ( !uploaded.IsSuccess() )
                 return std::format( "video plane {} did not reach the GPU: {}", i, uploaded.GetError() );
         }
 
         const MediaColorCoefficients k        = CoefficientsFor( frame.Matrix );
-        const float                  maxCode  = static_cast<float>( ( 1u << frame.BitDepth ) - 1u );
+        const auto                   maxCode  = static_cast<float>( ( 1u << frame.BitDepth ) - 1u );
         const bool                   lumaOnly = !m_Planes[1];
         const MediaYuvPush           push{ k.Kr,
                                  k.Kb,

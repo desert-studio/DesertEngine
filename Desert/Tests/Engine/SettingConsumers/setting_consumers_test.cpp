@@ -693,6 +693,8 @@ namespace
          { "Sprite", kCanvasRenderer },
          { "SpriteBorder", kCanvasRenderer },
          { "Video", kCanvasRenderer },
+         { "VideoVolume", kCanvasRenderer },
+         { "VideoMuted", kCanvasRenderer },
          { "Circle", kCanvasRenderer },
          { "RingWidth", kCanvasRenderer },
          { "RingColorA", kCanvasRenderer },

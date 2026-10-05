@@ -58,9 +58,12 @@ namespace Desert::Editor::LevelMaterialEdit
                                               declared != nullptr ? declared->SlotLabel
                                                                        : SlotLabel( parameter.Slot, std::string{} ) );
                 property.Components = ComponentsOf( kind );
-                property.Type       = kind == LevelTL::TrackKind::Float        ? "float"
-                                      : declared != nullptr && declared->Color ? "color"
-                                                                               : "float3";
+                if ( kind == LevelTL::TrackKind::Float )
+                    property.Type = "float";
+                else if ( declared != nullptr && declared->Color )
+                    property.Type = "color";
+                else
+                    property.Type = "float3";
                 if ( declared != nullptr )
                 {
                     property.Min = declared->Min;

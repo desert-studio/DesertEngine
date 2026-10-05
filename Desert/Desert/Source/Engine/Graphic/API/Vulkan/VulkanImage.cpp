@@ -284,9 +284,15 @@ namespace Desert::Graphic::API::Vulkan
 
         // The tracked layout (SHADER_READ_ONLY after the first upload) is the transition source.
         TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
-        VkBufferImageCopy copy = {
-             .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
-             .imageExtent      = { m_Specification.Width, m_Specification.Height, 1 } };
+        const VkBufferImageCopy copy = { .bufferOffset      = 0,
+                                         .bufferRowLength   = 0,
+                                         .bufferImageHeight = 0,
+                                         .imageSubresource  = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                .mipLevel       = 0,
+                                                                .baseArrayLayer = 0,
+                                                                .layerCount     = 1 },
+                                         .imageOffset       = { 0, 0, 0 },
+                                         .imageExtent = { m_Specification.Width, m_Specification.Height, 1 } };
         vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
         TransitionLayout( cmd, finalLayout );
 
@@ -303,7 +309,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<bool>( "Image2D::RecordSetData on an uninitialised image" );
         if ( !Core::Formats::HasData( data ) )
             return Common::MakeError<bool>( "Image2D::RecordSetData with empty pixel data" );
-        const VkCommandBuffer cmd = RecordingBuffer( batch );
+        auto* const cmd = RecordingBuffer( batch );
         if ( cmd == VK_NULL_HANDLE )
             return Common::MakeError<bool>( "Image2D::RecordSetData into a batch that was already submitted" );
 
@@ -313,16 +319,21 @@ namespace Desert::Graphic::API::Vulkan
         const uint64_t size = Core::Formats::CalculateImageSize( m_Specification.Width, m_Specification.Height,
                                                                  m_Specification.Format );
 
-        VkBuffer           staging = VK_NULL_HANDLE;
-        VkBufferCreateInfo bInfo   = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                                       .size  = size,
-                                       .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
-        const auto         stagingResult =
+        VkBuffer                 staging = VK_NULL_HANDLE;
+        const VkBufferCreateInfo bInfo   = { .sType                 = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                             .pNext                 = nullptr,
+                                             .flags                 = 0,
+                                             .size                  = size,
+                                             .usage                 = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                             .sharingMode           = VK_SHARING_MODE_EXCLUSIVE,
+                                             .queueFamilyIndexCount = 0,
+                                             .pQueueFamilyIndices   = nullptr };
+        const auto               stagingResult =
              allocator->RT_AllocateBuffer( "RecordSetDataStaging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
         if ( !stagingResult.IsSuccess() )
             return Common::MakeFormattedError<bool>( "Image2D::RecordSetData: {} byte staging buffer failed: {}",
                                                      size, stagingResult.GetError() );
-        const VmaAllocation stagingAlloc = stagingResult.GetValue();
+        auto* const stagingAlloc = stagingResult.GetValue();
         {
             MappedMemory staged = allocator->MapMemory( stagingAlloc );
             const auto   wrote  = staged.Write( Utils::GetPixelDataPtr( data ), static_cast<size_t>( size ) );
@@ -341,9 +352,15 @@ namespace Desert::Graphic::API::Vulkan
         // copy, then visible to every shader that reads it after this batch.
         TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT );
-        VkBufferImageCopy copy = {
-             .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
-             .imageExtent      = { m_Specification.Width, m_Specification.Height, 1 } };
+        const VkBufferImageCopy copy = { .bufferOffset      = 0,
+                                         .bufferRowLength   = 0,
+                                         .bufferImageHeight = 0,
+                                         .imageSubresource  = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                .mipLevel       = 0,
+                                                                .baseArrayLayer = 0,
+                                                                .layerCount     = 1 },
+                                         .imageOffset       = { 0, 0, 0 },
+                                         .imageExtent = { m_Specification.Width, m_Specification.Height, 1 } };
         vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
         TransitionLayout( cmd, Utils::GetDefaultLayout( m_Specification.Format, m_Specification.Properties ),
                           VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,

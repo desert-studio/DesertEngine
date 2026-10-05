@@ -5,13 +5,8 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Json.hpp>
 
-#include <rflcpp/rfl/DefaultIfMissing.hpp>
-#include <rflcpp/rfl/json.hpp>
-
 #include <filesystem>
 #include <format>
-#include <fstream>
-#include <sstream>
 
 namespace Desert::Project
 {
@@ -39,18 +34,16 @@ namespace Desert::Project
             return settings;
 
         const std::filesystem::path path = GameSettingsFile( directory );
-        std::ifstream               in( path, std::ios::binary );
-        if ( !in )
+        std::error_code             exists;
+        if ( !std::filesystem::exists( path, exists ) )
             return settings; // the project declares no game settings
-        std::stringstream text;
-        text << in.rdbuf();
-        auto parsed = rfl::json::read<GameSettings, rfl::DefaultIfMissing>( text.str() );
-        if ( !parsed.has_value() )
+        auto parsed = Common::Json::ReadFile<GameSettings>( path );
+        if ( !parsed )
         {
-            LOG_ERROR( "[Project] {} does not parse: {}", path.string(), parsed.error().what() );
+            LOG_ERROR( "[Project] {} does not parse: {}", path.string(), parsed.GetError() );
             return settings;
         }
-        settings = std::move( parsed.value() );
+        settings = parsed.GetValue();
         return settings;
     }
 

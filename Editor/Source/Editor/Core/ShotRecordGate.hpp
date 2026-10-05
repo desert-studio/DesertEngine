@@ -53,9 +53,12 @@ namespace Desert::Editor
             const bool settled = !frame.SceneLoadPending && !frame.StartupLoading && !frame.SplashOnScreen &&
                                  !frame.ContentSettling && frame.ViewportWidth > 0 && frame.ViewportHeight > 0;
             const bool sameSize = frame.ViewportWidth == m_LastWidth && frame.ViewportHeight == m_LastHeight;
-            m_StableFrames      = !settled ? 0 : ( sameSize ? m_StableFrames + 1 : 1 );
-            m_LastWidth         = frame.ViewportWidth;
-            m_LastHeight        = frame.ViewportHeight;
+            if ( !settled )
+                m_StableFrames = 0;
+            else
+                m_StableFrames = sameSize ? m_StableFrames + 1 : 1;
+            m_LastWidth  = frame.ViewportWidth;
+            m_LastHeight = frame.ViewportHeight;
 
             bool ready = settled && m_StableFrames >= kStableFrames;
             if ( ready && m_Recording )
@@ -71,20 +74,20 @@ namespace Desert::Editor
         }
 
         // Whether the frame last admitted is recorded.
-        bool Live() const
+        [[nodiscard]] bool Live() const
         {
             return m_Live;
         }
         // Whether the capture has begun: the first recorded frame has been admitted.
-        bool Recording() const
+        [[nodiscard]] bool Recording() const
         {
             return m_Recording;
         }
-        uint32_t RecordWidth() const
+        [[nodiscard]] uint32_t RecordWidth() const
         {
             return m_RecordWidth;
         }
-        uint32_t RecordHeight() const
+        [[nodiscard]] uint32_t RecordHeight() const
         {
             return m_RecordHeight;
         }

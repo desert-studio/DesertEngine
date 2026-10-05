@@ -892,6 +892,21 @@ namespace Desert::Tests::PointerCensus
           "the same as Content: a pooled target's Image acquired in this frame's RenderRetained and read by this "
           "frame's Flush; null means no mask and Flush binds m_WhiteImage instead" },
         { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedJob", "Owner", Guard::CallScoped,
+          "the Render2D whose list holds the command: this, or a pooled RetainedTarget::Renderer (unique_ptr in m_RetainedPool, which nothing releases inside RenderRetainedOf). The job lives in RenderRetainedOf's local vector and is consumed before it returns" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedJob", "Cmd", Guard::CallScoped,
+          "a DrawCommand of a list RenderRetainedOf walks (the root it was handed, or a pooled target's layer list); no list is reset or appended to while the local job vector lives, so the address holds for the call" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedJob", "Target", Guard::CallScoped,
+          "a RetainedTarget acquired in this call from m_RetainedPool, held by unique_ptr so it does not move when the pool grows; the pool's only release (RenderRetained's erase_if) runs after RenderRetainedOf returns" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedJob", "Layer", Guard::CallScoped,
+          "a layer of the list being walked (root's or a pooled target renderer's GetLayers(), unique_ptr-owned); nothing clears those lists inside RenderRetainedOf, which consumes the job before it returns" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedJob", "Mask", Guard::CallScoped,
+          "a RetainedTarget::Image of a mask job drawn earlier in the same RenderRetainedOf call; the target is pooled by unique_ptr and not released until after the call returns" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
           "Render2D", "m_Retained", Guard::IdentityOnly,
           "keyed by the ADDRESS of a DrawCommand in m_DrawList, found with find( &cmd ) and never dereferenced. A "
           "recycled address cannot be mistaken for an old command because BeginFrame clears this map in the same "

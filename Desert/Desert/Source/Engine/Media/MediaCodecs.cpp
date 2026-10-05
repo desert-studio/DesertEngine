@@ -15,7 +15,7 @@ namespace Desert::Media
 
     Av1VideoDecoder::~Av1VideoDecoder()
     {
-        if ( m_Context )
+        if ( m_Context != nullptr )
             dav1d_close( &m_Context );
     }
 
@@ -49,7 +49,8 @@ namespace Desert::Media
             frame.Width    = static_cast<uint32_t>( picture.p.w );
             frame.Height   = static_cast<uint32_t>( picture.p.h );
             frame.BitDepth = static_cast<uint32_t>( picture.p.bpc );
-            uint32_t ssx = 0, ssy = 0;
+            uint32_t ssx   = 0;
+            uint32_t ssy   = 0;
             switch ( picture.p.layout )
             {
                 case DAV1D_PIXEL_LAYOUT_I400:
@@ -67,7 +68,7 @@ namespace Desert::Media
                     frame.Chroma = MediaChroma::I444;
                     break;
             }
-            if ( picture.seq_hdr )
+            if ( picture.seq_hdr != nullptr )
             {
                 switch ( picture.seq_hdr->mtrx )
                 {
@@ -109,7 +110,7 @@ namespace Desert::Media
     {
         Dav1dData data{};
         uint8_t*  buffer = dav1d_data_create( &data, packet.Data.size() );
-        if ( !buffer )
+        if ( buffer == nullptr )
         {
             m_Error = "dav1d_data_create failed (out of memory)";
             return false;
@@ -144,7 +145,7 @@ namespace Desert::Media
 
     void Av1VideoDecoder::Flush()
     {
-        if ( m_Context )
+        if ( m_Context != nullptr )
             dav1d_flush( m_Context );
     }
 
@@ -152,9 +153,9 @@ namespace Desert::Media
 
     OpusAudioDecoder::~OpusAudioDecoder()
     {
-        if ( m_Decoder )
+        if ( m_Decoder != nullptr )
             opus_decoder_destroy( m_Decoder );
-        if ( m_MultiStream )
+        if ( m_MultiStream != nullptr )
             opus_multistream_decoder_destroy( m_MultiStream );
     }
 
@@ -189,14 +190,15 @@ namespace Desert::Media
         const auto* data = packet.Data.data();
         const auto  size = static_cast<opus_int32>( packet.Data.size() );
         const int   frames =
-             m_Decoder ? opus_decode_float( m_Decoder, data, size, m_Scratch.data(), 5760, 0 )
-                         : opus_multistream_decode_float( m_MultiStream, data, size, m_Scratch.data(), 5760, 0 );
+             m_Decoder != nullptr
+                    ? opus_decode_float( m_Decoder, data, size, m_Scratch.data(), 5760, 0 )
+                    : opus_multistream_decode_float( m_MultiStream, data, size, m_Scratch.data(), 5760, 0 );
         if ( frames < 0 )
         {
             m_Error = std::format( "opus decode failed at {} ns: {}", packet.PtsNs, opus_strerror( frames ) );
             return -1;
         }
-        uint32_t first = std::min<uint32_t>( m_SkipLeft, static_cast<uint32_t>( frames ) );
+        const uint32_t first = std::min<uint32_t>( m_SkipLeft, static_cast<uint32_t>( frames ) );
         m_SkipLeft -= first;
         const int64_t discard =
              packet.DiscardPaddingNs > 0 ? ( packet.DiscardPaddingNs * kSampleRate + 500000000 ) / 1000000000 : 0;
@@ -208,9 +210,9 @@ namespace Desert::Media
 
     void OpusAudioDecoder::Reset( bool fromStart )
     {
-        if ( m_Decoder )
+        if ( m_Decoder != nullptr )
             opus_decoder_ctl( m_Decoder, OPUS_RESET_STATE );
-        if ( m_MultiStream )
+        if ( m_MultiStream != nullptr )
             opus_multistream_decoder_ctl( m_MultiStream, OPUS_RESET_STATE );
         m_SkipLeft = fromStart ? m_PreSkip : 0;
     }
