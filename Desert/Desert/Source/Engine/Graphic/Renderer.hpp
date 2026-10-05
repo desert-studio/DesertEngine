@@ -93,6 +93,11 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr DrawFullscreen( const RDG::PassBindings& bindings,
                                                             const GraphicsPipeline&  pipeline,
                                                             const MaterialExecutor*  material );
+        // The same contract as DrawFullscreen for a vertex stage that builds @p vertexCount (> 0) vertices from
+        // gl_VertexIndex with no vertex buffer, e.g. the SSR tile grid (six per tile, unmarked tiles collapsed).
+        [[nodiscard]] Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings,
+                                                            const GraphicsPipeline&  pipeline,
+                                                            const MaterialExecutor* material, uint32_t vertexCount );
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).

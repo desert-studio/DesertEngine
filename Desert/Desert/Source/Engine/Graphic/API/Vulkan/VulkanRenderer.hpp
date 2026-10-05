@@ -74,8 +74,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings, const ComputePipeline& pipeline,
                                                uint32_t groupCountX, uint32_t groupCountY,
                                                uint32_t groupCountZ ) override;
-        Common::BoolResultStr DrawFullscreen( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
-                                              const MaterialExecutor* material ) override;
+        Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                              const MaterialExecutor* material, uint32_t vertexCount ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;

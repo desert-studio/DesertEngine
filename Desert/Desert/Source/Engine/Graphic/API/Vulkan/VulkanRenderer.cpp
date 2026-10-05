@@ -806,10 +806,12 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::DrawFullscreen( const RDG::PassBindings& bindings,
+    Common::BoolResultStr VulkanRendererAPI::DrawProcedural( const RDG::PassBindings& bindings,
                                                              const GraphicsPipeline&  pipeline,
-                                                             const MaterialExecutor*  material )
+                                                             const MaterialExecutor* material, uint32_t vertexCount )
     {
+        if ( vertexCount == 0u )
+            return Common::MakeFormattedError( "{}: a procedural draw of zero vertices", bindings.GetContext().GetPassName() );
         const RDG::PassContext&                  context = bindings.GetContext();
         const std::string_view                   pass    = context.GetPassName();
         const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
@@ -907,9 +909,8 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(),
                                 static_cast<VkShaderStageFlags>( reflection.PushConstantRanges->ShaderStage ), 0,
                                 static_cast<uint32_t>( push.size() ), push.data() );
-        // The draw SubmitFullscreenQuad records: the fullscreen vertex shaders build their quad from
-        // gl_VertexIndex over six vertices.
-        DrawCounted( 6, 1, 0, 0 );
+        // The vertex stage builds its geometry from gl_VertexIndex (six for the fullscreen quad).
+        DrawCounted( vertexCount, 1, 0, 0 );
         return Common::MakeSuccess( true );
     }
 

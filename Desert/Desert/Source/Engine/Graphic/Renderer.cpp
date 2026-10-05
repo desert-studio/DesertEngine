@@ -185,7 +185,16 @@ namespace Desert::Graphic
     Common::BoolResultStr Renderer::DrawFullscreen( const RDG::PassBindings& bindings,
                                                     const GraphicsPipeline& pipeline, const MaterialExecutor* material )
     {
-        return s_RendererAPI->DrawFullscreen( bindings, pipeline, material );
+        // The draw SubmitFullscreenQuad records: the fullscreen vertex shaders build their quad from
+        // gl_VertexIndex over six vertices.
+        return s_RendererAPI->DrawProcedural( bindings, pipeline, material, 6u );
+    }
+
+    Common::BoolResultStr Renderer::DrawProcedural( const RDG::PassBindings& bindings,
+                                                    const GraphicsPipeline& pipeline, const MaterialExecutor* material,
+                                                    uint32_t vertexCount )
+    {
+        return s_RendererAPI->DrawProcedural( bindings, pipeline, material, vertexCount );
     }
 
     void Renderer::ComputeImageBeginWrite( Image* image )

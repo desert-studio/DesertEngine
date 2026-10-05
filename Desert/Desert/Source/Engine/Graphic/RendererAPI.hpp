@@ -134,9 +134,12 @@ namespace Desert::Graphic
                                                                      const ComputePipeline&   pipeline,
                                                                      uint32_t groupCountX, uint32_t groupCountY,
                                                                      uint32_t groupCountZ ) = 0;
-        [[nodiscard]] virtual Common::BoolResultStr DrawFullscreen( const RDG::PassBindings& bindings,
+        // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices whose vertex stage builds its geometry
+        // from gl_VertexIndex (the fullscreen quad is six; the SSR tile grid is six per tile).
+        [[nodiscard]] virtual Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings,
                                                                     const GraphicsPipeline&  pipeline,
-                                                                    const MaterialExecutor*  material ) = 0;
+                                                                    const MaterialExecutor*  material,
+                                                                    uint32_t                 vertexCount ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.
