@@ -671,7 +671,7 @@ namespace Desert::Editor
     {
         if ( !m_SkeletonAsset )
             return Common::MakeError<bool>( "no skeleton is loaded in this window" );
-        // A RENAMED BONE IS CARRIED INTO THE SKELETON'S CLIPS (files by the registry's Rig tag, and the ones
+        // A RENAMED BONE IS CARRIED INTO THE SKELETON'S CLIPS AND RETARGETS (files by the registry, and the ones
         // resident in this manager in memory) by the save itself - the one point
         // (Assets::RenameBonesInSkeletonAssets).
         if ( const auto saved = Assets::Serialization::SaveSkeletonAsset(

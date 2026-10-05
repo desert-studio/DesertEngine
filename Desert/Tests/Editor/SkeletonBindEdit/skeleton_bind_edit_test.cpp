@@ -11,6 +11,7 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
+#include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -220,6 +221,60 @@ TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheSkeletonAndItsClip )
     EXPECT_EQ( bindings[0].Guid, child.Guid ) << "the binding keeps its identity across the rename";
     EXPECT_EQ( rig->GetSkeleton()->FindBoneIndex( bindings[0].Locator ), std::optional<uint32_t>( 1U ) )
          << "the clip's channel finds the bone";
+    Editor::CommandHistory::Get().DropFor( rig.get() );
+}
+
+// ANIM-FIX4b2: a retarget whose SOURCE rig is the renamed skeleton names its source bones by the new name after
+// Save; its target side (the entity's own rig, not stated in the file) and a retarget of another rig are kept.
+TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheRetargetsOfItsSkeleton )
+{
+    const auto           dir  = TempDir( "rename-retarget" );
+    const auto           file = WriteRig( dir );
+    Assets::AssetManager manager;
+    auto                 rig = manager.CreateAsset<Assets::SkeletonAsset>( Common::Filepath( file ) );
+    ASSERT_TRUE( rig->Load().IsSuccess() );
+
+    const auto retargetOf = [&]( const Common::Content::AssetGuid& source, const char* name )
+    {
+        Assets::Serialization::RetargetAssetData data;
+        data.Name                           = name;
+        data.SourceSkeleton                 = { Common::Content::AssetGuidToText( source ), "bind.skeleton" };
+        data.SourcePelvisBone               = "Root";
+        data.TargetPelvisBone               = "Root";
+        data.SourceRetargetPose.BoneOffsets = { { "Child", glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } };
+        data.TargetRetargetPose.BoneOffsets = { { "Child", glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } };
+        data.Chains                         = { { "Arm", "Root", "Child", "Root", "Child", false } };
+        data.BoneRenames                    = { { "Hand", "Child" } };
+        const auto path                     = dir / ( std::string( name ) + ".retarget" );
+        EXPECT_TRUE( Assets::Serialization::SaveRetargetFile( path, data ).IsSuccess() );
+        return path;
+    };
+    const auto ours   = retargetOf( kRigGuid, "ours" );
+    const auto theirs = retargetOf( Common::Content::AssetGuid{ 0x1ull, 0x2ull }, "theirs" );
+
+    ASSERT_TRUE( Editor::CommitBoneRename( rig, 1U, "Forearm" ).IsSuccess() );
+    Assets::SkeletonReferrers referrers;
+    referrers.RetargetFiles = { ours, theirs };
+    ASSERT_TRUE( Assets::Serialization::SaveSkeletonAsset( *rig, referrers ).IsSuccess() );
+
+    const auto renamed = Assets::Serialization::LoadRetargetFile( ours );
+    ASSERT_TRUE( renamed.IsSuccess() );
+    const auto& r = renamed.GetValue();
+    EXPECT_EQ( r.SourcePelvisBone, "Root" ) << "a bone that was not renamed keeps its name";
+    ASSERT_EQ( r.Chains.size(), 1U );
+    EXPECT_EQ( r.Chains[0].SourceStartBone, "Root" );
+    EXPECT_EQ( r.Chains[0].SourceEndBone, "Forearm" ) << "the chain names the source bone by its new name";
+    EXPECT_EQ( r.Chains[0].TargetEndBone, "Child" ) << "the target side is the entity's rig, not this one";
+    ASSERT_EQ( r.SourceRetargetPose.BoneOffsets.size(), 1U );
+    EXPECT_EQ( r.SourceRetargetPose.BoneOffsets[0].Bone, "Forearm" ) << "the source retarget pose follows";
+    EXPECT_EQ( r.TargetRetargetPose.BoneOffsets[0].Bone, "Child" );
+    ASSERT_EQ( r.BoneRenames.size(), 1U );
+    EXPECT_EQ( r.BoneRenames[0].SourceBone, "Forearm" ) << "the target->source pair names the new source bone";
+    EXPECT_EQ( r.BoneRenames[0].TargetBone, "Hand" );
+
+    const auto other = Assets::Serialization::LoadRetargetFile( theirs );
+    ASSERT_TRUE( other.IsSuccess() );
+    EXPECT_EQ( other.GetValue().Chains[0].SourceEndBone, "Child" ) << "a retarget of another rig is not touched";
     Editor::CommandHistory::Get().DropFor( rig.get() );
 }
 
