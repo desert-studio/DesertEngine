@@ -1,5 +1,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanGpuBatch.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -292,6 +293,61 @@ namespace Desert::Graphic::API::Vulkan
         CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
         allocator->RT_DestroyBuffer( staging, stagingAlloc );
 
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanImage2D::RecordSetData( GpuBatch&                            batch,
+                                                        const Core::Formats::ImagePixelData& data )
+    {
+        if ( !m_IsLoaded || m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeError<bool>( "Image2D::RecordSetData on an uninitialised image" );
+        if ( !Core::Formats::HasData( data ) )
+            return Common::MakeError<bool>( "Image2D::RecordSetData with empty pixel data" );
+        const VkCommandBuffer cmd = RecordingBuffer( batch );
+        if ( cmd == VK_NULL_HANDLE )
+            return Common::MakeError<bool>( "Image2D::RecordSetData into a batch that was already submitted" );
+
+        auto* allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                               ->GetVulkanAllocator()
+                               .get();
+        const uint64_t size = Core::Formats::CalculateImageSize( m_Specification.Width, m_Specification.Height,
+                                                                 m_Specification.Format );
+
+        VkBuffer           staging = VK_NULL_HANDLE;
+        VkBufferCreateInfo bInfo   = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                       .size  = size,
+                                       .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
+        const auto         stagingResult =
+             allocator->RT_AllocateBuffer( "RecordSetDataStaging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
+        if ( !stagingResult.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "Image2D::RecordSetData: {} byte staging buffer failed: {}",
+                                                     size, stagingResult.GetError() );
+        const VmaAllocation stagingAlloc = stagingResult.GetValue();
+        {
+            MappedMemory staged = allocator->MapMemory( stagingAlloc );
+            const auto   wrote  = staged.Write( Utils::GetPixelDataPtr( data ), static_cast<size_t>( size ) );
+            if ( !wrote.IsSuccess() )
+            {
+                allocator->RT_DestroyBuffer( staging, stagingAlloc );
+                return Common::MakeFormattedError<bool>( "Image2D::RecordSetData: {}", wrote.GetError() );
+            }
+        }
+        // The staging copy belongs to the batch from here: it is released when the batch is (after the GPU).
+        // (A null owner whose deleter is the release: shared_ptr calls it on the null pointer it owns.)
+        batch.Retain( std::shared_ptr<const void>( nullptr, [allocator, staging, stagingAlloc]( const void* )
+                                                   { allocator->RT_DestroyBuffer( staging, stagingAlloc ); } ) );
+
+        // Write-after-read on the previous frame's readers (any shader stage, earlier on the queue), then the
+        // copy, then visible to every shader that reads it after this batch.
+        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT );
+        VkBufferImageCopy copy = {
+             .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
+             .imageExtent      = { m_Specification.Width, m_Specification.Height, 1 } };
+        vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
+        TransitionLayout( cmd, Utils::GetDefaultLayout( m_Specification.Format, m_Specification.Properties ),
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT );
         return BOOLSUCCESS;
     }
 

@@ -11,7 +11,9 @@
  * another element that is walked first.
  *
  * The player lives in the component (scene state, scrubbed by the Sequencer) and only the view that drives
- * scene animation advances it; every other view evaluates the same playhead without moving it.
+ * scene animation creates and advances it; every other view evaluates the same playhead without moving it.
+ * AutoPlay starts a clip only in a GAME world (Play-in-editor, the packaged game, the movie render): an
+ * authored level shows the frame under the playhead, as UE's designer does, and Play starts the run at t = 0.
  */
 
 #include <Engine/Animation/Timeline/Evaluator.hpp>
@@ -19,6 +21,7 @@
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -31,6 +34,12 @@ namespace Desert::UI
         glm::vec2 Offset = glm::vec2( 0.0F );
         glm::vec2 Size   = glm::vec2( 0.0F );
         glm::vec4 Tint   = glm::vec4( 1.0F );
+        /// "Reveal" (UIPath): the keyed fraction of the line's length, REPLACING the authored one while the
+        /// clip drives it. Unset = the clip does not touch it.
+        std::optional<float> Reveal;
+        /// "HazeAmplitude" (UIRetainer): the keyed heat-haze amplitude in design px, REPLACING the authored one
+        /// while the clip drives it. Unset = the clip does not touch it.
+        std::optional<float> HazeAmplitude;
     };
 
     /// One view's clip results for the frame. Cleared and refilled by `PlayUIAnimations`.
@@ -54,9 +63,11 @@ namespace Desert::UI
     /**
      * @brief Step (when @p advance) and evaluate every UI clip of @p reg, writing each driven element's sample.
      *
-     * A clip without a player gets one from its sequence's TickRate/Start/End, its LoopMode, and — when
-     * AutoPlay — started. A Widget binding whose element is not in the scene, and a property the UI host does
+     * A clip without a player gets one — from the driving view (@p advance) only — from its sequence's
+     * TickRate/Start/End, its LoopMode, and — when AutoPlay and @p gameWorld — started; a view that does not
+     * drive evaluates such a clip at its Start. A Widget binding whose element is not in the scene, and a property the UI host does
      * not know, are reported by name once and skipped.
      */
-    void PlayUIAnimations( entt::registry& reg, float dtSeconds, bool advance, UIClipFrame& frame );
+    void PlayUIAnimations( entt::registry& reg, float dtSeconds, bool advance, bool gameWorld,
+                           UIClipFrame& frame );
 } // namespace Desert::UI

@@ -103,7 +103,7 @@ namespace Desert::Runtime
         ADD_FAILURE() << "AnimatedImageService::Resolve reached with no animated image service";
         return nullptr;
     }
-    Graphic::Image2D* VideoService::Resolve( uint64_t )
+    Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
     {
         ADD_FAILURE() << "VideoService::Resolve reached with no video service";
         return nullptr;

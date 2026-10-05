@@ -188,7 +188,7 @@ namespace Desert::Engine
             DESERT_PROFILE_FRAME( "Frame" );
 
             float    time     = (float)glfwGetTime();
-            float    timestep = time - m_LastFrameTime;
+            float    timestep = m_FixedDeltaTime.has_value() ? *m_FixedDeltaTime : time - m_LastFrameTime;
             m_LastFrameTime   = time;
 
             m_EngineStats.Update();

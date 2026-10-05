@@ -219,7 +219,6 @@ namespace Desert::Graphic::API::Vulkan
         auto window            = m_Window.lock();
         auto vulkanSwap        = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
         auto framebuffer       = vulkanSwap->GetCompositeFramebuffer();
-        m_CompositeFramebuffer = framebuffer;
 
         uint32_t imageIndex = vulkanSwap->GetCurrentBufferIndex();
 
@@ -816,9 +815,16 @@ namespace Desert::Graphic::API::Vulkan
         // Through the device, not vkDeviceWaitIdle here: it must hold the queue lock (VK1).
         EngineContext::GetInstance().GetDevice()->WaitIdle();
     }
+    // The swapchain's own framebuffer, asked of the swapchain itself rather than remembered by the last
+    // BeginSwapChainRenderPass: a frame sizes and prepares its UI (retained layers render into their own
+    // targets) BEFORE it opens the swapchain pass, so the answer may not depend on a pass being open.
     std::shared_ptr<Framebuffer> VulkanRendererAPI::GetCompositeFramebuffer() const
     {
-        return m_CompositeFramebuffer.lock();
+        const auto window = m_Window.lock();
+        if ( !window )
+            return nullptr;
+        const auto vulkanSwap = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
+        return vulkanSwap ? vulkanSwap->GetCompositeFramebuffer() : nullptr;
     }
     void VulkanRendererAPI::SetViewportAndScissor( const uint32_t width, const uint32_t height )
     {

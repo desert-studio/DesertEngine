@@ -26,6 +26,7 @@ project(test_name)
         -- ANIM-I9: the walk folds in the frame's UI clips, which are Timeline sequences stepped and evaluated
         -- by UIAnimationPlayback (the UIAnimation host) — so the timeline core comes with it.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UIAnimationPlayback.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UIPathGeometry.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Player.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Binding.cpp",

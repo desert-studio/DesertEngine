@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 
 namespace Desert::Graphic::Render2D
 {
@@ -37,6 +38,8 @@ namespace Desert::Graphic::Render2D
         m_Vertices.clear();
         m_Indices.clear();
         m_Commands.clear();
+        m_Layers.clear();
+        m_MaskLayers.clear();
         m_ClipStack.clear();
         m_Clip = ClipRegion2D{};
         m_TransformStack.clear();
@@ -114,9 +117,12 @@ namespace Desert::Graphic::Render2D
         // The OBLIQUE half of the clip is deliberately absent from this key: it never reaches the GPU, so
         // two batches cut by two different rotated clippers that happen to share a scissor box may still be
         // one draw call. That is the whole reason exact clipping costs no draw call at all.
-        if ( !m_Commands.empty() && !m_Commands.back().Glass && m_Commands.back().Texture == texture &&
-             m_Commands.back().Text == text && m_Commands.back().Material == material &&
-             m_Commands.back().ClipRect == scissor )
+        // A retained composite is never extended either: it draws its quad with the LAYER's picture, so a
+        // flat fill appended to it (the next sibling after a Retainer Box) was drawn as more of that picture
+        // and the sibling itself never appeared.
+        if ( !m_Commands.empty() && !m_Commands.back().Glass && !m_Commands.back().Retained &&
+             m_Commands.back().Texture == texture && m_Commands.back().Text == text &&
+             m_Commands.back().Material == material && m_Commands.back().ClipRect == scissor )
             return m_Commands.back();
 
         DrawCommand cmd;
@@ -341,13 +347,16 @@ namespace Desert::Graphic::Render2D
             return;
 
         // Rounded: a triangle fan from the centre around a perimeter of four quarter-circle corner arcs (the
-        // straight edges fall out between consecutive corner endpoints). y-down: angle 0=+x, PI/2=+y(down).
+        // straight edges fall out between consecutive corner endpoints), then a one-pixel fringe strip that
+        // fades the edge to transparent — the coverage a rasterised hard edge lacks, so a disc or a dune
+        // arc reads as a curve and not as a staircase. y-down: angle 0=+x, PI/2=+y(down).
         constexpr float PI      = 3.14159265358979323846f;
-        constexpr int   kSeg    = 6; // segments per corner
-        constexpr int   kPerim  = 4 * ( kSeg + 1 );
+        const int       kSeg    = RoundedCornerSegments( r );
+        const uint32_t  kPerim  = 4u * static_cast<uint32_t>( kSeg + 1 );
         DrawCommand&    cmd     = CurrentCommand( nullptr, false );
         const glm::vec2 centre  = ( min + max ) * 0.5f;
         const Vertex2D  centreV = { Xf( centre ), { 0.5f, 0.5f }, color };
+        const glm::vec4 clear   = { color.r, color.g, color.b, 0.0f };
 
         const glm::vec2 cc[4] = { { min.x + r, min.y + r },
                                   { max.x - r, min.y + r },
@@ -355,17 +364,40 @@ namespace Desert::Graphic::Render2D
                                   { min.x + r, max.y - r } };
         const float     a0[4] = { PI, PI * 1.5f, 0.0f, PI * 0.5f }; // each arc sweeps +PI/2, clockwise (y-down)
 
-        std::array<Vertex2D, kPerim> rim{};
-        uint32_t                     perim = 0;
+        // The true edge sits midway through the fringe: the solid fill stops half a pixel inside it and the
+        // fringe ends half a pixel outside it, so the filled area is the authored one.
+        std::vector<Vertex2D> rim( kPerim );
+        std::vector<Vertex2D> fringe( static_cast<size_t>( kPerim + 1 ) * 2 ); // closed: pair 0 repeated
+        uint32_t              perim = 0;
         for ( int c = 0; c < 4; ++c )
             for ( int s = 0; s <= kSeg; ++s )
             {
-                const float     a = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / kSeg );
-                const glm::vec2 p = cc[c] + glm::vec2( std::cos( a ), std::sin( a ) ) * r;
-                rim[perim++]      = { Xf( p ), { 0.5f, 0.5f }, color };
+                const float     a     = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / kSeg );
+                const glm::vec2 dir   = { std::cos( a ), std::sin( a ) };
+                const glm::vec2 in    = cc[c] + dir * ( r - kEdgeFringe * 0.5f );
+                const glm::vec2 out   = cc[c] + dir * ( r + kEdgeFringe * 0.5f );
+                rim[perim]            = { Xf( in ), { 0.5f, 0.5f }, color };
+                fringe[perim * 2]     = { Xf( out ), { 0.5f, 0.5f }, clear };
+                fringe[perim * 2 + 1] = rim[perim];
+                ++perim;
             }
+        fringe[static_cast<size_t>( kPerim ) * 2]     = fringe[0];
+        fringe[static_cast<size_t>( kPerim ) * 2 + 1] = fringe[1];
 
         EmitClosedFan( cmd, centreV, rim.data(), perim );
+        EmitStrip( cmd, fringe.data(), kPerim + 1 );
+    }
+
+    int DrawList2D::RoundedCornerSegments( float radius )
+    {
+        // Segments per quarter circle so that no chord strays more than kArcError px from the arc: a chord
+        // spanning angle t has sagitta r*(1-cos(t/2)). A 6-segment floor keeps small corners as they were; the
+        // cap bounds a radius larger than any screen.
+        if ( radius <= kArcError )
+            return 6;
+        const float step = 2.0f * std::acos( 1.0f - kArcError / radius );
+        const int   n    = static_cast<int>( std::ceil( ( 3.14159265358979323846f * 0.5f ) / step ) );
+        return std::clamp( n, 6, 512 );
     }
 
     void DrawList2D::AddImage( const void* texture, const glm::vec2& min, const glm::vec2& max,
@@ -447,6 +479,102 @@ namespace Desert::Graphic::Render2D
         EmitPoly( cmd, corners, 4 );
     }
 
+    void DrawList2D::AddPolyline( const glm::vec2* points, uint32_t count, const glm::vec4& color, float thickness,
+                                  float feather, bool roundCaps )
+    {
+        if ( count < 2 || points == nullptr || ClipRegionEmpty( m_Clip ) )
+            return;
+
+        // A core thinner than a pixel cannot be drawn thinner — it is drawn one pixel wide and fainter,
+        // which is what coverage of a sub-pixel line actually is.
+        glm::vec4   core = color;
+        const float hw   = std::max( thickness, 1.0f ) * 0.5f;
+        if ( thickness < 1.0f )
+            core.a *= std::max( thickness, 0.0f );
+        const float     fw    = std::max( feather, 0.0f );
+        const glm::vec4 clear = glm::vec4( glm::vec3( core ), 0.0f );
+        const glm::vec2 uv    = { 0.5f, 0.5f };
+
+        auto segDir = [&]( uint32_t i ) // direction of segment i -> i+1, unit (zero for a degenerate one)
+        {
+            const glm::vec2 d   = points[i + 1] - points[i];
+            const float     len = std::sqrt( d.x * d.x + d.y * d.y );
+            return len > 1e-6f ? d / len : glm::vec2( 0.0f );
+        };
+
+        // Per-vertex offset direction: the mitre of the two adjacent segment normals.
+        std::vector<glm::vec2> miter( count );
+        for ( uint32_t i = 0; i < count; ++i )
+        {
+            const glm::vec2 dIn  = i > 0 ? segDir( i - 1 ) : segDir( 0 );
+            const glm::vec2 dOut = i + 1 < count ? segDir( i ) : segDir( count - 2 );
+            const glm::vec2 nIn  = { -dIn.y, dIn.x };
+            const glm::vec2 nOut = { -dOut.y, dOut.x };
+            glm::vec2       m    = nIn + nOut;
+            const float     ml   = std::sqrt( m.x * m.x + m.y * m.y );
+            if ( ml < 1e-4f )
+            {
+                miter[i] = nOut; // a 180-degree turn: no mitre exists, keep the outgoing normal
+                continue;
+            }
+            m /= ml;
+            const float cosHalf = std::max( m.x * nOut.x + m.y * nOut.y, 0.25f ); // cap the spike at 4x
+            miter[i]            = m / cosHalf;
+        }
+
+        DrawCommand&          cmd = CurrentCommand( nullptr, false );
+        std::vector<Vertex2D> pairs( static_cast<size_t>( count ) * 2 );
+        auto strip = [&]( float outer, const glm::vec4& outerColor, float inner, const glm::vec4& innerColor )
+        {
+            for ( uint32_t i = 0; i < count; ++i )
+            {
+                pairs[i * 2]     = { Xf( points[i] + miter[i] * outer ), uv, outerColor };
+                pairs[i * 2 + 1] = { Xf( points[i] + miter[i] * inner ), uv, innerColor };
+            }
+            EmitStrip( cmd, pairs.data(), count );
+        };
+        strip( hw, core, -hw, core ); // the solid core
+        if ( fw > 0.0f )
+        {
+            strip( hw + fw, clear, hw, core );   // left fringe
+            strip( -hw - fw, clear, -hw, core ); // right fringe
+        }
+
+        if ( !roundCaps )
+            return;
+
+        // Half-discs at both ends, swept from +normal through the outward tangent to -normal.
+        constexpr int kCapSegments = 12;
+        auto          cap          = [&]( const glm::vec2& c, const glm::vec2& outward )
+        {
+            const glm::vec2                         n = { -outward.y, outward.x };
+            std::array<glm::vec2, kCapSegments + 1> dir{};
+            for ( int k = 0; k <= kCapSegments; ++k )
+            {
+                const float a = 3.14159265358979f * static_cast<float>( k ) / kCapSegments;
+                dir[k]        = n * std::cos( a ) + outward * std::sin( a );
+            }
+            for ( int k = 0; k < kCapSegments; ++k )
+            {
+                const Vertex2D tri[3] = { { Xf( c ), uv, core },
+                                          { Xf( c + dir[k] * hw ), uv, core },
+                                          { Xf( c + dir[k + 1] * hw ), uv, core } };
+                EmitPoly( cmd, tri, 3 );
+            }
+            if ( fw <= 0.0f )
+                return;
+            std::array<Vertex2D, ( kCapSegments + 1 ) * 2> rim{};
+            for ( int k = 0; k <= kCapSegments; ++k )
+            {
+                rim[k * 2]     = { Xf( c + dir[k] * ( hw + fw ) ), uv, clear };
+                rim[k * 2 + 1] = { Xf( c + dir[k] * hw ), uv, core };
+            }
+            EmitStrip( cmd, rim.data(), kCapSegments + 1 );
+        };
+        cap( points[0], -segDir( 0 ) );
+        cap( points[count - 1], segDir( count - 2 ) );
+    }
+
     void DrawList2D::AddRing( const glm::vec2& center, float outerRadius, float innerRadius,
                               const glm::vec4& colorA, const glm::vec4& colorB, int segments )
     {
@@ -474,5 +602,72 @@ namespace Desert::Graphic::Render2D
         }
 
         EmitStrip( cmd, m_Scratch.data(), static_cast<uint32_t>( segments + 1 ) );
+    }
+
+    DrawList2D& DrawList2D::BeginRetainedLayer( uint32_t* outIndex )
+    {
+        m_Layers.push_back( std::make_unique<DrawList2D>() );
+        if ( outIndex )
+            *outIndex = static_cast<uint32_t>( m_Layers.size() - 1 );
+        return *m_Layers.back();
+    }
+
+    DrawList2D& DrawList2D::MaskLayer( int64_t key )
+    {
+        if ( const auto it = m_MaskLayers.find( key ); it != m_MaskLayers.end() )
+            return *m_Layers[it->second];
+        uint32_t    index = 0;
+        DrawList2D& layer = BeginRetainedLayer( &index );
+        m_MaskLayers.emplace( key, index );
+        return layer;
+    }
+
+    bool DrawList2D::Bounds( glm::vec4& out ) const
+    {
+        if ( m_Indices.empty() )
+            return false;
+        glm::vec2 mn( std::numeric_limits<float>::max() );
+        glm::vec2 mx( -std::numeric_limits<float>::max() );
+        for ( const uint32_t i : m_Indices )
+        {
+            mn = glm::min( mn, m_Vertices[i].Position );
+            mx = glm::max( mx, m_Vertices[i].Position );
+        }
+        out = glm::vec4( mn, mx );
+        return true;
+    }
+
+    bool DrawList2D::AddRetainedComposite( uint32_t layer, int64_t maskKey, const RetainerEffect& effect,
+                                           const glm::vec4& tint )
+    {
+        glm::vec4 b;
+        if ( layer >= m_Layers.size() || !m_Layers[layer]->Bounds( b ) )
+            return false;
+        const float grow = effect.Haze ? std::ceil( effect.HazeAmplitude ) : 0.0f;
+        // Whole pixels: the target is sized from this rect, and a fractional origin would resample the
+        // layer by a sub-pixel shift on every frame it moves.
+        const glm::vec2 mn = glm::floor( glm::vec2( b.x, b.y ) - grow );
+        const glm::vec2 mx = glm::ceil( glm::vec2( b.z, b.w ) + grow );
+
+        // Its own command, never merged: each composite binds its own layer picture and effect.
+        DrawCommand cmd;
+        cmd.ClipRect      = ScissorBox();
+        cmd.IndexOffset   = static_cast<uint32_t>( m_Indices.size() );
+        cmd.Retained      = true;
+        cmd.RetainedLayer = layer;
+        cmd.RetainedMask  = maskKey;
+        cmd.RetainedRect  = glm::vec4( mn, mx );
+        cmd.Effect        = effect;
+        m_Commands.push_back( cmd );
+        DrawCommand& c = m_Commands.back();
+
+        // The layer was recorded with this list's transforms already applied, so the quad is in plain
+        // screen px: applying the current transform again would rotate it twice.
+        const Vertex2D corners[4] = { { mn, { 0.0f, 0.0f }, tint },
+                                      { { mx.x, mn.y }, { 1.0f, 0.0f }, tint },
+                                      { mx, { 1.0f, 1.0f }, tint },
+                                      { { mn.x, mx.y }, { 0.0f, 1.0f }, tint } };
+        EmitPoly( c, corners, 4 );
+        return true;
     }
 } // namespace Desert::Graphic::Render2D

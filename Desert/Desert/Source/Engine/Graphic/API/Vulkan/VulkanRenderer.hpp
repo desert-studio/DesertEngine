@@ -139,8 +139,6 @@ namespace Desert::Graphic::API::Vulkan
 #if DESERT_DEV_INSTRUMENTS
         VulkanGpuProfiler m_GpuProfiler;
 #endif
-
-        std::weak_ptr<Framebuffer> m_CompositeFramebuffer;
     };
 
 } // namespace Desert::Graphic::API::Vulkan

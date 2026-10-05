@@ -144,6 +144,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UILayoutGroupComponent, Data
                                      "UI Layout Group" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIProgressBarComponent, Data, "UIProgressBarData",
                                      "UI Progress Bar" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIPathComponent, Data, "UIPathData", "UI Path" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIRetainerComponent, Data, "UIRetainerData", "UI Retainer" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIToggleComponent, Data, "UIToggleData", "UI Toggle" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UISliderComponent, Data, "UISliderData", "UI Slider" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIScrollViewComponent, Data, "UIScrollViewData",

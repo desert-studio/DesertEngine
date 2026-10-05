@@ -2,10 +2,13 @@
 
 #include <Engine/Graphic/Render2D/ClipRegion2D.hpp>
 #include <Engine/Graphic/Render2D/Transform2D.hpp>
+#include <Engine/Graphic/Render2D/RetainerEffect.hpp>
 
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <memory>
+#include <unordered_map>
 #include <vector>
 
 // CPU-side retained draw list for the 2D batcher — the analogue of ImGui's ImDrawList, but engine-owned.
@@ -67,6 +70,15 @@ namespace Desert::Graphic::Render2D
         // Screen px -> the rect's own space, so the mask above can be evaluated where the rect is
         // axis-aligned however the element is turned. Identity for an untransformed panel, and identity
         // maps gl_FragCoord onto itself EXACTLY, which is what keeps the untransformed picture unchanged.
+        // Retained-layer composite (UE Retainer Box): the quad shows layer RetainedLayer of the SAME list,
+        // rendered offscreen by Render2D::RenderRetained over RetainedRect, through Effect. RetainedMask is
+        // the key of a mask layer in the ROOT list (DrawList2D::MaskLayer), or -1.
+        bool           Retained      = false;
+        uint32_t       RetainedLayer = 0;
+        int64_t        RetainedMask  = -1;
+        glm::vec4      RetainedRect  = { 0.0f, 0.0f, 0.0f, 0.0f }; // min.xy, max.xy, screen px
+        RetainerEffect Effect;
+
         glm::mat3 GlassInverse = glm::mat3( 1.0f );
         // One screen pixel measured in that own space — the antialiasing feather, so a scaled-up panel
         // does not get a scaled-up soft edge. Exactly 1 when untransformed.
@@ -83,6 +95,13 @@ namespace Desert::Graphic::Render2D
         // rounds the corners (radius px, clamped to half the shorter side) via a triangle fan.
         void AddRectFilled( const glm::vec2& min, const glm::vec2& max, const glm::vec4& color,
                             float rounding = 0.0f );
+
+        // Rounded fills: the largest distance (px) a perimeter chord may stray from the true arc, and the width
+        // (px) of the transparent fringe that antialiases the curved edge. RoundedCornerSegments(r) is the
+        // per-corner segment count those bounds give for radius r (also read by tests).
+        static constexpr float kArcError   = 0.25f;
+        static constexpr float kEdgeFringe = 1.0f;
+        static int             RoundedCornerSegments( float radius );
 
         // Frosted-glass rectangle: fills with the BLURRED scene behind it, tinted by @p tint (its alpha is
         // how much of the tint covers the blur — 0 = pure blur, 1 = flat colour). @p blur01 picks how strong
@@ -106,6 +125,15 @@ namespace Desert::Graphic::Render2D
         // Straight line segment of pixel `thickness`, drawn as a quad (butt caps). Solid batch. Used by the
         // built-in vector icon set (checks, chevrons, strokes).
         void AddLine( const glm::vec2& a, const glm::vec2& b, const glm::vec4& color, float thickness );
+
+        // Open polyline stroke of pixel @p thickness through @p points (UIPath). Unlike AddLine it is
+        // ANTIALIASED by geometry: the solid core is flanked by @p feather px of fringe whose alpha falls
+        // to zero, so a curve drawn at any angle has a soft edge without MSAA or a shader. Joints are
+        // mitred (the miter is capped so a hairpin does not spike); @p roundCaps closes both ends with
+        // half-discs of the same fringe. The same call IS the glow: a wide stroke whose feather is the
+        // glow radius fades from @p color at the core to nothing at the edge. Solid batch.
+        void AddPolyline( const glm::vec2* points, uint32_t count, const glm::vec4& color, float thickness,
+                          float feather, bool roundCaps );
 
         // Annulus (ring) centred at `center`, from `innerRadius` to `outerRadius` (px), as a triangle strip.
         // The colour sweeps `colorA` -> `colorB` -> `colorA` around the ring (smooth, seamless), giving a
@@ -186,6 +214,31 @@ namespace Desert::Graphic::Render2D
         void AddText( const void* atlas, const glm::vec2& min, const glm::vec2& max, const glm::vec2& uv0,
                       const glm::vec2& uv1, const glm::vec4& color );
 
+        // RETAINED LAYERS (UE Retainer Box). BeginRetainedLayer hands out a fresh list the caller draws a
+        // subtree into, in the same screen px as this one; AddRetainedComposite then records the quad that
+        // shows it through an effect. MaskLayer(key) is the list an element named as a mask is captured
+        // into — one per element, shared by every retainer that names it. Nothing here touches the GPU:
+        // Render2D::RenderRetained turns the layers into pictures before the pass that Flushes this list.
+        DrawList2D& BeginRetainedLayer( uint32_t* outIndex );
+        DrawList2D& MaskLayer( int64_t key );
+        // Records the composite of layer @p layer over what that layer covers, grown by the haze amplitude
+        // (a displaced pixel may land outside the drawn shape). Returns false — and records nothing — when
+        // the layer drew nothing.
+        bool AddRetainedComposite( uint32_t layer, int64_t maskKey, const RetainerEffect& effect,
+                                   const glm::vec4& tint );
+
+        const std::vector<std::unique_ptr<DrawList2D>>& GetLayers() const
+        {
+            return m_Layers;
+        }
+        // Mask key -> index into GetLayers().
+        const std::unordered_map<int64_t, uint32_t>& GetMaskLayers() const
+        {
+            return m_MaskLayers;
+        }
+        // Axis-aligned bounds of everything recorded (min.xy, max.xy); false when empty.
+        bool Bounds( glm::vec4& out ) const;
+
         const std::vector<Vertex2D>& GetVertices() const
         {
             return m_Vertices;
@@ -254,6 +307,9 @@ namespace Desert::Graphic::Render2D
         // Staging for the one primitive whose corner count is not a compile-time constant (AddRing). Kept
         // on the list so its capacity survives Reset() like the geometry buffers' does.
         std::vector<Vertex2D> m_Scratch;
+
+        std::vector<std::unique_ptr<DrawList2D>> m_Layers;
+        std::unordered_map<int64_t, uint32_t>    m_MaskLayers;
 
         ClipRegion2D              m_Clip;
         std::vector<ClipRegion2D> m_ClipStack;

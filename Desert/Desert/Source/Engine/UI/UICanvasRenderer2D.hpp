@@ -41,6 +41,9 @@ namespace Desert::UI
         bool        Backspace = false;    // backspace pressed this frame
         bool        Tab       = false;    // Tab pressed: advance keyboard focus to the next focusable
         bool        Submit    = false;    // Enter pressed: activate the focused control (button/toggle/...)
+        // Directional focus step this frame: -1 = previous focusable (Up / W), +1 = next (Down / S), 0 = none.
+        // A menu is walked with the arrows the way UE's Slate navigation walks it; Tab is the same +1 step.
+        int Navigate = 0;
     };
 
     // --- A FRAME OF A VIEW, AND THE CANVASES INSIDE IT ------------------------------------------------

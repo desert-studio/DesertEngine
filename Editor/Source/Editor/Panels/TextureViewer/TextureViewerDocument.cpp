@@ -56,6 +56,8 @@ namespace Desert::Editor
                     return "BC5";
                 case F::R16_UNORM:
                     return "R16";
+                case F::R8_UNORM:
+                    return "R8";
                 case F::R32F:
                     return "R32F";
                 case F::Count:

@@ -475,6 +475,21 @@ namespace Desert::Tests::PointerCensus
           "the language asked for and not yet committed (its table may still be loading): a row of the same "
           "static `constexpr std::array` in LocaleFormat.cpp, taken from FindLocale exactly as m_Language is; "
           "nullptr once committed or refused" },
+        { "Desert/Desert/Source/Engine/Media/MediaCodecs.hpp",
+          "Av1VideoDecoder", "m_Context", Guard::OwningRaw,
+          "the dav1d decoder context made by dav1d_open in Open and released by dav1d_close in the destructor (MediaCodecs.cpp); a C handle with no C++ destructor, and the class is non-copyable" },
+        { "Desert/Desert/Source/Engine/Media/MediaCodecs.hpp",
+          "OpusAudioDecoder", "m_Decoder", Guard::OwningRaw,
+          "the libopus mono/stereo decoder made by opus_decoder_create in Open and released by opus_decoder_destroy in the destructor (MediaCodecs.cpp); a C handle, the class is non-copyable" },
+        { "Desert/Desert/Source/Engine/Media/MediaCodecs.hpp",
+          "OpusAudioDecoder", "m_MultiStream", Guard::OwningRaw,
+          "the libopus multistream decoder (more than two channels) made by opus_multistream_decoder_create in Open and released by opus_multistream_decoder_destroy in the destructor; a C handle, the class is non-copyable" },
+        { "Desert/Desert/Source/Engine/Media/MediaPlayer.hpp",
+          "MediaPlayer", "m_Sink", Guard::HostOutlivesUs,
+          "the audio sink is attached by the code that owns both it and the player (SetAudioSink, before Play) and must be detached or outlive the player; nullptr means the clock runs on Tick's delta" },
+        { "Desert/Desert/Source/Engine/Media/WebmDemuxer.cpp",
+          "Cursor", "Data", Guard::CallScoped,
+          "a read cursor over a byte span (the demuxer's file buffer or an element body inside it) built on the stack of one parse call and dropped when it returns; the span's owner outlives the call" },
         { "Desert/Desert/Source/Engine/Assets/StringTableAsset.hpp",
           "StringTableAsset", "m_Language", Guard::StaticStorage,
           "the language the table's file states, from Localization::StringTableLanguageOf, which returns a row "
@@ -860,9 +875,35 @@ namespace Desert::Tests::PointerCensus
           "ExecutorFor re-points the entry's Texture2DProperty with SetImage before every use, so the "
           "stale address is overwritten before anything reads it. The leak is closed by "
           "RetireUnusedExecutors, whose window is asserted rather than described" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedTarget", "Image", Guard::OwnedByThisObject,
+          "the colour attachment of Target, the shared_ptr<Framebuffer> beside it in the same struct, so the image "
+          "dies with the struct. The address is stable because AcquireRetainedTarget is the only caller of Resize "
+          "(once, at creation) and the spec is NoResizeble, so no window resize re-creates the attachment; the "
+          "struct itself is held by unique_ptr in m_RetainedPool and does not move when the pool grows" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedPicture", "Content", Guard::FrameScoped,
+          "a RetainedTarget::Image from m_RetainedPool, written by RenderRetained and read by the Flush of the "
+          "same frame (BeginFrame clears m_Retained). Nothing in that window frees it: the only pool release is "
+          "RenderRetained's own erase_if, which runs AFTER the pictures are written and spares every target "
+          "acquired this frame (LastUsedFrame == frame is inside the retire window)" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "RetainedPicture", "Mask", Guard::FrameScoped,
+          "the same as Content: a pooled target's Image acquired in this frame's RenderRetained and read by this "
+          "frame's Flush; null means no mask and Flush binds m_WhiteImage instead" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "Render2D", "m_Retained", Guard::IdentityOnly,
+          "keyed by the ADDRESS of a DrawCommand in m_DrawList, found with find( &cmd ) and never dereferenced. A "
+          "recycled address cannot be mistaken for an old command because BeginFrame clears this map in the same "
+          "call that Resets m_DrawList, so a key never outlives the list generation it was taken from; a command "
+          "vector that reallocated after RenderRetained would only MISS, and Flush refuses that composite with an error" },
         { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
           "ExternalPassSystem", "m_Renderer", Guard::ObservedContainsUs,
           "the SceneRenderer owns its render systems, so it cannot be destroyed while one of them is alive" },
+        { "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
+          "WalkCtx", "Root", Guard::CallScoped,
+          "set by RenderCanvas2D to its own DrawList2D& argument, and the WalkCtx is a local of that call consumed "
+          "by the recursive walk inside it; the caller's draw list outlives the call by construction" },
         { "Desert/Desert/Source/Engine/Graphic/SkyPresets.hpp",
           "SkyPresetEntry", "Name", Guard::StaticStorage,
           "a string literal in a constexpr preset table" },
@@ -1940,9 +1981,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.hpp",
           "MaterialService", "m_BuiltToAsset", Guard::IdentityOnly,
           "a reverse index keyed BY MATERIAL ADDRESS, never dereferenced; entries are removed when the material is graveyarded, which is what stops a recycled address from answering for the old one" },
-        { "Desert/Desert/Source/Engine/Runtime/Services/Video/VideoService.hpp",
-          "VideoPlayback", "Plm", Guard::OwningRaw,
-          "a pl_mpeg decoder this playback creates with plm_create_with_filename and destroys with plm_destroy; a C handle with no C++ destructor" },
         { "Desert/Desert/Source/Engine/Scripting/Internal/ScriptRuntime.hpp",
           "ScriptEntity", "scene", Guard::HostOutlivesUs,
           "the scene that owns the ScriptSystem that owns the Lua state these proxies live in; a proxy cannot outlive the state, and the state cannot outlive the scene. The ENTITY it names can die, which is why every method begins with Valid()" },

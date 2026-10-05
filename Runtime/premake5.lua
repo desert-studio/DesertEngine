@@ -57,6 +57,8 @@ project "Runtime"
         "GLFW",
         "Optick",
         "MeshOptimizer",
+        "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
+        "Opus",
     }
 
     filter "configurations:Debug"

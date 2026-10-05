@@ -110,6 +110,11 @@ namespace Desert::Audio
             ma_engine_uninit( &m_Impl->Engine );
     }
 
+    ma_engine* AudioEngine::GetNativeEngine()
+    {
+        return EnsureInitialized() ? &m_Impl->Engine : nullptr;
+    }
+
     bool AudioEngine::EnsureInitialized()
     {
         if ( m_Impl->Initialized )
