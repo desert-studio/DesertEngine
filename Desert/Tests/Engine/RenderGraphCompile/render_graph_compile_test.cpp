@@ -2615,10 +2615,11 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     { return SqueezedSource( root, std::format( "Desert/Desert/Source/Engine/Graphic/{}", relative ).c_str() ); };
 
     const std::string frame = source( "SceneRendererFrameAtmosphere.cpp" );
-    for ( const char* needle : { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
-                                 "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
-                                 "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients))",
-                                 "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph))" } )
+    for ( const char* needle :
+          { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
+            "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
+            "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients))",
+            "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph))" } )
         EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;
     EXPECT_NE( source( "SceneRendererFrame.hpp" ).find( "RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
                std::string::npos );
