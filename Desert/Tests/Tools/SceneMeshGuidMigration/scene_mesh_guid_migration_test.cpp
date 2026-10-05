@@ -52,6 +52,9 @@ namespace
             std::memcpy( bytes.data() + Common::Content::kMeshBinaryGuidOffset, &kMeshGuid.Hi, 8 );
             std::memcpy( bytes.data() + Common::Content::kMeshBinaryGuidOffset + 8, &kMeshGuid.Lo, 8 );
             std::ofstream( Root / "Cooked" / "Meshes" / "Probe.skmesh", std::ios::binary ) << bytes;
+            // The fixture's prefab instance names `p.deprefab`: the scene's Dependencies state its GUID (SCNE 43).
+            std::ofstream( AssetsRoot / "p.deprefab" )
+                 << R"({"Header":{"Kind":"Prefab","Guid":"000000000000000000000000000000fa","Versions":{"PRFB":1},"Dependencies":[]}})";
         }
         ~Project()
         {
@@ -130,9 +133,11 @@ TEST( ScenePathOnlyMeshGuidMigration, APathOnlyBlockInARecordAndAnOverrideGainsT
     ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
     EXPECT_TRUE( report.PathOnlyMeshGuidsRaised );
     EXPECT_EQ( report.PathOnlyMeshGuids.Rewritten, 2 );
-    const std::string text = rfl::json::write( scene );
+    // Counted in the entities: since SCNE 43 the header's Dependencies also state each GUID once.
+    const std::string text = rfl::json::write( scene.Entities );
     EXPECT_EQ( Occurrences( text, kMeshGuidText ), 2u ) << "the record and the override: " << text;
     EXPECT_EQ( Occurrences( text, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ), 1u ) << "a stated GUID is kept: " << text;
+    EXPECT_EQ( Occurrences( rfl::json::write( scene.Header ), kMeshGuidText ), 1u ) << "listed once as a dependency";
     EXPECT_EQ( Occurrences( text, R"("MeshGuid":"")" ), 0u ) << text;
     EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
                Desert::Core::kSceneVersion );
@@ -257,7 +262,7 @@ TEST( ScenePathOnlyMeshGuidMigration, AnEnvelopedSourceMeshGivesItsHeaderGuid )
 
     ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
     EXPECT_EQ( report.PathOnlyMeshGuids.Rewritten, 2 );
-    EXPECT_EQ( Occurrences( rfl::json::write( scene ), kMeshGuidText ), 2u );
+    EXPECT_EQ( Occurrences( rfl::json::write( scene.Entities ), kMeshGuidText ), 2u );
 }
 
 TEST( ScenePathOnlyMeshGuidMigration, AnEnvelopeOfAnotherKindRefuses )

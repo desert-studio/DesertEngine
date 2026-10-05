@@ -61,7 +61,7 @@ TEST( SceneDependenciesMigration, TheStepStatesEveryReferenceOnceSortedAndNothin
                HeaderOnly( "Prefab", "0000000000000000000000000000000d", "SCNE" ) );
 
     auto scene = Parse( std::string(
-         R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000001","Versions":{"SCNE":42,"UNIT":1}},)"
+         R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000001","Versions":{"SCNE":42,"UNIT":1},"Dependencies":[]},)"
          R"("SceneName":"Deps","Entities":[)"
          R"({"id":1,"StaticMesh":{"MeshGuid":"0000000000000000000000000000000a","MaterialGuids":["0000000000000000000000000000000b"]},)"
          R"("AudioSource":{"Sound":{"Guid":"00000000000000000000000000000005","Path":"Sounds/S.desound"}},)"
