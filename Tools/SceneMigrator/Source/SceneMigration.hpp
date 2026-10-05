@@ -181,7 +181,15 @@ namespace Desert::Migration
     //       (MigrateSoundRefsV41ToV42.) Scenes and prefabs alike.
     inline constexpr int kSceneVersionSoundAssets = 42;
 
-    static_assert( kSceneVersionSoundAssets == kSceneVersion,
+    //  43 - A SCENE STATES WHAT IT REFERENCES (SCENE-DEPS, UE's AssetRegistry dependencies). Header.Dependencies,
+    //       written [] by every earlier build, lists every asset the scene names, unique and sorted: each
+    //       GUID a component or the Settings block states ({Guid, Path} references, MeshGuid, MaterialGuids —
+    //       a hosted block's own Header excluded) and each prefab instance's prefab, by that file's header GUID
+    //       (MigrateSceneDependenciesV42ToV43). The engine's save gathers the same list at the resolver
+    //       (Core::Serialize::AssetReferenceRecording). Scenes only.
+    inline constexpr int kSceneVersionSceneDependencies = 43;
+
+    static_assert( kSceneVersionSceneDependencies == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -297,6 +305,18 @@ namespace Desert::Migration
     // kSceneVersionSoundAssets states. Paths are relative to @p assetsRoot (or absolute). Reads `.desound`s.
     SoundRefsReport MigrateSoundRefsV41ToV42( std::vector<Assets::EntityData>& entities,
                                               const std::filesystem::path&     assetsRoot );
+
+    // What MigrateSceneDependenciesV42ToV43 did to one scene.
+    struct SceneDependenciesReport
+    {
+        std::size_t              Stated = 0;  // GUIDs the header lists after the step
+        std::vector<std::string> Refused;     // one line per prefab instance whose file states no GUID
+    };
+
+    // Header.Dependencies under the rule kSceneVersionSceneDependencies states. Prefab paths are located
+    // against @p assetsRoot (LocateMeshFile's rule) and read for their header GUID.
+    SceneDependenciesReport MigrateSceneDependenciesV42ToV43( SceneSerialized&             scene,
+                                                              const std::filesystem::path& assetsRoot );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -459,6 +479,9 @@ namespace Desert::Migration
         bool            SoundRefsRaised = false; // below kSceneVersionSoundAssets
         SoundRefsReport SoundRefs;
 
+        bool                   SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
+        SceneDependenciesReport SceneDependencies;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -468,7 +491,8 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised || SoundRefsRaised || UIAnimationTimelinesRaised;
+                   UIAnimationsRaised || SoundRefsRaised || UIAnimationTimelinesRaised ||
+                   SceneDependenciesRaised;
         }
     };
 

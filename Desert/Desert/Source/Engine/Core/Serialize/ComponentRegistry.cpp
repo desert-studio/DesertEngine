@@ -15,6 +15,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <optional>
@@ -579,10 +580,42 @@ namespace Desert::Core::Serialize
         }
     } // namespace
 
+    namespace
+    {
+        thread_local AssetReferenceRecording* t_Recording = nullptr;
+    } // namespace
+
+    AssetReferenceRecording::AssetReferenceRecording()
+    {
+        m_Outer     = t_Recording;
+        t_Recording = this;
+    }
+
+    AssetReferenceRecording::~AssetReferenceRecording()
+    {
+        t_Recording = m_Outer;
+    }
+
+    std::vector<std::string> AssetReferenceRecording::Guids() const
+    {
+        std::vector<std::string> guids = m_Guids;
+        std::sort( guids.begin(), guids.end() );
+        guids.erase( std::unique( guids.begin(), guids.end() ), guids.end() );
+        return guids;
+    }
+
+    void RecordAssetReference( const std::string& guidText )
+    {
+        if ( t_Recording != nullptr && !guidText.empty() )
+            t_Recording->m_Guids.push_back( guidText );
+    }
+
     Reflection::AssetResolver MakeAssetResolver( const Assets::AssetManager& mgr )
     {
         Reflection::AssetResolver r;
 
+        // THE RECORDING SEAM (AssetReferenceRecording): both save-direction members are wrapped once, below
+        // the bodies, so a writer that states only a path and one that states a GUID are recorded alike.
         r.ToPath = []( uint64_t handle, const std::string& type ) -> std::string
         {
             if ( handle == 0 )
@@ -1091,6 +1124,25 @@ namespace Desert::Core::Serialize
                 return Runtime::RequireSkybox( handle ) ? guid : 0;
             }
             return 0;
+        };
+
+        r.ToPath = [toPath = std::move( r.ToPath )]( uint64_t handle, const std::string& type ) -> std::string
+        {
+            std::string path = toPath( handle, type );
+            if ( handle != 0 && t_Recording != nullptr )
+            {
+                // A path-only slot still names an asset with a GUID; the registry row states it silently (the
+                // GUID writer's own refusal is for slots that SAVE a GUID).
+                if ( const auto guid = Assets::ContentRegistry::GuidForHandle( handle ) )
+                    RecordAssetReference( Common::Content::AssetGuidToText( *guid ) );
+            }
+            return path;
+        };
+        r.ToGuid = [toGuid = std::move( r.ToGuid )]( uint64_t handle, const std::string& type ) -> std::string
+        {
+            std::string text = toGuid( handle, type );
+            RecordAssetReference( text );
+            return text;
         };
 
         return r;

@@ -66,7 +66,9 @@ namespace Desert::Core
     // v42 (SOUND-ASSET): a sound is a `.desound` asset named by GUID — AudioSource.Clip (a file path) is
     // AudioSource.Sound {Guid, Path}, and a sequence's Audio section names the sound's GUID (Tools/SceneMigrator,
     // MigrateSoundRefsV41ToV42).
-    inline constexpr int kSceneVersion = 42;
+    // v43 (SCENE-DEPS): Header.Dependencies lists every asset the scene references, unique and sorted, gathered
+    // by the save at the resolver (Tools/SceneMigrator, MigrateSceneDependenciesV42ToV43).
+    inline constexpr int kSceneVersion = 43;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

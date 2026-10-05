@@ -189,7 +189,8 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionNoUndeclaredKeys, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionPlayerViewFlag, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionUIAnimationSequences, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionSoundAssets );
+    EXPECT_LT( Migration::kSceneVersionSoundAssets, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionSceneDependencies );
 }
 
 namespace

@@ -61,6 +61,32 @@ namespace Desert::Core::Serialize
     // scene's own `SplashSprite` was the last field in the engine still written as a raw 64-bit number.
     Reflection::AssetResolver MakeAssetResolver( const Assets::AssetManager& mgr );
 
+    // A SAVE'S DEPENDENCY LIST (SCENE-DEPS; UE's AssetRegistry dependencies). Every reference a writer
+    // states — reflected AssetHandle fields, the hand-written mesh/material slots, a sound — leaves through
+    // the resolver above, so the resolver is where the list is gathered: while one of these is alive on a
+    // thread, each non-empty handle the resolver writes on that thread is recorded by its asset's GUID. No
+    // list of component types exists to fall behind. A reference written outside the resolver (the prefab
+    // link) records itself with RecordAssetReference. A nested recording takes the thread until it ends.
+    class AssetReferenceRecording
+    {
+    public:
+        AssetReferenceRecording();
+        ~AssetReferenceRecording();
+        AssetReferenceRecording( const AssetReferenceRecording& )            = delete;
+        AssetReferenceRecording& operator=( const AssetReferenceRecording& ) = delete;
+
+        // Unique GUID texts, sorted: the order a header states them in.
+        std::vector<std::string> Guids() const;
+
+    private:
+        std::vector<std::string>  m_Guids;
+        AssetReferenceRecording*  m_Outer = nullptr; // restored on destruction: an inner save records alone
+        friend void              RecordAssetReference( const std::string& guidText );
+    };
+
+    // Adds one GUID text to the recording live on this thread (no-op when none is, or the text is empty).
+    void RecordAssetReference( const std::string& guidText );
+
     // SaveMaterialComponentToJson / LoadMaterialComponentFromJson USED TO BE DECLARED HERE and are gone.
     // They were the "MVP" `.demat` writer from before a material became an ASSET: their own comment still
     // promised "full asset-system integration is a later milestone", and that milestone arrived —

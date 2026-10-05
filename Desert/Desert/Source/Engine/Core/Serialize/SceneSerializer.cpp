@@ -232,6 +232,9 @@ namespace Desert::Core
             return false;
         };
 
+        // Everything the entities and the settings name, gathered where they are written (SCENE-DEPS).
+        Serialize::AssetReferenceRecording references;
+
         uint32_t nextRootIndex = 0;
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
@@ -325,6 +328,9 @@ namespace Desert::Core
             scene.Settings =
                  Common::Json::Value( Reflection::SerializeReflected( *st, &m_Scene->GetSettings(), &resolver ) );
         }
+
+        scene.Header->Dependencies = references.Guids();
+        m_Scene->SetAssetHeader( scene.Header );
 
         // WHAT THIS BUILD KNOWS, MERGED ONTO WHAT THE FILE SAID. Everything above enumerates a
         // REGISTRY — SceneSettings' 51 reflected fields, ComponentRegistry's 45 keys — so up to this

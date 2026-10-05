@@ -4,6 +4,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 namespace Desert::Core::Serialize
 {
@@ -44,7 +45,12 @@ namespace Desert::Core::Serialize
             {
                 auto asset = assetManager.FindByHandle<Assets::PrefabAsset>( handle );
                 if ( asset )
+                {
                     data.PrefabPath = asset->GetMetadata().Filepath.string();
+                    // The prefab link is written outside the resolver, so it states its own dependency.
+                    if ( const auto guid = asset->Guid(); !guid.IsNull() )
+                        RecordAssetReference( Common::Content::AssetGuidToText( guid ) );
+                }
             }
         }
 

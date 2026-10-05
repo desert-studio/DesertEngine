@@ -2020,6 +2020,81 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // Every asset GUID a stored block states: {Guid, Path} references, MeshGuid, MaterialGuids. A hosted
+        // block's own "Header" (a sequence's identity, not a reference) is not entered.
+        void CollectStatedGuids( const rfl::Generic& value, std::vector<std::string>& out )
+        {
+            if ( const auto object = value.to_object(); object.has_value() )
+            {
+                for ( const auto& [key, field] : object.value() )
+                {
+                    if ( key == "Header" )
+                        continue;
+                    if ( key == "Guid" || key == "MeshGuid" )
+                    {
+                        if ( const auto text = field.to_string(); text.has_value() && !text.value().empty() )
+                            out.push_back( text.value() );
+                        continue;
+                    }
+                    if ( key == "MaterialGuids" )
+                    {
+                        if ( const auto array = field.to_array(); array.has_value() )
+                            for ( const auto& element : array.value() )
+                                if ( const auto text = element.to_string(); text.has_value() && !text.value().empty() )
+                                    out.push_back( text.value() );
+                        continue;
+                    }
+                    CollectStatedGuids( field, out );
+                }
+            }
+            else if ( const auto array = value.to_array(); array.has_value() )
+            {
+                for ( const auto& element : array.value() )
+                    CollectStatedGuids( element, out );
+            }
+        }
+    } // namespace
+
+    SceneDependenciesReport MigrateSceneDependenciesV42ToV43( SceneSerialized&             scene,
+                                                              const std::filesystem::path& assetsRoot )
+    {
+        SceneDependenciesReport  report;
+        std::vector<std::string> guids;
+        for ( const auto& record : scene.Entities )
+        {
+            for ( const auto& [key, block] : record.Components )
+                CollectStatedGuids( block, guids );
+            if ( !record.PrefabPath.has_value() )
+                continue;
+            const std::string site    = scene.SceneName + " > prefab '" + *record.PrefabPath + "'";
+            const auto        located = LocateMeshFile( *record.PrefabPath, assetsRoot );
+            if ( !located )
+            {
+                report.Refused.push_back( site + ": " + located.GetError() );
+                continue;
+            }
+            const auto header = Common::Content::ReadAssetHeader( located.GetValue().File,
+                                                                  Common::Content::AssetHeaderReadContext{ {}, true } );
+            if ( !header || header.GetValue().Guid.IsNull() )
+            {
+                report.Refused.push_back( site + ": its file states no header GUID" );
+                continue;
+            }
+            guids.push_back( Common::Content::AssetGuidToText( header.GetValue().Guid ) );
+        }
+        if ( scene.Settings.has_value() )
+            CollectStatedGuids( *scene.Settings, guids );
+
+        std::sort( guids.begin(), guids.end() );
+        guids.erase( std::unique( guids.begin(), guids.end() ), guids.end() );
+        report.Stated = guids.size();
+        if ( report.Refused.empty() && scene.Header.has_value() )
+            scene.Header->Dependencies = std::move( guids );
+        return report;
+    }
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -2076,6 +2151,18 @@ namespace Desert::Migration
                                  " prefab instance(s) whose root transform cannot be stated: " +
                                  report.InstanceTransforms.UnknownNames.front();
                 return report; // unstamped, as every refusal
+            }
+        }
+
+        // Scene-only, last: it reads what every earlier step left the records stating.
+        if ( statedSceneVersion < kSceneVersionSceneDependencies )
+        {
+            report.SceneDependenciesRaised = true;
+            report.SceneDependencies       = MigrateSceneDependenciesV42ToV43( scene, assetsRoot );
+            if ( !report.SceneDependencies.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( scene.SceneName, report.SceneDependencies.Refused );
+                return report;
             }
         }
 
