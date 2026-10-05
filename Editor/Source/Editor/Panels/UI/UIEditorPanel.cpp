@@ -255,7 +255,6 @@ namespace Desert::Editor
         // THIS DOCUMENT'S OWN CANVAS, named. The window is a document over one UICanvasComponent, so the
         // entity it was opened on IS the answer — no election, no guard, and no second implementation of the
         // canvas pass (which is what this window's previous ImGui-based preview was, and why it was deleted).
-        m_UIView.Materials = &m_Render2D.Materials();
         // This window is an authoring view by definition — it has no pointer and its whole purpose is to
         // show what was authored. An overlay canvas opened here is therefore shown as authored, unplaced,
         // which is exactly what the marquee and the drag handles need.

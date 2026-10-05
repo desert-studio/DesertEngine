@@ -955,12 +955,12 @@ TEST( DrawList2DMaterial, ACanvasWithNoMaterialRecordsExACTLYWhatItAlwaysDid )
 
 TEST( DrawList2DMaterial, ANullMaterialRecordsNOTHINGRatherThanAWhiteRect )
 {
-    // AddQuad's null texture means "the backend's 1x1 white", so a null material falling through to it
-    // would draw the element's authored colour and look ALMOST right — the silent wrong answer §1.4
-    // forbids. Resolving a handle is the caller's job precisely because only the caller knows which
-    // handle failed, and UIMaterialCache::Resolve never answers null for a set one.
+    // AddQuad's null texture means "the backend's 1x1 white", so an unset material handle falling through
+    // to it would draw the element's authored colour and look ALMOST right — the silent wrong answer §1.4
+    // forbids. A SET handle the UI path cannot execute is resolved by the drawing Render2D to the magenta
+    // error entry; only the unset one is refused here.
     DrawList2D dl;
-    dl.AddMaterialRect( nullptr, { 0.0f, 0.0f }, { 10.0f, 10.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } );
+    dl.AddMaterialRect( 0, { 0.0f, 0.0f }, { 10.0f, 10.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } );
 
     EXPECT_TRUE( dl.Empty() );
     EXPECT_TRUE( dl.GetCommands().empty() );
