@@ -1734,7 +1734,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "Access::SampledGraphics", "LoadTarget(pass,target)" } );
     declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
-    declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target)" } );
+    // RDG-A2-W4: the SSR passes sample the G-buffer as graph refs by name, never a framebuffer image.
+    declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target)",
+                               "GBufferInputsinputs{gbuffer[0],gbuffer[1],gbuffer[2]}",
+                               "RecordResolve(context,trace,tiles,inputs)" } );
 }
 
 // DepthResolve is a Copy node: G-buffer depth CopySrc -> target depth CopyDst, so the graph plans the barriers

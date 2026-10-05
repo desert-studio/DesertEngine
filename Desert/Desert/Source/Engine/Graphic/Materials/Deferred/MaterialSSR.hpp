@@ -24,19 +24,17 @@ namespace Desert::Graphic
              : Material( "MaterialSSRResolve",
                          variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
-            // u_Trace is a transient of the frame graph in both variants, bound by name through RDG::PassBindings
-            // (SSRRenderer::RecordResolve, GIResolveRenderer::RecordTemporal).
-            m_History  = m_MaterialExecutor->GetTexture2DProperty( "u_History" ).get();
-            m_WorldPos = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferWorldPos" ).get();
+            // u_Trace and u_GBufferWorldPos are textures of the frame graph in both variants, bound by name through
+            // RDG::PassBindings (SSRRenderer::RecordResolve, GIResolveRenderer::RecordTemporal). u_History is the
+            // SSR's own ping-pong (external to the graph) on this route.
+            m_History = m_MaterialExecutor->GetTexture2DProperty( "u_History" ).get();
         }
 
-        void BindInputs( const std::shared_ptr<Image2D>& history, const std::shared_ptr<Image2D>& worldPos,
-                         const glm::mat4& prevViewProj, const glm::vec2& texelSize, float historyBlend )
+        void BindInputs( const std::shared_ptr<Image2D>& history, const glm::mat4& prevViewProj,
+                         const glm::vec2& texelSize, float historyBlend )
         {
             if ( m_History && history )
                 m_History->SetImage( history.get(), RDG::Access::SampledGraphics );
-            if ( m_WorldPos && worldPos )
-                m_WorldPos->SetImage( worldPos.get(), RDG::Access::SampledGraphics );
             BindValues( prevViewProj, texelSize, historyBlend );
         }
 
@@ -57,8 +55,7 @@ namespace Desert::Graphic
         }
 
     private:
-        Texture2DProperty* m_History  = nullptr;
-        Texture2DProperty* m_WorldPos = nullptr;
+        Texture2DProperty* m_History = nullptr;
     };
 
     // Composite half of SSR: blurs the traced reflection buffer (radius scaled by G-buffer roughness)
@@ -68,19 +65,15 @@ namespace Desert::Graphic
     public:
         MaterialSSRComposite() : Material( "MaterialSSRComposite", "SSRComposite" )
         {
-            m_SSR    = m_MaterialExecutor->GetTexture2DProperty( "u_SSR" ).get();
-            m_Normal   = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferNormal" ).get();
-            // u_SSRTileMask is a transient of the frame graph, bound through RDG::PassBindings
+            m_SSR = m_MaterialExecutor->GetTexture2DProperty( "u_SSR" ).get();
+            // u_SSRTileMask and u_GBufferNormal are textures of the frame graph, bound through RDG::PassBindings
             // (SSRRenderer::RecordComposite).
         }
 
-        void BindInputs( const std::shared_ptr<Image2D>& ssr, const std::shared_ptr<Image2D>& normal,
-                         const glm::vec2& texelSize )
+        void BindInputs( const std::shared_ptr<Image2D>& ssr, const glm::vec2& texelSize )
         {
             if ( m_SSR && ssr )
                 m_SSR->SetImage( ssr.get(), RDG::Access::SampledGraphics );
-            if ( m_Normal && normal )
-                m_Normal->SetImage( normal.get(), RDG::Access::SampledGraphics );
 
             const glm::vec4 params( texelSize.x, texelSize.y, 0.0f, 0.0f );
             if ( auto* ub = Get<UniformBufferProperty>( "SSRCompositeUB" ) )
@@ -88,7 +81,6 @@ namespace Desert::Graphic
         }
 
     private:
-        Texture2DProperty* m_SSR      = nullptr;
-        Texture2DProperty* m_Normal   = nullptr;
+        Texture2DProperty* m_SSR = nullptr;
     };
 } // namespace Desert::Graphic

@@ -422,6 +422,15 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         const RDG::ImportedFramebuffer& target = *targets;
+        if ( gbuffer.size() < 3 )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: SSR needs the G-buffer albedo, normal and world position, the "
+                       "graph has {}",
+                       gbuffer.size() );
+            return;
+        }
+        // Sampled by name in every SSR pass (no G-buffer image crosses into a pass exec).
+        const System::SSRRenderer::GBufferInputs inputs{ gbuffer[0], gbuffer[1], gbuffer[2] };
         graph.AddPass(
              "Deferred: SSR", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -431,11 +440,11 @@ namespace Desert::Graphic
                  pass.Write( trace, RDG::Access::StorageWrite );
                  pass.Write( tiles, RDG::Access::StorageWrite );
              },
-             [this, ssr, trace, tiles, sceneCopy, viewProj,
+             [this, ssr, trace, tiles, inputs, sceneCopy, viewProj,
               cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
-                 return ssr->RecordTrace( context, trace, tiles, m_GBuffer, sceneCopy, viewProj, cameraPos,
+                 return ssr->RecordTrace( context, trace, tiles, inputs, sceneCopy, viewProj, cameraPos,
                                           /*maxSteps*/ 32, m_SSRMaxDistance, m_SSRIntensity, kSSRThickness );
              } );
         graph.AddPass(
@@ -446,8 +455,8 @@ namespace Desert::Graphic
                  ReadAll( pass, { trace, tiles, history }, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [this, ssr, trace, tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssr->RecordResolve( context, trace, tiles, m_GBuffer ); } );
+             [ssr, trace, tiles, inputs]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordResolve( context, trace, tiles, inputs ); } );
         graph.AddPass(
              "Deferred: SSRComposite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -456,7 +465,7 @@ namespace Desert::Graphic
                  ReadAll( pass, { accum, tiles }, RDG::Access::SampledGraphics );
                  DeferredFrameNodes::LoadTarget( pass, target ); // blend over the scene
              },
-             [this, ssr, tiles, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssr->RecordComposite( context, tiles, m_GBuffer, viewProj ); } );
+             [ssr, tiles, inputs, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordComposite( context, tiles, inputs, viewProj ); } );
     }
 } // namespace Desert::Graphic
