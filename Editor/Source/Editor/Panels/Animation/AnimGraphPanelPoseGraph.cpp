@@ -57,11 +57,12 @@ namespace Desert::Editor
         if ( m_LayerGraph )
         {
             if ( G::AnimLayerGraph* layer = FindLayerGraph( graph, m_LayerGraph->first, m_LayerGraph->second ) )
-                return { layer->Nodes, layer->OutputPose, layer->OutputPoseX, layer->OutputPoseY,
-                         G::GraphScope::Layer };
+                return { layer->Nodes,       layer->OutputPose, layer->OutputPoseX,
+                         layer->OutputPoseY, layer->Comments,   G::GraphScope::Layer };
             ShowPoseGraph( std::nullopt ); // the layer is gone (renamed, undone): back to the AnimGraph
         }
-        return { graph.Nodes, graph.OutputPose, graph.OutputPoseX, graph.OutputPoseY, G::GraphScope::Host };
+        return { graph.Nodes,       graph.OutputPose, graph.OutputPoseX,
+                 graph.OutputPoseY, graph.Comments,   G::GraphScope::Host };
     }
 
     G::StateMachine* AnimGraphPanel::ResolveMachine( G::AnimGraph& graph )
@@ -82,7 +83,9 @@ namespace Desert::Editor
         if ( m_LayerGraph != layer )
         {
             m_PoseIds = Graph::ElementIdMap{};
+            m_PoseCommentIds = Graph::ElementIdMap{};
             m_Ids     = Graph::ElementIdMap{};
+            m_CommentIds     = Graph::ElementIdMap{};
             m_SelectedPoseNode.clear();
             m_MachineNode.clear();
             m_PoseFrameAll = Graph::DeferredFrameAll{};
@@ -96,6 +99,7 @@ namespace Desert::Editor
         if ( m_MachineNode != node )
         {
             m_Ids      = Graph::ElementIdMap{};
+            m_CommentIds = Graph::ElementIdMap{};
             m_FrameAll = Graph::DeferredFrameAll{};
         }
         m_MachineNode    = node;
@@ -228,6 +232,8 @@ namespace Desert::Editor
         ed::SetCurrentEditor( m_PoseContext );
         ed::Begin( "##poseGraph", canvasSize );
 
+        dirty |= DrawCommentLayer( target.Comments, m_PoseCommentIds, "##renamePoseComment" );
+
         for ( size_t i = 0; i < nodes.size(); ++i )
         {
             G::PoseNode&              node    = nodes[i];
@@ -348,6 +354,13 @@ namespace Desert::Editor
             ed::NodeId deletedNode;
             while ( ed::QueryDeletedNode( &deletedNode ) )
             {
+                if ( Graph::KindOf( static_cast<Graph::ElementId>( deletedNode.Get() ) ) ==
+                     Graph::ElementKind::Comment )
+                {
+                    if ( ed::AcceptDeletedItem() )
+                        dirty |= RemoveDeletedComment( target.Comments, m_PoseCommentIds, deletedNode.Get() );
+                    continue;
+                }
                 const int index =
                      Graph::PoseNodeOf( m_PoseCanvas, static_cast<Graph::ElementId>( deletedNode.Get() ) );
                 if ( index < 0 )
@@ -431,6 +444,7 @@ namespace Desert::Editor
                     AddPoseNode( kind, m_PoseMenuAt );
             ImGui::EndPopup();
         }
+        DrawFind( m_PoseFind, m_PoseCanvas.Plan );
         ed::Resume();
 
         ed::End();

@@ -382,3 +382,53 @@ TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
     ASSERT_TRUE( plain.IsSuccess() ) << plain.GetError();
     EXPECT_FALSE( plain.GetValue().Layers.has_value() );
 }
+
+// ANIM-FIX7: comment boxes (UE: UEdGraphNode_Comment) belong to their canvas - the pose graph, a layer graph,
+// a state machine - and survive Save/Load with their id, title, place and size on each of the three.
+TEST( AnimGraphAsset, CommentBoxesOfEveryCanvasSurviveSaveAndLoad )
+{
+    namespace PG       = Desert::Animation::Graph;
+    AnimGraph    graph = PG::MakeStateMachineGraph( "Commented" );
+    PG::PoseNode input;
+    input.Name   = "In";
+    input.Kind   = static_cast<int>( PG::PoseNodeKind::LinkedInputPose );
+    graph.Layers = PG::AnimGraphLayers{ { PG::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
+                                        { PG::AnimLayerGraph{ "Weapon", "UpperBody", { input }, "In" } } };
+    (void)PG::AddComment( graph.Comments, "Locomotion", -40.0f, -60.0f, 420.0f, 260.0f );
+    (void)PG::AddComment( graph.Comments, "Aim", 500.0f, 10.0f, 200.0f, 120.0f );
+    (void)PG::AddComment( graph.Layers->Implemented[0].Comments, "Upper body", 5.0f, 6.0f, 70.0f, 80.0f );
+    (void)PG::AddComment( OutputMachine( graph )->Comments, "Ground states", 1.5f, 2.5f, 300.0f, 150.0f );
+    ASSERT_EQ( graph.Comments[1].Id, 2u ) << "AddComment issues an id no comment of the canvas carries";
+
+    const ScratchFile file( "desert_animgraph_comments.danimgraph" );
+    ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), graph ).IsSuccess() );
+    AnimGraphAsset asset( file.Path() );
+    const auto     loaded = asset.Load();
+    ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    const AnimGraph& back = *asset.GetGraph();
+
+    ASSERT_EQ( back.Comments.size(), 2u );
+    EXPECT_EQ( back.Comments[0].Id, 1u );
+    EXPECT_EQ( back.Comments[0].Text, "Locomotion" );
+    EXPECT_FLOAT_EQ( back.Comments[0].X, -40.0f );
+    EXPECT_FLOAT_EQ( back.Comments[0].Y, -60.0f );
+    EXPECT_FLOAT_EQ( back.Comments[0].Width, 420.0f );
+    EXPECT_FLOAT_EQ( back.Comments[0].Height, 260.0f );
+    EXPECT_EQ( back.Comments[1].Text, "Aim" );
+    ASSERT_TRUE( back.Layers.has_value() );
+    ASSERT_EQ( back.Layers->Implemented[0].Comments.size(), 1u );
+    EXPECT_EQ( back.Layers->Implemented[0].Comments[0].Text, "Upper body" );
+    EXPECT_FLOAT_EQ( back.Layers->Implemented[0].Comments[0].Height, 80.0f );
+    const auto* machine = OutputMachine( back );
+    ASSERT_NE( machine, nullptr );
+    ASSERT_EQ( machine->Comments.size(), 1u );
+    EXPECT_EQ( machine->Comments[0].Text, "Ground states" );
+    EXPECT_FLOAT_EQ( machine->Comments[0].X, 1.5f );
+    EXPECT_FLOAT_EQ( machine->Comments[0].Width, 300.0f );
+
+    // An id is never reissued while a higher one lives: deleting the first box and adding one does not
+    // hand the new box the survivor's id (the canvas keys the box by it).
+    std::vector<PG::GraphComment> comments = back.Comments;
+    comments.erase( comments.begin() );
+    EXPECT_EQ( PG::AddComment( comments, "New", 0.0f, 0.0f, 1.0f, 1.0f ).Id, 3u );
+}

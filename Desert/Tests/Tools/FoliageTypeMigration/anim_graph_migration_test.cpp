@@ -22,6 +22,7 @@ namespace
     {
         std::string text = G::Serialize( graph );
         text = std::regex_replace( text, std::regex( R"(,\s*"OutputPose[XY]"\s*:\s*[-0-9.eE+]+)" ), "" );
+        text             = std::regex_replace( text, std::regex( R"(,\s*"Comments"\s*:\s*\[\s*\])" ), "" );
         text = std::regex_replace( text, std::regex( R"("ANGR"\s*:\s*3)" ), "\"ANGR\": 2" );
         return text;
     }

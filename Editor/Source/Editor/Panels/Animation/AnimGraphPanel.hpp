@@ -230,6 +230,7 @@ namespace Desert::Editor
             std::string&                             Output;
             float&                                   OutputX; // the Output Pose node's canvas position
             float&                                   OutputY;
+            std::vector<Animation::Graph::GraphComment>& Comments; // the shown pose graph's comment boxes
             Animation::Graph::GraphScope             Scope = Animation::Graph::GraphScope::Host;
         };
         [[nodiscard]] PoseGraphTarget ResolvePoseTarget( Animation::Graph::AnimGraph& graph );
@@ -248,6 +249,16 @@ namespace Desert::Editor
         void OpenMachine( const std::string& node );
         void AppendPoseActions( ECS::AnimationComponent& anim, std::vector<DocumentAction>& actions );
         void DrawPoseCanvas( ECS::AnimationComponent& anim, float width, float height );
+        /// The comment boxes of the canvas being drawn (call between ed::Begin and ed::End, BEFORE its nodes so
+        /// the boxes lie behind them): draws them, makes one on `C`, renames one on a double-click of its title.
+        /// True when the comments changed (the caller marks the graph edited).
+        [[nodiscard]] bool DrawCommentLayer( std::vector<Animation::Graph::GraphComment>& comments,
+                                             Graph::ElementIdMap& ids, const char* renamePopup );
+        /// Removes the comment a deleted canvas node named, if it named one. True when it did.
+        [[nodiscard]] static bool RemoveDeletedComment( std::vector<Animation::Graph::GraphComment>& comments,
+                                                        const Graph::ElementIdMap& ids, uint64_t deletedNode );
+        /// Find… (Ctrl+F) over a canvas plan's nodes; a pick selects the node and frames it. Inside ed::Suspend.
+        void DrawFind( Graph::FindPopup& find, const Graph::CanvasPlan& plan );
         void DrawPoseSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
                                 float height );
         /// A parameter pin's binding as a combo of the declared parameters ("unbound" = the pin's default).
@@ -287,6 +298,11 @@ namespace Desert::Editor
         // first frame, and a navigation issued while it is still changing size is thrown away. The whole
         // measurement is at the class's declaration.
         Graph::DeferredFrameAll m_FrameAll;
+        // Comment boxes are keyed by their own `GraphComment::Id` in a map of their own: the node map is
+        // closed by the plan before the boxes are drawn, and an id resolved outside its frame would be fresh
+        // (pushed back to the file's place) every frame — a box that could never be dragged.
+        Graph::ElementIdMap m_CommentIds;
+        Graph::FindPopup    m_Find{ "##findState" };
 
         // The pose graph's canvas: its own editor context and id table, because a state and a pose node may
         // carry one name and must not share a canvas identity (nor a view: each canvas keeps its own pan).
@@ -294,6 +310,9 @@ namespace Desert::Editor
         Graph::ElementIdMap            m_PoseIds;
         Graph::PoseGraphCanvas         m_PoseCanvas;
         Graph::DeferredFrameAll        m_PoseFrameAll;
+        Graph::ElementIdMap            m_PoseCommentIds;
+        Graph::FindPopup               m_PoseFind{ "##findPoseNode" };
+        uint32_t                       m_RenamingComment = 0; // the GraphComment::Id its rename popup edits
         /// Which canvas is shown: the AnimGraph (pose graph, UE's default tab) or the Output Pose's state
         /// machine (double-click its node, as in UE).
         bool m_EditingMachine = false;

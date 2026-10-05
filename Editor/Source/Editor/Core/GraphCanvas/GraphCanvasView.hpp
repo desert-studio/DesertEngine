@@ -2,6 +2,8 @@
 
 #include "GraphCanvas.hpp"
 
+#include <optional>
+#include <span>
 #include <string>
 
 namespace ax::NodeEditor
@@ -41,5 +43,54 @@ namespace Desert::Editor::Graph
     /// The document's one status line. Both graph documents grew this independently, with the same two
     /// colours and the same two meanings.
     void DrawStatusLine( const std::string& status, bool isError );
+
+    // ── COMMENT BOXES AND FIND… (design §7.2; UE Graph Editor) ───────────────────────────────────────
+    //
+    // A comment box is an `imgui-node-editor` GROUP node: its title drags every node lying inside it, its
+    // edges resize it. All of the calls below run between `ed::Begin` and `ed::End` of the canvas they act
+    // on, except `FindPopup::Draw` / `CommentTextPopup`, which run where ImGui popups may (inside
+    // `ed::Suspend` / `ed::Resume`).
+
+    /// Draws one comment box. @p x / @p y is its top-left (title included), @p width / @p height the framed
+    /// area under the title. A box the canvas has never seen (@p fresh) is pushed in; a known one is read
+    /// back. True when the user moved or resized it.
+    [[nodiscard]] bool DrawCommentBox( ElementId id, bool fresh, const std::string& text, float& x, float& y,
+                                       float& width, float& height );
+
+    /// Where `C` puts a new box: around the selected nodes when there are any (UE), otherwise a box of a
+    /// default size at the mouse. X/Y is the box's top-left, Width/Height its framed area.
+    [[nodiscard]] CanvasRect NewCommentRect();
+
+    /// `C` / `Ctrl+F` pressed while this canvas has the keyboard and no text field is being typed into.
+    [[nodiscard]] bool CommentKeyPressed();
+    [[nodiscard]] bool FindKeyPressed();
+
+    /// Selects the node and moves the view onto it — what a Find… result does.
+    void FocusNode( ElementId id );
+
+    /// The Find… popup of one canvas: a query field over the canvas's node names; picking one answers its
+    /// index in the names passed to `Draw`.
+    class FindPopup
+    {
+    public:
+        explicit FindPopup( std::string popupId ) : m_PopupId( std::move( popupId ) )
+        {
+        }
+
+        /// Opens on the next `Draw`, with the query field focused and the previous query kept.
+        void Open();
+
+        /// Draws the popup when open; the index in @p names the user picked, on that frame only.
+        [[nodiscard]] std::optional<size_t> Draw( std::span<const std::string> names );
+
+    private:
+        std::string m_PopupId;
+        std::string m_Query;
+        bool        m_OpenRequested = false;
+        bool        m_FocusQuery    = false;
+    };
+
+    /// The rename popup of a comment box (double-click its title). True on the frame @p text changed.
+    [[nodiscard]] bool CommentTextPopup( const char* popupId, std::string& text );
 
 } // namespace Desert::Editor::Graph

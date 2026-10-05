@@ -677,3 +677,39 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// ANIM-FIX7: a comment box's id is a NODE to the canvas but comes from a range of its own, so its key can
+// never meet a state of the same spelling; `C` frames the selection's union with padding on every side.
+TEST( GraphCanvasIdentity, CommentIdsHaveARangeOfTheirOwnAndCKeyFramesTheSelection )
+{
+    namespace GC = Desert::Editor::Graph;
+    GC::ElementIdMap ids;
+    ids.BeginFrame();
+    const GC::Resolved state   = ids.Resolve( GC::ElementKind::Node, "1" );
+    const GC::Resolved comment = ids.Resolve( GC::ElementKind::Comment, "1" );
+    ids.EndFrame();
+    EXPECT_NE( state.Id, comment.Id );
+    EXPECT_EQ( GC::KindOf( comment.Id ), GC::ElementKind::Comment );
+    EXPECT_EQ( GC::KindOf( state.Id ), GC::ElementKind::Node );
+    EXPECT_LT( GC::Raw( comment.Id ), GC::kEndOfIds );
+
+    const std::vector<GC::CanvasRect> selected = { { 0.0f, 0.0f, 100.0f, 50.0f },
+                                                   { 300.0f, 200.0f, 80.0f, 40.0f } };
+    const auto                        box      = GC::EncloseRects( selected, 10.0f );
+    ASSERT_TRUE( box.has_value() );
+    EXPECT_FLOAT_EQ( box->X, -10.0f );
+    EXPECT_FLOAT_EQ( box->Y, -10.0f );
+    EXPECT_FLOAT_EQ( box->Width, 400.0f );
+    EXPECT_FLOAT_EQ( box->Height, 260.0f );
+    EXPECT_FALSE( GC::EncloseRects( {}, 10.0f ).has_value() );
+}
+
+// Find… matches case-insensitively, in canvas order; an empty query lists everything.
+TEST( GraphCanvasIdentity, FindMatchesNamesCaseInsensitivelyInOrder )
+{
+    namespace GC                         = Desert::Editor::Graph;
+    const std::vector<std::string> names = { "Idle", "Walk", "RunFast", "walk_back" };
+    EXPECT_EQ( GC::FindMatches( names, "WALK" ), ( std::vector<size_t>{ 1, 3 } ) );
+    EXPECT_EQ( GC::FindMatches( names, "" ).size(), names.size() );
+    EXPECT_TRUE( GC::FindMatches( names, "jump" ).empty() );
+}

@@ -376,7 +376,9 @@ namespace Desert::Editor
             if ( m_SeenRevision != revision )
             {
                 m_Ids          = Graph::ElementIdMap{};
+                m_CommentIds     = Graph::ElementIdMap{};
                 m_PoseIds      = Graph::ElementIdMap{};
+                m_PoseCommentIds = Graph::ElementIdMap{};
                 m_SeenRevision = revision;
             }
         }
@@ -655,6 +657,71 @@ namespace Desert::Editor
         Graph::FrameSelection( m_Context );
     }
 
+    bool AnimGraphPanel::DrawCommentLayer( std::vector<G::GraphComment>& comments, Graph::ElementIdMap& ids,
+                                           const char* renamePopup )
+    {
+        bool changed = false;
+
+        // `C`: a box around the selection (UE), or a default one at the mouse; drawn from the next frame on.
+        if ( Graph::CommentKeyPressed() )
+        {
+            const Graph::CanvasRect box = Graph::NewCommentRect();
+            (void)G::AddComment( comments, "Comment", box.X, box.Y, box.Width, box.Height );
+            changed = true;
+        }
+
+        ids.BeginFrame();
+        for ( G::GraphComment& comment : comments )
+        {
+            const Graph::Resolved id = ids.Resolve( Graph::ElementKind::Comment, std::to_string( comment.Id ) );
+            changed |= Graph::DrawCommentBox( id.Id, id.Fresh, comment.Text, comment.X, comment.Y, comment.Width,
+                                              comment.Height );
+        }
+        ids.EndFrame();
+
+        // A double-click on a box's title renames it, in place (UE: the comment's title is edited on the node).
+        bool openRename = false;
+        if ( const ed::NodeId clicked = ed::GetDoubleClickedNode();
+             clicked &&
+             Graph::KindOf( static_cast<Graph::ElementId>( clicked.Get() ) ) == Graph::ElementKind::Comment )
+            if ( const std::string* key = ids.KeyOf( static_cast<Graph::ElementId>( clicked.Get() ) ) )
+            {
+                m_RenamingComment = static_cast<uint32_t>( std::stoul( *key ) );
+                openRename        = true;
+            }
+
+        ed::Suspend();
+        if ( openRename )
+            ImGui::OpenPopup( renamePopup );
+        for ( G::GraphComment& comment : comments )
+            if ( comment.Id == m_RenamingComment )
+                changed |= Graph::CommentTextPopup( renamePopup, comment.Text );
+        ed::Resume();
+        return changed;
+    }
+
+    bool AnimGraphPanel::RemoveDeletedComment( std::vector<G::GraphComment>& comments,
+                                               const Graph::ElementIdMap& ids, uint64_t deletedNode )
+    {
+        const std::string* key = ids.KeyOf( static_cast<Graph::ElementId>( deletedNode ) );
+        if ( key == nullptr )
+            return false;
+        const auto id = static_cast<uint32_t>( std::stoul( *key ) );
+        return std::erase_if( comments, [id]( const G::GraphComment& c ) { return c.Id == id; } ) > 0;
+    }
+
+    void AnimGraphPanel::DrawFind( Graph::FindPopup& find, const Graph::CanvasPlan& plan )
+    {
+        if ( Graph::FindKeyPressed() )
+            find.Open();
+        std::vector<std::string> names;
+        names.reserve( plan.Nodes.size() );
+        for ( const Graph::PlannedNode& node : plan.Nodes )
+            names.push_back( node.Key );
+        if ( const std::optional<size_t> picked = find.Draw( names ) )
+            Graph::FocusNode( plan.Nodes[*picked].Id );
+    }
+
     void AnimGraphPanel::DrawCanvas( ECS::AnimationComponent& anim, float width, float height )
     {
         auto&            graph   = *anim.Graph;
@@ -672,6 +739,8 @@ namespace Desert::Editor
 
         ed::SetCurrentEditor( m_Context );
         ed::Begin( "##animGraph", canvasSize );
+
+        dirty |= DrawCommentLayer( machine.Comments, m_CommentIds, "##renameStateComment" );
 
         int activeIndex = -1;
         // The live evaluator runs the Output Pose's machine: another machine's state of the same name is not it.
@@ -802,6 +871,12 @@ namespace Desert::Editor
             ed::NodeId dn;
             while ( ed::QueryDeletedNode( &dn ) )
             {
+                if ( Graph::KindOf( static_cast<Graph::ElementId>( dn.Get() ) ) == Graph::ElementKind::Comment )
+                {
+                    if ( ed::AcceptDeletedItem() )
+                        dirty |= RemoveDeletedComment( machine.Comments, m_CommentIds, dn.Get() );
+                    continue;
+                }
                 if ( ed::AcceptDeletedItem() )
                 {
                     const int ni = Graph::StateOfNode( m_Canvas, static_cast<Graph::ElementId>( dn.Get() ) );
@@ -820,6 +895,10 @@ namespace Desert::Editor
             }
         }
         ed::EndDelete();
+
+        ed::Suspend();
+        DrawFind( m_Find, m_Canvas.Plan );
+        ed::Resume();
 
         ed::End();
         ed::SetCurrentEditor( nullptr );

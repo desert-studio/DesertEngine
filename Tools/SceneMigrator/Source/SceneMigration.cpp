@@ -925,14 +925,56 @@ namespace Desert::Migration
     namespace AnimGraphLegacy
     {
         namespace G = Animation::Graph;
-        // ANGR 2: the current layout without the Output Pose node's position.
+        // ANGR 2: the current layout without the Output Pose node's position and without comment boxes (the
+        // canvases' `Comments`, which the files gained in place and an ANGR 2 file never states).
+        struct StateMachineV2
+        {
+            std::string           Entry;
+            std::vector<G::State> States;
+        };
+        struct PoseNodeV2
+        {
+            std::string                               Name;
+            int                                       Kind = 0;
+            std::vector<std::string>                  PoseInputs;
+            std::vector<G::ParameterPin>              ParameterInputs;
+            std::optional<StateMachineV2>             Machine;
+            std::optional<G::LayeredBlendPerBoneNode> LayeredBlend;
+            std::optional<G::SequencePlayerNode>      Sequence;
+            std::optional<G::LinkedAnimLayerNode>     LinkedLayer;
+            float                                     X = 0.0f;
+            float                                     Y = 0.0f;
+        };
         struct AnimLayerGraphV2
         {
-            std::string              Interface;
-            std::string              Layer;
-            std::vector<G::PoseNode> Nodes;
-            std::string              OutputPose;
+            std::string             Interface;
+            std::string             Layer;
+            std::vector<PoseNodeV2> Nodes;
+            std::string             OutputPose;
         };
+
+        std::vector<G::PoseNode> RaisePoseNodes( const std::vector<PoseNodeV2>& old )
+        {
+            std::vector<G::PoseNode> raised;
+            raised.reserve( old.size() );
+            for ( const PoseNodeV2& was : old )
+            {
+                G::PoseNode node;
+                node.Name            = was.Name;
+                node.Kind            = was.Kind;
+                node.PoseInputs      = was.PoseInputs;
+                node.ParameterInputs = was.ParameterInputs;
+                if ( was.Machine )
+                    node.Machine = G::StateMachine{ was.Machine->Entry, was.Machine->States, {} };
+                node.LayeredBlend = was.LayeredBlend;
+                node.Sequence     = was.Sequence;
+                node.LinkedLayer  = was.LinkedLayer;
+                node.X            = was.X;
+                node.Y            = was.Y;
+                raised.push_back( std::move( node ) );
+            }
+            return raised;
+        }
         struct AnimGraphLayersV2
         {
             std::vector<G::AnimLayerInterface> Interfaces;
@@ -943,7 +985,7 @@ namespace Desert::Migration
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
             std::string                                               Name;
             std::vector<G::Parameter>                                 Parameters;
-            std::vector<G::PoseNode>                                  Nodes;
+            std::vector<PoseNodeV2>                                   Nodes;
             std::string                                               OutputPose;
             std::optional<AnimGraphLayersV2>                          Layers;
         };
@@ -970,10 +1012,10 @@ namespace Desert::Migration
         graph.Header->Versions["ANGR"] = Assets::kAnimGraphSchemaVersion;
         graph.Name                     = old.Name;
         graph.Parameters               = old.Parameters;
-        graph.Nodes                    = old.Nodes;
+        graph.Nodes                    = AnimGraphLegacy::RaisePoseNodes( old.Nodes );
         graph.OutputPose               = old.OutputPose;
         std::tie( graph.OutputPoseX, graph.OutputPoseY ) =
-             G::DefaultOutputPosePosition( old.Nodes, old.OutputPose );
+             G::DefaultOutputPosePosition( graph.Nodes, old.OutputPose );
         if ( old.Layers )
         {
             G::AnimGraphLayers layers;
@@ -983,10 +1025,10 @@ namespace Desert::Migration
                 G::AnimLayerGraph layer;
                 layer.Interface  = was.Interface;
                 layer.Layer      = was.Layer;
-                layer.Nodes      = was.Nodes;
+                layer.Nodes      = AnimGraphLegacy::RaisePoseNodes( was.Nodes );
                 layer.OutputPose = was.OutputPose;
                 std::tie( layer.OutputPoseX, layer.OutputPoseY ) =
-                     G::DefaultOutputPosePosition( was.Nodes, was.OutputPose );
+                     G::DefaultOutputPosePosition( layer.Nodes, was.OutputPose );
                 layers.Implemented.push_back( std::move( layer ) );
             }
             graph.Layers = std::move( layers );
