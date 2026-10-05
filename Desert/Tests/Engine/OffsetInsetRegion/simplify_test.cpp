@@ -501,6 +501,8 @@ namespace
         const int        hub   = fan.Mesh.AppendVertex( glm::dvec3( 0.0, 0.0, onSphere ? kHalf : 0.0 ) );
         std::vector<int> ring;
         std::vector<int> outer;
+        ring.reserve( static_cast<size_t>( k ) );
+        outer.reserve( static_cast<size_t>( k ) );
         for ( int i = 0; i < k; ++i )
             ring.push_back( fan.Mesh.AppendVertex( at( i, kHalf, 0.0 ) ) );
         for ( int i = 0; i < k; ++i )
