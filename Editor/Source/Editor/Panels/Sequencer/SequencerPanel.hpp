@@ -285,6 +285,17 @@ namespace Desert::Editor
                                float laneX0, float laneW, float rowY, float rowH );
         /// Delete: every selected key, one undo step (`ECS::RemoveEntityTransformKeys`).
         void DeleteSelectedLevelKeys();
+        /// "+ Track ▸ Event" on an actor or on the sequence (`ECS::LevelSequenceMasterBinding`), one undo step.
+        void AddLevelEventTrack( const Animation::Timeline::BindingGuid& binding );
+        /// An event named "Event" at the playhead on @p binding's Event track, selected for renaming; one undo step.
+        void AddLevelEventKey( const Animation::Timeline::BindingGuid& binding );
+        /// The Event track row of @p binding (UE: the Event Track): "+ Key" at the playhead, each key a marker
+        /// with its name; click selects, a drag retimes it on the display grid (one undo step on release), the
+        /// selected key's name is edited in the row (one undo step per committed edit), Delete removes it.
+        void DrawLevelEventRow( Animation::Timeline::Sequence& sequence, const Animation::Timeline::BindingGuid& binding,
+                                const char* label, float contentX0, float laneX0, float laneW );
+        /// Delete: the selected event key, one undo step (`ECS::RemoveEventKey`).
+        void DeleteSelectedLevelEvent();
         void SetLevelRecord( bool on );
         /// Per frame: the gizmo bit into `m_LevelAutoKey`; the release writes its keys inside one undo step.
         void UpdateLevelAutoKey( Animation::Timeline::Sequence& sequence );
@@ -297,6 +308,17 @@ namespace Desert::Editor
             Animation::FrameNumber           Tick;
         };
         std::vector<LevelKeyRef>                   m_LevelSelKeys;
+        /// The selected event key: (binding, index in `ECS::EventKeys`). Events share ticks, so a tick names none.
+        struct LevelEventRef
+        {
+            Animation::Timeline::BindingGuid Binding;
+            size_t                           Index = 0;
+        };
+        std::optional<LevelEventRef> m_LevelSelEvent;
+        bool                         m_LevelEventDrag      = false;
+        float                        m_LevelEventDragX0    = 0.0f;
+        int32_t                      m_LevelEventDragDelta = 0; ///< ticks, on the display grid
+        char m_LevelEventName[128] = {}; ///< the row's name field for the selected event
         std::optional<Animation::Timeline::Player> m_LevelPlayer;
         Animation::Timeline::LoopMode              m_LevelLoop = Animation::Timeline::LoopMode::Loop;
         Animation::FrameNumber                     m_LevelPlayerStart{ INT32_MIN };

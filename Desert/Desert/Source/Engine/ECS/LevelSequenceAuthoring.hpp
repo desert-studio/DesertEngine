@@ -38,6 +38,9 @@ namespace Desert::ECS
     /// The Property of an actor's Visibility track — the bool `LevelSequenceEntityHost::Apply` writes into
     /// VisibilityComponent (UE: the actor's "Visibility" bool property track, bHiddenInGame inverted).
     inline constexpr const char* kLevelSequenceVisibilityProperty = "Visible";
+    /// The Property of an Event track, on an actor binding or on the master Sequence binding (UE: the Event
+    /// Track); its keys are named markers playback fires once when a step crosses them.
+    inline constexpr const char* kLevelSequenceEventProperty = "Events";
 
     /**
      * @brief "+ Track → Actor" (UE: a Possessable): the Entity binding naming @p entity, created when missing.
@@ -232,6 +235,64 @@ namespace Desert::ECS
     [[nodiscard]] std::vector<std::pair<LevelSequenceMaterialParameter, Animation::Timeline::TrackKind>>
     MaterialParameterTracks( const Animation::Timeline::Sequence&    sequence,
                              const Animation::Timeline::BindingGuid& binding );
+
+    // ── Event track (UE: the Sequencer Event Track — on an actor binding or on the sequence itself) ────────
+    //
+    // ONE Event track per binding, ONE section over the playback range when added. A key is a named marker
+    // (`EventKey`, Duration 0) that playback fires once when a step crosses its tick (`CollectFired` →
+    // `LevelSequenceEntityHost::Fire` → `LevelSequenceStep::FiredEvents`). Keys are addressed by their INDEX in
+    // `EventKeys` order (several events may share a tick, so a tick does not name one). Every edit is made on
+    // a copy kept only when `Validate` passes — a refusal leaves the sequence as it was — and bumps Revision.
+
+    /// The binding a sequence-level track lives on (the master Sequence binding Camera Cuts share).
+    [[nodiscard]] Animation::Timeline::BindingGuid LevelSequenceMasterBinding();
+
+    /**
+     * @brief "+ Track ▸ Event" on @p binding: an Entity binding of this sequence, or
+     * `LevelSequenceMasterBinding()` (created when missing). Refuses any other binding and a binding that already
+     * has an Event track.
+     */
+    [[nodiscard]] Common::BoolResultStr AddEventTrack( Animation::Timeline::Sequence&          sequence,
+                                                       const Animation::Timeline::BindingGuid& binding );
+
+    /// Whether @p binding has an Event track — the Sequencer offers "+ Track ▸ Event" only where not.
+    [[nodiscard]] bool HasEventTrack( const Animation::Timeline::Sequence&    sequence,
+                                      const Animation::Timeline::BindingGuid& binding );
+
+    /// One key of an Event track, as the Sequencer row draws it.
+    struct LevelEventKey
+    {
+        Animation::FrameNumber Tick;
+        std::string            Name;
+    };
+
+    /// Every key of @p binding's Event track, section by section, each section's keys by tick. Empty for no track.
+    [[nodiscard]] std::vector<LevelEventKey> EventKeys( const Animation::Timeline::Sequence&    sequence,
+                                                        const Animation::Timeline::BindingGuid& binding );
+
+    /**
+     * @brief An event @p name at @p tick (after any event already on that tick) on the highest-row section of
+     * @p binding's Event track whose range holds @p tick, else on its first section. Refuses an empty name and
+     * a binding with no Event track. Returns the new key's index in `EventKeys`.
+     */
+    [[nodiscard]] Common::ResultStr<size_t> AddEventKey( Animation::Timeline::Sequence&          sequence,
+                                                         const Animation::Timeline::BindingGuid& binding,
+                                                         Animation::FrameNumber tick, std::string name );
+
+    /// Renames the event at @p index (UE: the key's event name in the row / Details). Refuses an empty name.
+    [[nodiscard]] Common::BoolResultStr RenameEventKey( Animation::Timeline::Sequence&          sequence,
+                                                        const Animation::Timeline::BindingGuid& binding,
+                                                        size_t index, std::string name );
+
+    /// Moves the event at @p index by @p delta ticks (the channel stays sorted). Returns its new index.
+    [[nodiscard]] Common::ResultStr<size_t> MoveEventKey( Animation::Timeline::Sequence&          sequence,
+                                                          const Animation::Timeline::BindingGuid& binding,
+                                                          size_t index, int32_t delta );
+
+    /// Removes the event at @p index.
+    [[nodiscard]] Common::BoolResultStr RemoveEventKey( Animation::Timeline::Sequence&          sequence,
+                                                        const Animation::Timeline::BindingGuid& binding,
+                                                        size_t                                  index );
 
     /**
      * @brief The Sequencer's preview of a level sequence over a scene's registry (UE: the editor's sequence
