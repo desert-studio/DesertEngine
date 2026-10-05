@@ -858,7 +858,7 @@ namespace Desert::Editor
     void PreviewViewport::DropSkinned()
     {
         m_Clip.reset();
-        m_GraphDriven = false;
+        m_GraphDriven   = false;
         m_AnimationTime = 0.0;
         if ( !m_Target )
             return;
@@ -914,7 +914,8 @@ namespace Desert::Editor
         ++m_ContentRevision;
     }
 
-    void PreviewViewport::EnableAnimationSystem( Animation::AnimationLibrary* library, Assets::AssetManager* assets )
+    void PreviewViewport::EnableAnimationSystem( Animation::AnimationLibrary* library,
+                                                 Assets::AssetManager*        assets )
     {
         EnsureInit();
         if ( m_AnimationSystemOn )
@@ -936,7 +937,7 @@ namespace Desert::Editor
             EnsureInit();
             m_Target.AddComponent<ECS::AnimationComponent>();
         }
-        auto& anim                   = m_Target.GetComponent<ECS::AnimationComponent>();
+        auto& anim = m_Target.GetComponent<ECS::AnimationComponent>();
         anim.CurrentClip.clear();
         anim.GraphAsset              = graph;
         anim.Playing                 = true; // the graph is evaluated; whether its clock moves is SetGraphPlaying

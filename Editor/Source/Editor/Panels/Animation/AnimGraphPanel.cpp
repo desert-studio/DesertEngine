@@ -194,13 +194,13 @@ namespace Desert::Editor
             auto        mesh = m_AssetManager->CreateAsset<Assets::SkinnedMeshAsset>( path, false );
             if ( !mesh )
             {
-                m_Status        = std::format( "skeletal mesh '{}' could not be registered", path.generic_string() );
+                m_Status = std::format( "skeletal mesh '{}' could not be registered", path.generic_string() );
                 m_StatusIsError = true;
             }
             else if ( const auto loaded = mesh->EnsureLoaded( *m_AssetManager ); !loaded )
             {
-                m_Status = std::format( "skeletal mesh '{}' would not load: {}", path.generic_string(),
-                                        loaded.GetError() );
+                m_Status        = std::format( "skeletal mesh '{}' would not load: {}", path.generic_string(),
+                                               loaded.GetError() );
                 m_StatusIsError = true;
             }
             else
@@ -541,7 +541,8 @@ namespace Desert::Editor
         const bool previewing = m_Preview && m_Preview->IsGraphPlaying();
         if ( ImGui::Button( previewing ? ICON_MDI_PAUSE "  Preview" : ICON_MDI_PLAY "  Preview" ) )
             TogglePreview();
-        Utils::ImGuiUtilities::Tooltip( "Play this graph on the preview character (the editor clock advances it)" );
+        Utils::ImGuiUtilities::Tooltip(
+             "Play this graph on the preview character (the editor clock advances it)" );
         if ( unsaved )
         {
             // NOT A COSMETIC DOT. Dragging a state is an edit to the FILE (§7.2: the drag authors
@@ -641,10 +642,10 @@ namespace Desert::Editor
         constexpr float kPreviewH = 240.0f;
         DrawPreviewPane( 290.0f, kPreviewH );
         const float sideH = std::max( 80.0f, canvasH - kPreviewH - ImGui::GetStyle().ItemSpacing.y );
-        // THE SAME HEIGHT THE CANVAS GOT (less the preview pane above it), and not `0` meaning "the rest of the window". A height-0 child
-        // here reaches the bottom of the document, so it swallowed the space reserved for the warning
-        // strip and the strip was laid out BELOW the visible area: computed every frame, drawn nowhere.
-        // Found in the editor, on the frame that was supposed to photograph the strip -- which is the
+        // THE SAME HEIGHT THE CANVAS GOT (less the preview pane above it), and not `0` meaning "the rest of the
+        // window". A height-0 child here reaches the bottom of the document, so it swallowed the space reserved
+        // for the warning strip and the strip was laid out BELOW the visible area: computed every frame, drawn
+        // nowhere. Found in the editor, on the frame that was supposed to photograph the strip -- which is the
         // whole argument for taking the frame.
         if ( m_EditingMachine )
             DrawSidePanel( *anim, clipNames, sideH );

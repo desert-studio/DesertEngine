@@ -44,7 +44,7 @@ namespace Desert::Assets
 {
     class AnimationAsset;
     class AssetManager;
-}
+} // namespace Desert::Assets
 
 namespace Desert::ECS
 {

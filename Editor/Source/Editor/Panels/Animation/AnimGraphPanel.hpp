@@ -124,7 +124,7 @@ namespace Desert::Editor
         {
             return m_Preview != nullptr;
         }
-        void ReleaseView() override;
+        void               ReleaseView() override;
         [[nodiscard]] bool HasPreview() const override
         {
             return true;
@@ -281,7 +281,7 @@ namespace Desert::Editor
         // ReleaseView, headless): bound to the same shared graph. Once the preview exists, ResolveComponent
         // answers the preview target's AnimationComponent — the one the AnimationECSSystem evaluates.
         std::unique_ptr<ECS::AnimationComponent> m_Instance;
-        Animation::AnimationLibrary*         m_Library      = nullptr;
+        Animation::AnimationLibrary*             m_Library      = nullptr;
         Assets::AssetManager*                m_AssetManager = nullptr;
         std::string                          m_Status; // last save result line
         bool                                 m_StatusIsError = false;
