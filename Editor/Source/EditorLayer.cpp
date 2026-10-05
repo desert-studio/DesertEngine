@@ -882,7 +882,7 @@ namespace Desert::Editor
         m_Panels.Add<Editor::ModelingPanel>( m_MainScene );
         m_Panels.Add<Editor::LandscapePanel>( m_MainScene );
         m_Panels.Add<Editor::WorldSettingsPanel>( m_MainScene );
-        m_Panels.Add<Editor::ScalabilityPanel>();
+        m_Panels.Add<Editor::ScalabilityPanel>( m_MainScene );
         // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through
         // the getter each frame, because Stop and a streaming error destroy it from this side.
         m_WorldPartitionPanel = &m_Panels.Add<Editor::WorldPartitionPanel>(
