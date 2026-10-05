@@ -39,7 +39,6 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr BeginFrame();
         [[nodiscard]] Common::BoolResultStr EndFrame();
         void BeginRenderPass( const RenderPass* renderPass, bool clearFrame = true );
-        void BeginSwapChainRenderPass();
         void EndRenderPass();
 
         // Named region in the current command buffer (RenderDoc pass tree). Pair Begin/End.

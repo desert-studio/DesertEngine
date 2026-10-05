@@ -2702,7 +2702,7 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
     const std::regex forbidden(
-         R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures)" );
+         R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures|BeginSwapChainRenderPass)" );
     std::vector<std::string> found;
     size_t                   scanned = 0;
     for ( const char* tree : { "Desert/Desert/Source", "Editor/Source" } )
@@ -2718,7 +2718,9 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
             std::ifstream file( entry.path() );
             std::string   line;
             for ( size_t number = 1; std::getline( file, line ); ++number )
-                if ( line.find( "Legacy" ) != std::string::npos && std::regex_search( line, forbidden ) )
+                if ( ( line.find( "Legacy" ) != std::string::npos ||
+                       line.find( "SwapChainRenderPass" ) != std::string::npos ) &&
+                     std::regex_search( line, forbidden ) )
                     found.push_back( std::format( "{}:{}: {}", fs::relative( entry.path(), root ).generic_string(),
                                                   number, line ) );
         }
@@ -2857,4 +2859,41 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
          SqueezedSource( root, "Editor/Source/Editor/Panels/UI/UIEditorPanel.cpp" ).find( "BeginRenderPass(" ),
          std::string::npos )
          << "the UI editor preview draws outside the graph";
+}
+
+// THE EDITOR'S INTERFACE IS A GRAPH NODE (MESH-PB1 M2d). VulkanImGui::End imports the back buffer, records the
+// main viewport's draw data in one Raster node on that pass's own command buffer
+// (VulkanRdgBackend::CommandBufferOf), extracts the image as Present and executes the graph through the renderer.
+// The ImGui backend's pipeline is built against the graph's canonical render pass (CreateRdgRenderPass), not
+// against a swapchain render pass, and nothing in the file opens or closes a render pass of its own. The swapchain
+// keeps no render pass or framebuffers.
+TEST( RenderGraphCompile, EditorInterfaceIsAGraphNode )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string imgui = SqueezedSource( root, "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp" );
+    EXPECT_NE( imgui.find( "renderer.ImportBackBuffer(backBuffer)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "graph.AddPass(\"EditorImGui\",Graphic::RDG::PassFlags::Raster" ), std::string::npos );
+    EXPECT_NE( imgui.find( "pass.ColorTarget(0,target," ), std::string::npos );
+    EXPECT_NE( imgui.find( "VulkanRdgBackend::CommandBufferOf(context)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "ImGui_ImplVulkan_RenderDrawData(drawData,commandBuffer.GetValue())" ),
+               std::string::npos )
+         << "the draw data is recorded on the node's command buffer";
+    EXPECT_NE( imgui.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "renderer.ExecuteGraph(graph)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "ImGui_ImplVulkan_Init(&init_info,m_ImguiRenderPass)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "CreateRdgRenderPass(" ), std::string::npos );
+    for ( const char* gone :
+          { "GetCurrentCommandBuffer", "BeginRenderPass(", "EndRenderPass(", "GetRenderPass(" } )
+        EXPECT_EQ( imgui.find( gone ), std::string::npos )
+             << "VulkanImGuiLayer.cpp draws outside the graph: " << gone;
+
+    for ( const char* file : { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp",
+                               "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp" } )
+    {
+        const std::string swapChain = SqueezedSource( root, file );
+        for ( const char* gone : { "m_VkRenderPass", "m_SwapChainFramebuffers", "vkCreateRenderPass(" } )
+            EXPECT_EQ( swapChain.find( gone ), std::string::npos )
+                 << file << ": the swapchain owns a render pass again: " << gone;
+    }
 }

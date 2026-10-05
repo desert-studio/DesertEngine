@@ -11,7 +11,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
@@ -111,7 +112,16 @@ namespace Desert::Graphic::API::Vulkan
         init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
         init_info.Allocator      = nullptr;
 
-        ImGui_ImplVulkan_Init( &init_info, swapchain->GetRenderPass() );
+        // The pipeline is built against the render graph's canonical pass for the back buffer's format: the
+        // interface is drawn inside a graph node (End), and render-pass compatibility is formats and samples only.
+        const Common::ResultStr<VkRenderPass> imguiPass =
+             CreateRdgRenderPass( device, RdgCompatibleRenderPassKey( { swapchain->GetColorFormat() },
+                                                                      VK_FORMAT_UNDEFINED, false, 1 ) );
+        if ( !imguiPass )
+            return Common::MakeFormattedError<bool>( "the ImGui render pass: {}", imguiPass.GetError() );
+        m_ImguiRenderPass = imguiPass.GetValue();
+
+        ImGui_ImplVulkan_Init( &init_info, m_ImguiRenderPass );
 
         // Upload Fonts
         {
@@ -145,6 +155,13 @@ namespace Desert::Graphic::API::Vulkan
                                    ->GetVulkanLogicalDevice();
             vkDestroyDescriptorPool( device, m_ImguiPool, nullptr );
             m_ImguiPool = VK_NULL_HANDLE;
+        }
+        if ( m_ImguiRenderPass != VK_NULL_HANDLE )
+        {
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                   ->GetVulkanLogicalDevice();
+            vkDestroyRenderPass( device, m_ImguiRenderPass, nullptr );
+            m_ImguiRenderPass = VK_NULL_HANDLE;
         }
 
         return BOOLSUCCESS;
@@ -186,15 +203,16 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanImGui::End()
     {
-        // RECORDS FROM OUTSIDE VulkanRenderer.cpp, into the renderer's current command buffer.
+        // RECORDS FROM OUTSIDE VulkanRenderer.cpp: the interface graph below is executed into the frame's command
+        // buffer from this file.
         //
         // Every vkCmd* in VulkanRenderer.cpp is covered by the gates of the only two writers of
-        // m_CurrentCommandBuffer (BeginFrame and ExecuteGraph). This function records through the getter
-        // from another file, so the device-lost census lists it as a gated row of its own. Left ungated, a loss
-        // discovered during a layer's OnUpdate would still be followed by a full frame of interface recording.
-        // Nothing would crash — recording does not touch the device and the buffer is never submitted, because
-        // PresentFinalImage is gated too — but "no Vulkan call after the loss" would be false, and a claim that is
-        // nearly true is the kind this project pays for later.
+        // m_CurrentCommandBuffer (BeginFrame and ExecuteGraph). This function also drives the ImGui backend's
+        // own recording and its platform windows, so the device-lost census lists it as a gated row of its own.
+        // Left ungated, a loss discovered during a layer's OnUpdate would still be followed by a full frame of
+        // interface recording. Nothing would crash — recording does not touch the device and the buffer is never
+        // submitted, because PresentFinalImage is gated too — but "no Vulkan call after the loss" would be false,
+        // and a claim that is nearly true is the kind this project pays for later.
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 
@@ -205,30 +223,41 @@ namespace Desert::Graphic::API::Vulkan
 
         ::ImGui::Render();
 
-        auto  swapChain = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) — the check's remedy is a
-        // `dynamic_cast`, which needs RTTI and a run-time branch on a per-frame path, to answer a
-        // question the program has already answered: this file only exists in a build whose renderer IS
-        // the Vulkan one (`VulkanImGui` is constructed by the Vulkan backend and by nothing else). A
-        // `dynamic_cast` here would make the cost real and the failure unreachable.
-        auto& renderer =
-             static_cast<VulkanRendererAPI&>( *::Desert::Graphic::Renderer::GetInstance().GetRendererAPI() );
+        auto& renderer = ::Desert::Graphic::Renderer::GetInstance();
 
-        // ImGui must be rendered within a render pass that target the swapchain
-        renderer.BeginSwapChainRenderPass();
+        // THE INTERFACE IS A GRAPH NODE (UE: the viewport's back buffer is registered as an external texture each
+        // frame and the last pass writes it). The node clears this frame's acquired image to the editor's
+        // backdrop and records the main viewport's draw data into it on the pass's own command buffer; the graph
+        // leaves the image in the present layout. It executes here, after every graph this frame recorded during
+        // the panels' draw, because the UI samples their images (viewport, previews, thumbnails).
+        Graphic::RDG::Builder         graph( "EditorImGui" );
+        Graphic::RDG::ExternalTexture backBuffer;
+        if ( const auto imported = renderer.ImportBackBuffer( backBuffer ); !imported )
+        {
+            // Reported rather than returned: this function is void and its caller is the layer stack's UI pass.
+            LOG_ERROR( "[VulkanImGui] the back buffer: {}", imported.GetError() );
+            return;
+        }
+        const Graphic::RDG::TextureRef target   = graph.RegisterExternal( backBuffer, "BackBuffer" );
+        ImDrawData*                    drawData = ::ImGui::GetDrawData();
+        graph.AddPass(
+             "EditorImGui", Graphic::RDG::PassFlags::Raster, [&]( Graphic::RDG::PassBuilder& pass )
+             { pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f ) ); },
+             [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const auto commandBuffer = VulkanRdgBackend::CommandBufferOf( context );
+                 if ( !commandBuffer )
+                     return Common::MakeError( commandBuffer.GetError() );
+                 ImGui_ImplVulkan_RenderDrawData( drawData, commandBuffer.GetValue() );
+                 return BOOLSUCCESS;
+             } );
+        graph.Extract( target, backBuffer, Graphic::RDG::Access::Present );
+        if ( const auto executed = renderer.ExecuteGraph( graph ); !executed )
+            LOG_ERROR( "[VulkanImGui] the interface graph: {}", executed.GetError() );
 
-        // The frame's current command buffer: the frame is split at every graph, so the swapchain's first
-        // one would run BEFORE the graphs whose images the UI shows.
-        ImGui_ImplVulkan_RenderDrawData( ::ImGui::GetDrawData(), renderer.GetCurrentCommandBuffer() );
-
-        // Reported rather than returned: this helper is void and its caller is ImGui's own render path.
-        // A pass that will not close leaves the command buffer inside a render pass, and everything
-        // recorded after it is rejected by the driver rather than by us — so the log entry naming this
-        // line is the only thing that points at the cause.
-        const auto passEnded = renderer.EndRenderPass();
-        if ( !passEnded.IsSuccess() )
-            LOG_ERROR( "[VulkanImGui] EndRenderPass failed: {}", passEnded.GetError() );
-
+        // THE BOUNDARY OF THE FRAME'S GRAPH. The detached platform windows below are OS windows the ImGui
+        // backend owns, each with its own swapchain, render pass, command buffers, submit and present — they are
+        // not this frame's output and not the engine's back buffer, so they are not graph nodes.
         if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
         {
             // The backend's own vkQueueSubmit / vkQueuePresentKHR / vkDeviceWaitIdle for detached windows run
