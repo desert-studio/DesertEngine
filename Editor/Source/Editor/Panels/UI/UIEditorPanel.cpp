@@ -6,7 +6,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
-#include <Engine/Graphic/RenderPass.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/UI/UILayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -93,7 +93,6 @@ namespace Desert::Editor
         if ( !m_Target )
             return;
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        m_RenderPass.reset();
         m_Target.reset();
         m_TargetWidth  = 0;
         m_TargetHeight = 0;
@@ -135,26 +134,10 @@ namespace Desert::Editor
             return false;
         }
 
-        Graphic::RenderPassSpecification passSpec;
-        passSpec.TargetFramebuffer = m_Target;
-        passSpec.DebugName         = "UIEditorPreview";
-        // The authoring backdrop behind the canvas. It is editor chrome, not canvas content: the canvas
-        // itself draws whatever its own panels say.
-        passSpec.ClearColor.Color = { 0.094f, 0.098f, 0.118f, 1.0f };
-        m_RenderPass              = Graphic::RenderPass::Create( passSpec );
-        if ( !m_RenderPass )
-        {
-            m_PreviewError = "could not create the preview render pass";
-            LOG_ERROR( "[UI Editor] {} ({}x{})", m_PreviewError, width, height );
-            m_Target.reset();
-            return false;
-        }
-
         if ( const auto result = m_Render2D.Init( m_Target ); !result )
         {
             m_PreviewError = result.GetError();
             LOG_ERROR( "[UI Editor] preview Render2D init failed: {}", m_PreviewError );
-            m_RenderPass.reset();
             m_Target.reset();
             return false;
         }
@@ -231,7 +214,6 @@ namespace Desert::Editor
         const ::Desert::UI::Rect viewport{ 0.0f, 0.0f, static_cast<float>( w ), static_cast<float>( h ) };
 
         auto& renderer = Graphic::Renderer::GetInstance();
-        renderer.BeginRenderPass( m_RenderPass.get(), /*clearFrame=*/true );
         m_Render2D.BeginFrame( { viewport.X, viewport.Y, viewport.W, viewport.H } );
 
         // input = nullptr is what makes the preview inert: buttons draw their normal state, nothing is
@@ -272,8 +254,30 @@ namespace Desert::Editor
             LOG_ERROR( "[UI Editor] {}", m_PreviewError );
         }
         ::Desert::UI::EndUIFrame( m_UIView, scene->GetRegistry(), m_Render2D.GetDrawList(), /*input=*/nullptr );
-        m_Render2D.Flush();
-        renderer.EndRenderPass();
+        // THE PREVIEW IS A GRAPH NODE: the panel's target is imported for one graph, the node clears it and draws
+        // the 2D batch, and the graph leaves it sampled for the panel's image.
+        Graphic::RDG::Builder         graph( "UIEditorPreview" );
+        Graphic::RDG::ExternalTexture targetImage;
+        if ( const auto imported = renderer.ImportImage( m_Target->GetColorAttachmentImage( 0 ), targetImage );
+             !imported )
+        {
+            m_PreviewError = imported.GetError();
+            LOG_ERROR( "[UI Editor] preview target import failed: {}", m_PreviewError );
+            return;
+        }
+        const Graphic::RDG::TextureRef target = graph.RegisterExternal( targetImage, "UIEditorPreview" );
+        graph.AddPass(
+             "UIEditorPreview", Graphic::RDG::PassFlags::Raster, [&]( Graphic::RDG::PassBuilder& pass )
+             { pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::ClearColor( 0.094f, 0.098f, 0.118f, 1.0f ) ); },
+             [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
+             { return m_Render2D.Flush( context, Graphic::RDG::TextureRef{} ); } );
+        graph.Extract( target, targetImage, Graphic::RDG::Access::SampledGraphics );
+        if ( const auto executed = renderer.ExecuteGraph( graph ); !executed )
+        {
+            m_PreviewError = executed.GetError();
+            LOG_ERROR( "[UI Editor] preview graph failed: {}", m_PreviewError );
+            return;
+        }
 
         m_PreviewRecorded = true;
     }

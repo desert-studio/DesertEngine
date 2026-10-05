@@ -47,6 +47,7 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph ) override;
         Common::BoolResultStr                  ImportImage( const std::shared_ptr<Image>& image,
                                                             RDG::ExternalTexture&         into ) override;
+        Common::BoolResultStr                  ImportBackBuffer( RDG::ExternalTexture& into ) override;
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into ) override;
 
@@ -57,10 +58,6 @@ namespace Desert::Graphic::API::Vulkan
 
         virtual void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
                                                const MaterialExecutor* materialExecutor ) override;
-
-        virtual void SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
-                                    IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
-                                    const MaterialExecutor* materialExecutor ) override;
 
         virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                   const MaterialExecutor* materialExecutor ) override;

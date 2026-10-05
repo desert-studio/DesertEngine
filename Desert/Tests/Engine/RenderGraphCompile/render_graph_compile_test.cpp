@@ -2817,3 +2817,44 @@ TEST( RenderGraphCompile, ExecuteWalksSegmentsAndReportsDemotionOncePerBackend )
     EXPECT_EQ( std::count( separate.Calls.begin(), separate.Calls.end(), "Epilogue 2" ), 1 );
     EXPECT_EQ( std::count( separate.Calls.begin(), separate.Calls.end(), "Epilogue 1" ), 1 );
 }
+
+// THE PRESENT IS A GRAPH NODE (MESH-PB1 M2c). The runtime's back buffer is imported into a graph each frame
+// (Renderer::ImportBackBuffer, UE: RegisterExternalTexture of the viewport's RHI texture), one Raster node clears
+// it, blits the scene through PassBindings and draws the 2D batch, and the graph extracts it as Present. No draw
+// happens outside a graph pass: the swapchain render pass and the 2D batcher's out-of-graph SubmitIndexed are gone
+// from the runtime, and Render2D::Flush takes the node's context.
+TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string runtime = SqueezedSource( root, "Runtime/Source/RuntimeLayer.cpp" );
+    EXPECT_NE( runtime.find( "renderer.ImportBackBuffer(backBuffer)" ), std::string::npos );
+    EXPECT_NE( runtime.find( "graph.AddPass(\"RuntimePresent\",Graphic::RDG::PassFlags::Raster" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "pass.ColorTarget(0,target," ), std::string::npos );
+    EXPECT_NE( runtime.find( "bindings.Sampled(\"u_Texture\",sceneRef,Graphic::RDG::Access::SampledGraphics" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "renderer.ExecuteGraph(graph)" ), std::string::npos );
+    for ( const char* gone : { "BeginSwapChainRenderPass", "SubmitIndexed", "SubmitFullscreenTriangle",
+                               "EndRenderPass", "SetImage(" } )
+        EXPECT_EQ( runtime.find( gone ), std::string::npos )
+             << "RuntimeLayer.cpp draws outside the graph: " << gone;
+
+    const std::string render2D =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp" );
+    EXPECT_NE(
+         render2D.find( "Common::BoolResultStrFlush(constRDG::PassContext&context,RDG::TextureRefbackdrop);" ),
+         std::string::npos )
+         << "Render2D::Flush takes the node's context, with no default";
+    for ( const char* file : { "Desert/Desert/Source/Engine/Graphic/Renderer.hpp",
+                               "Desert/Desert/Source/Engine/Graphic/RendererAPI.hpp",
+                               "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" } )
+        EXPECT_EQ( SqueezedSource( root, file ).find( "SubmitIndexed(" ), std::string::npos )
+             << file << ": the out-of-graph indexed draw is back";
+    EXPECT_EQ(
+         SqueezedSource( root, "Editor/Source/Editor/Panels/UI/UIEditorPanel.cpp" ).find( "BeginRenderPass(" ),
+         std::string::npos )
+         << "the UI editor preview draws outside the graph";
+}

@@ -80,6 +80,12 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image,
                                                    RDG::ExternalTexture&         into ) = 0;
 
+        // Imports the window's back buffer acquired for this frame into @p into for one graph (UE: the viewport's
+        // RHI texture registered as an external texture each frame). Its prior contents are undefined; the graph
+        // that writes it extracts it as RDG::Access::Present, and the frame presents after that graph. Fails when
+        // there is no window or no acquired image.
+        virtual Common::BoolResultStr ImportBackBuffer( RDG::ExternalTexture& into ) = 0;
+
         // Imports the copy of @p buffer bound for this frame and the active view into @p into for one graph:
         // its size, the graph's non-owning handle on it, the state the last graph that imported the same copy
         // left it in (untouched for a copy no graph has seen), and the hook through which Execute records the
@@ -100,13 +106,6 @@ namespace Desert::Graphic
 
         virtual void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
                                                const MaterialExecutor* materialExecutor ) = 0;
-
-        // Indexed draw from caller-supplied vertex + index buffers. The 2D/UI batcher fills a dynamic
-        // VB+IB each frame (one buffer, many quads) and issues one SubmitIndexed per state batch;
-        // @p materialExecutor supplies the batch's texture and push constants (the ortho projection).
-        virtual void SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
-                                    IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
-                                    const MaterialExecutor* materialExecutor ) = 0;
 
         // Vertexless line draw (Lines-topology pipeline pulls vertices from a storage buffer by index).
         virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
@@ -133,7 +132,7 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::BoolResultStr
         DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                         const MaterialExecutor* material, uint32_t vertexCount, uint32_t instanceCount ) = 0;
-        // The PassBindings route of SubmitIndexed: one indexed draw of @p indexCount indices from @p firstIndex of
+        // The PassBindings indexed draw: one indexed draw of @p indexCount indices from @p firstIndex of
         // a caller-filled VB + IB (uint32 indices, vertices addressed absolutely), with the graph textures bound
         // by shader name from @p bindings and @p material supplying uniform values / asset textures only.
         [[nodiscard]] virtual Common::BoolResultStr

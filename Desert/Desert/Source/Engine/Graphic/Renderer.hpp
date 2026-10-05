@@ -46,6 +46,8 @@ namespace Desert::Graphic
         void BeginDebugLabel( const char* name );
         Common::BoolResultStr ExecuteGraph( RDG::Builder& graph );
         Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into );
+        // RendererAPI::ImportBackBuffer: this frame's acquired swapchain image as a graph external.
+        Common::BoolResultStr ImportBackBuffer( RDG::ExternalTexture& into );
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into );
         void EndDebugLabel();
@@ -57,10 +59,6 @@ namespace Desert::Graphic
         // pass.
         void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
                                        const MaterialExecutor* materialExecutor );
-
-        // Indexed draw from a caller-supplied dynamic VB+IB (the 2D/UI batcher). One call per state batch.
-        void SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer, IndexBuffer* indexBuffer,
-                            uint32_t indexCount, uint32_t firstIndex, const MaterialExecutor* materialExecutor );
 
         // Vertexless line draw: the pipeline (Lines topology) pulls vertices from a storage buffer by index.
         void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
@@ -98,7 +96,7 @@ namespace Desert::Graphic
                                                             const GraphicsPipeline&  pipeline,
                                                             const MaterialExecutor* material, uint32_t vertexCount,
                                                             uint32_t instanceCount );
-        // The PassBindings route for indexed batched draws (the 2D/UI batcher): SubmitIndexed's draw with the
+        // The PassBindings route for indexed batched draws (the 2D/UI batcher): one indexed draw with the
         // graph textures bound by shader name, e.g. Render2D's glass batches sampling u_Backdrop from this
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.
         [[nodiscard]] Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings,
