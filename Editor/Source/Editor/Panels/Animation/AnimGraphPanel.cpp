@@ -5,6 +5,7 @@
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Editor/Panels/PanelContext.hpp>
+#include <Editor/Core/AssetOpen.hpp>
 
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -16,13 +17,12 @@
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Graph/AnimGraphValidation.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
-#include <Engine/ECS/Entity.hpp>
 
 #include <imgui-node-editor/imgui_node_editor.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <cmath>
 #include <functional>
 #include <cstdint>
@@ -97,11 +97,10 @@ namespace Desert::Editor
     } // namespace
 
     AnimGraphPanel::AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
-                                    const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                    const Animation::AnimationLibrary*            library,
-                                    Assets::AssetManager*                         assetManager )
-         : ISubjectDocument( displayName, subject ), m_Scene( scene ), m_Library( library ),
-           m_AssetManager( assetManager )
+                                    const Animation::AnimationLibrary* library,
+                                    Assets::AssetManager*              assetManager )
+         : ISubjectDocument( displayName, subject ), m_Instance( std::make_unique<ECS::AnimationComponent>() ),
+           m_Library( library ), m_AssetManager( assetManager )
     {
         ed::Config config;
         config.SettingsFile = nullptr; // node positions live in the graph (State.X/Y), not a stray json
@@ -122,40 +121,41 @@ namespace Desert::Editor
     // is asked for BY SUBJECT — Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( entity ) ) —
     // and the Details button beside the Animation component sends exactly that.
 
+    bool AnimGraphPanel::IsSubjectAlive() const
+    {
+        return m_AssetManager != nullptr &&
+               m_AssetManager->FindMetadataByHandle( Assets::AssetHandle( Subject().Owner ) ) != nullptr;
+    }
+
     ECS::AnimationComponent* AnimGraphPanel::ResolveComponent() const
     {
-        const auto scene = m_Scene.lock();
-        if ( !scene )
-            return nullptr; // the scene this document was opened over has been closed
+        const auto asset = ResolveAsset();
+        if ( !asset || !asset->GetGraph() )
+            return nullptr; // the file is gone, or not loaded (yet)
 
-        const auto entOpt = scene->FindEntityByID( Subject().Owner );
-        if ( !entOpt )
-            return nullptr; // the entity was deleted
-
-        auto& entity = entOpt->get();
-        if ( !entity.HasComponent<ECS::AnimationComponent>() )
-            return nullptr; // the component was removed from under the window
-
-        return &entity.GetComponent<ECS::AnimationComponent>();
+        // THE PREVIEW INSTANCE FOLLOWS THE ASSET'S OBJECT. A reload replaces the shared graph; the evaluator
+        // copied the old one, so it is dropped with it — exactly what AnimationECSSystem does for an entity.
+        m_Instance->GraphAsset = asset->GetMetadata().Handle;
+        if ( m_Instance->Graph != asset->GetGraph() )
+        {
+            m_Instance->Graph = asset->GetGraph();
+            m_Instance->GraphEvaluator.reset();
+        }
+        return m_Instance.get();
     }
 
     Assets::AssetHandle AnimGraphPanel::ResolveMeshHandle() const
     {
-        const auto scene = m_Scene.lock();
-        if ( !scene )
-            return {};
-        const auto entOpt = scene->FindEntityByID( Subject().Owner );
-        if ( !entOpt || !entOpt->get().HasComponent<ECS::SkinnedMeshComponent>() )
-            return {}; // no mesh = no skeleton reference: IdentifyMeshHandle refuses every clip
-        return entOpt->get().GetComponent<ECS::SkinnedMeshComponent>().MeshHandle;
+        // No preview character yet (ANIM-FIX8b gives the window one): with no mesh there is no skeleton
+        // reference, so IdentifyMeshHandle refuses every clip and the picker says so.
+        return {};
     }
 
     Assets::Asset<Assets::AnimGraphAsset> AnimGraphPanel::ResolveAsset() const
     {
-        const ECS::AnimationComponent* anim = ResolveComponent();
-        if ( !anim || !anim->GraphAsset || m_AssetManager == nullptr )
+        if ( m_AssetManager == nullptr )
             return nullptr;
-        return m_AssetManager->FindByHandle<Assets::AnimGraphAsset>( anim->GraphAsset );
+        return m_AssetManager->FindByHandle<Assets::AnimGraphAsset>( Assets::AssetHandle( Subject().Owner ) );
     }
 
     void AnimGraphPanel::MarkEdited()
@@ -355,14 +355,13 @@ namespace Desert::Editor
 
     void AnimGraphPanel::OnUIRender()
     {
-        // NO "SELECT AN ENTITY" EMPTY STATE any more: this window is about one entity for its whole life.
-        // A null here is a subject that has just died, and the editor closes the document for it on the
-        // same frame (EditorLayer::CloseDocumentsWhoseSubjectIsGone) — so the message says what happened
-        // rather than asking the user to fix it.
+        // NO "SELECT AN ENTITY" EMPTY STATE: this window is about one `.danimgraph` for its whole life. A
+        // null here is a file that has just died (the editor closes the document for it on the same frame,
+        // EditorLayer::CloseDocumentsWhoseSubjectIsGone) or one whose load has not finished.
         ECS::AnimationComponent* anim = ResolveComponent();
         if ( !anim )
         {
-            ImGui::TextDisabled( "This entity, its Animation component or its scene is gone — closing." );
+            ImGui::TextDisabled( "This anim graph's file is gone or not loaded." );
             return;
         }
 
@@ -381,17 +380,6 @@ namespace Desert::Editor
             }
         }
 
-        if ( !anim->Graph )
-        {
-            // NO "Create AnimGraph" BUTTON HERE ANY MORE, and its absence is the point. A graph is a FILE
-            // now, and creating one means writing it, registering it and pointing this entity's slot at
-            // it — three steps that can each fail and that belong where the SLOT is, in Details. A second
-            // creator here would be a second way to make a graph and the two would drift; what stood here
-            // could only ever make an unsaved one, which is precisely the storage §5.1 removed.
-            ImGui::TextWrapped( "This entity names no anim graph, or the file it names is not loaded. "
-                                "Pick or create one in Details > Animation > AnimGraph." );
-            return;
-        }
         if ( m_EditingMachine && ResolveMachine( *anim->Graph ) == nullptr )
         {
             if ( ImGui::Button( ICON_MDI_ARROW_LEFT "  AnimGraph" ) )
@@ -1049,4 +1037,38 @@ namespace Desert::Editor
             MarkEdited();
     }
 
+    SubjectEditorRegistry::PathOpenOutcome RequestAnimGraphDocument( Assets::AssetManager*        assets,
+                                                                     const std::string&           path,
+                                                                     const SubjectEditorRegistry& editors )
+    {
+        using Outcome = SubjectEditorRegistry::PathOpenOutcome;
+        std::error_code ec;
+        if ( assets == nullptr || std::filesystem::path( path ).extension() != Assets::kAnimGraphExtension ||
+             !std::filesystem::exists( path, ec ) )
+            return Outcome::NotMine;
+
+        auto asset = assets->FindByPath<Assets::AnimGraphAsset>( path );
+        if ( !asset )
+            asset = assets->CreateAsset<Assets::AnimGraphAsset>( path );
+        if ( !asset )
+        {
+            LOG_ERROR( "[Assets] '{}' could not be registered as an anim graph — no Anim Graph window was opened.",
+                       path );
+            return Outcome::Failed;
+        }
+        if ( const auto loaded = asset->EnsureLoaded( *assets ); !loaded )
+        {
+            LOG_ERROR( "[Assets] '{}' would not load as an anim graph — no Anim Graph window was opened: {}", path,
+                       loaded.GetError() );
+            return Outcome::Failed;
+        }
+        const auto handle = asset->GetMetadata().Handle;
+        if ( const auto opened = Core::RequestOpenAsset( assets->FindMetadataByHandle( handle ), handle, editors );
+             !opened.IsSuccess() )
+        {
+            LOG_ERROR( "[Assets] '{}': {}", path, opened.GetError() );
+            return Outcome::Failed;
+        }
+        return Outcome::Requested;
+    }
 } // namespace Desert::Editor
