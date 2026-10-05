@@ -550,7 +550,7 @@ namespace
     }
 } // namespace
 
-TEST( PBRSceneFrame, MaterialTexturesAreThePropertiesTexturesAndNoPassInput )
+TEST_F( ShaderRootFixture, MaterialTexturesAreThePropertiesTexturesAndNoPassInput )
 {
     const auto pbr = MaterialTextureNames( "PBR/StaticMeshPBR.shader" );
     for ( const char* own : { "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" } )
