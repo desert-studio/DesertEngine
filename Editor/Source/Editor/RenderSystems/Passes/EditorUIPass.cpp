@@ -111,6 +111,7 @@ namespace Desert::Editor::Render
                 input.ScrollDelta   = pv.Scroll;
                 input.Tab           = pv.Tab;
                 input.Submit        = pv.Submit;
+                input.Navigate      = pv.Navigate;
                 input.Backspace     = pv.Backspace;
                 input.TypedText     = pv.TypedText;
             }

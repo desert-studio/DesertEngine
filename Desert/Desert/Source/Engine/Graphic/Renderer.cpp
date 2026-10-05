@@ -211,9 +211,9 @@ namespace Desert::Graphic
         s_RendererAPI->SetScissor( x, y, width, height );
     }
 
-    void Renderer::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )
+    Common::BoolResultStr Renderer::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )
     {
-        s_RendererAPI->BeginRenderPass( renderPass, clearFrame );
+        return s_RendererAPI->BeginRenderPass( renderPass, clearFrame );
     }
 
     void Renderer::BeginSwapChainRenderPass()

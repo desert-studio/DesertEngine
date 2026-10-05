@@ -34,6 +34,7 @@ namespace Desert::Editor::Core
         float       Scroll    = 0.0f;  // wheel notches (drives ScrollView)
         bool        Tab       = false; // advance keyboard focus
         bool        Submit    = false; // Enter — activate the focused control
+        int         Navigate  = 0;     // Up/W = -1, Down/S = +1 (UIInput::Navigate)
         bool        Backspace = false;
         std::string TypedText; // UTF-8 chars typed this frame (drives the focused InputField)
 

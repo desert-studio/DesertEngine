@@ -14,10 +14,14 @@
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
+#include <Engine/UI/UIPathGeometry.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <span>
+#include <unordered_set>
+#include <array>
 #include <optional>
 #include <chrono>
 #include <cstdint>
@@ -67,7 +71,48 @@ namespace Desert::UI
             // (no theme, scale 1, contrast off) is what every canvas authored before Ю13 gets, and it
             // makes every query below return the element's own authored value.
             CanvasStyle Style;
+
+            // RETAINED LAYERS (UE Retainer Box). Root = the frame's own list (mask layers live there, shared
+            // by every canvas of the frame); Retaining = the retainer whose layer is being recorded (so the
+            // recursion into it draws instead of retaining again); MaskCapture = the mask element being
+            // captured (drawn even when hidden). MaskOf / MaskTargets are resolved once per walk.
+            Graphic::Render2D::DrawList2D*                 Root        = nullptr;
+            entt::entity                                   Retaining   = entt::null;
+            entt::entity                                   MaskCapture = entt::null;
+            std::unordered_map<entt::entity, entt::entity> MaskOf;
+            std::unordered_set<entt::entity>               MaskTargets;
         };
+
+        // Resolve every retainer's Mask Element NAME to an element, once per walk. A name that matches no
+        // UI element, or more than one, is refused with the reason — the retainer then draws unmasked and
+        // says so, rather than guessing which of two "Dune"s was meant.
+        void ResolveRetainerMasks( WalkCtx& ctx, entt::registry& reg )
+        {
+            for ( const entt::entity r : reg.view<ECS::UIRetainerComponent>() )
+            {
+                const auto& ret = reg.get<ECS::UIRetainerComponent>( r );
+                if ( !ret.Data.Mask || ret.Data.MaskElement.empty() )
+                    continue;
+                entt::entity found = entt::null;
+                int          hits  = 0;
+                for ( const auto m : reg.view<ECS::TagComponent, ECS::UILayoutComponent>() )
+                    if ( m != r && reg.get<ECS::TagComponent>( m ).Tag == ret.Data.MaskElement )
+                    {
+                        found = m;
+                        ++hits;
+                    }
+                if ( hits != 1 )
+                {
+                    if ( ctx.Canvas.RetainerMaskRefused.insert( r ).second )
+                        LOG_ERROR( "[UI] retainer mask '{}': {} UI elements carry that name (exactly one must); "
+                                   "the layer draws unmasked",
+                                   ret.Data.MaskElement, hits );
+                    continue;
+                }
+                ctx.MaskOf.emplace( r, found );
+                ctx.MaskTargets.insert( found );
+            }
+        }
 
         // THE STYLE ONE ELEMENT RESOLVES THROUGH — the only place an element is paired with a style.
         //
@@ -830,7 +875,7 @@ namespace Desert::UI
         // @p tint is the caller's accumulated element tint (UICanvasContext::Tint), passed in rather than
         // read from a global so this helper stays a pure function of its arguments.
         void DrawText2D( Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t, const Rect& rect,
-                         float scale, const glm::vec4& tint )
+                         float scale, const glm::vec4& tint, float viewTime )
         {
             if ( t.Text.empty() )
                 return;
@@ -877,7 +922,7 @@ namespace Desert::UI
                     contentW += advEm( sc.ch ) * sM;
                 const float gap    = std::max( 40.0f * scale, rect.W * 0.35f );
                 const float period = std::max( 1.0f, contentW + gap );
-                const float off    = std::fmod( NowSeconds() * t.MarqueeSpeed * scale, period );
+                const float off    = std::fmod( viewTime * t.MarqueeSpeed * scale, period );
                 const float blockH = ( bf.Ascent - bf.Descent ) * sM;
                 const float baseY  = rect.Y + ( rect.H - blockH ) * 0.5f + bf.Ascent * sM;
 
@@ -1037,6 +1082,29 @@ namespace Desert::UI
                             { g.u1, g.v1 }, col );
             };
 
+            if ( t.Glow && t.GlowRadius > 0.0f && t.GlowStrength > 0.0f )
+            {
+                // Rings of the glyphs at growing radii, each fainter: the summed coverage falls off with
+                // distance from the glyph edge, which is a halo. Twelve directions keep the ring round at
+                // the radii a title uses; three rings make the falloff a slope rather than a step.
+                constexpr int kDirections = 12;
+                constexpr int kRings      = 3;
+                const float   radius      = t.GlowRadius * scale;
+                for ( int ring = kRings; ring >= 1; --ring )
+                {
+                    const float r = radius * static_cast<float>( ring ) / kRings;
+                    const float a = t.GlowStrength * ( 1.0f - static_cast<float>( ring - 1 ) / kRings ) /
+                                    static_cast<float>( kDirections ) * 2.0f;
+                    const glm::vec4 gc( t.GlowColor, std::clamp( a, 0.0f, 1.0f ) );
+                    for ( int k = 0; k < kDirections; ++k )
+                    {
+                        const float     ang = 6.28318530718f * static_cast<float>( k ) / kDirections;
+                        const glm::vec2 off = { std::cos( ang ) * r, std::sin( ang ) * r };
+                        for ( const auto& g : placed )
+                            quad( g, off, gc );
+                    }
+                }
+            }
             if ( t.Shadow )
             {
                 const glm::vec4 sc = glm::vec4( t.ShadowColor, 1.0f );
@@ -1238,8 +1306,69 @@ namespace Desert::UI
             // of a layout group never reaches this function at all, because the group left no slot for it
             // and its siblings closed the gap. A Hidden one reaches it with a slot and leaves a hole. Under
             // plain anchor layout the two are the same picture, because there is no packing to close.
-            if ( !IsElementVisible( reg, e ) )
+            // An element some retainer names as its mask: capture its subtree into the frame's mask layer for
+            // it, before (and regardless of) its own visibility — a hidden element is a pure mask, UE's mask
+            // texture as an element. Input is not routed through the capture.
+            if ( ctx.Root && ctx.MaskCapture != e && ctx.MaskTargets.contains( e ) )
+            {
+                auto& mask = ctx.Root->MaskLayer( static_cast<int64_t>( entt::to_integral( e ) ) );
+                if ( mask.Empty() )
+                {
+                    if ( dl.HasTransform() )
+                        mask.PushTransform( dl.GetTransform() );
+                    std::vector<PopupInfo>    noPopups;
+                    std::vector<entt::entity> noFocus;
+                    std::string               noClick;
+                    entt::entity              noFocused = entt::null;
+                    const entt::entity        outer     = ctx.MaskCapture;
+                    ctx.MaskCapture                     = e;
+                    DrawElement( ctx, reg, e, parent, scale, mask, nullptr, &noClick, &noFocused, &noPopups,
+                                 &noFocus, clipRegion, scope, forcedRect );
+                    ctx.MaskCapture = outer;
+                }
+            }
+
+            if ( !IsElementVisible( reg, e ) && ctx.MaskCapture != e )
                 return;
+
+            // UE Retainer Box: the element and its subtree are recorded into their own layer and shown
+            // through one composite with the element's effect. Render2D::RenderRetained renders the layer.
+            if ( ctx.Retaining != e && reg.has<ECS::UIRetainerComponent>( e ) )
+            {
+                const ECS::UIRetainerData& rd    = reg.get<ECS::UIRetainerComponent>( e ).Data;
+                uint32_t                   index = 0;
+                auto&                      layer = dl.BeginRetainedLayer( &index );
+                if ( dl.HasTransform() )
+                    layer.PushTransform( dl.GetTransform() );
+                const entt::entity outer = ctx.Retaining;
+                ctx.Retaining            = e;
+                DrawElement( ctx, reg, e, parent, scale, layer, input, outClicked, focused, popups, focusables,
+                             clipRegion, scope, forcedRect );
+                ctx.Retaining = outer;
+
+                Graphic::Render2D::RetainerEffect fx;
+                fx.Opacity       = rd.Opacity;
+                fx.Haze          = rd.Haze;
+                fx.HazeAmplitude = rd.HazeAmplitude * scale;
+                fx.HazeScale     = rd.HazeScale * scale;
+                fx.HazeSpeed     = rd.HazeSpeed;
+                fx.Time          = static_cast<float>( ctx.View.Time );
+                // A keyed clip REPLACES the authored amplitude while it drives it (never written back).
+                if ( const auto clip = ctx.View.AnimClips.Samples.find( e );
+                     clip != ctx.View.AnimClips.Samples.end() && clip->second.HazeAmplitude )
+                    fx.HazeAmplitude = *clip->second.HazeAmplitude * scale;
+
+                int64_t maskKey = -1;
+                if ( rd.Mask )
+                    if ( const auto m = ctx.MaskOf.find( e ); m != ctx.MaskOf.end() )
+                    {
+                        fx.Mask       = true;
+                        fx.InvertMask = rd.InvertMask;
+                        maskKey       = static_cast<int64_t>( entt::to_integral( m->second ) );
+                    }
+                dl.AddRetainedComposite( index, maskKey, fx, glm::vec4( 1.0f ) );
+                return;
+            }
 
             // THIS ELEMENT'S STYLE, resolved once, before the rect: a themed padding changes what the
             // Content Size Fitter measures, so the style has to exist before the geometry does.
@@ -1546,7 +1675,7 @@ namespace Desert::UI
                     const float op =
                          p.Pulse ? p.Opacity * ( p.PulseMin +
                                                  ( 1.0f - p.PulseMin ) *
-                                                      ( 0.5f + 0.5f * std::sin( NowSeconds() * p.PulseSpeed ) ) )
+                                                      ( 0.5f + 0.5f * std::sin( ctx.View.Time * p.PulseSpeed ) ) )
                                  : p.Opacity;
 
                     // Resolved once: the corner radius is read by the glow, the shadow and the fill, and a
@@ -1641,6 +1770,41 @@ namespace Desert::UI
                         dl.AddRectFilled( mn, { mn.x + rect.W * t, mx.y },
                                           glm::vec4( st.Color( StyleSlot::ProgressFill, pb.Fill ), 1.0f ), r );
                 }
+                else if ( reg.has<ECS::UIPathComponent>( e ) )
+                {
+                    const ECS::UIPathData& path     = reg.get<ECS::UIPathComponent>( e ).Data;
+                    const glm::vec2        slots[8] = { path.P0, path.P1, path.P2, path.P3,
+                                                        path.P4, path.P5, path.P6, path.P7 };
+                    const int              count    = std::clamp( path.PointCount, 2, 8 );
+
+                    // Points are fractions of the element's own rect, so the line follows its anchors.
+                    std::array<glm::vec2, 8> control{};
+                    for ( int i = 0; i < count; ++i )
+                        control[static_cast<size_t>( i )] = mn + slots[i] * ( mx - mn );
+
+                    const UIPathPolyline line = TessellateUIPath(
+                         std::span<const glm::vec2>( control.data(), static_cast<size_t>( count ) ),
+                         path.Curve == ECS::UIPathCurve::Smooth );
+
+                    // A keyed clip REPLACES the authored Reveal while it drives it (never written back).
+                    float      reveal = path.Reveal;
+                    const auto clip   = ctx.View.AnimClips.Samples.find( e );
+                    if ( clip != ctx.View.AnimClips.Samples.end() && clip->second.Reveal )
+                        reveal = *clip->second.Reveal;
+
+                    const std::vector<glm::vec2> shown = RevealUIPath( line, reveal );
+                    if ( shown.size() >= 2 )
+                    {
+                        const float thick = path.Thickness * scale;
+                        if ( path.Glow && path.GlowRadius > 0.0f && path.GlowStrength > 0.0f )
+                            dl.AddPolyline( shown.data(), static_cast<uint32_t>( shown.size() ),
+                                            Tinted( ctx, glm::vec4( path.GlowColor, path.GlowStrength ) ), thick,
+                                            path.GlowRadius * scale, path.RoundCaps );
+                        dl.AddPolyline( shown.data(), static_cast<uint32_t>( shown.size() ),
+                                        Tinted( ctx, glm::vec4( path.Color, path.Opacity ) ), thick, path.Feather,
+                                        path.RoundCaps );
+                    }
+                }
                 else if ( reg.has<ECS::UIToggleComponent>( e ) )
                 {
                     auto&      tg    = reg.get<ECS::UIToggleComponent>( e ).Data;
@@ -1731,7 +1895,7 @@ namespace Desert::UI
                     td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
                     td.Align    = ECS::UITextAlign::Left;
                     dl.PushClipRect( mn, mx );
-                    DrawText2D( dl, td, rect, scale, ctx.View.Tint );
+                    DrawText2D( dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
                     if ( isFocused )
                     {
                         const float caretX = rect.X + 6.0f + MeasureTextPx( f.Text, fieldSize * scale );
@@ -1773,7 +1937,7 @@ namespace Desert::UI
                     td.Color    = listText;
                     td.Font     = st.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                     td.Align    = ECS::UITextAlign::Left;
-                    DrawText2D( dl, td, rect, scale, ctx.View.Tint );
+                    DrawText2D( dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
 
                     // Down-arrow on the right edge.
                     const float ax = mx.x - rect.H * 0.5f, ay = ( mn.y + mx.y ) * 0.5f, aw = rect.H * 0.16f;
@@ -1808,7 +1972,7 @@ namespace Desert::UI
                     // (ResolveLabel already subsumes `binding.Text` — see its own comment).
                     ECS::UITextData text = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
                     text.Text            = ResolveLabel( text.Text, binding );
-                    DrawText2D( dl, text, rect, scale, ctx.View.Tint );
+                    DrawText2D( dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
                 }
 
                 if ( reg.has<ECS::UIIconComponent>( e ) )
@@ -2134,9 +2298,20 @@ namespace Desert::UI
 
         // THIS VIEW's frame delta, advanced once per FRAME and not once per canvas. Clamped so a long stall
         // doesn't snap animations; the first frame of a view gets 0 rather than the age of the process.
-        const float now    = NowSeconds();
-        view.FrameDt       = view.HasDrawn ? std::clamp( now - view.LastFrameTime, 0.0f, 0.1f ) : 0.0f;
-        view.LastFrameTime = now;
+        // An offline host (movie render) owns the step; a live one measures it. Either way the first frame of a
+        // view gets 0, so frame N of a fixed-step view sits at exactly N * FixedStep.
+        if ( view.FixedStep.has_value() )
+        {
+            view.FrameDt       = view.HasDrawn ? *view.FixedStep : 0.0f;
+            view.LastFrameTime = view.Time + view.FrameDt;
+        }
+        else
+        {
+            const float now    = NowSeconds();
+            view.FrameDt       = view.HasDrawn ? std::clamp( now - view.LastFrameTime, 0.0f, 0.1f ) : 0.0f;
+            view.LastFrameTime = now;
+        }
+        view.Time += view.FrameDt;
         view.HasDrawn      = true;
         ++view.FrameIndex; // drives the tween rewind-on-hide check
 
@@ -2212,6 +2387,8 @@ namespace Desert::UI
 
         // THE PAIR, BOUND HERE AND NOWHERE ELSE: this view's own cell for this canvas.
         WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };
+        ctx.Root = &dl;
+        ResolveRetainerMasks( ctx, reg );
 
         const auto& canvasData = reg.get<ECS::UICanvasComponent>( canvasEntity ).Data;
         if ( !canvasData.Visible )
@@ -2525,7 +2702,7 @@ namespace Desert::UI
                 td.Color    = pi.Style.Color( StyleSlot::DropdownText, d.TextColor );
                 td.Font     = pi.Style.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                 td.Align    = ECS::UITextAlign::Left;
-                DrawText2D( dl, td, row, pi.Scale, ctx.View.Tint );
+                DrawText2D( dl, td, row, pi.Scale, ctx.View.Tint, ctx.View.Time );
                 if ( hover && input->MouseReleased )
                 {
                     d.SelectedIndex = static_cast<int>( i );
@@ -2789,18 +2966,21 @@ namespace Desert::UI
         // than here, so it stays readable between the two.
         view.Hot = view.HotNext;
 
-        // Tab advances keyboard focus to the next focusable control (wraps; effective next frame). The list
-        // spans every canvas of the frame, so focus can leave a HUD and enter an overlay.
-        if ( focused && input && input->Tab && !view.Focusables.empty() )
+        // Tab and Down/S advance keyboard focus to the next focusable control, Up/W steps back (both wrap;
+        // effective next frame). The list spans every canvas of the frame, so focus can leave a HUD and enter
+        // an overlay. With nothing focused, either direction lands on the FIRST control — the top of a menu.
+        const int step = input ? ( input->Tab ? 1 : input->Navigate ) : 0;
+        if ( focused && step != 0 && !view.Focusables.empty() )
         {
-            std::size_t idx = 0; // not-found -> focus the first
-            for ( std::size_t i = 0; i < view.Focusables.size(); ++i )
+            const std::size_t n   = view.Focusables.size();
+            std::size_t       idx = 0; // not-found -> focus the first
+            for ( std::size_t i = 0; i < n; ++i )
                 if ( view.Focusables[i] == *focused )
                 {
-                    idx = i + 1;
+                    idx = step > 0 ? ( i + 1 ) % n : ( i + n - 1 ) % n;
                     break;
                 }
-            *focused = view.Focusables[idx % view.Focusables.size()];
+            *focused = view.Focusables[idx];
         }
 
         view.FrameOpen = false;

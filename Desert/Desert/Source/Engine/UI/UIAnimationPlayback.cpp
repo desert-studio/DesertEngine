@@ -4,6 +4,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <format>
 #include <type_traits>
 #include <variant>
@@ -52,6 +53,10 @@ namespace Desert::UI
                     sample.Tint.a *= *scalar;
                 else if ( property == "Color" && vec != nullptr )
                     sample.Tint *= glm::vec4( *vec, 1.0F );
+                else if ( property == "Reveal" && scalar != nullptr )
+                    sample.Reveal = std::clamp( *scalar, 0.0F, 1.0F );
+                else if ( property == "HazeAmplitude" && scalar != nullptr )
+                    sample.HazeAmplitude = std::max( *scalar, 0.0F );
                 else if ( m_Frame.Warned.insert( std::format( "property:{}", property ) ).second )
                     LOG_WARN( "[UI] a UI animation track drives '{}' ({} value), which no UI element has; the "
                               "track is skipped",

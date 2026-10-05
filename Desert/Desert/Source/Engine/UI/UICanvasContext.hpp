@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <Engine/ECS/Components.hpp>
 #include <Engine/UI/UIAnimationPlayback.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -76,6 +78,8 @@ namespace Desert::UI
         // canvas's tree. Per canvas rather than per view because that is what gives them a death: the cell
         // goes when the canvas does, instead of accumulating a row per element the scene ever had.
         std::unordered_map<entt::entity, float>    HoverT;    // 0 = rest, 1 = hovered; eased each frame
+        // Retainers whose Mask Element name was refused (not exactly one match) — logged once per element.
+        std::unordered_set<entt::entity>           RetainerMaskRefused;
         std::unordered_map<entt::entity, float>    TweenT;    // per-element tween playhead
         std::unordered_map<entt::entity, uint64_t> TweenSeen; // FrameIndex the tween was last evaluated on
 
@@ -283,6 +287,14 @@ namespace Desert::UI
         bool     HasDrawn      = false;
         float    LastFrameTime = 0.0f;
         float    FrameDt       = 0.0f;
+        // THIS VIEW's own time in seconds: the sum of its frame deltas. Everything periodic on the canvas — a
+        // marquee's scroll, a panel's pulse — reads THIS, never the process clock, so a view stepped by a
+        // fixed delta draws the same picture on every run (the movie render compares runs byte for byte).
+        float    Time          = 0.0f;
+        // A host that renders OFFLINE (the movie render, `--render-movie`, UE's Movie Render Queue) steps the
+        // view by exactly this many seconds per frame instead of reading the wall clock: frame N of a
+        // capture is then at N * FixedStep however long the GPU took to draw it. Unset = real time.
+        std::optional<float> FixedStep;
         uint64_t FrameIndex    = 0; // drives the tween's rewind-on-hide check
 
         // Is a frame of this view open — i.e. has BeginUIFrame run and EndUIFrame not yet? A walk outside

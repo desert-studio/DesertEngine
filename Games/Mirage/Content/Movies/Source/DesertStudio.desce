@@ -1,0 +1,2420 @@
+{
+  "Header": {
+    "Kind": "Scene",
+    "Guid": "44657365727453747564696f00e1d0a2",
+    "Versions": {
+      "SCNE": 41,
+      "UNIT": 1
+    },
+    "Dependencies": []
+  },
+  "SceneName": "DesertStudio",
+  "Entities": [
+    {
+      "id": 5001,
+      "siblingIndex": 0,
+      "Tag": "UI Canvas",
+      "UICanvas": {
+        "ScaleMode": 1,
+        "RenderMode": 0,
+        "WorldScale": 400.0,
+        "ReferenceWidth": 1920.0,
+        "ReferenceHeight": 1080.0,
+        "MatchWidthHeight": 0.5,
+        "Visible": true,
+        "SortOrder": 0
+      }
+    },
+    {
+      "id": 5002,
+      "siblingIndex": 0,
+      "Tag": "Sky",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0,
+          0
+        ],
+        "AnchorMax": [
+          1,
+          1
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.0784313725490196,
+          0.07450980392156863,
+          0.12156862745098039
+        ],
+        "Opacity": 1.0,
+        "Circle": false,
+        "CornerRadius": 0.0,
+        "UseGradient": true,
+        "GradientColor": [
+          0.16470588235294117,
+          0.1450980392156863,
+          0.25098039215686274
+        ]
+      }
+    },
+    {
+      "id": 5003,
+      "siblingIndex": 1,
+      "Tag": "Afterglow",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0,
+          0.2
+        ],
+        "AnchorMax": [
+          1,
+          1
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.09568627450980392,
+          0.08862745098039215,
+          0.14745098039215687
+        ],
+        "Opacity": 0.62,
+        "Circle": false,
+        "CornerRadius": 0.0,
+        "UseGradient": true,
+        "GradientColor": [
+          0.8509803921568627,
+          0.5098039215686274,
+          0.16862745098039217
+        ]
+      }
+    },
+    {
+      "id": 5004,
+      "siblingIndex": 2,
+      "Tag": "FarDuneLeft",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -2300,
+          10
+        ],
+        "OffsetMax": [
+          900,
+          3210
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.11725490196078431,
+          0.10627450980392157,
+          0.17980392156862746
+        ],
+        "Opacity": 1.0,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5005,
+      "siblingIndex": 3,
+      "Tag": "FarDuneRight",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -1000,
+          40
+        ],
+        "OffsetMax": [
+          2800,
+          3840
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.1388235294117647,
+          0.12392156862745099,
+          0.21215686274509804
+        ],
+        "Opacity": 1.0,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5006,
+      "siblingIndex": 4,
+      "Tag": "SunLayer",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0,
+          0
+        ],
+        "AnchorMax": [
+          1,
+          1
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIRetainer": {
+        "Opacity": 1.0,
+        "Mask": true,
+        "MaskElement": "Dune",
+        "InvertMask": true,
+        "Haze": true,
+        "HazeAmplitude": 1.6,
+        "HazeScale": 18.0,
+        "HazeSpeed": 1.2
+      }
+    },
+    {
+      "id": 5007,
+      "siblingIndex": 0,
+      "Tag": "SunRig",
+      "parent": 5006,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -150.0,
+          -190.0
+        ],
+        "OffsetMax": [
+          150.0,
+          110.0
+        ],
+        "Visibility": 0
+      }
+    },
+    {
+      "id": 5008,
+      "siblingIndex": 0,
+      "Tag": "Halo",
+      "parent": 5007,
+      "UILayout": {
+        "AnchorMin": [
+          0,
+          0
+        ],
+        "AnchorMax": [
+          1,
+          1
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      }
+    },
+    {
+      "id": 5009,
+      "siblingIndex": 0,
+      "Tag": "Halo0",
+      "parent": 5008,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -470,
+          -470
+        ],
+        "OffsetMax": [
+          470,
+          470
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.8509803921568627,
+          0.5098039215686274,
+          0.16862745098039217
+        ],
+        "Opacity": 0.035,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5010,
+      "siblingIndex": 1,
+      "Tag": "Halo1",
+      "parent": 5008,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -370,
+          -370
+        ],
+        "OffsetMax": [
+          370,
+          370
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.8509803921568627,
+          0.5098039215686274,
+          0.16862745098039217
+        ],
+        "Opacity": 0.05,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5011,
+      "siblingIndex": 2,
+      "Tag": "Halo2",
+      "parent": 5008,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -285,
+          -285
+        ],
+        "OffsetMax": [
+          285,
+          285
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.8509803921568627,
+          0.5098039215686274,
+          0.16862745098039217
+        ],
+        "Opacity": 0.08,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5012,
+      "siblingIndex": 3,
+      "Tag": "Halo3",
+      "parent": 5008,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -220,
+          -220
+        ],
+        "OffsetMax": [
+          220,
+          220
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.8509803921568627,
+          0.5098039215686274,
+          0.16862745098039217
+        ],
+        "Opacity": 0.13,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5013,
+      "siblingIndex": 4,
+      "Tag": "Halo4",
+      "parent": 5008,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -178,
+          -178
+        ],
+        "OffsetMax": [
+          178,
+          178
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.8509803921568627,
+          0.5098039215686274,
+          0.16862745098039217
+        ],
+        "Opacity": 0.22,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5014,
+      "siblingIndex": 1,
+      "Tag": "SunDisk",
+      "parent": 5007,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -150.0,
+          -150.0
+        ],
+        "OffsetMax": [
+          150.0,
+          150.0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9490196078431372,
+          0.7058823529411765,
+          0.35294117647058826
+        ],
+        "Opacity": 1.0,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5015,
+      "siblingIndex": 2,
+      "Tag": "SunCore",
+      "parent": 5007,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -124.0,
+          -124.0
+        ],
+        "OffsetMax": [
+          124.0,
+          124.0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9531372549019608,
+          0.7868627450980392,
+          0.5450980392156863
+        ],
+        "Opacity": 0.55,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5016,
+      "siblingIndex": 5,
+      "Tag": "Rim",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -2300.0,
+          -42.5
+        ],
+        "OffsetMax": [
+          2300.0,
+          4557.5
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.8509803921568627,
+          0.5098039215686274,
+          0.16862745098039217
+        ],
+        "Opacity": 1.0,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5017,
+      "siblingIndex": 6,
+      "Tag": "Dune",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -2300.0,
+          -40.0
+        ],
+        "OffsetMax": [
+          2300.0,
+          4560.0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.0784313725490196,
+          0.07450980392156863,
+          0.12156862745098039
+        ],
+        "Opacity": 1.0,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5018,
+      "siblingIndex": 7,
+      "Tag": "Wordmark",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -760,
+          125
+        ],
+        "OffsetMax": [
+          760,
+          295
+        ],
+        "Visibility": 0
+      },
+      "UIText": {
+        "Text": "DESERT STUDIO",
+        "FontSize": 132.0,
+        "Font": "assets:Fonts/Manrope-ExtraBold.ttf",
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Align": 1,
+        "VerticalAlign": 1,
+        "Wrap": false,
+        "LineSpacing": 1.0,
+        "AutoSize": false,
+        "MinFontSize": 8.0,
+        "Overflow": 0,
+        "RichText": false,
+        "Marquee": false,
+        "Shadow": false,
+        "Outline": false
+      }
+    },
+    {
+      "id": 5019,
+      "siblingIndex": 8,
+      "Tag": "WarmLayer",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0,
+          0
+        ],
+        "AnchorMax": [
+          1,
+          1
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIRetainer": {
+        "Opacity": 1.0,
+        "Mask": true,
+        "MaskElement": "LightSpread",
+        "InvertMask": false,
+        "Haze": false
+      }
+    },
+    {
+      "id": 5020,
+      "siblingIndex": 0,
+      "Tag": "WarmWordmark",
+      "parent": 5019,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          -760,
+          125
+        ],
+        "OffsetMax": [
+          760,
+          295
+        ],
+        "Visibility": 0
+      },
+      "UIText": {
+        "Text": "DESERT STUDIO",
+        "FontSize": 132.0,
+        "Font": "assets:Fonts/Manrope-ExtraBold.ttf",
+        "Color": [
+          0.9490196078431372,
+          0.7058823529411765,
+          0.35294117647058826
+        ],
+        "Align": 1,
+        "VerticalAlign": 1,
+        "Wrap": false,
+        "LineSpacing": 1.0,
+        "AutoSize": false,
+        "MinFontSize": 8.0,
+        "Overflow": 0,
+        "RichText": false,
+        "Marquee": false,
+        "Shadow": false,
+        "Outline": false,
+        "Glow": true,
+        "GlowColor": [
+          0.8509803921568627,
+          0.5098039215686274,
+          0.16862745098039217
+        ],
+        "GlowRadius": 10.0,
+        "GlowStrength": 0.3
+      }
+    },
+    {
+      "id": 5021,
+      "siblingIndex": 9,
+      "Tag": "LightSpread",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0.5,
+          0.5
+        ],
+        "AnchorMax": [
+          0.5,
+          0.5
+        ],
+        "OffsetMin": [
+          0,
+          -40.0
+        ],
+        "OffsetMax": [
+          0,
+          -40.0
+        ],
+        "Visibility": 1
+      }
+    },
+    {
+      "id": 5022,
+      "siblingIndex": 0,
+      "Tag": "Spread0",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.0,
+          0.0
+        ],
+        "AnchorMax": [
+          1.0,
+          1.0
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.041666666666666664,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5023,
+      "siblingIndex": 1,
+      "Tag": "Spread1",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.011458333333333348,
+          0.011458333333333348
+        ],
+        "AnchorMax": [
+          0.9885416666666667,
+          0.9885416666666667
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.043478260869565216,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5024,
+      "siblingIndex": 2,
+      "Tag": "Spread2",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.022916666666666696,
+          0.022916666666666696
+        ],
+        "AnchorMax": [
+          0.9770833333333333,
+          0.9770833333333333
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.045454545454545456,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5025,
+      "siblingIndex": 3,
+      "Tag": "Spread3",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.03437499999999999,
+          0.03437499999999999
+        ],
+        "AnchorMax": [
+          0.965625,
+          0.965625
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.047619047619047616,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5026,
+      "siblingIndex": 4,
+      "Tag": "Spread4",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.04583333333333334,
+          0.04583333333333334
+        ],
+        "AnchorMax": [
+          0.9541666666666666,
+          0.9541666666666666
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.05,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5027,
+      "siblingIndex": 5,
+      "Tag": "Spread5",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.057291666666666685,
+          0.057291666666666685
+        ],
+        "AnchorMax": [
+          0.9427083333333333,
+          0.9427083333333333
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.05263157894736842,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5028,
+      "siblingIndex": 6,
+      "Tag": "Spread6",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.06874999999999998,
+          0.06874999999999998
+        ],
+        "AnchorMax": [
+          0.93125,
+          0.93125
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.05555555555555555,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5029,
+      "siblingIndex": 7,
+      "Tag": "Spread7",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.08020833333333333,
+          0.08020833333333333
+        ],
+        "AnchorMax": [
+          0.9197916666666667,
+          0.9197916666666667
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.058823529411764705,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5030,
+      "siblingIndex": 8,
+      "Tag": "Spread8",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.09166666666666667,
+          0.09166666666666667
+        ],
+        "AnchorMax": [
+          0.9083333333333333,
+          0.9083333333333333
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.0625,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5031,
+      "siblingIndex": 9,
+      "Tag": "Spread9",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.10312500000000002,
+          0.10312500000000002
+        ],
+        "AnchorMax": [
+          0.896875,
+          0.896875
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.06666666666666667,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5032,
+      "siblingIndex": 10,
+      "Tag": "Spread10",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.11458333333333331,
+          0.11458333333333331
+        ],
+        "AnchorMax": [
+          0.8854166666666667,
+          0.8854166666666667
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.07142857142857142,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5033,
+      "siblingIndex": 11,
+      "Tag": "Spread11",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.12604166666666672,
+          0.12604166666666672
+        ],
+        "AnchorMax": [
+          0.8739583333333333,
+          0.8739583333333333
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.07692307692307693,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5034,
+      "siblingIndex": 12,
+      "Tag": "Spread12",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.1375,
+          0.1375
+        ],
+        "AnchorMax": [
+          0.8625,
+          0.8625
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.08333333333333333,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5035,
+      "siblingIndex": 13,
+      "Tag": "Spread13",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.1489583333333333,
+          0.1489583333333333
+        ],
+        "AnchorMax": [
+          0.8510416666666667,
+          0.8510416666666667
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.09090909090909091,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5036,
+      "siblingIndex": 14,
+      "Tag": "Spread14",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.16041666666666665,
+          0.16041666666666665
+        ],
+        "AnchorMax": [
+          0.8395833333333333,
+          0.8395833333333333
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.1,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5037,
+      "siblingIndex": 15,
+      "Tag": "Spread15",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.171875,
+          0.171875
+        ],
+        "AnchorMax": [
+          0.828125,
+          0.828125
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.1111111111111111,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5038,
+      "siblingIndex": 16,
+      "Tag": "Spread16",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.18333333333333335,
+          0.18333333333333335
+        ],
+        "AnchorMax": [
+          0.8166666666666667,
+          0.8166666666666667
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.125,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5039,
+      "siblingIndex": 17,
+      "Tag": "Spread17",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.1947916666666667,
+          0.1947916666666667
+        ],
+        "AnchorMax": [
+          0.8052083333333333,
+          0.8052083333333333
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.14285714285714285,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5040,
+      "siblingIndex": 18,
+      "Tag": "Spread18",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.20625000000000004,
+          0.20625000000000004
+        ],
+        "AnchorMax": [
+          0.79375,
+          0.79375
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.16666666666666666,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5041,
+      "siblingIndex": 19,
+      "Tag": "Spread19",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.2177083333333334,
+          0.2177083333333334
+        ],
+        "AnchorMax": [
+          0.7822916666666666,
+          0.7822916666666666
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.2,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5042,
+      "siblingIndex": 20,
+      "Tag": "Spread20",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.22916666666666663,
+          0.22916666666666663
+        ],
+        "AnchorMax": [
+          0.7708333333333334,
+          0.7708333333333334
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.25,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5043,
+      "siblingIndex": 21,
+      "Tag": "Spread21",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.24062499999999998,
+          0.24062499999999998
+        ],
+        "AnchorMax": [
+          0.759375,
+          0.759375
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.3333333333333333,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5044,
+      "siblingIndex": 22,
+      "Tag": "Spread22",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.2520833333333334,
+          0.2520833333333334
+        ],
+        "AnchorMax": [
+          0.7479166666666666,
+          0.7479166666666666
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 0.5,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5045,
+      "siblingIndex": 23,
+      "Tag": "Spread23",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.2635416666666667,
+          0.2635416666666667
+        ],
+        "AnchorMax": [
+          0.7364583333333333,
+          0.7364583333333333
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 1.0,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5046,
+      "siblingIndex": 24,
+      "Tag": "Spread24",
+      "parent": 5021,
+      "UILayout": {
+        "AnchorMin": [
+          0.275,
+          0.275
+        ],
+        "AnchorMax": [
+          0.725,
+          0.725
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.9607843137254902,
+          0.9372549019607843,
+          0.9019607843137255
+        ],
+        "Opacity": 1.0,
+        "Circle": true,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5047,
+      "siblingIndex": 10,
+      "Tag": "Fade",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0,
+          0
+        ],
+        "AnchorMax": [
+          1,
+          1
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIPanel": {
+        "Color": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Opacity": 1.0,
+        "Circle": false,
+        "CornerRadius": 0.0
+      }
+    },
+    {
+      "id": 5048,
+      "siblingIndex": 11,
+      "Tag": "Intro",
+      "parent": 5001,
+      "UILayout": {
+        "AnchorMin": [
+          0,
+          0
+        ],
+        "AnchorMax": [
+          0,
+          0
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ],
+        "Visibility": 0
+      },
+      "UIAnim": {
+        "Sequence": {
+          "Header": {
+            "Kind": "",
+            "Guid": "",
+            "Versions": {
+              "TMLN": 2
+            },
+            "Dependencies": []
+          },
+          "Host": 1,
+          "TickRate": [
+            24000,
+            1
+          ],
+          "DisplayRate": [
+            60,
+            1
+          ],
+          "Start": 0,
+          "End": 72000,
+          "Bindings": [
+            {
+              "Guid": "445353756e5269670000000000000008",
+              "Kind": 3,
+              "Locator": "5007",
+              "Label": "SunRig",
+              "Parent": ""
+            },
+            {
+              "Guid": "445348616c6f00000000000000000006",
+              "Kind": 3,
+              "Locator": "5008",
+              "Label": "Halo",
+              "Parent": ""
+            },
+            {
+              "Guid": "44534166746572676c6f77000000000b",
+              "Kind": 3,
+              "Locator": "5003",
+              "Label": "Afterglow",
+              "Parent": ""
+            },
+            {
+              "Guid": "445352696d0000000000000000000005",
+              "Kind": 3,
+              "Locator": "5016",
+              "Label": "Rim",
+              "Parent": ""
+            },
+            {
+              "Guid": "4453576f72646d61726b00000000000a",
+              "Kind": 3,
+              "Locator": "5018",
+              "Label": "Wordmark",
+              "Parent": ""
+            },
+            {
+              "Guid": "44534c6967687453707265616400000d",
+              "Kind": 3,
+              "Locator": "5021",
+              "Label": "LightSpread",
+              "Parent": ""
+            },
+            {
+              "Guid": "44534661646500000000000000000006",
+              "Kind": 3,
+              "Locator": "5047",
+              "Label": "Fade",
+              "Parent": ""
+            }
+          ],
+          "Tracks": [
+            {
+              "Binding": "44534661646500000000000000000006",
+              "Property": "Opacity",
+              "Kind": 0,
+              "Muted": false,
+              "Sections": [
+                {
+                  "Start": 0,
+                  "End": 72000,
+                  "Blend": 0,
+                  "Weight": [],
+                  "Row": 0,
+                  "Name": "",
+                  "Channel": {
+                    "Kind": 0,
+                    "Components": [
+                      {
+                        "Keys": [
+                          [
+                            0,
+                            1.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            7680,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            62880,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            72000,
+                            1.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 1.0
+                      }
+                    ],
+                    "Events": []
+                  }
+                }
+              ]
+            },
+            {
+              "Binding": "445353756e5269670000000000000008",
+              "Property": "Offset",
+              "Kind": 1,
+              "Muted": false,
+              "Sections": [
+                {
+                  "Start": 0,
+                  "End": 72000,
+                  "Blend": 0,
+                  "Weight": [],
+                  "Row": 0,
+                  "Name": "",
+                  "Channel": {
+                    "Kind": 1,
+                    "Components": [
+                      {
+                        "Keys": [
+                          [
+                            2880,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            42000,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      },
+                      {
+                        "Keys": [
+                          [
+                            2880,
+                            215.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            42000,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 215.0
+                      },
+                      {
+                        "Keys": [
+                          [
+                            2880,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            42000,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      }
+                    ],
+                    "Events": []
+                  }
+                }
+              ]
+            },
+            {
+              "Binding": "445348616c6f00000000000000000006",
+              "Property": "Opacity",
+              "Kind": 0,
+              "Muted": false,
+              "Sections": [
+                {
+                  "Start": 0,
+                  "End": 72000,
+                  "Blend": 0,
+                  "Weight": [],
+                  "Row": 0,
+                  "Name": "",
+                  "Channel": {
+                    "Kind": 0,
+                    "Components": [
+                      {
+                        "Keys": [
+                          [
+                            7200,
+                            0.25,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            45600,
+                            1.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.25
+                      }
+                    ],
+                    "Events": []
+                  }
+                }
+              ]
+            },
+            {
+              "Binding": "44534166746572676c6f77000000000b",
+              "Property": "Opacity",
+              "Kind": 0,
+              "Muted": false,
+              "Sections": [
+                {
+                  "Start": 0,
+                  "End": 72000,
+                  "Blend": 0,
+                  "Weight": [],
+                  "Row": 0,
+                  "Name": "",
+                  "Channel": {
+                    "Kind": 0,
+                    "Components": [
+                      {
+                        "Keys": [
+                          [
+                            4800,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            45600,
+                            1.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      }
+                    ],
+                    "Events": []
+                  }
+                }
+              ]
+            },
+            {
+              "Binding": "445352696d0000000000000000000005",
+              "Property": "Opacity",
+              "Kind": 0,
+              "Muted": false,
+              "Sections": [
+                {
+                  "Start": 0,
+                  "End": 72000,
+                  "Blend": 0,
+                  "Weight": [],
+                  "Row": 0,
+                  "Name": "",
+                  "Channel": {
+                    "Kind": 0,
+                    "Components": [
+                      {
+                        "Keys": [
+                          [
+                            13200,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            43200,
+                            1.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      }
+                    ],
+                    "Events": []
+                  }
+                }
+              ]
+            },
+            {
+              "Binding": "4453576f72646d61726b00000000000a",
+              "Property": "Opacity",
+              "Kind": 0,
+              "Muted": false,
+              "Sections": [
+                {
+                  "Start": 0,
+                  "End": 72000,
+                  "Blend": 0,
+                  "Weight": [],
+                  "Row": 0,
+                  "Name": "",
+                  "Channel": {
+                    "Kind": 0,
+                    "Components": [
+                      {
+                        "Keys": [
+                          [
+                            22800,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            42000,
+                            1.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      }
+                    ],
+                    "Events": []
+                  }
+                }
+              ]
+            },
+            {
+              "Binding": "4453576f72646d61726b00000000000a",
+              "Property": "Offset",
+              "Kind": 1,
+              "Muted": false,
+              "Sections": [
+                {
+                  "Start": 0,
+                  "End": 72000,
+                  "Blend": 0,
+                  "Weight": [],
+                  "Row": 0,
+                  "Name": "",
+                  "Channel": {
+                    "Kind": 1,
+                    "Components": [
+                      {
+                        "Keys": [
+                          [
+                            22800,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            44400,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      },
+                      {
+                        "Keys": [
+                          [
+                            22800,
+                            18.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            44400,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 18.0
+                      },
+                      {
+                        "Keys": [
+                          [
+                            22800,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            44400,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      }
+                    ],
+                    "Events": []
+                  }
+                }
+              ]
+            },
+            {
+              "Binding": "44534c6967687453707265616400000d",
+              "Property": "Size",
+              "Kind": 1,
+              "Muted": false,
+              "Sections": [
+                {
+                  "Start": 0,
+                  "End": 72000,
+                  "Blend": 0,
+                  "Weight": [],
+                  "Row": 0,
+                  "Name": "",
+                  "Channel": {
+                    "Kind": 1,
+                    "Components": [
+                      {
+                        "Keys": [
+                          [
+                            31200,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            61200,
+                            2100.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      },
+                      {
+                        "Keys": [
+                          [
+                            31200,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            61200,
+                            2100.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      },
+                      {
+                        "Keys": [
+                          [
+                            31200,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            61200,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      }
+                    ],
+                    "Events": []
+                  }
+                }
+              ]
+            },
+            {
+              "Binding": "44534c6967687453707265616400000d",
+              "Property": "Offset",
+              "Kind": 1,
+              "Muted": false,
+              "Sections": [
+                {
+                  "Start": 0,
+                  "End": 72000,
+                  "Blend": 0,
+                  "Weight": [],
+                  "Row": 0,
+                  "Name": "",
+                  "Channel": {
+                    "Kind": 1,
+                    "Components": [
+                      {
+                        "Keys": [
+                          [
+                            31200,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            61200,
+                            -1050.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      },
+                      {
+                        "Keys": [
+                          [
+                            31200,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            61200,
+                            -1050.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      },
+                      {
+                        "Keys": [
+                          [
+                            31200,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ],
+                          [
+                            61200,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2,
+                            1
+                          ]
+                        ],
+                        "Default": 0.0
+                      }
+                    ],
+                    "Events": []
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "Loop": 0,
+        "AutoPlay": true
+      }
+    },
+    {
+      "id": 5900,
+      "siblingIndex": 1,
+      "Tag": "Camera",
+      "Translation": [
+        0.0,
+        250.0,
+        700.0
+      ],
+      "Rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "Scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Camera": {
+        "AutoActivateForPlayer": true,
+        "FOV": 45.0,
+        "Near": 10.0,
+        "Far": 500000.0
+      }
+    }
+  ]
+}
