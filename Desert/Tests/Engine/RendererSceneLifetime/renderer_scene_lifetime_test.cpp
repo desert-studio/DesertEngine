@@ -300,6 +300,10 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
            "a filter of this frame's tonemapped image" },
          { "SMAASystem", "Graphic/Systems/Scene/PostProcessing/SMAARenderer.hpp", false, false,
            "a filter of this frame's tonemapped image" },
+        { "DepthExpandSystem", "Graphic/Systems/Scene/Deferred/DepthExpandRenderer.hpp", false, false,
+           "writes this frame's G-buffer depth into the multisampled scene depth" },
+        { "SceneDepthResolveSystem", "Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp", false, false,
+           "a resolve of this frame's MSAA depth, rewritten every frame" },
     };
     // clang-format on
 

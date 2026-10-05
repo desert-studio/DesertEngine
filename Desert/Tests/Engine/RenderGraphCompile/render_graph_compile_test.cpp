@@ -2503,7 +2503,7 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     EXPECT_EQ( bridge.find( "EndRenderPass(" ), std::string::npos );
 
     // The declaration lives on the pass registration, not in a list in SceneRenderer.
-    EXPECT_NE( source( "RenderGraphBuilder.hpp" ).find( "std::function<void(RenderPassDeclaration&)>Declare;" ),
+    EXPECT_NE( source( "RenderGraphBuilder.hpp" ).find( "std::function<void(RenderPassDeclaration&,constFrameGraphRefs&)>Declare;" ),
                std::string::npos );
     EXPECT_NE( source( "ExternalRenderPass.hpp" )
                     .find( "std::function<void(RenderPassDeclaration&,constExternalPassContext&)>Declare;" ),
