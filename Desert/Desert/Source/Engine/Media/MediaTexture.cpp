@@ -104,6 +104,7 @@ namespace Desert::Media
                  .Data       = Core::Formats::EmptyPixelData{},
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Sample,
+                 .MipLevels  = {},
             };
             m_Planes[i] = Graphic::Image2D::Create( spec );
             if ( !m_Planes[i] )
@@ -119,6 +120,7 @@ namespace Desert::Media
              .Data       = Core::Formats::EmptyPixelData{},
              .Usage      = Core::Formats::Image2DUsage::Image2D,
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
+             .MipLevels  = {},
         };
         m_Output = Graphic::Image2D::Create( outputSpec );
         if ( !m_Output )

@@ -1134,7 +1134,7 @@ namespace Desert::Player
         // A movie composes into its own offscreen target of the requested size; the game into the swapchain.
         if ( m_Movie.has_value() )
         {
-            if ( const auto begun = renderer.BeginRenderPass( m_MoviePass.get(), true ); !begun )
+            if ( const auto begun = Graphic::Renderer::BeginRenderPass( m_MoviePass.get(), true ); !begun )
             {
                 // A refused pass records nothing: drawing on would land outside every pass. The movie fails
                 // (exit 1), no frame is read back, and the acquired swapchain image still gets its empty pass.

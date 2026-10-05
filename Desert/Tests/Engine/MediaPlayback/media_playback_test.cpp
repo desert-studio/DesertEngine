@@ -281,10 +281,12 @@ TEST( MediaPlayback, APlaneIsSizedWithoutAPassOverItsBytesAndComparesByContent )
 
 TEST( MediaPlayback, DecodeThroughputIsPrinted )
 {
-    std::vector<std::string> clips{ DESERT_MEDIA_PATTERN_CLIP };
+    const std::vector<std::string> clips{ DESERT_MEDIA_PATTERN_CLIP
 #ifdef DESERT_MEDIA_BENCH_CLIP // a second, heavier clip: build with -DDESERT_MEDIA_BENCH_CLIP='"<path>"'
-    clips.emplace_back( DESERT_MEDIA_BENCH_CLIP );
+                                          ,
+                                          DESERT_MEDIA_BENCH_CLIP
 #endif
+    };
     for ( const std::string& clip : clips )
     {
         MediaPlayer player;

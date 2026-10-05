@@ -594,7 +594,7 @@ namespace Desert::Graphic::Render2D
     {
         RetainedTarget& target   = *job.Target;
         auto&           renderer = Renderer::GetInstance();
-        if ( const auto begun = renderer.BeginRenderPass( target.Pass.get(), true ); !begun )
+        if ( const auto begun = Renderer::BeginRenderPass( target.Pass.get(), true ); !begun )
         {
             // Nothing is recorded: a draw or an EndRenderPass after a refused begin is outside every pass.
             LOG_ERROR( "[Render2D] retained layer {}x{} not drawn: {}", target.Width, target.Height,

@@ -346,7 +346,7 @@ namespace Desert::Media
     {
         if ( m_State == MediaPlayerState::Closed || m_State == MediaPlayerState::Error )
             return;
-        if ( m_State == MediaPlayerState::Playing && !( m_Sink != nullptr && m_Audio ) )
+        if ( m_State == MediaPlayerState::Playing && ( m_Sink == nullptr || !m_Audio ) )
             m_InternalNs += static_cast<int64_t>( std::llround( deltaSeconds * 1e9 ) );
 
         const int64_t clock = ClockNs();
