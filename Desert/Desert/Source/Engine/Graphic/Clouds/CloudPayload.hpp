@@ -220,7 +220,9 @@ namespace Desert::Graphic
     // explicit arguments and never consult the shader's own reflection, so each number here must equal
     // the one written in the shader. A mismatch lands a resource on a different descriptor rather than on
     // an error.
-    inline constexpr uint32_t kCloudOutputBinding     = 0; // the RGBA16F scatter image the march writes
+    // The RGBA16F scatter the march writes (u_CloudScatter), a frame-graph transient bound BY NAME through
+    // RDG::PassBindings; the number stays only so ShaderCacheKey proves no setter slot lands on it.
+    inline constexpr uint32_t kCloudOutputBinding     = 0;
     inline constexpr uint32_t kCloudParamsBinding     = 1; // must equal CLOUD_PARAMS_BINDING
     inline constexpr uint32_t kCloudSceneDepthBinding = 2;
     inline constexpr uint32_t kCloudNoiseBinding      = 3;
@@ -233,8 +235,8 @@ namespace Desert::Graphic
     // the same terms as the texel above: always, gated by CloudGpuPayload::Aerial.z.
     inline constexpr uint32_t kCloudAerialPerspectiveBinding = 5;
     // The march's SECOND output: the depth guide the composite upsamples through (front cloud distance
-    // and scene distance, kilometres). A storage image like binding 0, not a sampler, so it is bound with
-    // SetOutput and lives in the same GENERAL-layout round trip as the scatter target.
+    // and scene distance, kilometres). A storage image like binding 0 (u_CloudGuide), a frame-graph transient
+    // bound by name like it; the number is kept for the same ShaderCacheKey collision census.
     inline constexpr uint32_t kCloudGuideOutputBinding = 6;
     // The procedural MODELLING VOLUME (Engine/Assets/CloudProceduralVolume.hpp): 256 x 32 x 256 RGBA8,
     // channel k being species k's Dimensional Profile. Owned by Runtime::CloudProceduralVolumeService and
@@ -292,8 +294,8 @@ namespace Desert::Graphic
     // The TEMPORAL RESOLVE pass (Programs/Clouds/CloudTemporalResolve.shader). Same rule as above: these
     // numbers are handed to SetInput / SetOutput / SetStorageBuffer verbatim and must equal the ones
     // written in the shader.
-    inline constexpr uint32_t kCloudResolveTraceBinding        = 0; // quarter-res scatter, this frame
-    inline constexpr uint32_t kCloudResolveTraceGuideBinding   = 1; // quarter-res guide, this frame
+    // Bindings 0 and 1 (u_CloudTrace, u_CloudTraceGuide: this frame's quarter-res pair) are frame-graph
+    // transients bound by name through RDG::PassBindings, so they have no number here.
     inline constexpr uint32_t kCloudResolveHistoryBinding      = 2; // half-res scatter, previous frame
     inline constexpr uint32_t kCloudResolveHistoryGuideBinding = 3; // half-res guide, previous frame
     inline constexpr uint32_t kCloudResolveOutputBinding       = 4; // half-res reconstructed scatter

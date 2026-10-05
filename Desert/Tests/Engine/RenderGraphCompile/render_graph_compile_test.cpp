@@ -1666,7 +1666,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes()]",
-         "compute[clouds->DeclareFrameNodes()]",
+         "compute[clouds->DeclareFrameNodes(graph)]",
          "phases[phase==RenderPhase::Transparency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
@@ -2548,7 +2548,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     for ( const char* needle : { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
                                  "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
                                  "AddComputeNodes(graph,textures,fog->DeclareFrameNodes())",
-                                 "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes())" } )
+                                 "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph))" } )
         EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;
     EXPECT_NE( source( "SceneRendererFrame.hpp" ).find( "RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
                std::string::npos );
@@ -2578,7 +2578,8 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareFrameNodes(",
            { "Write(m_SkyOcclusionVolume,RDG::Access::StorageWrite", "Read(depth,RDG::Access::SampledCompute",
-             "Write(m_TraceImage,RDG::Access::StorageWrite", "Read(m_TraceImage,RDG::Access::SampledCompute",
+             "Write(trace,RDG::Access::StorageWrite", "Read(trace,RDG::Access::SampledCompute",
+             "graph.CreateTexture(traceDesc,\"Clouds.Trace\")",
              "Write(m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
     for ( const Declares& d : declares )
     {

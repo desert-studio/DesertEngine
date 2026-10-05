@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Clouds/CloudMaterialBake.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderGraphSort.hpp>
 #include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -1142,7 +1143,7 @@ namespace Desert::Graphic::System
         shadow.Name = "Clouds: ShadowMap";
         DeclareVolumeReads( shadow.Access );
         shadow.Access.Write( m_ShadowMapImage, RDG::Access::StorageWrite, "Clouds.ShadowMap" );
-        shadow.Record = [this, push, resolution]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
+        shadow.Record = [this, push, resolution]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: ShadowMap" );
             auto& renderer = Renderer::GetInstance();
@@ -1165,10 +1166,11 @@ namespace Desert::Graphic::System
             BindMedium( m_ShadowMapPipeline.get(), m_ShadowMediumParamsBuffer.get() );
             m_ShadowMapPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
-            renderer.DispatchComputeInFrame( m_ShadowMapPipeline.get(),
+            // Every resource of this dispatch is the renderer's own (imported), bound by the pipeline's setters.
+            const RDG::PassBindings bindings( context );
+            return renderer.DispatchCompute( bindings, *m_ShadowMapPipeline,
                                              GroupCount( resolution, kMarchWorkGroupSize ),
                                              GroupCount( resolution, kMarchWorkGroupSize ), 1 );
-            return BOOLSUCCESS;
         };
         nodes.push_back( std::move( shadow ) );
 
@@ -1569,19 +1571,19 @@ namespace Desert::Graphic::System
         if ( m_TargetsFailed )
             return false;
 
-        const bool allocated = m_TraceImage && m_TraceGuideImage && m_HistoryImage[0] && m_HistoryImage[1] &&
-                               m_HistoryGuideImage[0] && m_HistoryGuideImage[1];
+        const bool allocated =
+             m_HistoryImage[0] && m_HistoryImage[1] && m_HistoryGuideImage[0] && m_HistoryGuideImage[1];
         if ( allocated && halfWidth == m_HalfWidth && halfHeight == m_HalfHeight )
             return true;
 
         // The old images may still be referenced by descriptors of frames in flight.
-        if ( m_TraceImage || m_HistoryImage[0] )
+        if ( m_HistoryImage[0] )
             Renderer::GetInstance().WaitDeviceIdle();
 
         const uint32_t traceWidth  = HalfExtent( halfWidth );
         const uint32_t traceHeight = HalfExtent( halfHeight );
 
-        // One helper for all six, because the only thing that differs between them is a size and a name.
+        // One helper for all four, because the only thing that differs between them is a size and a name.
         // Written as a lambda taking its parameters rather than capturing them: a parameter-less
         // multi-line lambda is one of the constructs clang-format 18 and 22 disagree about, and the CI
         // gate runs 18.
@@ -1599,16 +1601,14 @@ namespace Desert::Graphic::System
             return Image2D::Create( spec );
         };
 
-        // The march's pair, at a QUARTER of the view. RGBA16F for the scatter because radiance is
-        // pre-tonemap HDR; RGBA16F for the guide for a reason worth stating rather than discovering: the
-        // guide carries TWO meaningful channels and Core::Formats::ImageFormat offers no two-channel float
-        // format, so half of every texel is allocated and never written. Half a kilometre of distance
-        // resolves to about thirty metres at this precision, two orders finer than the tenth-of-the-
-        // distance threshold the composite compares against and three finer than the two-kilometre
-        // disocclusion threshold the reconstruction compares against.
-        m_TraceImage      = createTarget( "CloudTrace", traceWidth, traceHeight );
-        m_TraceGuideImage = createTarget( "CloudTraceGuide", traceWidth, traceHeight );
-
+        // The reconstruction pair, at HALF the view (the march's quarter-resolution pair is a transient of the
+        // frame graph, created by DeclareFrameNodes). RGBA16F for the scatter because radiance is pre-tonemap
+        // HDR; RGBA16F for the guide for a reason worth stating rather than discovering: the guide carries TWO
+        // meaningful channels and Core::Formats::ImageFormat offers no two-channel float format, so half of
+        // every texel is allocated and never written. Half a kilometre of distance resolves to about thirty
+        // metres at this precision, two orders finer than the tenth-of-the-distance threshold the composite
+        // compares against and three finer than the two-kilometre disocclusion threshold the reconstruction
+        // compares against.
         for ( uint32_t i = 0; i < 2u; ++i )
         {
             m_HistoryImage[i]      = createTarget( "CloudReconstruction", halfWidth, halfHeight );
@@ -1620,20 +1620,15 @@ namespace Desert::Graphic::System
         const double halfMiB = BytesToMiB(
              Core::Formats::CalculateImageSize( halfWidth, halfHeight, ViewTargetFormats::kCloudTrace ) );
 
-        if ( !m_TraceImage || !m_TraceGuideImage || !m_HistoryImage[0] || !m_HistoryImage[1] ||
-             !m_HistoryGuideImage[0] || !m_HistoryGuideImage[1] )
+        if ( !m_HistoryImage[0] || !m_HistoryImage[1] || !m_HistoryGuideImage[0] || !m_HistoryGuideImage[1] )
         {
-            LOG_ERROR( "[Clouds] The reconstruction targets could not be created — trace {}x{} ({:.2f} MiB "
-                       "each, scatter {}, guide {}), history {}x{} ({:.2f} MiB each, scatter {}/{}, guide "
-                       "{}/{}); the clouds will not render for this view.",
-                       traceWidth, traceHeight, traceMiB, m_TraceImage != nullptr, m_TraceGuideImage != nullptr,
+            LOG_ERROR( "[Clouds] The reconstruction targets could not be created — history {}x{} ({:.2f} MiB "
+                       "each, scatter {}/{}, guide {}/{}); the clouds will not render for this view.",
                        halfWidth, halfHeight, halfMiB, m_HistoryImage[0] != nullptr, m_HistoryImage[1] != nullptr,
                        m_HistoryGuideImage[0] != nullptr, m_HistoryGuideImage[1] != nullptr );
 
-            // Released together rather than left half standing: the pass writes all six or none, and a
-            // trace image with no history beside it is a target nothing may reconstruct.
-            m_TraceImage.reset();
-            m_TraceGuideImage.reset();
+            // Released together rather than left half standing: the resolve writes all four or none, and a
+            // half-built ping-pong is a history nothing may reconstruct into.
             for ( uint32_t i = 0; i < 2u; ++i )
             {
                 m_HistoryImage[i].reset();
@@ -1651,7 +1646,7 @@ namespace Desert::Graphic::System
         // one event that invalidates the history without the camera moving at all.
         m_HistoryValid = false;
 
-        // The cost is announced once, on the allocation, not discovered in a memory graph later. All six
+        // The cost is announced once, on the allocation, not discovered in a memory graph later. All four
         // are named and counted, because targets of the same size are exactly what a reader of a memory
         // graph would otherwise take for one measured several times.
         LOG_INFO( "[Clouds] Trace targets {}x{} RGBA16F ({:.2f} MiB each, scatter + guide) — a QUARTER of "
@@ -1761,7 +1756,7 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareFrameNodes()
+    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder& graph )
     {
         std::vector<ComputeNodeDeclaration> nodes;
         m_HasFrameResult = false;
@@ -1857,7 +1852,7 @@ namespace Desert::Graphic::System
             occlusion.Name = "Clouds: SkyOcclusion";
             DeclareVolumeReads( occlusion.Access );
             occlusion.Access.Write( m_SkyOcclusionVolume, RDG::Access::StorageWrite, "Clouds.SkyOcclusion" );
-            occlusion.Record = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
+            occlusion.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Clouds: SkyOcclusion" );
                 auto& renderer = Renderer::GetInstance();
@@ -1889,10 +1884,10 @@ namespace Desert::Graphic::System
                 // ONE INVOCATION PER COLUMN — the altitude axis is walked inside the shader, because the whole
                 // point of the pass is that a column's optical depth accumulates downward and a thread per
                 // texel would have to re-integrate everything above it.
-                renderer.DispatchComputeInFrame(
-                     m_SkyOcclusionPipeline.get(), GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
+                const RDG::PassBindings bindings( context );
+                return renderer.DispatchCompute(
+                     bindings, *m_SkyOcclusionPipeline, GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
                      GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ), 1 );
-                return BOOLSUCCESS;
             };
             nodes.push_back( std::move( occlusion ) );
 
@@ -1937,25 +1932,35 @@ namespace Desert::Graphic::System
                        "built for the multisampled scene target (see the startup error)" );
             return {};
         }
-        const uint32_t                 traceWidth  = HalfExtent( m_HalfWidth );
-        const uint32_t                 traceHeight = HalfExtent( m_HalfHeight );
-        ComputeNodeDeclaration         march;
+        const uint32_t traceWidth  = HalfExtent( m_HalfWidth );
+        const uint32_t traceHeight = HalfExtent( m_HalfHeight );
+        // The march's two QUARTER-resolution outputs live this frame only: the scatter (premultiplied radiance
+        // in .rgb, transmittance in .a) and the depth guide beside it (.x cloud front distance, .y scene
+        // distance, both kilometres). RGBA16F for the guide because Core::Formats offers no two-channel float.
+        const RDG::TextureDesc traceDesc{ .Size   = RDG::Extent3D{ .Width = traceWidth, .Height = traceHeight },
+                                          .Format = ViewTargetFormats::kCloudTrace };
+        const RDG::TextureRef  trace      = graph.CreateTexture( traceDesc, "Clouds.Trace" );
+        const RDG::TextureRef  traceGuide = graph.CreateTexture( traceDesc, "Clouds.TraceGuide" );
+        ComputeNodeDeclaration march;
         march.Name = "Clouds: March";
         march.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
         DeclareVolumeReads( march.Access );
         if ( skyOcclusionReady )
             march.Access.Read( m_SkyOcclusionVolume, RDG::Access::SampledCompute, "Clouds.SkyOcclusion" );
         m_SceneRenderer->DeclareAtmosphereReads( march.Access, RDG::Access::SampledCompute );
-        march.Access.Write( m_TraceImage, RDG::Access::StorageWrite, "Clouds.Trace" );
-        march.Access.Write( m_TraceGuideImage, RDG::Access::StorageWrite, "Clouds.TraceGuide" );
+        march.Access.Write( trace, RDG::Access::StorageWrite, RDG::SubresourceRange::All() );
+        march.Access.Write( traceGuide, RDG::Access::StorageWrite, RDG::SubresourceRange::All() );
         march.Record =
-             [this, push, atmosphere, skyOcclusionReady, traceWidth, traceHeight, depthImage = depth.get()]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
+             [this, push, atmosphere, skyOcclusionReady, traceWidth, traceHeight, trace, traceGuide,
+              depthImage = depth.get()]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: March" );
             auto& renderer = Renderer::GetInstance();
 
-            m_MarchPipeline->SetOutput( kCloudOutputBinding, m_TraceImage.get(), 0 );
-            m_MarchPipeline->SetOutput( kCloudGuideOutputBinding, m_TraceGuideImage.get(), 0 );
+            // The graph's two transients by shader name; everything else is the renderer's own, set below.
+            RDG::PassBindings bindings( context );
+            bindings.Storage( "u_CloudScatter", trace, RDG::Access::StorageWrite )
+                 .Storage( "u_CloudGuide", traceGuide, RDG::Access::StorageWrite );
             m_MarchPipeline->SetStorageBuffer( kCloudParamsBinding, m_ParamsBuffer.get() );
             m_MarchPipeline->SetInput( kCloudSceneDepthBinding, depthImage, RDG::Access::SampledCompute,
                                        RDG::SubresourceRange::All() );
@@ -2024,9 +2029,8 @@ namespace Desert::Graphic::System
 
             m_MarchPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
-            renderer.DispatchComputeInFrame( m_MarchPipeline.get(), GroupCount( traceWidth, kMarchWorkGroupSize ),
+            return renderer.DispatchCompute( bindings, *m_MarchPipeline, GroupCount( traceWidth, kMarchWorkGroupSize ),
                                              GroupCount( traceHeight, kMarchWorkGroupSize ), 1 );
-            return BOOLSUCCESS;
         };
         nodes.push_back( std::move( march ) );
 
@@ -2065,8 +2069,8 @@ namespace Desert::Graphic::System
         // frame's history slot, which the composite (CloudComposite, a Transparency raster node) samples.
         ComputeNodeDeclaration temporal;
         temporal.Name = "Clouds: TemporalResolve";
-        temporal.Access.Read( m_TraceImage, RDG::Access::SampledCompute, "Clouds.Trace" );
-        temporal.Access.Read( m_TraceGuideImage, RDG::Access::SampledCompute, "Clouds.TraceGuide" );
+        temporal.Access.Read( trace, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        temporal.Access.Read( traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         if ( m_HistoryValid )
         {
             temporal.Access.Read( m_HistoryImage[readIndex], RDG::Access::SampledCompute,
@@ -2078,7 +2082,9 @@ namespace Desert::Graphic::System
                                std::format( "Clouds.History{}", writeIndex ) );
         temporal.Access.Write( m_HistoryGuideImage[writeIndex], RDG::Access::StorageWrite,
                                std::format( "Clouds.HistoryGuide{}", writeIndex ) );
-        temporal.Record = [this, writeIndex, readIndex, historyValid = m_HistoryValid]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
+        temporal.Record = [this, writeIndex, readIndex, trace, traceGuide,
+                           historyValid = m_HistoryValid]( RDG::PassContext& context,
+                                                           const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             auto& renderer = Renderer::GetInstance();
 
@@ -2086,10 +2092,14 @@ namespace Desert::Graphic::System
             m_ResolvePipeline->SetOutput( kCloudResolveGuideOutputBinding, m_HistoryGuideImage[writeIndex].get(),
                                           0 );
             m_ResolvePipeline->SetStorageBuffer( kCloudResolveParamsBinding, m_ResolveParamsBuffer.get() );
-            m_ResolvePipeline->SetInput( kCloudResolveTraceBinding, m_TraceImage.get(),
-                                         RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            m_ResolvePipeline->SetInput( kCloudResolveTraceGuideBinding, m_TraceGuideImage.get(),
-                                         RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            // This frame's trace pair, by shader name. Linear + clamp: the reconstruction texelFetches the texel
+            // it owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
+            RDG::PassBindings bindings( context );
+            bindings
+                 .Sampled( "u_CloudTrace", trace, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearClamp() )
+                 .Sampled( "u_CloudTraceGuide", traceGuide, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
 
             // THE HISTORY, OR SOMETHING REAL IN ITS PLACE. Before the first reconstruction the read slot has
             // never been written, so its device memory is uninitialised AND its tracked layout is the one it
@@ -2108,13 +2118,10 @@ namespace Desert::Graphic::System
             m_ResolvePipeline->SetInput( kCloudResolveHistoryGuideBinding, historyGuide ? historyGuide : fallback,
                                          RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
-            {
-                DESERT_PROFILE_PASS( "Clouds: TemporalResolve" );
-                renderer.DispatchComputeInFrame( m_ResolvePipeline.get(),
-                                                 GroupCount( m_HalfWidth, kMarchWorkGroupSize ),
-                                                 GroupCount( m_HalfHeight, kMarchWorkGroupSize ), 1 );
-            }
-            return BOOLSUCCESS;
+            DESERT_PROFILE_PASS( "Clouds: TemporalResolve" );
+            return renderer.DispatchCompute( bindings, *m_ResolvePipeline,
+                                             GroupCount( m_HalfWidth, kMarchWorkGroupSize ),
+                                             GroupCount( m_HalfHeight, kMarchWorkGroupSize ), 1 );
         };
         nodes.push_back( std::move( temporal ) );
 

@@ -15,6 +15,7 @@
 #include <Engine/Graphic/Clouds/CloudSkyOcclusionPayload.hpp>
 #include <Engine/Graphic/Materials/Clouds/MaterialCloudComposite.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -134,8 +135,10 @@ namespace Desert::Graphic::System
 
         /**
          * @brief Stages S0 and S1. Must be called outside any render pass, after the scene depth is final.
+         * The march's quarter-resolution pair (scatter + depth guide) lives one frame, so it is created here as
+         * two transients of @p graph; only the ping-ponged reconstruction (history) stays this renderer's.
          */
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes();
+        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph );
         // Graph-build state of DeclareFrameNodes, applied once the frame graph answered: @p accepted advances
         // the history (resolved slot, frame index, previous view-projection); a refusal records nothing, so it
         // drops the history and the sky-occlusion volume rather than claim a resolve that never ran.
@@ -276,8 +279,8 @@ namespace Desert::Graphic::System
                                  uint32_t speciesCount );
         // Allocates the shadow map the first frame the layer actually casts, and REALLOCATES it when the
         // quality tier changes its size. Separate from EnsureTraceTargets because its size is not a
-        // property of the view: a viewport resize must not throw it away, where every one of the six trace
-        // targets IS the view's size and must. Returns false having logged the reason and latched the
+        // property of the view: a viewport resize must not throw it away, where every one of the four
+        // reconstruction targets IS the view's size and must. Returns false having logged the reason and latched the
         // failure.
         //
         // @param resolution texels per side for THIS tier, from Graphic::CloudShadowResolutionForScale.
@@ -473,13 +476,6 @@ namespace Desert::Graphic::System
 
         std::unique_ptr<MaterialCloudComposite> m_CompositeMaterial;
 
-        // The march's two QUARTER-resolution outputs, allocated and released together because neither is
-        // usable alone: the scatter image (premultiplied radiance in .rgb, transmittance in .a) and the
-        // depth guide beside it (.x cloud front distance, .y scene distance, both kilometres). Declared
-        // adjacently and with no comment between them so the alignment of this block stays one group — a
-        // comment inserted mid-group is what clang-format and this repository's style disagree about.
-        std::shared_ptr<Image2D>                        m_TraceImage;
-        std::shared_ptr<Image2D>                        m_TraceGuideImage;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveParamsBuffer;
 
@@ -764,7 +760,7 @@ namespace Desert::Graphic::System
         uint32_t m_HalfWidth  = 0;
         uint32_t m_HalfHeight = 0;
 
-        // Latched by EnsureTraceTargets and covering ALL SIX images: any one missing means the pass cannot
+        // Latched by EnsureTraceTargets and covering ALL FOUR reconstruction images: any one missing means the pass cannot
         // run, and retrying an allocation that already failed once per frame only fills the log.
         bool m_TargetsFailed = false;
         // Set by BuildProceduralParams (which is const, hence mutable) when either layout slot names a

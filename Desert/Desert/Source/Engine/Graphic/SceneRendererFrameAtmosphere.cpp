@@ -102,6 +102,6 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
         if ( clouds )
-            clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes() ) );
+            clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes( graph ) ) );
     }
 } // namespace Desert::Graphic
