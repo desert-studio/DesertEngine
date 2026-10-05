@@ -512,27 +512,33 @@ TEST( LevelSequenceKeys, AutoKeyWritesOnePoseKeyOnTheReleaseOfAGestureThatMovedT
     World       world;
     ECS::LevelSequenceAutoKey autoKey;
     const A::FrameNumber      at{ 40 };
+    const auto                observe = [&]( const bool held ) -> uint32_t
+    {
+        const auto keyed = autoKey.Observe( world.registry, sequence, at, held );
+        EXPECT_TRUE( keyed.IsSuccess() );
+        return keyed.IsSuccess() ? keyed.GetValue() : 999U;
+    };
 
     // A gesture that moves nothing keys nothing.
-    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, true ).GetValue(), 0U );
+    EXPECT_EQ( observe( true ), 0U );
     EXPECT_TRUE( autoKey.Releasing( false ) );
-    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, false ).GetValue(), 0U );
+    EXPECT_EQ( observe( false ), 0U );
     EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U );
 
     // Press, drag (nothing written while held), release: one key at the playhead with the live pose.
-    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, true ).GetValue(), 0U );
+    EXPECT_EQ( observe( true ), 0U );
     world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 777.0F;
-    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, true ).GetValue(), 0U );
+    EXPECT_EQ( observe( true ), 0U );
     EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U ) << "nothing is keyed mid-gesture";
-    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, false ).GetValue(), 1U );
+    EXPECT_EQ( observe( false ), 1U );
     const auto ticks = ECS::EntityTransformKeyTicks( sequence, door );
     ASSERT_EQ( ticks.size(), 3U );
     EXPECT_EQ( ticks[1].Value, 40 );
 
     // Reset mid-gesture (REC switched off): the release keys nothing.
-    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, true ).GetValue(), 0U );
+    EXPECT_EQ( observe( true ), 0U );
     world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 5.0F;
     autoKey.Reset();
     EXPECT_FALSE( autoKey.Releasing( false ) );
-    EXPECT_EQ( autoKey.Observe( world.registry, sequence, at, false ).GetValue(), 0U );
+    EXPECT_EQ( observe( false ), 0U );
 }
