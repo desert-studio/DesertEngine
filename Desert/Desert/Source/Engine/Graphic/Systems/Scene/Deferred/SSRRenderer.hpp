@@ -167,8 +167,7 @@ namespace Desert::Graphic::System
         using GBufferInputs = std::array<RDG::TextureRef, 3>;
 
         [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context, RDG::TextureRef trace,
-                                                         RDG::TextureRef                     tiles,
-                                                         const GBufferInputs&                gbuffer,
+                                                         RDG::TextureRef tiles, const GBufferInputs& gbuffer,
                                                          RDG::TextureRef sceneCopy, const glm::mat4& viewProj,
                                                          const glm::vec4& cameraPos, int maxSteps,
                                                          float maxDistance, float intensity, float thickness )
@@ -188,10 +187,10 @@ namespace Desert::Graphic::System
             // The sampler the pipeline-setter route sampled the copy and the G-buffer with (the images' own:
             // linear, REPEAT) - the deferred composite reads the same G-buffer with it.
             bindings
-                 .Sampled( "u_GBufferAlbedo", gbuffer[0], RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearRepeat() )
-                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearRepeat() )
+                 .Sampled( "u_GBufferAlbedo", gbuffer[0], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
+                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_GBufferWorldPos", gbuffer[2], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
@@ -207,8 +206,7 @@ namespace Desert::Graphic::System
         // resolve of @p trace (read bilinearly - the upscale) over GetHistoryImage(), drawn over the tiles
         // @p tiles marks.
         [[nodiscard]] Common::BoolResultStr RecordResolve( const RDG::PassContext& context, RDG::TextureRef trace,
-                                                           RDG::TextureRef                     tiles,
-                                                           const GBufferInputs&                gbuffer )
+                                                           RDG::TextureRef tiles, const GBufferInputs& gbuffer )
         {
             DESERT_PROFILE_PASS( "SSR: Resolve" );
             m_ResolveMaterial->BindInputs( GetHistoryImage(), m_PrevViewProj, Texel(),
@@ -228,10 +226,9 @@ namespace Desert::Graphic::System
         // Pass 3, inside the render pass the graph opens on the scene target with LOAD: roughness-scaled blur
         // of the RESOLVED buffer, blended over the scene, over the tiles @p tiles marks. Advances the ping-pong
         // only when the draw was recorded.
-        [[nodiscard]] Common::BoolResultStr RecordComposite( const RDG::PassContext&             context,
-                                                             RDG::TextureRef                     tiles,
-                                                             const GBufferInputs&                gbuffer,
-                                                             const glm::mat4&                    viewProj )
+        [[nodiscard]] Common::BoolResultStr RecordComposite( const RDG::PassContext& context,
+                                                             RDG::TextureRef tiles, const GBufferInputs& gbuffer,
+                                                             const glm::mat4& viewProj )
         {
             DESERT_PROFILE_PASS( "SSR: Composite" );
             m_CompositeMaterial->BindInputs( GetAccumImage(), Texel() );
@@ -239,8 +236,8 @@ namespace Desert::Graphic::System
             bindings
                  .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
                            RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearRepeat() );
+                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
             const Common::BoolResultStr drawn = Renderer::GetInstance().DrawProcedural(
                  bindings, *m_CompositePipeline, m_CompositeMaterial->GetMaterialExecutor(), TileVertices(), 1u );
             if ( !drawn.IsSuccess() )

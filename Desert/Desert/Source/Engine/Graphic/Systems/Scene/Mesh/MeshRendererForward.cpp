@@ -24,7 +24,8 @@ namespace Desert::Graphic::System
         // (System.White past the valid count), and the snapshot the material receives carries no cascade map.
         void BindGlassFrameDefaults( Material& material, const PBRSceneFrame& frame )
         {
-            const auto& emptyCube = FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
+            const auto& emptyCube =
+                 FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
             if ( !frame.IrradianceMap )
                 if ( auto* tex = material.Get<TextureCubeProperty>( MaterialPBRBase::kEnvIrradianceName ) )
                     tex->SetTexture( emptyCube.get() );
@@ -538,7 +539,8 @@ namespace Desert::Graphic::System
         RDG::PassBindings bindings( context );
         bindings.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                           RDG::SamplerDesc::LinearRepeat() );
-        // The cascades with the sampler the deferred composite reads the same maps with (DeferredLightingRenderer).
+        // The cascades with the sampler the deferred composite reads the same maps with
+        // (DeferredLightingRenderer).
         for ( uint32_t i = 0; i < MaterialPBRBase::kMaxCascades; ++i )
             bindings.Sampled( MaterialPBRBase::kShadowMapNames[i], shadowMaps[i], RDG::Access::SampledGraphics,
                               RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );

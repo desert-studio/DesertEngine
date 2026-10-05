@@ -24,9 +24,9 @@ namespace Desert::Graphic
              : Material( "MaterialSSRResolve",
                          variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
-            // u_Trace and u_GBufferWorldPos are textures of the frame graph in both variants, bound by name through
-            // RDG::PassBindings (SSRRenderer::RecordResolve, GIResolveRenderer::RecordTemporal). u_History is the
-            // SSR's own ping-pong (external to the graph) on this route.
+            // u_Trace and u_GBufferWorldPos are textures of the frame graph in both variants, bound by name
+            // through RDG::PassBindings (SSRRenderer::RecordResolve, GIResolveRenderer::RecordTemporal). u_History
+            // is the SSR's own ping-pong (external to the graph) on this route.
             m_History = m_MaterialExecutor->GetTexture2DProperty( "u_History" ).get();
         }
 

@@ -124,7 +124,8 @@ namespace Desert::Graphic::System
         m_FogHeightY = fogHeightY;
     }
 
-    std::vector<ComputeNodeDeclaration> HeightFogRenderer::DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients )
+    std::vector<ComputeNodeDeclaration> HeightFogRenderer::DeclareFrameNodes( RDG::Builder&    graph,
+                                                                              FrameTransients& transients )
     {
         std::vector<ComputeNodeDeclaration> nodes;
 
@@ -256,7 +257,8 @@ namespace Desert::Graphic::System
         RenderGraphBuilder::PassConfig config;
         config.Name        = "HeightFogApply";
         config.Phase       = RenderPhase::Transparency;
-        config.ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
+        config.ExecuteFunc = [this]( RDG::PassContext&     context,
+                                     const FrameGraphRefs& refs ) -> Common::BoolResultStr
         {
             // No fog image this frame (neither fog nor aerial perspective, or the evaluation did not run):
             // the over-composite would be the identity, so nothing is drawn.
