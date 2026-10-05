@@ -187,3 +187,9 @@ TEST( MediaPlayback, SeekLandsOnTheFrameAtTheTarget )
     EXPECT_LE( pts, 500000000 );
     EXPECT_GT( pts, 500000000 - 34000000 );
 }
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
