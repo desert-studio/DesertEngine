@@ -189,7 +189,7 @@ namespace Desert::ECS
      * an Entity binding of this sequence, a kind other than Float / Vector, an empty parameter name and a
      * parameter that already has a track; the sequence is left as it was on any refusal. Revision++.
      */
-    [[nodiscard]] Common::BoolResultStr AddMaterialParameterTrack( Animation::Timeline::Sequence&          sequence,
+    [[nodiscard]] Common::BoolResultStr AddMaterialParameterTrack( Animation::Timeline::Sequence& sequence,
                                                                    const Animation::Timeline::BindingGuid& binding,
                                                                    const LevelSequenceMaterialParameter& parameter,
                                                                    Animation::Timeline::TrackKind        kind,
@@ -209,7 +209,8 @@ namespace Desert::ECS
     [[nodiscard]] Common::BoolResultStr SetMaterialParameterKey( Animation::Timeline::Sequence&          sequence,
                                                                  const Animation::Timeline::BindingGuid& binding,
                                                                  const LevelSequenceMaterialParameter&   parameter,
-                                                                 Animation::FrameNumber tick, const glm::vec4& value );
+                                                                 Animation::FrameNumber                  tick,
+                                                                 const glm::vec4&                        value );
 
     /**
      * @brief The Sequencer's preview of a level sequence over a scene's registry (UE: the editor's sequence

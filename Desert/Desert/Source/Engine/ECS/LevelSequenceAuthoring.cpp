@@ -557,9 +557,9 @@ namespace Desert::ECS
 
         T::Sequence edited = sequence;
         T::Track    created;
-        created.Binding  = binding;
-        created.Property = LevelSequenceMaterialProperty( parameter );
-        created.Kind     = kind;
+        created.Binding    = binding;
+        created.Property   = LevelSequenceMaterialProperty( parameter );
+        created.Kind       = kind;
         T::Channel channel = T::MakeChannel( static_cast<T::ChannelKind>( kind ) );
         if ( auto* scalar = std::get_if<T::FloatChannel>( &channel ) )
             scalar->Default = current.x;
@@ -642,9 +642,9 @@ namespace Desert::ECS
         if ( materials )
             for ( const T::Track& track : sequence.Tracks )
             {
-                const auto parameter = ParseLevelSequenceMaterialProperty( track.Property );
-                const T::Binding* bound = parameter ? T::FindBinding( sequence, track.Binding ) : nullptr;
-                const auto resolved = bound != nullptr ? host.Resolve( *bound ) : std::nullopt;
+                const auto        parameter = ParseLevelSequenceMaterialProperty( track.Property );
+                const T::Binding* bound     = parameter ? T::FindBinding( sequence, track.Binding ) : nullptr;
+                const auto        resolved  = bound != nullptr ? host.Resolve( *bound ) : std::nullopt;
                 if ( !resolved )
                     continue;
                 const auto entity = static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) );

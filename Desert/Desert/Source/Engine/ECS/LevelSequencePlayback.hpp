@@ -47,7 +47,7 @@ namespace Desert::ECS
     /// "Material.<slot>.<Parameter>" → (slot, parameter); nullopt for any other property (a slot that is not a
     /// decimal number, an empty parameter name).
     [[nodiscard]] std::optional<LevelSequenceMaterialParameter>
-         ParseLevelSequenceMaterialProperty( std::string_view property );
+    ParseLevelSequenceMaterialProperty( std::string_view property );
     /// The Property of the Material Parameter track for @p parameter — the inverse of the parse above.
     [[nodiscard]] std::string LevelSequenceMaterialProperty( const LevelSequenceMaterialParameter& parameter );
 
@@ -69,7 +69,8 @@ namespace Desert::ECS
                                                 const LevelSequenceMaterialParameter& parameter )>
              Get;
         std::function<bool( entt::registry& registry, entt::entity entity,
-                            const LevelSequenceMaterialParameter& parameter, const std::optional<glm::vec4>& value )>
+                            const LevelSequenceMaterialParameter& parameter,
+                            const std::optional<glm::vec4>&       value )>
              Set;
 
         [[nodiscard]] explicit operator bool() const

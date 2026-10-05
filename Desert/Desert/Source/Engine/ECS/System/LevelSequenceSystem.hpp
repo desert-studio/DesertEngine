@@ -123,9 +123,9 @@ namespace Desert::ECS
                     continue;
 
                 const Animation::Timeline::TimeStep step = actor->Playback->Player.Advance( ts.GetSeconds() );
-                const LevelSequenceStep result =
-                     StepLevelSequence( registry, component, *actor->Playback, step,
-                                        LevelSequenceClips( *m_AssetManager ), LevelSequenceMaterialSlotOverrides() );
+                const LevelSequenceStep result = StepLevelSequence( registry, component, *actor->Playback, step,
+                                                                    LevelSequenceClips( *m_AssetManager ),
+                                                                    LevelSequenceMaterialSlotOverrides() );
                 for ( const auto& error : TakeNewLevelSequenceErrors( actor->State, result ) )
                     LOG_ERROR( "[LevelSequence] '{}': {}", actor->Name, error );
                 for ( const auto& name : result.FiredEvents )

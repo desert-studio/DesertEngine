@@ -461,8 +461,9 @@ struct FakeMaterialSlots
             const auto at = Overrides.find( { entity, parameter.Slot, parameter.Name } );
             return at != Overrides.end() ? std::optional<glm::vec4>( at->second ) : std::nullopt;
         };
-        access.Set = [this]( entt::registry&, entt::entity entity, const ECS::LevelSequenceMaterialParameter& parameter,
-                             const std::optional<glm::vec4>& value )
+        access.Set = [this]( entt::registry&, entt::entity entity,
+                             const ECS::LevelSequenceMaterialParameter& parameter,
+                             const std::optional<glm::vec4>&            value )
         {
             if ( entity != Owner || parameter.Slot >= Slots )
                 return false;
@@ -481,7 +482,7 @@ TEST( LevelSequenceDocument, AMaterialParameterTrackDrivesTheActorsSlotOverrideN
     T::Sequence sequence = AuthoredDoor();
     const auto  added    = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
     ASSERT_TRUE( added.IsSuccess() );
-    const T::BindingGuid                    door = added.GetValue();
+    const T::BindingGuid                      door = added.GetValue();
     const ECS::LevelSequenceMaterialParameter glow{ 0, "Emissive" };
     const ECS::LevelSequenceMaterialParameter tint{ 0, "BaseColor" };
     EXPECT_EQ( ECS::ParseLevelSequenceMaterialProperty( ECS::LevelSequenceMaterialProperty( glow ) ), glow );
@@ -511,12 +512,13 @@ TEST( LevelSequenceDocument, AMaterialParameterTrackDrivesTheActorsSlotOverrideN
 
     World             world;
     FakeMaterialSlots slots;
-    slots.Owner = world.door;
+    slots.Owner                                     = world.door;
     slots.Overrides[{ world.door, 0, "BaseColor" }] = glm::vec4( 1.0F, 1.0F, 1.0F, 0.75F ); // an alpha of its own
     const ECS::LevelSequenceComponent component;
     ECS::LevelSequencePlayback        playback( parsed.GetValue().Sequence );
 
-    const auto step = ECS::StepLevelSequence( world.registry, component, playback, Step( 30 ), {}, slots.Access() );
+    const auto step =
+         ECS::StepLevelSequence( world.registry, component, playback, Step( 30 ), {}, slots.Access() );
     EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
     const auto emissive = slots.Overrides.find( { world.door, 0U, std::string( "Emissive" ) } );
     ASSERT_NE( emissive, slots.Overrides.end() );
