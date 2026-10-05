@@ -38,12 +38,9 @@ Shader "BloomDownsample"
             // put it in), so its only level is lod 0.
             vec2  t  = u_SrcTexelSize;
 
-            // The global sampler addresses in REPEAT mode, so taps that fall outside [0,1] would wrap to the
-            // opposite edge and smear a bright object across the whole screen (worse at small mips where t is
-            // large). Clamp each sample to the source's valid texel-centre range so bloom never wraps.
-            vec2 lo = 0.5 * t;
-            vec2 hi = 1.0 - 0.5 * t;
-        #define TAP( off ) textureLod( u_Source, clamp( uv + t * ( off ), lo, hi ), 0.0 ).rgb
+            // The pass binds u_Source with a clamp-to-edge sampler (SamplerDesc::LinearClamp), so taps that
+            // fall outside [0,1] read the edge texel and a bright object never wraps to the opposite edge.
+        #define TAP( off ) textureLod( u_Source, uv + t * ( off ), 0.0 ).rgb
 
             // 13 taps around uv (in source texels).
             vec3 a = TAP( vec2( -2, -2 ) );

@@ -78,7 +78,7 @@ namespace Desert::Graphic::System
 
         RDG::PassBindings bindings( context );
         bindings.Sampled( "u_BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
-                          RDG::SubresourceRange::Mip( 0 ) );
+                          RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                        m_MaterialTonemap->GetMaterialExecutor() );
     }

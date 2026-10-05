@@ -30,11 +30,9 @@ Shader "BloomUpsample"
             // put it in), so its only level is lod 0.
             vec2  o  = u_SrcTexelSize * u_FilterRadius;
 
-            // Clamp to the source mip's valid texel-centre range: the global sampler is REPEAT, so tent taps
-            // that fall outside [0,1] would wrap a bright object's glow to the opposite screen edge.
-            vec2 lo = 0.5 * u_SrcTexelSize;
-            vec2 hi = 1.0 - 0.5 * u_SrcTexelSize;
-        #define TAP( coord ) textureLod( u_Source, clamp( ( coord ), lo, hi ), 0.0 ).rgb
+            // The pass binds u_Source with a clamp-to-edge sampler (SamplerDesc::LinearClamp), so tent taps
+            // outside [0,1] read the edge texel and a bright object's glow never wraps to the opposite edge.
+        #define TAP( coord ) textureLod( u_Source, ( coord ), 0.0 ).rgb
 
             // 3x3 tent (weights 1 2 1 / 2 4 2 / 1 2 1).
             vec3 a = TAP( uv + vec2( -o.x,  o.y ) );

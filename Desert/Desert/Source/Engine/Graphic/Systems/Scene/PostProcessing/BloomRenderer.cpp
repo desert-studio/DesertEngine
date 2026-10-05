@@ -116,9 +116,11 @@ namespace Desert::Graphic::System
 
         RDG::PassBindings bindings( context );
         if ( first )
-            bindings.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute );
+            bindings.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                              RDG::SamplerDesc::LinearClamp() );
         else
-            bindings.Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
+            bindings.Sampled( "u_Source", chain, RDG::Access::SampledCompute,
+                              RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() );
         bindings.Storage( "u_Output", chain, RDG::Access::StorageWrite, mip )
              .PushConstants( &push, sizeof( push ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_DownsamplePipeline,
@@ -139,7 +141,9 @@ namespace Desert::Graphic::System
                                  kFilterRadius };
 
         RDG::PassBindings bindings( context );
-        bindings.Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) )
+        bindings
+             .Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ),
+                       RDG::SamplerDesc::LinearClamp() )
              .Storage( "u_Output", chain, RDG::Access::StorageWrite, mip - 1 )
              .PushConstants( &push, sizeof( push ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_UpsamplePipeline,
