@@ -469,13 +469,6 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
-    namespace
-    {
-        // One triangle covering the viewport (Common/FullscreenTriangle.glslh): the vertex stage builds it from
-        // gl_VertexIndex with no vertex buffer, so every fullscreen draw is Draw(3, 1, 0, 0).
-        constexpr uint32_t kFullscreenTriangleVertexCount = 3;
-    } // namespace
-
     void VulkanRendererAPI::SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
                                                       const MaterialExecutor* materialExecutor )
     {
@@ -815,10 +808,12 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRendererAPI::DrawProcedural( const RDG::PassBindings& bindings,
                                                              const GraphicsPipeline&  pipeline,
-                                                             const MaterialExecutor* material, uint32_t vertexCount )
+                                                             const MaterialExecutor* material, uint32_t vertexCount,
+                                                             uint32_t instanceCount )
     {
-        if ( vertexCount == 0u )
-            return Common::MakeFormattedError( "{}: a procedural draw of zero vertices", bindings.GetContext().GetPassName() );
+        if ( vertexCount == 0u || instanceCount == 0u )
+            return Common::MakeFormattedError( "{}: a procedural draw of {} vertices x {} instances",
+                                               bindings.GetContext().GetPassName(), vertexCount, instanceCount );
         const RDG::PassContext&                  context = bindings.GetContext();
         const std::string_view                   pass    = context.GetPassName();
         const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
@@ -916,8 +911,8 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(),
                                 static_cast<VkShaderStageFlags>( reflection.PushConstantRanges->ShaderStage ), 0,
                                 static_cast<uint32_t>( push.size() ), push.data() );
-        // The vertex stage builds its geometry from gl_VertexIndex (three for the fullscreen triangle).
-        DrawCounted( vertexCount, 1, 0, 0 );
+        // The vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
+        DrawCounted( vertexCount, instanceCount, 0, 0 );
         return Common::MakeSuccess( true );
     }
 

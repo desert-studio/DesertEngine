@@ -25,6 +25,10 @@ namespace Desert::Graphic
         struct ExternalBuffer;
     } // namespace RDG
 
+    // One triangle covering the viewport (Common/FullscreenTriangle.glslh): the vertex stage builds it from
+    // gl_VertexIndex with no vertex buffer, so every fullscreen draw is Draw(3, 1, 0, 0).
+    inline constexpr uint32_t kFullscreenTriangleVertexCount = 3;
+
     enum class RendererAPIType : uint8_t
     {
         None   = 0,
@@ -134,12 +138,14 @@ namespace Desert::Graphic
                                                                      const ComputePipeline&   pipeline,
                                                                      uint32_t groupCountX, uint32_t groupCountY,
                                                                      uint32_t groupCountZ ) = 0;
-        // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices whose vertex stage builds its geometry
-        // from gl_VertexIndex (the fullscreen triangle is three; the SSR tile grid is six per tile).
+        // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices x @p instanceCount instances whose
+        // vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex (UE DrawPrimitive; the
+        // fullscreen triangle is 3 x 1; the SSR tile grid is six vertices per tile).
         [[nodiscard]] virtual Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings,
                                                                     const GraphicsPipeline&  pipeline,
                                                                     const MaterialExecutor*  material,
-                                                                    uint32_t                 vertexCount ) = 0;
+                                                                    uint32_t                 vertexCount,
+                                                                    uint32_t                 instanceCount ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

@@ -91,17 +91,20 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings,
                                                              const ComputePipeline& pipeline, uint32_t groupCountX,
                                                              uint32_t groupCountY, uint32_t groupCountZ );
-        // One triangle covering the viewport (3 vertices, Common/FullscreenTriangle.glslh), drawn inside the
-        // render pass the graph opened for this pass (its ColorTarget / DepthTarget declarations). @p material
-        // supplies uniform values and asset textures only; may be null.
+        // One triangle covering the viewport: DrawProcedural( ..., kFullscreenTriangleVertexCount, 1 )
+        // (Common/FullscreenTriangle.glslh), drawn inside the render pass the graph opened for this pass (its
+        // ColorTarget / DepthTarget declarations). @p material supplies uniform values and asset textures only;
+        // may be null.
         [[nodiscard]] Common::BoolResultStr DrawFullscreen( const RDG::PassBindings& bindings,
                                                             const GraphicsPipeline&  pipeline,
                                                             const MaterialExecutor*  material );
-        // The same contract as DrawFullscreen for a vertex stage that builds @p vertexCount (> 0) vertices from
-        // gl_VertexIndex with no vertex buffer, e.g. the SSR tile grid (six per tile, unmarked tiles collapsed).
+        // UE DrawPrimitive: the same contract as DrawFullscreen for a vertex stage that builds @p vertexCount (> 0)
+        // vertices x @p instanceCount (> 0) instances from gl_VertexIndex / gl_InstanceIndex with no vertex
+        // buffer, e.g. the SSR tile grid (six vertices per tile, unmarked tiles collapsed, one instance).
         [[nodiscard]] Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings,
                                                             const GraphicsPipeline&  pipeline,
-                                                            const MaterialExecutor* material, uint32_t vertexCount );
+                                                            const MaterialExecutor* material, uint32_t vertexCount,
+                                                            uint32_t instanceCount );
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).

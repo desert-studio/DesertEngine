@@ -75,7 +75,8 @@ namespace Desert::Graphic::API::Vulkan
                                                uint32_t groupCountX, uint32_t groupCountY,
                                                uint32_t groupCountZ ) override;
         Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
-                                              const MaterialExecutor* material, uint32_t vertexCount ) override;
+                                              const MaterialExecutor* material, uint32_t vertexCount,
+                                              uint32_t instanceCount ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;

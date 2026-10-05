@@ -211,7 +211,7 @@ namespace Desert::Graphic::System
                  .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
                            RDG::SamplerDesc::PointClamp() );
             return Renderer::GetInstance().DrawProcedural( bindings, *m_ResolvePipeline,
-                                                           m_ResolveMaterial->GetMaterialExecutor(), TileVertices() );
+                                                           m_ResolveMaterial->GetMaterialExecutor(), TileVertices(), 1u );
         }
 
         // Pass 3, inside the render pass the graph opens on the scene target with LOAD: roughness-scaled blur
@@ -227,7 +227,7 @@ namespace Desert::Graphic::System
             bindings.Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
                               RDG::SamplerDesc::PointClamp() );
             const Common::BoolResultStr drawn = Renderer::GetInstance().DrawProcedural(
-                 bindings, *m_CompositePipeline, m_CompositeMaterial->GetMaterialExecutor(), TileVertices() );
+                 bindings, *m_CompositePipeline, m_CompositeMaterial->GetMaterialExecutor(), TileVertices(), 1u );
             if ( !drawn.IsSuccess() )
                 return drawn;
 

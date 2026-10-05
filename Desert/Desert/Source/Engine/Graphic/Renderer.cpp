@@ -186,16 +186,14 @@ namespace Desert::Graphic
     Common::BoolResultStr Renderer::DrawFullscreen( const RDG::PassBindings& bindings,
                                                     const GraphicsPipeline& pipeline, const MaterialExecutor* material )
     {
-        // The draw SubmitFullscreenTriangle records: one triangle covering the viewport, built by
-        // Common/FullscreenTriangle.glslh from gl_VertexIndex over three vertices.
-        return s_RendererAPI->DrawProcedural( bindings, pipeline, material, 3u );
+        return DrawProcedural( bindings, pipeline, material, kFullscreenTriangleVertexCount, 1u );
     }
 
     Common::BoolResultStr Renderer::DrawProcedural( const RDG::PassBindings& bindings,
                                                     const GraphicsPipeline& pipeline, const MaterialExecutor* material,
-                                                    uint32_t vertexCount )
+                                                    uint32_t vertexCount, uint32_t instanceCount )
     {
-        return s_RendererAPI->DrawProcedural( bindings, pipeline, material, vertexCount );
+        return s_RendererAPI->DrawProcedural( bindings, pipeline, material, vertexCount, instanceCount );
     }
 
     void Renderer::ComputeImageBeginWrite( Image* image )
