@@ -189,7 +189,7 @@ namespace Desert::Graphic::Render2D
         return exec;
     }
 
-    void Render2D::Flush( const RDG::PassContext* context, RDG::TextureRef backdrop, uint32_t backdropMaxLod )
+    void Render2D::Flush( const RDG::PassContext* context, RDG::TextureRef backdrop )
     {
         if ( !m_Pipeline || !m_TextPipeline || m_DrawList.Empty() )
             return;
@@ -244,6 +244,14 @@ namespace Desert::Graphic::Render2D
             GraphicsPipeline* pipeline;
             if ( cmd.Glass && m_GlassPipeline && context && backdrop.IsValid() )
             {
+                // The coarsest LOD the glass may sample is the pyramid's own last mip (UE: Texture->Desc.NumMips).
+                const Common::ResultStr<RDG::TextureDesc> backdropDesc = context->GetTextureDesc( backdrop );
+                if ( !backdropDesc.IsSuccess() )
+                {
+                    LOG_ERROR( "[Render2D] a glass panel was not drawn: {}", backdropDesc.GetError() );
+                    continue;
+                }
+                const uint32_t backdropMaxLod = backdropDesc.GetValue().Mips - 1;
 
                 // Per-element push block: projection, the rect in ITS OWN space, its corner radius, the
                 // blur LOD, 1/viewport (the shader maps gl_FragCoord into the snapshot with it) and the

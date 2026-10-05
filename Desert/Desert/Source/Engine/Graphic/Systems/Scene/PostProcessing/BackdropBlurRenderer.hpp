@@ -71,12 +71,6 @@ namespace Desert::Graphic::System
                                      .Mips   = std::min( kMaxMips, Utils::CalculateMipCount( bw, bh ) ) };
         }
 
-        // The coarsest LOD the glass may sample of a pyramid of @p desc.
-        static uint32_t MaxLod( const RDG::TextureDesc& desc )
-        {
-            return desc.Mips > 0 ? desc.Mips - 1 : 0;
-        }
-
         // Scene colour -> pyramid mip 0, then mip - 1 -> mip, bright-pass off (a plain blur pyramid).
         [[nodiscard]] Common::BoolResultStr RecordDownsample( const RDG::PassContext& context,
                                                               RDG::TextureRef sceneColor, RDG::TextureRef pyramid,
