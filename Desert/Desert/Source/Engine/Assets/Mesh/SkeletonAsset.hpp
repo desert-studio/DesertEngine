@@ -78,6 +78,19 @@ namespace Desert::Assets
         void SetPreviewMesh( Common::Content::AssetGuid mesh );
         void SetCompatibleSkeletons( std::vector<Common::Content::AssetGuid> skeletons );
 
+        /// Reference Pose authoring (Skeleton Editor, UE's Skeleton Tree bone transform): one bone's LocalBindTransform
+        /// on the loaded rig, in memory - Serialization::SaveSkeletonAsset writes it to the `.skeleton`. The structure
+        /// does not move, so GetSignature (the identity a mesh and a clip match on) stays. False when the rig is not
+        /// loaded or @p bone is out of range.
+        bool SetLocalBindTransform( uint32_t bone, const glm::mat4& localBind );
+
+        /// Moves on every write of the rest pose - an authoring edit or a (re)load from the file - so a reader that
+        /// decomposed it once (an Animator's bind pose) knows to read it again (Animator::RebindRestPose).
+        [[nodiscard]] uint64_t GetBindRevision() const
+        {
+            return m_BindRevision;
+        }
+
         static AssetTypeID GetTypeID()
         {
             return AssetTypeID::Skeleton;
@@ -88,6 +101,8 @@ namespace Desert::Assets
 
         // The payload's identity, kept across `Unload`. See GetSignature.
         uint64_t m_Signature = 0U;
+        // See GetBindRevision.
+        uint64_t m_BindRevision = 0U;
 
         // References, not payload: kept across `Unload` like the signature (the .skeleton states them).
         Common::Content::AssetGuid              m_PreviewMesh;

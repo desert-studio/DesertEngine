@@ -61,8 +61,8 @@ namespace Desert::Assets::Serialization
 
     Common::BoolResultStr SaveSkeletonAsset( const SkeletonAsset& skeleton )
     {
-        // THE FILE IS THE BASE, NOT THE ASSET: bones, GUID and signature are rewritten exactly as the file states
-        // them, so a save from the Skeleton Editor can never drop the import record or re-mint the identity.
+        // THE FILE IS THE BASE, NOT THE ASSET: bone structure, GUID and signature are rewritten exactly as the file
+        // states them, so a save from the Skeleton Editor can never drop the import record or re-mint the identity.
         const std::filesystem::path file = ContentRegistry::FileToOpen( skeleton.GetMetadata().Filepath );
         auto                        raw  = Common::Utils::FileSystem::ReadFileContent( file );
         if ( !raw )
@@ -74,6 +74,27 @@ namespace Desert::Assets::Serialization
                                                      read.GetError() );
 
         SkeletonAssetData data = read.ExtractValue();
+        // THE REFERENCE POSE IS AUTHORED (Skeleton Editor, UE's Skeleton Tree): every bone's LocalBindTransform
+        // comes from the rig in memory. Only the bind - the structure is the file's, so a file whose bones are
+        // not the loaded rig's (another rig written over it) is refused by name rather than half-merged. The
+        // OffsetMatrix stays the file's: it is the mesh's inverse bind the skin was cooked against, and the edit
+        // is what moves the skin away from it (GizmoController's rest-pose edit does the same in memory).
+        if ( const Animation::Skeleton* rig = skeleton.GetSkeleton() )
+        {
+            const auto& bones = rig->GetBones();
+            if ( bones.size() != data.Bones.size() )
+                return Common::MakeFormattedError<bool>(
+                     "skeleton '{}' was not saved: the file has {} bones, the rig in memory {}", file.string(),
+                     data.Bones.size(), bones.size() );
+            for ( size_t i = 0; i < bones.size(); ++i )
+            {
+                if ( bones[i].Name != data.Bones[i].Name )
+                    return Common::MakeFormattedError<bool>(
+                         "skeleton '{}' was not saved: bone {} is '{}' in the file and '{}' in memory", file.string(),
+                         i, data.Bones[i].Name, bones[i].Name );
+                data.Bones[i].LocalBindTransform = bones[i].LocalBindTransform;
+            }
+        }
         data.PreviewMesh.reset();
         if ( const auto preview = skeleton.GetPreviewMesh(); !preview.IsNull() )
             data.PreviewMesh = ContentRegistry::ReferenceTo( preview );
