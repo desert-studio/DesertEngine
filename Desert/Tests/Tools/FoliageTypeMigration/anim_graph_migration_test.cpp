@@ -32,7 +32,9 @@ TEST( AnimGraphMigration, AV2GraphGetsItsOutputPoseRightOfTheRightmostNodeLevelW
     G::AnimGraph graph = G::MakeStateMachineGraph( "Fox" );
     graph.Nodes[0].X   = 520.0f;
     graph.Nodes[0].Y   = 150.0f;
-    graph              = G::Deserialize( G::Serialize( graph ) ).GetValue(); // the header minted, as on disk
+    const auto minted  = G::Deserialize( G::Serialize( graph ) ); // the header minted, as on disk
+    ASSERT_TRUE( minted.IsSuccess() ) << minted.GetError();
+    graph = minted.GetValue();
     ASSERT_TRUE( graph.Header );
     const std::string v2 = AsV2( graph );
     ASSERT_EQ( v2.find( "OutputPoseX" ), std::string::npos );
