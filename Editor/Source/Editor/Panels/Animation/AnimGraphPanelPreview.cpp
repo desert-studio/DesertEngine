@@ -39,9 +39,9 @@ namespace Desert::Editor
             if ( goal.Bone.empty() )
                 return glm::mat4( 1.0F );
             const auto bone = animator.GetSkeleton().FindBoneIndex( goal.Bone );
-            if ( !bone.IsSuccess() )
+            if ( !bone )
                 return std::nullopt;
-            return animator.GetBoneModelMatrix( bone.GetValue() );
+            return animator.GetBoneModelMatrix( *bone );
         }
     } // namespace
 

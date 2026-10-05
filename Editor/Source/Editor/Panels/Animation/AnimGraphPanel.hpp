@@ -90,8 +90,8 @@ namespace Desert::Editor
         }
 
         AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
-                        const std::shared_ptr<::Desert::Core::Scene>& scene,
-                        Animation::AnimationLibrary* library, Assets::AssetManager* assetManager );
+                        const std::shared_ptr<::Desert::Core::Scene>& scene, Animation::AnimationLibrary* library,
+                        Assets::AssetManager* assetManager );
         ~AnimGraphPanel() override;
 
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -312,15 +312,16 @@ namespace Desert::Editor
         std::string m_SelectedPoseNode;
 
         // The preview world (AnimGraphPanelPreview.cpp): the subject's skinned mesh playing this graph live, and
-        // the translate gizmo on the selected skeletal-control node's goal. Rebuilt when the mesh or graph changes.
-        void DrawPreview( ECS::AnimationComponent& anim, float width, float height );
-        void DrawGoalGizmo( const glm::vec2& origin, const glm::vec2& size );
-        void DestroyPreview();
+        // the translate gizmo on the selected skeletal-control node's goal. Rebuilt when the mesh or graph
+        // changes.
+        void                             DrawPreview( ECS::AnimationComponent& anim, float width, float height );
+        void                             DrawGoalGizmo( const glm::vec2& origin, const glm::vec2& size );
+        void                             DestroyPreview();
         std::unique_ptr<PreviewViewport> m_Preview;
         std::unique_ptr<UI::UIHelper>    m_UIHelper;
-        uint64_t                         m_PreviewMesh  = 0;
-        uint64_t                         m_PreviewGraph = 0;
-        bool                             m_GizmoHovered = false;
+        uint64_t                         m_PreviewMesh       = 0;
+        uint64_t                         m_PreviewGraph      = 0;
+        bool                             m_GizmoHovered      = false;
         bool        m_PoseSelectPending = false; // a document action picked the node
         glm::vec2   m_PoseMenuAt{};              // where the context menu was opened
 

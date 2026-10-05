@@ -474,7 +474,7 @@ namespace Desert::Editor
         ECS::Entity                                     m_Target;
         Assets::Asset<Assets::AnimationAsset>           m_Clip; // the skinned preview's clip, null otherwise
         double                                          m_AnimationTime = 0.0;
-        bool m_SceneAnimates = false; // an AnimationECSSystem drives the target (SetSkinnedGraph)
+        bool m_SceneAnimates      = false; // an AnimationECSSystem drives the target (SetSkinnedGraph)
         bool m_HasAnimationSystem = false;
         bool m_PoseOverride = false; // the authoring pose replaces the clip's (SetPoseOverride)
         // The three entities the SceneSetup drives. Created once with the scene and then only written to

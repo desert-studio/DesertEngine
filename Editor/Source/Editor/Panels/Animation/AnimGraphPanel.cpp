@@ -100,8 +100,7 @@ namespace Desert::Editor
 
     AnimGraphPanel::AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
                                     const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                    Animation::AnimationLibrary*                  library,
-                                    Assets::AssetManager*                         assetManager )
+                                    Animation::AnimationLibrary* library, Assets::AssetManager* assetManager )
          : ISubjectDocument( displayName, subject ), m_Scene( scene ), m_Library( library ),
            m_AssetManager( assetManager )
     {
