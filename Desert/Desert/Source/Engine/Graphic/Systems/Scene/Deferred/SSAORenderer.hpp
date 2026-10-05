@@ -62,7 +62,7 @@ namespace Desert::Graphic::System
             // GBufferC(2) = world position, GBufferB(1) = normal.
             m_Material->BindInputs( gbuffer->GetColorAttachmentImage( 2 ), gbuffer->GetColorAttachmentImage( 1 ),
                                     viewProj, cameraPos, radius, bias, power, sampleCount );
-            renderer.SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
+            renderer.SubmitFullscreenTriangle( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
         }
 
         std::shared_ptr<Image2D> GetAOImage() const

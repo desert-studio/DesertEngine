@@ -3,7 +3,7 @@ Shader "CloudComposite"
 {
     Fragment
     {
-        // The cloud APPLY: a fullscreen quad in RenderPhase::Transparency at RenderPassOrder::FarField —
+        // The cloud APPLY: a fullscreen triangle in RenderPhase::Transparency at RenderPassOrder::FarField —
         // ABOVE the height fog (AtmosphericFog, -100 below this rung) and BELOW everything the phase
         // composites by default, so particles and translucency land over the clouds rather than under
         // them. FarField exists in RenderGraphSort.hpp for exactly this: "content at sky distance".
@@ -192,15 +192,14 @@ Shader "CloudComposite"
 
     Vertex
     {
-        #include <Common/QuadPositions.glslh>
-        #include <Common/QuadTextureCoords.glslh>
+        #include <Common/FullscreenTriangle.glslh>
 
         Out(0) vec2 v_TexCoord;
 
         void main()
         {
-            v_TexCoord  = QUAD_TEXTURE_COORDINATES[gl_VertexIndex];
-            gl_Position = vec4(QUAD_POSITIONS[gl_VertexIndex], 0.0, 1.0);
+            v_TexCoord  = FullscreenTriangleUV();
+            gl_Position = vec4(FullscreenTriangleNdc(), 0.0, 1.0);
         }
     }
 }

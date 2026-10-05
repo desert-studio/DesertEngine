@@ -123,7 +123,7 @@ TEST( ShaderGraphCompiler, PostProcessEmitsPostProcessDomainAndFullscreenTriangl
 
     // Post-process uses the fullscreen-triangle contract and samples the scene color, and has NO
     // mesh vertex contract and NO shadow/depth pass.
-    EXPECT_NE( src.find( "QUAD_POSITIONS" ), std::string::npos );
+    EXPECT_NE( src.find( "FullscreenTriangleNdc()" ), std::string::npos );
     EXPECT_NE( src.find( "u_SceneTexture" ), std::string::npos );
     EXPECT_EQ( src.find( "GraphVertex.glslh" ), std::string::npos );
     EXPECT_FALSE( HasPass( p.Meta.PassNames, "Depth" ) );

@@ -7,7 +7,7 @@
 // ball at the origin, the cube sampled by the ball's own surface direction, i.e. the environment
 // wrapped onto an object. Same asset, opposite presentation; UE's TextureCube editor sphere.
 //
-// The ball is ray-traced from a fullscreen quad rather than rasterized from sphere geometry: the
+// The ball is ray-traced from a fullscreen triangle rather than rasterized from sphere geometry: the
 // silhouette is exact at any zoom (no tessellation facets on the one shape whose whole job is to be
 // round), and the pass needs no vertex buffer at all — it is Grid.shader's trick with a sphere in
 // place of the y=0 plane. Depth is written so the pass composes correctly with the preview scene
@@ -101,6 +101,8 @@ Shader "CubemapSphere"
 
     Vertex
     {
+        #include <Common/FullscreenTriangle.glslh>
+
         Uniform(0) CubemapSphereUB
         {
             mat4 Projection;
@@ -123,12 +125,8 @@ Shader "CubemapSphere"
 
         void main()
         {
-            // Two triangles covering NDC. Drawn via Renderer::SubmitFullscreenQuad (vkCmdDraw(6)).
-            const vec2 verts[6] = vec2[6](
-                vec2( -1.0, -1.0 ), vec2( 1.0, -1.0 ), vec2( 1.0, 1.0 ),
-                vec2( 1.0, 1.0 ), vec2( -1.0, 1.0 ), vec2( -1.0, -1.0 ) );
-
-            vec2 ndc = verts[gl_VertexIndex];
+            // One triangle covering the viewport (Common/FullscreenTriangle.glslh), drawn as Draw(3).
+            vec2 ndc = FullscreenTriangleNdc();
 
             // Reversed-Z, zero-to-one clip depth: 1 is the near plane, 0 the far one
             // (Core/Projection.hpp).

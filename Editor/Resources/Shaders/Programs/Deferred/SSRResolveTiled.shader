@@ -7,7 +7,7 @@ Shader "SSRResolveTiled"
 
     Vertex
     {
-        #include <Common/QuadTextureCoords.glslh>
+        #include <Common/FullscreenTriangle.glslh>
         #include <Common/SSRTiles.glslh>
 
         Out(0) vec2 v_TexCoord;

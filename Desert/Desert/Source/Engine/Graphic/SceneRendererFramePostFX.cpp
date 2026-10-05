@@ -394,7 +394,7 @@ namespace Desert::Graphic
                      pass.Read( graphInputs.LightShafts, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
                  if ( graphInputs.LensFlare != graphInputs.Bloom && graphInputs.LensFlare != graphInputs.LightShafts )
                      pass.Read( graphInputs.LensFlare, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
-                 // A fullscreen quad writes every pixel: the old contents are not loaded.
+                 // A fullscreen triangle writes every pixel: the old contents are not loaded.
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
              [tonemap, graphInputs]( RDG::PassContext& context ) -> Common::BoolResultStr

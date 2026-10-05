@@ -1,6 +1,6 @@
 // #pragma once
 
-// THE WORLD-SPACE VIEW RAY for a full-screen quad, and the one place the engine reconstructs it.
+// THE WORLD-SPACE VIEW RAY for a full-screen triangle, and the one place the engine reconstructs it.
 //
 // WHY IT IS NOT `inverse( Projection * View ) * clip`, which is the spelling everyone reaches for first.
 // That product's inverse carries the camera's TRANSLATION. Feeding it a clip-space point with w = 1 and
@@ -23,7 +23,7 @@
 // and subtracting the camera position is algebraically correct and numerically not: two large world-space
 // points cancel to a small difference, and as the camera moved the surviving bits made its stars boil.
 //
-// @p clipPosition is the quad vertex's own gl_Position — NDC xy, and a z of 1.0, which under this
+// @p clipPosition is the fullscreen-triangle vertex's own gl_Position — NDC xy, and a z of 1.0, which under this
 // engine's reversed-Z convention is the NEAR plane. Any plane gives the same DIRECTION; the near one
 // keeps the unprojected point smallest, which is where a float has the most fraction left.
 //

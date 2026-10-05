@@ -33,7 +33,7 @@ namespace Desert::Graphic::System
      *                 closed-form fog integral of Common/HeightFog.glslh, samples the aerial-perspective
      *                 volume at that pixel's distance, and composes `Fog over AP`. Premultiplied
      *                 inscattering in .rgb, transmittance in .a.
-     *   S2  APPLY     a fullscreen quad registered in RenderPhase::Transparency at
+     *   S2  APPLY     a fullscreen triangle registered in RenderPhase::Transparency at
      *                 RenderPassOrder::AtmosphericFog — below everything else the phase composites, so
      *                 every particle lands OVER the fogged scene rather than under it.
      *

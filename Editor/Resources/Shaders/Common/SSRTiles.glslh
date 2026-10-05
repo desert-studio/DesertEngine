@@ -1,18 +1,22 @@
-// Vertex stage of the TILED SSR passes (trace, resolve, composite). Instead of one fullscreen quad, a pass
+// Vertex stage of the TILED SSR passes (trace, resolve, composite). Instead of one fullscreen triangle, a pass
 // draws a grid of tile quads (6 vertices each, from gl_VertexIndex) and collapses every tile whose
 // neighbourhood holds no pixel that can reflect (u_SSRTileMask, written by SSRTileClassify.shader) into a
 // zero-area triangle pair the rasterizer drops. The pattern is UE's: its SSR runs only where a roughness
 // prepass marked the screen, not over the whole frame.
 //
 // Coordinates are TEXTURE coordinates throughout (uv = texel / size), and the tile's clip position comes from
-// the same uv -> clip mapping as QuadPositions/QuadTextureCoords, so a pixel covered by a tile receives exactly
-// the v_TexCoord the fullscreen quad gave it.
+// the same uv -> clip mapping as the fullscreen triangle (ScreenUVToNdc), so a pixel covered by a tile receives
+// exactly the v_TexCoord the fullscreen triangle gives it.
 //
 // The grid is ceil(size / 8) per axis (SSRRenderer::kTileSize) and the tiles are stretched to cover the target
 // exactly, so a tile is between ~7.9 and 8 px wide. `dilate` also draws the tiles up to that many tiles away
 // from a marked one; each pass states why its reach needs the dilation it asks for.
 //
-// Requires QUAD_TEXTURE_COORDINATES (Common/QuadTextureCoords.glslh) included before this file.
+// Requires ScreenUVToNdc (Common/FullscreenTriangle.glslh) included before this file.
+
+// A tile's two triangles, as fractions of the tile (uv 0 = the tile's top-left corner).
+const vec2 SSR_TILE_CORNERS[6] = vec2[](vec2(0.0, 1.0), vec2(1.0, 1.0), vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(1.0, 0.0),
+                                        vec2(0.0, 0.0));
 
 Uniform(8) sampler2D u_SSRTileMask; // r = 1 where the tile holds a pixel that can reflect
 
@@ -34,8 +38,8 @@ vec4 SSRTileVertex(int dilate, out vec2 uv)
 	ivec2 grid  = textureSize(u_SSRTileMask, 0);
 	int   index = gl_VertexIndex / 6;
 	ivec2 tile  = ivec2(index % grid.x, index / grid.x);
-	uv          = (vec2(tile) + QUAD_TEXTURE_COORDINATES[gl_VertexIndex % 6]) / vec2(grid);
+	uv          = (vec2(tile) + SSR_TILE_CORNERS[gl_VertexIndex % 6]) / vec2(grid);
 	if (!SSRTileActive(tile, grid, dilate))
 		return vec4(0.0, 0.0, 0.0, 1.0); // all six vertices coincide: zero area, never rasterized
-	return vec4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
+	return vec4(ScreenUVToNdc(uv), 0.0, 1.0);
 }

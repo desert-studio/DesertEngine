@@ -104,7 +104,9 @@ Shader "Grid"
 
     Vertex
     {
-        // Infinite ground-plane grid. A fullscreen quad emits a world-space ray per pixel (near->far,
+        #include <Common/FullscreenTriangle.glslh>
+
+        // Infinite ground-plane grid. A fullscreen triangle emits a world-space ray per pixel (near->far,
         // reconstructed via the inverse view-projection); the fragment shader intersects it with the y=0 plane.
 
         Uniform(0) GridUB
@@ -130,12 +132,8 @@ Shader "Grid"
 
         void main()
         {
-            // Two triangles covering NDC. Drawn via Renderer::SubmitFullscreenQuad (vkCmdDraw(6)).
-            const vec2 verts[6] = vec2[6](
-                vec2( -1.0, -1.0 ), vec2( 1.0, -1.0 ), vec2( 1.0, 1.0 ),
-                vec2( 1.0, 1.0 ), vec2( -1.0, 1.0 ), vec2( -1.0, -1.0 ) );
-
-            vec2 ndc = verts[gl_VertexIndex];
+            // One triangle covering the viewport (Common/FullscreenTriangle.glslh), drawn as Draw(3).
+            vec2 ndc = FullscreenTriangleNdc();
 
             // Reversed-Z, zero-to-one clip depth: 1 is the near plane, 0 the far one
             // (Core/Projection.hpp). Read the other way round these two swap, the fragment shader's

@@ -72,7 +72,7 @@ namespace Desert::Graphic::System
             return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage() : nullptr;
         }
 
-        // Each records one fullscreen quad inside the render pass the frame graph opens on its target:
+        // Each records one fullscreen triangle inside the render pass the frame graph opens on its target:
         // Init on seed[0], Step on the seed GetStepSource does not name, Final on GetOutputImage().
         // Init: the silhouette @p mask -> seed[0].
         [[nodiscard]] Common::BoolResultStr RecordInit( const RDG::PassContext& context, RDG::TextureRef mask );

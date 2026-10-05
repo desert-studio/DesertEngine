@@ -451,7 +451,7 @@ namespace Desert::Editor
         // The cubemap domain's draw (see SetCubemapMaterial). Created on first use, source-cleared by
         // every other Set*/Clear so exactly one kind of content fills the pane at a time.
         std::unique_ptr<Render::EditorCubemapPreviewPass> m_CubemapPass;
-        // The authoring grid, installed on FIRST USE and never before. It is one blended fullscreen quad
+        // The authoring grid, installed on FIRST USE and never before. It is one blended fullscreen triangle
         // per frame and genuinely cheap to draw, but installing it builds a pipeline and a material — and
         // the row that switches it on is off by default, so most preview windows would be paying for a
         // pass they never show. SceneSettings::ShowGrid gates the draw once it exists.

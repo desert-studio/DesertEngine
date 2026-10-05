@@ -81,7 +81,7 @@ namespace Desert::Player
         double                               m_WorldStreamClock = 0.0; // seconds of play, for retries
 
         // The present path: the runtime opens the swapchain pass itself, blits the scene's final image with
-        // a fullscreen quad, then draws the UI + splash with the engine's own Render2D batcher. Lazily
+        // a fullscreen triangle, then draws the UI + splash with the engine's own Render2D batcher. Lazily
         // created on the first present (the swapchain framebuffer only exists after the first
         // BeginSwapChainRenderPass).
         std::unique_ptr<Graphic::Render2D::Render2D> m_Render2D;

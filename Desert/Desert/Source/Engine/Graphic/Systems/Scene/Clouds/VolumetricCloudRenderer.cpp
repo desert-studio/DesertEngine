@@ -819,7 +819,7 @@ namespace Desert::Graphic::System
         spec.Shader      = compositeShader;
         spec.Framebuffer = target;
 
-        // A fullscreen quad has no meaningful depth of its own; occlusion was resolved inside the march,
+        // A fullscreen triangle has no meaningful depth of its own; occlusion was resolved inside the march,
         // which cut every ray at the distance the depth attachment reported.
         spec.DepthTestEnabled  = false;
         spec.DepthWriteEnabled = false;
@@ -2173,8 +2173,8 @@ namespace Desert::Graphic::System
 
             m_CompositeMaterial->BindInputs( m_HistoryImage[m_ResolvedIndex].get(),
                                              m_HistoryGuideImage[m_ResolvedIndex].get() );
-            Renderer::GetInstance().SubmitFullscreenQuad( m_CompositePipeline.get(),
-                                                          m_CompositeMaterial->GetMaterialExecutor() );
+            Renderer::GetInstance().SubmitFullscreenTriangle( m_CompositePipeline.get(),
+                                                              m_CompositeMaterial->GetMaterialExecutor() );
         };
         config.PipelineSpec      = m_CompositePipeline->GetSpecification();
         config.TargetFramebuffer = target;

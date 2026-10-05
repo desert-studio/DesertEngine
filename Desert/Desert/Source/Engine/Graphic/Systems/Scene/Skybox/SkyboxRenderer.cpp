@@ -71,7 +71,7 @@ namespace Desert::Graphic::System
             return Common::MakeError( pipeline.GetError() );
         m_Pipeline = pipeline.GetValue();
 
-        // Procedural sky: same fullscreen-quad pass/target, but the engine-generated atmosphere shader.
+        // Procedural sky: same fullscreen-triangle pass/target, but the engine-generated atmosphere shader.
         m_ProceduralShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "ProceduralSky" );
         Common::ResultStr<std::shared_ptr<Graphic::GraphicsPipeline>> proceduralPipeline;
         if ( m_ProceduralShader )
@@ -929,8 +929,8 @@ namespace Desert::Graphic::System
             m_ProceduralMaterial->Update( m_ActiveCamera, m_SkyParams,
                                           m_SkyPassSamplesLuts ? m_TransmittanceLut.get() : nullptr,
                                           m_SkyPassSamplesLuts ? m_SkyViewLut.get() : nullptr );
-            renderer.SubmitFullscreenQuad( m_ProceduralPipeline.get(),
-                                           m_ProceduralMaterial->GetMaterialExecutor() );
+            renderer.SubmitFullscreenTriangle( m_ProceduralPipeline.get(),
+                                               m_ProceduralMaterial->GetMaterialExecutor() );
             return;
         }
 
@@ -938,7 +938,7 @@ namespace Desert::Graphic::System
         {
             if ( m_ActiveCamera )
                 material->BindInputs( { m_ActiveCamera, m_SkyboxLook } );
-            renderer.SubmitFullscreenQuad( m_Pipeline.get(), material->GetMaterialExecutor() );
+            renderer.SubmitFullscreenTriangle( m_Pipeline.get(), material->GetMaterialExecutor() );
         }
     }
 

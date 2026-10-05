@@ -93,9 +93,9 @@ namespace Desert::Graphic
                                  const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,
                                  uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0,
                                  uint32_t lodLevel = 0 ) = 0;
-        
-        virtual void SubmitFullscreenQuad( const GraphicsPipeline* pipeline,
-                                           const MaterialExecutor* materialExecutor )                  = 0;
+
+        virtual void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
+                                               const MaterialExecutor* materialExecutor ) = 0;
 
         // Indexed draw from caller-supplied vertex + index buffers. The 2D/UI batcher fills a dynamic
         // VB+IB each frame (one buffer, many quads) and issues one SubmitIndexed per state batch;
@@ -135,7 +135,7 @@ namespace Desert::Graphic
                                                                      uint32_t groupCountX, uint32_t groupCountY,
                                                                      uint32_t groupCountZ ) = 0;
         // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices whose vertex stage builds its geometry
-        // from gl_VertexIndex (the fullscreen quad is six; the SSR tile grid is six per tile).
+        // from gl_VertexIndex (the fullscreen triangle is three; the SSR tile grid is six per tile).
         [[nodiscard]] virtual Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings,
                                                                     const GraphicsPipeline&  pipeline,
                                                                     const MaterialExecutor*  material,

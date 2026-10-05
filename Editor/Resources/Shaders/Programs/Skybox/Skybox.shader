@@ -53,7 +53,7 @@ Shader "Skybox"
 
     Vertex
     {
-        #include <Common/QuadPositions.glslh>
+        #include <Common/FullscreenTriangle.glslh>
         #include <Common/CameraUB.glslh>
         #include <Common/ViewRay.glslh>
 
@@ -64,7 +64,7 @@ Shader "Skybox"
             // z = 1.0 is the NEAR plane under reversed-Z (Core/Projection.hpp). It is not a depth
             // decision here at all -- the Skybox pass runs with depth test AND depth write off
             // (SkyboxRenderer.cpp) -- it is the clip-space point WorldViewRay unprojects.
-            vec4 position = vec4(QUAD_POSITIONS[gl_VertexIndex], 1.0, 1.0);
+            vec4 position = vec4(FullscreenTriangleNdc(), 1.0, 1.0);
         	gl_Position = position;
 
             // WAS `inverse(Projection * View) * position`, read as .xyz with no perspective divide.

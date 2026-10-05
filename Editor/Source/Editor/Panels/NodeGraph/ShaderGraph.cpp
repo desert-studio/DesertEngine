@@ -1357,12 +1357,11 @@ namespace Desert::Editor::ShaderGraph
             out << "    State\n    {\n        Cull None\n        ZTest Always\n        ZWrite Off\n    }\n\n";
 
             out << "    Vertex\n    {\n";
-            out << "        #include <Common/QuadPositions.glslh>\n";
-            out << "        #include <Common/QuadTextureCoords.glslh>\n\n";
+            out << "        #include <Common/FullscreenTriangle.glslh>\n\n";
             out << "        layout( location = 0 ) out vec2 v_UV;\n\n";
             out << "        void main()\n        {\n";
-            out << "            v_UV        = QUAD_TEXTURE_COORDINATES[gl_VertexIndex];\n";
-            out << "            gl_Position = vec4( QUAD_POSITIONS[gl_VertexIndex], 0.0, 1.0 );\n";
+            out << "            v_UV        = FullscreenTriangleUV();\n";
+            out << "            gl_Position = vec4( FullscreenTriangleNdc(), 0.0, 1.0 );\n";
             out << "        }\n    }\n\n";
 
             out << "    Fragment\n    {\n";
