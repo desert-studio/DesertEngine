@@ -5,6 +5,7 @@
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 
+#include <algorithm>
 #include <format>
 #include <iterator>
 
@@ -19,8 +20,8 @@ namespace Desert::Graphic::System
         //   env cubes absent    -> the fallback cube (the split-sum ambient reads zero)
         //   BRDF LUT absent     -> Black (no specular ambient term)
         //   cloud shadow absent -> White (the sun is not occluded by clouds)
-        //   cascades past CascadeCount -> cascade 0's own map: same format and sampler, and the shader's
-        //                         cascade loop is bounded by CascadeCount, so it is never sampled.
+        // The cascades u_ShadowMap0..3 are not here: they are graph textures bound by name in RenderGlassManual
+        // (System.White past the valid count), and the snapshot the material receives carries no cascade map.
         void BindGlassFrameDefaults( Material& material, const PBRSceneFrame& frame )
         {
             const auto& emptyCube = FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
@@ -38,13 +39,6 @@ namespace Desert::Graphic::System
                 if ( auto* tex = material.Get<Texture2DProperty>( "u_CloudShadowMap" ) )
                     tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::White ).get(),
                                    RDG::Access::SampledGraphics );
-            Image2D* const firstCascade = frame.CascadeMaps[0];
-            if ( !firstCascade )
-                return; // no cascade at all this frame: REMAINDER-W4D (piece 3, cascades as graph refs)
-            for ( uint32_t i = 0; i < MaterialPBRBase::kMaxCascades; ++i )
-                if ( i >= frame.CascadeCount || !frame.CascadeMaps[i] )
-                    if ( auto* tex = material.Get<Texture2DProperty>( MaterialPBRBase::kShadowMapNames[i] ) )
-                        tex->SetImage( firstCascade, RDG::Access::SampledGraphics );
         }
 
         constexpr std::string_view kGenericMeshNameFormat = "GenericMesh_{}";
@@ -486,7 +480,8 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context,
-                                                           RDG::TextureRef         sceneCopy )
+                                                           RDG::TextureRef         sceneCopy,
+                                                           const GlassShadowMaps&  shadowMaps )
     {
         if ( !m_StaticGlassPipeline || !m_GlassMaterial || !m_GlassInstance || m_StaticQueue.empty() )
             return BOOLSUCCESS;
@@ -529,8 +524,11 @@ namespace Desert::Graphic::System
 
         // The whole scene contribution in one snapshot (see Graphic::PBRSceneFrame) — the glass pass
         // needs every part of it, including the env cube + BRDF bindings it epsilon-touches.
-        MaterialInstance*   gi         = m_GlassInstance.get();
-        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        // The cascade maps are taken out of it: they reach the glass ONLY as the node's graph reads below (one
+        // route per slot); the snapshot still writes ShadowUB (matrices, bias, cascade count).
+        MaterialInstance* gi         = m_GlassInstance.get();
+        PBRSceneFrame     frameState = CaptureFrameState( camera );
+        std::fill( std::begin( frameState.CascadeMaps ), std::end( frameState.CascadeMaps ), nullptr );
         frameState.ApplyTo( gi );
         BindGlassFrameDefaults( *m_GlassMaterial, frameState );
 
@@ -540,6 +538,10 @@ namespace Desert::Graphic::System
         RDG::PassBindings bindings( context );
         bindings.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                           RDG::SamplerDesc::LinearRepeat() );
+        // The cascades with the sampler the deferred composite reads the same maps with (DeferredLightingRenderer).
+        for ( uint32_t i = 0; i < MaterialPBRBase::kMaxCascades; ++i )
+            bindings.Sampled( MaterialPBRBase::kShadowMapNames[i], shadowMaps[i], RDG::Access::SampledGraphics,
+                              RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
 
         // --- Draw the glass over the composited scene: the graph opens the render pass (LOAD + blend) ---
         const MaterialExecutor& executor = *m_GlassMaterial->GetMaterialExecutor();

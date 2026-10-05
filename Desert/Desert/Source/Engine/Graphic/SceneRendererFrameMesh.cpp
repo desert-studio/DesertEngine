@@ -228,13 +228,31 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
         if ( !targets )
             return;
-        // The glass samples the scene copy for its refraction (bound by name in the body), and the shadow maps as
-        // every lit forward pass does.
-        std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Glass" );
-        sampled.push_back( sceneCopy );
-        AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, sceneCopy]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGlassManual( context, sceneCopy ); } );
+        // The glass samples the scene copy for its refraction and the cascades u_ShadowMap0..3, all bound by name
+        // in the body; the rest of the shadow reads (the cloud shadow map) as every lit forward pass does. A
+        // cascade not produced this frame (shadows off, fewer cascades) is the system texture neutral for it, as
+        // in the deferred composite, so every slot is filled by the graph route every frame.
+        const FrameGraphRefs                  refs     = textures.GraphRefs();
+        const uint32_t                        cascades = meshRenderer->GetValidCascadeCount();
+        System::MeshRenderer::GlassShadowMaps shadowMaps;
+        for ( uint32_t c = 0; c < shadowMaps.size(); ++c )
+        {
+            const std::shared_ptr<Image2D> map = c < cascades ? meshRenderer->GetCascadeShadowImage( c ) : nullptr;
+            const RDG::TextureRef          ref =
+                 map ? textures.Import( map, std::format( "CSM.Cascade{}", c ) ) : RDG::TextureRef{};
+            shadowMaps[c] = ref.IsValid() ? ref : refs.System.White;
+        }
+        std::vector<RDG::TextureRef> reads = ShadowSamples( *this, textures, "Deferred: Glass" );
+        reads.push_back( sceneCopy );
+        reads.insert( reads.end(), shadowMaps.begin(), shadowMaps.end() );
+        std::vector<RDG::TextureRef> sampled; // one declaration per texture (System.White can fill several slots)
+        for ( const RDG::TextureRef ref : reads )
+            if ( ref.IsValid() && std::find( sampled.begin(), sampled.end(), ref ) == sampled.end() )
+                sampled.push_back( ref );
+        AddRaster(
+             graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
+             [meshRenderer, sceneCopy, shadowMaps]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGlassManual( context, sceneCopy, shadowMaps ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS

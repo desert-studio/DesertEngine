@@ -2230,6 +2230,20 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
         EXPECT_EQ( body.find( "EndRenderPass(" ), std::string::npos ) << function;
         EXPECT_EQ( body.find( "TransitionLayout(" ), std::string::npos ) << function;
     }
+
+    // RDG-A2-W4: the glass cascades u_ShadowMap0..3 are the node's graph reads bound by name (System.White past
+    // the valid count, built in AddFrameGlass), and the material snapshot carries no cascade map - one route per
+    // slot.
+    std::string glass =
+         bodyOf( read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" ),
+                 "RenderGlassManual" );
+    std::erase_if( glass, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
+    EXPECT_NE( glass.find( "bindings.Sampled(MaterialPBRBase::kShadowMapNames[i],shadowMaps[i]," ),
+               std::string::npos );
+    EXPECT_NE(
+         glass.find( "std::fill(std::begin(frameState.CascadeMaps),std::end(frameState.CascadeMaps),nullptr)" ),
+         std::string::npos );
+    EXPECT_NE( collapsed.find( "shadowMaps[c]=ref.IsValid()?ref:refs.System.White;" ), std::string::npos );
 }
 
 // THE PARTICLE SIMULATION IS A COMPUTE NODE (RDG-LEG1-L3): SceneRendererFrameAtmosphere.cpp adds it through
