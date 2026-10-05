@@ -42,7 +42,8 @@ namespace
         return ( i * 2654435761u ) ^ 0xA5A5A5A5u;
     }
 
-    constexpr const char* kFillShader = R"DSL(Shader "EngineHostFill"
+    constexpr const char* kFillShader = R"DSL(// DesertAsset {"Kind":"Shader","Guid":"e46f0a5b1c2d4e3f8a9b0c1d2e3f4a5b","Versions":{"SHDR":1},"Dependencies":[]}
+Shader "EngineHostFill"
 {
     Compute
     {
