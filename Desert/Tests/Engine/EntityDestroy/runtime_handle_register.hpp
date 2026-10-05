@@ -57,7 +57,7 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 17> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 18> kEntityTables{ {
          { "Desert/Desert/Source/Engine/Core/SceneEntityIndex.hpp", "m_SlotOf", Release::Destroyer,
            "Desert/Desert/Source/Engine/Core/SceneEntityIndex.cpp", "index.Remove( doomedEntity )",
            "the scene's own entity index; the destroy path removes the row before registry.destroy" },
@@ -85,6 +85,11 @@ namespace Desert::Tests::RuntimeHandles
          { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "ListBindings", Release::OwnerRetired,
            "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "UIL1: per-list collection serial inside a canvas's context; goes when the canvas does" },
+         { "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp", "MaskOf", Release::OwnerRetired,
+           "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
+           "WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };",
+           "retainer -> mask element, rebuilt inside the stack-local walk context of one canvas draw; it dies "
+           "with the walk, so no entity outlives a frame in it" },
          { "Desert/Desert/Source/Engine/UI/UIAnimationPlayback.hpp", "Samples", Release::Sweep,
            "Desert/Desert/Source/Engine/UI/UIAnimationPlayback.cpp", "frame.Samples.clear()",
            "one frame's clip results; PlayUIAnimations clears them before it refills, every view frame" },

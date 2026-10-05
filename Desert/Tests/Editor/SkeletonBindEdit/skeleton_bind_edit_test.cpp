@@ -3,6 +3,8 @@
 // "Save*" compares against and "Don't Save" puts back.
 #include <gtest/gtest.h>
 
+#include <format>
+
 #include <Editor/Core/Commands/SkeletonBindEdit.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
@@ -245,7 +247,7 @@ TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheRetargetsOfItsSkeleton )
         data.TargetRetargetPose.BoneOffsets = { { "Child", glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } };
         data.Chains                         = { { "Arm", "Root", "Child", "Root", "Child", false } };
         data.BoneRenames                    = { { "Hand", "Child" } };
-        const auto path                     = dir / ( std::string( name ) + ".retarget" );
+        const auto path                     = dir / std::format( "{}.retarget", name );
         EXPECT_TRUE( Assets::Serialization::SaveRetargetFile( path, data ).IsSuccess() );
         return path;
     };

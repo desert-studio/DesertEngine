@@ -21,6 +21,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <format>
 
 namespace Desert::Graphic::Render2D
 {
@@ -114,7 +115,7 @@ namespace Desert::Graphic::Render2D
         retainerSpec.Shader                        = m_RetainerShader;
         const auto retainerPipeline                = GraphicsPipeline::Create( retainerSpec );
         if ( !retainerPipeline )
-            return Common::MakeError( "Render2D::Init: " + retainerPipeline.GetError() );
+            return Common::MakeError( std::format( "Render2D::Init: {}", retainerPipeline.GetError() ) );
         m_RetainerPipeline = retainerPipeline.GetValue();
 
         if ( !m_WhiteTexture )

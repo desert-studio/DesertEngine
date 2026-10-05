@@ -916,8 +916,10 @@ namespace Desert::Player
         // And while a startup movie covers the screen: the level begins when the player can first see it.
         const bool streamingWaits = m_WorldStreamer && m_WorldStreamer->BlocksPlay();
         m_UIFrameDtSeconds        = ts.GetSeconds();
-        const bool timeHeld       = m_Content.Loading() || streamingWaits || StartupMoviesPlaying();
-        if ( const auto frame = m_Scene->OnUpdate( timeHeld ? Common::Timestep( 0.0f ) : ts ); !frame )
+        const bool moviePlaying   = StartupMoviesPlaying();
+        if ( const auto frame = m_Scene->OnUpdate(
+                  m_Content.Loading() || streamingWaits || moviePlaying ? Common::Timestep( 0.0f ) : ts );
+             !frame )
             return Common::MakeError( frame.GetError() );
 
         return BOOLSUCCESS;
