@@ -2723,7 +2723,9 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
          R"(|SubmitVertices\s*\(|RenderMesh\(\s*const GraphicsPipeline\s*\*)"
          // MESH-PB1 M2e: the out-of-graph fullscreen blit (the runtime present is a graph node) and the
          // material-side cloud-map binder (u_CloudShadowMap is a pass parameter).
-         R"(|SubmitFullscreenTriangle\s*\(|CloudShadowBind\s*\()" );
+         R"(|SubmitFullscreenTriangle\s*\(|CloudShadowBind\s*\()"
+         // MESH-PB1 M2d: the editor's ImGui draw is a graph node; the out-of-graph swapchain pass is gone.
+         R"(|BeginSwapChainRenderPass)" );
     std::vector<std::string> found;
     size_t                   scanned = 0;
     for ( const char* tree : { "Desert/Desert/Source", "Editor/Source" } )
@@ -2964,4 +2966,41 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
          SqueezedSource( root, "Editor/Source/Editor/Panels/UI/UIEditorPanel.cpp" ).find( "BeginRenderPass(" ),
          std::string::npos )
          << "the UI editor preview draws outside the graph";
+}
+
+// THE EDITOR'S INTERFACE IS A GRAPH NODE (MESH-PB1 M2d). VulkanImGui::End imports the back buffer, records the
+// main viewport's draw data in one Raster node on that pass's own command buffer
+// (VulkanRdgBackend::CommandBufferOf), extracts the image as Present and executes the graph through the renderer.
+// The ImGui backend's pipeline is built against the graph's canonical render pass (CreateRdgRenderPass), not
+// against a swapchain render pass, and nothing in the file opens or closes a render pass of its own. The swapchain
+// keeps no render pass or framebuffers.
+TEST( RenderGraphCompile, EditorInterfaceIsAGraphNode )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string imgui = SqueezedSource( root, "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp" );
+    EXPECT_NE( imgui.find( "renderer.ImportBackBuffer(backBuffer)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "graph.AddPass(\"EditorImGui\",Graphic::RDG::PassFlags::Raster" ), std::string::npos );
+    EXPECT_NE( imgui.find( "pass.ColorTarget(0,target," ), std::string::npos );
+    EXPECT_NE( imgui.find( "VulkanRdgBackend::CommandBufferOf(context)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "ImGui_ImplVulkan_RenderDrawData(drawData,commandBuffer.GetValue())" ),
+               std::string::npos )
+         << "the draw data is recorded on the node's command buffer";
+    EXPECT_NE( imgui.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "renderer.ExecuteGraph(graph)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "ImGui_ImplVulkan_Init(&init_info,m_ImguiRenderPass)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "CreateRdgRenderPass(" ), std::string::npos );
+    for ( const char* gone :
+          { "GetCurrentCommandBuffer", "BeginRenderPass(", "EndRenderPass(", "GetRenderPass(" } )
+        EXPECT_EQ( imgui.find( gone ), std::string::npos )
+             << "VulkanImGuiLayer.cpp draws outside the graph: " << gone;
+
+    for ( const char* file : { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp",
+                               "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp" } )
+    {
+        const std::string swapChain = SqueezedSource( root, file );
+        for ( const char* gone : { "m_VkRenderPass", "m_SwapChainFramebuffers", "vkCreateRenderPass(" } )
+            EXPECT_EQ( swapChain.find( gone ), std::string::npos )
+                 << file << ": the swapchain owns a render pass again: " << gone;
+    }
 }

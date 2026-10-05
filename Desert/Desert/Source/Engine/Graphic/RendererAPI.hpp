@@ -56,7 +56,6 @@ namespace Desert::Graphic
         // exercised, is how a guard ends up on the wrong one — removed rather than kept "just in case".
         virtual Common::BoolResultStr PresentFinalImage()                                              = 0;
         virtual Common::BoolResultStr BeginRenderPass( const RenderPass* renderPass, bool clearFrame ) = 0;
-        virtual Common::BoolResultStr BeginSwapChainRenderPass()                                       = 0;
         virtual Common::BoolResultStr EndRenderPass()                                                  = 0;
 
         // Named command-buffer region for graphics debuggers (RenderDoc shows these as a pass

@@ -140,8 +140,9 @@ namespace
     // fresh command buffer). The gates in those two therefore cover all of them, and
     // OnlyGatedFunctionsCanArmTheCommandBuffer below asserts the "only" rather than trusting this paragraph.
     //
-    // VulkanImGui::End and VulkanSwapChain::RecordFrameCapture record into the renderer's current command
-    // buffer (GetCurrentCommandBuffer) from outside that file and are gated rows of their own.
+    // VulkanImGui::End (the interface graph node) and VulkanSwapChain::RecordFrameCapture (through
+    // GetCurrentCommandBuffer) record into the frame's command buffer from outside that file and are gated rows
+    // of their own.
     // `queue->GetDrawCommandBuffer()` is read only by BeginFrame. Any future second route to a command buffer
     // belongs here too — grep GetDrawCommandBuffer and GetCurrentCommandBuffer before believing there are none.
     constexpr GatedEntryPoint k_Gated[] = {
@@ -161,8 +162,8 @@ namespace
            "VulkanSwapChain::RecordFrameCapture", "a staging allocation and an image copy" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp", "VulkanRendererAPI::BeginFrame",
            "vkBeginCommandBuffer -- and every vkCmd* after it" },
-         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp",
-           "VulkanRendererAPI::ExecuteGraph", "vkEndCommandBuffer, the graph's segments and a re-armed buffer" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp", "VulkanRendererAPI::ExecuteGraph",
+           "vkEndCommandBuffer, the graph's segments and a re-armed buffer" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp", "VulkanRendererAPI::EndFrame",
            "vkEndCommandBuffer" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp",
@@ -182,7 +183,7 @@ namespace
          // Records the interface into the renderer's current command buffer from outside
          // VulkanRenderer.cpp, so the gates in BeginFrame and ExecuteGraph do not cover it.
          { "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp", "VulkanImGui::End",
-           "a swapchain render pass and the whole interface's draw data" },
+           "the interface graph node and the whole interface's draw data" },
     };
 
     struct DroppedResult

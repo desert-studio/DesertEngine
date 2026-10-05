@@ -29,5 +29,9 @@ namespace Desert::Graphic::API::Vulkan
 
     private:
         VkDescriptorPool m_ImguiPool = VK_NULL_HANDLE;
+        // The canonical render-graph render pass of the back buffer's format (CreateRdgRenderPass): the ImGui
+        // backend builds its pipeline against it, so the pipeline draws inside the graph node of End(), whose
+        // render pass the graph backend builds for the same format. Owned here for the backend's lifetime.
+        VkRenderPass m_ImguiRenderPass = VK_NULL_HANDLE;
     };
 } // namespace Desert::Graphic::API::Vulkan

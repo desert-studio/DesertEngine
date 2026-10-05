@@ -288,42 +288,6 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr VulkanRendererAPI::BeginSwapChainRenderPass()
-    {
-        if ( !IsRecording() )
-            return Common::MakeError( "No active command buffer" );
-
-        auto window            = m_Window.lock();
-        auto vulkanSwap        = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
-        auto framebuffer       = vulkanSwap->GetCompositeFramebuffer();
-        m_CompositeFramebuffer = framebuffer;
-
-        uint32_t imageIndex = vulkanSwap->GetCurrentBufferIndex();
-
-        VkRenderPassBeginInfo renderPassInfo = {
-             .sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-             .renderPass  = vulkanSwap->GetRenderPass(),
-             .framebuffer = vulkanSwap->GetVKFramebuffers()[imageIndex],
-             .renderArea  = {
-                   .offset = { 0, 0 },
-                   .extent = { framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() } } };
-
-        VkClearValue clearValue        = { .color = { { 0.1f, 0.1f, 0.1f, 1.0f } } };
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues    = &clearValue;
-
-        // Must open a region too: EndRenderPass closes one unconditionally, so skipping it here would
-        // leave the labels unbalanced.
-        VKUtils::BeginDebugLabel( m_CurrentCommandBuffer, "SwapChainPass" );
-
-        m_OpenRenderPass = CompatibleRenderPassKeyOf( framebuffer->GetSpecification(),
-                                                      static_cast<uint32_t>( vulkanSwap->GetMSAASamples() ) );
-        vkCmdBeginRenderPass( m_CurrentCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
-        SetViewportAndScissor( framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() );
-
-        return BOOLSUCCESS;
-    }
-
     Common::BoolResultStr VulkanRendererAPI::EndRenderPass()
     {
         if ( IsRecording() )
@@ -350,7 +314,7 @@ namespace Desert::Graphic::API::Vulkan
                                   0, nullptr,
                                   0, nullptr );
 
-            // Closes the region opened by BeginRenderPass / BeginSwapChainRenderPass. Both open exactly
+            // Closes the region opened by BeginRenderPass. It opens exactly
             // one, so this stays balanced — an unmatched Begin corrupts the capture's tree.
             VKUtils::EndDebugLabel( m_CurrentCommandBuffer );
         }
@@ -1226,7 +1190,12 @@ namespace Desert::Graphic::API::Vulkan
     }
     std::shared_ptr<Framebuffer> VulkanRendererAPI::GetCompositeFramebuffer() const
     {
-        return m_CompositeFramebuffer.lock();
+        // The window swapchain's composite wrapper: the format every pipeline drawing into the back buffer is
+        // built against. Asked of the swapchain itself, so it exists from the first frame on.
+        const auto window = m_Window.lock();
+        if ( !window )
+            return nullptr;
+        return SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetCompositeFramebuffer();
     }
     void VulkanRendererAPI::SetViewportAndScissor( const uint32_t width, const uint32_t height )
     {
