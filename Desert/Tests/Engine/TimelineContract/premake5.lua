@@ -46,12 +46,16 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TrackEditing.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
+        -- the Sequencer's Outliner column (timeline_outliner_column_test.cpp): its width and a row's fitted name
+        "timeline_outliner_column_test.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/OutlinerColumn.cpp",
     }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- OutlinerColumn.hpp: pure, no ImGui
     }
 
     externalincludedirs {

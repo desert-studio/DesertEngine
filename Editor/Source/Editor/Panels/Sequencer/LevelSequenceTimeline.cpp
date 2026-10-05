@@ -9,6 +9,7 @@
 
 #include "SequencerPanel.hpp"
 #include "LevelMaterialProperties.hpp"
+#include "OutlinerColumn.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/CommandHistory.hpp>
@@ -517,7 +518,11 @@ namespace Desert::Editor
         DrawLevelTransport( sequence );
 
         // ── THE RULER: the display-frame grid, scrubbed by a click or a drag on it ──────────────────
-        constexpr float gutter              = 320.0f;
+        // The Outliner left of the lanes: the names column (its width the panel's, dragged by the splitter)
+        // and the controls column after it.
+        const float panelWidth                = ImGui::GetContentRegionAvail().x;
+        m_LevelNameWidth                      = Sequencer::ClampNameColumnWidth( m_LevelNameWidth, panelWidth );
+        const float                    gutter = m_LevelNameWidth + Sequencer::OutlinerColumn::kControlsWidth;
         const float     contentX0           = ImGui::GetCursorScreenPos().x;
         const float     laneX0              = contentX0 + gutter;
         const float     laneW               = std::max( 40.0f, ImGui::GetContentRegionAvail().x - gutter - 10.0f );
@@ -558,10 +563,9 @@ namespace Desert::Editor
             const auto  entity = BoundEntity( *scene, binding );
             const float rowY   = ImGui::GetCursorScreenPos().y;
             ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY ) );
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted( entity ? binding.Label.c_str()
-                                           : std::format( "{} (not in this scene)", binding.Label ).c_str() );
-            ImGui::SameLine( 160.0f );
+            DrawLevelRowLabel( entity ? binding.Label : std::format( "{} (not in this scene)", binding.Label ),
+                               contentX0, contentX0 );
+            SameLineAtLevelControls( contentX0 );
             if ( ImGui::SmallButton( ICON_MDI_KEY " Transform" ) )
                 KeyLevelTransform( binding.Guid );
             if ( entity && entity->HasComponent<ECS::CameraComponent>() )
@@ -656,9 +660,8 @@ namespace Desert::Editor
             {
                 const float visY = ImGui::GetCursorScreenPos().y;
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, visY ) );
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted( ICON_MDI_EYE " Visibility" );
-                ImGui::SameLine( 160.0f );
+                DrawLevelRowLabel( ICON_MDI_EYE " Visibility", contentX0, contentX0 + 16.0f );
+                SameLineAtLevelControls( contentX0 );
                 bool visible = *shown;
                 if ( ImGui::Checkbox( "##LevelVisible", &visible ) )
                     KeyLevelVisibility( binding.Guid, visible );
@@ -714,12 +717,11 @@ namespace Desert::Editor
                 ImGui::PushID( property.c_str() );
                 const float matY = ImGui::GetCursorScreenPos().y;
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, matY ) );
-                ImGui::AlignTextToFramePadding();
                 // UE: the material track's slot, then the parameter — "Slot 0 (MP_Default) ▸ Blend".
-                ImGui::TextUnformatted( std::format( ICON_MDI_PALETTE " {} ▸ {}", slotLabel,
-                                                     schema != nullptr ? schema->Label : parameter.Name )
-                                             .c_str() );
-                ImGui::SameLine( 160.0f );
+                DrawLevelRowLabel( std::format( ICON_MDI_PALETTE " {} ▸ {}", slotLabel,
+                                                schema != nullptr ? schema->Label : parameter.Name ),
+                                   contentX0, contentX0 + 16.0f );
+                SameLineAtLevelControls( contentX0 );
                 ImGui::SetNextItemWidth( std::max( 60.0f, laneX0 - ImGui::GetCursorScreenPos().x - 8.0f ) );
                 const std::string draftId = std::format( "{}/{}", binding.Locator, property );
                 glm::vec4         shown   = *value;
@@ -768,8 +770,8 @@ namespace Desert::Editor
             if ( track.Property != ECS::kLevelSequenceCameraCutProperty )
                 continue;
             const float rowY = ImGui::GetCursorScreenPos().y;
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted( ICON_MDI_VIDEO " Camera Cuts" );
+            ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY ) );
+            DrawLevelRowLabel( ICON_MDI_VIDEO " Camera Cuts", contentX0, contentX0 );
             for ( const auto& section : track.Sections )
             {
                 const auto* cut = std::get_if<LevelTL::CameraCutSectionContent>( &section.Content );
@@ -789,6 +791,8 @@ namespace Desert::Editor
         if ( ECS::HasEventTrack( sequence, ECS::LevelSequenceMasterBinding() ) )
             DrawLevelEventRow( sequence, ECS::LevelSequenceMasterBinding(), ICON_MDI_FLAG " Sequence Events",
                                contentX0, laneX0, laneW );
+
+        DrawLevelNameSplitter( contentX0, lanesTop, ImGui::GetCursorScreenPos().y, panelWidth );
 
         // The marquee closes on any release; a key drag closes in the lane that holds it.
         if ( m_LevelMarquee )
@@ -1087,6 +1091,47 @@ namespace Desert::Editor
         m_LevelSelEvent.reset();
     }
 
+    void SequencerPanel::DrawLevelRowLabel( const std::string_view label, const float contentX0, const float x )
+    {
+        ImGui::SetCursorScreenPos( ImVec2( x, ImGui::GetCursorScreenPos().y ) );
+        ImGui::AlignTextToFramePadding();
+        const float maxWidth = contentX0 + m_LevelNameWidth - Sequencer::OutlinerColumn::kLabelPadding - x;
+        const auto  fitted =
+             Sequencer::FitLabel( label, maxWidth, []( const std::string_view text )
+                                  { return ImGui::CalcTextSize( text.data(), text.data() + text.size() ).x; } );
+        ImGui::TextUnformatted( fitted.Text.c_str() );
+        if ( fitted.Truncated && ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "%.*s", static_cast<int>( label.size() ), label.data() );
+    }
+
+    void SequencerPanel::SameLineAtLevelControls( const float contentX0 ) const
+    {
+        ImGui::SameLine();
+        ImGui::SetCursorScreenPos( ImVec2( contentX0 + m_LevelNameWidth, ImGui::GetCursorScreenPos().y ) );
+    }
+
+    void SequencerPanel::DrawLevelNameSplitter( const float contentX0, const float yTop, const float yBottom,
+                                                const float panelWidth )
+    {
+        if ( yBottom <= yTop )
+            return;
+        const ImVec2 resume = ImGui::GetCursorScreenPos();
+        const float  edgeX  = contentX0 + m_LevelNameWidth;
+        const float  grip   = Sequencer::OutlinerColumn::kLabelPadding;
+        ImGui::SetCursorScreenPos( ImVec2( edgeX - grip, yTop ) );
+        ImGui::InvisibleButton( "##LevelNameSplitter", ImVec2( grip, yBottom - yTop ) );
+        const bool held = ImGui::IsItemActive();
+        if ( held )
+            m_LevelNameWidth =
+                 Sequencer::ClampNameColumnWidth( m_LevelNameWidth + ImGui::GetIO().MouseDelta.x, panelWidth );
+        if ( held || ImGui::IsItemHovered() )
+            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
+        ImGui::GetWindowDrawList()->AddLine( ImVec2( edgeX - 1.0f, yTop ), ImVec2( edgeX - 1.0f, yBottom ),
+                                             held || ImGui::IsItemHovered() ? IM_COL32( 120, 160, 230, 255 )
+                                                                            : IM_COL32( 70, 70, 76, 255 ) );
+        ImGui::SetCursorScreenPos( resume );
+    }
+
     void SequencerPanel::DrawLevelEventRow( LevelTL::Sequence& sequence, const LevelTL::BindingGuid& binding,
                                             const char* label, const float contentX0, const float laneX0,
                                             const float laneW )
@@ -1100,9 +1145,8 @@ namespace Desert::Editor
         ImGui::PushID( "##LevelEvents" );
 
         ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, rowY ) );
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted( label );
-        ImGui::SameLine( 160.0f );
+        DrawLevelRowLabel( label, contentX0, contentX0 + 16.0f );
+        SameLineAtLevelControls( contentX0 );
         if ( ImGui::SmallButton( ICON_MDI_PLUS " Key" ) )
             AddLevelEventKey( binding );
 
