@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <mutex>
 #include <optional>
 
 namespace Common::Settings
@@ -204,6 +203,8 @@ namespace Common::Settings
              rfl::enum_to_string( Get().CloudQualityTier ),
              migrated ? " — migrated from the retired AA/MSAASamples pair; the next save drops `AA`" : "" );
 
+        ReportAppliedAntiAliasing( Get() );
+
         // The migration is written back NOW, not at the user's next change (contract §4: no legacy key
         // left in the file).
         if ( migrated )
@@ -236,24 +237,21 @@ namespace Common::Settings
 
     namespace
     {
-        // The last resolution ResolveAA saw for a path that cannot multisample. Only that path can
-        // downgrade, so it is the only one remembered: a forward resolution in between (a forward preview
-        // next to a deferred viewport) neither repeats nor suppresses the line.
-        struct AADowngradeLog
-        {
-            std::mutex                            Mutex;
-            std::optional<AntiAliasingResolution> LastWithoutMSAA;
-            std::size_t                           LinesWritten = 0;
-        };
-
-        AADowngradeLog& DowngradeLog()
-        {
-            static AADowngradeLog log;
-            return log;
-        }
-
         constexpr std::string_view kMSAAOnlyForward =
              "MSAA applies to forward scenes only: deferred lighting shades one sample per pixel";
+
+        // What an APPLIED anti-aliasing choice means on the path that cannot multisample. Called only where
+        // the choice is applied (Load, CommitAntiAliasing), so each application says it once and the
+        // per-frame readers say nothing.
+        void ReportAppliedAntiAliasing( const MachineSettings& applied )
+        {
+            const AntiAliasingResolution deferred = applied.ResolveAA( false );
+            if ( !deferred.Effective.MSAAUnavailableOnPath )
+                return;
+            LOG_INFO( "[Anti-Aliasing] MSAA {}x applies to forward scenes; deferred scenes run {}: {}",
+                      deferred.RequestedSamples, rfl::enum_to_string( deferred.Effective.Method ),
+                      deferred.Reason );
+        }
     } // namespace
 
     AntiAliasingResolution MachineSettings::ResolveAA( const bool pathSupportsMSAA ) const
@@ -263,29 +261,17 @@ namespace Common::Settings
         resolved.RequestedSamples = AAMethod == AntiAliasingMethod::MSAA ? MSAASamples : 1;
         resolved.Effective        = EffectiveAA( pathSupportsMSAA );
         resolved.Reason = resolved.Effective.MSAAUnavailableOnPath ? kMSAAOnlyForward : std::string_view{};
-        if ( pathSupportsMSAA )
-            return resolved;
-
-        AADowngradeLog&                   log = DowngradeLog();
-        const std::lock_guard<std::mutex> lock( log.Mutex );
-        const bool                        changed = log.LastWithoutMSAA != resolved;
-        log.LastWithoutMSAA                       = resolved;
-        if ( changed && resolved.Effective.MSAAUnavailableOnPath )
-        {
-            ++log.LinesWritten;
-            LOG_INFO( "[Anti-Aliasing] requested MSAA {}x; effective {} ({} sample) on the deferred path: {}. The "
-                      "machine's choice is kept for forward scenes.",
-                      resolved.RequestedSamples, rfl::enum_to_string( resolved.Effective.Method ),
-                      resolved.Effective.Samples, resolved.Reason );
-        }
         return resolved;
     }
 
-    std::size_t MachineSettings::AADowngradeLinesWritten()
+    bool MachineSettings::CommitAntiAliasing( const AntiAliasingMethod method, const int msaaSamples )
     {
-        AADowngradeLog&                   log = DowngradeLog();
-        const std::lock_guard<std::mutex> lock( log.Mutex );
-        return log.LinesWritten;
+        MachineSettings& settings = Get();
+        settings.AAMethod         = method;
+        if ( msaaSamples > 1 )
+            settings.MSAASamples = msaaSamples;
+        ReportAppliedAntiAliasing( settings );
+        return Save();
     }
 
     bool MachineSettings::MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson )

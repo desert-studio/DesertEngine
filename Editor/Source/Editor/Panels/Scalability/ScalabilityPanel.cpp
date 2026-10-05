@@ -41,7 +41,8 @@ namespace Desert::Editor
             // MSAA ONLY WHERE IT WORKS (AA2, as UE): a deferred scene lists None / FXAA / SMAA, and a stored
             // MSAA choice shows as what the frame runs there (FXAA, MachineSettings::ResolveAA) with a line
             // "requested -> effective: reason". The stored choice is not rewritten by looking: it applies
-            // again in a forward scene.
+            // again in a forward scene. Both combos commit through MachineSettings::CommitAntiAliasing, the
+            // one place a change is applied and the downgrade is logged.
             auto&     quality = Common::Settings::MachineSettings::Get();
             const int maxMsaa = Graphic::RenderConfig::MaxMSAASamples.load();
 
@@ -57,8 +58,8 @@ namespace Desert::Editor
                  static_cast<int>( effective.MSAAUnavailableOnPath ? effective.Method : quality.AAMethod );
             if ( ImGui::Combo( "Anti-Aliasing Method", &current, methods, offered ) )
             {
-                quality.AAMethod = static_cast<Common::Settings::AntiAliasingMethod>( current );
-                Common::Settings::MachineSettings::Save();
+                Common::Settings::MachineSettings::CommitAntiAliasing(
+                     static_cast<Common::Settings::AntiAliasingMethod>( current ), 0 );
             }
             Utils::ImGuiUtilities::Tooltip(
                  forwardScene ? "FXAA and SMAA filter the finished image; MSAA renders the scene "
@@ -86,8 +87,8 @@ namespace Desert::Editor
                     ImGui::TextDisabled( "This device has no multisampling (max %dx).", maxMsaa );
                 else if ( ImGui::Combo( "Samples", &selected, levels, count ) )
                 {
-                    quality.MSAASamples = values[selected];
-                    Common::Settings::MachineSettings::Save();
+                    Common::Settings::MachineSettings::CommitAntiAliasing(
+                         Common::Settings::AntiAliasingMethod::MSAA, values[selected] );
                 }
             }
         }

@@ -161,9 +161,13 @@
 
 #include <gtest/gtest.h>
 
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include <regex>
 #include <sstream>
@@ -1464,49 +1468,115 @@ TEST( ConfigOwnership, NoMultisampledSceneTargetOnTheDeferredPath )
     EXPECT_EQ( calls, 2u );
 }
 
-// AA-LOG: the downgrade is resolved once, in the settings layer, and every reader takes that value. With
-// MSAA 4x requested on the deferred path, a viewport and a preview resolving every frame write ONE line and
-// both run FXAA; switching the request to FXAA and back writes exactly one more.
-TEST( ConfigOwnership, TheMsaaDowngradeIsResolvedOnceAndLoggedOncePerChange )
+namespace
+{
+    // Captures everything the engine's logger emits while alive, through spdlog's default logger — the
+    // sink LOG_INFO writes to — and restores the previous logger afterwards, so no test after it is muted.
+    class AALogCapture
+    {
+    public:
+        AALogCapture() : m_Previous( spdlog::default_logger() )
+        {
+            auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>( m_Stream );
+            spdlog::set_default_logger( std::make_shared<spdlog::logger>( "capture", std::move( sink ) ) );
+            spdlog::set_level( spdlog::level::trace );
+        }
+        ~AALogCapture()
+        {
+            spdlog::set_default_logger( m_Previous );
+        }
+        AALogCapture( const AALogCapture& )            = delete;
+        AALogCapture& operator=( const AALogCapture& ) = delete;
+
+        // Lines naming the deferred-path fallback of an MSAA choice.
+        std::size_t DowngradeLines() const
+        {
+            const std::string text = m_Stream.str();
+            std::size_t       n    = 0;
+            for ( std::size_t at = text.find( "deferred scenes run FXAA" ); at != std::string::npos;
+                  at             = text.find( "deferred scenes run FXAA", at + 1 ) )
+                ++n;
+            return n;
+        }
+
+    private:
+        std::shared_ptr<spdlog::logger> m_Previous;
+        std::ostringstream              m_Stream;
+    };
+} // namespace
+
+// AA-LOG2: resolving is PURE — any number of readers, any number of frames, write nothing and agree — and
+// the downgrade is said where the choice is APPLIED: committing MSAA 4x writes one line, committing FXAA
+// none, committing MSAA 4x again one more. Counted through the engine's log sink, not a production counter.
+TEST( ConfigOwnership, ResolvingAntiAliasingIsPureAndCommittingMsaaLogsOnce )
 {
     using Common::Settings::AntiAliasingMethod;
     using Common::Settings::MachineSettings;
+
+    std::error_code             ec;
+    const std::filesystem::path store =
+         std::filesystem::temp_directory_path() / "desert_configownership_aa_machine.json";
+    std::filesystem::remove( store, ec );
+    MachineSettings::Load( store ); // absent file: the defaults (FXAA), nothing to report
+
     MachineSettings msaa4;
     msaa4.AAMethod    = AntiAliasingMethod::MSAA;
     msaa4.MSAASamples = 4;
-    const MachineSettings fxaa; // the default request
-
-    // The memory is process-wide: start from a resolution that is not a downgrade.
-    EXPECT_TRUE( fxaa.ResolveAA( false ).Reason.empty() );
-    const std::size_t before = MachineSettings::AADowngradeLinesWritten();
-
-    for ( int frame = 0; frame < 100; ++frame )
     {
-        const auto viewport = msaa4.ResolveAA( false );
-        const auto preview  = msaa4.ResolveAA( false );
-        EXPECT_EQ( viewport, preview );
-        EXPECT_EQ( viewport.RequestedMethod, AntiAliasingMethod::MSAA );
-        EXPECT_EQ( viewport.RequestedSamples, 4 );
-        EXPECT_EQ( viewport.Effective.Method, AntiAliasingMethod::FXAA );
-        EXPECT_EQ( viewport.Effective.Samples, 1 );
-        EXPECT_FALSE( viewport.Reason.empty() );
+        AALogCapture log;
+        for ( int frame = 0; frame < 100; ++frame )
+        {
+            const auto viewport = msaa4.ResolveAA( false );
+            const auto preview  = msaa4.ResolveAA( false );
+            EXPECT_EQ( viewport, preview );
+            EXPECT_EQ( viewport.RequestedMethod, AntiAliasingMethod::MSAA );
+            EXPECT_EQ( viewport.RequestedSamples, 4 );
+            EXPECT_EQ( viewport.Effective.Method, AntiAliasingMethod::FXAA );
+            EXPECT_EQ( viewport.Effective.Samples, 1 );
+            EXPECT_FALSE( viewport.Reason.empty() );
+
+            const auto forward = msaa4.ResolveAA( true );
+            EXPECT_EQ( forward.Effective.Method, AntiAliasingMethod::MSAA );
+            EXPECT_EQ( forward.Effective.Samples, 4 );
+            EXPECT_TRUE( forward.Reason.empty() );
+        }
+        EXPECT_EQ( log.DowngradeLines(), 0u ) << "a read wrote a line";
     }
-    EXPECT_EQ( MachineSettings::AADowngradeLinesWritten(), before + 1 );
 
-    // A forward reader in between runs MSAA, says nothing, and does not make the deferred line repeat.
-    const auto forward = msaa4.ResolveAA( true );
-    EXPECT_EQ( forward.Effective.Method, AntiAliasingMethod::MSAA );
-    EXPECT_EQ( forward.Effective.Samples, 4 );
-    EXPECT_TRUE( forward.Reason.empty() );
-    EXPECT_EQ( msaa4.ResolveAA( false ).Effective.Method, AntiAliasingMethod::FXAA );
-    EXPECT_EQ( MachineSettings::AADowngradeLinesWritten(), before + 1 );
+    {
+        AALogCapture log;
+        ASSERT_TRUE( MachineSettings::CommitAntiAliasing( AntiAliasingMethod::MSAA, 4 ) );
+        EXPECT_EQ( log.DowngradeLines(), 1u );
+        EXPECT_EQ( MachineSettings::Get().AAMethod, AntiAliasingMethod::MSAA );
+        EXPECT_EQ( MachineSettings::Get().MSAASamples, 4 );
+        for ( int frame = 0; frame < 100; ++frame )
+            EXPECT_EQ( MachineSettings::Get().ResolveAA( false ).Effective.Method, AntiAliasingMethod::FXAA );
+        EXPECT_EQ( log.DowngradeLines(), 1u );
 
-    // Request FXAA, then MSAA 4x again: one more line, however many readers.
-    EXPECT_TRUE( fxaa.ResolveAA( false ).Reason.empty() );
-    EXPECT_EQ( MachineSettings::AADowngradeLinesWritten(), before + 1 );
-    for ( int reader = 0; reader < 3; ++reader )
-        EXPECT_EQ( msaa4.ResolveAA( false ).Effective.Samples, 1 );
-    EXPECT_EQ( MachineSettings::AADowngradeLinesWritten(), before + 2 );
+        ASSERT_TRUE( MachineSettings::CommitAntiAliasing( AntiAliasingMethod::FXAA, 0 ) );
+        EXPECT_EQ( log.DowngradeLines(), 1u );
+        EXPECT_EQ( MachineSettings::Get().MSAASamples, 4 ) << "the count is kept for the next MSAA choice";
+
+        ASSERT_TRUE( MachineSettings::CommitAntiAliasing( AntiAliasingMethod::MSAA, 4 ) );
+        EXPECT_EQ( log.DowngradeLines(), 2u );
+    }
+
+    // Loading a store that holds MSAA applies it, and says so once.
+    {
+        AALogCapture log;
+        MachineSettings::Load( store );
+        EXPECT_EQ( MachineSettings::Get().AAMethod, AntiAliasingMethod::MSAA );
+        EXPECT_EQ( log.DowngradeLines(), 1u );
+    }
+    std::filesystem::remove( store, ec );
+    MachineSettings::Get() = MachineSettings{}; // the store is process-wide: leave the defaults behind
+
+    // The settings layer keeps no memory of what it said: no statics, no lock.
+    const std::string impl = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( RepoRoot() + "Desert/Common/Source/Common/Settings/MachineSettings.cpp" ) );
+    ASSERT_FALSE( impl.empty() );
+    EXPECT_EQ( impl.find( "std::mutex" ), std::string::npos );
+    EXPECT_EQ( impl.find( "AADowngrade" ), std::string::npos );
 
     // The renderer and the panel READ the resolution: neither interprets the pair nor words the downgrade.
     for ( const char* reader :

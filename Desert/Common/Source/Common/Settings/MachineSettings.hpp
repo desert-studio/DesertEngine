@@ -212,15 +212,17 @@ namespace Common::Settings
         EffectiveAntiAliasing EffectiveAA( bool pathSupportsMSAA ) const;
 
         // THE RESOLUTION EVERY READER TAKES (AA-LOG): the request, EffectiveAA for the path, and the reason
-        // for a downgrade. The downgrade line is written HERE, once per change of the resolved value on a
-        // path that cannot multisample — not per renderer, per scene or per frame: a viewport and a preview
-        // resolving the same request produce one line, and switching the request away and back produces
-        // one more. Thread-safe; the memory of the last line is process-wide, like the store itself.
+        // for a downgrade. A PURE function of (this, path): renderers, the panel and the palette call it as
+        // often as they like, and it neither logs nor remembers anything. The downgrade is REPORTED where the
+        // choice is applied — Load() and CommitAntiAliasing() — so it is said once per change by construction.
         AntiAliasingResolution ResolveAA( bool pathSupportsMSAA ) const;
 
-        // How many downgrade lines ResolveAA has written in this process. For the tests that pin the
-        // once-per-change rule; nothing else reads it.
-        static std::size_t AADowngradeLinesWritten();
+        // THE ONE PLACE A CHANGED ANTI-ALIASING CHOICE IS COMMITTED (AA-LOG2; UE's CVar sink). The Scalability
+        // panel and the palette both go through it. Stores `method` (and `msaaSamples`, when > 1) in Get(),
+        // reports what the choice means on the deferred path when it is MSAA — one line, here, because this is
+        // where the setting changed — and saves. Returns whether machine.json now holds the choice; the choice
+        // applies to this session either way.
+        static bool CommitAntiAliasing( AntiAliasingMethod method, int msaaSamples );
 
         // THE MIGRATION OF THE RETIRED SCHEMA, applied by Load() and by the re-read before every Save().
         // The old file stored two independent keys, `AA` (None/FXAA/SMAA post filter) and `MSAASamples`
