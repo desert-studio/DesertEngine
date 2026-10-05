@@ -272,17 +272,12 @@ namespace Desert::UI
         const entt::registry* Registry = nullptr;
 
         // --- This view's clock ------------------------------------------------------------------------
-        // Wall-clock seconds at this view's previous frame, and the delta from it. Per view because two
-        // views draw in the same frame: with one shared clock the second walk of every frame measured a
-        // delta of ~0 and its hover eases, tweens and screen transitions stood still. It is advanced ONCE
-        // per view frame (BeginUIFrame) and not once per canvas, or the same freeze reappears between the
-        // canvases of a single view.
-        // HasDrawn is a flag rather than a sentinel value in LastFrameTime, because the clock's epoch is the
-        // first UI frame of the process: a "not yet" spelled as a negative time is indistinguishable from a
-        // real reading taken in the first fraction of a second.
-        bool     HasDrawn      = false;
-        float    LastFrameTime = 0.0f;
+        // The frame delta the host handed BeginUIFrame, and the sum of them (this view's UI time — the
+        // phase of marquees and pulses). Per view because two views draw in the same frame and each must
+        // spend the frame's step; advanced ONCE per view frame (BeginUIFrame) and not once per canvas.
+        // There is no clock in here: the host owns the timestep, so a fixed-step run is reproducible.
         float    FrameDt       = 0.0f;
+        double   Time          = 0.0;
         uint64_t FrameIndex    = 0; // drives the tween's rewind-on-hide check
 
         // Is a frame of this view open — i.e. has BeginUIFrame run and EndUIFrame not yet? A walk outside

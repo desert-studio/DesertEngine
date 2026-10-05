@@ -143,7 +143,7 @@ namespace Desert::Editor::Render
             m_UIView.AuthoringPreview = !feed;
 
             const std::vector<entt::entity> canvases = UI::CanvasesInDrawOrder( scene->GetRegistry() );
-            UI::BeginUIFrame( m_UIView, scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
+            UI::BeginUIFrame( m_UIView, scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h }, m_FrameDtSeconds );
             for ( const entt::entity canvas : canvases )
                 if ( const auto drawn = UI::RenderCanvas2D(
                           m_UIView, scene->GetRegistry(), canvas, m_Render2D.GetDrawList(), vpPtr,

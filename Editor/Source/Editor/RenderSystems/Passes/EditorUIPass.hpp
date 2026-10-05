@@ -31,8 +31,19 @@ namespace Desert::Editor::Render
             m_RenderTextures.Tick( assetManager, ts );
         }
 
+        // This frame's step, handed in by the editor before the scene's frame (RenderRegistry::BeginFrame).
+        // The pass runs inside the render graph, which carries no time; the walk spends this delta.
+        void BeginFrame( const Common::Timestep& ts )
+        {
+            m_FrameDtSeconds = ts.GetSeconds();
+        }
+
     private:
         std::weak_ptr<::Desert::Core::Scene> m_Scene;
+
+        // The step BeginFrame was last handed — what this view's UI frame advances by.
+        float m_FrameDtSeconds = 0.0f;
+
         Graphic::Render2D::Render2D m_Render2D;
 
         // The UI runtime state of THIS viewport — one cell per (canvas x this view). One EditorUIPass

@@ -260,7 +260,10 @@ namespace Desert::Editor
         // show what was authored. An overlay canvas opened here is therefore shown as authored, unplaced,
         // which is exactly what the marquee and the drag handles need.
         m_UIView.AuthoringPreview = true;
-        ::Desert::UI::BeginUIFrame( m_UIView, scene->GetRegistry(), viewport );
+        // Its frame step is the editor window's own (ImGui's DeltaTime, fed by the editor's platform layer):
+        // this window is an ImGui panel and its preview runs at the panel's cadence. It never drives scene
+        // time (DrivesSceneAnimation is the viewport's), so the step only moves its eases and marquees.
+        ::Desert::UI::BeginUIFrame( m_UIView, scene->GetRegistry(), viewport, ImGui::GetIO().DeltaTime );
         if ( const auto drawn = ::Desert::UI::RenderCanvas2D( m_UIView, scene->GetRegistry(), canvasEntity,
                                                               m_Render2D.GetDrawList(),
                                                               /*worldViewProj=*/nullptr,

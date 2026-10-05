@@ -1013,7 +1013,10 @@ namespace Desert::Editor
         // close. Today this records nothing into the graph anyway — the editor's injected passes execute
         // inside the renderer's own update — so moving it costs the frame nothing.
         if ( registry != nullptr )
+        {
+            registry->BeginFrame( ts );
             registry->Render();
+        }
 
         {
             DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
