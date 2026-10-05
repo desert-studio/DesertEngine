@@ -163,7 +163,7 @@ namespace Desert::Editor::Render
             // Glass panels sample THIS VIEW's blurred scene snapshot, built just before this phase as a transient
             // of this view's graph (ctx.Graph), bound by name over this node's context. It is only built when the
             // canvas asked for it LAST frame, so hand the flag back after flushing.
-            m_Render2D.Flush( &node, ctx.Graph.Transients.BackdropBlur, ctx.Graph.Transients.BackdropBlurMaxLod );
+            m_Render2D.Flush( &node, ctx.Graph.Transients.BackdropBlur );
 
             if ( auto* renderer = ctx.Renderer )
                 renderer->SetBackdropBlurNeeded( m_Render2D.UsedBackdrop() );

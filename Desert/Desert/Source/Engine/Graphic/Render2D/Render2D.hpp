@@ -71,10 +71,10 @@ namespace Desert::Graphic::Render2D
 
         // Upload the recorded geometry and draw it into the current render pass. No-op when nothing was recorded.
         // Glass rects sample @p backdrop (this frame's BackdropBlur transient, bound by name as u_Backdrop through
-        // RDG::PassBindings over @p context, the UI node's context) at up to @p backdropMaxLod; with no context
-        // or an invalid ref they draw as a flat tinted panel.
-        void Flush( const RDG::PassContext* context = nullptr, RDG::TextureRef backdrop = {},
-                    uint32_t backdropMaxLod = 0 );
+        // RDG::PassBindings over @p context, the UI node's context) at up to its coarsest mip, read from the
+        // texture's own description (PassContext::GetTextureDesc); with no context or an invalid ref they draw
+        // as a flat tinted panel.
+        void Flush( const RDG::PassContext* context = nullptr, RDG::TextureRef backdrop = {} );
 
         // This backend's UI-material cache. The canvas walk resolves an element's `.demat` through it and
         // hands the resolved entry to DrawList2D::AddMaterialRect; Flush then draws with that entry's own

@@ -6,10 +6,29 @@
 #include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+
 #include <glm/glm.hpp>
+
+#include <array>
+#include <string_view>
 
 namespace Desert::Graphic::System
 {
+    // The graph textures the deferred composite samples, as refs of THIS frame's graph that the Composite node
+    // declared reads of. An input not produced this frame is the system texture neutral for it (UE
+    // GSystemTextures): never an unbound slot, never a skipped draw.
+    struct DeferredCompositeInputs
+    {
+        RDG::TextureRef                GBufferA;        // albedo + metallic
+        RDG::TextureRef                GBufferB;        // normal + roughness
+        RDG::TextureRef                GBufferC;        // world position
+        RDG::TextureRef                GBufferEmissive; // HDR emissive
+        RDG::TextureRef                SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
+        RDG::TextureRef                GI;              // RSM-GI accumulation, or System.Black (no indirect)
+        std::array<RDG::TextureRef, 4> ShadowMaps;      // cascade i, or System.White past the valid count
+    };
+
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
     // the shaded (or debug) result into the scene target framebuffer, which the post chain then tonemaps.
     // Runs in the manual chain (like Tonemap), only when RenderPath == Deferred.
@@ -52,33 +71,46 @@ namespace Desert::Graphic::System
         {
         }
 
-        // Shades the G-buffer into the scene target. lightDir.xyz = the direction the sun travels;
-        // lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world position (view vector);
-        // debugMode selects a raw channel (0 = lit); point/spot = the scene's dynamic lights.
-        // giMode picks the indirect-light source (0 = off, 1 = screen-space gather, 2 = the RSM giImage).
-        void Execute( const std::shared_ptr<Framebuffer>& gbuffer, const glm::vec4& lightDir,
-                      const glm::vec4& lightColor, const glm::vec4& cameraPos, int debugMode,
-                      const ShaderProtocols::PointLight& pointLights, const ShaderProtocols::SpotLight& spotLights,
-                      const DeferredShadowInput& shadow, const std::shared_ptr<Image2D>& aoImage,
-                      float giIntensity, bool ssaoEnabled, int giMode, const std::shared_ptr<Image2D>& giImage,
-                      const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
+        // Shades the G-buffer into the scene target, inside the render pass the frame graph opens on it with
+        // LOAD ("Deferred: Composite"), which preserves the forward-rendered sky/grid; the shader discards
+        // non-geometry texels. Every texture of @p inputs is bound by shader name through RDG::PassBindings;
+        // the material writes this frame's values (lights, shadow/cloud UBs, environment) every frame, so the
+        // draw's every-slot-filled check holds in every mode. lightDir.xyz = the direction the sun travels;
+        // lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world position; debugMode selects a raw
+        // channel (0 = lit); giMode picks the indirect-light source (0 = off, 1 = screen-space, 2 = RSM).
+        [[nodiscard]] Common::BoolResultStr
+        Record( const RDG::PassContext& context, const DeferredCompositeInputs& inputs, const glm::vec4& lightDir,
+                const glm::vec4& lightColor, const glm::vec4& cameraPos, int debugMode,
+                const ShaderProtocols::PointLight& pointLights, const ShaderProtocols::SpotLight& spotLights,
+                const DeferredShadowInput& shadow, float giIntensity, bool ssaoEnabled, int giMode,
+                const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
         {
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target || !gbuffer || !m_Pipeline || !m_Material )
-                return;
+            if ( !m_Pipeline || !m_Material )
+                return Common::MakeError( "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
 
             ReportEnvironmentGap( environment );
+            m_Material->BindInputs( lightDir, lightColor, cameraPos, debugMode, pointLights, spotLights, shadow,
+                                    giIntensity, ssaoEnabled, giMode, cloudShadow, environment );
 
-            auto& renderer = Renderer::GetInstance();
-            // Inside the render pass the frame graph opens on the scene target with LOAD ("Deferred:
-            // Composite"), which preserves the forward-rendered sky/grid already in it; the shader writes lit
-            // meshes where the G-buffer has geometry and discards elsewhere, compositing the deferred meshes
-            // over the real forward scene (so the skybox toggle + camera motion still work).
-            m_Material->BindInputs( gbuffer->GetColorAttachmentImage( 0 ), gbuffer->GetColorAttachmentImage( 1 ),
-                                    gbuffer->GetColorAttachmentImage( 2 ), gbuffer->GetColorAttachmentImage( 3 ),
-                                    lightDir, lightColor, cameraPos, debugMode, pointLights, spotLights, shadow,
-                                    aoImage, giIntensity, ssaoEnabled, giMode, giImage, cloudShadow, environment );
-            renderer.SubmitFullscreenTriangle( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
+            // The sampler the material route sampled these images with (the image's own: linear, REPEAT).
+            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
+            RDG::PassBindings          bindings( context );
+            const auto                 sampled = [&]( std::string_view name, RDG::TextureRef texture )
+            {
+                bindings.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                                  kSampler );
+            };
+            sampled( "u_GBufferA", inputs.GBufferA );
+            sampled( "u_GBufferB", inputs.GBufferB );
+            sampled( "u_GBufferC", inputs.GBufferC );
+            sampled( "u_GBufferEmissive", inputs.GBufferEmissive );
+            sampled( "u_SSAO", inputs.SSAO );
+            sampled( "u_GI", inputs.GI );
+            static constexpr std::string_view kShadowMaps[4] = { "u_ShadowMap0", "u_ShadowMap1", "u_ShadowMap2",
+                                                                 "u_ShadowMap3" };
+            for ( size_t i = 0; i < inputs.ShadowMaps.size(); ++i )
+                sampled( kShadowMaps[i], inputs.ShadowMaps[i] );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, m_Material->GetMaterialExecutor() );
         }
 
     private:

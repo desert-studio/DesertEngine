@@ -543,9 +543,9 @@ namespace Desert::Graphic
                           const glm::vec3& sunDir );
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         void AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
-        void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures,
-                            const std::vector<RDG::TextureRef>& copyReads, System::MeshRenderer* meshRenderer,
-                            const std::shared_ptr<FrameValues>& values );
+        // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
+        void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
+                            System::MeshRenderer* meshRenderer );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
 #endif // DESERT_DEV_INSTRUMENTS
@@ -559,27 +559,27 @@ namespace Desert::Graphic
         void ApplySceneSampleCount( uint32_t samples );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                            const std::vector<RDG::TextureRef>& gbuffer, const glm::mat4& viewProj,
-                           const glm::vec4& cameraPos, const std::shared_ptr<FrameValues>& values,
-                           std::vector<RDG::TextureRef>& compositeReads );
-        void AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
+                           const glm::vec4& cameraPos );
+        // The GI accumulation ref the composite samples (u_GI), invalid when GI did not run this frame.
+        RDG::TextureRef AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer,
                                 const std::vector<RDG::TextureRef>& rsm, System::MeshRenderer* meshRenderer,
-                                const glm::mat4& viewProj, const glm::vec4& lightColor,
-                                const std::shared_ptr<FrameValues>& values,
-                                std::vector<RDG::TextureRef>&       compositeReads );
+                                const glm::mat4& viewProj, const glm::vec4& lightColor );
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                const std::vector<RDG::TextureRef>& compositeReads,
+                                const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
+                                const std::vector<RDG::TextureRef>& shadowReads,
                                 System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                const glm::vec4& lightColor, const glm::vec4& cameraPos,
-                                const std::shared_ptr<FrameValues>& values );
-        void AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
-                                const std::vector<RDG::TextureRef>& sceneColor, System::CopyRenderer* copy,
-                                const std::shared_ptr<FrameValues>& values,
-                                std::vector<RDG::TextureRef>&       copyReads );
+                                const glm::vec4& lightColor, const glm::vec4& cameraPos );
+        // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
+        // raster node): published as FrameTransients::SceneColorCopy and returned; invalid when no copy was made
+        // (no copy system, no scene colour, its desc refused - logged).
+        RDG::TextureRef AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
+                                           const std::vector<RDG::TextureRef>& sceneColor,
+                                           System::CopyRenderer*               copy );
+        // @p sceneCopy: the snapshot SSR traces reflections from (valid; the caller skips SSR without one).
         void AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
-                          const std::vector<RDG::TextureRef>& gbuffer,
-                          const std::vector<RDG::TextureRef>& copyReads, const glm::mat4& viewProj,
-                          const glm::vec4& cameraPos, const std::shared_ptr<FrameValues>& values );
+                          const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,
+                          const glm::mat4& viewProj, const glm::vec4& cameraPos );
         void AddFrameParticlesSimulate( RDG::Builder& graph, const UpdateInfo& sceneRenderInfo );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
@@ -642,9 +642,6 @@ namespace Desert::Graphic
     private:
         std::shared_ptr<Framebuffer> m_TargetFramebuffer;
         std::shared_ptr<Framebuffer> m_GBuffer;                    // deferred G-buffer (MRT)
-        std::shared_ptr<Framebuffer> m_SSAOBuffer;                 // deferred SSAO (AO factor)
-        std::shared_ptr<Framebuffer> m_SceneColorCopy;             // scene snapshot for glass refraction
-        std::shared_ptr<Framebuffer> m_GIBuffer;                   // RSM-GI resolve target (blur-read by lighting)
         std::shared_ptr<Framebuffer> m_RSMBuffer;                  // reflective shadow map (G-buffer from the sun)
         Core::RenderPath m_RenderPath = Core::RenderPath::Forward; // refreshed from SceneSettings each BeginScene
         // The volumetric cloud layer's cost ceiling, taken from m_Quality each BeginScene and handed to

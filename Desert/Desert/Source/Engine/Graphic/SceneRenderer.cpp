@@ -231,20 +231,6 @@ namespace Desert::Graphic
         m_GBuffer = Graphic::Framebuffer::Create( gbufferSpec );
         m_GBuffer->Resize( width, height );
 
-        // SSAO target: a single-channel-ish AO factor (RGBA8F, AO in .r) the deferred lighting reads.
-        FramebufferSpecification ssaoSpec;
-        ssaoSpec.DebugName = "SSAO";
-        ssaoSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSAO );
-        m_SSAOBuffer = Graphic::Framebuffer::Create( ssaoSpec );
-        m_SSAOBuffer->Resize( width, height );
-
-        // Scene-colour snapshot (same format as the target) the glass pass samples for refraction.
-        FramebufferSpecification copySpec;
-        copySpec.DebugName = "SceneColorCopy";
-        copySpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColorCopy );
-        m_SceneColorCopy = Graphic::Framebuffer::Create( copySpec );
-        m_SceneColorCopy->Resize( width, height );
-
         // NOTE: SSR and RSM-GI resources are deliberately NOT created here — see EnsureSSRResources() /
         // EnsureGIResources(). Every PreviewViewport (asset thumbnails, the Details mesh preview) builds its
         // OWN SceneRenderer, so anything allocated in this constructor is paid for once PER PREVIEW. Between
@@ -342,9 +328,9 @@ namespace Desert::Graphic
         if ( const auto flareInit = lensFlareSystem->Initialize(); !flareInit )
             LOG_WARN( "[SceneRenderer] Lens flare system unavailable: {}", flareInit.GetError() );
 
-        // SSAO (fullscreen G-buffer -> AO factor). Its target is the dedicated SSAO buffer; deferred lighting
-        // reads the result. Runs in the manual chain only when Deferred. Non-fatal.
-        RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_SSAOBuffer, m_RenderGraphBuilder );
+        // SSAO (fullscreen G-buffer -> AO factor). Its target is a per-frame graph transient (AddFrameSSAO);
+        // the deferred Composite reads it. Deferred only. Non-fatal.
+        RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
         if ( !SP_CAST( System::SSAORenderer, m_RenderSystems["SSAOSystem"] )->Initialize() )
             LOG_WARN( "[SceneRenderer] SSAO system unavailable." );
 
@@ -368,7 +354,7 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
                        resolveInit.GetError() );
 
-        RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_SceneColorCopy,
+        RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer,
                                               m_RenderGraphBuilder );
         if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
             LOG_WARN( "[SceneRenderer] Scene-color copy system unavailable (glass refraction off)." );
@@ -886,8 +872,9 @@ namespace Desert::Graphic
                 viewProj  = cam->GetProjectionMatrix() * cam->GetViewMatrix();
             }
 
-            std::vector<RDG::TextureRef> compositeReads = gbuffer;
-            AddFrameSSAO( graph, textures, gbuffer, viewProj, cameraPos, values, compositeReads );
+            AddFrameSSAO( graph, textures, gbuffer, viewProj, cameraPos );
+
+            RDG::TextureRef giAccum;
 
             if ( m_GIMode == Core::GIMode::RSM && meshRenderer && EnsureGIResources() )
             {
@@ -896,32 +883,31 @@ namespace Desert::Graphic
                 AddFrameRSM( graph, textures, meshRenderer, sunDir );
                 m_RSMFrameCounter = ( m_RSMFrameCounter + 1 ) % kRSMRefreshEvery;
 
-                AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, viewProj, lightColor, values,
-                                   compositeReads );
+                giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, viewProj, lightColor );
             }
 
+            std::vector<RDG::TextureRef> shadowReads;
             {
                 // The lighting pass shades with the cascades and the cloud layer's shadow map.
                 RenderPassDeclaration shadows;
                 DeclareShadowReads( shadows );
                 std::vector<RDG::TextureRef> shadowMaps;
                 if ( ResolveDeclared( textures, shadows, "Deferred: Composite", shadowMaps ) )
-                    compositeReads.insert( compositeReads.end(), shadowMaps.begin(), shadowMaps.end() );
+                    shadowReads = std::move( shadowMaps );
             }
-            AddFrameComposite( graph, textures, compositeReads, meshRenderer, lightDir, lightColor, cameraPos,
-                               values );
+            AddFrameComposite( graph, textures, gbuffer, giAccum, shadowReads, meshRenderer, lightDir, lightColor,
+                               cameraPos );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
-            std::vector<RDG::TextureRef> copyReads;
-            AddFrameSceneCopy( graph, textures, sceneColor(), copy, values, copyReads );
+            const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy );
 
             // SSR traces the copy made by the pass above; without a copy target there is nothing to trace.
-            if ( m_EnableSSR && copy && EnsureSSRResources() )
-                AddFrameSSR( graph, textures, gbuffer, copyReads, viewProj, cameraPos, values );
+            if ( m_EnableSSR && sceneCopy.IsValid() && EnsureSSRResources() )
+                AddFrameSSR( graph, textures, gbuffer, sceneCopy, viewProj, cameraPos );
 
-            AddFrameGlass( graph, textures, copyReads, meshRenderer, values );
+            AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
         }
 
         AddFrameSceneDepthResolve( graph, textures );
@@ -1057,13 +1043,6 @@ namespace Desert::Graphic
 
         Renderer::GetInstance().WaitDeviceIdle();
 
-        FramebufferSpecification giSpec;
-        giSpec.DebugName = "GIResolve";
-        giSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGIResolve );
-        m_GIBuffer = Graphic::Framebuffer::Create( giSpec );
-        m_GIBuffer->Resize( m_TargetFramebuffer->GetFramebufferWidth(),
-                            m_TargetFramebuffer->GetFramebufferHeight() );
-
         // Reflective Shadow Map: a G-buffer rendered from the sun. The attachment layout MUST mirror
         // m_GBuffer (including the emissive target) — the RSM pass reuses the G-buffer pipeline, and that
         // only works while the two render passes stay compatible. Fixed light-space resolution, so it does
@@ -1081,12 +1060,12 @@ namespace Desert::Graphic
         m_RSMBuffer = Graphic::Framebuffer::Create( rsmSpec );
         m_RSMBuffer->Resize( kRSMResolution, kRSMResolution );
 
-        RegisterSystem<System::GIResolveRenderer>( "GISystem", this, m_GIBuffer, m_RenderGraphBuilder );
+        // The gather is a per-frame graph transient (AddFrameGIResolve); the system reads the scene target's size.
+        RegisterSystem<System::GIResolveRenderer>( "GISystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
         if ( !SP_CAST( System::GIResolveRenderer, m_RenderSystems["GISystem"] )->Initialize() )
         {
             LOG_WARN( "[SceneRenderer] GI resolve system unavailable — RSM GI produces no indirect light." );
             m_GIResourcesFailed = true;
-            m_GIBuffer.reset();
             m_RSMBuffer.reset();
             return false;
         }
@@ -1174,12 +1153,6 @@ namespace Desert::Graphic
         if ( auto resolve =
                   SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] ) )
             resolve->Resize( width, height );
-        if ( m_SSAOBuffer )
-            m_SSAOBuffer->Resize( width, height );
-        if ( m_SceneColorCopy )
-            m_SceneColorCopy->Resize( width, height );
-        if ( m_GIBuffer )
-            m_GIBuffer->Resize( width, height );
         // m_RSMBuffer is deliberately NOT resized: it is a fixed-resolution light-space target, unrelated
         // to the viewport. Its accumulation history is invalidated by the GI system's own size check.
 

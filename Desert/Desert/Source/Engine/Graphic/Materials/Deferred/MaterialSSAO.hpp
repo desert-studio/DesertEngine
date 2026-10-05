@@ -14,19 +14,13 @@ namespace Desert::Graphic
     public:
         MaterialSSAO() : Material( "MaterialSSAO", "SSAO" )
         {
-            m_Pos    = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferPos" ).get();
-            m_Normal = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferNormal" ).get();
         }
 
-        void BindInputs( const std::shared_ptr<Image2D>& worldPos, const std::shared_ptr<Image2D>& normal,
-                         const glm::mat4& viewProj, const glm::vec4& cameraPos, float radius, float bias,
-                         float power, int sampleCount )
+        // The SSAOUB values only: u_GBufferPos / u_GBufferNormal are graph resources, bound by name through
+        // RDG::PassBindings (SSAORenderer::Record).
+        void BindInputs( const glm::mat4& viewProj, const glm::vec4& cameraPos, float radius, float bias, float power,
+                         int sampleCount )
         {
-            if ( m_Pos && worldPos )
-                m_Pos->SetImage( worldPos.get(), RDG::Access::SampledGraphics );
-            if ( m_Normal && normal )
-                m_Normal->SetImage( normal.get(), RDG::Access::SampledGraphics );
-
             struct SSAOUBData
             {
                 glm::mat4 ViewProj;
@@ -40,9 +34,5 @@ namespace Desert::Graphic
             if ( auto* ub = Get<UniformBufferProperty>( "SSAOUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
-
-    private:
-        Texture2DProperty* m_Pos    = nullptr;
-        Texture2DProperty* m_Normal = nullptr;
     };
 } // namespace Desert::Graphic

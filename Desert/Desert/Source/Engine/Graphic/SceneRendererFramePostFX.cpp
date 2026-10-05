@@ -490,7 +490,6 @@ namespace Desert::Graphic
         const RDG::TextureRef pyramid          = graph.CreateTexture( *desc, "BackdropBlur" );
         const RDG::TextureRef scene            = sceneColor.front();
         textures.Transients.BackdropBlur       = pyramid;
-        textures.Transients.BackdropBlurMaxLod = System::BackdropBlurRenderer::MaxLod( *desc );
 
         // Scene -> pyramid mip 0, then mip i-1 -> mip i: one node per dispatch, declaring the one mip it samples
         // and the one it writes.

@@ -531,6 +531,34 @@ TEST( RenderGraphCompile, ADeclaredGraphTextureReadOrdersTheNodeAfterItsProducer
 // The refusal half: a declaration naming a ref that is not a handle of this graph (a transient no earlier node
 // produced this frame, a buffer nobody gave the graph) is reported, so ResolveDeclared refuses the whole node
 // and nothing is added half-declared; a declaration of valid refs only is accepted.
+// RDG-A2 (UE: FRDGTexture::Desc). A reader derives what depends on a texture's shape from the texture itself:
+// the builder hands back the description a created or registered texture carries (the UI glass reads the
+// BackdropBlur pyramid's mip count this way, not from a value its producer publishes beside the ref), and
+// refuses a handle that is not a texture of this graph.
+TEST( RenderGraphCompile, TheBuilderHandsBackTheDescriptionATextureWasCreatedOrRegisteredWith )
+{
+    Builder         graph( "Desc" );
+    const TextureRef pyramid = graph.CreateTexture( Tex2D( 64, 32, ImageFormat::RGBA16F, 5 ), "Pyramid" );
+    ExternalTexture  scene( Tex2D( 128, 64, ImageFormat::RGBA8F ), Access::None );
+    const TextureRef imported = graph.RegisterExternal( scene, "Scene" );
+
+    const auto created = graph.GetTextureDesc( pyramid );
+    ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
+    EXPECT_EQ( created.GetValue().Mips, 5u );
+    EXPECT_EQ( created.GetValue().Size.Width, 64u );
+    EXPECT_EQ( created.GetValue().Size.Height, 32u );
+    EXPECT_EQ( created.GetValue().Format, ImageFormat::RGBA16F );
+
+    const auto registered = graph.GetTextureDesc( imported );
+    ASSERT_TRUE( registered.IsSuccess() ) << registered.GetError();
+    EXPECT_EQ( registered.GetValue().Size.Width, 128u );
+    EXPECT_EQ( registered.GetValue().Format, ImageFormat::RGBA8F );
+
+    EXPECT_FALSE( graph.GetTextureDesc( TextureRef{} ).IsSuccess() );
+    const BufferRef buffer = graph.CreateBuffer( BufferDesc{ .Bytes = 256 }, "NotATexture" );
+    EXPECT_FALSE( graph.GetTextureDesc( TextureRef{ buffer.Index } ).IsSuccess() );
+}
+
 TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
 {
     Builder          graph( "refused" );
@@ -1705,7 +1733,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     declares( "AddFrameSSAO", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,ao," } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "Access::SampledGraphics", "LoadTarget(pass,target)" } );
-    declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,copyReads" } );
+    declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
     declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target)" } );
 }
 

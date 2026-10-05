@@ -56,6 +56,9 @@ namespace Desert::Graphic::RDG
         Common::ResultStr<TextureBinding> GetTexture( TextureRef texture, Access access,
                                                       SubresourceRange range = SubresourceRange::All() ) const;
         Common::ResultStr<BufferBinding>  GetBuffer( BufferRef buffer, Access access ) const;
+        // The description of any texture of this graph (UE: FRDGTexture::Desc) - Builder::GetTextureDesc seen
+        // from a pass body. A description is not contents, so no declared access is needed to ask for it.
+        Common::ResultStr<TextureDesc> GetTextureDesc( TextureRef texture ) const;
 
         std::string_view GetPassName() const;
         // RDG-CONTRACTS B(1). The pipe this pass records on (CompiledPass::OnPipe). For labels and profiling rows
@@ -148,6 +151,11 @@ namespace Desert::Graphic::RDG
 
         TextureRef CreateTexture( const TextureDesc& desc, std::string_view name );
         BufferRef  CreateBuffer( const BufferDesc& desc, std::string_view name );
+
+        // The description a created or registered texture carries (UE: FRDGTexture::Desc): a reader derives
+        // what depends on its shape (mip count, extent, format) from the texture itself, never from a value
+        // its producer publishes beside the ref. Refused for a handle that is not a texture of this graph.
+        Common::ResultStr<TextureDesc> GetTextureDesc( TextureRef texture ) const;
 
         // The resource's current state is the one it carries (ExternalTexture::SubresourceStates); the
         // graph does not take a second copy of it as an argument.

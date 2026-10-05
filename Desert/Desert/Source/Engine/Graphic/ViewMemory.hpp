@@ -283,8 +283,9 @@ namespace Desert::Graphic
         add( { "GBufferC.WorldPosition", "SceneRenderer.cpp", F::kGBufferC, width, height } );
         add( { "GBuffer.Emissive", "SceneRenderer.cpp", F::kGBufferEmissive, width, height } );
         add( { "GBuffer.Depth", "SceneRenderer.cpp", F::kGBufferDepth, width, height } );
-        add( { "SSAO", "SceneRenderer.cpp", F::kSSAO, width, height } );
-        add( { "SceneColorCopy", "SceneRenderer.cpp", F::kSceneColorCopy, width, height } );
+        // Graph transients still cost their pooled memory while the view is open (like SMAA / Bloom below).
+        add( { "SceneColorCopy", "SceneRendererFrameDeferred.cpp", F::kSceneColorCopy, width, height } );
+        add( { "SSAO", "SceneRendererFrameDeferred.cpp", F::kSSAO, width, height } );
 
         // Post stack, all built in Init.
         add( { "SilhouetteMask", "MeshRenderer.cpp", F::kSilhouetteMask, width, height } );
@@ -326,7 +327,7 @@ namespace Desert::Graphic
         }
         if ( profile.GlobalIllumination )
         {
-            add( { "GI.Resolve", "SceneRenderer.cpp", F::kGIResolve, width, height } );
+            add( { "GI.Gather", "SceneRendererFrameDeferred.cpp", F::kGIResolve, width, height } );
             add( { "GI.Accum x2", "GIResolveRenderer.hpp", F::kGIAccum, width, height, 1, 2 } );
             // SceneRenderer::kRSMResolution = 512, one row per attachment: they mirror the G-buffer's formats,
             // which need not all be the same.

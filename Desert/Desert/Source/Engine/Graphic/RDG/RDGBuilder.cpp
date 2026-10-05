@@ -116,6 +116,15 @@ namespace Desert::Graphic::RDG
         return TextureRef{ static_cast<uint32_t>( m_Resources.size() - 1 ) };
     }
 
+    Common::ResultStr<TextureDesc> Builder::GetTextureDesc( TextureRef texture ) const
+    {
+        const ResourceRecord* resource = FindResource( texture.Index, ResourceKind::Texture );
+        if ( !resource )
+            return Common::MakeFormattedError<TextureDesc>( "graph '{}': GetTextureDesc of invalid texture handle {}",
+                                                            m_Name, texture.Index );
+        return Common::MakeSuccess( resource->Texture );
+    }
+
     BufferRef Builder::CreateBuffer( const BufferDesc& desc, std::string_view name )
     {
         if ( desc.Bytes == 0 )
@@ -460,6 +469,11 @@ namespace Desert::Graphic::RDG
                 return pass.OnPipe;
         }
         return Pipe::Graphics; // a context exists only for an executed pass, which is always listed above
+    }
+
+    Common::ResultStr<TextureDesc> PassContext::GetTextureDesc( TextureRef texture ) const
+    {
+        return m_Builder.GetTextureDesc( texture );
     }
 
     Common::ResultStr<TextureBinding> PassContext::GetTexture( TextureRef texture, Access access,

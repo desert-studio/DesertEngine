@@ -238,9 +238,6 @@ namespace Desert::Graphic
     // What one node hands a later one inside the same frame graph (the nodes record at Execute).
     struct FrameValues
     {
-        std::shared_ptr<Image2D> AoImage;
-        std::shared_ptr<Image2D> GiImage;
-        std::shared_ptr<Image2D> SceneCopy;
         SunScreen                Sun{ glm::vec2( 0.5f ), 0.0f };
     };
 

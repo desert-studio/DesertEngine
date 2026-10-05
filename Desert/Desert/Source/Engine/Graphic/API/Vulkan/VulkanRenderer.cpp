@@ -10,6 +10,7 @@
 #include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
@@ -833,6 +834,95 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
         // As SubmitIndexed: vertices are addressed absolutely, only firstIndex selects the batch's slice.
         DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
+                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                         const glm::mat4& transform, const MaterialExecutor& material,
+                                                         uint32_t instanceCount, uint32_t firstInstance,
+                                                         uint64_t hiddenSubmeshMask, uint32_t lodLevel )
+    {
+        DESERT_PROFILE_FUNC();
+        const std::string_view pass = bindings.GetContext().GetPassName();
+        if ( instanceCount == 0u )
+            return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
+        // The push block is the per-submesh transform the material carries (written below for each submesh).
+        if ( !bindings.GetPushConstants().empty() )
+            return Common::MakeFormattedError(
+                 "{}: a mesh draw's push constants are its per-submesh transform; the bindings carry their own", pass );
+        if ( !mesh.GetVertexBuffer() )
+            return Common::MakeFormattedError( "{}: mesh has no vertex buffer", pass );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material ); !bound )
+            return bound;
+
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
+        const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
+        auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
+
+        const VkDeviceSize offsets[] = { 0 };
+        const VkBuffer vbuffer = sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetVertexBuffer() )->GetVulkanBuffer();
+        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
+        const auto indexBuffer = mesh.GetIndexBuffer();
+        if ( indexBuffer )
+        {
+            const VkBuffer ibuffer = sp_cast<API::Vulkan::VulkanIndexBuffer>( indexBuffer )->GetVulkanBuffer();
+            vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
+        }
+
+        // The push block of every submesh: the material's (its full reflected range, so the per-object values the
+        // caller wrote past the transform go too; zero past what the material holds) with the submesh's transform
+        // over the first mat4.
+        const auto&            pushConstant = shader->GetShaderPushConstant();
+        std::vector<std::byte> push;
+        if ( pushConstant.has_value() && pushConstant->Size > 0 )
+        {
+            if ( pushConstant->Size < sizeof( glm::mat4 ) )
+                return Common::MakeFormattedError( "{}: shader '{}' push block of {} bytes cannot hold the transform",
+                                                   pass, shader->GetName(), pushConstant->Size );
+            push.assign( pushConstant->Size, std::byte{ 0 } );
+            const auto& materialPush = material.GetPushConstantBuffer();
+            if ( materialPush.Data != nullptr )
+                std::memcpy( push.data(), materialPush.Data, std::min<size_t>( push.size(), materialPush.Size ) );
+        }
+
+        // RenderMesh's walk: the hidden-submesh mask, the per-submesh push block and the LOD clamp.
+        const auto& submeshes = mesh.GetSubmeshes();
+        for ( size_t si = 0; si < submeshes.size(); ++si )
+        {
+            if ( si < 64 && ( ( hiddenSubmeshMask >> si ) & 1ull ) )
+                continue;
+            const auto&     submesh        = submeshes[si];
+            const glm::mat4 finalTransform = transform * submesh.Transform;
+            if ( pushConstant.has_value() && pushConstant->Size > 0 )
+            {
+                std::memcpy( push.data(), &finalTransform, sizeof( glm::mat4 ) );
+                vkCmdPushConstants( m_CurrentCommandBuffer, graphics->GetVkPipelineLayout(),
+                                    static_cast<VkShaderStageFlags>( pushConstant->ShaderStage ), 0,
+                                    pushConstant->Size, push.data() );
+            }
+
+            if ( !indexBuffer )
+            {
+                DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
+                continue;
+            }
+            uint32_t drawOffset = submesh.IndexOffset;
+            uint32_t drawCount  = submesh.IndexCount;
+            if ( !submesh.LODs.empty() )
+            {
+                const uint32_t lvl = lodLevel < submesh.LODs.size() ? lodLevel
+                                                                     : static_cast<uint32_t>( submesh.LODs.size() ) - 1;
+                drawOffset = submesh.LODs[lvl].IndexOffset;
+                drawCount  = submesh.LODs[lvl].IndexCount;
+            }
+            if ( drawOffset + drawCount > indexBuffer->GetCount() )
+                return Common::MakeFormattedError( "{}: submesh {} reads indices [{}, {}) of a {}-index buffer", pass,
+                                                   si, drawOffset, drawOffset + drawCount, indexBuffer->GetCount() );
+            DrawIndexedCounted( drawCount, instanceCount, drawOffset, static_cast<int32_t>( submesh.VertexOffset ),
+                                firstInstance );
+        }
         return Common::MakeSuccess( true );
     }
 
