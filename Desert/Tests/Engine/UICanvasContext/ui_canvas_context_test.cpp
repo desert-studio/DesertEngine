@@ -462,6 +462,73 @@ TEST( UICanvasContext, OnlyTheDrivingViewAdvancesTheScenesAnimationPlayhead )
     EXPECT_NEAR( seconds(), 5.05, 5e-3 ) << "the driving view did not advance the playhead";
 }
 
+// AutoPlay is a GAME behaviour (MOVIE-EDPLAY). The editor auto-played every clip of an authored level, so a
+// three-second movie clip that ends on a fade to black had finished before the author pressed Play — and Play
+// kept the finished playhead: the viewport was black before Play and during it. An authored level holds the
+// clip at its playhead (the Sequencer moves it); a game world starts it.
+TEST( UICanvasContext, AnAuthoredLevelHoldsAnAutoPlayClipAtItsPlayheadAndAGameWorldStartsIt )
+{
+    namespace TL = Desert::Animation::Timeline;
+    namespace AN = Desert::Animation;
+    Fixture f;
+    auto&   clip      = f.Registry.emplace<ECS::UIAnimComponent>( f.Button ).Data;
+    clip.AutoPlay     = true;
+    clip.Loop         = TL::LoopMode::Once;
+    clip.Sequence.End = AN::FrameNumber{ 100 * AN::PROJECT_TICK_RATE.Numerator };
+    const auto seconds = [&clip]
+    { return AN::FrameTimeToSeconds( clip.Playback->Current(), clip.Sequence.TickRate ); };
+
+    UIViewContext authored;
+    authored.GameWorld = false; // as EditorUIPass sets it while the scene is in Edit
+    Frame( authored, f, nullptr );
+    if ( !clip.Playback )
+    {
+        FAIL() << "the driving view did not give the clip its player";
+    }
+    EXPECT_NE( clip.Playback->State(), TL::PlayState::Playing ) << "an authored level auto-played a UI clip";
+    RewindClock( authored, 0.5f );
+    Frame( authored, f, nullptr );
+    EXPECT_NEAR( seconds(), 0.0, 1e-6 ) << "the authored view moved a playhead nobody started";
+
+    // The Sequencer's Play is what moves it in an authored level, and the viewport then advances it.
+    clip.Playback->Play();
+    RewindClock( authored, 0.05f );
+    Frame( authored, f, nullptr );
+    EXPECT_NEAR( seconds(), 0.05, 5e-3 ) << "a clip the Sequencer started did not advance in the authored view";
+
+    // Entering Play drops the player (Core::BeginPlay); the game world re-creates it and starts it at t = 0.
+    clip.Playback.reset();
+    UIViewContext game; // GameWorld defaults to true: the packaged game and the movie render
+    Frame( game, f, nullptr );
+    ASSERT_TRUE( clip.Playback.has_value() );
+    EXPECT_EQ( clip.Playback->State(), TL::PlayState::Playing ) << "a game world did not start an AutoPlay clip";
+    EXPECT_NEAR( seconds(), 0.0, 1e-6 ) << "the game's first frame of the clip is not its first frame";
+}
+
+// Creating the player is where AutoPlay is decided, so only the driving view may do it: a preview that drew first
+// would otherwise decide for the viewport.
+TEST( UICanvasContext, AViewThatDoesNotDriveTheSceneNeverCreatesAClipsPlayer )
+{
+    namespace TL = Desert::Animation::Timeline;
+    namespace AN = Desert::Animation;
+    Fixture f;
+    auto&   clip      = f.Registry.emplace<ECS::UIAnimComponent>( f.Button ).Data;
+    clip.AutoPlay     = true;
+    clip.Sequence.End = AN::FrameNumber{ 100 * AN::PROJECT_TICK_RATE.Numerator };
+
+    UIViewContext preview;
+    preview.DrivesSceneAnimation = false;
+    preview.GameWorld            = false;
+    Frame( preview, f, nullptr );
+    EXPECT_FALSE( clip.Playback.has_value() ) << "the authoring preview created the clip's player";
+
+    UIViewContext viewport;
+    Frame( viewport, f, nullptr );
+    ASSERT_TRUE( clip.Playback.has_value() );
+    EXPECT_EQ( clip.Playback->State(), TL::PlayState::Playing )
+         << "the driving game view inherited a player a preview had already decided about";
+}
+
 // A UI clip is a Timeline sequence whose Widget bindings name elements by UUID: a clip on the CANVAS may move
 // the BUTTON, and both views see it — the driving one by stepping the clip, the preview by evaluating it.
 TEST( UICanvasContext, AClipMovesTheElementItsBindingNamesInEveryView )

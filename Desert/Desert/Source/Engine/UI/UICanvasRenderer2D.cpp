@@ -2316,7 +2316,7 @@ namespace Desert::UI
         ++view.FrameIndex; // drives the tween rewind-on-hide check
 
         // The scene's UI clips, stepped by the one view that owns scene time and evaluated by every view.
-        PlayUIAnimations( reg, view.FrameDt, view.DrivesSceneAnimation, view.AnimClips );
+        PlayUIAnimations( reg, view.FrameDt, view.DrivesSceneAnimation, view.GameWorld, view.AnimClips );
 
         // A scene swap leaves the elected entity dangling — drop it rather than matching a recycled id.
         if ( view.Hot != entt::null && !reg.valid( view.Hot ) )
