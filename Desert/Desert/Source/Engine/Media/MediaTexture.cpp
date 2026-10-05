@@ -1,5 +1,6 @@
 #include "MediaTexture.hpp"
 
+#include <Engine/Graphic/GpuBatch.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Media/MediaPlayer.hpp>
@@ -83,8 +84,8 @@ namespace Desert::Media
 
         // A new shape (the first frame, or a stream that changed size mid-way): the output and the planes
         // are made once for it and then written in place every frame.
-        const auto planeFormat = frame.BitDepth > 8 ? Core::Formats::ImageFormat::R16_UNORM
-                                                    : Core::Formats::ImageFormat::R8_UNORM;
+        const auto planeFormat =
+             frame.BitDepth > 8 ? Core::Formats::ImageFormat::R16_UNORM : Core::Formats::ImageFormat::R8_UNORM;
         const uint32_t planeCount = frame.Chroma == MediaChroma::I400 ? 1u : 3u;
         for ( uint32_t i = 0; i < 3; ++i )
         {
@@ -129,6 +130,13 @@ namespace Desert::Media
 
     std::string MediaTexture::Upload( const VideoFrame& frame )
     {
+        // The planes about to be overwritten are what the previous conversion reads.
+        if ( m_InFlight )
+        {
+            if ( !m_InFlight->IsComplete() )
+                m_InFlight->Wait();
+            m_InFlight.reset();
+        }
         if ( std::string error = Prepare( frame ); !error.empty() )
             return error;
 
@@ -159,8 +167,20 @@ namespace Desert::Media
         m_Pipeline->SetInput( 2, lumaOnly ? y : m_Planes[2].get() );
         m_Pipeline->SetOutput( 3, m_Output.get(), 0 );
         m_Pipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-        m_Pipeline->Dispatch( ( m_Width + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize,
-                              ( m_Height + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize, 1u );
+        auto begun = Graphic::GpuBatch::Begin();
+        if ( !begun )
+            return std::format( "the video conversion batch was refused: {}", begun.GetError() );
+        std::unique_ptr<Graphic::GpuBatch> batch = begun.ExtractValue();
+        m_Pipeline->Record( *batch, ( m_Width + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize,
+                            ( m_Height + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize, 1u );
+        batch->Retain( m_Pipeline );
+        batch->Retain( m_Output );
+        for ( const auto& plane : m_Planes )
+            if ( plane )
+                batch->Retain( plane );
+        if ( const auto submitted = batch->Submit(); !submitted )
+            return std::format( "the video conversion batch did not submit: {}", submitted.GetError() );
+        m_InFlight = std::move( batch );
         return {};
     }
 } // namespace Desert::Media

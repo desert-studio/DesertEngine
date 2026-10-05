@@ -18,6 +18,7 @@ namespace Desert::Media
         ma_data_source_base Base{}; // first member: miniaudio casts the data source back to this struct
         ma_sound            Sound{};
         bool                SoundReady = false;
+        float               Volume     = 1.0f; // kept across Start: a volume set before the sound exists holds
         uint32_t            SampleRate = 0;
         uint32_t            Channels   = 0;
 
@@ -144,6 +145,7 @@ namespace Desert::Media
                                 channels );
         }
         m_Impl->SoundReady = true;
+        ma_sound_set_volume( &m_Impl->Sound, m_Impl->Volume );
         ma_sound_start( &m_Impl->Sound );
         return {};
     }
@@ -190,6 +192,7 @@ namespace Desert::Media
 
     void MediaAudioOutput::SetVolume( float volume )
     {
+        m_Impl->Volume = volume;
         if ( m_Impl->SoundReady )
             ma_sound_set_volume( &m_Impl->Sound, volume );
     }

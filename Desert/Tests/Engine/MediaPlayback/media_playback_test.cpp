@@ -6,12 +6,22 @@
 //          -c:v libsvtav1 -preset 8 -pix_fmt yuv420p -c:a libopus -b:a 64k -ac 2 -shortest red_440hz_1s.webm
 // so: 30 frames of solid red (BT.601 limited range: Y' 81, Cb 90, Cr 240) and exactly 48 000 stereo frames
 // of sound once Opus's pre-skip and the last packet's DiscardPadding are dropped.
+//
+// The second clip (testsrc2_1080p_5s.webm) is a MOVING picture — the solid one cannot tell a frozen decoder
+// from a working one:
+//   ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30:duration=5 -f lavfi -i
+//   sine=frequency=440:sample_rate=48000:duration=5 -c:v libsvtav1 -preset 8 -crf 50 -pix_fmt yuv420p
+//          -c:a libopus -b:a 48k -shortest testsrc2_1080p_5s.webm
 
 #include <Engine/Media/MediaPlayer.hpp>
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 using namespace Desert::Media;
 
@@ -186,6 +196,54 @@ TEST( MediaPlayback, SeekLandsOnTheFrameAtTheTarget )
     const int64_t pts = player.GetCurrentFrame()->PtsNs;
     EXPECT_LE( pts, 500000000 );
     EXPECT_GT( pts, 500000000 - 34000000 );
+}
+
+// A moving clip: frames one second apart differ, so the picture a MediaTexture uploads actually changes.
+TEST( MediaPlayback, PatternClipFramesOneSecondApartDiffer )
+{
+    MediaPlayer player;
+    ASSERT_EQ( player.Open( MediaSource{ DESERT_MEDIA_PATTERN_CLIP } ), "" );
+    ASSERT_NE( player.GetCurrentFrame(), nullptr );
+    EXPECT_EQ( player.GetCurrentFrame()->Width, 1920u );
+    EXPECT_EQ( player.GetCurrentFrame()->Height, 1080u );
+    const std::vector<uint8_t> first  = player.GetCurrentFrame()->Planes[0];
+    const uint64_t             serial = player.FrameSerial();
+    player.Play();
+    for ( int i = 0; i < 30; ++i )
+        player.Tick( 1.0 / 30.0 );
+    ASSERT_NE( player.GetCurrentFrame(), nullptr );
+    EXPECT_GT( player.FrameSerial(), serial );
+    EXPECT_NE( player.GetCurrentFrame()->Planes[0], first );
+}
+
+// Decode throughput of the C path: every frame of the clip made current once (ticked at its own frame
+// rate), wall time per frame printed. The pattern clip always; DESERT_MEDIA_BENCH_CLIP adds one more file
+// (the 1080p60 / 4K60 measurements are made with it on a clip outside the repository).
+TEST( MediaPlayback, DecodeThroughputIsPrinted )
+{
+    std::vector<std::string> clips{ DESERT_MEDIA_PATTERN_CLIP };
+    if ( const char* extra = std::getenv( "DESERT_MEDIA_BENCH_CLIP" ); extra && *extra )
+        clips.emplace_back( extra );
+    for ( const std::string& clip : clips )
+    {
+        MediaPlayer player;
+        ASSERT_EQ( player.Open( MediaSource{ clip } ), "" ) << clip;
+        ASSERT_NE( player.GetCurrentFrame(), nullptr ) << clip;
+        const uint32_t width = player.GetCurrentFrame()->Width, height = player.GetCurrentFrame()->Height;
+        bool           ended       = false;
+        player.OnEndReached        = [&] { ended = true; };
+        const uint64_t firstSerial = player.FrameSerial();
+        player.Play();
+        const auto start = std::chrono::steady_clock::now();
+        for ( int i = 0; i < 100000 && !ended; ++i )
+            player.Tick( 1.0 / 120.0 ); // finer than any clip's frame time: no frame is skipped
+        const double   seconds = std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+        const uint64_t frames  = player.FrameSerial() - firstSerial;
+        ASSERT_TRUE( ended ) << clip;
+        ASSERT_GT( frames, 0u ) << clip;
+        std::printf( "[decode] %s: %ux%u, %llu frames in %.3f s = %.1f fps\n", clip.c_str(), width, height,
+                     static_cast<unsigned long long>( frames ), seconds, static_cast<double>( frames ) / seconds );
+    }
 }
 
 int main( int argc, char** argv )

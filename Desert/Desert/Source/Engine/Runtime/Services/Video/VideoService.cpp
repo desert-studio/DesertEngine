@@ -1,5 +1,7 @@
 #include "VideoService.hpp"
 
+#include <Engine/Audio/AudioEngine.hpp>
+#include <Engine/Media/MediaAudioOutput.hpp>
 #include <Engine/Media/MediaPlayer.hpp>
 #include <Engine/Media/MediaTexture.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -40,6 +42,25 @@ namespace Desert::Runtime
             LOG_ERROR( "[Video] '{}' has no video track", path );
             return &vp;
         }
+        std::unique_ptr<Media::MediaAudioOutput> sound;
+        if ( player->HasAudio() )
+        {
+            if ( Audio::AudioEngine::Get().GetNativeEngine() )
+            {
+                sound = std::make_unique<Media::MediaAudioOutput>();
+                sound->SetVolume( 0.0f ); // silent until a panel that draws it asks for a volume
+                player->SetAudioSink( sound.get() );
+                if ( player->GetState() == Media::MediaPlayerState::Error )
+                {
+                    LOG_ERROR( "[Video] '{}': the audio output did not start: {}", path, player->Error() );
+                    return &vp;
+                }
+            }
+            else
+            {
+                LOG_WARN( "[Video] '{}': no audio device on this machine, the clip plays its picture only", path );
+            }
+        }
         player->SetLooping( true );
         player->Play();
 
@@ -51,6 +72,7 @@ namespace Desert::Runtime
             return &vp;
         }
 
+        vp.Sound   = std::move( sound );
         vp.Player  = std::move( player );
         vp.Texture = std::move( texture );
         vp.Valid   = true;
@@ -73,7 +95,7 @@ namespace Desert::Runtime
         return Common::AssetPathIndex::PathFor( handle ).generic_string();
     }
 
-    Graphic::Image2D* VideoService::Resolve( uint64_t handle )
+    Graphic::Image2D* VideoService::Resolve( uint64_t handle, SoundRequest sound )
     {
         if ( handle == 0 )
             return nullptr;
@@ -83,6 +105,8 @@ namespace Desert::Runtime
         VideoPlayback* vp = GetOrOpen( path );
         if ( !vp || !vp->Valid )
             return nullptr;
+        if ( !sound.Muted )
+            vp->RequestedVolume = std::max( vp->RequestedVolume, std::clamp( sound.Volume, 0.0f, 1.0f ) );
         return vp->Texture->GetImage();
     }
 
@@ -100,6 +124,9 @@ namespace Desert::Runtime
             if ( dt <= 0.0 )
                 continue;
 
+            if ( vp.Sound )
+                vp.Sound->SetVolume( vp.RequestedVolume );
+            vp.RequestedVolume = 0.0f; // the panels that draw this frame ask again
             vp.Player->Tick( dt );
             // A refused upload keeps the texture's serial behind the player's, so the next tick retries it.
             if ( const std::string error = vp.Texture->Update( *vp.Player ); !error.empty() )

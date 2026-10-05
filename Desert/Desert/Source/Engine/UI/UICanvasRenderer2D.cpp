@@ -1582,7 +1582,8 @@ namespace Desert::UI
                     // VideoService); it takes precedence over the sprite/gradient fill while a path is set.
                     Graphic::Image2D* video = HandleSet( p.Video )
                                                    ? Runtime::ResourceRegistry::GetVideoService()->Resolve(
-                                                          static_cast<uint64_t>( p.Video ) )
+                                                          static_cast<uint64_t>( p.Video ),
+                                                          { .Volume = p.VideoVolume, .Muted = p.VideoMuted } )
                                                    : nullptr;
                     // Frosted glass: the fill IS the blurred scene behind the panel, tinted by Color/Opacity.
                     // Checked before the sprite/video fills — a glass panel is defined by what is behind it,

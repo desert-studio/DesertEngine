@@ -30,7 +30,8 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/opus/include",
     }
 
-    defines { 'DESERT_MEDIA_TEST_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/red_440hz_1s.webm"' }
+    defines { 'DESERT_MEDIA_TEST_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/red_440hz_1s.webm"',
+              'DESERT_MEDIA_PATTERN_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/testsrc2_1080p_5s.webm"' }
 
     links { "Dav1d", "Opus" }
 

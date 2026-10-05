@@ -1726,10 +1726,17 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Material" ), Category( "UI Material" ), Asset<MaterialAsset> )
         Assets::AssetHandle Material;
 
+        // WebM (AV1 + Opus) .webm streamed into this panel (loops, tinted by Color*Opacity). Drag a .webm from
+        // the Content Browser. Overrides the sprite/gradient fill while set. Unset = no video. (Handle<->path
+        // owned by the VideoService.) The clip's Opus track plays through the panel's own audio output — the
+        // MediaSoundComponent of UE's Media Framework — at Video Volume; Video Muted is the explicit "picture
+        // only" switch (the sound path still exists and is torn down, not skipped by a missing sink).
         PROPERTY( DisplayName( "Video" ), Category( "UI Panel" ), Asset<VideoAsset> )
-        Assets::AssetHandle Video; // WebM (AV1 + Opus) .webm streamed into this panel (loops, tinted by Color*Opacity).
-                                   // Drag a .webm from the Content Browser. Overrides the sprite/gradient fill
-                                   // while set. Unset = no video. (Handle<->path owned by the VideoService.)
+        Assets::AssetHandle Video;
+        PROPERTY( DisplayName( "Video Volume" ), Category( "UI Panel" ), Range( 0.0f, 1.0f ) )
+        float VideoVolume = 1.0f;
+        PROPERTY( DisplayName( "Video Muted" ), Category( "UI Panel" ) )
+        bool VideoMuted = false;
 
         // --- Shape (Phase C) ------------------------------------------------------------------------------
         PROPERTY( DisplayName( "Circle" ), Category( "UI Panel" ) )

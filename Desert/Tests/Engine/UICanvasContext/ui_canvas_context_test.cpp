@@ -114,7 +114,7 @@ namespace Desert::Runtime
     {
         return static_cast<uint64_t>( handle ) == kBackgroundHandle ? FakeImage() : nullptr;
     }
-    Graphic::Image2D* VideoService::Resolve( uint64_t )
+    Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
     {
         ADD_FAILURE() << "VideoService::Resolve reached with no video service";
         return nullptr;
