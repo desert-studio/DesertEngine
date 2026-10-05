@@ -11,6 +11,7 @@ namespace Desert::Media
         // How far ahead of the clock the sound is decoded: enough to ride out a long frame on the main
         // thread without the device running dry.
         constexpr uint64_t kAudioLeadFrames = OpusAudioDecoder::kSampleRate * 3 / 10;
+        constexpr size_t   kMaxQueuedVideo  = 8; // decoded pictures ahead of the clock, at most
     } // namespace
 
     std::string MediaPlayer::Open( const MediaSource& source )
@@ -166,9 +167,18 @@ namespace Desert::Media
         const bool wantSound = m_Sink && m_Audio;
         for ( ;; )
         {
+            // A DECODER SLOWER THAN THE SOUND (a 4K 10-bit clip on a debug build) must not turn this loop into
+            // "decode the whole file now": the sound drains on its own thread while this loop runs, so it would
+            // always want more, and every video frame demuxed on the way was queued — 180 4K frames, 4.5 GB.
+            // So the clock is re-read each pass, frames it has already passed are dropped as they arrive (the
+            // skip Present does), and the queue never holds more than kMaxQueuedVideo pictures.
+            if ( wantSound )
+                clockNs = ClockNs();
+            while ( m_Queue.size() >= 2 && m_Queue[1].PtsNs <= clockNs )
+                m_Queue.pop_front();
             const bool needVideo = m_Video && ( m_Queue.empty() || m_Queue.back().PtsNs <= clockNs );
             const bool needAudio = wantSound && m_Sink->QueuedFrames() < kAudioLeadFrames;
-            if ( m_DemuxDone || ( !needVideo && !needAudio ) )
+            if ( m_DemuxDone || ( !needVideo && !needAudio ) || m_Queue.size() >= kMaxQueuedVideo )
                 return true;
 
             MediaPacket packet;

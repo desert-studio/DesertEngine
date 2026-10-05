@@ -361,15 +361,23 @@ namespace Desert::Player
             LOG_ERROR( "[StartupMovies] '{}' is listed in Config/Game.json and does not play: {}", movie.string(),
                        error );
         };
-        m_StartupMovies->Start();
-        // The first picture is converted now, outside any pass, so the very first presented frame has it.
-        TickStartupMovies( 0.0 );
+        // NOT started here: the sound is the movie's clock, and the first frames of a debug boot take seconds
+        // (pipelines), so a movie started now would have played out before it was ever on screen. It starts
+        // on the tick after the first presented frame; until then the cover is black.
     }
 
     void RuntimeLayer::TickStartupMovies( double deltaSeconds )
     {
         if ( !m_StartupMovies )
             return;
+        if ( !m_StartupMoviesStarted )
+        {
+            if ( m_PresentedFrames == 0 )
+                return;
+            m_StartupMoviesStarted = true;
+            m_StartupMovies->Start();
+            deltaSeconds = 0.0;
+        }
         if ( m_SkipStartupMovie )
             m_StartupMovies->Skip();
         m_SkipStartupMovie = false;
