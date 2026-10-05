@@ -272,10 +272,10 @@ namespace Desert::Editor
                 if ( !shader )
                     continue;
                 LevelMaterialSlotChoice choice;
-                choice.Slot  = static_cast<uint32_t>( slot );
+                choice.Slot = static_cast<uint32_t>( slot );
                 choice.Label =
                      LevelMaterialEdit::SlotLabel( choice.Slot, materialName( mesh.MaterialSlots[slot] ) );
-                using VT     = ::Desert::Core::Formats::ShaderValueType;
+                using VT = ::Desert::Core::Formats::ShaderValueType;
                 for ( const auto& param : shader->GetProgramMeta().Params )
                 {
                     if ( param.IsTexture || param.Name.empty() || param.Name.find( '.' ) != std::string::npos )
@@ -485,8 +485,7 @@ namespace Desert::Editor
         LevelTL::Player& player = LevelPlayer( sequence );
         if ( player.State() == LevelTL::PlayState::Playing )
             (void)player.Advance( static_cast<double>( ImGui::GetIO().DeltaTime ) );
-        m_LevelTick.Value =
-             std::clamp( player.Current().Frame.Value, sequence.Start.Value, sequence.End.Value );
+        m_LevelTick.Value = std::clamp( player.Current().Frame.Value, sequence.Start.Value, sequence.End.Value );
 
         // ── TOOLBAR: Save, + Track, the playhead ─────────────────────────────────────────────────────
         if ( ImGui::Button( ICON_MDI_CONTENT_SAVE " Save" ) )
@@ -518,15 +517,14 @@ namespace Desert::Editor
         DrawLevelTransport( sequence );
 
         // ── THE RULER: the display-frame grid, scrubbed by a click or a drag on it ──────────────────
-        constexpr float gutter       = 320.0f;
-        const float     contentX0    = ImGui::GetCursorScreenPos().x;
-        const float     laneX0       = contentX0 + gutter;
-        const float     laneW        = std::max( 40.0f, ImGui::GetContentRegionAvail().x - gutter - 10.0f );
-        const float     endSeconds   = static_cast<float>( SecondsAt( sequence, sequence.End.Value ) );
+        constexpr float gutter              = 320.0f;
+        const float     contentX0           = ImGui::GetCursorScreenPos().x;
+        const float     laneX0              = contentX0 + gutter;
+        const float     laneW               = std::max( 40.0f, ImGui::GetContentRegionAvail().x - gutter - 10.0f );
+        const float     endSeconds          = static_cast<float>( SecondsAt( sequence, sequence.End.Value ) );
         const Sequencer::CurveViewport axis = Sequencer::TimeAxis( laneX0, laneW, endSeconds );
-        const auto      xOf          = [&]( const int32_t tick )
-        { return axis.TimeToX( SecondsAt( sequence, tick ) ); };
-        ImDrawList*     draw         = ImGui::GetWindowDrawList();
+        const auto  xOf  = [&]( const int32_t tick ) { return axis.TimeToX( SecondsAt( sequence, tick ) ); };
+        ImDrawList* draw = ImGui::GetWindowDrawList();
         {
             const float rulerY = ImGui::GetCursorScreenPos().y;
             const float rulerH = 22.0f;
@@ -935,8 +933,8 @@ namespace Desert::Editor
                                            const float laneX0, const float laneW, const float rowY,
                                            const float rowH )
     {
-        ImDrawList*                     draw = ImGui::GetWindowDrawList();
-        const Sequencer::CurveViewport  axis =
+        ImDrawList*                    draw = ImGui::GetWindowDrawList();
+        const Sequencer::CurveViewport axis =
              Sequencer::TimeAxis( laneX0, laneW, static_cast<float>( SecondsAt( sequence, sequence.End.Value ) ) );
         const auto  xOf = [&]( const int32_t tick ) { return axis.TimeToX( SecondsAt( sequence, tick ) ); };
         const float y   = rowY + rowH * 0.5f;
@@ -954,7 +952,7 @@ namespace Desert::Editor
         ImGui::InvisibleButton( "##LevelKeys", ImVec2( laneW, rowH ) );
         if ( ImGui::IsItemClicked( ImGuiMouseButton_Left ) )
         {
-            const bool shift = ImGui::GetIO().KeyShift;
+            const bool                            shift = ImGui::GetIO().KeyShift;
             std::optional<Animation::FrameNumber> hit;
             for ( const auto tick : ticks )
                 if ( std::abs( mouse.x - xOf( tick.Value ) ) < 6.0f )
@@ -985,9 +983,8 @@ namespace Desert::Editor
         // A key drag: the selection follows on the display grid; written once, on release (one undo step).
         if ( m_LevelKeyDrag && ImGui::IsItemActive() )
         {
-            const double ticksPerPixel =
-                 ( axis.TimeEnd - axis.TimeStart ) / std::max( 1.0f, laneW ) * sequence.TickRate.Numerator /
-                 sequence.TickRate.Denominator;
+            const double ticksPerPixel = ( axis.TimeEnd - axis.TimeStart ) / std::max( 1.0f, laneW ) *
+                                         sequence.TickRate.Numerator / sequence.TickRate.Denominator;
             m_LevelDragDelta = SnapToDisplayFrame( sequence, ( mouse.x - m_LevelDragX0 ) * ticksPerPixel );
         }
         if ( m_LevelKeyDrag && ImGui::IsItemDeactivated() )
@@ -995,7 +992,7 @@ namespace Desert::Editor
             m_LevelKeyDrag = false;
             if ( m_LevelDragDelta != 0 )
             {
-                const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+                const ScopedSequenceEdit          undoStep( m_LevelEdit, LevelOwner() );
                 std::vector<LevelTL::BindingGuid> owners;
                 for ( const auto& key : m_LevelSelKeys )
                     if ( std::ranges::find( owners, key.Binding ) == owners.end() )
@@ -1006,7 +1003,8 @@ namespace Desert::Editor
                     for ( const auto& key : m_LevelSelKeys )
                         if ( key.Binding == owner )
                             from.push_back( key.Tick );
-                    if ( const auto moved = ECS::MoveEntityTransformKeys( sequence, owner, from, m_LevelDragDelta );
+                    if ( const auto moved =
+                              ECS::MoveEntityTransformKeys( sequence, owner, from, m_LevelDragDelta );
                          !moved.IsSuccess() )
                     {
                         ToastManager::Push( std::format( "Move keys refused: {}", moved.GetError() ),
@@ -1023,11 +1021,14 @@ namespace Desert::Editor
         // The marquee adds every key of this lane inside it.
         if ( m_LevelMarquee )
         {
-            const float x0 = std::min( m_LevelMarqueeFrom.x, mouse.x ), x1 = std::max( m_LevelMarqueeFrom.x, mouse.x );
-            const float y0 = std::min( m_LevelMarqueeFrom.y, mouse.y ), y1 = std::max( m_LevelMarqueeFrom.y, mouse.y );
+            const float x0 = std::min( m_LevelMarqueeFrom.x, mouse.x ),
+                        x1 = std::max( m_LevelMarqueeFrom.x, mouse.x );
+            const float y0 = std::min( m_LevelMarqueeFrom.y, mouse.y ),
+                        y1 = std::max( m_LevelMarqueeFrom.y, mouse.y );
             if ( y >= y0 && y <= y1 )
                 for ( const auto tick : ticks )
-                    if ( const float x = xOf( tick.Value ); x >= x0 && x <= x1 && selectedAt( tick ) == m_LevelSelKeys.end() )
+                    if ( const float x = xOf( tick.Value );
+                         x >= x0 && x <= x1 && selectedAt( tick ) == m_LevelSelKeys.end() )
                         m_LevelSelKeys.push_back( LevelKeyRef{ binding, tick } );
         }
 
@@ -1062,7 +1063,8 @@ namespace Desert::Editor
         const auto               added = ECS::AddEventKey( sequence, binding, m_LevelTick, "Event" );
         if ( !added.IsSuccess() )
         {
-            ToastManager::Push( std::format( "Add event refused: {}", added.GetError() ), ToastLevel::Error, 6.0f );
+            ToastManager::Push( std::format( "Add event refused: {}", added.GetError() ), ToastLevel::Error,
+                                6.0f );
             return;
         }
         // The new key is selected with its name in the row's field, ready to be renamed (UE: a new event key).
@@ -1077,7 +1079,8 @@ namespace Desert::Editor
             return;
         LevelTL::Sequence&       sequence = asset->EditSequence();
         const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
-        if ( const auto removed = ECS::RemoveEventKey( sequence, m_LevelSelEvent->Binding, m_LevelSelEvent->Index );
+        if ( const auto removed =
+                  ECS::RemoveEventKey( sequence, m_LevelSelEvent->Binding, m_LevelSelEvent->Index );
              !removed.IsSuccess() )
             ToastManager::Push( std::format( "Delete event refused: {}", removed.GetError() ), ToastLevel::Error,
                                 6.0f );
@@ -1111,8 +1114,14 @@ namespace Desert::Editor
         {
             // The selected key's name (UE: the event key's name in Details): one undo step per committed edit.
             ImGui::SameLine();
+            // The key is the truth: while nobody types, the field shows the key's name as the sequence holds it
+            // now, so an undo of a rename (or any edit from elsewhere) is what the field reads.
+            if ( !m_LevelEventNameEditing )
+                std::snprintf( m_LevelEventName, sizeof( m_LevelEventName ), "%s",
+                               keys[m_LevelSelEvent->Index].Name.c_str() );
             ImGui::SetNextItemWidth( std::max( 40.0f, laneX0 - ImGui::GetCursorScreenPos().x - 8.0f ) );
             ImGui::InputText( "##EventName", m_LevelEventName, sizeof( m_LevelEventName ) );
+            m_LevelEventNameEditing = ImGui::IsItemActive();
             if ( ImGui::IsItemDeactivatedAfterEdit() )
             {
                 const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
@@ -1153,7 +1162,8 @@ namespace Desert::Editor
         {
             const double ticksPerPixel = ( axis.TimeEnd - axis.TimeStart ) / std::max( 1.0f, laneW ) *
                                          sequence.TickRate.Numerator / sequence.TickRate.Denominator;
-            m_LevelEventDragDelta = SnapToDisplayFrame( sequence, ( mouse.x - m_LevelEventDragX0 ) * ticksPerPixel );
+            m_LevelEventDragDelta =
+                 SnapToDisplayFrame( sequence, ( mouse.x - m_LevelEventDragX0 ) * ticksPerPixel );
         }
         if ( m_LevelEventDrag && ImGui::IsItemDeactivated() )
         {
@@ -1161,12 +1171,13 @@ namespace Desert::Editor
             if ( m_LevelEventDragDelta != 0 && m_LevelSelEvent && m_LevelSelEvent->Binding == binding )
             {
                 const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
-                const auto moved = ECS::MoveEventKey( sequence, binding, m_LevelSelEvent->Index, m_LevelEventDragDelta );
+                const auto               moved =
+                     ECS::MoveEventKey( sequence, binding, m_LevelSelEvent->Index, m_LevelEventDragDelta );
                 if ( moved.IsSuccess() )
                     m_LevelSelEvent->Index = moved.GetValue();
                 else
-                    ToastManager::Push( std::format( "Move event refused: {}", moved.GetError() ), ToastLevel::Error,
-                                        6.0f );
+                    ToastManager::Push( std::format( "Move event refused: {}", moved.GetError() ),
+                                        ToastLevel::Error, 6.0f );
                 keys = ECS::EventKeys( sequence, binding );
             }
             m_LevelEventDragDelta = 0;
@@ -1175,10 +1186,11 @@ namespace Desert::Editor
         // Each key: a flag on its tick with its name beside it (UE draws the event's name on the key).
         for ( size_t i = 0; i < keys.size(); ++i )
         {
-            const bool    selected = m_LevelSelEvent && m_LevelSelEvent->Binding == binding && m_LevelSelEvent->Index == i;
-            const int32_t tick     = keys[i].Tick.Value + ( selected && m_LevelEventDrag ? m_LevelEventDragDelta : 0 );
-            const float   x        = xOf( tick );
-            const ImU32   colour   = selected ? IM_COL32( 255, 245, 200, 255 ) : IM_COL32( 120, 200, 140, 255 );
+            const bool selected =
+                 m_LevelSelEvent && m_LevelSelEvent->Binding == binding && m_LevelSelEvent->Index == i;
+            const int32_t tick = keys[i].Tick.Value + ( selected && m_LevelEventDrag ? m_LevelEventDragDelta : 0 );
+            const float   x    = xOf( tick );
+            const ImU32   colour = selected ? IM_COL32( 255, 245, 200, 255 ) : IM_COL32( 120, 200, 140, 255 );
             draw->AddLine( ImVec2( x, rowY + 2.0f ), ImVec2( x, rowY + rowH - 2.0f ), colour, 1.5f );
             draw->AddTriangleFilled( ImVec2( x, rowY + 2.0f ), ImVec2( x + 8.0f, rowY + 6.0f ),
                                      ImVec2( x, rowY + 10.0f ), colour );
@@ -1193,8 +1205,8 @@ namespace Desert::Editor
         const auto asset = ResolveLevelAsset();
         if ( !asset || m_LevelSelKeys.empty() )
             return;
-        LevelTL::Sequence&       sequence = asset->EditSequence();
-        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        LevelTL::Sequence&                sequence = asset->EditSequence();
+        const ScopedSequenceEdit          undoStep( m_LevelEdit, LevelOwner() );
         std::vector<LevelTL::BindingGuid> owners;
         for ( const auto& key : m_LevelSelKeys )
             if ( std::ranges::find( owners, key.Binding ) == owners.end() )
@@ -1205,9 +1217,10 @@ namespace Desert::Editor
             for ( const auto& key : m_LevelSelKeys )
                 if ( key.Binding == owner )
                     ticks.push_back( key.Tick );
-            if ( const auto removed = ECS::RemoveEntityTransformKeys( sequence, owner, ticks ); !removed.IsSuccess() )
-                ToastManager::Push( std::format( "Delete keys refused: {}", removed.GetError() ), ToastLevel::Error,
-                                    6.0f );
+            if ( const auto removed = ECS::RemoveEntityTransformKeys( sequence, owner, ticks );
+                 !removed.IsSuccess() )
+                ToastManager::Push( std::format( "Delete keys refused: {}", removed.GetError() ),
+                                    ToastLevel::Error, 6.0f );
         }
         m_LevelSelKeys.clear();
     }
@@ -1250,11 +1263,12 @@ namespace Desert::Editor
             if ( pose == nullptr || Animation::LiftChannel( *pose, part, 0 ).empty() )
                 continue;
             const auto keys = Animation::LiftChannel( *pose, part, 0 );
-            if ( shown == nullptr || ( selectedTick && std::ranges::any_of( keys, [&]( const Animation::ScalarKey& k )
-                                                                            { return k.Tick == *selectedTick; } ) ) )
+            if ( shown == nullptr ||
+                 ( selectedTick && std::ranges::any_of( keys, [&]( const Animation::ScalarKey& k )
+                                                        { return k.Tick == *selectedTick; } ) ) )
                 shown = pose;
         }
-        const LevelTL::Binding* bound = LevelTL::FindBinding( sequence, track.Binding );
+        const LevelTL::Binding*    bound   = LevelTL::FindBinding( sequence, track.Binding );
         const LevelTL::BindingGuid binding = track.Binding;
 
         CurvePlot plot;
@@ -1297,24 +1311,28 @@ namespace Desert::Editor
         // EVERY BUTTON ABOVE, REACHABLE WITHOUT A MOUSE (see Actions for why a widget alone is not enough).
         std::vector<DocumentAction> actions;
         actions.push_back( DocumentAction{ "Save", [this] { SaveLevelSequence(); } } );
-        actions.push_back( DocumentAction{ "Play", [this] {
+        actions.push_back( DocumentAction{ "Play", [this]
+                                           {
                                                if ( const auto a = ResolveLevelAsset() )
                                                    LevelPlayer( a->GetSequence() ).Play();
                                            } } );
-        actions.push_back( DocumentAction{ "Pause", [this] {
+        actions.push_back( DocumentAction{ "Pause", [this]
+                                           {
                                                if ( const auto a = ResolveLevelAsset() )
                                                    LevelPlayer( a->GetSequence() ).Pause();
                                            } } );
         actions.push_back( DocumentAction{ "Auto Key On", [this] { SetLevelRecord( true ); } } );
         actions.push_back( DocumentAction{ "Auto Key Off", [this] { SetLevelRecord( false ); } } );
         actions.push_back( DocumentAction{ "Delete Selected Keys", [this] { DeleteSelectedLevelKeys(); } } );
-        actions.push_back( DocumentAction{ "Select All Keys", [this] {
+        actions.push_back( DocumentAction{ "Select All Keys", [this]
+                                           {
                                                const auto a = ResolveLevelAsset();
                                                if ( !a )
                                                    return;
                                                m_LevelSelKeys.clear();
                                                for ( const auto& b : a->GetSequence().Bindings )
-                                                   for ( const auto t : ECS::EntityTransformKeyTicks( a->GetSequence(), b.Guid ) )
+                                                   for ( const auto t :
+                                                         ECS::EntityTransformKeyTicks( a->GetSequence(), b.Guid ) )
                                                        m_LevelSelKeys.push_back( LevelKeyRef{ b.Guid, t } );
                                            } } );
         actions.push_back( DocumentAction{ "Toggle Curves", [this] { m_LevelCurveView = !m_LevelCurveView; } } );
@@ -1336,11 +1354,11 @@ namespace Desert::Editor
                                                [this, uuid, label = tag] { AddLevelActor( uuid, label ); } } );
         }
         if ( !ECS::HasEventTrack( asset->GetSequence(), ECS::LevelSequenceMasterBinding() ) )
-            actions.push_back( DocumentAction{ "Add Sequence Event Track",
-                                               [this] { AddLevelEventTrack( ECS::LevelSequenceMasterBinding() ); } } );
+            actions.push_back( DocumentAction{ "Add Sequence Event Track", [this]
+                                               { AddLevelEventTrack( ECS::LevelSequenceMasterBinding() ); } } );
         else
-            actions.push_back( DocumentAction{ "Add Sequence Event",
-                                               [this] { AddLevelEventKey( ECS::LevelSequenceMasterBinding() ); } } );
+            actions.push_back( DocumentAction{ "Add Sequence Event", [this]
+                                               { AddLevelEventKey( ECS::LevelSequenceMasterBinding() ); } } );
         if ( m_LevelSelEvent )
             actions.push_back( DocumentAction{ "Delete Selected Event", [this] { DeleteSelectedLevelEvent(); } } );
         for ( const auto& binding : asset->GetSequence().Bindings )
