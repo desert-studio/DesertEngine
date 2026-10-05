@@ -404,7 +404,9 @@ TEST( LevelSequenceDocument, AnOverlappingCameraCutLeavesTheSequenceAsItWas )
 TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
 {
     T::Sequence sequence = AuthoredDoor();
-    const auto  door     = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" ).GetValue();
+    const auto  added    = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
+    ASSERT_TRUE( added.IsSuccess() );
+    const T::BindingGuid door = added.GetValue();
     ASSERT_TRUE( ECS::AddVisibilityTrack( sequence, door, true ).IsSuccess() );
     EXPECT_FALSE( ECS::AddVisibilityTrack( sequence, door, true ).IsSuccess() )
          << "one Visibility track per actor";
