@@ -447,8 +447,8 @@ namespace Desert::Graphic::Render2D
         EmitPoly( cmd, corners, 4 );
     }
 
-    void DrawList2D::AddPolyline( const glm::vec2* points, uint32_t count, const glm::vec4& color,
-                                  float thickness, float feather, bool roundCaps )
+    void DrawList2D::AddPolyline( const glm::vec2* points, uint32_t count, const glm::vec4& color, float thickness,
+                                  float feather, bool roundCaps )
     {
         if ( count < 2 || points == nullptr || ClipRegionEmpty( m_Clip ) )
             return;
@@ -504,8 +504,8 @@ namespace Desert::Graphic::Render2D
         strip( hw, core, -hw, core ); // the solid core
         if ( fw > 0.0f )
         {
-            strip( hw + fw, clear, hw, core );    // left fringe
-            strip( -hw - fw, clear, -hw, core );  // right fringe
+            strip( hw + fw, clear, hw, core );   // left fringe
+            strip( -hw - fw, clear, -hw, core ); // right fringe
         }
 
         if ( !roundCaps )
@@ -515,8 +515,8 @@ namespace Desert::Graphic::Render2D
         constexpr int kCapSegments = 12;
         auto          cap          = [&]( const glm::vec2& c, const glm::vec2& outward )
         {
-            const glm::vec2       n = { -outward.y, outward.x };
-            std::array<glm::vec2, kCapSegments + 1> dir {};
+            const glm::vec2                         n = { -outward.y, outward.x };
+            std::array<glm::vec2, kCapSegments + 1> dir{};
             for ( int k = 0; k <= kCapSegments; ++k )
             {
                 const float a = 3.14159265358979f * static_cast<float>( k ) / kCapSegments;
@@ -531,7 +531,7 @@ namespace Desert::Graphic::Render2D
             }
             if ( fw <= 0.0f )
                 return;
-            std::array<Vertex2D, ( kCapSegments + 1 ) * 2> rim {};
+            std::array<Vertex2D, ( kCapSegments + 1 ) * 2> rim{};
             for ( int k = 0; k <= kCapSegments; ++k )
             {
                 rim[k * 2]     = { Xf( c + dir[k] * ( hw + fw ) ), uv, clear };

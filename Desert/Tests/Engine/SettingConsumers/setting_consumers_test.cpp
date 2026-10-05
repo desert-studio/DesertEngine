@@ -809,26 +809,13 @@ namespace
     };
 
     constexpr Row kPathRows[] = {
-         { "Curve", kCanvasRenderer },
-         { "PointCount", kCanvasRenderer },
-         { "Reveal", kCanvasRenderer },
-         { "Thickness", kCanvasRenderer },
-         { "Color", kCanvasRenderer },
-         { "Opacity", kCanvasRenderer },
-         { "RoundCaps", kCanvasRenderer },
-         { "Feather", kCanvasRenderer },
-         { "P0", kCanvasRenderer },
-         { "P1", kCanvasRenderer },
-         { "P2", kCanvasRenderer },
-         { "P3", kCanvasRenderer },
-         { "P4", kCanvasRenderer },
-         { "P5", kCanvasRenderer },
-         { "P6", kCanvasRenderer },
-         { "P7", kCanvasRenderer },
-         { "Glow", kCanvasRenderer },
-         { "GlowColor", kCanvasRenderer },
-         { "GlowRadius", kCanvasRenderer },
-         { "GlowStrength", kCanvasRenderer },
+         { "Curve", kCanvasRenderer },      { "PointCount", kCanvasRenderer },   { "Reveal", kCanvasRenderer },
+         { "Thickness", kCanvasRenderer },  { "Color", kCanvasRenderer },        { "Opacity", kCanvasRenderer },
+         { "RoundCaps", kCanvasRenderer },  { "Feather", kCanvasRenderer },      { "P0", kCanvasRenderer },
+         { "P1", kCanvasRenderer },         { "P2", kCanvasRenderer },           { "P3", kCanvasRenderer },
+         { "P4", kCanvasRenderer },         { "P5", kCanvasRenderer },           { "P6", kCanvasRenderer },
+         { "P7", kCanvasRenderer },         { "Glow", kCanvasRenderer },         { "GlowColor", kCanvasRenderer },
+         { "GlowRadius", kCanvasRenderer }, { "GlowStrength", kCanvasRenderer },
     };
 
     constexpr Row kToggleRows[] = {

@@ -47,7 +47,7 @@
     X( UIRenderTextureComponent, "UI Render Texture", ICON_MDI_VIDEO_BOX, "Render Texture" )                      \
     X( UILayoutGroupComponent, "UI Layout Group", ICON_MDI_VIEW_GRID, "Layout Group" )                            \
     X( UIProgressBarComponent, "UI Progress Bar", ICON_MDI_PROGRESS_HELPER, "Progress Bar" )                      \
-    X( UIPathComponent, "UI Path", ICON_MDI_VECTOR_CURVE, "Path" )                                               \
+    X( UIPathComponent, "UI Path", ICON_MDI_VECTOR_CURVE, "Path" )                                                \
     X( UIToggleComponent, "UI Toggle", ICON_MDI_CHECKBOX_MARKED_OUTLINE, "Toggle" )                               \
     X( UISliderComponent, "UI Slider", ICON_MDI_TUNE_VARIANT, "Slider" )                                          \
     X( UIScrollViewComponent, "UI Scroll View", ICON_MDI_VIEW_LIST, "Scroll View" )                               \

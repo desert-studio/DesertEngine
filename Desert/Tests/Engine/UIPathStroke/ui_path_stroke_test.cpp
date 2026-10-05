@@ -31,7 +31,8 @@ TEST( UIPathStroke, RevealZeroHalfAndOneAreZeroHalfAndAllOfTheLength )
         ASSERT_GT( line.Length, 0.0f );
 
         EXPECT_TRUE( UI::RevealUIPath( line, 0.0f ).empty() ) << "smooth=" << smooth;
-        EXPECT_NEAR( UI::PolylineLength( UI::RevealUIPath( line, 0.5f ) ), 0.5f * line.Length, 1e-3f * line.Length )
+        EXPECT_NEAR( UI::PolylineLength( UI::RevealUIPath( line, 0.5f ) ), 0.5f * line.Length,
+                     1e-3f * line.Length )
              << "smooth=" << smooth;
         EXPECT_NEAR( UI::PolylineLength( UI::RevealUIPath( line, 1.0f ) ), line.Length, 1e-3f * line.Length )
              << "smooth=" << smooth;

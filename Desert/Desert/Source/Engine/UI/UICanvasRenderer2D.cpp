@@ -1050,8 +1050,8 @@ namespace Desert::UI
                 const float   radius      = t.GlowRadius * scale;
                 for ( int ring = kRings; ring >= 1; --ring )
                 {
-                    const float     r = radius * static_cast<float>( ring ) / kRings;
-                    const float     a = t.GlowStrength * ( 1.0f - static_cast<float>( ring - 1 ) / kRings ) /
+                    const float r = radius * static_cast<float>( ring ) / kRings;
+                    const float a = t.GlowStrength * ( 1.0f - static_cast<float>( ring - 1 ) / kRings ) /
                                     static_cast<float>( kDirections ) * 2.0f;
                     const glm::vec4 gc( t.GlowColor, std::clamp( a, 0.0f, 1.0f ) );
                     for ( int k = 0; k < kDirections; ++k )
@@ -1668,13 +1668,13 @@ namespace Desert::UI
                 }
                 else if ( reg.has<ECS::UIPathComponent>( e ) )
                 {
-                    const ECS::UIPathData& path  = reg.get<ECS::UIPathComponent>( e ).Data;
+                    const ECS::UIPathData& path     = reg.get<ECS::UIPathComponent>( e ).Data;
                     const glm::vec2        slots[8] = { path.P0, path.P1, path.P2, path.P3,
                                                         path.P4, path.P5, path.P6, path.P7 };
-                    const int              count = std::clamp( path.PointCount, 2, 8 );
+                    const int              count    = std::clamp( path.PointCount, 2, 8 );
 
                     // Points are fractions of the element's own rect, so the line follows its anchors.
-                    std::array<glm::vec2, 8> control {};
+                    std::array<glm::vec2, 8> control{};
                     for ( int i = 0; i < count; ++i )
                         control[static_cast<size_t>( i )] = mn + slots[i] * ( mx - mn );
 
@@ -1694,8 +1694,8 @@ namespace Desert::UI
                         const float thick = path.Thickness * scale;
                         if ( path.Glow && path.GlowRadius > 0.0f && path.GlowStrength > 0.0f )
                             dl.AddPolyline( shown.data(), static_cast<uint32_t>( shown.size() ),
-                                            Tinted( ctx, glm::vec4( path.GlowColor, path.GlowStrength ) ),
-                                            thick, path.GlowRadius * scale, path.RoundCaps );
+                                            Tinted( ctx, glm::vec4( path.GlowColor, path.GlowStrength ) ), thick,
+                                            path.GlowRadius * scale, path.RoundCaps );
                         dl.AddPolyline( shown.data(), static_cast<uint32_t>( shown.size() ),
                                         Tinted( ctx, glm::vec4( path.Color, path.Opacity ) ), thick, path.Feather,
                                         path.RoundCaps );
