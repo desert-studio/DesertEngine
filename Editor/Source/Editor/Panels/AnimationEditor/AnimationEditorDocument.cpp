@@ -884,9 +884,10 @@ namespace Desert::Editor
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
-                (void)m_Preview->Draw( *m_UIHelper, view,
-                                       PreviewInteractionUnderTool( m_GizmoHovered, m_BoneGesture.Active() || m_BindGesture.Active(),
-                                                                    ImGui::IsAnyItemActive() ) );
+                (void)m_Preview->Draw(
+                     *m_UIHelper, view,
+                     PreviewInteractionUnderTool( m_GizmoHovered, m_BoneGesture.Active() || m_BindGesture.Active(),
+                                                  ImGui::IsAnyItemActive() ) );
             DrawBones( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             // A click on a drawn joint selects that bone — in the tree too, which reads the same selection (UE's
             // Persona viewport). A press on the posing gizmo is the gizmo's.
@@ -1985,7 +1986,6 @@ namespace Desert::Editor
         }
         if ( !m_SkeletonAsset )
             return;
-
 
         // What a change writes: the .skeleton, at once (UE marks the package dirty; this asset has no editor
         // document of its own to hold the edit, so the slot is the save).
