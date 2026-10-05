@@ -118,3 +118,9 @@ TEST( SkeletonBindEdit, DontSavePutsTheFilesBindBackAndForgetsTheRecords )
     EXPECT_FALSE( Editor::BindPoseDiffers( *rig, onDisk.GetValue() ) );
     EXPECT_FALSE( Editor::CommandHistory::Get().Undo() ) << "the discarded edit's record went with it";
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
