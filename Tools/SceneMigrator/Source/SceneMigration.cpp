@@ -1050,7 +1050,10 @@ namespace Desert::Migration
             return Common::MakeError<TargetSkeletonRig>( candidate.GetError() );
         TargetSkeletonRig rig{
              Common::Content::AssetGuidToText( candidate.GetValue().Guid ), candidate.GetValue().Path, {} };
-        for ( const auto& bone : ReadAnySkeleton( text ).GetValue().Data.Bones )
+        const auto skeleton = ReadAnySkeleton( text );
+        if ( !skeleton )
+            return Common::MakeError<TargetSkeletonRig>( skeleton.GetError() );
+        for ( const auto& bone : skeleton.GetValue().Data.Bones )
             rig.Bones.insert( bone.Name );
         return Common::MakeSuccess( std::move( rig ) );
     }
