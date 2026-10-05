@@ -157,7 +157,7 @@ namespace Desert::Graphic
         // The PassBindings route of RenderMesh (see Renderer::RenderMesh( const RDG::PassBindings&, ... )).
         [[nodiscard]] virtual Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings,
                                                                 const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                                const glm::mat4& transform, MaterialExecutor& material,
+                                                                const glm::mat4& transform, const MaterialExecutor& material,
                                                                 uint32_t instanceCount, uint32_t firstInstance,
                                                                 uint64_t hiddenSubmeshMask, uint32_t lodLevel ) = 0;
 

@@ -447,14 +447,15 @@ namespace Desert::Graphic::System
         DrawGenericMeshes( /*useLoadPass*/ true );
     }
 
-    void MeshRenderer::RenderGlassManual( const std::shared_ptr<Image2D>& sceneColor )
+    Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context,
+                                                           RDG::TextureRef         sceneCopy )
     {
         if ( !m_StaticGlassPipeline || !m_GlassMaterial || !m_GlassInstance || m_StaticQueue.empty() )
-            return;
+            return BOOLSUCCESS;
         const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         const auto  camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
         if ( !target || !camera )
-            return;
+            return BOOLSUCCESS;
 
         // Collect the transparent (Transmission > 0) objects + their effective GPU material entries. Uses a
         // DEDICATED material so the opaque passes' per-frame UBs are untouched (the double-write-per-frame that
@@ -480,7 +481,7 @@ namespace Desert::Graphic::System
             gpuMats.push_back( gm );
         }
         if ( glassObjs.empty() )
-            return;
+            return BOOLSUCCESS;
 
         auto& renderer = Renderer::GetInstance();
 
@@ -493,22 +494,29 @@ namespace Desert::Graphic::System
         MaterialInstance* gi = m_GlassInstance.get();
         CaptureFrameState( camera ).ApplyTo( gi );
 
-        // Bind the scene snapshot the glass samples for refraction (binding 19, glass-shader-only).
-        if ( sceneColor )
-            if ( auto tex = m_GlassMaterial->GetMaterialExecutor()->GetTexture2DProperty( "u_SceneColor" ) )
-                tex->SetImage( sceneColor.get(), RDG::Access::SampledGraphics );
+        // The scene snapshot the glass samples for refraction (binding 19, glass-shader-only) is this frame's
+        // graph transient, bound by name; the sampler is the one the material route sampled the copy with (the
+        // image's own: linear, REPEAT).
+        RDG::PassBindings bindings( context );
+        bindings.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                          RDG::SamplerDesc::LinearRepeat() );
 
         // --- Draw the glass over the composited scene: the graph opens the render pass (LOAD + blend) ---
+        const MaterialExecutor& executor = *m_GlassMaterial->GetMaterialExecutor();
         for ( uint32_t i = 0; i < static_cast<uint32_t>( glassObjs.size() ); ++i )
         {
             const auto* obj = glassObjs[i];
             MaterialPBR::UpdateTransform( gi, obj->Transform );
             m_GlassMaterial->SetMaterialIndex( i );
             m_GlassMaterial->Bind( gi );
-            renderer.RenderMesh( m_StaticGlassPipeline.get(), obj->Mesh, obj->Transform,
-                                 m_GlassMaterial->GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes,
-                                 ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ) );
+            const Common::BoolResultStr drawn =
+                 renderer.RenderMesh( bindings, *m_StaticGlassPipeline, *obj->Mesh, obj->Transform, executor, 1, 0,
+                                      obj->HiddenSubmeshes,
+                                      ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ) );
+            if ( !drawn.IsSuccess() )
+                return drawn;
         }
+        return BOOLSUCCESS;
     }
 
     // SUPPRESSED, NAMED, AND NOT FIXED HERE: cognitive complexity 153 against a threshold of 19. That is

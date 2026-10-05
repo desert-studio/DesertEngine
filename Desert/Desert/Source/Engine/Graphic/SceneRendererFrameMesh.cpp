@@ -42,11 +42,13 @@ namespace Desert::Graphic
     namespace
     {
         // One raster node: the graph opens the render pass on @p targets (every colour with @p color, the depth
-        // with @p depth, all stored), @p sampled are read by its fragment shaders, and @p body records the draws.
-        // NeverCull: the bodies also write per-frame material state later passes of the frame rely on.
+        // with @p depth, all stored), @p sampled are read by its fragment shaders, and @p body records the draws
+        // with this node's PassContext (graph textures bound by name through RDG::PassBindings); its error is the
+        // node's. NeverCull: the bodies also write per-frame material state later passes of the frame rely on.
         void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
                         const RDG::LoadOp& color, const RDG::LoadOp& depth,
-                        const std::vector<RDG::TextureRef>& sampled, std::function<void()> body )
+                        const std::vector<RDG::TextureRef>&                              sampled,
+                        std::function<Common::BoolResultStr( const RDG::PassContext& )> body )
         {
             graph.AddPass(
                  name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
@@ -61,11 +63,22 @@ namespace Desert::Graphic
                      for ( uint32_t slot = 0; slot < targets.Resolves.size(); ++slot )
                          pass.ResolveTarget( slot, targets.Resolves[slot] );
                  },
-                 [body = std::move( body )]( RDG::PassContext& ) -> Common::BoolResultStr
-                 {
-                     body();
-                     return BOOLSUCCESS;
-                 } );
+                 [body = std::move( body )]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return body( context ); } );
+        }
+
+        // A raster node whose body binds no graph resource by name (its draws read what @p sampled declares
+        // through their materials) and cannot fail.
+        void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
+                        const RDG::LoadOp& color, const RDG::LoadOp& depth,
+                        const std::vector<RDG::TextureRef>& sampled, std::function<void()> body )
+        {
+            AddRaster( graph, name, targets, color, depth, sampled,
+                       [body = std::move( body )]( const RDG::PassContext& ) -> Common::BoolResultStr
+                       {
+                           body();
+                           return BOOLSUCCESS;
+                       } );
         }
 
         // The shadow images a lit forward pass samples (SceneRenderer::DeclareShadowReads), as graph textures.
@@ -207,19 +220,21 @@ namespace Desert::Graphic
                    [meshRenderer]() { meshRenderer->RenderSkinnedManual(); } );
     }
 
-    void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures,
-                                       const std::vector<RDG::TextureRef>& copyReads,
-                                       System::MeshRenderer*               meshRenderer,
-                                       const std::shared_ptr<FrameValues>& values )
+    void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
+                                       System::MeshRenderer* meshRenderer )
     {
-        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
-        if ( !targets || !meshRenderer )
+        if ( !sceneCopy.IsValid() || !meshRenderer )
             return;
-        // The glass samples the scene copy for its refraction, and the shadow maps as every lit forward pass does.
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
+        if ( !targets )
+            return;
+        // The glass samples the scene copy for its refraction (bound by name in the body), and the shadow maps as
+        // every lit forward pass does.
         std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Glass" );
-        sampled.insert( sampled.end(), copyReads.begin(), copyReads.end() );
+        sampled.push_back( sceneCopy );
         AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, values]() { meshRenderer->RenderGlassManual( values->SceneCopy ); } );
+                   [meshRenderer, sceneCopy]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderGlassManual( context, sceneCopy ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS
