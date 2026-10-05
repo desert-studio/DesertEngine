@@ -1,5 +1,6 @@
 #include "JumpFloodOutlineRenderer.hpp"
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -27,56 +28,32 @@ namespace Desert::Graphic::System
             return Common::MakeError( "JumpFloodOutlineRenderer: target framebuffer is not available" );
         }
 
-        const uint32_t width  = targetFramebuffer->GetFramebufferWidth();
-        const uint32_t height = targetFramebuffer->GetFramebufferHeight();
-
-        if ( !CreateFramebuffers( width, height ) )
+        FramebufferSpecification spec;
+        spec.DebugName = "JFA_Output";
+        spec.Attachments.Attachments.push_back( kSeedFormat );
+        m_Framebuffer = Graphic::Framebuffer::Create( spec );
+        if ( !m_Framebuffer )
         {
-            return Common::MakeError( "JumpFloodOutlineRenderer: failed to create framebuffers" );
+            return Common::MakeError( "JumpFloodOutlineRenderer: failed to create the output framebuffer" );
         }
+        m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(), targetFramebuffer->GetFramebufferHeight() );
 
         if ( !CreatePipelines() )
         {
             return Common::MakeError( "JumpFloodOutlineRenderer: failed to create pipelines" );
         }
 
-        m_MaterialInit      = std::make_unique<MaterialJFAInit>();
         m_MaterialComposite = std::make_unique<MaterialJFAComposite>();
 
-        m_StepCount = ComputeStepCount( width, height );
-        m_StepMaterials.clear();
-        for ( uint32_t i = 0; i < m_StepCount; ++i )
-        {
-            m_StepMaterials.push_back( std::make_unique<MaterialJFAStep>() );
-        }
-
         return BOOLSUCCESS;
-    }
-
-    bool JumpFloodOutlineRenderer::CreateFramebuffers( uint32_t width, uint32_t height )
-    {
-        const auto makeFramebuffer = [&]( const std::string& name )
-        {
-            FramebufferSpecification spec;
-            spec.DebugName = name;
-            spec.Attachments.Attachments.push_back( kSeedFormat );
-
-            auto framebuffer = Graphic::Framebuffer::Create( spec );
-            framebuffer->Resize( width, height );
-            return framebuffer;
-        };
-
-        m_SeedFramebuffers[0] = makeFramebuffer( "JFA_Seed0" );
-        m_SeedFramebuffers[1] = makeFramebuffer( "JFA_Seed1" );
-        m_Framebuffer         = makeFramebuffer( "JFA_Output" );
-
-        return m_SeedFramebuffers[0] && m_SeedFramebuffers[1] && m_Framebuffer;
     }
 
     bool JumpFloodOutlineRenderer::CreatePipelines()
     {
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
 
+        // @p framebuffer: the output (Final); null: a seed transient, built against the graph's canonical render
+        // pass for one kJFASeed colour target.
         const auto makePipeline = [&]( const std::string& shaderName, const std::shared_ptr<Framebuffer>& framebuffer,
                                        const std::string& debugName ) -> std::shared_ptr<GraphicsPipeline>
         {
@@ -88,9 +65,12 @@ namespace Desert::Graphic::System
             }
 
             GraphicsPipelineSpecification spec;
-            spec.DebugName         = debugName;
-            spec.Shader            = shader;
-            spec.Framebuffer       = framebuffer;
+            spec.DebugName = debugName;
+            spec.Shader    = shader;
+            if ( framebuffer )
+                spec.Framebuffer = framebuffer;
+            else
+                spec.TargetLayout = RenderTargetLayout{ .ColorFormats = { kSeedFormat } };
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
             spec.CullMode          = CullMode::None;
@@ -104,8 +84,8 @@ namespace Desert::Graphic::System
             return pipeline.GetValue();
         };
 
-        m_InitPipeline  = makePipeline( "JFA_Init", m_SeedFramebuffers[0], "JFA_InitPipeline" );
-        m_StepPipeline  = makePipeline( "JFA_Step", m_SeedFramebuffers[0], "JFA_StepPipeline" );
+        m_InitPipeline  = makePipeline( "JFA_Init", nullptr, "JFA_InitPipeline" );
+        m_StepPipeline  = makePipeline( "JFA_Step", nullptr, "JFA_StepPipeline" );
         m_FinalPipeline = makePipeline( "JFA_Final", m_Framebuffer, "JFA_FinalPipeline" );
 
         return m_InitPipeline && m_StepPipeline && m_FinalPipeline;
@@ -115,34 +95,39 @@ namespace Desert::Graphic::System
     {
         if ( width == 0 || height == 0 )
             return;
-
-        if ( m_SeedFramebuffers[0] )
-            m_SeedFramebuffers[0]->Resize( width, height );
-        if ( m_SeedFramebuffers[1] )
-            m_SeedFramebuffers[1]->Resize( width, height );
         if ( m_Framebuffer )
             m_Framebuffer->Resize( width, height );
-
-        const uint32_t newStepCount = ComputeStepCount( width, height );
-        if ( newStepCount != m_StepCount )
-        {
-            m_StepCount = newStepCount;
-            m_StepMaterials.clear();
-            for ( uint32_t i = 0; i < m_StepCount; ++i )
-            {
-                m_StepMaterials.push_back( std::make_unique<MaterialJFAStep>() );
-            }
-        }
     }
 
     bool JumpFloodOutlineRenderer::Prepare() const
     {
-        if ( !m_TargetFramebuffer.lock() || !m_Framebuffer || !m_SeedFramebuffers[0] || !m_SeedFramebuffers[1] )
+        if ( !m_TargetFramebuffer.lock() || !m_Framebuffer || !m_InitPipeline || !m_StepPipeline ||
+             !m_FinalPipeline )
         {
-            LOG_ERROR( "JumpFloodOutlineRenderer::Prepare: the scene, seed or output framebuffer is unavailable" );
+            LOG_ERROR( "JumpFloodOutlineRenderer::Prepare: the scene framebuffer, the output or a pipeline is "
+                       "unavailable" );
             return false;
         }
         return true;
+    }
+
+    uint32_t JumpFloodOutlineRenderer::GetStepCount() const
+    {
+        const auto scene = m_TargetFramebuffer.lock();
+        return scene ? ComputeStepCount( scene->GetFramebufferWidth(), scene->GetFramebufferHeight() ) : 1u;
+    }
+
+    std::optional<RDG::TextureDesc> JumpFloodOutlineRenderer::GetSeedDesc() const
+    {
+        const auto scene = m_TargetFramebuffer.lock();
+        if ( !scene )
+        {
+            LOG_ERROR( "JumpFloodOutlineRenderer: the scene framebuffer is gone; no seed is created" );
+            return std::nullopt;
+        }
+        return RDG::TextureDesc{ .Size   = { .Width  = scene->GetFramebufferWidth(),
+                                             .Height = scene->GetFramebufferHeight() },
+                                 .Format = kSeedFormat };
     }
 
     bool JumpFloodOutlineRenderer::RunsInit() const
@@ -162,35 +147,43 @@ namespace Desert::Graphic::System
         return sceneFramebuffer ? sceneFramebuffer->GetColorAttachmentImage() : nullptr;
     }
 
-    void JumpFloodOutlineRenderer::RecordInit()
+    // The mask and the seeds hold per-texel data (coverage, a seed coordinate) that must not be blended between
+    // texels, and a neighbour beyond the border must not wrap to the opposite edge: PointClamp.
+    Common::BoolResultStr JumpFloodOutlineRenderer::RecordInit( const RDG::PassContext& context, RDG::TextureRef mask )
     {
-        // Init: silhouette mask -> seed[0].
-        const auto mask = GetMaskImage();
-        if ( !mask )
-            return;
-        m_MaterialInit->BindInputs( mask.get() );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_InitPipeline.get(),
-                                                      m_MaterialInit->GetMaterialExecutor() );
+        RDG::PassBindings bindings( context );
+        bindings.Sampled( "u_StencilTexture", mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                          RDG::SamplerDesc::PointClamp() );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_InitPipeline, nullptr );
     }
 
-    void JumpFloodOutlineRenderer::RecordStep( uint32_t step )
+    Common::BoolResultStr JumpFloodOutlineRenderer::RecordStep( const RDG::PassContext& context, uint32_t step,
+                                                                RDG::TextureRef source )
     {
         // Ping-pong propagation with halving sample distance.
-        m_StepMaterials[step]->BindInputs( GetSeedImage( GetStepSource( step ) ).get(),
-                                           1 << ( m_StepCount - 1 - step ) );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_StepPipeline.get(),
-                                                      m_StepMaterials[step]->GetMaterialExecutor() );
+        const int32_t stepLength = 1 << ( GetStepCount() - 1 - step );
+
+        RDG::PassBindings bindings( context );
+        bindings
+             .Sampled( "u_InputTexture", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::PointClamp() )
+             .PushConstants( &stepLength, sizeof( stepLength ) );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_StepPipeline, nullptr );
     }
 
-    void JumpFloodOutlineRenderer::RecordFinal()
+    Common::BoolResultStr JumpFloodOutlineRenderer::RecordFinal( const RDG::PassContext& context, RDG::TextureRef seed,
+                                                                 RDG::TextureRef scene )
     {
-        // Final composite -> output. No steps ran (nothing selected, or the outline is off) -> width 0 makes
-        // JFA_Final pass the scene through unchanged.
-        const auto  sceneColor     = GetSceneColorImage();
         const float effectiveWidth = RunsSteps() ? m_OutlineWidth : 0.0f;
-        m_MaterialComposite->BindInputs( GetSeedImage( GetFinalSeedIndex() ).get(), sceneColor.get(),
-                                         glm::vec4( m_OutlineColor, 1.0f ), effectiveWidth, m_Smoothness );
-        Renderer::GetInstance().SubmitFullscreenQuad( m_FinalPipeline.get(),
-                                                      m_MaterialComposite->GetMaterialExecutor() );
+        m_MaterialComposite->SetParams( glm::vec4( m_OutlineColor, 1.0f ), effectiveWidth, m_Smoothness );
+
+        RDG::PassBindings bindings( context );
+        bindings
+             .Sampled( "u_JFATexture", seed, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::PointClamp() )
+             .Sampled( "u_SceneTexture", scene, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_FinalPipeline,
+                                                       m_MaterialComposite->GetMaterialExecutor() );
     }
 } // namespace Desert::Graphic::System

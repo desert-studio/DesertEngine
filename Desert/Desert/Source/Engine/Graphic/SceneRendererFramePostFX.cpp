@@ -58,8 +58,18 @@ namespace Desert::Graphic
              UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
         if ( !jfa->Prepare() )
             return;
-        const RDG::TextureRef seeds[2] = { textures.Import( jfa->GetSeedImage( 0 ), "JumpFlood.Seed0" ),
-                                           textures.Import( jfa->GetSeedImage( 1 ), "JumpFlood.Seed1" ) };
+        // The seeds live within this graph: transients of the scene's size, created only when a pass writes them.
+        // Init writes seed[0]; the steps ping-pong between seed[0] and seed[1].
+        RDG::TextureRef seeds[2];
+        if ( jfa->RunsInit() )
+        {
+            const std::optional<RDG::TextureDesc> desc = jfa->GetSeedDesc();
+            if ( !desc )
+                return;
+            seeds[0] = graph.CreateTexture( *desc, "JumpFlood.Seed0" );
+            if ( jfa->RunsSteps() )
+                seeds[1] = graph.CreateTexture( *desc, "JumpFlood.Seed1" );
+        }
         // The old passes cleared every target (RenderPassSpecification's default clear, black); kept.
         const RDG::LoadOp clear = RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
 
@@ -73,48 +83,41 @@ namespace Desert::Graphic
                      pass.Read( mask, RDG::Access::SampledGraphics );
                      pass.ColorTarget( 0, seeds[0], clear );
                  },
-                 [jfa]( RDG::PassContext& ) -> Common::BoolResultStr
-                 {
-                     jfa->RecordInit();
-                     return BOOLSUCCESS;
-                 } );
+                 [jfa, mask]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return jfa->RecordInit( context, mask ); } );
         }
         // Ping-pong propagation: one node per step, each sampling the seed the previous one wrote.
         if ( jfa->RunsSteps() )
             for ( uint32_t step = 0; step < jfa->GetStepCount(); ++step )
             {
-                const uint32_t source = System::JumpFloodOutlineRenderer::GetStepSource( step );
+                const RDG::TextureRef source = seeds[System::JumpFloodOutlineRenderer::GetStepSource( step )];
+                const RDG::TextureRef target = seeds[1 - System::JumpFloodOutlineRenderer::GetStepSource( step )];
                 graph.AddPass(
                      std::format( "PostFX: JumpFloodStep{}", step ), RDG::PassFlags::Raster,
                      [&]( RDG::PassBuilder& pass )
                      {
-                         pass.Read( seeds[source], RDG::Access::SampledGraphics );
-                         pass.ColorTarget( 0, seeds[1 - source], clear );
+                         pass.Read( source, RDG::Access::SampledGraphics );
+                         pass.ColorTarget( 0, target, clear );
                      },
-                     [jfa, step]( RDG::PassContext& ) -> Common::BoolResultStr
-                     {
-                         jfa->RecordStep( step );
-                         return BOOLSUCCESS;
-                     } );
+                     [jfa, step, source]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return jfa->RecordStep( context, step, source ); } );
             }
         // The composite runs on every frame, outlined or not: it is what hands the scene colour to the tonemap
-        // (TonemapRenderer::Inputs::Source is GetOutputImage()).
+        // (TonemapRenderer::Inputs::Source is GetOutputImage()). Without Init no seed exists this frame: the
+        // composite samples the engine's black texture and passes the scene through (width 0).
         const RDG::TextureRef scene  = textures.Import( jfa->GetSceneColorImage(), "JumpFlood.Scene" );
         const RDG::TextureRef output = textures.Import( jfa->GetOutputImage(), "Tonemap.Source" );
-        const uint32_t        seed   = jfa->GetFinalSeedIndex();
+        const RDG::TextureRef seed   = jfa->RunsInit() ? seeds[jfa->GetFinalSeedIndex()] : textures.System.Black;
         graph.AddPass(
              "PostFX: JumpFloodFinal", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Read( scene, RDG::Access::SampledGraphics );
-                 pass.Read( seeds[seed], RDG::Access::SampledGraphics );
+                 pass.Read( seed, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, output, clear );
              },
-             [jfa]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 jfa->RecordFinal();
-                 return BOOLSUCCESS;
-             } );
+             [jfa, seed, scene]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return jfa->RecordFinal( context, seed, scene ); } );
     }
 
     void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
