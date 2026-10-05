@@ -79,7 +79,8 @@ namespace Desert::Editor
 
     std::string EmbeddedTextureExtension( const aiTexture& texture )
     {
-        return IsCompressed( texture ) ? "." + CompressedExtension( texture ) : std::string( ".png" );
+        return IsCompressed( texture ) ? std::format( ".{}", CompressedExtension( texture ) )
+                                       : std::string( ".png" );
     }
 
     Common::ResultStr<SourceTextureFile> ResolveSourceTexture( const aiScene&               scene,

@@ -15,6 +15,7 @@
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <optional>
 #include <string>
 #include <thread>
@@ -111,7 +112,7 @@ namespace Desert::Editor
             const double                              decodeMs = decoded->DecodeMs;
             const bool                                onMain   = decoded->DecodedOn == std::this_thread::get_id();
             const ::Desert::Core::Formats::Image2DSpecification spec = {
-                 .Tag        = "Thumb_" + std::filesystem::path( sourcePath ).filename().string(),
+                 .Tag        = std::format( "Thumb_{}", std::filesystem::path( sourcePath ).filename().string() ),
                  .Width      = static_cast<uint32_t>( tw ),
                  .Height     = static_cast<uint32_t>( th ),
                  .Format     = ::Desert::Core::Formats::ImageFormat::RGBA8F,
