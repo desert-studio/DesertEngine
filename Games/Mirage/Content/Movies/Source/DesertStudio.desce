@@ -265,7 +265,7 @@
     {
       "id": 5009,
       "siblingIndex": 0,
-      "Tag": "Halo0",
+      "Tag": "HaloGlow",
       "parent": 5008,
       "UILayout": {
         "AnchorMin": [
@@ -292,153 +292,14 @@
           0.5098039215686274,
           0.16862745098039217
         ],
-        "Opacity": 0.035,
-        "Circle": true,
-        "CornerRadius": 0.0
+        "Opacity": 0.45,
+        "Circle": false,
+        "CornerRadius": 0.0,
+        "Material": "Materials/MI_SunGlow.demat"
       }
     },
     {
       "id": 5010,
-      "siblingIndex": 1,
-      "Tag": "Halo1",
-      "parent": 5008,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -370,
-          -370
-        ],
-        "OffsetMax": [
-          370,
-          370
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.8509803921568627,
-          0.5098039215686274,
-          0.16862745098039217
-        ],
-        "Opacity": 0.05,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5011,
-      "siblingIndex": 2,
-      "Tag": "Halo2",
-      "parent": 5008,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -285,
-          -285
-        ],
-        "OffsetMax": [
-          285,
-          285
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.8509803921568627,
-          0.5098039215686274,
-          0.16862745098039217
-        ],
-        "Opacity": 0.08,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5012,
-      "siblingIndex": 3,
-      "Tag": "Halo3",
-      "parent": 5008,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -220,
-          -220
-        ],
-        "OffsetMax": [
-          220,
-          220
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.8509803921568627,
-          0.5098039215686274,
-          0.16862745098039217
-        ],
-        "Opacity": 0.13,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5013,
-      "siblingIndex": 4,
-      "Tag": "Halo4",
-      "parent": 5008,
-      "UILayout": {
-        "AnchorMin": [
-          0.5,
-          0.5
-        ],
-        "AnchorMax": [
-          0.5,
-          0.5
-        ],
-        "OffsetMin": [
-          -178,
-          -178
-        ],
-        "OffsetMax": [
-          178,
-          178
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.8509803921568627,
-          0.5098039215686274,
-          0.16862745098039217
-        ],
-        "Opacity": 0.22,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5014,
       "siblingIndex": 1,
       "Tag": "SunDisk",
       "parent": 5007,
@@ -473,7 +334,7 @@
       }
     },
     {
-      "id": 5015,
+      "id": 5011,
       "siblingIndex": 2,
       "Tag": "SunCore",
       "parent": 5007,
@@ -508,7 +369,7 @@
       }
     },
     {
-      "id": 5016,
+      "id": 5012,
       "siblingIndex": 5,
       "Tag": "Rim",
       "parent": 5001,
@@ -543,7 +404,7 @@
       }
     },
     {
-      "id": 5017,
+      "id": 5013,
       "siblingIndex": 6,
       "Tag": "Dune",
       "parent": 5001,
@@ -578,7 +439,7 @@
       }
     },
     {
-      "id": 5018,
+      "id": 5014,
       "siblingIndex": 7,
       "Tag": "Wordmark",
       "parent": 5001,
@@ -624,7 +485,7 @@
       }
     },
     {
-      "id": 5019,
+      "id": 5015,
       "siblingIndex": 8,
       "Tag": "WarmLayer",
       "parent": 5001,
@@ -656,10 +517,10 @@
       }
     },
     {
-      "id": 5020,
+      "id": 5016,
       "siblingIndex": 0,
       "Tag": "WarmWordmark",
-      "parent": 5019,
+      "parent": 5015,
       "UILayout": {
         "AnchorMin": [
           0.5,
@@ -710,7 +571,7 @@
       }
     },
     {
-      "id": 5021,
+      "id": 5017,
       "siblingIndex": 9,
       "Tag": "LightSpread",
       "parent": 5001,
@@ -735,823 +596,18 @@
       }
     },
     {
-      "id": 5022,
+      "id": 5018,
       "siblingIndex": 0,
-      "Tag": "Spread0",
-      "parent": 5021,
+      "Tag": "SpreadGlow",
+      "parent": 5017,
       "UILayout": {
         "AnchorMin": [
-          0.0,
-          0.0
+          0,
+          0
         ],
         "AnchorMax": [
-          1.0,
-          1.0
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.041666666666666664,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5023,
-      "siblingIndex": 1,
-      "Tag": "Spread1",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.011458333333333348,
-          0.011458333333333348
-        ],
-        "AnchorMax": [
-          0.9885416666666667,
-          0.9885416666666667
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.043478260869565216,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5024,
-      "siblingIndex": 2,
-      "Tag": "Spread2",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.022916666666666696,
-          0.022916666666666696
-        ],
-        "AnchorMax": [
-          0.9770833333333333,
-          0.9770833333333333
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.045454545454545456,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5025,
-      "siblingIndex": 3,
-      "Tag": "Spread3",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.03437499999999999,
-          0.03437499999999999
-        ],
-        "AnchorMax": [
-          0.965625,
-          0.965625
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.047619047619047616,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5026,
-      "siblingIndex": 4,
-      "Tag": "Spread4",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.04583333333333334,
-          0.04583333333333334
-        ],
-        "AnchorMax": [
-          0.9541666666666666,
-          0.9541666666666666
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.05,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5027,
-      "siblingIndex": 5,
-      "Tag": "Spread5",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.057291666666666685,
-          0.057291666666666685
-        ],
-        "AnchorMax": [
-          0.9427083333333333,
-          0.9427083333333333
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.05263157894736842,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5028,
-      "siblingIndex": 6,
-      "Tag": "Spread6",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.06874999999999998,
-          0.06874999999999998
-        ],
-        "AnchorMax": [
-          0.93125,
-          0.93125
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.05555555555555555,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5029,
-      "siblingIndex": 7,
-      "Tag": "Spread7",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.08020833333333333,
-          0.08020833333333333
-        ],
-        "AnchorMax": [
-          0.9197916666666667,
-          0.9197916666666667
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.058823529411764705,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5030,
-      "siblingIndex": 8,
-      "Tag": "Spread8",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.09166666666666667,
-          0.09166666666666667
-        ],
-        "AnchorMax": [
-          0.9083333333333333,
-          0.9083333333333333
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.0625,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5031,
-      "siblingIndex": 9,
-      "Tag": "Spread9",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.10312500000000002,
-          0.10312500000000002
-        ],
-        "AnchorMax": [
-          0.896875,
-          0.896875
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.06666666666666667,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5032,
-      "siblingIndex": 10,
-      "Tag": "Spread10",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.11458333333333331,
-          0.11458333333333331
-        ],
-        "AnchorMax": [
-          0.8854166666666667,
-          0.8854166666666667
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.07142857142857142,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5033,
-      "siblingIndex": 11,
-      "Tag": "Spread11",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.12604166666666672,
-          0.12604166666666672
-        ],
-        "AnchorMax": [
-          0.8739583333333333,
-          0.8739583333333333
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.07692307692307693,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5034,
-      "siblingIndex": 12,
-      "Tag": "Spread12",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.1375,
-          0.1375
-        ],
-        "AnchorMax": [
-          0.8625,
-          0.8625
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.08333333333333333,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5035,
-      "siblingIndex": 13,
-      "Tag": "Spread13",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.1489583333333333,
-          0.1489583333333333
-        ],
-        "AnchorMax": [
-          0.8510416666666667,
-          0.8510416666666667
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.09090909090909091,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5036,
-      "siblingIndex": 14,
-      "Tag": "Spread14",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.16041666666666665,
-          0.16041666666666665
-        ],
-        "AnchorMax": [
-          0.8395833333333333,
-          0.8395833333333333
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.1,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5037,
-      "siblingIndex": 15,
-      "Tag": "Spread15",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.171875,
-          0.171875
-        ],
-        "AnchorMax": [
-          0.828125,
-          0.828125
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.1111111111111111,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5038,
-      "siblingIndex": 16,
-      "Tag": "Spread16",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.18333333333333335,
-          0.18333333333333335
-        ],
-        "AnchorMax": [
-          0.8166666666666667,
-          0.8166666666666667
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.125,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5039,
-      "siblingIndex": 17,
-      "Tag": "Spread17",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.1947916666666667,
-          0.1947916666666667
-        ],
-        "AnchorMax": [
-          0.8052083333333333,
-          0.8052083333333333
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.14285714285714285,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5040,
-      "siblingIndex": 18,
-      "Tag": "Spread18",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.20625000000000004,
-          0.20625000000000004
-        ],
-        "AnchorMax": [
-          0.79375,
-          0.79375
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.16666666666666666,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5041,
-      "siblingIndex": 19,
-      "Tag": "Spread19",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.2177083333333334,
-          0.2177083333333334
-        ],
-        "AnchorMax": [
-          0.7822916666666666,
-          0.7822916666666666
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.2,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5042,
-      "siblingIndex": 20,
-      "Tag": "Spread20",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.22916666666666663,
-          0.22916666666666663
-        ],
-        "AnchorMax": [
-          0.7708333333333334,
-          0.7708333333333334
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.25,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5043,
-      "siblingIndex": 21,
-      "Tag": "Spread21",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.24062499999999998,
-          0.24062499999999998
-        ],
-        "AnchorMax": [
-          0.759375,
-          0.759375
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.3333333333333333,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5044,
-      "siblingIndex": 22,
-      "Tag": "Spread22",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.2520833333333334,
-          0.2520833333333334
-        ],
-        "AnchorMax": [
-          0.7479166666666666,
-          0.7479166666666666
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 0.5,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5045,
-      "siblingIndex": 23,
-      "Tag": "Spread23",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.2635416666666667,
-          0.2635416666666667
-        ],
-        "AnchorMax": [
-          0.7364583333333333,
-          0.7364583333333333
+          1,
+          1
         ],
         "OffsetMin": [
           0,
@@ -1570,47 +626,13 @@
           0.9019607843137255
         ],
         "Opacity": 1.0,
-        "Circle": true,
-        "CornerRadius": 0.0
+        "Circle": false,
+        "CornerRadius": 0.0,
+        "Material": "Materials/MI_WarmSpread.demat"
       }
     },
     {
-      "id": 5046,
-      "siblingIndex": 24,
-      "Tag": "Spread24",
-      "parent": 5021,
-      "UILayout": {
-        "AnchorMin": [
-          0.275,
-          0.275
-        ],
-        "AnchorMax": [
-          0.725,
-          0.725
-        ],
-        "OffsetMin": [
-          0,
-          0
-        ],
-        "OffsetMax": [
-          0,
-          0
-        ],
-        "Visibility": 0
-      },
-      "UIPanel": {
-        "Color": [
-          0.9607843137254902,
-          0.9372549019607843,
-          0.9019607843137255
-        ],
-        "Opacity": 1.0,
-        "Circle": true,
-        "CornerRadius": 0.0
-      }
-    },
-    {
-      "id": 5047,
+      "id": 5019,
       "siblingIndex": 10,
       "Tag": "Fade",
       "parent": 5001,
@@ -1645,7 +667,7 @@
       }
     },
     {
-      "id": 5048,
+      "id": 5020,
       "siblingIndex": 11,
       "Tag": "Intro",
       "parent": 5001,
@@ -1714,28 +736,28 @@
             {
               "Guid": "445352696d0000000000000000000005",
               "Kind": 3,
-              "Locator": "5016",
+              "Locator": "5012",
               "Label": "Rim",
               "Parent": ""
             },
             {
               "Guid": "4453576f72646d61726b00000000000a",
               "Kind": 3,
-              "Locator": "5018",
+              "Locator": "5014",
               "Label": "Wordmark",
               "Parent": ""
             },
             {
               "Guid": "44534c6967687453707265616400000d",
               "Kind": 3,
-              "Locator": "5021",
+              "Locator": "5017",
               "Label": "LightSpread",
               "Parent": ""
             },
             {
               "Guid": "44534661646500000000000000000006",
               "Kind": 3,
-              "Locator": "5047",
+              "Locator": "5019",
               "Label": "Fade",
               "Parent": ""
             }

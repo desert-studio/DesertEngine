@@ -355,6 +355,7 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
          "TerrainGBuffer.shader",
          "TextSDF.shader",
          "Toon.shader", // SHM1: the Toon shading model ships its own program
+         "UIMatRadialGlow.shader", // VIDEO-STUDIO: the continuous radial falloff (sun halo)
          "UIMatRadialWipe.shader",
          "Unlit.shader",
     };
