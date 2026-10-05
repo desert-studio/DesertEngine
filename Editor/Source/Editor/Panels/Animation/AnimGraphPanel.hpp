@@ -45,8 +45,15 @@ namespace Desert::Assets
     class AnimGraphAsset;
 } // namespace Desert::Assets
 
+namespace Desert::Editor::UI
+{
+    class UIHelper;
+}
+
 namespace Desert::Editor
 {
+    class PreviewViewport;
+
     // ── THE ANIM GRAPH OF ONE ENTITY: A DOCUMENT, NOT A TOOL ──────────────────────────────────────────
     //
     // An imgui-node-editor canvas over ONE AnimationComponent's graph — STATES are nodes, TRANSITIONS are
@@ -84,12 +91,12 @@ namespace Desert::Editor
 
         AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
                         const std::shared_ptr<::Desert::Core::Scene>& scene,
-                        const Animation::AnimationLibrary* library, Assets::AssetManager* assetManager );
+                        Animation::AnimationLibrary* library, Assets::AssetManager* assetManager );
         ~AnimGraphPanel() override;
 
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
-            return { 1040.0f, 640.0f };
+            return { 1440.0f, 640.0f };
         }
 
         void OnUIRender() override;
@@ -109,19 +116,17 @@ namespace Desert::Editor
             return ResolveComponent() != nullptr;
         }
 
-        // A NODE CANVAS COSTS NO RENDERER SLOT. Everything this window draws is ImGui geometry; there is
-        // no Scene, no SceneRenderer and no offscreen target, so it is not pending demand for one of the
-        // six and closing it would free nothing. Answering the base class's conservative `true` would have
-        // it refuse a sixth window over a slot it was never going to take.
-        [[nodiscard]] bool HoldsView() const override
-        {
-            return false;
-        }
+        // THE PREVIEW VIEWPORT IS A RENDERER SLOT (UE Persona: the asset window owns a preview world). The
+        // canvas is ImGui geometry, but the pane beside it is a Scene and a SceneRenderer of its own, so the
+        // window claims one of the six, holds it while the preview lives, and gives it back on ReleaseView.
+        [[nodiscard]] bool HoldsView() const override;
 
         [[nodiscard]] bool ClaimsView() const override
         {
-            return false;
+            return true;
         }
+
+        void ReleaseView() override;
 
         // DELIBERATELY A NO-OP, AND NOT AN OVERSIGHT. The scene fanout (EditorLayer::SetActiveScene) exists
         // so the Outliner, Details and Settings follow whichever viewport has the focus. A document must
@@ -259,7 +264,7 @@ namespace Desert::Editor
         // entity in a registry nothing else can reach. Expiry IS one of the ways this document's subject
         // dies, and a weak_ptr is what makes it visible rather than invisible.
         std::weak_ptr<::Desert::Core::Scene> m_Scene;
-        const Animation::AnimationLibrary*   m_Library      = nullptr;
+        Animation::AnimationLibrary*         m_Library      = nullptr;
         Assets::AssetManager*                m_AssetManager = nullptr;
         std::string                          m_Status; // last save result line
         bool                                 m_StatusIsError = false;
@@ -305,6 +310,17 @@ namespace Desert::Editor
         /// (double-click it, as in UE); empty = the machine at the host's Output Pose.
         std::string m_MachineNode;
         std::string m_SelectedPoseNode;
+
+        // The preview world (AnimGraphPanelPreview.cpp): the subject's skinned mesh playing this graph live, and
+        // the translate gizmo on the selected skeletal-control node's goal. Rebuilt when the mesh or graph changes.
+        void DrawPreview( ECS::AnimationComponent& anim, float width, float height );
+        void DrawGoalGizmo( const glm::vec2& origin, const glm::vec2& size );
+        void DestroyPreview();
+        std::unique_ptr<PreviewViewport> m_Preview;
+        std::unique_ptr<UI::UIHelper>    m_UIHelper;
+        uint64_t                         m_PreviewMesh  = 0;
+        uint64_t                         m_PreviewGraph = 0;
+        bool                             m_GizmoHovered = false;
         bool        m_PoseSelectPending = false; // a document action picked the node
         glm::vec2   m_PoseMenuAt{};              // where the context menu was opened
 
