@@ -140,6 +140,11 @@ project "Dav1d"
     -- Third-party code: its warnings are its authors' style, not ours to read.
     warnings "Off"
 
+    -- OPTIMISED IN EVERY CONFIGURATION (UE builds its third-party media libraries the same way): a codec is
+    -- not code anyone steps through, and at -O0 decoding a 4K 10-bit AV1 frame falls behind the sound clock — a Debug
+    -- game then drops every frame of its startup movie and shows the last, faded-out one (2026-10-05).
+    optimize "Speed"
+
     filter "system:windows"
         systemversion "latest"
         files { root .. "/src/win32/thread.c" }
