@@ -66,8 +66,8 @@ namespace Desert::Graphic::RDG
     // The sampler a sampled entry is read with. Every field is given: there is no default-constructed sampler,
     // so a call site cannot bind a texture without saying how it is filtered and addressed (the six-field
     // constructor is the only one, so SamplerDesc is not an aggregate and has no default constructor). Level of
-    // detail is unclamped (every mip of the bound view is reachable); a Mip(m) range already limits the view to one
-    // mip.
+    // detail is unclamped (every mip of the bound view is reachable); a Mip(m) range already limits the view to
+    // one mip.
     struct SamplerDesc
     {
         SamplerFilter  MinFilter;
@@ -79,8 +79,8 @@ namespace Desert::Graphic::RDG
 
         constexpr SamplerDesc( SamplerFilter minFilter, SamplerFilter magFilter, SamplerMipMode mipMode,
                                SamplerAddress addressU, SamplerAddress addressV, SamplerAddress addressW )
-            : MinFilter( minFilter ), MagFilter( magFilter ), MipMode( mipMode ), AddressU( addressU ),
-              AddressV( addressV ), AddressW( addressW )
+             : MinFilter( minFilter ), MagFilter( magFilter ), MipMode( mipMode ), AddressU( addressU ),
+               AddressV( addressV ), AddressW( addressW )
         {
         }
 
