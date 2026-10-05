@@ -813,13 +813,13 @@ namespace Desert::Player
     Common::BoolResultStr RuntimeLayer::OnUIRender()
     {
         auto& renderer = Graphic::Renderer::GetInstance();
-        // A movie composes into its own offscreen target of the requested size; the game into the swapchain.
-        if ( m_Movie.has_value() )
-            renderer.BeginRenderPass( m_MoviePass.get(), true );
-        else
-            renderer.BeginSwapChainRenderPass();
 
+        // THE UI IS BUILT BEFORE THE FRAME'S PASS OPENS, in the game and in a movie alike (UE Retainer Box):
+        // a retained layer renders into its own target, which no open pass may enclose, so the walk, the
+        // retained layers, and only then the one pass that presents the scene and composes the UI.
         std::string clicked;
+        bool        uiBuilt      = false;
+        bool        presentScene = false;
         if ( const auto swapFb = m_Movie.has_value() ? m_MovieTarget : renderer.GetCompositeFramebuffer() )
         {
             if ( !m_PresentReady )
@@ -850,18 +850,10 @@ namespace Desert::Player
                 // Frame 0 of a movie is the first frame of a complete world; loading frames are not written.
                 m_MovieFrameDrawn = m_Movie.has_value() && !loading;
 
-                // 1) Present the scene: blit its final (tonemapped) image over the whole swapchain.
-                if ( !loading )
-                {
-                    if ( const auto image = m_Scene->GetFinalImage() )
-                    {
-                        if ( auto tp = m_BlitExecutor->GetTexture2DProperty( "u_Texture" ) )
-                            tp->SetImage( image.get() );
-                        renderer.SubmitFullscreenQuad( m_BlitPipeline.get(), m_BlitExecutor.get() );
-                    }
-                }
+                // The scene's final (tonemapped) image is blitted over the whole target once the pass opens.
+                presentScene = !loading;
 
-                // 2) UI + splash via Render2D, on top.
+                // UI + splash via Render2D, composed on top of it.
                 m_Render2D->BeginFrame( { 0.0f, 0.0f, w, h } );
                 auto& dl = m_Render2D->GetDrawList();
 
@@ -972,19 +964,30 @@ namespace Desert::Player
                          wait != nullptr && wait->Assessment.Blocks() )
                         UI::DrawStreamingWaitOverlay( dl, w, h, wait->FramesWaiting );
 
-                // Retained UI layers (UE Retainer Box) render into their own targets, which needs no pass open:
-                // close this one, render them, and reopen it LOADING what the blit and nothing else put there.
-                // The swapchain pass has no loading re-open yet (Renderer::BeginSwapChainRenderPass clears), so
-                // there the composites are refused by Flush with its log line — see REMAINDER VIDEO-2c.
-                if ( m_Movie.has_value() && !m_Render2D->GetDrawList().GetLayers().empty() )
-                {
-                    renderer.EndRenderPass();
-                    m_Render2D->RenderRetained();
-                    renderer.BeginRenderPass( m_MoviePass.get(), false );
-                }
-                m_Render2D->Flush();
+                uiBuilt = true;
             }
         }
+
+        // Retained UI layers render into their own pooled targets now, with no pass open (and an unused
+        // target is retired here even on a frame without layers).
+        if ( uiBuilt )
+            m_Render2D->RenderRetained();
+
+        // A movie composes into its own offscreen target of the requested size; the game into the swapchain.
+        if ( m_Movie.has_value() )
+            renderer.BeginRenderPass( m_MoviePass.get(), true );
+        else
+            renderer.BeginSwapChainRenderPass();
+
+        if ( presentScene )
+            if ( const auto image = m_Scene->GetFinalImage() )
+            {
+                if ( auto tp = m_BlitExecutor->GetTexture2DProperty( "u_Texture" ) )
+                    tp->SetImage( image.get() );
+                renderer.SubmitFullscreenQuad( m_BlitPipeline.get(), m_BlitExecutor.get() );
+            }
+        if ( uiBuilt )
+            m_Render2D->Flush();
 
         renderer.EndRenderPass();
 
