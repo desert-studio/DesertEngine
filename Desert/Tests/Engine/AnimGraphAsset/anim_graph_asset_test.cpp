@@ -382,3 +382,46 @@ TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
     ASSERT_TRUE( plain.IsSuccess() ) << plain.GetError();
     EXPECT_FALSE( plain.GetValue().Layers.has_value() );
 }
+
+// ANIM-FIX10: the skeletal control nodes' setups (Two Bone IK, Look At) survive the .danimgraph file, targets,
+// space bones and Alpha included.
+TEST( AnimGraphAsset, TwoBoneIKAndLookAtNodesRoundTrip )
+{
+    namespace PG    = Desert::Animation::Graph;
+    AnimGraph graph = PG::MakeStateMachineGraph( "Reach" );
+
+    PG::PoseNode ik;
+    ik.Name                      = "IK";
+    ik.Kind                      = static_cast<int>( PG::PoseNodeKind::TwoBoneIK );
+    ik.PoseInputs                = { graph.OutputPose };
+    ik.TwoBoneIK                 = PG::TwoBoneIKNode{};
+    ik.TwoBoneIK->EndBone        = "Hand";
+    ik.TwoBoneIK->Goal.Position  = { 30.0F, 70.0F, 20.0F };
+    ik.TwoBoneIK->PoleTarget     = PG::BoneControlTarget{ { 0.0F, 0.0F, 50.0F }, "Spine" };
+    ik.TwoBoneIK->Alpha          = 0.25F;
+    PG::PoseNode look;
+    look.Name                    = "Look";
+    look.Kind                    = static_cast<int>( PG::PoseNodeKind::LookAt );
+    look.PoseInputs              = { "IK" };
+    look.LookAt                  = PG::LookAtNode{};
+    look.LookAt->Bone            = "Head";
+    look.LookAt->Target.Position = { 1.0F, 2.0F, 3.0F };
+    look.LookAt->AimAxis         = { 1.0F, 0.0F, 0.0F };
+    graph.Nodes.push_back( ik );
+    graph.Nodes.push_back( look );
+    graph.OutputPose = "Look";
+
+    const auto read = PG::Deserialize( PG::Serialize( graph ) );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    ASSERT_EQ( read.GetValue().Nodes.size(), 3u );
+    const PG::PoseNode& readIK   = read.GetValue().Nodes[1];
+    const PG::PoseNode& readLook = read.GetValue().Nodes[2];
+    ASSERT_TRUE( readIK.TwoBoneIK.has_value() );
+    EXPECT_EQ( readIK.TwoBoneIK->EndBone, "Hand" );
+    EXPECT_EQ( readIK.TwoBoneIK->Goal.Position, ik.TwoBoneIK->Goal.Position );
+    EXPECT_EQ( readIK.TwoBoneIK->PoleTarget.Bone, "Spine" );
+    EXPECT_EQ( readIK.TwoBoneIK->Alpha, 0.25F );
+    ASSERT_TRUE( readLook.LookAt.has_value() );
+    EXPECT_EQ( readLook.LookAt->Bone, "Head" );
+    EXPECT_EQ( readLook.LookAt->AimAxis, look.LookAt->AimAxis );
+}

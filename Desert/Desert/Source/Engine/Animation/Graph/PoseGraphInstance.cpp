@@ -1,5 +1,7 @@
 #include "PoseGraphInstance.hpp"
 
+#include <Engine/Animation/Graph/BoneControlNodes.hpp>
+
 #include <Engine/Animation/Skeleton.hpp>
 
 #include <glm/glm.hpp>
@@ -229,6 +231,31 @@ namespace Desert::Animation::Graph
                         pose = base;
                     break;
                 }
+
+                case PoseNodeKind::TwoBoneIK:
+                case PoseNodeKind::LookAt:
+                {
+                    // UE FAnimNode_SkeletalControlBase: the input pose, a few bones overridden at Alpha. A
+                    // refused solve (a bone the rig lacks, an unreachable degenerate goal) passes the input on
+                    // bit-identical, as the bone-control stage does.
+                    const GraphPose& in = m_Poses[static_cast<size_t>( wired[0] )];
+                    pose                = in;
+                    const bool ik       = kind == PoseNodeKind::TwoBoneIK;
+                    const float alpha   = PinValue( node, kBoneControlAlphaPin,
+                                                    ik ? ( node.TwoBoneIK ? node.TwoBoneIK->Alpha : 0.0F )
+                                                         : ( node.LookAt ? node.LookAt->Alpha : 0.0F ),
+                                                    sources.Parameter );
+                    const Common::BoolResultStr solved =
+                         ik ? ( node.TwoBoneIK ? ApplyTwoBoneIKNode( *node.TwoBoneIK, skeleton, alpha, pose.Pose,
+                                                                     m_ControlScratch )
+                                               : Common::MakeError<bool>( "no IK setup" ) )
+                            : ( node.LookAt ? ApplyLookAtNode( *node.LookAt, skeleton, alpha, pose.Pose,
+                                                               m_ControlScratch )
+                                            : Common::MakeError<bool>( "no look-at setup" ) );
+                    if ( !solved )
+                        pose = in;
+                    break;
+                }
             }
         }
         out = m_Poses[static_cast<size_t>( m_Plan.back() )];
@@ -305,6 +332,11 @@ namespace Desert::Animation::Graph
                     at( wired[1] ) +=
                          weight * std::clamp( PinValue( node, kApplyAdditiveAlphaPin, 1.0F, sources.Parameter ),
                                               0.0F, 1.0F );
+                    break;
+
+                case PoseNodeKind::TwoBoneIK:
+                case PoseNodeKind::LookAt:
+                    at( wired[0] ) += weight; // a control passes its input through at its own weight
                     break;
             }
         }

@@ -91,22 +91,16 @@ namespace Desert::Animation
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr TwoBoneIKControl::Solve( const Skeleton& skeleton, ComponentPose& component,
-                                                   std::vector<BoneOverride>& out )
+    Common::BoolResultStr SolveTwoBoneIKChain( const Skeleton& skeleton, ComponentPose& component, uint32_t root,
+                                               uint32_t joint, uint32_t endBone, const Solvers::TwoBoneIKGoal& goal,
+                                               Solvers::TwoBoneIKSolution& solution, std::vector<BoneOverride>& out )
     {
-        if ( !m_ChainError.empty() )
-        {
-            return Common::MakeError<bool>( m_ChainError );
-        }
-
-        const uint32_t endBone = m_EndBone.GetIndex();
-
-        auto rootTransform = ComponentTransformOf( skeleton, component, m_RootBone );
+        auto rootTransform = ComponentTransformOf( skeleton, component, root );
         if ( !rootTransform.IsSuccess() )
         {
             return Common::MakeError<bool>( rootTransform.GetError() );
         }
-        auto jointTransform = ComponentTransformOf( skeleton, component, m_JointBone );
+        auto jointTransform = ComponentTransformOf( skeleton, component, joint );
         if ( !jointTransform.IsSuccess() )
         {
             return Common::MakeError<bool>( jointTransform.GetError() );
@@ -120,11 +114,8 @@ namespace Desert::Animation
         const Solvers::TwoBoneIKChain chain{ rootTransform.GetValue().Translation,
                                              jointTransform.GetValue().Translation,
                                              endTransform.GetValue().Translation };
-        const Solvers::TwoBoneIKGoal  goal{ m_Goal, m_PoleTarget };
-
-        const Solvers::TwoBoneIKSolution solution = Solvers::SolveTwoBoneIK( chain, goal );
-        m_LastReach                               = solution.Reach;
-        m_LastPlane                               = solution.Plane;
+        
+        solution = Solvers::SolveTwoBoneIK( chain, goal );
 
         if ( solution.Reach == Solvers::TwoBoneIKReach::GoalAtRoot ||
              solution.Reach == Solvers::TwoBoneIKReach::DegenerateChain )
@@ -136,8 +127,8 @@ namespace Desert::Animation
             // leaves the pose bit-for-bit as the previous stage produced it, which is what a frame can be
             // diffed against.
             return Common::MakeFormattedError<bool>(
-                 "two-bone IK on '{}' could not solve: {}. Goal ({}, {}, {}) cm, chain lengths {} / {} cm.",
-                 m_EndBone.GetName(), Solvers::ToString( solution.Reach ), m_Goal.x, m_Goal.y, m_Goal.z,
+                 "could not solve: {}. Goal ({}, {}, {}) cm, chain lengths {} / {} cm.",
+                 Solvers::ToString( solution.Reach ), goal.Position.x, goal.Position.y, goal.Position.z,
                  solution.UpperLength, solution.LowerLength );
         }
 
@@ -147,14 +138,14 @@ namespace Desert::Animation
         // solver that translated the shoulder would be detaching the arm from the body.
         BoneTransform upper = rootTransform.GetValue();
         upper.Rotation = RotationBetween( chain.Joint - chain.Root, solution.Joint - chain.Root ) * upper.Rotation;
-        out.push_back( { m_RootBone, upper } );
+        out.push_back( { root, upper } );
 
         // Lower limb: rotated by the old->new direction delta AND moved onto the solved joint position.
         BoneTransform lower = jointTransform.GetValue();
         lower.Rotation =
              RotationBetween( chain.End - chain.Joint, solution.End - solution.Joint ) * lower.Rotation;
         lower.Translation = solution.Joint;
-        out.push_back( { m_JointBone, lower } );
+        out.push_back( { joint, lower } );
 
         // End bone: TRANSLATION ONLY. UE keeps the input rotation here too ("currently not doing anything to
         // rotation / keeping input rotation", `TwoBoneIK.cpp:55-59`) and the reason is that the end bone's
@@ -165,6 +156,27 @@ namespace Desert::Animation
         end.Translation   = solution.End;
         out.push_back( { endBone, end } );
 
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr TwoBoneIKControl::Solve( const Skeleton& skeleton, ComponentPose& component,
+                                                   std::vector<BoneOverride>& out )
+    {
+        if ( !m_ChainError.empty() )
+        {
+            return Common::MakeError<bool>( m_ChainError );
+        }
+
+        Solvers::TwoBoneIKSolution solution;
+        const auto solved = SolveTwoBoneIKChain( skeleton, component, m_RootBone, m_JointBone, m_EndBone.GetIndex(),
+                                                 Solvers::TwoBoneIKGoal{ m_Goal, m_PoleTarget }, solution, out );
+        m_LastReach       = solution.Reach;
+        m_LastPlane       = solution.Plane;
+        if ( !solved.IsSuccess() )
+        {
+            return Common::MakeFormattedError<bool>( "two-bone IK on '{}' {}", m_EndBone.GetName(),
+                                                     solved.GetError() );
+        }
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Animation

@@ -86,6 +86,10 @@ namespace Desert::Editor::Graph
                 return "Linked Anim Layer";
             case G::PoseNodeKind::LinkedInputPose:
                 return "Linked Input Pose";
+            case G::PoseNodeKind::TwoBoneIK:
+                return "Two Bone IK";
+            case G::PoseNodeKind::LookAt:
+                return "Look At";
         }
         return "?";
     }
@@ -94,7 +98,8 @@ namespace Desert::Editor::Graph
     {
         std::vector<G::PoseNodeKind> kinds{ G::PoseNodeKind::SequencePlayer, G::PoseNodeKind::StateMachine,
                                             G::PoseNodeKind::LayeredBlendPerBone, G::PoseNodeKind::ApplyAdditive,
-                                            G::PoseNodeKind::LinkedAnimLayer };
+                                            G::PoseNodeKind::LinkedAnimLayer, G::PoseNodeKind::TwoBoneIK,
+                                            G::PoseNodeKind::LookAt };
         if ( scope == G::GraphScope::Layer )
             kinds.push_back( G::PoseNodeKind::LinkedInputPose );
         return kinds;
@@ -145,6 +150,12 @@ namespace Desert::Editor::Graph
                 node.LinkedLayer = call;
                 break;
             }
+            case G::PoseNodeKind::TwoBoneIK:
+                node.TwoBoneIK = G::TwoBoneIKNode{};
+                break;
+            case G::PoseNodeKind::LookAt:
+                node.LookAt = G::LookAtNode{};
+                break;
             case G::PoseNodeKind::ApplyAdditive:
             case G::PoseNodeKind::LinkedInputPose:
                 break;
@@ -304,6 +315,9 @@ namespace Desert::Editor::Graph
                 return pin == 0 ? std::string( "Base Pose" ) : std::format( "Blend Pose {}", pin - 1 );
             case G::PoseNodeKind::ApplyAdditive:
                 return pin == 0 ? "Base" : "Additive";
+            case G::PoseNodeKind::TwoBoneIK:
+            case G::PoseNodeKind::LookAt:
+                return "Component Pose";
             default:
                 return "In Pose";
         }
