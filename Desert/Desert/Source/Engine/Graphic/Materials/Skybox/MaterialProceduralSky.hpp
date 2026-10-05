@@ -2,7 +2,6 @@
 
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
-#include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
@@ -28,11 +27,9 @@ namespace Desert::Graphic
         {
         }
 
-        // @p transmittanceLut / @p skyViewLut back the PhysicalAtmosphere branch and are owned by
-        // SkyboxRenderer; null (the gradient model, or a frame before the graph has written them) binds the
-        // shader's default textures — the gradient branch never samples them.
-        void Update( const Core::Camera* camera, const std::shared_ptr<ShaderResources::StorageBuffer>& skyParams,
-                     const Image2D* transmittanceLut, const Image2D* skyViewLut )
+        // The transmittance / sky-view LUTs are pass parameters (SkyboxRenderer::Render binds them through
+        // RDG::PassBindings); the material owns only the camera block and the sky buffer.
+        void Update( const Core::Camera* camera, const std::shared_ptr<ShaderResources::StorageBuffer>& skyParams )
         {
             if ( camera )
             {
@@ -46,27 +43,6 @@ namespace Desert::Graphic
 
             if ( auto* sb = Get<StorageBufferProperty>( "SkyBuffer" ) )
                 sb->SetBuffer( skyParams );
-
-            // Both LUTs or neither: the sky pass passes them only in a frame whose graph node declared them. A
-            // frame that does not goes back to the shader's own defaults, so a LUT is never left bound in a
-            // frame whose graph has not put it in a sampled layout.
-            if ( transmittanceLut && skyViewLut )
-            {
-                if ( auto* tex = Get<Texture2DProperty>( "u_TransmittanceLut" ) )
-                    tex->SetImage( transmittanceLut, RDG::Access::SampledGraphics );
-                if ( auto* tex = Get<Texture2DProperty>( "u_SkyViewLut" ) )
-                    tex->SetImage( skyViewLut, RDG::Access::SampledGraphics );
-                m_LutsBound = true;
-            }
-            else if ( m_LutsBound )
-            {
-                BindSchemaDefaultTexture( "u_TransmittanceLut" );
-                BindSchemaDefaultTexture( "u_SkyViewLut" );
-                m_LutsBound = false;
-            }
         }
-
-    private:
-        bool m_LutsBound = false;
     };
 } // namespace Desert::Graphic

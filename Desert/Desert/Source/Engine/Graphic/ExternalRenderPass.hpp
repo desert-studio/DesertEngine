@@ -45,7 +45,8 @@ namespace Desert::Graphic
     // dependencies place it in the scene render graph — the default slots it after Geometry, blended
     // over the lit scene and before post-processing, exactly where authoring aids belong. The owner
     // creates its own pipeline against Scene::GetTargetFramebuffer() and records draws (e.g.
-    // Renderer::DrawFullscreen with PassBindings) inside Execute; the graph opens/closes the render pass around it.
+    // Renderer::DrawFullscreen with PassBindings) inside Execute; the graph opens/closes the render pass around
+    // it.
     struct ExternalPassSpecification
     {
         std::string   Name;

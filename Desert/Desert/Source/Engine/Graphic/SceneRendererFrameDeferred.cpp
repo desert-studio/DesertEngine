@@ -1,5 +1,6 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -81,6 +82,14 @@ namespace Desert::Graphic
         if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
              brdf && brdf->GetImageHandle().IsValid() )
             view.BrdfLut = textures.Import( images->Share( brdf->GetImageHandle() ), "BRDF.LUT" );
+        if ( const auto it = m_RenderSystems.find( "SkyboxSystem" ); it != m_RenderSystems.end() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+                 sky && sky->SkyPassSamplesLuts() )
+            {
+                view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
+                view.SkyViewLut          = textures.Import( sky->GetSkyViewLut(), "Sky.SkyViewLut" );
+            }
     }
 
     void SceneRenderer::AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures )

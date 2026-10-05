@@ -53,6 +53,10 @@ namespace Desert::Graphic
         RDG::TextureRef                                       EnvIrradiance;
         RDG::TextureRef                                       EnvSpecular;
         RDG::TextureRef                                       BrdfLut;
+        // The procedural sky's transmittance / sky-view LUTs (SkyboxRenderer, imported under the names its LUT
+        // nodes use), set only when SkyboxRenderer::SkyPassSamplesLuts; invalid otherwise   -> SkyboxPass
+        RDG::TextureRef SkyTransmittanceLut;
+        RDG::TextureRef SkyViewLut;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered
