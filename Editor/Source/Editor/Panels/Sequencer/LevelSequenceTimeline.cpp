@@ -209,7 +209,8 @@ namespace Desert::Editor
             return;
         LevelTL::Sequence&       sequence = asset->EditSequence();
         const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
-        if ( const auto keyed = ECS::SetVisibilityKey( sequence, binding, m_LevelTick, visible ); !keyed.IsSuccess() )
+        if ( const auto keyed = ECS::SetVisibilityKey( sequence, binding, m_LevelTick, visible );
+             !keyed.IsSuccess() )
             ToastManager::Push( std::format( "Key Visibility refused: {}", keyed.GetError() ), ToastLevel::Error,
                                 6.0f );
     }
@@ -465,9 +466,9 @@ namespace Desert::Editor
                 }
                 for ( const auto& key : keys )
                 {
-                    const float  x = xOf( key.Tick.Value );
-                    const float  r = 5.0f;
-                    const float  c = ( y0 + y1 ) * 0.5f;
+                    const float  x         = xOf( key.Tick.Value );
+                    const float  r         = 5.0f;
+                    const float  c         = ( y0 + y1 ) * 0.5f;
                     const ImVec2 diamond[] = { ImVec2( x, c - r ), ImVec2( x + r, c ), ImVec2( x, c + r ),
                                                ImVec2( x - r, c ) };
                     if ( key.Visible )

@@ -406,7 +406,8 @@ TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
     T::Sequence sequence = AuthoredDoor();
     const auto  door     = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" ).GetValue();
     ASSERT_TRUE( ECS::AddVisibilityTrack( sequence, door, true ).IsSuccess() );
-    EXPECT_FALSE( ECS::AddVisibilityTrack( sequence, door, true ).IsSuccess() ) << "one Visibility track per actor";
+    EXPECT_FALSE( ECS::AddVisibilityTrack( sequence, door, true ).IsSuccess() )
+         << "one Visibility track per actor";
     ASSERT_TRUE( ECS::SetVisibilityKey( sequence, door, A::FrameNumber{ 60 }, false ).IsSuccess() );
     ASSERT_TRUE( T::Validate( sequence ).IsSuccess() ) << T::Validate( sequence ).GetError();
 
@@ -418,7 +419,7 @@ TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
     EXPECT_FALSE( keys[1].Visible );
 
     // Through the .dseq text, as the component plays it.
-    const auto text   = Desert::Assets::LevelSequenceAsset::Write( sequence, AssetGuid{ 1, 2 } );
+    const auto text = Desert::Assets::LevelSequenceAsset::Write( sequence, AssetGuid{ 1, 2 } );
     ASSERT_TRUE( text.IsSuccess() ) << text.GetError();
     const auto parsed = Desert::Assets::LevelSequenceAsset::Parse( text.GetValue() );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
@@ -426,13 +427,14 @@ TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
     World                             world;
     const ECS::LevelSequenceComponent component;
     ECS::LevelSequencePlayback        playback( parsed.GetValue().Sequence );
-    for ( const auto [tick, visible] : { std::pair{ 0, true }, std::pair{ 59, true }, std::pair{ 60, false },
-                                         std::pair{ 100, false } } )
+    for ( const auto [tick, visible] :
+          { std::pair{ 0, true }, std::pair{ 59, true }, std::pair{ 60, false }, std::pair{ 100, false } } )
     {
         const auto step = ECS::StepLevelSequence( world.registry, component, playback, Step( tick ) );
         EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
         ASSERT_TRUE( world.registry.has<ECS::VisibilityComponent>( world.door ) ) << "tick " << tick;
-        EXPECT_EQ( world.registry.get<ECS::VisibilityComponent>( world.door ).Visible, visible ) << "tick " << tick;
+        EXPECT_EQ( world.registry.get<ECS::VisibilityComponent>( world.door ).Visible, visible )
+             << "tick " << tick;
     }
     EXPECT_FALSE( world.registry.has<ECS::VisibilityComponent>( world.other ) );
 }

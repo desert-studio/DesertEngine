@@ -367,9 +367,9 @@ namespace Desert::ECS
         void UpsertBit( T::FloatChannel& bits, const Animation::FrameNumber tick, const bool value )
         {
             Animation::ScalarKey key;
-            key.Tick   = tick;
-            key.Value  = value ? 1.0F : 0.0F;
-            key.Interp = Animation::KeyInterp::Constant;
+            key.Tick      = tick;
+            key.Value     = value ? 1.0F : 0.0F;
+            key.Interp    = Animation::KeyInterp::Constant;
             const auto at = std::ranges::lower_bound( bits.Keys, tick, {}, &Animation::ScalarKey::Tick );
             if ( at != bits.Keys.end() && at->Tick == tick )
                 *at = key;
@@ -382,10 +382,10 @@ namespace Desert::ECS
         template <typename TrackT>
         auto* VisibilityChannelAt( TrackT& track, const Animation::FrameNumber tick )
         {
-            decltype( std::get_if<T::BoolChannel>( std::get_if<T::Channel>( &track.Sections.front().Content ) ) )
-                    target    = nullptr;
-            decltype( target ) first     = nullptr;
-            int32_t            targetRow = -1;
+            decltype( std::get_if<T::BoolChannel>(
+                 std::get_if<T::Channel>( &track.Sections.front().Content ) ) ) target    = nullptr;
+            decltype( target )                                                  first     = nullptr;
+            int32_t                                                             targetRow = -1;
             for ( auto& section : track.Sections )
             {
                 auto* channel = std::get_if<T::Channel>( &section.Content );
@@ -446,7 +446,8 @@ namespace Desert::ECS
         T::Sequence edited = sequence;
         T::Track*   track  = VisibilityTrack( edited, binding );
         if ( track == nullptr )
-            return Common::MakeError( "Visibility key: the binding has no Visibility track (+ Track ▸ Visibility)" );
+            return Common::MakeError(
+                 "Visibility key: the binding has no Visibility track (+ Track ▸ Visibility)" );
 
         T::BoolChannel* target = VisibilityChannelAt( *track, tick );
         if ( target == nullptr )
