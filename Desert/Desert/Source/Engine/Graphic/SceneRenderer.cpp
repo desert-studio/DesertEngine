@@ -192,7 +192,7 @@ namespace Desert::Graphic
         // method every frame (ApplySceneSampleCount, from BeginScene); this is the count it starts at.
         //
         // ONE SAMPLE HERE, whatever the machine chose: MSAA applies only on the forward path (AA2,
-        // MachineSettings::EffectiveAA) and no scene — so no path — is known until the first BeginScene,
+        // MachineSettings::ResolveAA) and no scene — so no path — is known until the first BeginScene,
         // which raises the count for a forward scene under MSAA. Starting at 1 means a deferred scene never
         // allocates a multisampled target it cannot use.
         FramebufferSpecification fbSpec;
@@ -642,19 +642,17 @@ namespace Desert::Graphic
         m_RenderPath = ( m_DebugView.WireframeMode || m_DebugView.LightingDebug ) ? Core::RenderPath::Forward
                                                                                   : sceneSettings.RenderingPath;
 
-        // THE ANTI-ALIASING THIS FRAME RUNS (AA2), decided in one place from the machine's choice and the
-        // SCENE'S path — not m_RenderPath: a debug view that forces forward must not reallocate the scene
-        // target at another sample count, and the Scalability panel reports against the same scene path.
-        // Under MSAA in a deferred scene this is FXAA at one sample, so no multisampled target, no
-        // DepthExpand/SceneDepthResolve resources and no multisampled pipeline variant is ever built there.
+        // THE ANTI-ALIASING THIS FRAME RUNS (AA2), read from the settings layer's resolution of the
+        // machine's choice for the SCENE'S path — not m_RenderPath: a debug view that forces forward must
+        // not reallocate the scene target at another sample count, and the Scalability panel reports
+        // against the same scene path. Under MSAA in a deferred scene this is FXAA at one sample, so no
+        // multisampled target, no DepthExpand/SceneDepthResolve resources and no multisampled pipeline
+        // variant is ever built there. The renderer neither decides nor logs that downgrade: ResolveAA does
+        // both, once per change of the resolved value however many renderers read it (AA-LOG).
         const Common::Settings::EffectiveAntiAliasing aa =
-             quality.EffectiveAA( Core::RenderPathSupportsMSAA( sceneSettings.RenderingPath ) );
+             quality.ResolveAA( Core::RenderPathSupportsMSAA( sceneSettings.RenderingPath ) ).Effective;
         m_AAMode = aa.PostProcess;
         ApplySceneSampleCount( SupportedSceneSamples( aa.Samples ) );
-        if ( m_AAFallbackNotice.Observe( reinterpret_cast<std::uintptr_t>( &scene ), aa ) )
-            LOG_INFO( "[SceneRenderer] anti-aliasing: MSAA {}x applies to forward scenes; this scene is deferred: "
-                      "using FXAA (1 sample). The machine's choice is kept for forward scenes.",
-                      quality.MSAASamples );
         m_EnableSSAO = post.EnableSSAO;
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
         // rather than read from a global at the point of use: several SceneRenderers are live at once

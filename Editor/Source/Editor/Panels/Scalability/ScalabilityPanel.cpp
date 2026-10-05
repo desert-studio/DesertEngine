@@ -8,6 +8,8 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 
+#include <rflcpp/rfl/enums.hpp>
+
 #include <algorithm>
 #include <format>
 
@@ -23,7 +25,7 @@ namespace Desert::Editor
     // Starts CLOSED, like the other tools in Window -> Tools (Localization): it is opened on purpose, and a
     // default-visible floating window sat on top of the viewport at every start on a fresh profile.
     ScalabilityPanel::ScalabilityPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
-         : IPanel( "Scalability", /*showPanel=*/false ), m_Scene( scene )
+        : IPanel( "Scalability", /*showPanel=*/false ), m_Scene( scene )
     {
     }
 
@@ -37,15 +39,18 @@ namespace Desert::Editor
             // frame: SceneRenderer recreates its target at the new count, so there is no restart note.
             //
             // MSAA ONLY WHERE IT WORKS (AA2, as UE): a deferred scene lists None / FXAA / SMAA, and a stored
-            // MSAA choice shows as what the frame runs there (FXAA, MachineSettings::EffectiveAA) with a line
-            // saying why. The stored choice is not rewritten by looking: it applies again in a forward scene.
+            // MSAA choice shows as what the frame runs there (FXAA, MachineSettings::ResolveAA) with a line
+            // "requested -> effective: reason". The stored choice is not rewritten by looking: it applies
+            // again in a forward scene. Both combos commit through MachineSettings::CommitAntiAliasing, the
+            // one place a change is applied and the downgrade is logged.
             auto&     quality = Common::Settings::MachineSettings::Get();
             const int maxMsaa = Graphic::RenderConfig::MaxMSAASamples.load();
 
             const auto scene = m_Scene.lock();
             const bool forwardScene =
                  !scene || Desert::Core::RenderPathSupportsMSAA( scene->GetSettings().RenderingPath );
-            const Common::Settings::EffectiveAntiAliasing effective = quality.EffectiveAA( forwardScene );
+            const Common::Settings::AntiAliasingResolution resolved  = quality.ResolveAA( forwardScene );
+            const Common::Settings::EffectiveAntiAliasing& effective = resolved.Effective;
 
             const char* methods[] = { "None", "FXAA", "SMAA", "MSAA" };
             const int   offered   = forwardScene ? IM_ARRAYSIZE( methods ) : IM_ARRAYSIZE( methods ) - 1;
@@ -53,8 +58,8 @@ namespace Desert::Editor
                  static_cast<int>( effective.MSAAUnavailableOnPath ? effective.Method : quality.AAMethod );
             if ( ImGui::Combo( "Anti-Aliasing Method", &current, methods, offered ) )
             {
-                quality.AAMethod = static_cast<Common::Settings::AntiAliasingMethod>( current );
-                Common::Settings::MachineSettings::Save();
+                Common::Settings::MachineSettings::CommitAntiAliasing(
+                     static_cast<Common::Settings::AntiAliasingMethod>( current ), 0 );
             }
             Utils::ImGuiUtilities::Tooltip(
                  forwardScene ? "FXAA and SMAA filter the finished image; MSAA renders the scene "
@@ -63,11 +68,11 @@ namespace Desert::Editor
                                 "forward scenes only: deferred lighting shades one sample per "
                                 "pixel, so MSAA would not smooth solid objects here." );
             if ( effective.MSAAUnavailableOnPath )
-                ImGui::TextDisabled( "%s",
-                                     std::format( "MSAA {}x applies to forward scenes; this scene is deferred: "
-                                                  "using FXAA.",
-                                                  quality.MSAASamples )
-                                          .c_str() );
+                ImGui::TextDisabled( "%s", std::format( "Requested MSAA {}x -> effective {}, {} sample: {}.",
+                                                        resolved.RequestedSamples,
+                                                        rfl::enum_to_string( effective.Method ), effective.Samples,
+                                                        resolved.Reason )
+                                                .c_str() );
 
             if ( forwardScene && quality.AAMethod == Common::Settings::AntiAliasingMethod::MSAA )
             {
@@ -82,8 +87,8 @@ namespace Desert::Editor
                     ImGui::TextDisabled( "This device has no multisampling (max %dx).", maxMsaa );
                 else if ( ImGui::Combo( "Samples", &selected, levels, count ) )
                 {
-                    quality.MSAASamples = values[selected];
-                    Common::Settings::MachineSettings::Save();
+                    Common::Settings::MachineSettings::CommitAntiAliasing(
+                         Common::Settings::AntiAliasingMethod::MSAA, values[selected] );
                 }
             }
         }

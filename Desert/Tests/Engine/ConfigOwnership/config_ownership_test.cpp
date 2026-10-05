@@ -161,9 +161,13 @@
 
 #include <gtest/gtest.h>
 
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include <regex>
 #include <sstream>
@@ -214,7 +218,7 @@ namespace
 
         // The type's own member functions through which consumers read this field, when the field is
         // never meant to be read raw (AAMethod/MSAASamples: MSAASamples means nothing unless the method is
-        // MSAA, so every reader goes through EffectiveAA). A call of one of these on
+        // MSAA, so every reader goes through ResolveAA). A call of one of these on
         // a value of the census type in `Where` counts as the read ONLY because `ViaImpl`, the file that
         // defines them, is checked to read the field inside each getter's own body.
         std::array<const char*, 2> Via{};
@@ -384,7 +388,7 @@ namespace
     // game also runs. One kind, two audiences, two files — and one SCHEMA, whose location is a parameter.
     //
     // The consumer named is SceneRenderer.cpp for the fields the renderer reads per frame. AAMethod and
-    // MSAASamples reach it only through MachineSettings::EffectiveAA (AA1/AA2), the one
+    // MSAASamples reach it only through MachineSettings::ResolveAA (AA1/AA2/AA-LOG), the one
     // place the pair is interpreted; the rows name that getter and the test checks their bodies.
     // ------------------------------------------------------------------------------------------------
 
@@ -394,13 +398,13 @@ namespace
     constexpr Row kMachineSettingsRows[] = {
          // A per-machine cost (sample count of every scene target), which is exactly the property that
          // makes it the machine's and not the level's. Applied on the next frame since AA1.
-         { "MSAASamples", Owner::Machine, kSceneRendererImpl, { "EffectiveAA" }, kMachineSettingsImpl },
+         { "MSAASamples", Owner::Machine, kSceneRendererImpl, { "ResolveAA" }, kMachineSettingsImpl },
 
          // The five К3 took out of the level file. Each passes the mis-authored/rendered-worse test on the
          // "rendered worse" side: MeshLOD off is byte-identical geometry near the camera, Anisotropy 1 and
          // Nearest filtering and AA None are the same picture blurrier or harsher, and CloudQuality High
          // reproduces the calibrated constants to the digit.
-         { "AAMethod", Owner::Machine, kSceneRendererImpl, { "EffectiveAA" }, kMachineSettingsImpl },
+         { "AAMethod", Owner::Machine, kSceneRendererImpl, { "ResolveAA" }, kMachineSettingsImpl },
          { "MeshLOD", Owner::Machine, kSceneRendererImpl },
          { "TextureFilterMode", Owner::Machine, kSceneRendererImpl },
          { "Anisotropy", Owner::Machine, kSceneRendererImpl },
@@ -1464,24 +1468,140 @@ TEST( ConfigOwnership, NoMultisampledSceneTargetOnTheDeferredPath )
     EXPECT_EQ( calls, 2u );
 }
 
-// AA2: the fallback line is written once per scene, not per frame, and again only when something changed.
-TEST( ConfigOwnership, TheMsaaFallbackIsLoggedOncePerScene )
+namespace
+{
+    // Captures everything the engine's logger emits while alive, through spdlog's default logger — the
+    // sink LOG_INFO writes to — and restores the previous logger afterwards, so no test after it is muted.
+    class AALogCapture
+    {
+    public:
+        AALogCapture() : m_Previous( spdlog::default_logger() )
+        {
+            auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>( m_Stream );
+            spdlog::set_default_logger( std::make_shared<spdlog::logger>( "capture", std::move( sink ) ) );
+            spdlog::set_level( spdlog::level::trace );
+        }
+        ~AALogCapture()
+        {
+            spdlog::set_default_logger( m_Previous );
+        }
+        AALogCapture( const AALogCapture& )            = delete;
+        AALogCapture& operator=( const AALogCapture& ) = delete;
+
+        // Lines naming the deferred-path fallback of an MSAA choice.
+        std::size_t DowngradeLines() const
+        {
+            const std::string text = m_Stream.str();
+            std::size_t       n    = 0;
+            for ( std::size_t at = text.find( "deferred scenes run FXAA" ); at != std::string::npos;
+                  at             = text.find( "deferred scenes run FXAA", at + 1 ) )
+                ++n;
+            return n;
+        }
+
+    private:
+        std::shared_ptr<spdlog::logger> m_Previous;
+        std::ostringstream              m_Stream;
+    };
+} // namespace
+
+// AA-LOG2: resolving is PURE — any number of readers, any number of frames, write nothing and agree — and
+// the downgrade is said where the choice is APPLIED: committing MSAA 4x writes one line, committing FXAA
+// none, committing MSAA 4x again one more. Counted through the engine's log sink, not a production counter.
+TEST( ConfigOwnership, ResolvingAntiAliasingIsPureAndCommittingMsaaLogsOnce )
 {
     using Common::Settings::AntiAliasingMethod;
-    Common::Settings::MachineSettings msaa;
-    msaa.AAMethod                              = AntiAliasingMethod::MSAA;
-    const auto                        fellBack = msaa.EffectiveAA( false );
-    const auto                        forward  = msaa.EffectiveAA( true );
-    Common::Settings::MachineSettings fxaa;
-    const auto                        plain = fxaa.EffectiveAA( false );
+    using Common::Settings::MachineSettings;
 
-    Common::Settings::AntiAliasingFallbackNotice notice;
-    EXPECT_TRUE( notice.Observe( 1, fellBack ) ); // first frame of a deferred scene under MSAA
-    for ( int frame = 0; frame < 100; ++frame )
-        EXPECT_FALSE( notice.Observe( 1, fellBack ) ); // same scene: silent from here on
-    EXPECT_TRUE( notice.Observe( 2, fellBack ) );      // another deferred scene: said again
-    EXPECT_FALSE( notice.Observe( 3, forward ) );      // a forward scene runs MSAA: nothing to say
-    EXPECT_FALSE( notice.Observe( 4, plain ) );        // FXAA chosen: nothing to say
-    EXPECT_TRUE( notice.Observe( 4, fellBack ) );      // MSAA picked again in the same deferred scene
-    EXPECT_FALSE( notice.Observe( 4, fellBack ) );
+    std::error_code             ec;
+    const std::filesystem::path store =
+         std::filesystem::temp_directory_path() / "desert_configownership_aa_machine.json";
+    std::filesystem::remove( store, ec );
+    MachineSettings::Load( store ); // absent file: the defaults (FXAA), nothing to report
+
+    MachineSettings msaa4;
+    msaa4.AAMethod    = AntiAliasingMethod::MSAA;
+    msaa4.MSAASamples = 4;
+    {
+        AALogCapture log;
+        for ( int frame = 0; frame < 100; ++frame )
+        {
+            const auto viewport = msaa4.ResolveAA( false );
+            const auto preview  = msaa4.ResolveAA( false );
+            EXPECT_EQ( viewport, preview );
+            EXPECT_EQ( viewport.RequestedMethod, AntiAliasingMethod::MSAA );
+            EXPECT_EQ( viewport.RequestedSamples, 4 );
+            EXPECT_EQ( viewport.Effective.Method, AntiAliasingMethod::FXAA );
+            EXPECT_EQ( viewport.Effective.Samples, 1 );
+            EXPECT_FALSE( viewport.Reason.empty() );
+
+            const auto forward = msaa4.ResolveAA( true );
+            EXPECT_EQ( forward.Effective.Method, AntiAliasingMethod::MSAA );
+            EXPECT_EQ( forward.Effective.Samples, 4 );
+            EXPECT_TRUE( forward.Reason.empty() );
+        }
+        EXPECT_EQ( log.DowngradeLines(), 0u ) << "a read wrote a line";
+    }
+
+    {
+        AALogCapture log;
+        ASSERT_TRUE( MachineSettings::CommitAntiAliasing( AntiAliasingMethod::MSAA, 4 ) );
+        EXPECT_EQ( log.DowngradeLines(), 1u );
+        EXPECT_EQ( MachineSettings::Get().AAMethod, AntiAliasingMethod::MSAA );
+        EXPECT_EQ( MachineSettings::Get().MSAASamples, 4 );
+        for ( int frame = 0; frame < 100; ++frame )
+            EXPECT_EQ( MachineSettings::Get().ResolveAA( false ).Effective.Method, AntiAliasingMethod::FXAA );
+        EXPECT_EQ( log.DowngradeLines(), 1u );
+
+        ASSERT_TRUE( MachineSettings::CommitAntiAliasing( AntiAliasingMethod::FXAA, 0 ) );
+        EXPECT_EQ( log.DowngradeLines(), 1u );
+        EXPECT_EQ( MachineSettings::Get().MSAASamples, 4 ) << "the count is kept for the next MSAA choice";
+
+        ASSERT_TRUE( MachineSettings::CommitAntiAliasing( AntiAliasingMethod::MSAA, 4 ) );
+        EXPECT_EQ( log.DowngradeLines(), 2u );
+    }
+
+    // Loading a store that holds MSAA applies it, and says so once.
+    {
+        AALogCapture log;
+        MachineSettings::Load( store );
+        EXPECT_EQ( MachineSettings::Get().AAMethod, AntiAliasingMethod::MSAA );
+        EXPECT_EQ( log.DowngradeLines(), 1u );
+    }
+    std::filesystem::remove( store, ec );
+    MachineSettings::Get() = MachineSettings{}; // the store is process-wide: leave the defaults behind
+
+    // The settings layer keeps no memory of what it said: no statics, no lock.
+    const std::string impl = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( RepoRoot() + "Desert/Common/Source/Common/Settings/MachineSettings.cpp" ) );
+    ASSERT_FALSE( impl.empty() );
+    EXPECT_EQ( impl.find( "std::mutex" ), std::string::npos );
+    EXPECT_EQ( impl.find( "AADowngrade" ), std::string::npos );
+
+    // The renderer and the panel READ the resolution: neither interprets the pair nor words the downgrade.
+    for ( const char* reader :
+          { kSceneRendererImpl, "Editor/Source/Editor/Panels/Scalability/ScalabilityPanel.cpp" } )
+    {
+        SCOPED_TRACE( reader );
+        const std::string text =
+             Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + reader ) );
+        ASSERT_FALSE( text.empty() );
+        EXPECT_NE( text.find( ".ResolveAA(" ), std::string::npos );
+        EXPECT_EQ( text.find( "EffectiveAA(" ), std::string::npos );
+    }
+    const std::string renderer =
+         Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + kSceneRendererImpl ) );
+    EXPECT_EQ( renderer.find( "MSAAUnavailableOnPath" ), std::string::npos );
+
+    // The panel and the palette APPLY a change only through CommitAntiAliasing: neither writes the pair itself.
+    for ( const char* writer : { "Editor/Source/Editor/Panels/Scalability/ScalabilityPanel.cpp",
+                                 "Editor/Source/Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp" } )
+    {
+        SCOPED_TRACE( writer );
+        const std::string text =
+             Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + writer ) );
+        ASSERT_FALSE( text.empty() );
+        EXPECT_NE( text.find( "CommitAntiAliasing(" ), std::string::npos );
+        EXPECT_FALSE( std::regex_search( text, std::regex( R"((AAMethod|MSAASamples)\s*=[^=])" ) ) );
+    }
 }

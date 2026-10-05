@@ -133,6 +133,9 @@ namespace Common::Settings
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
             return canonical;
         }
+
+        // Defined beside ResolveAA, which it reports through; Load() is one of its two callers.
+        void ReportAppliedAntiAliasing( const MachineSettings& applied );
     } // namespace
 
     MachineSettings& MachineSettings::Get()
@@ -203,6 +206,8 @@ namespace Common::Settings
              rfl::enum_to_string( Get().CloudQualityTier ),
              migrated ? " — migrated from the retired AA/MSAASamples pair; the next save drops `AA`" : "" );
 
+        ReportAppliedAntiAliasing( Get() );
+
         // The migration is written back NOW, not at the user's next change (contract §4: no legacy key
         // left in the file).
         if ( migrated )
@@ -231,6 +236,45 @@ namespace Common::Settings
             return { AntiAliasingMethod::MSAA, MSAASamples, AntiAliasingMethod::None, false };
         // UE's fallback for a deferred scene: FXAA at one sample. MSAASamples is kept for the next forward scene.
         return { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, true };
+    }
+
+    namespace
+    {
+        constexpr std::string_view kMSAAOnlyForward =
+             "MSAA applies to forward scenes only: deferred lighting shades one sample per pixel";
+
+        // What an APPLIED anti-aliasing choice means on the path that cannot multisample. Called only where
+        // the choice is applied (Load, CommitAntiAliasing), so each application says it once and the
+        // per-frame readers say nothing.
+        void ReportAppliedAntiAliasing( const MachineSettings& applied )
+        {
+            const AntiAliasingResolution deferred = applied.ResolveAA( false );
+            if ( !deferred.Effective.MSAAUnavailableOnPath )
+                return;
+            LOG_INFO( "[Anti-Aliasing] MSAA {}x applies to forward scenes; deferred scenes run {}: {}",
+                      deferred.RequestedSamples, rfl::enum_to_string( deferred.Effective.Method ),
+                      deferred.Reason );
+        }
+    } // namespace
+
+    AntiAliasingResolution MachineSettings::ResolveAA( const bool pathSupportsMSAA ) const
+    {
+        AntiAliasingResolution resolved;
+        resolved.RequestedMethod  = AAMethod;
+        resolved.RequestedSamples = AAMethod == AntiAliasingMethod::MSAA ? MSAASamples : 1;
+        resolved.Effective        = EffectiveAA( pathSupportsMSAA );
+        resolved.Reason = resolved.Effective.MSAAUnavailableOnPath ? kMSAAOnlyForward : std::string_view{};
+        return resolved;
+    }
+
+    bool MachineSettings::CommitAntiAliasing( const AntiAliasingMethod method, const int msaaSamples )
+    {
+        MachineSettings& settings = Get();
+        settings.AAMethod         = method;
+        if ( msaaSamples > 1 )
+            settings.MSAASamples = msaaSamples;
+        ReportAppliedAntiAliasing( settings );
+        return Save();
     }
 
     bool MachineSettings::MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson )
