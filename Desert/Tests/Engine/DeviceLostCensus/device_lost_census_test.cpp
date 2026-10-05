@@ -555,11 +555,67 @@ TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )
                           << 1 + std::count( src.begin(), src.begin() + static_cast<std::ptrdiff_t>( at ), '\n' )
                           << " guards recording on the raw field; ask IsRecording() so a mid-frame loss stops it";
 
-    int guards = 0;
-    for ( const std::string asked : { "if ( !IsRecording()", "if ( IsRecording() )" } )
-        for ( std::size_t at = 0; ( at = src.find( asked, at ) ) != std::string::npos; at += asked.size() )
-            ++guards;
-    EXPECT_GE( guards, 20 ) << "the recording entry points stopped asking IsRecording()";
+    // EVERY FUNCTION THAT RECORDS IS ACCOUNTED FOR, BY NAME AND NOT BY COUNT. A floor on the number of guards
+    // passed while a new entry point recorded unguarded, and went red when legacy entry points were DELETED
+    // (MESH-PB1) -- the count measured the API's size, not the invariant. A recording function is one whose
+    // body issues a vkCmd* or calls a recording helper, and each is exactly one of:
+    //   * the arming function (BeginFrame), which the device-lost gate sits in front of;
+    //   * gated: it asks IsRecording();
+    //   * a graph pass entry point: its command buffer is the pass's own (VulkanRdgBackend::CommandBufferOf,
+    //     directly or through BindGraphicsPassState), which the graph only runs inside a gated ExecuteGraph;
+    //   * a helper (kHelpers), and then every caller of it is one of the above.
+    const std::string                  qualifier = "VulkanRendererAPI::";
+    const std::vector<std::string>     kHelpers  = { "BindGraphicsPipeline", "DrawCounted", "DrawIndexedCounted" };
+    std::map<std::string, std::string> bodies;
+    for ( std::size_t at = 0; ( at = src.find( qualifier, at ) ) != std::string::npos; at += qualifier.size() )
+    {
+        std::size_t end = at + qualifier.size();
+        while ( end < src.size() && IsIdentChar( src[end] ) )
+            ++end;
+        const std::string name = src.substr( at + qualifier.size(), end - at - qualifier.size() );
+        if ( !name.empty() && !bodies.contains( name ) )
+            bodies[name] = BodyOf( src, qualifier + name + "(" );
+    }
+    const auto calls = []( const std::string& body, const std::string& callee )
+    {
+        for ( std::size_t at = 0; ( at = body.find( callee + "(", at ) ) != std::string::npos; ++at )
+            if ( at == 0 || !IsIdentChar( body[at - 1] ) )
+                return true;
+        return false;
+    };
+    const auto isHelper = [&]( const std::string& name )
+    { return std::find( kHelpers.begin(), kHelpers.end(), name ) != kHelpers.end(); };
+    const auto isGuarded = [&]( const std::string& name, const std::string& body )
+    {
+        return name == "BeginFrame" || body.find( "IsRecording()" ) != std::string::npos ||
+               calls( body, "CommandBufferOf" ) || calls( body, "BindGraphicsPassState" );
+    };
+
+    int recorders = 0;
+    for ( const auto& [name, body] : bodies )
+    {
+        bool records = body.find( "vkCmd" ) != std::string::npos;
+        for ( const std::string& helper : kHelpers )
+            records = records || calls( body, helper );
+        if ( !records )
+            continue;
+        ++recorders;
+        if ( !isHelper( name ) )
+            EXPECT_TRUE( isGuarded( name, body ) )
+                 << "VulkanRendererAPI::" << name << " records but neither asks IsRecording() nor takes its "
+                 << "command buffer from a graph pass; a mid-frame device loss leaves it recording";
+    }
+    for ( const std::string& helper : kHelpers )
+    {
+        ASSERT_TRUE( bodies.contains( helper ) && !bodies[helper].empty() )
+             << "VulkanRendererAPI::" << helper << " is not in " << file.string() << "; update kHelpers";
+        for ( const auto& [name, body] : bodies )
+            if ( name != helper && calls( body, helper ) && !isHelper( name ) )
+                EXPECT_TRUE( isGuarded( name, body ) )
+                     << "VulkanRendererAPI::" << name << " calls the recording helper " << helper
+                     << " without asking IsRecording() or recording inside a graph pass";
+    }
+    EXPECT_GE( recorders, 10 ) << "the census found almost no recording functions; the scan itself broke";
 
     const std::string begin = BodyOf( src, "VulkanRendererAPI::BeginRenderPass" );
     EXPECT_NE( begin.find( "== VK_NULL_HANDLE" ), std::string::npos )
