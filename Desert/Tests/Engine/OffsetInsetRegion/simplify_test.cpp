@@ -3,7 +3,9 @@
 // Preserve PolyGroups every edge between two groups survives exactly (same end positions) - without it they do
 // not.
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/MeshConstraints.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp"
 #include "Engine/Geometry/MeshRegionOperation.hpp"
 
 #include <numbers>
@@ -468,4 +470,110 @@ TEST( Simplify, ASecondSimplifyOfAPerFaceUVSphereLeavesNoFin )
     EXPECT_EQ( InwardAndDegenerate( half ), std::make_pair( 0, 0 ) );
     EXPECT_EQ( InwardAndDegenerate( fourth ), std::make_pair( 0, 0 ) );
     EXPECT_EQ( SeamEdges( fourth ), fourth.EdgeCount() );
+}
+
+namespace
+{
+    // M18f: the fin rule's straight-line threshold (kStraightCos = -0.8, about 143 deg) decides only at a
+    // junction - a vertex with three or more constrained edges; with two it refuses at any angle. This is the
+    // smallest mesh where it alone decides: a free hub v fanned to a ring of @p k constrained edges, each ring
+    // vertex also holding a constrained spoke out to a second ring. Every ring vertex is locked, so the only
+    // collapses are v onto a ring vertex r0; that turns the fan triangles (v, r1, r2) and (v, r(k-1), r(k-2))
+    // into ears whose two sides meet at the junctions r1 and r(k-1) at the ring's interior angle 180 - 360 / k.
+    // Every other angle the rule measures is 90 + 180 / k or less. @p onSphere puts the ring on the equator of
+    // the sphere of radius kHalf, v at the north pole and the outer ring at 30 deg south: the ring is then a
+    // great circle, so every ear (and the whole collapsed fan) lies in the equator plane, across the surface.
+    struct JunctionFan
+    {
+        DynamicMesh3    Mesh;
+        MeshConstraints Constraints;
+    };
+
+    JunctionFan MakeJunctionFan( int k, bool onSphere )
+    {
+        JunctionFan fan;
+        const auto  at = [&]( int i, double radius, double z )
+        {
+            const double a = 2.0 * std::numbers::pi * i / k;
+            return glm::dvec3( radius * std::cos( a ), radius * std::sin( a ), z );
+        };
+        const double     south = -std::numbers::pi / 6.0;
+        const int        hub   = fan.Mesh.AppendVertex( glm::dvec3( 0.0, 0.0, onSphere ? kHalf : 0.0 ) );
+        std::vector<int> ring;
+        std::vector<int> outer;
+        for ( int i = 0; i < k; ++i )
+            ring.push_back( fan.Mesh.AppendVertex( at( i, kHalf, 0.0 ) ) );
+        for ( int i = 0; i < k; ++i )
+            outer.push_back(
+                 fan.Mesh.AppendVertex( onSphere ? at( i, kHalf * std::cos( south ), kHalf * std::sin( south ) )
+                                                 : at( i, 2.0 * kHalf, 0.0 ) ) );
+        for ( int i = 0; i < k; ++i )
+        {
+            const int j = ( i + 1 ) % k;
+            fan.Mesh.AppendTriangle( Index3i( hub, ring[i], ring[j] ) );
+            fan.Mesh.AppendTriangle( Index3i( ring[i], outer[i], outer[j] ) );
+            fan.Mesh.AppendTriangle( Index3i( ring[i], outer[j], ring[j] ) );
+        }
+        const EdgeConstraint constrained{ EdgeRefineFlags::NoFlip };
+        for ( int i = 0; i < k; ++i )
+        {
+            fan.Constraints.SetOrUpdateEdgeConstraint( fan.Mesh.FindEdge( ring[i], ring[( i + 1 ) % k] ),
+                                                       constrained );
+            fan.Constraints.SetOrUpdateEdgeConstraint( fan.Mesh.FindEdge( ring[i], outer[i] ), constrained );
+            fan.Constraints.SetOrUpdateVertexConstraint( ring[i], VertexConstraint::FullyConstrained() );
+            fan.Constraints.SetOrUpdateVertexConstraint( outer[i], VertexConstraint::FullyConstrained() );
+        }
+        return fan;
+    }
+
+    // Ask for one collapse (two triangles fewer) and return the triangle count Simplify reached.
+    int AfterOneCollapse( JunctionFan& fan )
+    {
+        QemSimplification simplification( fan.Mesh );
+        simplification.SetExternalConstraints( fan.Constraints );
+        simplification.SimplifyToTriangleCount( fan.Mesh.TriangleCount() - 2 );
+        return fan.Mesh.TriangleCount();
+    }
+
+    // Triangles standing across a surface around the origin: the unit normal turned more than 60 deg from the
+    // direction to the centroid (a fin turns it 90 deg; every triangle of the fan before a collapse is within 30).
+    int StandingAcross( const DynamicMesh3& mesh )
+    {
+        int across = 0;
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            const Index3i    tri    = mesh.GetTriangle( t );
+            const glm::dvec3 a      = mesh.GetVertex( tri.A );
+            const glm::dvec3 b      = mesh.GetVertex( tri.B );
+            const glm::dvec3 c      = mesh.GetVertex( tri.C );
+            const glm::dvec3 normal = glm::normalize( glm::cross( b - a, c - a ) );
+            across += glm::dot( normal, glm::normalize( a + b + c ) ) < 0.5 ? 1 : 0;
+        }
+        return across;
+    }
+} // namespace
+
+// M18f: an octagon's corners open 135 deg (cos -0.71, wider than -0.6, narrower than -0.8). On a plane that is a
+// true corner: the ear cut off it is an ordinary triangle of the plane, so the collapse goes through. A threshold
+// of -0.6 or higher (-0.7 too) would call these corners straight and refuse every collapse - the fan stays 24.
+TEST( Simplify, AFinThresholdCutsAnEarOffAFlat135DegreeCorner )
+{
+    JunctionFan fan = MakeJunctionFan( 8, false );
+    ASSERT_EQ( fan.Mesh.TriangleCount(), 24 );
+    EXPECT_EQ( AfterOneCollapse( fan ), 22 ) << "the 135 deg corner was taken for a straight line";
+    EXPECT_TRUE( Valid( fan.Mesh ) );
+}
+
+// M18f: twelve points on a great circle open 150 deg (cos -0.87, wider than -0.8, narrower than -0.95). Collapsing
+// the pole onto the equator would flatten the cap into the equator plane - ten triangles standing across the
+// sphere, the ears among them, fins the flip check passes (their normals turn 45 deg, not 180). -0.8 calls the
+// line straight and refuses every collapse; a threshold of -0.95 (or -0.9) lets the first one through.
+TEST( Simplify, AFinThresholdRefusesAnEarOffA150DegreeGreatCircle )
+{
+    JunctionFan fan = MakeJunctionFan( 12, true );
+    ASSERT_EQ( fan.Mesh.TriangleCount(), 36 );
+    ASSERT_EQ( StandingAcross( fan.Mesh ), 0 );
+    EXPECT_EQ( AfterOneCollapse( fan ), 36 ) << "a collapse went through along a straight constrained line";
+    EXPECT_EQ( StandingAcross( fan.Mesh ), 0 );
+    EXPECT_TRUE( Valid( fan.Mesh ) );
 }
