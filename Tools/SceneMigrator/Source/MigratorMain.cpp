@@ -1250,7 +1250,8 @@ namespace Desert::Migration
             ++prefabsChanged;
         }
 
-        int foliageRaised = 0;
+        int foliageRaised    = 0;
+        int animGraphsRaised = 0;
         for ( const auto& path : texts )
         {
             const std::string text = ReadAll( path );
@@ -1273,6 +1274,31 @@ namespace Desert::Migration
                         << " -> " << Desert::Assets::kSkeletonSchemaVersion << "\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                         ++failed;
+                    continue;
+                }
+            }
+            if ( path.extension() == ".danimgraph" )
+            {
+                // ANGR 2 -> 3 (TAIL-ANIM): the Output Pose node's canvas position.
+                const auto stated = ReadStatedVersion( path, text, "ANGR" );
+                if ( stated && stated.GetValue() == 2u )
+                {
+                    const auto raised = Desert::Migration::MigrateAnimGraphV2ToV3( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — ANGR 2 -> "
+                            << Desert::Assets::kAnimGraphSchemaVersion << ": " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " ANGR 2 -> "
+                        << Desert::Assets::kAnimGraphSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++animGraphsRaised;
                     continue;
                 }
             }
@@ -1381,7 +1407,8 @@ namespace Desert::Migration
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
             << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
-            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << meshesRaised
+            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << animGraphsRaised
+            << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
             << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << recordsStated
             << ( check ? " import record(s) would state their source hash, "
@@ -1392,7 +1419,7 @@ namespace Desert::Migration
         if ( failed > 0 )
             return 1;
         return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
-                            meshesRaised > 0 || recordsStated > 0 ) )
+                            animGraphsRaised > 0 || meshesRaised > 0 || recordsStated > 0 ) )
                     ? 1
                     : 0;
     }

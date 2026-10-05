@@ -333,6 +333,12 @@ namespace Desert::Migration
     // A file that does not state SKEL 1 or 2 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text );
 
+    // The ANGR 3 text of an ANGR 2 `.danimgraph`: everything kept, the Output Pose node of the graph and of every
+    // implemented layer graph placed where the v2 editor drew it (Animation::Graph::DefaultOutputPosePosition:
+    // one column right of the rightmost node, level with the node wired into it). A file that does not state
+    // ANGR 2, or whose body does not read, is an error naming why. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text );
+
     // SKEL-TREE (Engine/Animation/SkeletonReference.hpp): what the two raises below resolve a legacy bone hash
     // against - one .skeleton's header GUID, Signature and path (relative to its `Assets` root, the form an
     // AssetGuidRef states). A file that does not read as the current SKEL is an error naming it.

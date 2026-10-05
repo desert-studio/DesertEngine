@@ -61,8 +61,10 @@ namespace Desert::Assets
     // stated no version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
     // v2 (ANIM-I12): the graph is a pose graph (Nodes + OutputPose); v1's lone Entry/States became one
-    // StateMachine node wired to Output Pose, in the files.
-    inline constexpr uint32_t kAnimGraphSchemaVersion = 2;
+    // StateMachine node wired to Output Pose, in the files. v3 (TAIL-ANIM): the Output Pose node's canvas
+    // position (OutputPoseX/Y, graph and every layer graph); Tools/SceneMigrator raises v2 through
+    // Migration::MigrateAnimGraphV2ToV3 at Animation::Graph::DefaultOutputPosePosition.
+    inline constexpr uint32_t kAnimGraphSchemaVersion = 3;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
     // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
     // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the

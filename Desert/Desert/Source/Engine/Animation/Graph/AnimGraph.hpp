@@ -10,6 +10,7 @@
 
 #include <string>
 #include <string_view>
+#include <utility>
 #include <unordered_map>
 #include <vector>
 
@@ -193,6 +194,8 @@ namespace Desert::Animation::Graph
         std::string           Layer;
         std::vector<PoseNode> Nodes;
         std::string           OutputPose;
+        float                 OutputPoseX = 0.0f; // the Output Pose node's canvas position (as PoseNode X/Y)
+        float                 OutputPoseY = 0.0f;
     };
 
     /// The linked-layer half of a graph: the interfaces it declares (to call or to implement) and the layer
@@ -220,6 +223,10 @@ namespace Desert::Animation::Graph
         /// The node wired into the Output Pose sink. Every graph has one: a graph with nothing at its
         /// output is refused by `PlanPoseGraph`, which is what the loader runs.
         std::string OutputPose;
+        /// The Output Pose node's canvas position (UE: the Root node's NodePosX/Y; ANGR 3) - a node of the
+        /// canvas like any other, dragged and framed with them; persisted, unused at runtime.
+        float OutputPoseX = 0.0f;
+        float OutputPoseY = 0.0f;
         /// Declared layer interfaces and implemented layer graphs; absent = the graph neither calls nor
         /// implements a linked layer (the files written before ANIM-I14 are exactly that).
         std::optional<AnimGraphLayers> Layers;
@@ -256,6 +263,14 @@ namespace Desert::Animation::Graph
     /// A graph of ONE state machine node wired to Output Pose, with no states yet: the shape a new graph
     /// starts from and the shape the ANGR 1 files were migrated to.
     [[nodiscard]] AnimGraph MakeStateMachineGraph( std::string name = "AnimGraph" );
+
+    /// Horizontal spacing between a pose node and the Output Pose node placed after it.
+    inline constexpr float kOutputPoseSpacingX = 260.0f;
+
+    /// Where an Output Pose node nobody placed sits (a new graph, ANGR 2 files raised to 3): one column right
+    /// of the rightmost node, level with the node wired into it (UE places the Root right of the graph).
+    [[nodiscard]] std::pair<float, float> DefaultOutputPosePosition( const std::vector<PoseNode>& nodes,
+                                                                     std::string_view             outputPose );
 
     /// The node called `name`, or nullptr.
     [[nodiscard]] const PoseNode* FindNode( const AnimGraph& graph, std::string_view name );
