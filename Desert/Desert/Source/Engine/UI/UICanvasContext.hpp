@@ -329,6 +329,12 @@ namespace Desert::UI
         // clip at double speed. The authoring preview sets this false; the viewport / game keeps it true.
         bool DrivesSceneAnimation = true;
 
+        // Is this view showing a GAME world — Play-in-editor, the packaged game, the movie render — rather
+        // than an authored level? Only a game world starts AutoPlay UI clips (UIAnimationPlayback.hpp); an
+        // authored level shows the frame under the clip's playhead and the Sequencer moves it, as UE's
+        // designer never auto-plays a widget animation. The editor viewport sets it from the scene's state.
+        bool GameWorld = true;
+
         // What the scene's UI clips add to each element THIS frame, as this view evaluated them
         // (UIAnimationPlayback.hpp). Filled once in BeginUIFrame, read by every canvas walk of the frame.
         UIClipFrame AnimClips;

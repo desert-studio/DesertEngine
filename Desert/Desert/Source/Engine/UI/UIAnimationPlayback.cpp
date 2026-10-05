@@ -77,9 +77,21 @@ namespace Desert::UI
             const std::unordered_map<std::string, entt::entity>& m_ByUuid;
             UIClipFrame&                                         m_Frame;
         };
+
+        void ReportUnresolved( const TL::ApplyReport& report, UIClipFrame& frame )
+        {
+            for ( const std::string& label : report.Unresolved )
+            {
+                if ( frame.Warned.insert( std::format( "binding:{}", label ) ).second )
+                    LOG_WARN( "[UI] a UI animation binds element '{}', which is not in this scene; its tracks are "
+                              "skipped",
+                              label );
+            }
+        }
     } // namespace
 
-    void PlayUIAnimations( entt::registry& reg, const float dtSeconds, const bool advance, UIClipFrame& frame )
+    void PlayUIAnimations( entt::registry& reg, const float dtSeconds, const bool advance, const bool gameWorld,
+                           UIClipFrame& frame )
     {
         frame.Samples.clear();
         auto clips = reg.view<ECS::UIAnimComponent>();
@@ -95,11 +107,27 @@ namespace Desert::UI
         for ( const auto e : clips )
         {
             ECS::UIAnimData& clip = clips.get<ECS::UIAnimComponent>( e ).Data;
+
+            // ONLY THE DRIVING VIEW CREATES THE PLAYER, because creating it is where AutoPlay is honoured: a
+            // preview that got there first would hand the viewport a player it had already decided about.
+            // Until then every view evaluates the clip's first frame.
+            if ( !clip.Playback.has_value() && !advance )
+            {
+                const Animation::FrameTime start{ clip.Sequence.Start, 0.0f };
+                TL::Evaluator       evaluator( clip.Sequence );
+                evaluator.Evaluate( TL::TimeStep{ start, start }, frame.Scratch );
+                ReportUnresolved( evaluator.Apply( frame.Scratch, host ), frame );
+                continue;
+            }
             if ( !clip.Playback.has_value() )
             {
                 clip.Playback.emplace( clip.Sequence.TickRate, clip.Sequence.Start, clip.Sequence.End );
                 clip.Playback->SetLoopMode( clip.Loop );
-                if ( clip.AutoPlay )
+                // AutoPlay is a GAME behaviour (UE: a widget animation plays when the game constructs the
+                // widget, never in the designer). In an authored world the player waits at Start and the
+                // viewport shows the frame under the playhead — the Sequencer's Play/scrub moves it. Entering
+                // Play drops the player (Core::BeginPlay), so the game's run starts here at t = 0.
+                if ( clip.AutoPlay && gameWorld )
                     clip.Playback->Play();
             }
 
@@ -108,14 +136,7 @@ namespace Desert::UI
 
             TL::Evaluator evaluator( clip.Sequence );
             evaluator.Evaluate( step, frame.Scratch );
-            const TL::ApplyReport report = evaluator.Apply( frame.Scratch, host );
-            for ( const std::string& label : report.Unresolved )
-            {
-                if ( frame.Warned.insert( std::format( "binding:{}", label ) ).second )
-                    LOG_WARN( "[UI] a UI animation binds element '{}', which is not in this scene; its tracks are "
-                              "skipped",
-                              label );
-            }
+            ReportUnresolved( evaluator.Apply( frame.Scratch, host ), frame );
         }
     }
 } // namespace Desert::UI
