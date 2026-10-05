@@ -15,6 +15,7 @@
 #include <Common/Json/Document.hpp>
 
 #include <Editor/Core/CommandHistory.hpp>
+#include <Editor/Core/Commands/SequenceEdit.hpp>
 
 #include "../ClipFixture.hpp"
 
@@ -770,5 +771,81 @@ TEST( LevelSequenceKeys, AutoKeyedGizmoReleaseIsOneUndoStep )
     EXPECT_FALSE( history.JoinFollowUp( lone, late ) );
     // A step that pushed nothing joins nothing either.
     EXPECT_FALSE( history.JoinFollowUp( history.Revision(), history.Revision() ) );
+    history.Clear();
+}
+
+// UE: "+ Track ▸ Material Parameter" and every key on it are one FScopedTransaction each. The Sequencer wraps
+// each in the SAME step the other level edits use (ScopedSequenceEdit over the document's SequenceOwner), so
+// the add and the key are two Ctrl+Z, and each Ctrl+Z takes back exactly its own.
+TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneUndoStepEach )
+{
+    namespace Ed = Desert::Editor;
+    auto& history = Ed::CommandHistory::Get();
+    history.Clear();
+    T::Sequence                               sequence = AuthoredDoor();
+    const auto                                door     = sequence.Bindings.front().Guid;
+    const ECS::LevelSequenceMaterialParameter roughness{ 0, "Roughness" };
+    const ECS::LevelSequenceMaterialParameter albedo{ 1, "Albedo" };
+    const size_t                              tracksBefore = sequence.Tracks.size();
+
+    Ed::SequenceOwner owner;
+    owner.Identity = &sequence;
+    owner.Resolve  = [&sequence]() -> T::Sequence* { return &sequence; };
+    owner.Volatile = false;
+    owner.Name     = "Level Sequence";
+    Ed::SequenceEditTransaction transaction;
+
+    {
+        const Ed::ScopedSequenceEdit step( transaction, owner );
+        ASSERT_TRUE( ECS::AddMaterialParameterTrack( sequence, door, roughness, T::TrackKind::Float,
+                                                     glm::vec4( 0.25F, 0.0F, 0.0F, 0.0F ) )
+                          .IsSuccess() );
+    }
+    ASSERT_EQ( history.UndoStack().size(), 1U ) << "the add is one step";
+    {
+        const Ed::ScopedSequenceEdit step( transaction, owner );
+        ASSERT_TRUE( ECS::SetMaterialParameterKey( sequence, door, roughness, A::FrameNumber{ 40 },
+                                                   glm::vec4( 0.75F, 0.0F, 0.0F, 0.0F ) )
+                          .IsSuccess() );
+    }
+    ASSERT_EQ( history.UndoStack().size(), 2U ) << "the key is one more step";
+    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.75F );
+    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 20 } )->x, 0.5F )
+         << "Linear between the start key and the new one";
+    ASSERT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, roughness ).size(), 2U );
+
+    // A vector track in the same document: its row reads .xyz and lists the merged X/Y/Z key ticks once each.
+    {
+        const Ed::ScopedSequenceEdit step( transaction, owner );
+        ASSERT_TRUE( ECS::AddMaterialParameterTrack( sequence, door, albedo, T::TrackKind::Vector,
+                                                     glm::vec4( 0.1F, 0.2F, 0.3F, 1.0F ) )
+                          .IsSuccess() );
+    }
+    const auto rows = ECS::MaterialParameterTracks( sequence, door );
+    ASSERT_EQ( rows.size(), 2U );
+    EXPECT_EQ( rows[0].first, roughness );
+    EXPECT_EQ( rows[1].first, albedo );
+    EXPECT_EQ( rows[1].second, T::TrackKind::Vector );
+    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, albedo, A::FrameNumber{ 70 } )->z, 0.3F );
+    EXPECT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, albedo ).size(), 1U );
+
+    // Ctrl+Z ×3: the vector track goes, then only the key (the start key stays), then the scalar track.
+    ASSERT_TRUE( history.Undo() );
+    EXPECT_FALSE( ECS::HasMaterialParameterTrack( sequence, door, albedo ) );
+    ASSERT_TRUE( history.Undo() );
+    ASSERT_TRUE( ECS::HasMaterialParameterTrack( sequence, door, roughness ) );
+    EXPECT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, roughness ).size(), 1U );
+    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.25F );
+    ASSERT_TRUE( history.Undo() );
+    EXPECT_FALSE( ECS::HasMaterialParameterTrack( sequence, door, roughness ) );
+    EXPECT_FALSE( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ).has_value() );
+    EXPECT_EQ( sequence.Tracks.size(), tracksBefore );
+    EXPECT_FALSE( history.Undo() ) << "nothing else was recorded";
+
+    // Ctrl+Y ×2: the track, then its key, each by value.
+    ASSERT_TRUE( history.Redo() );
+    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.25F );
+    ASSERT_TRUE( history.Redo() );
+    EXPECT_FLOAT_EQ( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } )->x, 0.75F );
     history.Clear();
 }

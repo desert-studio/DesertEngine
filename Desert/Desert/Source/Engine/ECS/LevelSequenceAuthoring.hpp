@@ -24,6 +24,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Desert::ECS
@@ -211,6 +212,26 @@ namespace Desert::ECS
                                                                  const LevelSequenceMaterialParameter&   parameter,
                                                                  Animation::FrameNumber                  tick,
                                                                  const glm::vec4&                        value );
+
+    /// What @p binding's Material Parameter track for @p parameter says at @p tick (.x for a scalar, .xyz for a
+    /// vector; read from the section a key at @p tick would go to) — the value the Sequencer's row shows at the
+    /// playhead. nullopt for no such track.
+    [[nodiscard]] std::optional<glm::vec4> MaterialParameterAt( const Animation::Timeline::Sequence&    sequence,
+                                                                const Animation::Timeline::BindingGuid& binding,
+                                                                const LevelSequenceMaterialParameter&   parameter,
+                                                                Animation::FrameNumber                  tick );
+
+    /// Every key tick of that track, ascending and once each (every section; a vector's X / Y / Z keys merged),
+    /// as the dope sheet draws them. Empty for no track.
+    [[nodiscard]] std::vector<Animation::FrameNumber>
+    MaterialParameterKeyTicks( const Animation::Timeline::Sequence&    sequence,
+                               const Animation::Timeline::BindingGuid& binding,
+                               const LevelSequenceMaterialParameter&   parameter );
+
+    /// Every Material Parameter track of @p binding with its kind, in track order — the rows under the actor.
+    [[nodiscard]] std::vector<std::pair<LevelSequenceMaterialParameter, Animation::Timeline::TrackKind>>
+    MaterialParameterTracks( const Animation::Timeline::Sequence&    sequence,
+                             const Animation::Timeline::BindingGuid& binding );
 
     /**
      * @brief The Sequencer's preview of a level sequence over a scene's registry (UE: the editor's sequence

@@ -15,6 +15,8 @@ project(test_name)
         "level_sequence_test.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/ECS/LevelSequencePlayback.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/ECS/LevelSequenceAuthoring.cpp",
+        -- The Sequencer's undo step (ScopedSequenceEdit over a SequenceOwner): each Material Parameter edit is one.
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
         -- ANIM-LSEQ3: an Animation section poses the bound entity's Animator, so the Animator and what it
         -- links (graph, retarget, controls, rig — AnimatorPose's list) compile here.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Animator.cpp",

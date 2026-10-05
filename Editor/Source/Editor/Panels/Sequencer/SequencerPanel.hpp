@@ -214,6 +214,37 @@ namespace Desert::Editor
         void AddLevelVisibilityTrack( const Animation::Timeline::BindingGuid& binding );
         /// A Visibility key @p visible at the playhead on @p binding's track, one undo step.
         void KeyLevelVisibility( const Animation::Timeline::BindingGuid& binding, bool visible );
+        /// One parameter "+ Track ▸ Material Parameter ▸ <slot>" offers: a Float / Float3 / Float4 of the slot
+        /// shader's schema (UE: the scalar and vector parameters of the component's material), with what the
+        /// actor's slot instance holds for it now (its own override, else its parent's, else the schema default).
+        struct LevelMaterialParameterChoice
+        {
+            ECS::LevelSequenceMaterialParameter Parameter;
+            Animation::Timeline::TrackKind      Kind = Animation::Timeline::TrackKind::Float;
+            std::string                         Label;
+            glm::vec4                           Current{ 0.0F };
+            bool                                Color = false;
+            std::optional<float>                Min;
+            std::optional<float>                Max;
+        };
+        /// One material slot of the actor's mesh with the parameters its shader declares.
+        struct LevelMaterialSlotChoice
+        {
+            uint32_t                                  Slot = 0;
+            std::string                               Label;
+            std::vector<LevelMaterialParameterChoice> Parameters;
+        };
+        /// The slots of @p binding's entity's Static / Skinned mesh that have their own runtime instance (the
+        /// ones a Material Parameter track can drive). Empty when the binding names no such entity.
+        [[nodiscard]] std::vector<LevelMaterialSlotChoice>
+        LevelMaterialSlots( const Animation::Timeline::BindingGuid& binding ) const;
+        /// "+ Track ▸ Material Parameter ▸ <slot> ▸ <parameter>": the track keyed at the range start with the
+        /// actor's current value (ECS::AddMaterialParameterTrack), one undo step.
+        void AddLevelMaterialParameterTrack( const Animation::Timeline::BindingGuid&    binding,
+                                             const ECS::LevelSequenceMaterialParameter& parameter );
+        /// A Material Parameter key @p value at the playhead on @p binding's track, one undo step.
+        void KeyLevelMaterialParameter( const Animation::Timeline::BindingGuid&    binding,
+                                        const ECS::LevelSequenceMaterialParameter& parameter, const glm::vec4& value );
         /// The clips that play on @p binding's entity (SkinnedMesh + Animation): the AnimationLibrary's clips
         /// for the mesh's skeleton (UE: "+ Track → Animation" lists the assets compatible with the skeleton).
         /// Empty when the binding names no such entity.
@@ -271,6 +302,9 @@ namespace Desert::Editor
         ECS::LevelSequencePreview m_LevelPreview;
         Animation::FrameNumber    m_LevelTick;
         int32_t                   m_LevelTickShown     = INT32_MIN;
+        /// The value a Material Parameter row's field shows while it is being dragged (row id → value): keyed once,
+        /// on release, so a drag is one key and one undo step (UE: one transaction per committed edit).
+        std::optional<std::pair<std::string, glm::vec4>> m_LevelMaterialDraft;
         uint32_t                  m_LevelRevisionShown = UINT32_MAX;
         SequenceEditTransaction   m_LevelEdit;
 
