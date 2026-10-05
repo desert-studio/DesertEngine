@@ -497,7 +497,7 @@ namespace
 // UE INTERCHANGE: an embedded image becomes its own texture asset in the import folder; nothing else lands there.
 TEST( MaterialImportAdapter, AnEmbeddedTextureLeavesNoSourceWithoutAnAssetInTheContent )
 {
-    const fs::path                          file    = WriteGlbWithEmbeddedPng( "embedded-noloose" );
+    const fs::path                          file = WriteGlbWithEmbeddedPng( "embedded-noloose" );
     std::vector<std::optional<PackOutcome>> extracted;
     Assimp::Importer                        importer;
     const TemplateFill                      fill =

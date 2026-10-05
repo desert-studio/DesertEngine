@@ -385,9 +385,10 @@ TEST_F( SkinnedImport, EveryFileTheImportWroteTracesBackToItsSource )
 // TAIL-TEX: no bare image is written into the content for it — the asset carries the bytes.
 TEST_F( SkinnedImport, TheEmbeddedBaseColourIsImportedAsATextureAssetBesideTheSource )
 {
-    const std::filesystem::path asset =
-         m_Source.parent_path() / std::format( "{}_0{}", m_Source.stem().string(), Assets::kTextureAssetExtension );
-    EXPECT_TRUE( Assets::IsTextureSourceAssetFile( Common::Constants::Path::FullPath( asset ) ) ) << asset.string();
+    const std::filesystem::path asset = m_Source.parent_path() / std::format( "{}_0{}", m_Source.stem().string(),
+                                                                              Assets::kTextureAssetExtension );
+    EXPECT_TRUE( Assets::IsTextureSourceAssetFile( Common::Constants::Path::FullPath( asset ) ) )
+         << asset.string();
     const std::filesystem::path image =
          m_Source.parent_path() / std::format( "{}_0.png", m_Source.stem().string() );
     EXPECT_FALSE( std::filesystem::exists( Common::Constants::Path::FullPath( image ) ) )

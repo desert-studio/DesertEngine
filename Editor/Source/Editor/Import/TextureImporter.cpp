@@ -868,8 +868,8 @@ namespace Desert::Editor
         // a FIRST import: at an existing asset's path it would be the asset itself, not a sidecar.
         if ( Assets::IsTextureSourceAssetFile( assetPath ) )
         {
-            const auto kept = Assets::WriteTextureSource( assetPath, Common::Content::ContentKind::Texture, sourceKey,
-                                                          std::move( bytes ), {} );
+            const auto kept = Assets::WriteTextureSource( assetPath, Common::Content::ContentKind::Texture,
+                                                          sourceKey, std::move( bytes ), {} );
             if ( !kept.IsSuccess() )
                 return Common::MakeError<fs::path>( kept.GetError() );
             return Common::MakeSuccess( assetPath );
@@ -897,7 +897,8 @@ namespace Desert::Editor
              fs::relative( Common::Constants::Path::FullPath( source ), Common::Constants::Path::SKYBOX_PATH );
         const bool     sky  = !rel.empty() && rel.begin()->string() != "..";
         const auto     kind = sky ? Common::Content::ContentKind::Skybox : Common::Content::ContentKind::Texture;
-        const auto created = Assets::WriteTextureSource( assetPath, kind, sourceKey, std::move( bytes ), settings );
+        const auto     created =
+             Assets::WriteTextureSource( assetPath, kind, sourceKey, std::move( bytes ), settings );
         if ( !created.IsSuccess() )
             return Common::MakeError<fs::path>( created.GetError() );
         return Common::MakeSuccess( assetPath );

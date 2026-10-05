@@ -59,7 +59,7 @@ namespace Desert::Editor
         {
             Pixels& image      = images.emplace_back();
             int     components = 0;
-            const auto bytes   = Assets::ReadTextureSourceImage( Common::Constants::Path::FullPath( part.Source ) );
+            const auto bytes = Assets::ReadTextureSourceImage( Common::Constants::Path::FullPath( part.Source ) );
             if ( !bytes.IsSuccess() )
                 return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
                                                                     slot.Slot, part.Source.generic_string(),
@@ -123,9 +123,10 @@ namespace Desert::Editor
                                      reinterpret_cast<const std::byte*>( bytes.data() ) + bytes.size() ),
              {} );
         if ( !written.IsSuccess() )
-            return Common::MakeError<PackOutcome>(
-                 std::format( "cannot write the texture asset '{}': {}", asset.generic_string(), written.GetError() ) );
-        return Common::MakeSuccess( written.GetValue() == Assets::TextureSourceWrite::Unchanged ? PackOutcome::Unchanged
-                                                                                             : PackOutcome::Written );
+            return Common::MakeError<PackOutcome>( std::format( "cannot write the texture asset '{}': {}",
+                                                                asset.generic_string(), written.GetError() ) );
+        return Common::MakeSuccess( written.GetValue() == Assets::TextureSourceWrite::Unchanged
+                                         ? PackOutcome::Unchanged
+                                         : PackOutcome::Written );
     }
 } // namespace Desert::Editor

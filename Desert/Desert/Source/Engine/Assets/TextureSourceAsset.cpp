@@ -247,8 +247,7 @@ namespace Desert::Assets
     }
 
     Common::ResultStr<TextureSourceWrite> WriteTextureSource( const std::filesystem::path& asset,
-                                                              const CC::ContentKind        kind,
-                                                              std::string                  sourceKey,
+                                                              const CC::ContentKind kind, std::string sourceKey,
                                                               std::vector<std::byte>       sourceBytes,
                                                               const TextureImportSettings& settingsIfCreated )
     {
@@ -288,8 +287,9 @@ namespace Desert::Assets
         if ( !raw.IsSuccess() )
             return Common::MakeError<std::vector<std::byte>>( raw.GetError() );
         const std::string& s = raw.GetValue();
-        return Common::MakeSuccess( std::vector<std::byte>( reinterpret_cast<const std::byte*>( s.data() ),
-                                                            reinterpret_cast<const std::byte*>( s.data() ) + s.size() ) );
+        return Common::MakeSuccess(
+             std::vector<std::byte>( reinterpret_cast<const std::byte*>( s.data() ),
+                                     reinterpret_cast<const std::byte*>( s.data() ) + s.size() ) );
     }
 
     bool IsTextureSourceAssetFile( const std::filesystem::path& file )
