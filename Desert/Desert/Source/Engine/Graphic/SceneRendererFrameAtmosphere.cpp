@@ -91,7 +91,7 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* fog = UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] );
         if ( fog )
-            AddComputeNodes( graph, textures, fog->DeclareFrameNodes() );
+            AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients ) );
     }
 
     void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures )

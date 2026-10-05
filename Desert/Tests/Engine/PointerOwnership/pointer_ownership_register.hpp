@@ -609,9 +609,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
           "MaterialSSRComposite", "m_Normal", Guard::OwnedByThisObject,
           kWhyMaterialProperty },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Fog/MaterialHeightFog.hpp",
-          "MaterialHeightFog", "m_FogTexture", Guard::OwnedByThisObject,
-          kWhyMaterialProperty },
         { "Desert/Desert/Source/Engine/Graphic/Materials/MaterialInstance.hpp",
           "MaterialSlotBinding", "Slots", Guard::OwnedByThisObject,
           "the parallel `Owned` vector in the SAME object holds a shared_ptr to every instance this view "

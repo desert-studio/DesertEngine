@@ -27,11 +27,6 @@ namespace Desert::Graphic::System
         {
             return ( extent + kWorkGroupSize - 1 ) / kWorkGroupSize;
         }
-
-        double BytesToMiB( uint64_t bytes )
-        {
-            return static_cast<double>( bytes ) / ( 1024.0 * 1024.0 );
-        }
     } // namespace
 
     HeightFogRenderer::~HeightFogRenderer() = default;
@@ -50,7 +45,6 @@ namespace Desert::Graphic::System
         if ( !m_ParamsBuffer )
             return Common::MakeError( "HeightFogRenderer: could not create the fog parameter buffer" );
 
-        m_ApplyMaterial = std::make_unique<MaterialHeightFog>();
         return BOOLSUCCESS;
     }
 
@@ -130,55 +124,9 @@ namespace Desert::Graphic::System
         m_FogHeightY = fogHeightY;
     }
 
-    bool HeightFogRenderer::EnsureResources( uint32_t width, uint32_t height )
-    {
-        if ( m_ResourcesFailed )
-            return false;
-
-        if ( m_FogImage && width == m_FogWidth && height == m_FogHeight )
-            return true;
-
-        // The old image may still be referenced by descriptors of frames in flight — the same rule the
-        // scatter target follows on resize.
-        if ( m_FogImage )
-            Renderer::GetInstance().WaitDeviceIdle();
-
-        const Core::Formats::Image2DSpecification spec{
-             .Tag        = "HeightFogApply",
-             .Width      = width,
-             .Height     = height,
-             .Format     = ViewTargetFormats::kHeightFog,
-             .Mips       = 1u,
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Storage | Core::Formats::Sample,
-        };
-
-        m_FogImage = Image2D::Create( spec );
-        if ( !m_FogImage )
-        {
-            LOG_ERROR(
-                 "[HeightFog] The {}x{} RGBA16F fog target ({:.2f} MiB) could not be created; the "
-                 "height fog will not render for this view.",
-                 width, height,
-                 BytesToMiB( Core::Formats::CalculateImageSize( width, height, ViewTargetFormats::kHeightFog ) ) );
-            m_ResourcesFailed = true;
-            return false;
-        }
-
-        m_FogWidth  = width;
-        m_FogHeight = height;
-
-        // The cost is announced once, on the allocation, not discovered in a memory graph later.
-        LOG_INFO( "[HeightFog] Fog target {}x{} RGBA16F ({:.2f} MiB) for a {}x{} view.", width, height,
-                  BytesToMiB( Core::Formats::CalculateImageSize( width, height, ViewTargetFormats::kHeightFog ) ),
-                  width, height );
-        return true;
-    }
-
-    std::vector<ComputeNodeDeclaration> HeightFogRenderer::DeclareFrameNodes()
+    std::vector<ComputeNodeDeclaration> HeightFogRenderer::DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients )
     {
         std::vector<ComputeNodeDeclaration> nodes;
-        m_HasFrameResult = false;
 
         if ( !m_FogPipeline || !m_ApplyPipeline || !m_ParamsBuffer )
             return nodes;
@@ -205,7 +153,9 @@ namespace Desert::Graphic::System
         if ( !target || target->GetDepthAttachmentCount() == 0 )
             return nodes;
 
-        if ( !EnsureResources( target->GetFramebufferWidth(), target->GetFramebufferHeight() ) )
+        const uint32_t fogWidth  = target->GetFramebufferWidth();
+        const uint32_t fogHeight = target->GetFramebufferHeight();
+        if ( fogWidth == 0 || fogHeight == 0 )
             return nodes;
 
         // The atmosphere is a coupling, not a dependency: without one the fog keeps its authored colour
@@ -244,18 +194,25 @@ namespace Desert::Graphic::System
                        "built for the multisampled scene target (see the startup error)" );
             return {};
         }
+        // The fog image lives this frame only (written here, sampled by HeightFogApply in the Transparency
+        // phase): a transient of the graph at this frame's view size, published for the apply.
+        const RDG::TextureDesc fogDesc{ .Size   = RDG::Extent3D{ .Width = fogWidth, .Height = fogHeight },
+                                        .Format = ViewTargetFormats::kHeightFog };
+        const RDG::TextureRef  fogImage = graph.CreateTexture( fogDesc, "HeightFog.Fog" );
         ComputeNodeDeclaration fog;
         fog.Name = "AtmosphericFog";
         fog.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
         m_SceneRenderer->DeclareAtmosphereReads( fog.Access, RDG::Access::SampledCompute );
-        fog.Access.Write( m_FogImage, RDG::Access::StorageWrite, "HeightFog.Fog" );
-        fog.Record = [this, push, apActive, atmosphere, depthImage = depth.get()](
+        fog.Access.Write( fogImage, RDG::Access::StorageWrite, RDG::SubresourceRange::All() );
+        fog.Record = [this, push, apActive, atmosphere, fogImage, fogWidth, fogHeight, depthImage = depth.get()](
                           RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "HeightFog: ExecuteInFrame" );
             auto& renderer = Renderer::GetInstance();
 
-            m_FogPipeline->SetOutput( kFogOutputBinding, m_FogImage.get(), 0 );
+            // The graph's transient by shader name; everything else is the renderer's own, set below.
+            RDG::PassBindings bindings( context );
+            bindings.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite );
             m_FogPipeline->SetStorageBuffer( kFogParamsBinding, m_ParamsBuffer.get() );
             m_FogPipeline->SetInput( kFogSceneDepthBinding, depthImage, RDG::Access::SampledCompute,
                                      RDG::SubresourceRange::All() );
@@ -281,14 +238,12 @@ namespace Desert::Graphic::System
                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_FogPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
-            // Every resource is the renderer's own (imported), bound by the pipeline's setters.
-            const RDG::PassBindings bindings( context );
-            return renderer.DispatchCompute( bindings, *m_FogPipeline, GroupCount( m_FogWidth ),
-                                             GroupCount( m_FogHeight ), 1 );
+            return renderer.DispatchCompute( bindings, *m_FogPipeline, GroupCount( fogWidth ),
+                                             GroupCount( fogHeight ), 1 );
         };
         nodes.push_back( std::move( fog ) );
 
-        m_HasFrameResult = true;
+        transients.HeightFog = fogImage; // -> HeightFogApply (u_FogApply)
         return nodes;
     }
 
@@ -301,15 +256,18 @@ namespace Desert::Graphic::System
         RenderGraphBuilder::PassConfig config;
         config.Name        = "HeightFogApply";
         config.Phase       = RenderPhase::Transparency;
-        config.ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
+        config.ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
         {
-            if ( !m_HasFrameResult || !m_FogImage || !m_ApplyMaterial )
+            // No fog image this frame (neither fog nor aerial perspective, or the evaluation did not run):
+            // the over-composite would be the identity, so nothing is drawn.
+            if ( !refs.Transients.HeightFog.IsValid() )
                 return BOOLSUCCESS;
 
-            m_ApplyMaterial->BindInputs( m_FogImage.get() );
-            Renderer::GetInstance().SubmitFullscreenTriangle( m_ApplyPipeline.get(),
-                                                              m_ApplyMaterial->GetMaterialExecutor() );
-            return BOOLSUCCESS;
+            // texelFetch at the target's own size: the sampler never filters.
+            RDG::PassBindings bindings( context );
+            bindings.Sampled( "u_FogApply", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
+                              RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_ApplyPipeline, nullptr );
         };
         config.PipelineSpec      = m_ApplyPipeline->GetSpecification();
         config.TargetFramebuffer = target;
@@ -320,8 +278,12 @@ namespace Desert::Graphic::System
         // OVER the fogged world. Stated here, on the pass itself, not implied by registration order.
         config.OrderInPhase = RenderPassOrder::AtmosphericFog;
         // The apply samples the fog image the AtmosphericFog node wrote as a storage image this frame.
-        config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
-        { declared.Read( m_FogImage, RDG::Access::SampledGraphics, "HeightFog.Fog" ); };
+        config.Declare = []( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        {
+            if ( refs.Transients.HeightFog.IsValid() )
+                declared.Read( refs.Transients.HeightFog, RDG::Access::SampledGraphics,
+                               RDG::SubresourceRange::All() );
+        };
 
         builder.AddPass( config );
     }

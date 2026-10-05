@@ -4,7 +4,8 @@
 
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/Graphic/Fog/FogPayload.hpp>
-#include <Engine/Graphic/Materials/Fog/MaterialHeightFog.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
@@ -49,8 +50,9 @@ namespace Desert::Graphic::System
      * Either half alone is enough to run the pass, and the absent half composes as the exact arithmetic
      * identity, so a gradient scene's pixels are unchanged bit for bit. What Initialize does build
      * regardless is the two pipelines and the 80-byte parameter buffer
-     * exactly; the per-view RGBA16F target is the only real memory, and it is allocated lazily on the
-     * first fogged frame with the failure latched.
+     * exactly; the RGBA16F fog image is a transient of the frame graph (Builder::CreateTexture, sized
+     * from this frame's view), created only on a fogged frame and published as
+     * FrameTransients::HeightFog for the apply.
      */
     class HeightFogRenderer final : public RenderSystem
     {
@@ -74,35 +76,22 @@ namespace Desert::Graphic::System
 
         /**
          * @brief Stage S1. Must be called outside any render pass, after the scene depth is final and
-         *        after this frame's aerial-perspective volume has been filled.
+         *        after this frame's aerial-perspective volume has been filled. Creates this frame's fog
+         *        image in @p graph and stores its ref in @p transients.HeightFog (left invalid when the
+         *        pass does not run this frame - the apply then draws nothing).
          */
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes();
+        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients );
 
     private:
         bool CreatePipelines();
-        // Allocates (or reallocates) the fog image for @p width x @p height. Returns false having
-        // logged the reason and latched the failure.
-        bool EnsureResources( uint32_t width, uint32_t height );
 
         std::shared_ptr<ComputePipeline>  m_FogPipeline;
         std::shared_ptr<GraphicsPipeline> m_ApplyPipeline;
 
-        std::unique_ptr<MaterialHeightFog> m_ApplyMaterial;
-
-        std::shared_ptr<Image2D>                        m_FogImage;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
 
         ECS::ExponentialHeightFogData m_Data{};
         float                         m_FogHeightY = 0.0f;
         bool                          m_Present    = false;
-
-        uint32_t m_FogWidth  = 0;
-        uint32_t m_FogHeight = 0;
-
-        bool m_ResourcesFailed = false;
-
-        // True while the last ExecuteInFrame actually produced a fog image. The apply draws nothing
-        // without it, rather than compositing a target from three frames ago.
-        bool m_HasFrameResult = false;
     };
 } // namespace Desert::Graphic::System

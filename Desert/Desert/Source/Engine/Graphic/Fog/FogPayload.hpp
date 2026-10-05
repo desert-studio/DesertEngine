@@ -55,7 +55,6 @@ namespace Desert::Graphic
     // The bindings of the fog compute pass. SetStorageBuffer / SetInput take these as explicit
     // arguments and never consult the shader's own reflection — kFogParamsBinding must equal
     // FOG_PARAMS_BINDING in Common/FogParams.glslh (the SkyPayload.hpp binding-number trap).
-    inline constexpr uint32_t kFogOutputBinding     = 0; // the RGBA16F fog image the pass writes
     inline constexpr uint32_t kFogParamsBinding     = 1;
     inline constexpr uint32_t kFogSceneDepthBinding = 2;
     // The sky's camera aerial-perspective volume, which this pass composes ITSELF OVER. ALWAYS bound,
