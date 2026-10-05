@@ -137,7 +137,8 @@ TEST( ScenePathOnlyMeshGuidMigration, APathOnlyBlockInARecordAndAnOverrideGainsT
     const std::string text = rfl::json::write( scene.Entities );
     EXPECT_EQ( Occurrences( text, kMeshGuidText ), 2u ) << "the record and the override: " << text;
     EXPECT_EQ( Occurrences( text, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ), 1u ) << "a stated GUID is kept: " << text;
-    EXPECT_EQ( Occurrences( rfl::json::write( scene.Header ), kMeshGuidText ), 1u ) << "listed once as a dependency";
+    EXPECT_EQ( Occurrences( rfl::json::write( scene.Header ), kMeshGuidText ), 1u )
+         << "listed once as a dependency";
     EXPECT_EQ( Occurrences( text, R"("MeshGuid":"")" ), 0u ) << text;
     EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
                Desert::Core::kSceneVersion );
