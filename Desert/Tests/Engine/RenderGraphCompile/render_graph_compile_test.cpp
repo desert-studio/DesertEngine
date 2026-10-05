@@ -2247,6 +2247,12 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
          glass.find( "std::fill(std::begin(frameState.CascadeMaps),std::end(frameState.CascadeMaps),nullptr)" ),
          std::string::npos );
     EXPECT_NE( collapsed.find( "shadowMaps[c]=ref.IsValid()?ref:refs.System.White;" ), std::string::npos );
+
+    // The deferred composite follows the same rule: a cascade that exists this frame is its graph texture, the
+    // rest read the white system texture (no shadow). Always-white would light every pixel as unshadowed.
+    std::string deferred = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    std::erase_if( deferred, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
+    EXPECT_NE( deferred.find( "inputs.ShadowMaps[c]=ref.IsValid()?ref:refs.System.White;" ), std::string::npos );
 }
 
 // THE PARTICLE SIMULATION IS A COMPUTE NODE (RDG-LEG1-L3): SceneRendererFrameAtmosphere.cpp adds it through
