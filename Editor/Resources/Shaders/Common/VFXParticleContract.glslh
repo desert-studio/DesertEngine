@@ -1,0 +1,47 @@
+// THE CONTRACT BETWEEN A COMPILED EMITTER STACK AND THE SIMULATION PROGRAM THAT HOSTS IT (VFX-04).
+//
+// Engine/VFX/VFXStackCompiler.cpp turns an emitter's module stack into a `Domain Particle` fragment that
+// includes this file and defines `void VFX_SimulateParticle( uint particle, inout VFXSim sim )`. The HOST
+// program (the simulation compute pass) defines the five storage functions declared below — where the
+// attribute pool and the parameter buffer live is the host's business, not the stack's:
+//
+//   VFX_Param( slot )                 the emitter's parameter buffer row `slot` (module input values;
+//                                     the VALUE of an input is never in the fragment's text, so a slider
+//                                     does not rebuild SPIR-V)
+//   VFX_ReadFloat / VFX_ReadInt       component `component` of the float / int32 class of `particle`,
+//   VFX_WriteFloat / VFX_WriteInt     at the offsets the compiler's attribute layout assigned (port of UE
+//                                     FNiagaraDataSetCompiledData::BuildLayout, SoA by component class)
+
+#ifndef VFX_PARTICLE_CONTRACT_GLSLH
+#define VFX_PARTICLE_CONTRACT_GLSLH
+
+#include <Common/VFXRandom.glslh>
+
+// The per-particle simulation state the host hands in. Seed, ParticleId and Step key the random stream
+// (plan 02 §3.3-6): a random value is a function of these and of the input slot, never of time or thread
+// order. Spawned = this step created the particle (its attributes start at zero and the spawn group runs);
+// a module sets Kill to retire it.
+struct VFXSim
+{
+    float DeltaTime;
+    float EmitterAge;
+    uint  Seed;
+    uint  ParticleId;
+    uint  Step;
+    bool  Spawned;
+    bool  Kill;
+};
+
+vec4  VFX_Param( uint slot );
+float VFX_ReadFloat( uint particle, uint component );
+int   VFX_ReadInt( uint particle, uint component );
+void  VFX_WriteFloat( uint particle, uint component, float value );
+void  VFX_WriteInt( uint particle, uint component, int value );
+
+// Four uniform numbers in [0, 1) for the input whose first parameter slot is @p slot.
+vec4 VFX_Random( in VFXSim sim, uint slot )
+{
+    return VFXRandomFloat4( uvec4( sim.Seed, sim.ParticleId, sim.Step, slot ) );
+}
+
+#endif

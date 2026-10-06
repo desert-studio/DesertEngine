@@ -15,10 +15,6 @@ namespace Desert::Assets::Serialization
 {
     namespace
     {
-        constexpr std::string_view kEnginePrefix    = "engine:";
-        constexpr std::string_view kLocalPrefix     = "local:";
-        constexpr std::string_view kUserPrefix      = "User.";
-        constexpr std::string_view kParticlesPrefix = "Particles.";
 
         bool Finite( const glm::vec4& v )
         {
@@ -103,9 +99,9 @@ namespace Desert::Assets::Serialization
             }
             // Binding.
             const std::string& b = *in.Binding;
-            if ( b.starts_with( kUserPrefix ) )
+            if ( b.starts_with( kVFXUserPrefix ) )
             {
-                const std::string_view name = std::string_view( b ).substr( kUserPrefix.size() );
+                const std::string_view name = std::string_view( b ).substr( kVFXUserPrefix.size() );
                 for ( const VFXUserParam& p : system.UserParams )
                     if ( p.Name == name )
                     {
@@ -115,7 +111,7 @@ namespace Desert::Assets::Serialization
                     }
                 return Common::MakeFormattedError<bool>( "{}: '{}' names no UserParams row", what, b );
             }
-            if ( b.starts_with( kParticlesPrefix ) && b.size() > kParticlesPrefix.size() )
+            if ( b.starts_with( kVFXParticlesPrefix ) && b.size() > kVFXParticlesPrefix.size() )
                 return BOOLSUCCESS; // attributes are derived from the stack (VFX-04); the name is all a file states
             return Common::MakeFormattedError<bool>( "{}: Binding '{}' is neither User.<param> nor Particles.<attr>",
                                                      what, b );
@@ -128,14 +124,14 @@ namespace Desert::Assets::Serialization
             {
                 const VFXModuleUse& use = group[i];
                 const std::string   at  = std::format( "{} module {} '{}'", where, i, use.Module );
-                if ( use.Module.starts_with( kEnginePrefix ) )
+                if ( use.Module.starts_with( kVFXEnginePrefix ) )
                 {
-                    if ( use.Module.size() == kEnginePrefix.size() )
+                    if ( use.Module.size() == kVFXEnginePrefix.size() )
                         return Common::MakeFormattedError<bool>( "{}: no engine module name", at );
                 }
-                else if ( use.Module.starts_with( kLocalPrefix ) )
+                else if ( use.Module.starts_with( kVFXLocalPrefix ) )
                 {
-                    const std::string_view id = std::string_view( use.Module ).substr( kLocalPrefix.size() );
+                    const std::string_view id    = std::string_view( use.Module ).substr( kVFXLocalPrefix.size() );
                     bool                   found = false;
                     for ( const VFXLocalModule& m : system.LocalModules )
                         found = found || m.Id == id;

@@ -48,6 +48,14 @@ namespace Desert::Assets::Serialization
         return versions;
     }
 
+    /// The spellings a stack row uses: a module reference is "engine:<Name>" or "local:<Id>", a binding is
+    /// "User.<param>" or "Particles.<attribute>". The reader validates them and the stack compiler (VFX-04)
+    /// resolves them, so both read these.
+    inline constexpr std::string_view kVFXEnginePrefix    = "engine:";
+    inline constexpr std::string_view kVFXLocalPrefix     = "local:";
+    inline constexpr std::string_view kVFXUserPrefix      = "User.";
+    inline constexpr std::string_view kVFXParticlesPrefix = "Particles.";
+
     /// The type of a parameter or a module input. Components used: Float 1, Vec2 2, Vec3 3, Vec4 4, Int 1,
     /// Bool 1; the unused components of a stored vec4 must be zero, so one value has one spelling.
     enum class VFXValueType
