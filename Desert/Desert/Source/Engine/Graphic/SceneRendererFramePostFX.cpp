@@ -189,28 +189,16 @@ namespace Desert::Graphic
         for ( uint32_t mip = 0; mip < desc->Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: BloomDownsample{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     if ( mip == 0 )
-                         pass.Read( scene, RDG::Access::SampledCompute );
-                     else
-                         pass.Read( chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
-                     pass.Write( chain, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
-                 },
-                 [bloom, scene, chain, chainDesc = *desc,
-                  mip]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return bloom->RecordDownsample( context, scene, chain, chainDesc, mip ); } );
+                 [&]( RDG::PassBuilder& pass ) { bloom->DeclareDownsampleBindings( pass, scene, chain, mip ); },
+                 [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return bloom->RecordDownsample( context, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
         for ( uint32_t mip = desc->Mips - 1; mip >= 1; --mip )
             graph.AddPass(
                  std::format( "PostFX: BloomUpsample{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     pass.Read( chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) );
-                     pass.Write( chain, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip - 1 ) );
-                 },
-                 [bloom, chain, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return bloom->RecordUpsample( context, chain, chainDesc, mip ); } );
+                 [&]( RDG::PassBuilder& pass ) { bloom->DeclareUpsampleBindings( pass, chain, mip ); },
+                 [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return bloom->RecordUpsample( context, chainDesc, mip ); } );
     }
 
     void SceneRenderer::AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,

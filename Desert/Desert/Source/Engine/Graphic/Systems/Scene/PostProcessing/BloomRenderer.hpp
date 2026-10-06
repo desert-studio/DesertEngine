@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <memory>
 #include <optional>
@@ -33,12 +34,14 @@ namespace Desert::Graphic::System
         // The texture is a transient of the frame graph (Builder::CreateTexture); the renderer keeps no image.
         std::optional<RDG::TextureDesc> GetChainDesc() const;
         // Downsample into @p mip of @p chain: mip 0 samples @p sceneColor (Karis + threshold), mip i samples
-        // mip i-1. Called from the exec of the pass that declared exactly those two uses.
+        // mip i-1, both LinearClamp. SETUP declares that block (block 0); the EXEC dispatches from it.
+        void DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor, RDG::TextureRef chain,
+                                        uint32_t mip ) const;
         [[nodiscard]] Common::BoolResultStr RecordDownsample( const RDG::PassContext& context,
-                                                              RDG::TextureRef sceneColor, RDG::TextureRef chain,
                                                               const RDG::TextureDesc& chainDesc, uint32_t mip );
-        // Additive upsample: samples @p mip (>= 1) of @p chain and accumulates into mip - 1 (read-modify-write).
-        [[nodiscard]] Common::BoolResultStr RecordUpsample( const RDG::PassContext& context, RDG::TextureRef chain,
+        // Additive upsample: samples @p mip (>= 1) of @p chain (LinearClamp) and accumulates into mip - 1.
+        void DeclareUpsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef chain, uint32_t mip ) const;
+        [[nodiscard]] Common::BoolResultStr RecordUpsample( const RDG::PassContext& context,
                                                             const RDG::TextureDesc& chainDesc, uint32_t mip );
 
         void SetThreshold( float threshold )
@@ -55,6 +58,8 @@ namespace Desert::Graphic::System
 
         std::shared_ptr<ComputePipeline>  m_DownsamplePipeline;
         std::shared_ptr<ComputePipeline>  m_UpsamplePipeline;
+        mutable ShaderBindingLayoutCache  m_DownsampleLayout; // the two shaders' layouts, kept between frames
+        mutable ShaderBindingLayoutCache  m_UpsampleLayout;
 
         float m_Threshold = 1.0f;
     };

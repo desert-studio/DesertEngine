@@ -3244,7 +3244,8 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
     const std::string dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
     for ( const Renderer& renderer :
           { Renderer{ "TonemapRenderer.cpp", "TonemapRenderer" }, Renderer{ "FXAARenderer.cpp", "FXAARenderer" },
-            Renderer{ "AutoExposureRenderer.cpp", "AutoExposureRenderer" } } )
+            Renderer{ "AutoExposureRenderer.cpp", "AutoExposureRenderer" },
+            Renderer{ "BloomRenderer.cpp", "BloomRenderer" } } )
     {
         const std::string text    = SqueezedSource( root, ( dir + renderer.File ).c_str() );
         const std::string record  = std::string( renderer.Class ) + "::Record";
