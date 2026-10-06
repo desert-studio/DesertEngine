@@ -39,8 +39,8 @@ namespace
     namespace S   = Desert::Assets::Serialization;
     namespace VFX = Desert::VFX;
 
-    // The row stores a vec4 whatever the type, and the compiler refuses a non-zero component the type does not use;
-    // every test value goes through this, so a scalar written as glm::vec4( x ) keeps only its x.
+    // The row stores a vec4 whatever the type, and the compiler refuses a non-zero component the type does not
+    // use; every test value goes through this, so a scalar written as glm::vec4( x ) keeps only its x.
     glm::vec4 FitToType( S::VFXValueType type, glm::vec4 value )
     {
         for ( uint32_t c = S::ComponentCount( type ); c < 4; ++c )
