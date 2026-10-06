@@ -11,6 +11,7 @@
 #include "CrashHandler.hpp"
 
 #include <Common/Core/Core.hpp>
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/EngineThread.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
@@ -97,8 +98,8 @@ extern char** environ;
 // THE PLAYER REPORT (CR2b). A Shipping binary is on a player's machine, and its report is what that
 // player sees and may send on. The repository's branch, commit and tree state, the machine's name,
 // any filesystem path (the scene, a frame's file:line) and the log tail are not the player's business
-// and are not ours to collect from them, so under DESERT_CONFIG_SHIPPING the writer does not EMIT
-// them — they are absent from the file, not hidden by the reader. `config=Shipping` is what tells the
+// and are not ours to collect from them, so in a build without DESERT_DEV_INSTRUMENTS (Shipping) the writer does
+// not EMIT them — they are absent from the file, not hidden by the reader. `config=Shipping` is what tells the
 // reporter to draw the player view; an older or truncated report without the key gets the developer
 // view, which can only show what the file holds.
 //   [end]       written=<complete>    ABSENT if the process died before finishing — its presence is
@@ -115,9 +116,11 @@ extern char** environ;
 
 namespace Common::Crash::Detail
 {
-    // The configuration this writer was compiled in. Exactly one of the three is defined per build;
-    // a fourth configuration must name its audience here rather than inherit one.
-#if defined( DESERT_CONFIG_SHIPPING )
+    // The configuration this writer was compiled in. The audience is the dev-instruments boundary
+    // (DevInstruments.hpp): a build without them is the player's (Shipping); the two developer
+    // configurations are told apart only for the report's `config` key. A fourth configuration must
+    // name itself here rather than inherit a name.
+#if !DESERT_DEV_INSTRUMENTS
     constexpr const char* kBuildConfig  = "Shipping";
     constexpr bool        kPlayerReport = true;
 #elif defined( DESERT_CONFIG_DEBUG )
@@ -127,7 +130,7 @@ namespace Common::Crash::Detail
     constexpr const char* kBuildConfig  = "Release";
     constexpr bool        kPlayerReport = false;
 #else
-#error "CrashHandler.cpp: no DESERT_CONFIG_* is defined - the report cannot name its audience"
+#error "CrashHandler.cpp: a developer build without DESERT_CONFIG_DEBUG or DESERT_CONFIG_RELEASE"
 #endif
 
     // Capacities. Fixed, because every one of these buffers is read from a signal handler where

@@ -44,6 +44,12 @@ namespace Desert::World::Foliage::Procedural
     public:
         ProceduralFoliageSpawner( ProceduralFoliageSpawnerSettings                    settings,
                                   std::vector<Assets::Serialization::FoliageTypeData> types );
+        // Every simulated tile keeps the spawner's address (ProceduralFoliageTile::m_Spawner): a copy or a move
+        // would leave the tiles pointing at the old one.
+        ProceduralFoliageSpawner( const ProceduralFoliageSpawner& )            = delete;
+        ProceduralFoliageSpawner& operator=( const ProceduralFoliageSpawner& ) = delete;
+        ProceduralFoliageSpawner( ProceduralFoliageSpawner&& )                 = delete;
+        ProceduralFoliageSpawner& operator=( ProceduralFoliageSpawner&& )      = delete;
 
         /// Rejects settings the simulation cannot honour, naming the field.
         [[nodiscard]] Common::BoolResultStr Validate() const;

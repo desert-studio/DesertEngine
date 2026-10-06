@@ -1221,11 +1221,17 @@ TEST( RigGraphTest, ARigWithoutAGraphDoesNotGainTheFieldAndStillLoadsAsTheIdenti
     // `kControlRigVersion` staying at 1: a generation-1 file has no Graph, and no Graph means what it has
     // always meant.
     EXPECT_EQ( text.find( "\"Graph\"" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( "\"CRIG\":" + std::to_string( Serialization::kControlRigVersion ) ), std::string::npos ) << text;
 
     const auto parsed = Serialization::ParseControlRig( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
     EXPECT_FALSE( parsed.GetValue().Graph.has_value() );
+    // The header states the current generation, read back through the reader rather than searched for in the
+    // bytes.
+    ASSERT_TRUE( parsed.GetValue().Header.has_value() ) << text;
+    const auto& versions = parsed.GetValue().Header->Versions;
+    const auto  crig     = versions.find( "CRIG" );
+    ASSERT_NE( crig, versions.end() ) << text;
+    EXPECT_EQ( crig->second, Serialization::kControlRigVersion ) << text;
 
     ControlRigStage stage;
     ASSERT_TRUE( Serialization::BuildControlRig( plain, skeleton, stage ).IsSuccess() );

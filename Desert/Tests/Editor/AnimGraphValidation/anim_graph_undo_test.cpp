@@ -30,6 +30,7 @@ namespace
             // A graph the loader accepts (one player at Output Pose), round-tripped so it carries a header as a
             // loaded file does.
             G::AnimGraph seed;
+            seed.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Locomotion.skeleton" };
             const auto   added = EG::AddPoseNode( seed, seed.Nodes, G::PoseNodeKind::SequencePlayer,
                                                   G::GraphScope::Host, 0.0f, 0.0f, "Idle" );
             EXPECT_TRUE( added.IsSuccess() );
