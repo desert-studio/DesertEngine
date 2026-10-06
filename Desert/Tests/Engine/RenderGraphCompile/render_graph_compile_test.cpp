@@ -381,15 +381,13 @@ TEST( RenderGraphCompile, VulkanPushStagesAndAcquireStageComeFromOneDeclaration 
             ++pushes;
             const std::string call = text.substr( at, text.find( ';', at ) - at );
             EXPECT_EQ( call.find( "ShaderStage" ), std::string::npos )
-                 << entry.path().filename().string()
-                 << ": a push names a shader's reflected stages:
-                    " << call;
-                 const bool layoutRange = call.find( "stageFlags" ) != std::string::npos;
-            const bool      compute     = call.find( "VK_SHADER_STAGE_COMPUTE_BIT" ) != std::string::npos;
-            EXPECT_TRUE( layoutRange || compute ) << entry.path().filename().string()
-                                                  << ": a push names neither its layout's range nor COMPUTE:
-                                                     "
-                                                  << call;
+                 << entry.path().filename().string() << ": a push names a shader's reflected stages:\n"
+                 << call;
+            const bool layoutRange = call.find( "stageFlags" ) != std::string::npos;
+            const bool compute     = call.find( "VK_SHADER_STAGE_COMPUTE_BIT" ) != std::string::npos;
+            EXPECT_TRUE( layoutRange || compute )
+                 << entry.path().filename().string() << ": a push names neither its layout's range nor COMPUTE:\n"
+                 << call;
         }
     }
     EXPECT_GE( pushes, 4 ) << "the census lost the push sites it expected to read";

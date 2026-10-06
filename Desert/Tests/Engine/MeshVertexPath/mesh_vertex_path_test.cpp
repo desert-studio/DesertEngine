@@ -587,8 +587,8 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
 TEST_F( ShaderRootFixture, EveryCellsMaterialPushBlockIsItsPipelinesPushRange )
 {
     using Desert::ShaderResources::ShaderLayout::PushBlockSize;
-    for ( uint32_t p = 0; p < kMeshVertexPathCount; ++p )
-        for ( uint32_t s = 0; s < kMeshPassCount; ++s )
+    for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
+        for ( uint32_t s = 0; s < Desert::Graphic::kMeshPassCount; ++s )
         {
             const char* name = MeshShaderFor( static_cast<MeshVertexPath>( p ), static_cast<MeshPass>( s ) );
             if ( name == nullptr )
