@@ -38,21 +38,8 @@ namespace Desert::Graphic
                                                         kCloudSkyOcclusionSlices * kCloudSkyOcclusionResolution *
                                                         8ull;
 
-    // The bindings of the volume's own compute pass. As everywhere else in this subsystem, SetOutput /
-    // SetStorageBuffer / SetInput take these verbatim and never consult reflection, so each must equal the
-    // number written in Programs/Clouds/CloudSkyOcclusionVolume.shader.
-    //
-    // EVERY SLOT EXCEPT THE OUTPUT IS THE MARCH'S OWN NUMBER, deliberately and for the reason
-    // CloudShadowPayload gives at its copy of this list: the three passes sample one field, and giving
-    // them different slot numbers would be three vocabularies for one thing.
-    inline constexpr uint32_t kCloudSkyOcclusionOutputBinding        = 0; // the RGBA16F volume this pass writes
-    inline constexpr uint32_t kCloudSkyOcclusionParamsBinding        = kCloudParamsBinding;
-    inline constexpr uint32_t kCloudSkyOcclusionModellingBinding     = kCloudModellingBinding;
-    inline constexpr uint32_t kCloudSkyOcclusionAuthoredBinding      = kCloudAuthoredBinding;
-    inline constexpr uint32_t kCloudSkyOcclusionAuthoredAtlasBinding = kCloudAuthoredAtlasBinding;
-
-    /// All four of the march's noise slots, aliased rather than restated — a second list of four numbers
-    /// is one fact written twice with four chances to get it wrong. A column eroded by a different volume
-    /// than the eye's would shade a cloud the frame does not contain.
-    inline constexpr const uint32_t ( &kCloudSkyOcclusionNoiseBindings )[kCloudSpeciesSlots] = kCloudNoiseBindings;
+    // The volume's setter-bound buffers, the march's own slots (one vocabulary for one field). Its images are
+    // binding-block entries named by shader name, the same names the march uses.
+    inline constexpr uint32_t kCloudSkyOcclusionParamsBinding   = kCloudParamsBinding;
+    inline constexpr uint32_t kCloudSkyOcclusionAuthoredBinding = kCloudAuthoredBinding;
 } // namespace Desert::Graphic

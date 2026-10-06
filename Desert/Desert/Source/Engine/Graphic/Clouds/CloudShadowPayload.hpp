@@ -101,24 +101,10 @@ namespace Desert::Graphic
     inline constexpr float kCloudShadowBaseSamples       = 32.0f;
     inline constexpr float kCloudShadowHorizonMultiplier = 2.0f;
 
-    // The bindings of the shadow map compute pass. As everywhere else in this subsystem, SetOutput /
-    // SetStorageBuffer / SetInput take these verbatim and never consult reflection, so each must equal the
-    // number written in Programs/Clouds/CloudShadowMap.shader.
-    //
-    // THE PARAMS, NOISE AND PROFILE BINDINGS ARE THE MARCH'S OWN NUMBERS, deliberately: the two passes
-    // sample the same field through the same three resources, and giving them different slot numbers would
-    // be two vocabularies for one thing. `kCloudParamsBinding` in particular is fixed by
-    // CLOUD_PARAMS_BINDING inside Common/CloudParams.glslh, which both shaders include.
-    inline constexpr uint32_t kCloudShadowOutputBinding  = 0; // the RGBA32F triple this pass writes
-    inline constexpr uint32_t kCloudShadowParamsBinding  = kCloudParamsBinding;
-    inline constexpr uint32_t kCloudShadowNoiseBinding     = kCloudNoiseBinding;
-    inline constexpr uint32_t kCloudShadowModellingBinding = kCloudModellingBinding;
-
-    /// All FOUR of the march's noise slots, because a cloud shades the ground with the edge it actually
-    /// has: a cirrus eroded by the fine volume for the eye and by the default one for the shadow map would
-    /// be two different clouds in one frame. The same array, aliased rather than restated — a second list
-    /// of four numbers is the two-statements-of-one-fact defect with four chances to make it.
-    inline constexpr const uint32_t ( &kCloudShadowNoiseBindings )[kCloudSpeciesSlots] = kCloudNoiseBindings;
+    // The shadow map's setter-bound parameter block: the march's own slot, deliberately (CLOUD_PARAMS_BINDING
+    // inside Common/CloudParams.glslh, which both shaders include). Its images are binding-block entries named
+    // by shader name — the same names the march uses (VolumetricCloudRenderer::SampledVolumes / SampledMedium).
+    inline constexpr uint32_t kCloudShadowParamsBinding = kCloudParamsBinding;
 
     /**
      * The shadow map's projection for this frame.

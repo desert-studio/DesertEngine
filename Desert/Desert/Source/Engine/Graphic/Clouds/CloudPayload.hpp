@@ -216,80 +216,12 @@ namespace Desert::Graphic
     inline constexpr uint32_t kCloudPayloadReadFloats =
          kCloudPayloadFloats - static_cast<uint32_t>( kCloudUnreadSlots.size() );
 
-    // The bindings of the cloud compute pass. SetOutput / SetStorageBuffer / SetInput take these as
-    // explicit arguments and never consult the shader's own reflection, so each number here must equal
-    // the one written in the shader. A mismatch lands a resource on a different descriptor rather than on
-    // an error.
-    // The RGBA16F scatter the march writes (u_CloudScatter), a frame-graph transient bound BY NAME through
-    // RDG::PassBindings; the number stays only so ShaderCacheKey proves no setter slot lands on it.
-    inline constexpr uint32_t kCloudOutputBinding     = 0;
-    inline constexpr uint32_t kCloudParamsBinding     = 1; // must equal CLOUD_PARAMS_BINDING
-    inline constexpr uint32_t kCloudSceneDepthBinding = 2;
-    inline constexpr uint32_t kCloudNoiseBinding      = 3;
-    // The sky's DISTANT SKY LIGHT. ALWAYS bound, even in a scene with no physical atmosphere: a declared
-    // sampler with no image is an invalid descriptor set, not an unused one, and this engine's compute
-    // path answers an invalid set by skipping the dispatch entirely — the clouds would vanish with
-    // nothing in the log. What varies is CloudGpuPayload::Ambient.w, which is 0 when there is no texel.
-    inline constexpr uint32_t kCloudDistantSkyLightBinding = 4;
-    // The sky's camera aerial-perspective volume, which the march composes distant cloud INTO. Bound on
-    // the same terms as the texel above: always, gated by CloudGpuPayload::Aerial.z.
-    inline constexpr uint32_t kCloudAerialPerspectiveBinding = 5;
-    // The march's SECOND output: the depth guide the composite upsamples through (front cloud distance
-    // and scene distance, kilometres). A storage image like binding 0 (u_CloudGuide), a frame-graph transient
-    // bound by name like it; the number is kept for the same ShaderCacheKey collision census.
-    inline constexpr uint32_t kCloudGuideOutputBinding = 6;
-    // The procedural MODELLING VOLUME (Engine/Assets/CloudProceduralVolume.hpp): 256 x 32 x 256 RGBA8,
-    // channel k being species k's Dimensional Profile. Owned by Runtime::CloudProceduralVolumeService and
-    // re-baked only when the layer's settings change or the camera crosses a snap of the lump lattice.
-    //
-    // IT KEPT THE NUMBER THE PROFILE TABLE HAD, which is worth saying rather than leaving to be noticed:
-    // one binding went out and one came in, so the descriptor set's shape is unchanged and every
-    // consumer's slot list stayed where it was.
-    inline constexpr uint32_t kCloudModellingBinding = 7;
-    // THE SKY-LIGHT OCCLUSION VOLUME (Engine/Graphic/Clouds/CloudSkyOcclusionPayload.hpp): 128 x 16 x 128
-    // RGBA16F over the modelling volume's own region, .r holding the diffuse transmittance of the cloud
-    // ABOVE that column at that altitude. Bound on the same terms as the distant sky light and the aerial
-    // perspective volume — ALWAYS, fallback included, gated by CloudPush::Frame.x — because a
-    // declared sampler with no image is an invalid descriptor set and this backend answers one by skipping
-    // the dispatch. 13 rather than 8: the authored buffer and its atlas took 8 and 9, and noise volumes 1
-    // to 3 took 10 to 12.
-    inline constexpr uint32_t kCloudSkyOcclusionBinding = 13;
-    // THE ATMOSPHERE'S TRANSMITTANCE LUT (Programs/Sky/SkyTransmittanceLut.shader): 256x64 of what
-    // survives the trip from a point in the atmosphere to space, in Bruneton's (r, mu) mapping. Read only
-    // when CloudPush::Frame.y is 1, i.e. when the layer asked for per-sample atmospheric sun transmittance
-    // AND the sky actually baked the pair.
-    //
-    // ALWAYS BOUND, fallback included, on the terms every sampler above is bound on: a declared sampler
-    // with no image is an INVALID descriptor set rather than an unused one, and this backend answers one
-    // by skipping the whole dispatch — every cloud in the frame would disappear with nothing in the log.
-    //
-    // THE ENVIRONMENT BAKE NEEDS NO NUMBER OF ITS OWN. Programs/Compute/BakeProceduralSky.shader marches
-    // the same field and already binds the same LUT as the SKY's own resource
-    // (Graphic::kSkyTransmittanceLutBinding), so it applies this feature through that descriptor and only
-    // its gate travels — see CloudBakeBinding::PerSampleSunTransmittance.
-    inline constexpr uint32_t kCloudSunTransmittanceLutBinding = 14;
-
-    /**
-     * @brief The FOUR noise volumes a layer can bind, by descriptor number, in the order CloudGpuPayload::
-     *        SpeciesNoise indexes them.
-     *
-     * SEPARATE BINDINGS AND NOT AN ARRAY OF SAMPLERS, and the reason is not preference: this engine's
-     * reflection refuses one in so many words — VulkanShaderReflection.cpp, "arrays of descriptors are not
-     * supported — declare separate bindings" — because every layout it builds hardcodes descriptorCount 1.
-     * Common/CloudAuthored.glslh met the same wall and answered it with an ATLAS, which is the better
-     * answer THERE and the wrong one here: an atlas is addressed by arithmetic on a clamped coordinate,
-     * and the erosion's coordinate is unbounded and relies on the sampler's own REPEAT to tile. Stacking
-     * the volumes would put the neighbour's texels under every wrap, which is a seam in the sky at every
-     * period of the erosion rather than a saving.
-     *
-     * FOUR AND NOT MORE, because a layer has four species and therefore at most four distinct volumes.
-     * THEY COST ONLY WHAT IS NAMED: a `.dcnv` is read and uploaded when a layer names it (AL1-2), so the
-     * four descriptors point at volumes the scene asked for, never at the whole project's.
-     *
-     * SLOT 0 KEEPS BINDING 3 so that the number the whole subsystem has always meant by "the cloud noise"
-     * is unchanged, and the three that follow take the first free numbers after the authored atlas.
-     */
-    inline constexpr uint32_t kCloudNoiseBindings[kCloudSpeciesSlots] = { kCloudNoiseBinding, 10, 11, 12 };
+    // The cloud march's setter-bound parameter block (the authored instance buffer is the other one,
+    // CloudAuthoredPayload.hpp): handed to SetStorageBuffer verbatim, so it must equal CLOUD_PARAMS_BINDING.
+    // Every IMAGE of the march (scatter, guide, scene depth, the four noise volumes, modelling, authored
+    // atlas, sky-light occlusion, distant sky light, aerial perspective, transmittance LUT) is a binding-block
+    // entry named by its shader name (VolumetricCloudRenderer), so it has no number on this side.
+    inline constexpr uint32_t kCloudParamsBinding = 1; // must equal CLOUD_PARAMS_BINDING
 
     // The TEMPORAL RESOLVE pass (Programs/Clouds/CloudTemporalResolve.shader). Same rule as above: the number
     // is handed to SetStorageBuffer verbatim and must equal the one written in the shader. Every image of the

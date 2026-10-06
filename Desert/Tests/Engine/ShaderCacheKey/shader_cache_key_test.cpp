@@ -280,6 +280,48 @@ namespace
         return false;
     }
 
+    // The image names set 0 of a COMPUTE shader declares, by kind. The cloud passes bind every image as a
+    // binding-block entry BY SHADER NAME, so the name is the contract the C++ side holds, not a number.
+    struct ComputeImageNames
+    {
+        std::set<std::string> Sampled; // sampler2D / sampler3D / samplerCube
+        std::set<std::string> Storage; // image2D / image3D
+    };
+
+    ComputeImageNames ComputeSetZeroImageNames( const std::filesystem::path& shaderFile )
+    {
+        ComputeImageNames names;
+        const std::string source = StageSource( shaderFile, ShaderStage::Compute );
+        const auto        spirv  = CompileStage( source, shaderFile, shaderc_compute_shader );
+        if ( spirv.empty() )
+            return names;
+
+        ShaderResource::ReflectionData data;
+        const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Compute, data );
+        EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
+
+        const auto set = data.ShaderDescriptorSets.find( 0 );
+        if ( set == data.ShaderDescriptorSets.end() )
+            return names;
+        for ( const auto& [binding, resource] : set->second.Image2DSamplers )
+            names.Sampled.insert( resource.Name );
+        for ( const auto& [binding, resource] : set->second.Image3DSamplers )
+            names.Sampled.insert( resource.Name );
+        for ( const auto& [binding, resource] : set->second.ImageCubeSamplers )
+            names.Sampled.insert( resource.Name );
+        for ( const auto& [binding, resource] : set->second.StorageImage2DSamplers )
+            names.Storage.insert( resource.Name );
+        for ( const auto& [binding, resource] : set->second.StorageImage3DSamplers )
+            names.Storage.insert( resource.Name );
+        return names;
+    }
+
+    // The cloud FIELD's samplers: the names VolumetricCloudRenderer::SampledVolumes binds on the shadow map,
+    // the sky-light occlusion volume and the march alike — one vocabulary for one field.
+    constexpr const char* kCloudFieldSamplerNames[] = { "u_CloudNoise",     "u_CloudNoise1",
+                                                        "u_CloudNoise2",    "u_CloudNoise3",
+                                                        "u_CloudModelling", "u_CloudAuthoredAtlas" };
+
     // A temporary .glslh next to the real ones, so an include can be edited without touching the tree.
     struct ScopedHeader
     {
@@ -750,23 +792,20 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresNineDescriptorsInSetZero )
 
     for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
     {
-        EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudShadowNoiseBindings[slot],
-                                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
+        EXPECT_TRUE( ComputeSetZeroImageNames( ShaderPath( "Clouds/CloudShadowMap.shader" ) )
+                          .Sampled.contains( kCloudFieldSamplerNames[slot] ) )
              << "the shadow pass does not declare noise volume " << slot;
     }
 
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudShadowOutputBinding,
-                             VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ) ); // the triple it writes
+    // The images are binding-block entries BY SHADER NAME (SampledVolumes), so the relation pinned is the name.
+    const auto names = ComputeSetZeroImageNames( ShaderPath( "Clouds/CloudShadowMap.shader" ) );
+    for ( const char* sampled : kCloudFieldSamplerNames )
+        EXPECT_TRUE( names.Sampled.contains( sampled ) ) << "the shadow pass does not declare " << sampled;
+    EXPECT_TRUE( names.Storage.contains( "u_CloudShadowMap" ) ); // the triple it writes
     EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudShadowParamsBinding,
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the cloud parameter block
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudShadowNoiseBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // the noise volume
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudShadowModellingBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // the procedural modelling volume
     EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudShadowAuthoredBinding,
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the hero cloud instances
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudShadowAuthoredAtlasBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // the sculpted body
 }
 
 TEST_F( ShaderRootFixture, TheCloudMarchDeclaresFifteenDescriptorsInSetZero )
@@ -796,60 +835,19 @@ TEST_F( ShaderRootFixture, TheCloudMarchDeclaresFifteenDescriptorsInSetZero )
 
     EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 15u );
 
-    for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
-    {
-        EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudNoiseBindings[slot],
-                                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
-             << "the march does not declare noise volume " << slot;
-    }
-
-    // AND THE TWO PASSES USE ONE VOCABULARY FOR ONE FIELD. Stated as an assertion rather than as an alias
-    // in a header nobody re-reads: the shadow map binds by number too, and a march that read volume 2 from
-    // descriptor 11 while the shadow pass read it from 12 would give a cloud a shadow cut from a different
-    // noise, which is not an error anywhere — it is a shadow that does not fit its cloud.
-    for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
-    {
-        EXPECT_EQ( Desert::Graphic::kCloudNoiseBindings[slot], Desert::Graphic::kCloudShadowNoiseBindings[slot] );
-    }
-
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudOutputBinding,
-                             VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ) ); // the scatter target
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudGuideOutputBinding,
-                             VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ) ); // the depth guide beside it
+    // Every image is a binding-block entry BY SHADER NAME, so the names are what is pinned; the field's
+    // samplers are the same names the shadow map and the occlusion producer declare.
+    const auto names = ComputeSetZeroImageNames( ShaderPath( "Clouds/CloudRaymarch.shader" ) );
+    for ( const char* sampled : kCloudFieldSamplerNames )
+        EXPECT_TRUE( names.Sampled.contains( sampled ) ) << "the march does not declare " << sampled;
+    for ( const char* sampled : { "u_SceneDepth", "u_DistantSkyLight", "u_CloudAerialPerspective",
+                                  "u_CloudSkyOcclusionVolume", "u_CloudSunTransmittanceLut" } )
+        EXPECT_TRUE( names.Sampled.contains( sampled ) ) << "the march does not declare " << sampled;
+    EXPECT_TRUE( names.Storage.contains( "u_CloudScatter" ) ); // the scatter target
+    EXPECT_TRUE( names.Storage.contains( "u_CloudGuide" ) );   // the depth guide beside it
     EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudParamsBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudSceneDepthBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE(
-         HasBinding( bindings, Desert::Graphic::kCloudNoiseBinding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudDistantSkyLightBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudAerialPerspectiveBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudModellingBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
     EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudAuthoredBinding,
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the hero cloud instances
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudAuthoredAtlasBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // the sculpted body
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudSkyOcclusionBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // the sky-light occlusion volume
-    EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudSunTransmittanceLutBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // the atmosphere transmittance LUT
-
-    // AND IT MUST NOT COLLIDE WITH ANYTHING ALREADY THERE. Stated as an assertion because the bindings are
-    // handed to SetInput verbatim and a duplicate number does not fail anywhere: it lands one resource on
-    // top of another, and what the march then samples is whichever of the two the renderer bound last.
-    for ( const std::uint32_t taken :
-          { Desert::Graphic::kCloudOutputBinding, Desert::Graphic::kCloudParamsBinding,
-            Desert::Graphic::kCloudSceneDepthBinding, Desert::Graphic::kCloudNoiseBinding,
-            Desert::Graphic::kCloudDistantSkyLightBinding, Desert::Graphic::kCloudAerialPerspectiveBinding,
-            Desert::Graphic::kCloudGuideOutputBinding, Desert::Graphic::kCloudModellingBinding,
-            Desert::Graphic::kCloudAuthoredBinding, Desert::Graphic::kCloudAuthoredAtlasBinding,
-            Desert::Graphic::kCloudNoiseBindings[1], Desert::Graphic::kCloudNoiseBindings[2],
-            Desert::Graphic::kCloudNoiseBindings[3], Desert::Graphic::kCloudSkyOcclusionBinding } )
-    {
-        EXPECT_NE( Desert::Graphic::kCloudSunTransmittanceLutBinding, taken );
-    }
 }
 
 TEST_F( ShaderRootFixture, TheSkyOcclusionVolumesProducerAndConsumerAgreeAboutTheFieldTheyIntegrate )
@@ -862,27 +860,17 @@ TEST_F( ShaderRootFixture, TheSkyOcclusionVolumesProducerAndConsumerAgreeAboutTh
     // failure shape the shadow map's own binding assertions exist to catch.
     const auto producer = ComputeSetZero( ShaderPath( "Clouds/CloudSkyOcclusionVolume.shader" ) );
 
-    EXPECT_TRUE( HasBinding( producer, Desert::Graphic::kCloudSkyOcclusionOutputBinding,
-                             VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ) ); // the volume it writes
+    const auto names = ComputeSetZeroImageNames( ShaderPath( "Clouds/CloudSkyOcclusionVolume.shader" ) );
+    EXPECT_TRUE( names.Storage.contains( "u_CloudSkyOcclusion" ) ); // the volume it writes
     EXPECT_TRUE( HasBinding( producer, Desert::Graphic::kCloudSkyOcclusionParamsBinding,
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );
-    EXPECT_TRUE( HasBinding( producer, Desert::Graphic::kCloudSkyOcclusionModellingBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
     EXPECT_TRUE( HasBinding( producer, Desert::Graphic::kCloudSkyOcclusionAuthoredBinding,
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );
-    EXPECT_TRUE( HasBinding( producer, Desert::Graphic::kCloudSkyOcclusionAuthoredAtlasBinding,
-                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
 
-    for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
-    {
-        EXPECT_TRUE( HasBinding( producer, Desert::Graphic::kCloudSkyOcclusionNoiseBindings[slot],
-                                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
-             << "the sky-light occlusion producer does not declare noise volume " << slot;
-
-        // ONE VOCABULARY FOR ONE FIELD, asserted rather than left to an alias nobody re-reads.
-        EXPECT_EQ( Desert::Graphic::kCloudNoiseBindings[slot],
-                   Desert::Graphic::kCloudSkyOcclusionNoiseBindings[slot] );
-    }
+    // ONE VOCABULARY FOR ONE FIELD: the producer declares every name the march's SampledVolumes binds.
+    for ( const char* sampled : kCloudFieldSamplerNames )
+        EXPECT_TRUE( names.Sampled.contains( sampled ) )
+             << "the sky-light occlusion producer does not declare " << sampled;
 
     // AND IT READS THE SAME PARAMETER BLOCK, byte for byte. It is handed the very buffer the march is
     // handed — one upload, two dispatches — so a block of a different size here would be every field after
