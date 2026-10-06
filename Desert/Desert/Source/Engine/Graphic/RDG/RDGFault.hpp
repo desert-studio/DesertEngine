@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/RDG/RDGAccess.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <cstdint>
@@ -131,11 +132,21 @@ namespace Desert::Graphic::RDG
     // nothing (Compile-time) or ends what it opened (Execute-time). The caller (VulkanRenderer::ExecuteGraph) then
     // clears every image in @p Externals to opaque black and presents, so the swapchain protocol (acquire ->
     // present) and the frame cadence stay intact and the window shows black, not the last frame and not garbage.
+    // One FrameFatal external a FrameFault leaves without a picture: everything the caller needs to clear it.
+    struct FrameFaultExternal
+    {
+        uint32_t              Resource = 0; // the external's TextureRef::Index (Builder::FindExternalTexture)
+        std::optional<Access> FinalAccess;  // the Extract's final access the caller leaves it in after clearing
+                                            // (Present for the swapchain image); nullopt: not extracted, CopyDst
+
+        bool operator==( const FrameFaultExternal& ) const = default;
+    };
+
     struct FrameFault
     {
-        std::string           Reason;
-        std::vector<uint32_t> Externals;  // FrameFatal externals left without a defined picture
-        std::vector<uint32_t> RootPasses; // the faulted passes that caused it (empty: the graph itself is broken)
+        std::string                     Reason;
+        std::vector<FrameFaultExternal> Externals;  // FrameFatal externals left without a defined picture
+        std::vector<uint32_t>           RootPasses; // the faulted passes that caused it (empty: the graph is broken)
     };
 
     // The result of one Builder::Execute, kept by the builder (Builder::GetExecuteReport). An error returned by

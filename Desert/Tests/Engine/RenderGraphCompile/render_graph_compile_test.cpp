@@ -3236,15 +3236,21 @@ TEST( RenderGraphCompile, FaultThatLeavesAFrameFatalExternalUnwrittenIsAFrameFau
     // No default for GlassBlur: Composite, the backbuffer's only writer, is culled too.
     RecordingBackend    backend;
     GlassFrame          frame( FaultDefault::None, ExternalFaultPolicy::FrameFatal );
+    frame.graph.Extract( frame.back, frame.backbuffer, Access::Present );
     const CompileResult result = CompileOrFail( frame.graph );
     ASSERT_TRUE( result.Frame.has_value() );
-    EXPECT_EQ( result.Frame->Externals, std::vector<uint32_t>{ frame.back.Index } );
+    // The report alone tells the caller what to clear and the state to leave it in (the Extract's: Present).
+    const std::vector<FrameFaultExternal> expected{ { frame.back.Index, Access::Present } };
+    EXPECT_EQ( result.Frame->Externals, expected );
     EXPECT_EQ( result.Frame->RootPasses, std::vector<uint32_t>{ 2 } );
 
     EXPECT_FALSE( frame.graph.Execute( backend ).IsSuccess() );
     EXPECT_TRUE( backend.Calls.empty() ); // nothing recorded: the caller clears the backbuffer and presents
     EXPECT_TRUE( frame.ran.empty() );
     EXPECT_EQ( backend.FaultLines.size(), 1u ); // the frame fault is reported through the same reporter
+    const ExecuteReport& report = frame.graph.GetExecuteReport();
+    ASSERT_TRUE( report.Frame.has_value() );
+    EXPECT_EQ( report.Frame->Externals, expected );
 }
 
 TEST( RenderGraphCompile, KeepsContentsExternalWithoutWriterIsNotAFrameFault )
@@ -3263,9 +3269,6 @@ TEST( RenderGraphCompile, HistoryExternalWithoutWriterIsListedForItsOwnerToReset
     RecordingBackend backend;
     GlassFrame       frame( FaultDefault::None, ExternalFaultPolicy::InvalidateHistory );
     frame.graph.Extract( frame.back, frame.backbuffer, Access::SampledGraphics );
-    // The state a FrameFault's caller leaves a cleared external in is the Extract's; a transient has none.
-    EXPECT_EQ( frame.graph.FindFinalAccess( frame.back.Index ), std::optional<Access>( Access::SampledGraphics ) );
-    EXPECT_EQ( frame.graph.FindFinalAccess( frame.lit.Index ), std::nullopt );
 
     EXPECT_TRUE( frame.graph.Execute( backend ).IsSuccess() );
     const ExecuteReport& report = frame.graph.GetExecuteReport();

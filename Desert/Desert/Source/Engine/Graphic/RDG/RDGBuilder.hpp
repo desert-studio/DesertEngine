@@ -304,10 +304,6 @@ namespace Desert::Graphic::RDG
         // RDG-FAULT1. The external texture registered as resource @p resource (null for a transient, a buffer or
         // an index out of range): how the caller reaches the images of FrameFault::Externals to clear them.
         ExternalTexture* FindExternalTexture( uint32_t resource ) const;
-        // RDG-FAULT1. The access an Extract asked resource @p resource to end the graph in (nullopt: not
-        // extracted): the state the caller leaves a FrameFault external in after clearing it (Present for the
-        // swapchain image), so the frame continues as if the graph had written it.
-        std::optional<Access> FindFinalAccess( uint32_t resource ) const;
 
         const std::string& GetName() const
         {
@@ -391,6 +387,8 @@ namespace Desert::Graphic::RDG
         // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
         void                  RecordPassError( uint32_t pass, std::string message );
         const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
+        // RDG-FAULT1: FrameFatal external @p resource as a FrameFault lists it (with its Extract's final access).
+        FrameFaultExternal MakeFrameFaultExternal( uint32_t resource ) const;
 
         std::string                 m_Name;
         std::vector<ResourceRecord> m_Resources;

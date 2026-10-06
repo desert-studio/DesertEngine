@@ -846,8 +846,9 @@ namespace Desert::Graphic::API::Vulkan
                 const VkPipelineStageFlags vk = RdgVulkanStages( flags );
                 return vk != 0 ? vk : VkPipelineStageFlags( VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT );
             };
-            for ( const uint32_t resource : fault.Externals )
+            for ( const RDG::FrameFaultExternal& entry : fault.Externals )
             {
+                const uint32_t resource = entry.Resource;
                 RDG::ExternalTexture* external = graph.FindExternalTexture( resource );
                 if ( !external )
                     return Common::MakeError(
@@ -860,8 +861,8 @@ namespace Desert::Graphic::API::Vulkan
 
                 const RDG::TextureDesc&          desc        = external->Desc;
                 const RDG::AccessState           dst         = RDG::GetAccessState( RDG::Access::CopyDst );
-                const std::optional<RDG::Access> finalAccess = graph.FindFinalAccess( resource );
-                const RDG::AccessState           after = finalAccess ? RDG::GetAccessState( *finalAccess ) : dst;
+                const RDG::AccessState           after =
+                     entry.FinalAccess ? RDG::GetAccessState( *entry.FinalAccess ) : dst;
 
                 std::vector<VkImageSubresourceRange> ranges;
                 for ( uint32_t layer = 0; layer < desc.Layers; ++layer )

@@ -926,9 +926,13 @@ namespace Desert::Graphic::API::Vulkan
                 []( RDG::PassFaultReporter::Severity severity, std::string_view line )
                 {
                     if ( severity == RDG::PassFaultReporter::Severity::Error )
+                    {
                         LOG_ERROR( "[RDG] {}", line );
+                    }
                     else
+                    {
                         LOG_INFO( "[RDG] {}", line );
+                    }
                 } )
     {
     }

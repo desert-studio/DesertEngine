@@ -294,11 +294,10 @@ namespace Desert::Graphic::RDG
         return resource < m_Resources.size() ? m_Resources[resource].ExternalTex : nullptr;
     }
 
-    std::optional<Access> Builder::FindFinalAccess( uint32_t resource ) const
+    FrameFaultExternal Builder::MakeFrameFaultExternal( uint32_t resource ) const
     {
-        if ( resource >= m_Resources.size() || !m_Resources[resource].HasFinalAccess )
-            return std::nullopt;
-        return m_Resources[resource].FinalAccess;
+        const ResourceRecord& record = m_Resources[resource];
+        return { resource, record.HasFinalAccess ? std::optional<Access>( record.FinalAccess ) : std::nullopt };
     }
 
     const Builder::ResourceRecord* Builder::FindResource( uint32_t index, ResourceKind kind ) const
@@ -698,7 +697,7 @@ namespace Desert::Graphic::RDG
             for ( uint32_t r = 0; r < m_Resources.size(); ++r )
             {
                 if ( m_Resources[r].ExternalTex && m_Resources[r].Policy == ExternalFaultPolicy::FrameFatal )
-                    fault.Externals.push_back( r );
+                    fault.Externals.push_back( MakeFrameFaultExternal( r ) );
             }
             m_Report.Frame = std::move( fault );
             return finish();
@@ -1027,8 +1026,11 @@ namespace Desert::Graphic::RDG
                                 m_Resources[r].Name );
             std::sort( lateRoots.begin(), lateRoots.end() );
             lateRoots.erase( std::unique( lateRoots.begin(), lateRoots.end() ), lateRoots.end() );
-            m_Report.Frame = FrameFault{ std::format( "{} lost every writer to a fault during execution", names ),
-                                         std::move( lateFatal ), std::move( lateRoots ) };
+            FrameFault fault{ std::format( "{} lost every writer to a fault during execution", names ), {},
+                              std::move( lateRoots ) };
+            for ( const uint32_t r : lateFatal )
+                fault.Externals.push_back( MakeFrameFaultExternal( r ) );
+            m_Report.Frame = std::move( fault );
         }
         return finish();
     }

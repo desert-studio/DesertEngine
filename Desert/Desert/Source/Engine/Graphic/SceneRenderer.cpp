@@ -966,12 +966,16 @@ namespace Desert::Graphic
         if ( const auto extracted =
                   textures.ExtractImported( GetFinalImage(), "final image", RDG::Access::SampledGraphics );
              !extracted )
+        {
             LOG_ERROR( "SceneRenderer: frame graph '{}' cannot hand over its final image: {}", graph.GetName(),
                        extracted.GetError() );
+        }
         else
+        {
             // What the viewport / runtime blit shows: without its writer this frame has no picture (black).
             graph.SetFaultPolicy( textures.Import( GetFinalImage(), "final image" ),
                                   RDG::ExternalFaultPolicy::FrameFatal );
+        }
 
         // Its faults are logged by the graph backend and its own failures by ExecuteGraph; a FrameFault leaves
         // the final image black for this frame.
