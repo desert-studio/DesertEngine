@@ -330,8 +330,8 @@ namespace Common::Utils
         // was stored compressed.
         //
         // VERIFIES THE ENTRY BEFORE HANDING THE BYTES BACK, and the check is named in the failure: a
-        // CRC-32C of its stored bytes. A mismatch logs the key, the archive and both values and returns nullopt — corrupt
-        // content is a failed read, never a successful one.
+        // CRC-32C of its stored bytes. A mismatch logs the key, the archive and both values and returns nullopt —
+        // corrupt content is a failed read, never a successful one.
         //
         // WHY THE CHECK IS OVER THE STORED BYTES AND NOT THE DECODED ONES. Decoding is
         // deterministic, so stored bytes that are provably intact decode to content that is provably
