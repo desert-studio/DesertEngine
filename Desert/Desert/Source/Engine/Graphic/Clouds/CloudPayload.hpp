@@ -549,7 +549,7 @@ namespace Desert::Graphic
 
         /// The volume each of the DistinctCount slots holds, in slot order. Entries at or past
         /// DistinctCount repeat Volume[0], so every one of the four descriptors has a valid image
-        /// whatever the layer names — see the note on kCloudNoiseBindings.
+        /// whatever the layer names — see the note at u_CloudNoise1 in Programs/Clouds/CloudRaymarch.shader.
         Assets::AssetHandle Volume[kCloudSpeciesSlots] = {};
     };
 
