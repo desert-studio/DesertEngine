@@ -336,66 +336,61 @@ namespace Desert::Graphic
         inputs.SSAO             = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI               = giAccum.IsValid() ? giAccum : refs.System.Black;
         inputs.View                        = SceneViewInputsOf( refs );
-        std::vector<RDG::TextureRef> reads = shadowReads;
-        for ( const RDG::TextureRef ref : { inputs.GBufferA, inputs.GBufferB, inputs.GBufferC,
-                                            inputs.GBufferEmissive, inputs.SSAO, inputs.GI } )
-            reads.push_back( ref );
-        const std::vector<RDG::TextureRef> view = inputs.View.Refs();
-        reads.insert( reads.end(), view.begin(), view.end() );
-        std::vector<RDG::TextureRef> declared; // one declaration per texture (System.White can fill several slots)
-        for ( const RDG::TextureRef ref : reads )
-            if ( ref.IsValid() && std::find( declared.begin(), declared.end(), ref ) == declared.end() )
-                declared.push_back( ref );
+        // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
+        // pass validation reads its route fill (lead decision B), never in the exec.
+        DeferredShadowInput shadow;
+        if ( meshRenderer )
+        {
+            shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
+            shadow.Count                = meshRenderer->GetValidCascadeCount();
+            shadow.Bias                 = meshRenderer->GetShadowBias();
+            shadow.Enabled              = meshRenderer->AreShadowsEnabled();
+            shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
+        }
+        const CloudShadowInput   cloudShadow = GetCloudShadowInput();
+        DeferredEnvironmentInput environment;
+        {
+            auto* imageService = Runtime::ResourceRegistry::GetImageService();
+            if ( const auto& env = GetEnvironment(); env.has_value() )
+            {
+                environment.Look = env->Look;
+                if ( env->IrradianceMap.IsValid() )
+                    environment.Irradiance =
+                         static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
+                if ( env->PreFilteredMap.IsValid() )
+                    environment.Prefiltered =
+                         static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
+            }
+            if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
+                 brdf && brdf->GetImageHandle().IsValid() )
+                environment.BrdfLut = static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
+        }
+        const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
+
+        auto* const deferred =
+             UNIQUE_GET_AS( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] );
+        // "Upload: Lights.Point" / "Upload: Lights.Spot", ordered before the Composite that reads them.
+        const System::DeferredCompositeLights lights =
+             System::DeferredLightingRenderer::UploadLights( graph, GetPointLights(), GetSpotLights() );
+        const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
+        const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
 
         graph.AddPass(
              "Deferred: Composite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadAll( pass, declared, RDG::Access::SampledGraphics );
+                 deferred->FillMaterial( lightDir, lightColor, cameraPos,
+                                         static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
+                                         shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ),
+                                         cloudShadow, environment );
+                 deferred->DeclareCompositeBindings( pass, inputs, lights );
+                 // The cascades the frame rendered are read even where the shader samples fewer of them.
+                 ReadAll( pass, shadowReads, RDG::Access::SampledGraphics );
                  DeferredFrameNodes::LoadTarget( pass, target );
              },
-             [this, inputs, meshRenderer, lightDir, lightColor,
-              cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 DeferredShadowInput shadow;
-                 if ( meshRenderer )
-                 {
-                     shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
-                     shadow.Count                = meshRenderer->GetValidCascadeCount();
-                     shadow.Bias                 = meshRenderer->GetShadowBias();
-                     shadow.Enabled              = meshRenderer->AreShadowsEnabled();
-                     shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
-                 }
-
-                 const CloudShadowInput cloudShadow = GetCloudShadowInput();
-
-                 DeferredEnvironmentInput environment;
-                 {
-                     auto* imageService = Runtime::ResourceRegistry::GetImageService();
-                     if ( const auto& env = GetEnvironment(); env.has_value() )
-                     {
-                         environment.Look = env->Look;
-                         if ( env->IrradianceMap.IsValid() )
-                             environment.Irradiance =
-                                  static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
-                         if ( env->PreFilteredMap.IsValid() )
-                             environment.Prefiltered =
-                                  static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
-                     }
-                     if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
-                          brdf && brdf->GetImageHandle().IsValid() )
-                         environment.BrdfLut =
-                              static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
-                 }
-
-                 const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
-                 return UNIQUE_GET_AS( System::DeferredLightingRenderer,
-                                       m_RenderSystems["DeferredLightingSystem"] )
-                      ->Record( context, inputs, lightDir, lightColor, cameraPos,
-                                static_cast<int>( m_DebugView.DeferredDebug ), GetPointLights(), GetSpotLights(),
-                                shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ), cloudShadow,
-                                environment );
-             } );
+             [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->Record( context ); } );
+    } );
     }
 
     RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,

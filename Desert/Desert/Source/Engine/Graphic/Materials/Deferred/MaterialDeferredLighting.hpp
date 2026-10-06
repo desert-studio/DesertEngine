@@ -74,10 +74,9 @@ namespace Desert::Graphic
         // The frame's values only: every graph texture the pass samples (G-buffer, AO, GI, shadow cascades)
         // is bound by name through RDG::PassBindings (DeferredLightingRenderer::Record). lightDir.xyz = direction
         // the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world pos (view vector);
-        // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spot = the scene's dynamic lights.
+        // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spotCount = the uploaded lights' counts.
         void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
-                         int debugMode, const ShaderProtocols::PointLight& pointLights,
-                         const ShaderProtocols::SpotLight& spotLights, const DeferredShadowInput& shadow,
+                         int debugMode, uint32_t pointCount, uint32_t spotCount, const DeferredShadowInput& shadow,
                          float giIntensity, bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
                          const DeferredEnvironmentInput& environment )
         {
@@ -100,30 +99,11 @@ namespace Desert::Graphic
             UploadShadow( shadow );
             UploadCloudShadow( cloudShadow );
 
-            // Upload the dynamic lights into the same SSBO/UB layout the mesh PBR shader uses (bindings 6/16/4),
-            // EVERY frame: the shader loops 0..count, so with no lights one zeroed entry is written and never
-            // read -- the buffer is still this frame's, and the draw's every-slot-filled check holds.
-            {
-                const ShaderProtocols::PointLightPayload noPoint{};
-                const bool                               anyPoint = !pointLights.PointLights.empty();
-                if ( auto* sb = Get<StorageBufferProperty>( ShaderProtocols::PointLight::Name ) )
-                    sb->SetRawData( anyPoint ? (const std::byte*)pointLights.PointLights.data()
-                                             : (const std::byte*)&noPoint,
-                                    static_cast<uint32_t>( ( anyPoint ? pointLights.PointLights.size() : 1u ) *
-                                                           sizeof( ShaderProtocols::PointLightPayload ) ) );
-            }
-            {
-                const ShaderProtocols::SpotLightPayload noSpot{};
-                const bool                              anySpot = !spotLights.SpotLights.empty();
-                if ( auto* sb = Get<StorageBufferProperty>( ShaderProtocols::SpotLight::Name ) )
-                    sb->SetRawData( anySpot ? (const std::byte*)spotLights.SpotLights.data()
-                                            : (const std::byte*)&noSpot,
-                                    static_cast<uint32_t>( ( anySpot ? spotLights.SpotLights.size() : 1u ) *
-                                                           sizeof( ShaderProtocols::SpotLightPayload ) ) );
-            }
-
-            const uint32_t counts[3] = { 0u, static_cast<uint32_t>( pointLights.PointLights.size() ),
-                                         static_cast<uint32_t>( spotLights.SpotLights.size() ) };
+            // The dynamic lights themselves are NOT material data: the Composite node uploads them into graph
+            // buffers (DeferredLightingRenderer::UploadLights, Builder::QueueBufferUpload) and binds them as
+            // block entries, so the PointLight / SpotLight storage properties stay unwritten and the route fill
+            // leaves those slots to the pass. Only the counts the shader loops to are written here.
+            const uint32_t counts[3] = { 0u, pointCount, spotCount };
             if ( auto* meta = Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
                 meta->SetRawData( (std::byte*)counts, sizeof( counts ) );
 

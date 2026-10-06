@@ -3183,6 +3183,51 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
     EXPECT_NE( terrain.find( "returnRecordDraws(context,firstBlock,*m_ShadowPipeline" ), std::string::npos );
 }
 
+// RDG-FAULT1 C3b, lead decisions A + B on "Deferred: Composite". The lights reach the shader through the graph's
+// upload command (two buffers uploaded BEFORE the node, bound as StorageRead block entries), not through the
+// material's storage properties; and the material is FILLED in the node's setup, before the block that the
+// setup validation checks against its route fill is declared - never in the exec, where the first frame's
+// validation would have read an unfilled material.
+TEST( RenderGraphCompile, DeferredCompositeUploadsItsLightsAndFillsItsMaterialInSetup )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string frame =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    const std::string body = SqueezedBody( frame, "voidSceneRenderer::AddFrameComposite(", "voidSceneRenderer::" );
+    ASSERT_FALSE( body.empty() );
+    const size_t upload  = body.find( "System::DeferredLightingRenderer::UploadLights(graph," );
+    const size_t node    = body.find( "\"Deferred:Composite\",RDG::PassFlags::Raster" );
+    const size_t fill    = body.find( "deferred->FillMaterial(" );
+    const size_t declare = body.find( "deferred->DeclareCompositeBindings(pass,inputs,lights);" );
+    const size_t record  = body.find( "deferred->Record(context)" );
+    ASSERT_NE( upload, std::string::npos );
+    ASSERT_NE( node, std::string::npos );
+    ASSERT_NE( fill, std::string::npos );
+    ASSERT_NE( declare, std::string::npos );
+    ASSERT_NE( record, std::string::npos );
+    EXPECT_LT( upload, node ) << "the upload is queued before the node that reads it";
+    EXPECT_LT( fill, declare ) << "the material is filled before its route fill is declared";
+    EXPECT_LT( declare, record ) << "both in the setup, before the exec";
+    EXPECT_EQ( body.find( "FillMaterial(", record ), std::string::npos ) << "no material fill in the exec";
+
+    const std::string renderer = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" );
+    EXPECT_NE(
+         renderer.find( ".Storage(ShaderProtocols::PointLight::Name,lights.Point,RDG::Access::StorageRead)" ),
+         std::string::npos );
+    EXPECT_NE( renderer.find( ".Storage(ShaderProtocols::SpotLight::Name,lights.Spot,RDG::Access::StorageRead)" ),
+               std::string::npos );
+    EXPECT_NE( renderer.find( "graph.QueueBufferUpload(buffer,bytes);" ), std::string::npos );
+    const std::string material = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp" );
+    EXPECT_EQ( material.find( "Get<StorageBufferProperty>(ShaderProtocols::PointLight::Name)" ),
+               std::string::npos )
+         << "the material no longer writes the lights: the block entry is their one route";
+    EXPECT_EQ( material.find( "Get<StorageBufferProperty>(ShaderProtocols::SpotLight::Name)" ),
+               std::string::npos );
+}
+
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and
 // resolved within one frame and nothing reads it the next, so the renderer keeps no StorageBuffer for it: the
 // graph creates it (Builder::CreateBuffer from AutoExposureRenderer::GetHistogramDesc), Clear and Histogram
