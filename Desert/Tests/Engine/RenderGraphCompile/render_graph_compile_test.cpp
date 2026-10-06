@@ -2673,9 +2673,11 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
            "declared.Read(refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients.SkyTransmittanceLut:white,"
            "RDG::Access::SampledGraphics" },
-         { "Systems/Scene/Mesh/MeshRenderer.cpp",
-           "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
-           "SampledGraphics" },
+         // The forward mesh node's scene/view inputs are bound per material block of the draw list its Declare
+         // builds (MeshDrawList::Declare -> BindSceneViewInputs), so the graph sees each sampled input as a
+         // block binding of that node rather than a blanket read.
+         { "Systems/Scene/Mesh/MeshRenderer.cpp", "m_ForwardDraws.Declare(declared,SceneViewInputsOf(refs));" },
+         { "Systems/Scene/Mesh/MeshRenderer.cpp", "BindSceneViewInputs(block,*view,layout);" },
          { "Systems/Scene/Terrain/TerrainRenderer.cpp",
            "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
            "SampledGraphics" },
@@ -2891,9 +2893,16 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
                             "returncast;" ),
                std::string::npos )
          << "the cascade body drops the non-mesh caster's draw result";
-    // RSM + the cascade's singles / generic / skinned / instanced draws.
-    EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 5u )
+    // The RSM draw, and the cascade's draw list (singles / generic / skinned / instanced, built in its Declare by
+    // BuildShadowCascadeDraws) whose Record returns the first refused draw (MeshDrawList::Record).
+    EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 2u )
          << "a shadow / RSM draw's refusal is no longer returned by its body";
+    EXPECT_NE( shadow.find( "if(autodrawn=m_CascadeDraws[c].Record(context);!drawn.IsSuccess())returndrawn;" ),
+               std::string::npos )
+         << "the cascade body drops its draw list's result";
+    EXPECT_NE( stripped( "Systems/Scene/Mesh/MeshRenderer.cpp" ).find( "!drawn.IsSuccess())returndrawn;" ),
+               std::string::npos )
+         << "MeshDrawList::Record no longer returns a refused draw";
 
     const std::string terrain = stripped( "Systems/Scene/Terrain/TerrainRenderer.cpp" );
     ASSERT_FALSE( terrain.empty() );

@@ -48,6 +48,9 @@ namespace Desert::Graphic::System
         // submesh mask and LOD. UE: a FMeshDrawCommand, built in InitViews and recorded later.
         struct MeshDrawCommand
         {
+            // Owned by the SceneRenderer's PipelineCache (GetOrCreate / GetOrCreateMaterial keep the shared_ptr
+            // in its map), which drops entries only in Clear (scene init) and InvalidateByShader (hot reload,
+            // after WaitDeviceIdle) - never between a node's setup and its exec - so the list holds no share.
             const GraphicsPipeline* Pipeline = nullptr;
             const Mesh*             Mesh     = nullptr;
             glm::mat4               Transform{ 1.0f };
@@ -490,6 +493,7 @@ namespace Desert::Graphic::System
         void BuildSkinnedDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
         // per-object data-driven materials (v3 slots + overrides)
         void BuildGenericDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
+        void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
@@ -497,6 +501,8 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
         MeshRendererDetail::MeshDrawList m_SkinnedDraws;
         // "Deferred: Skinned"
+        // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
+        MeshRendererDetail::MeshDrawList m_CascadeDraws[kMaxCascades];
         MeshRendererDetail::MeshDrawList m_GlassDraws; // "Deferred: Glass" (block 0 = the glass executor's)
 
         // Material pipelines on demand (AL1-12). The spec a data-driven material draws with in this renderer;
