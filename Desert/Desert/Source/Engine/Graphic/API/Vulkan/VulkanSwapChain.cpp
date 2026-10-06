@@ -519,8 +519,9 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         into.Desc = desc;
-        into.SubresourceStates.assign( desc.SubresourceCount(), ::Desert::Graphic::RDG::GetAccessState(
-                                                                     ::Desert::Graphic::RDG::Access::None ) );
+        // Acquired, not untouched: the transition out of Undefined must chain with the acquire wait
+        // (RDGAccess.hpp).
+        into.SubresourceStates.assign( desc.SubresourceCount(), ::Desert::Graphic::RDG::kPresentAcquiredState );
         into.Physical     = m_BackBufferGraphTextures[index];
         into.RecordStates = {};
         return BOOLSUCCESS;

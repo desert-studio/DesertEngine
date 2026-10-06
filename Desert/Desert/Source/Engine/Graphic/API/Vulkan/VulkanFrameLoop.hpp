@@ -18,7 +18,7 @@ namespace Desert::Graphic::API::Vulkan
     struct VulkanFrameOutput
     {
         VkSemaphore          ImageAcquired  = VK_NULL_HANDLE;
-        VkPipelineStageFlags ImageFirstUse  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        VkPipelineStageFlags ImageFirstUse  = 0; // RDG::kPresentAcquiredState's stages, set by the output
         VkSemaphore          RenderComplete = VK_NULL_HANDLE;
     };
 

@@ -89,4 +89,13 @@ namespace Desert::ShaderResources::ShaderLayout
         Core::Formats::ShaderStage ShaderStage = Core::Formats::ShaderStage::None;
     };
 
+    // THE byte count of a program's push block: what its pipeline layout's range is built with
+    // (VulkanPipeline::SetUpPushConstantRange) AND what a material of that program holds and pushes
+    // (MaterialExecutor). One function so the two cannot part: a material once held a fixed 128 bytes for
+    // every shader, pushed all of them through Shadow's 64-byte range, and the shadow pass never drew.
+    inline uint32_t PushBlockSize( const std::optional<PushConstantRange>& range )
+    {
+        return range.has_value() ? range->Size : 0u;
+    }
+
 } // namespace Desert::ShaderResources::ShaderLayout

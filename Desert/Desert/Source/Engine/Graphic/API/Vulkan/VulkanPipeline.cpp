@@ -162,6 +162,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             vkDestroyPipelineLayout( device, m_PipelineLayout, nullptr );
             m_PipelineLayout = VK_NULL_HANDLE;
+            m_PushConstantRange.reset();
         }
         if ( m_CompatibleRenderPass != VK_NULL_HANDLE )
         {
@@ -271,8 +272,15 @@ namespace Desert::Graphic::API::Vulkan
              .pushConstantRangeCount = pushConstant.first,
              .pPushConstantRanges    = pushConstant.first > 0 ? &pushConstant.second : nullptr };
 
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                              ->GetVulkanLogicalDevice();        VK_CHECK_RESULT( vkCreatePipelineLayout( device, &layoutInfo, nullptr, &m_PipelineLayout ) );
+        VkDevice device =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        VK_CHECK_RESULT( vkCreatePipelineLayout( device, &layoutInfo, nullptr, &m_PipelineLayout ) );
+        m_PushConstantRange = pushConstant.first > 0 ? std::optional( pushConstant.second ) : std::nullopt;
+        // Named like the pipeline, so a validation message about a layout (push ranges, set layouts) names the
+        // pipeline it belongs to rather than a bare handle.
+        if ( !m_Specification.DebugName.empty() )
+            VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE_LAYOUT, m_Specification.DebugName,
+                                              m_PipelineLayout );
     }
 
     void VulkanPipeline::CreateVertexInputState()
@@ -646,7 +654,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto&          pcValue = pushConstant.value();
         VkPushConstantRange pushConstantCI;
         pushConstantCI.offset     = pcValue.Offset;
-        pushConstantCI.size       = pcValue.Size;
+        pushConstantCI.size       = ShaderResources::ShaderLayout::PushBlockSize( pushConstant );
         pushConstantCI.stageFlags = (VkShaderStageFlags)pcValue.ShaderStage;
 
         return { 1, pushConstantCI };

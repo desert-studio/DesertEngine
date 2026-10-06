@@ -576,6 +576,54 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
     }
 }
 
+// ---- The material's push block against its pipeline's range (GATE-VAL2) ----------------------------
+
+// A pipeline's layout range and a material's push block are both sized from the program's reflected push
+// block by ShaderLayout::PushBlockSize. They once were not: MaterialExecutor held a fixed 128 bytes for
+// every shader, the shadow pass pushed all 128 through Shadow's 64-byte range (4082 x
+// VUID-vkCmdPushConstants-offset-01795, then 'push range is 64 bytes, the pass pushes 128' and a black
+// frame). Every cell of the table, every pass that draws it: the block a material of that program holds
+// IS the range its pipeline is built with, and the renderer's per-submesh transform fits in it.
+TEST_F( ShaderRootFixture, EveryCellsMaterialPushBlockIsItsPipelinesPushRange )
+{
+    using Desert::ShaderResources::ShaderLayout::PushBlockSize;
+    for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
+        for ( uint32_t s = 0; s < Desert::Graphic::kMeshPassCount; ++s )
+        {
+            const char* name = MeshShaderFor( static_cast<MeshVertexPath>( p ), static_cast<MeshPass>( s ) );
+            if ( name == nullptr )
+            {
+                continue;
+            }
+            const auto data = ReflectGraphics( ShaderFileFor( name ) );
+            ASSERT_TRUE( data.PushConstantRanges.has_value() ) << name << " declares no push block";
+            EXPECT_EQ( data.PushConstantRanges->Offset, 0u ) << name << ": material blocks start at the range";
+            EXPECT_EQ( PushBlockSize( data.PushConstantRanges ), data.PushConstantRanges->Size ) << name;
+            EXPECT_GE( PushBlockSize( data.PushConstantRanges ), sizeof( glm::mat4 ) )
+                 << name << "'s push block cannot hold the per-submesh transform";
+        }
+
+    // The pair that drew black: Shadow is one mat4, so its material holds 64 bytes, not 128.
+    const auto shadow =
+         ReflectGraphics( ShaderFileFor( MeshShaderFor( MeshVertexPath::Static, MeshPass::ShadowDepth ) ) );
+    EXPECT_EQ( PushBlockSize( shadow.PushConstantRanges ), sizeof( glm::mat4 ) );
+}
+
+// Both sides take the size from the one function, and the material has no size of its own to fall back to.
+TEST_F( ShaderRootFixture, PipelineRangeAndMaterialBlockAreSizedByTheOneFunction )
+{
+    const std::filesystem::path engine( "../Desert/Desert/Source/Engine/Graphic" );
+    const std::string           pipeline = ReadFile( engine / "API/Vulkan/VulkanPipeline.cpp" );
+    const std::string           material = ReadFile( engine / "Materials/MaterialExecutor.cpp" );
+    ASSERT_FALSE( pipeline.empty() );
+    ASSERT_FALSE( material.empty() );
+    EXPECT_NE( pipeline.find( "ShaderLayout::PushBlockSize( pushConstant )" ), std::string::npos );
+    EXPECT_NE( material.find( "ShaderLayout::PushBlockSize( vulkanShader->GetShaderPushConstant() )" ),
+               std::string::npos );
+    EXPECT_NE( material.find( "m_PushConstantBuffer.Allocate( pushBlockSize );" ), std::string::npos );
+    EXPECT_EQ( material.find( "kMaxPushConstantsSize" ), std::string::npos );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
