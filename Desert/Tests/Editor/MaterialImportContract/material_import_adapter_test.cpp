@@ -205,7 +205,9 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
     expectParam( "AlbedoColor", { 0.5f, 0.25f, 0.125f, 1.0f }, 4 );
     expectParam( "MetallicFactor", { 0.75f, 0, 0, 0 }, 1 );
     expectParam( "RoughnessFactor", { 0.4f, 0, 0, 0 }, 1 );
-    expectParam( "OcclusionStrength", { 0.6f, 0, 0, 0 }, 1 );
+    // glTF occlusionStrength lands in the ONE AO parameter, UE's Ambient Occlusion input; no second home.
+    expectParam( "AOStrength", { 0.6f, 0, 0, 0 }, 1 );
+    EXPECT_EQ( Param( fill, "OcclusionStrength" ), nullptr );
     expectParam( "NormalScale", { 1.5f, 0, 0, 0 }, 1 );
     expectParam( "EmissiveColor", { 1.0f, 0.5f, 0.0f, 1.0f }, 4 );
     expectParam( "EmissiveIntensity", { 4.0f, 0, 0, 0 }, 1 );
@@ -242,6 +244,37 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
     // parameter and not an unread key.
     EXPECT_TRUE( fill.TwoSided );
     EXPECT_EQ( std::ranges::find( fill.UnreadKeys, "gltf.doubleSided" ), fill.UnreadKeys.end() );
+}
+
+// MAT-AO-ONEHOME: the surface templates have ONE ambient-occlusion parameter, AOStrength (UE's Ambient Occlusion
+// input), and it is applied ONCE — as the strength of the ORM map's R inside PBRResolveORM. The AO the surface
+// writes is that result untouched, so a strength of 0.5 on a fully occluded texel gives 0.5, not 0.5 * 0.5 = 0.25.
+TEST( MaterialImportAdapter, TheAmbientOcclusionStrengthIsAppliedOnceInEverySurfaceTemplate )
+{
+    const std::string resolve = RepoFile( "Editor/Resources/Shaders/Common/PBRSurfaceInputs.glslh" );
+    ASSERT_FALSE( resolve.empty() );
+    EXPECT_NE( resolve.find( "float occlusion = 1.0 + occlusionStrength * (ormTexel.x - 1.0);" ),
+               std::string::npos )
+         << "PBRResolveORM no longer lerps the occlusion texel by its strength (glTF occlusionStrength)";
+
+    for ( const char* file : { "PBR/StandardSurface.shader", "Toon/Toon.shader" } )
+    {
+        const std::string text = RepoFile( std::format( "Editor/Resources/Shaders/Programs/{}", file ) );
+        ASSERT_FALSE( text.empty() ) << file;
+        EXPECT_EQ( text.find( "OcclusionStrength" ), std::string::npos ) << file << " keeps a second AO parameter";
+        EXPECT_NE( text.find( "Float       AOStrength (\"Ambient Occlusion\"" ), std::string::npos ) << file;
+
+        size_t uses = 0;
+        for ( size_t at = text.find( "u_Material.AOStrength" ); at != std::string::npos;
+              at        = text.find( "u_Material.AOStrength", at + 1 ) )
+            ++uses;
+        EXPECT_EQ( uses, 1u ) << file << ": AOStrength must be read once, as PBRResolveORM's strength";
+        EXPECT_NE( text.find( "PBRResolveORM( texture( u_ORMTexture, uv ).rgb, u_Material.AOStrength," ),
+                   std::string::npos )
+             << file;
+        EXPECT_NE( text.find( "s.AmbientOcclusion  = orm.x;" ), std::string::npos )
+             << file << ": the resolved occlusion must reach the surface unscaled";
+    }
 }
 
 TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclusion )

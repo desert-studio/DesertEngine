@@ -95,6 +95,8 @@ project(test_name)
         -- SKEL-fixa: the loop states a skinned import's source hash and box in its record (ImportRecordSourceHash)
         -- through the engine's own record reader/writer and the one source hash (HashMeshSourceFile).
         "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ImportRecordSourceHash.cpp",
+        -- MAT-AO-ONEHOME: the material loop renames the retired OcclusionStrength (MaterialAOParam).
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MaterialAOParam.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/ImportRecord.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
     }

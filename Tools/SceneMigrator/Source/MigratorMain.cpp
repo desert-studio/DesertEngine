@@ -60,6 +60,7 @@
 #include "ClipInterpShift.hpp"
 #include "ClipMigration.hpp"
 #include "ImportRecordSourceHash.hpp"
+#include "MaterialAOParam.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 
@@ -586,6 +587,8 @@ namespace Desert::Migration
         int meshesRaised = 0;
         int failed  = 0;
         int relaid  = 0;
+        // Materials whose retired OcclusionStrength was renamed AOStrength (MaterialAOParam.hpp).
+        int materialsRenamed = 0;
 
         // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
         // second run changes nothing. A mesh under <project>/Cooked/Meshes translates its material numbers
@@ -1043,6 +1046,29 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
+            // ONE AO PARAMETER (MaterialAOParam.hpp): the retired OcclusionStrength is renamed AOStrength.
+            const auto oneAO = Desert::Migration::MaterialWithOneAOParam( path.string(), source );
+            if ( !oneAO )
+            {
+                err << "FAIL   " << oneAO.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( oneAO.GetValue() )
+            {
+                ++materialsRenamed;
+                if ( check )
+                    out << "WOULD  " << path.string() << " — OcclusionStrength -> AOStrength\n";
+                else if ( !WriteText( path, *oneAO.GetValue(), err ) )
+                {
+                    err << "FAIL   " << path.string() << " — the rename could not be written; the original file "
+                        << "is untouched\n";
+                    ++failed;
+                }
+                else
+                    out << "renamed " << path.string() << " — OcclusionStrength -> AOStrength\n";
+                continue;
+            }
             if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
                  layout != Layout::Canonical )
             {
@@ -1453,12 +1479,13 @@ namespace Desert::Migration
 
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
-            << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
-            << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
-            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
-            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << animGraphsRaised
-            << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
-            << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
+            << " material(s), " << materialsRenamed
+            << ( check ? " would rename OcclusionStrength, " : " renamed OcclusionStrength, " ) << prefabs.size()
+            << " prefab(s), " << prefabsChanged << ( check ? " would change, " : " raised, " ) << texts.size()
+            << " other text asset(s), " << relaid << ( check ? " would be re-laid-out, " : " re-laid-out, " )
+            << foliageRaised << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " )
+            << animGraphsRaised << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " )
+            << meshesRaised << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << recordsStated
             << ( check ? " import record(s) would state their source hash, "
                        : " import record(s) stated their source hash, " )
@@ -1467,8 +1494,9 @@ namespace Desert::Migration
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
-                            animGraphsRaised > 0 || meshesRaised > 0 || recordsStated > 0 ) )
+        return ( check &&
+                 ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 || animGraphsRaised > 0 ||
+                   meshesRaised > 0 || recordsStated > 0 || materialsRenamed > 0 ) )
                     ? 1
                     : 0;
     }
