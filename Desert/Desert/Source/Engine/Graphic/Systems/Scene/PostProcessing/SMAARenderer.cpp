@@ -153,34 +153,53 @@ namespace Desert::Graphic::System
 
     // SMAA samples every input bilinearly with clamped addressing (the reference LinearSampler); the bilinear
     // fetches of the edges and the AreaTex/SearchTex lookups depend on it.
-    Common::BoolResultStr SMAARenderer::RecordEdges( const RDG::PassContext& context, RDG::TextureRef input )
+    // No SMAA pass has a material: the other route fills nothing.
+    void SMAARenderer::DeclareEdgesBindings( RDG::PassBuilder& pass, RDG::TextureRef input ) const
     {
-        RDG::PassBindings bindings( context );
-        bindings.Sampled( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                          RDG::SamplerDesc::LinearClamp() );
+        if ( !m_EdgesPipeline || !m_EdgesShader )
+            return; // RecordEdges refuses by name
+        pass.Bindings( m_EdgesLayout.Get( m_EdgesShader ), RDG::OtherRouteFill{} )
+             .Sampled( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() );
+    }
+
+    Common::BoolResultStr SMAARenderer::RecordEdges( const RDG::PassContext& context )
+    {
+        if ( !m_EdgesPipeline )
+            return Common::MakeError( "SMAARenderer: the edges pipeline is not initialised" );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_EdgesPipeline, nullptr );
     }
 
-    Common::BoolResultStr SMAARenderer::RecordWeights( const RDG::PassContext& context, RDG::TextureRef edges,
-                                                       RDG::TextureRef area, RDG::TextureRef search )
+    void SMAARenderer::DeclareWeightsBindings( RDG::PassBuilder& pass, RDG::TextureRef edges, RDG::TextureRef area,
+                                               RDG::TextureRef search ) const
     {
-        RDG::PassBindings bindings( context );
-        bindings
+        if ( !m_WeightsPipeline || !m_WeightsShader )
+            return; // RecordWeights refuses by name
+        pass.Bindings( m_WeightsLayout.Get( m_WeightsShader ), RDG::OtherRouteFill{} )
              .Sampled( "u_EdgesTex", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_AreaTex", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_SearchTex", search, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() );
+    }
+
+    Common::BoolResultStr SMAARenderer::RecordWeights( const RDG::PassContext& context )
+    {
+        if ( !m_WeightsPipeline )
+            return Common::MakeError( "SMAARenderer: the weights pipeline is not initialised" );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_WeightsPipeline, nullptr );
     }
 
-    Common::BoolResultStr SMAARenderer::RecordBlend( const RDG::PassContext& context, RDG::TextureRef input,
-                                                     RDG::TextureRef weights, RDG::TextureRef edges,
-                                                     RDG::TextureRef area )
+    void SMAARenderer::DeclareBlendBindings( RDG::PassBuilder& pass, RDG::TextureRef input,
+                                             RDG::TextureRef weights, RDG::TextureRef edges,
+                                             RDG::TextureRef area ) const
     {
-        RDG::PassBindings bindings( context );
-        bindings
+        if ( !m_BlendPipeline || !m_BlendShader )
+            return; // RecordBlend refuses by name
+        pass.Bindings( m_BlendLayout.Get( m_BlendShader ), RDG::OtherRouteFill{} )
              .Sampled( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_BlendTex", weights, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
@@ -189,6 +208,13 @@ namespace Desert::Graphic::System
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_AreaTex", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() );
+    }
+
+    Common::BoolResultStr SMAARenderer::RecordBlend( const RDG::PassContext& context )
+    {
+        if ( !m_BlendPipeline )
+            return Common::MakeError( "SMAARenderer: the blend pipeline is not initialised" );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_BlendPipeline, nullptr );
     }
 

@@ -3236,27 +3236,35 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    // Record: what starts every exec body in the squeezed file - "<Class>::Record" for an out-of-line
+    // definition, the return type glued to the name for one defined in its class (BackdropBlurRenderer.hpp).
     struct Renderer
     {
         const char* File;
-        const char* Class;
+        const char* Record;
     };
     const std::string dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
     for ( const Renderer& renderer :
-          { Renderer{ "TonemapRenderer.cpp", "TonemapRenderer" }, Renderer{ "FXAARenderer.cpp", "FXAARenderer" },
-            Renderer{ "AutoExposureRenderer.cpp", "AutoExposureRenderer" },
-            Renderer{ "BloomRenderer.cpp", "BloomRenderer" } } )
+          { Renderer{ "TonemapRenderer.cpp", "TonemapRenderer::Record" },
+            Renderer{ "FXAARenderer.cpp", "FXAARenderer::Record" },
+            Renderer{ "AutoExposureRenderer.cpp", "AutoExposureRenderer::Record" },
+            Renderer{ "BloomRenderer.cpp", "BloomRenderer::Record" },
+            Renderer{ "LightShaftRenderer.cpp", "LightShaftRenderer::Record" },
+            Renderer{ "LensFlareRenderer.cpp", "LensFlareRenderer::Record" },
+            Renderer{ "JumpFloodOutlineRenderer.cpp", "JumpFloodOutlineRenderer::Record" },
+            Renderer{ "SMAARenderer.cpp", "SMAARenderer::Record" },
+            Renderer{ "BackdropBlurRenderer.hpp", "Common::BoolResultStrRecord" } } )
     {
         const std::string text    = SqueezedSource( root, ( dir + renderer.File ).c_str() );
-        const std::string record  = std::string( renderer.Class ) + "::Record";
+        const std::string record  = renderer.Record;
         size_t            records = 0;
         for ( size_t at = text.find( record ); at != std::string::npos; at = text.find( record, at + 1 ) )
         {
             const std::string body = FunctionBody( text.substr( at ), record );
-            ASSERT_FALSE( body.empty() ) << renderer.Class << ": no balanced body after " << record;
+            ASSERT_FALSE( body.empty() ) << renderer.File << ": no balanced body after " << record;
             ++records;
-            for ( const char* fill :
-                  { "BindValues(", "BindInputs(", "SetRawData(", "FillMaterial(", "->Set(", "->Set<" } )
+            for ( const char* fill : { "BindValues(", "BindInputs(", "SetRawData(", "FillMaterial(",
+                                       "FillFinalMaterial(", "SetParams(", "->Set(", "->Set<" } )
                 EXPECT_EQ( body.find( fill ), std::string::npos )
                      << body.substr( 0, body.find( '{' ) ) << " fills its material (" << fill << ") in the exec";
             EXPECT_EQ( body.find( "PassBindingsbindings(context);" ), std::string::npos )
@@ -3281,6 +3289,23 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
     ASSERT_NE( exec, std::string::npos );
     EXPECT_LT( fill, declare ) << "the material is filled before its route fill is declared";
     EXPECT_LT( declare, exec ) << "both in the setup, before the exec";
+
+    // The jump-flood composite's uniforms (outline colour, width, smoothness) the same way.
+    const std::string jfa = SqueezedSource( root, ( dir + "JumpFloodOutlineRenderer.cpp" ).c_str() );
+    EXPECT_NE( FunctionBody( jfa, "voidJumpFloodOutlineRenderer::FillFinalMaterial(" )
+                    .find( "m_MaterialComposite->SetParams(" ),
+               std::string::npos )
+         << "the composite's values are set by FillFinalMaterial";
+    const std::string jfaNode =
+         SqueezedBody( postFx, "voidSceneRenderer::AddFrameJumpFlood(", "voidSceneRenderer::" );
+    const size_t jfaFill    = jfaNode.find( "jfa->FillFinalMaterial();" );
+    const size_t jfaDeclare = jfaNode.find( "jfa->DeclareFinalBindings(pass,seed,scene);" );
+    const size_t jfaExec    = jfaNode.find( "jfa->RecordFinal(context)" );
+    ASSERT_NE( jfaFill, std::string::npos );
+    ASSERT_NE( jfaDeclare, std::string::npos );
+    ASSERT_NE( jfaExec, std::string::npos );
+    EXPECT_LT( jfaFill, jfaDeclare ) << "the composite is filled before its route fill is declared";
+    EXPECT_LT( jfaDeclare, jfaExec ) << "both in the setup, before the exec";
 }
 
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and
