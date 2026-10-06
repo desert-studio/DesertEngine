@@ -379,7 +379,7 @@ namespace Desert::VFX
                 return Common::MakeFormattedError<bool>(
                      "{}: attribute '{}' is {} here and {} elsewhere in the stack", where, name,
                      GlslTypeName( type ), GlslTypeName( it->second ) );
-            return BOOLSUCCESS;
+            return Common::MakeSuccess( true );
         };
 
         for ( const VFXStackGroup group : { VFXStackGroup::ParticleSpawn, VFXStackGroup::ParticleUpdate } )
