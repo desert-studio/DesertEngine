@@ -3,6 +3,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -18,6 +19,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 #include <cstdio>
 
 namespace Common::Content
@@ -182,14 +184,21 @@ namespace Common::Content
         {
             const auto            kind = static_cast<ContentKind>( i );
             const ContentKindSpec spec = KindSpec( kind );
-            if ( spec.Extension != extension || !IsUnder( file, *spec.Root ) )
+            if ( spec.StatedOnly() || spec.Extension != extension )
                 continue;
 
-            const std::size_t rootLength = spec.Root->generic_string().size();
-            if ( !best || rootLength > bestRootLength )
+            // Under ANY of the kind's roots (the project's or the engine mount's, ScanRootsOf). A file sits
+            // under one mount only, so the lengths compared are always roots of the same mount.
+            for ( const std::filesystem::path& root : ScanRootsOf( spec ) )
             {
-                best           = kind;
-                bestRootLength = rootLength;
+                if ( !IsUnder( file, root ) )
+                    continue;
+                const std::size_t rootLength = root.generic_string().size();
+                if ( !best || rootLength > bestRootLength )
+                {
+                    best           = kind;
+                    bestRootLength = rootLength;
+                }
             }
         }
         return best;
@@ -245,45 +254,62 @@ namespace Common::Content
                                                  "other key is the rest of that prefab, not damage" )
     } // namespace StatedMembers
 
-    namespace
+    // NAMED, not anonymous: reflect-cpp reads the clip-skeleton structs below through a member-count probe that
+    // clang refuses for a type of internal linkage ("used but not defined in this translation unit").
+    namespace ContentScanDetail
     {
         // The string a JSON document states under its top-level `member`, or empty. The document is parsed as a
         // generic tree and nothing is built from it — the asset stays unloaded; the files carrying a name are
         // small documents (themes, rigs, retargets, graphs, cloud types).
-        // A skeleton's `Signature` member, which its cook writes from the bones (SkeletonAsset checks the
-        // loaded bones against it). Only that member is read; 0 when the document states none or is unreadable.
-        struct StatedRig
+        // A clip's `Skeleton` reference (AssetGuidRef: Guid + Path, SkeletonReference.hpp): the skeleton it plays
+        // on. The Asset Browser lists a skeleton's clips from this tag, nothing loaded. Only the GUID is kept;
+        // null when the document states none or is unreadable (the clip's own load refuses such a file by name).
+        struct StatedClipSkeletonRef
         {
-            uint64_t Signature = 0;
+            std::string Guid;
+            std::string Path;
         };
-        DESERT_JSON_LENIENT( StatedRig, "reads the one Signature member of a whole skeleton document; every other "
-                                        "key is the rest of that skeleton, and a document stating none reads 0" )
-        uint64_t StatedRigSignature( const std::filesystem::path& file )
+        struct StatedClipSkeleton
+        {
+            std::optional<StatedClipSkeletonRef> Skeleton;
+        };
+        DESERT_JSON_LENIENT( StatedClipSkeleton,
+                             "reads the one Skeleton member of a whole clip document; the "
+                             "channels, notifies and curves are the rest of that clip, not damage" )
+        AssetGuid StatedClipSkeletonGuid( const std::filesystem::path& file )
         {
             const auto text =
                  Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
             if ( !text )
-                return 0;
-            const auto document = Json::Read<StatedRig>( text.GetValue() );
-            return document ? document.GetValue().Signature : 0;
+                return {};
+            const auto document = Json::Read<StatedClipSkeleton>( text.GetValue() );
+            if ( !document )
+                return {};
+            const auto& skeleton = document.GetValue().Skeleton;
+            if ( !skeleton.has_value() )
+                return {};
+            const auto guid = AssetGuidFromText( skeleton->Guid );
+            return guid ? guid.GetValue() : AssetGuid{};
         }
 
-        // A clip's `SkeletonSignature` member: the rig its channels were baked against (AnimationAsset checks the
-        // skeleton it plays on against it). The Asset Browser lists a rig's clips from this tag, nothing loaded.
-        struct StatedClipRig
+        // An import record's `Nodes` member (THM1j): present when the last import split the source into node
+        // meshes
+        // (<stem>_<node>.stmesh beside it) and wrote NO combined mesh. Such a source is not a StaticMesh row of
+        // its own - its node meshes are, each an asset file the scan lists from disk.
+        struct StatedImportNodes
         {
-            uint64_t SkeletonSignature = 0;
+            std::optional<std::vector<std::string>> Nodes;
         };
-        DESERT_JSON_LENIENT( StatedClipRig, "reads the one SkeletonSignature member of a whole clip document; the "
-                                            "channels, notifies and curves are the rest of that clip, not damage" )
-        uint64_t StatedClipRigSignature( const std::filesystem::path& file )
+        DESERT_JSON_LENIENT( StatedImportNodes, "reads the one Nodes member of a whole import record; the source, "
+                                                "settings and bounds are the rest of that record, not damage" )
+        bool ImportRecordStatesNodes( const std::filesystem::path& record )
         {
             const auto text =
-                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+                 Utils::FileSystem::ReadFileContentPrefix( record, Utils::FileSystem::GetFileSize( record ) );
             if ( !text )
-                return 0;
-            const auto document = Json::Read<StatedClipRig>( text.GetValue() );
-            return document ? document.GetValue().SkeletonSignature : 0;
+                return false;
+            const auto document = Json::Read<StatedImportNodes>( text.GetValue() );
+            return document && document.GetValue().Nodes.has_value();
         }
 
         ResultStr<MeshHeaderBounds> ReadStatedPrefabBounds( const std::filesystem::path& file )
@@ -318,6 +344,22 @@ namespace Common::Content
             const auto name = value.value().to_string();
             return name ? name.value() : std::string();
         }
+    } // namespace ContentScanDetail
+    using namespace ContentScanDetail;
+
+    namespace
+    {
+        // The template role the shader's manifest declares; a manifest that does not parse states none here
+        // (ShaderAsset refuses that file by name when it loads).
+        std::string StatedShaderRole( const std::filesystem::path& file )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return {};
+            const auto manifest = ReadShaderManifest( text.GetValue() );
+            return manifest ? manifest.GetValue().Role : std::string();
+        }
     } // namespace
 
     ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind )
@@ -346,17 +388,16 @@ namespace Common::Content
                     MeshBinaryFileHeader header{};
                     std::memcpy( &header, head.GetValue().data(), sizeof( header ) );
                     described.Skinned = ( header.Flags & kMeshFlagIsSkinned ) != 0;
-                    if ( ( header.Flags & kMeshFlagHasSkeletonSignature ) != 0 )
-                        described.RigSignature = header.SkeletonSignature;
+                    std::memcpy( &described.Skeleton, &header.SkeletonGuid, sizeof( AssetGuid ) );
                 }
             }
         }
         if ( const std::string_view member = KindSpec( kind ).DisplayNameMember; !member.empty() )
             described.DisplayName = StatedDisplayName( file, member );
-        if ( kind == ContentKind::Skeleton )
-            described.RigSignature = StatedRigSignature( file );
         if ( kind == ContentKind::Animation )
-            described.RigSignature = StatedClipRigSignature( file );
+            described.Skeleton = StatedClipSkeletonGuid( file );
+        if ( kind == ContentKind::Shader )
+            described.Role = StatedShaderRole( file );
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
         const AssetHeaderReadContext context{ {}, true };
         auto                         stated = ReadAssetHeaderIfStated( file, context );
@@ -364,6 +405,9 @@ namespace Common::Content
             described.HeaderError = stated.GetError();
         else
             described.Header = stated.GetValue();
+        // A skeleton's tag is its own identity: the GUID every mesh and clip references it by.
+        if ( kind == ContentKind::Skeleton && described.Header )
+            described.Skeleton = described.Header->Guid;
         // A PREFAB'S BOX IS STATED BESIDE ITS HEADER, and read with it: a member that is there and unreadable
         // keeps the file out exactly as an unreadable header does.
         // AN IMPORT RECORD STATES ITS MESH'S BOX in the same `Bounds` member (DIMP 2): the registry knows an
@@ -407,32 +451,47 @@ namespace Common::Content
                 // that also sees what a mounted `.dpak` holds — a packaged game's content directories do
                 // not exist on disk at all. The font and icon services each hand-rolled the disk half once,
                 // and a packaged game scanned nothing.
-                for ( const std::filesystem::path& candidate :
-                      Utils::FileSystem::ListFilesRecursive( *spec.Root ) )
-                {
-                    // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
-                    // kind whose root is the LONGEST that contains it, never to whichever row was walked first.
-                    // An import record stands for a static mesh asset that has no file (FIX8): the row is
-                    // the asset's key, described from the record. An asset that does exist is its own row.
-                    if ( kind == ContentKind::StaticMesh && IsImportRecord( candidate ) )
+                // Every root of the kind: the project's and the engine content mount (ScanRootsOf).
+                for ( const std::filesystem::path& root : ScanRootsOf( spec ) )
+                    for ( const std::filesystem::path& candidate : Utils::FileSystem::ListFilesRecursive( root ) )
                     {
-                        const std::filesystem::path asset = MeshAssetOfImportRecord( candidate );
-                        std::error_code             ec;
-                        if ( std::filesystem::exists( asset, ec ) || KindOfContentFile( asset ) != kind )
+                        // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
+                        // kind whose root is the LONGEST that contains it, never to whichever row was walked
+                        // first. An import record stands for a static mesh asset that has no file (FIX8): the row
+                        // is the asset's key, described from the record. An asset that does exist is its own row.
+                        if ( kind == ContentKind::StaticMesh && IsImportRecord( candidate ) )
+                        {
+                            const std::filesystem::path asset = MeshAssetOfImportRecord( candidate );
+                            std::error_code             ec;
+                            if ( std::filesystem::exists( asset, ec ) || KindOfContentFile( asset ) != kind )
+                                continue;
+                            // A split source's meshes are its nodes; the source itself is no mesh asset (THM1k).
+                            if ( ImportRecordStatesNodes( candidate ) )
+                                continue;
+                            // Only a static file's record stands for a mesh: a skinned source's (or a skeleton's
+                            // and clips') states its own kind and names no static mesh (ImportRecord.hpp).
+                            if ( const auto stated =
+                                      ReadAssetHeaderIfStated( candidate, AssetHeaderReadContext{ {}, true } );
+                                 stated )
+                            {
+                                const auto& header = stated.GetValue();
+                                if ( header.has_value() && header->Kind != ContentKind::StaticMesh )
+                                    continue;
+                            }
+                            if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
+                                visit( candidate, kind, key );
                             continue;
-                        if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
-                            visit( candidate, kind, key );
-                        continue;
+                        }
+                        if ( LowerExtension( candidate ) != spec.Extension ||
+                             KindOfContentFile( candidate ) != kind )
+                            continue;
+
+                        const std::string key = AssetHandle::StableKeyForPath( candidate );
+                        if ( key.empty() )
+                            continue;
+
+                        visit( candidate, kind, key );
                     }
-                    if ( LowerExtension( candidate ) != spec.Extension || KindOfContentFile( candidate ) != kind )
-                        continue;
-
-                    const std::string key = AssetHandle::StableKeyForPath( candidate );
-                    if ( key.empty() )
-                        continue;
-
-                    visit( candidate, kind, key );
-                }
             }
         }
 
@@ -536,7 +595,8 @@ namespace Common::Content
             entry.Bounds = file.HeaderBounds->Bounds;
         entry.DisplayName  = file.DisplayName;
         entry.Skinned      = file.Skinned;
-        entry.RigSignature = file.RigSignature;
+        entry.Skeleton     = file.Skeleton;
+        entry.Role         = file.Role;
         return MakeSuccess( std::move( entry ) );
     }
 
@@ -573,7 +633,13 @@ namespace Common::Content
              {
                  const Utils::AssetRegistryEntry* cached   = cache.Registry.FindByKey( key );
                  const auto                       modified = cache.Modified.find( key );
-                 if ( cached != nullptr && modified != cache.Modified.end() && cached->Kind == KindName( kind ) &&
+                 // A REDIRECTOR's row states kind Redirector while the walk classifies its file by the extension
+                 // of the asset it stands in for (RegistryRowFor); comparing only against the walk's kind
+                 // re-read every redirector on every gather. Either kind the read itself would write agrees.
+                 const bool kindAgrees =
+                      cached != nullptr &&
+                      ( cached->Kind == KindName( kind ) || cached->Kind == KindName( ContentKind::Redirector ) );
+                 if ( kindAgrees && modified != cache.Modified.end() &&
                       cached->Size == Utils::FileSystem::GetFileSize( file ) &&
                       modified->second == ModifiedTime( file ) )
                  {

@@ -23,7 +23,7 @@ namespace Desert::Graphic::System
     {
         // Optional: only present when the deferred G-buffer shader exists and the scene renderer has a
         // G-buffer. Failure here does NOT fail Initialize — the forward path stays fully functional.
-        m_StaticGBufferShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "StaticMeshGBuffer" );
+        m_StaticGBufferShader = DefaultSurfaceProgram( MeshVertexPath::Static, MeshPass::GBuffer );
         if ( !m_StaticGBufferShader )
             return false;
 
@@ -33,11 +33,7 @@ namespace Desert::Graphic::System
 
         GraphicsPipelineSpecification spec;
         spec.DebugName      = "StaticMeshGBuffer";
-        spec.Layout         = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout         = MeshVertexLayout( MeshVertexPath::Static );
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_StaticGBufferShader;
@@ -75,7 +71,7 @@ namespace Desert::Graphic::System
         // sun. A DEDICATED material (rather than the objects' own) because this pass writes a camera UB
         // holding the SUN's matrices, and two writes to one per-frame UB in a frame is the hazard the
         // glass pass was split out to avoid.
-        m_RSMMaterial = MaterialPBR::Create( MeshVertexPath::Static, MeshPass::GBuffer );
+        m_RSMMaterial = CreateCellMaterial( MeshVertexPath::Static, MeshPass::GBuffer );
         if ( !m_RSMMaterial )
             return false;
         m_RSMInstance = m_RSMMaterial->CreateInstance();
@@ -95,7 +91,7 @@ namespace Desert::Graphic::System
         // It needs no textures: the default material has none either, so both sample the backend's
         // fallbacks and the surface is identical. What it supplies is the descriptor SETS, allocated from
         // the G-buffer shader's own reflection.
-        m_GBufferUnownedMaterial = MaterialPBR::Create( MeshVertexPath::Static, MeshPass::GBuffer );
+        m_GBufferUnownedMaterial = CreateCellMaterial( MeshVertexPath::Static, MeshPass::GBuffer );
         if ( !m_GBufferUnownedMaterial )
             return false;
 
@@ -104,17 +100,12 @@ namespace Desert::Graphic::System
         // dropped there in silence -- in the render path most of this repository's scenes state. Optional
         // like the rest of this pass: a refusal costs instancing in the G-buffer, and DrawStaticMeshes
         // logs what that costs rather than dropping the queue without a word.
-        m_InstancedGBufferShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
-             MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer ) );
+        m_InstancedGBufferShader = DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::GBuffer );
         if ( m_InstancedGBufferShader )
         {
             GraphicsPipelineSpecification ispec;
             ispec.DebugName      = "StaticMeshGBufferInstanced";
-            ispec.Layout         = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                     { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                     { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                     { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                     { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+            ispec.Layout         = MeshVertexLayout( MeshVertexPath::Instanced );
             ispec.DepthCompareOp = DepthCompare::CloserOrEqual;
             ispec.CullMode       = CullMode::Back;
             ispec.Shader         = m_InstancedGBufferShader;
@@ -123,7 +114,7 @@ namespace Desert::Graphic::System
             if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
             {
                 m_InstancedGBufferPipeline = instanced.GetValue();
-                m_InstancedGBufferMaterial = MaterialPBR::Create( MeshVertexPath::Instanced, MeshPass::GBuffer );
+                m_InstancedGBufferMaterial = CreateCellMaterial( MeshVertexPath::Instanced, MeshPass::GBuffer );
                 if ( m_InstancedGBufferMaterial )
                 {
                     m_InstancedGBufferInstance =
@@ -141,7 +132,7 @@ namespace Desert::Graphic::System
         {
             LOG_ERROR( "[MeshRenderer] shader '{}' is missing; Instanced Static Meshes will not be drawn "
                        "while the scene renders deferred.",
-                       MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer ) );
+                       DefaultSurfaceShaderName( MeshVertexPath::Instanced, MeshPass::GBuffer ).value_or( "?" ) );
         }
         return true;
     }

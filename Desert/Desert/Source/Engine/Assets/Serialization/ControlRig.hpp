@@ -55,6 +55,7 @@
  */
 
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Core/Core.hpp>
@@ -290,6 +291,9 @@ namespace Desert::Assets::Serialization
         /// a rig that has never been written: WriteControlRig stamps it (the GUID kept, or minted when new).
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         std::string                                               Name;
+        /// The `.skeleton` whose bones this rig drives and names (Drives' Bone, Bone-kind spaces, graph node
+        /// targets; CRIG 3). A Rename Bone finds the rig by this GUID (SkeletonReferrers). Required.
+        AssetGuidRef                    TargetSkeleton;
         std::vector<ControlElementData> Controls;
         std::vector<ControlDriveData>   Drives;
 
@@ -390,8 +394,10 @@ namespace Desert::Assets::Serialization
 
     /// The exact mirror of `BuildControlRig`, and it lives beside it for `BuildAssetDataFromClip`'s reason:
     /// a format whose two directions are not testable together is a format whose round trip is an
-    /// assumption. Needs the skeleton to turn the stage's bone indices back into names.
-    NO_DISCARD Common::ResultStr<ControlRigData> BuildDataFromControlRig( const std::string&                name,
+    /// assumption. Needs the skeleton to turn the stage's bone indices back into names; @p targetSkeleton is that
+    /// skeleton's asset reference, which the stage does not carry.
+    NO_DISCARD Common::ResultStr<ControlRigData> BuildDataFromControlRig( const std::string&  name,
+                                                                          const AssetGuidRef& targetSkeleton,
                                                                           const Animation::ControlRigStage& rig,
                                                                           const Animation::Skeleton& skeleton );
 } // namespace Desert::Assets::Serialization

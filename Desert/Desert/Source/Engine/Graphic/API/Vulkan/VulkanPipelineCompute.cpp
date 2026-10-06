@@ -356,6 +356,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanPipelineCompute::Invalidate()
     {
         Release();
+        RecordShaderCodeGeneration();
 
         VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
                               ->GetVulkanLogicalDevice();

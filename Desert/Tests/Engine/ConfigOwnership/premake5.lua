@@ -61,11 +61,6 @@ project(test_name)
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick" }
 
-    -- K3's machine store is in Common and reads/writes its file through Common::Utils::FileSystem, whose
-    -- macOS implementation is Objective-C — so the ObjC runtime + AppKit have to link as well. The same
-    -- two lines every other suite that touches FileSystem carries.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

@@ -155,11 +155,17 @@ namespace Common::Crash
         StackOverflowWorker,
         // The same recursion inside a JobSystem job: proves the pool's workers are prepared too.
         StackOverflowJob,
+        // A failed DESERT_VERIFY with no debugger attached: must take the abort path (codename SIGABRT),
+        // not die on a breakpoint instruction nobody catches (DEV-CRASH1).
+        Verify,
+        // A raw breakpoint instruction (DESERT_PLATFORM_BREAK) -> SIGTRAP / EXCEPTION_BREAKPOINT: a trap
+        // executed without a debugger, as a third-party library's __builtin_debugtrap/brk would.
+        Trap,
     };
 
     // Every spelling ParseTestKind accepts, for the hosts' "it knows: ..." error messages.
     inline constexpr const char* kKnownTestKinds =
-         "segv, abort, purecall, stackoverflow, stackoverflow-worker, stackoverflow-job";
+         "segv, abort, purecall, stackoverflow, stackoverflow-worker, stackoverflow-job, verify, trap";
 
     // Parses the `--crash-test` argument. `nullopt` for an unknown word, so the caller can report the
     // word it did not understand instead of silently picking a default.

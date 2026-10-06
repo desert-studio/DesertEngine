@@ -19,7 +19,7 @@ namespace Desert::Core
     // screen-space GI/AO.
     //
     // DEFERRED IS THE DEFAULT AND WHAT ESSENTIALLY EVERYTHING RUNS. Recounted 2026-09-14 over
-    // Editor/Resources/Assets/Scenes (Autosave/ excluded — it holds copies of scenes already counted,
+    // Projects/Desert/Content/Scenes (Autosave/ excluded — it holds copies of scenes already counted,
     // and an earlier revision of this comment said "51 of 53" because it swept them in): 88 scenes, of
     // which 81 write RenderingPath 1 and 7 write 0. Every scene now states the key, so nothing inherits
     // the default any more. The Forward seven are all MAT_Probe* fixtures: BatchStress, CascadeSeam,

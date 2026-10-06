@@ -37,6 +37,13 @@ namespace Desert::Runtime::Factory
                                         const std::vector<Common::UUID>&  pathPrefix = {},
                                         std::optional<Common::UUID>       rootId     = {} );
 
+        // THE PREFAB A NESTING RECORD NAMES (EntityData::PrefabPath), found in @p assetManager or registered
+        // there, and loaded. Nothing registers a nested prefab but the reader of the file that nests it, so this
+        // is the ONE way both the instancer and a reader of a prefab's body without instancing it (the Default
+        // Pawn's capsule, Core::DefaultPawnCapsule) reach it. Refuses with the reason; never a silent null.
+        [[nodiscard]] static Common::ResultStr<Assets::Asset<Assets::PrefabAsset>>
+        ResolveNested( const Assets::AssetManager& assetManager, const std::string& path );
+
         // Every entity of a finished instance, keyed by PrefabPathKey(SourcePath). This is how an override
         // finds the entity it belongs to, and it is a walk of the LIVE subtree rather than a map handed
         // back by Instantiate so that the caller can index an instance it did not create itself (the

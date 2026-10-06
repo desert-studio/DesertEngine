@@ -99,17 +99,19 @@ namespace Desert::Assets
      *   * `MaterialService`'s built runtime materials, through the EXISTING `Invalidate()` — which parks
      *     them in the graveyard rather than destroying them, because a frame in flight may still be
      *     recording against their descriptor pools, and `CollectGarbage()` destroys them at a safe point
-     *     after a device idle. That machinery was already there and is the reason materials are safe to
-     *     evict and images are not.
+     *     after a device idle.
+     *   * `TextureService`'s built GPU textures (`Graphic::Image2D`), through `EvictBuilt`. The image is
+     *     released DEFERRED, the way UE retires an RHI resource: parked in `FrameRetireQueue` with the
+     *     sweep's absolute frame number and destroyed once every frame recorded before the sweep has had
+     *     its fence waited on; its VkImage, view and sampler then go through the allocator's frame-indexed
+     *     deletion queue. Whatever else had written a descriptor against the image gives that up with it:
+     *     the editor's UI texture ids (`Desert::Editor::UI::UICacheTextureImGui`) are OWNED by the image
+     *     (`ImageTextureIds`: a `weak_ptr` plus the image's resource generation, never the recyclable
+     *     `VkImageView`), so a dead image's descriptor set is freed back to the ImGui pool, deferred by
+     *     frame, and the next `Get` builds a new image that gets a new set. `Require` rebuilds on the next
+     *     ask, so an evicted texture draws its slot default for the frames its re-read takes.
      *
      * NOT EVICTED, each for a stated reason rather than an omission:
-     *   * `Graphic::Image` OF ANY KIND, including asset textures. The editor's
-     *     `Desert::Editor::UI::UICacheTextureImGui` (Editor/Widgets/UIHelper/) holds a process-wide
-     *     `unordered_map<VkImageView, ImTextureID>` that is never cleared and is
-     *     keyed on a handle Vulkan is free to recycle. Releasing an image the editor has ever displayed
-     *     would leave that map handing a live-looking `ImTextureID` to ImGui. Fixing it needs a deferred
-     *     release queue for descriptor sets, which this engine does not have. The cost of the exclusion
-     *     here is small and measured: one asset-backed `Image2D` was live across a sixteen-scene session.
      *   * CLOUD NOISE VOLUMES (`Image3D`, 8 MiB each). `CloudNoiseService::Get` has no build-on-miss — it
      *     does not keep the asset shell — so releasing one would make the sky silently fall back to the
      *     default volume. That is the forbidden shape above, so the volume stays until the service can

@@ -3,12 +3,16 @@
 #include <Engine/Graphic/RendererTypes.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
+#include <Engine/Core/Formats/MaterialLayout.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 
 #include <Engine/ShaderResources/ShaderReflectionTypes.hpp>
 
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
+
+#include <atomic>
+#include <cstdint>
 
 namespace Desert::Graphic
 {
@@ -39,6 +43,15 @@ namespace Desert::Graphic
         }
 
         virtual Common::BoolResultStr Reload()                                                                 = 0;
+
+        // THE VERSION OF THE CODE THIS OBJECT CARRIES (UE: a recompile bumps the shader map, and every PSO built
+        // from the old one is stale). Moves on every successful Reload; a pipeline records the value it was
+        // built against (IPipeline::RecordShaderCodeGeneration) and RebuildPipelinesBehindTheirShader rebuilds
+        // exactly the ones that fell behind — renderer-owned or cached, graphics or compute, one rule for all.
+        [[nodiscard]] uint64_t GetCodeGeneration() const
+        {
+            return m_CodeGeneration.load( std::memory_order_acquire );
+        }
         virtual const std::string     GetName() const                                                          = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::UniformBuffer> GetUniformBufferModels() const = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::StorageBuffer> GetStorageBufferModels() const = 0;
@@ -53,6 +66,11 @@ namespace Desert::Graphic
 
         // Data-driven material metadata parsed from the .shader's `#pragma param` / `#pragma state`.
         virtual const Core::Formats::ShaderProgramMeta& GetProgramMeta() const = 0;
+
+        // THE layout every material filling this program writes through (Graphic/Materials/MaterialBinder.hpp):
+        // row params and textures from the template, push fields read off the compiled stages. A program
+        // whose stages disagree with it or with each other never loads, so what is here is what the GPU reads.
+        [[nodiscard]] virtual const Core::Formats::MaterialLayout& GetMaterialLayout() const = 0;
 
         // False when this shader has never compiled successfully, i.e. it carries no stages at all.
         //
@@ -94,8 +112,17 @@ namespace Desert::Graphic
                                                const ShaderVariant&                      variant  = {},
                                                const std::string&                        passName = {} );
 
+    protected:
+        // Called by the backend when a Reload has replaced the code — and only then: a failed recompile keeps the
+        // previous modules, so the pipelines built from them are not behind.
+        void BumpCodeGeneration()
+        {
+            m_CodeGeneration.fetch_add( 1, std::memory_order_acq_rel );
+        }
+
     private:
-        ResourceOwnership m_Accounting;
+        ResourceOwnership     m_Accounting;
+        std::atomic<uint64_t> m_CodeGeneration{ 0 };
     };
 
 } // namespace Desert::Graphic

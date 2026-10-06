@@ -1,19 +1,9 @@
 #ifndef POINTLIGHT_GLSLH
 #define POINTLIGHT_GLSLH
 
-#include "PBRFunctions.glslh"
-#include "DirectLighting.glslh"
-
-// std430 layout — must match ShaderProtocols::PointLightPayload (48 bytes).
-struct PointLight {
-    vec3  color;
-    float intensity;
-    vec3  position;
-    float radius;
-    float minRadius;
-    int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
-    vec2  _pad;
-};
+// The source's layout and its distance model live in LightSources.glslh (binding-free, compiled as C++ by the
+// CornellSymmetry suite); this file adds the scene's buffer of them and the debug-view helpers.
+#include "LightSources.glslh"
 
 // Unbounded storage buffer — no MAX_POINT_LIGHT cap. Count comes from LightsMetadata.PointLightCount.
 ReadBuffer(6) PointLightsUB
@@ -34,24 +24,6 @@ vec3 HueToRGB(float h)
 vec3 LightDebugColor(uint i)
 {
     return HueToRGB(fract(float(i) * 0.61803398875));
-}
-
-// What this light contributes: its own distance falloff, then THE shared direct-light BRDF. The BRDF
-// used to be spelled out here as well, which made this the third of four copies of one formula in the
-// engine — and the copies had drifted (the forward mesh shaders' sun was missing the /PI this one had,
-// so a point light and the sun of equal intensity did not agree on the same surface). Everything that
-// is specific to a point light is above the call; everything shared is behind it.
-vec3 CalculatePointLight(PointLight light, vec3 worldPosition, vec3 view, vec3 N, vec3 F0, float metalness, float roughness, vec3 albedo)
-{
-    vec3 L = light.position - worldPosition;
-    float distance = length(L);
-
-    L = normalize(L);
-
-    float attenuation = LightFalloffFactor(distance, light.minRadius, light.radius, light.falloff);
-    vec3 radiance = light.color * light.intensity * attenuation;
-
-    return EvaluateDirectLight(L, radiance, view, N, F0, metalness, roughness, albedo);
 }
 
 // Scalar "how much this point light lands here" (color-agnostic) for the lighting debug view.

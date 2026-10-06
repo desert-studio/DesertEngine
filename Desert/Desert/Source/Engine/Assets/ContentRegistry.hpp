@@ -1,11 +1,15 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
+
 #include <Common/Content/AssetMove.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -17,6 +21,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Assets
@@ -168,7 +173,20 @@ namespace Desert::Assets
                 std::mutex                   Mutex;
                 Common::Utils::AssetRegistry Registry;
                 bool                         Dirty = false;
+                // THE WRITE JOURNAL (UE: IAssetRegistry::OnAssetAdded / OnAssetUpdated). Every file the cook
+                // or an import writes is stamped with the next serial, keyed by its row; an index built over
+                // the rows (the animation library's clips by rig) asks `WrittenSince` for what it has not seen
+                // instead of being rebuilt, so a clip an import has just written is offered without a rescan.
+                // One entry per row, so it is bounded by the registry; the serial never goes back.
+                uint64_t                                  WriteSerial = 0;
+                std::unordered_map<std::string, uint64_t> WrittenAt;
             };
+
+            // Called under the state's lock, on every path of NoteFile that leaves the file with a row.
+            inline void MarkWritten_( State& state, const std::string& key )
+            {
+                state.WrittenAt[key] = ++state.WriteSerial;
+            }
 
             // A FUNCTION-LOCAL STATIC, for `AssetPathIndex`'s reason: `NoteAsset` is reachable from
             // `AssetManager::CreateAsset`, which a translation unit's static initialiser can reach, and a
@@ -326,6 +344,15 @@ namespace Desert::Assets
             return Common::AssetPathIndex::KeyFor( handle );
         }
 
+        /// A reference as a text format states it (AssetGuidRef): the GUID resolves, the registry's stable key
+        /// for it is for the reader. The one spelling every writer of a GUID reference uses (.skeleton, .anim,
+        /// the importer).
+        inline AssetGuidRef ReferenceTo( const Common::Content::AssetGuid& guid )
+        {
+            return AssetGuidRef{ Common::Content::AssetGuidToText( guid ),
+                                 KeyForHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) };
+        }
+
         inline std::optional<Common::Content::ContentKind> KindForFile( const std::filesystem::path& file )
         {
             const std::string ext = Detail::LowerExtension( file );
@@ -387,8 +414,8 @@ namespace Desert::Assets
                 return;
             }
 
-            auto described =
-                 Common::Content::RegistryRowFor( key, Common::Content::DescribeContentFile( file, *kind ) );
+            auto described = Common::Content::RegistryRowFor(
+                 key, Common::Content::DescribeContentFile( Common::Constants::Path::FullPath( file ), *kind ) );
             if ( !described )
             {
                 LOG_ERROR( "[ContentRegistry] '{}' could not enter the cooked asset registry: {}", key,
@@ -439,8 +466,9 @@ namespace Desert::Assets
             if ( const Common::Utils::AssetRegistryEntry* known = state.Registry.FindByKey( key );
                  known != nullptr )
             {
-                auto described =
-                     Common::Content::RegistryRowFor( key, Common::Content::DescribeContentFile( file, *kind ) );
+                auto described = Common::Content::RegistryRowFor(
+                     key,
+                     Common::Content::DescribeContentFile( Common::Constants::Path::FullPath( file ), *kind ) );
                 if ( !described )
                 {
                     LOG_ERROR( "[ContentRegistry] the cook rewrote '{}' and its header refused: {}", key,
@@ -463,7 +491,12 @@ namespace Desert::Assets
                      updated.Identity == known->Identity && updated.Dependencies == known->Dependencies &&
                      updated.Versions == known->Versions &&
                      Common::Utils::SameBounds( updated.Bounds, known->Bounds ) )
+                {
+                    // The row did not change, the bytes may have (a clip re-cooked at the same size):
+                    // what indexes the body must still be told.
+                    Detail::MarkWritten_( state, key );
                     return;
+                }
                 state.Registry.Remove( key );
                 if ( const auto inserted = state.Registry.Insert( std::move( updated ) ); !inserted )
                 {
@@ -471,12 +504,13 @@ namespace Desert::Assets
                                inserted.GetError() );
                     return;
                 }
+                Detail::MarkWritten_( state, key );
                 state.Dirty = true;
                 return;
             }
 
-            auto described =
-                 Common::Content::RegistryRowFor( key, Common::Content::DescribeContentFile( file, *kind ) );
+            auto described = Common::Content::RegistryRowFor(
+                 key, Common::Content::DescribeContentFile( Common::Constants::Path::FullPath( file ), *kind ) );
             if ( !described )
             {
                 LOG_ERROR( "[ContentRegistry] the cook wrote '{}' and its header refused: {}", key,
@@ -489,6 +523,7 @@ namespace Desert::Assets
                            inserted.GetError() );
                 return;
             }
+            Detail::MarkWritten_( state, key );
             state.Dirty = true;
         }
 
@@ -505,8 +540,10 @@ namespace Desert::Assets
             // The Name tag: what the file states as its display name, read by the scan without loading it;
             // empty when the file states none (then a list shows the stem, as the asset itself does).
             std::string DisplayName;
-            bool        Skinned      = false; // the Skinned tag: a mesh whose header flags a skeleton
-            uint64_t    RigSignature = 0;     // the Rig tag (AssetRegistryEntry::RigSignature)
+            bool        Skinned = false; // the Skinned tag: a mesh whose header flags a skeleton
+            // The Rig tag (AssetRegistryEntry::Skeleton): a Skeleton row's own GUID, the skeleton a SkinnedMesh
+            // or Animation row references. Null = none stated.
+            Common::Content::AssetGuid Skeleton;
         };
 
         // The rows of one kind in registry order — the SAME order `FilesOfKind` hands the preloader, so a
@@ -523,7 +560,7 @@ namespace Desert::Assets
             {
                 rows.push_back( { Common::AssetHandle( row->EffectiveHandle() ), row->Key,
                                   Common::AssetHandle::PathForStableKey( row->Key ), row->Guid, row->DisplayName,
-                                  row->Skinned, row->RigSignature } );
+                                  row->Skinned, row->Skeleton } );
             }
             return rows;
         }
@@ -547,7 +584,47 @@ namespace Desert::Assets
                               row->Guid,
                               row->DisplayName,
                               row->Skinned,
-                              row->RigSignature };
+                              row->Skeleton };
+        }
+
+        // THE LAST WRITE SERIAL. An index that has just read `Rows` takes this FIRST, so a write racing the
+        // read is seen again by `WrittenSince` rather than lost.
+        inline uint64_t WriteSerial()
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+            return state.WriteSerial;
+        }
+
+        // THE ROWS OF ONE KIND WRITTEN (created or rewritten through `NoteFile`) AFTER @p serial, with the
+        // serial they bring the caller up to. UE's OnAssetAdded/OnAssetUpdated, pulled rather than pushed:
+        // the cook runs on loader workers too, and an index asked on its own thread cannot be edited under it.
+        struct WrittenRows
+        {
+            std::vector<PickerRow> Rows;
+            uint64_t               Serial = 0;
+        };
+        inline WrittenRows WrittenSince( Common::Content::ContentKind kind, uint64_t serial )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            WrittenRows written;
+            written.Serial = state.WriteSerial;
+            if ( serial >= state.WriteSerial )
+                return written;
+            for ( const auto& [key, at] : state.WrittenAt )
+            {
+                if ( at <= serial )
+                    continue;
+                const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByKey( key );
+                if ( row == nullptr || row->Kind != Common::Content::KindName( kind ) )
+                    continue;
+                written.Rows.push_back( { Common::AssetHandle( row->EffectiveHandle() ), row->Key,
+                                          Common::AssetHandle::PathForStableKey( row->Key ), row->Guid,
+                                          row->DisplayName, row->Skinned, row->Skeleton } );
+            }
+            return written;
         }
 
         // THE ROW OF ONE FILE, AS A KIND: what a dropped file or a path-spelled reference resolves through.
@@ -643,17 +720,46 @@ namespace Desert::Assets
             return rows;
         }
 
-        // THE SKELETON A SKINNED MESH NAMES, found by the Rig tag both rows carry: the mesh's header states
-        // the rig's signature and the skeleton's document states its own, so the lookup reads no file (UE:
-        // USkeletalMesh -> USkeleton is a soft reference, not a search over loaded skeletons). Empty when no
-        // Skeleton row states @p signature; 0 is never a rig.
-        inline std::optional<PickerRow> RigRow( uint64_t signature )
+        // THE SKELETON A SKINNED MESH OR CLIP NAMES, by the GUID it references (SkeletonReference.hpp): the
+        // skeleton row's tag is its own header GUID, so the lookup reads no file (UE: USkeletalMesh ->
+        // USkeleton is a soft reference). Empty when no Skeleton row is @p skeleton; null names none.
+        inline std::optional<PickerRow> RigRow( const Common::Content::AssetGuid& skeleton )
         {
-            if ( signature == 0 )
+            if ( skeleton.IsNull() )
                 return std::nullopt;
             for ( PickerRow& row : Rows( Common::Content::ContentKind::Skeleton ) )
             {
-                if ( row.RigSignature == signature )
+                if ( row.Skeleton == skeleton )
+                    return std::move( row );
+            }
+            return std::nullopt;
+        }
+
+        // THE PREVIEW MESH OF A RIG (UE: USkeleton::PreviewSkeletalMesh; a UAnimSequence is shown on its
+        // skeleton's): the first SkinnedMesh row BY PATH that references @p skeleton — a stable pick, the
+        // same one the Animation Editor opens on. Read from the tags the scan wrote, so nothing is loaded to
+        // choose. Empty when no skinned mesh references that skeleton; a null GUID names none.
+        inline std::optional<PickerRow> PreviewMeshRow( const Common::Content::AssetGuid& skeleton )
+        {
+            if ( skeleton.IsNull() )
+                return std::nullopt;
+            std::optional<PickerRow> first;
+            for ( PickerRow& row : Rows( Common::Content::ContentKind::SkinnedMesh ) )
+            {
+                if ( row.Skeleton == skeleton && ( !first || row.Path < first->Path ) )
+                    first = std::move( row );
+            }
+            return first;
+        }
+
+        // THE ROW A FILE IS, among one kind's rows — by the path as this machine spells it, normalised.
+        inline std::optional<PickerRow> RowOfPath( Common::Content::ContentKind kind,
+                                                   const std::filesystem::path& file )
+        {
+            const std::filesystem::path wanted = Common::Constants::Path::FullPath( file ).lexically_normal();
+            for ( PickerRow& row : Rows( kind ) )
+            {
+                if ( Common::Constants::Path::FullPath( row.Path ).lexically_normal() == wanted )
                     return std::move( row );
             }
             return std::nullopt;
@@ -669,7 +775,7 @@ namespace Desert::Assets
                 return;
 
             std::error_code ec;
-            if ( std::filesystem::exists( file, ec ) )
+            if ( std::filesystem::exists( Common::Constants::Path::FullPath( file ), ec ) )
             {
                 NoteFile( file );
                 return;
@@ -862,6 +968,7 @@ namespace Desert::Assets
 
             state.Registry = Common::Utils::AssetRegistry();
             state.Dirty    = false;
+            state.WrittenAt.clear(); // the serial stays: an index's remembered serial must never exceed it
         }
     } // namespace ContentRegistry
 } // namespace Desert::Assets

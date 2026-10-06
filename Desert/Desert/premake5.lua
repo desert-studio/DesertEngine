@@ -10,12 +10,20 @@ project "Desert"
     -- Source/Engine/Generated/Reflection.gen.cpp is regenerated from REFLECT()/PROPERTY()
     -- annotations. The generated file is picked up by the Source/Engine/**.cpp glob below.
     dependson { "DesertHeaderTool" }
+    -- The same run verifies every routed-event handler of the engine and Common (misspelt, non-public or
+    -- outside the event tree fails the build at file:line) and emits the DESERT_SUBSYSTEM lists of the
+    -- application (Engine) and of every world (World, owned by Scene).
     prebuildcommands {
         DesertPlatform.BuiltToolPath("DesertHeaderTool")
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
-            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+            .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
-            .. ' "Engine"'
+            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
+            .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
+            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"'
+            .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
+            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"'
     }
 
     files { 
@@ -30,7 +38,6 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/pl_mpeg/pl_mpeg.cpp",
     }
 
     includedirs {
@@ -44,7 +51,10 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/pl_mpeg/include",
+        -- Engine/Media: AV1 (dav1d) and Opus, both compiled from their submodules
+        -- (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua).
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/dav1d/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/opus/include",
     }
     
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -66,6 +76,8 @@ project "Desert"
         "Optick",
         "MeshOptimizer",
         "OpenSubdiv",
+        "Dav1d",
+        "Opus",
     }
     
     for _, define in ipairs(deps.Common.Defines) do

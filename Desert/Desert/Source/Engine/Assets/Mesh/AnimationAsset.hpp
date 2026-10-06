@@ -6,6 +6,8 @@
 
 #include <Engine/Animation/AnimationClip.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 namespace Desert::Assets
 {
     class AnimationAsset : public AssetBase
@@ -22,17 +24,33 @@ namespace Desert::Assets
         }
 
         // The clip for the Animation Editor's AUTHORING-ONLY edits (notifies: name, tick, track). Such an edit
-        // does not touch the bone tracks, so TrackRevision stays — an Animator's cached per-track state is still
-        // valid. An edit that changes tracks must go through SetInMemoryClip / a reload, which bump it.
+        // does not restructure the Sequence, so Sequence::Revision stays — an Animator's cached per-track state is
+        // still valid. An edit that changes tracks must go through SetInMemoryClip / a reload, which bump it.
         Animation::AnimationClip& GetClipForAuthoring()
         {
             return m_Clip;
         }
 
-        uint64_t GetSkeletonSignature() const
+        /// RENAME BONE, CARRIED INTO THIS CLIP IN MEMORY (Skeleton Editor Save; the file is rewritten beside it by
+        /// Assets::RenameBonesInSkeletonAssets): Timeline::RenameBoneLocators on the clip's sequence. A move is a
+        /// new generation of the bindings, so the Revision moves and an Animator's ClipBinding re-resolves the
+        /// names. Returns how many bindings moved.
+        std::size_t RenameBones( std::span<const Animation::Timeline::BoneRename> renames )
         {
-            return m_SkeletonSignature;
+            const std::size_t moved = Animation::Timeline::RenameBoneLocators( m_Clip.Sequence, renames );
+            if ( moved > 0 )
+                m_Clip.Sequence.Revision = ++m_TrackRevision;
+            return moved;
         }
+
+        /// THE CLIP'S SKELETON, BY GUID (SKEL-TREE; contract: Engine/Animation/SkeletonReference.hpp). UE
+        /// UAnimSequence::Skeleton. Whether the clip plays on a mesh is ClipPlaysOnMesh over this and the mesh's
+        /// SkinnedMeshAsset::GetSkeleton(); GetSkeletonSignature goes away.
+        [[nodiscard]] Common::Content::AssetGuid GetSkeleton() const;
+
+        /// Authoring (Details slot, after CheckSkeletonAssignment). The GUID lives in the clip
+        /// (AnimationClip::Skeleton), so SaveClipToFile writes it and never loses it.
+        void SetSkeleton( Common::Content::AssetGuid skeleton );
 
         // Injects an in-memory clip (no file backing) — used for code-generated clips such as the procedural
         // character locomotion ([[procedural-character]]). Create the asset with loadAfterCreate=false, then
@@ -40,8 +58,7 @@ namespace Desert::Assets
         void SetInMemoryClip( const Animation::AnimationClip& clip )
         {
             m_Clip               = clip;
-            m_Clip.TrackRevision = ++m_TrackRevision;
-            m_SkeletonSignature  = clip.SkeletonSignature;
+            m_Clip.Sequence.Revision = ++m_TrackRevision;
             m_HasClip            = true;
             // NO FILE EVER PRODUCED THIS ONE, so nothing can produce it again. See
             // AssetBase::IsReloadableFromFile.
@@ -51,8 +68,7 @@ namespace Desert::Assets
         // WAS A HARDCODED `return true`. That made the type both unloadable and un-re-loadable:
         // `EnsureLoaded` short-circuits on it, so a shell created with `loadAfterCreate = false` — the
         // documented path for procedural clips, two lines above — reported itself ready while holding an
-        // empty clip and an UNINITIALISED `m_SkeletonSignature`, which `GetSkeletonSignature()` then
-        // handed to the animation system.
+        // empty clip, which the animation system then played as if it were one.
         bool IsReadyForUse() const override
         {
             return m_HasClip;
@@ -74,18 +90,15 @@ namespace Desert::Assets
         /**
          * @brief THIS ASSET OWNS THE TRACK-LIST STAMP, because this asset is what replaces the list.
          *
-         * `AnimationClip::TrackRevision` needs exactly one writer, and it has to be the object whose
-         * lifecycle does the replacing: `Load()` builds a new track list into the SAME `AnimationClip`
-         * (same address), and `Unload()` frees it. Everything downstream — `Animator::TrackBinding` above
-         * all — has no other way to tell one generation of the list from the next, because `Tracks.data()`
+         * `AnimationClip::Sequence::Revision` needs exactly one writer across generations, and it has to be the
+         * object whose lifecycle does the replacing: `Load()` builds a new track list into the SAME
+         * `AnimationClip` (same address), and `Unload()` frees it. Everything downstream — `Animator::ClipBinding`
+         * above all — has no other way to tell one generation of the list from the next, because `Tracks.data()`
          * and `Tracks.size()` are both free to come back identical when the allocator reuses the block.
          */
         uint32_t m_TrackRevision = 0;
-        // WAS UNINITIALISED. `GetSkeletonSignature()` on a shell that had not been loaded returned whatever
-        // was on the heap, and the animation system matches rigs on that number.
-        uint64_t m_SkeletonSignature = 0;
-        bool     m_HasClip           = false;
-        bool     m_FromMemory        = false;
+        bool     m_HasClip       = false;
+        bool     m_FromMemory    = false;
     };
 
 } // namespace Desert::Assets

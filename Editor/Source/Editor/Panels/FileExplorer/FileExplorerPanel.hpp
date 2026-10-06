@@ -3,8 +3,13 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserCommands.hpp>
+#include <Editor/Panels/FileExplorer/FileType.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
+#include <Editor/Widgets/ThumbnailProducers.hpp>
+#include <Editor/Widgets/ThumbnailWarmup.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/ThumbnailInfo.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <ImGui/imgui.h>
 #include <unordered_map>
@@ -12,7 +17,9 @@
 #include <stack>
 #include <functional>
 #include <future>
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -39,50 +46,6 @@ namespace Desert::Core
 
 namespace Desert::Editor
 {
-
-    enum class FileType
-    {
-        Unknown = 0,
-        Scene,
-        Prefab,
-        Script,
-        Audio,
-        Shader,
-        Texture,
-        Cubemap,
-        Model,
-        Material,
-        ShaderGraph,
-        // `Project` USED TO SIT HERE AND WAS DEAD IN BOTH DIRECTIONS: no extension mapped to it and no
-        // code read it. It could not have worked either — a `.deproj` lives at the PROJECT root, above
-        // the assets root this browser is rooted at, so the tile it typed can never be drawn.
-        Ini,
-        Font,
-
-        /// The four cloud formats — `.dclayout`, `.dcnv`, `.dcmv`, `.decloudtype`.
-        ///
-        /// ONE TYPE FOR FOUR EXTENSIONS, and the alternative was four. They share a colour, an icon, a
-        /// filter entry and — the reason that decides it — a THUMBNAIL PRODUCER: all four are painted
-        /// from their own bytes by Editor/Widgets/CloudThumbnail.hpp, so every branch that would
-        /// distinguish them here would immediately re-join. What tells them apart is the document each
-        /// one opens, and that is the subject-editor registry's question, not this enum's.
-        ///
-        /// THEY WERE `Unknown` UNTIL M11, which is why the owner could not pick a cloud by looking: an
-        /// unknown type gets the generic document glyph, so four different assets drew one identical
-        /// grey square and the browser's own type filter could not name them.
-        Cloud,
-
-        /// A UI theme (`.detheme`) — named colours, metrics and fonts plus the styles that bind them.
-        /// Its OWN type rather than sharing one: it has no producer in common with anything above (a
-        /// theme is not painted from bytes the way a cloud is), and the browser's type filter has to be
-        /// able to name it, which is the whole reason the cloud formats stopped being `Unknown`.
-        UITheme,
-
-        /// A landscape layer info (`.delayerinfo`, UE ULandscapeLayerInfoObject): its own type so the
-        /// browser can colour it, give it an icon and filter by it; it has no producer in common with any
-        /// type above.
-        LandscapeLayerInfo
-    };
 
     struct DirectoryInformation
     {
@@ -131,20 +94,36 @@ namespace Desert::Editor
         ~FileExplorerPanel() override;
         void OnUIRender() override;
         void OnPreUpdate() override; // polls the current dir for external changes -> auto-refresh
-        void OnEvent( Common::Event& e ) override; // OS file drop -> import into the current dir
+        bool OnWindowFileDropped( Common::EventWindowFileDrop& drop );
 
-        /// THE SPLASH'S UPLOAD PASS (THUMB2). The folder this panel opens on is the one it prefetched in its
-        /// constructor (ChangeDirectory), so the pictures to upload are exactly the ones it asked a worker for:
-        /// every one a worker has finished goes through ThumbnailCache::Get now — the same call the tile makes,
-        /// so the first frame after the hand-over finds it cached and draws it. Nothing is captured or
-        /// rendered. Returns how many of those pictures are still waiting for or on a worker.
+        /// THE SPLASH'S UPLOAD PASS (THUMB2, THM1n-13). Every picture this panel asked a worker for — the
+        /// opening folder's and the whole project's (WarmProjectThumbnails) — that a worker has finished goes
+        /// through ThumbnailCache::Get now, the same call the tile makes, so after the hand-over every tile of
+        /// every folder finds its picture resident. Nothing is captured or rendered. Returns how many of those
+        /// pictures are still waiting for or on a worker.
         std::size_t UploadPrefetchedThumbnails();
 
-        /// THE OPEN SCENE'S MATERIALS, WARMED ON THE SPLASH (THUMB3). @p materialPaths = ThumbnailWarmup::
-        /// SceneWarmList. A picture already on disk is decoded by the prefetch workers with the opening
-        /// folder's; one that is missing or stale is resolved (on a worker) and queued with
-        /// ThumbnailService::WarmMaterial, ahead of the folder, for the splash's scene-only capture pass.
-        void WarmSceneThumbnails( const std::vector<std::string>& materialPaths );
+        /// WHAT THE SPLASH MAKES RESIDENT (THUMB3, THM1m, THM1n-13). @p scene = ThumbnailWarmup::SceneWarmList,
+        /// the open scene's materials and meshes; @p project = ThumbnailWarmup::ProjectWarmList, every picture
+        /// of the project from the content registry. Every picture on disk is handed to the prefetch workers
+        /// (and uploaded by UploadPrefetchedThumbnails); every one missing or stale is resolved (a mesh on a
+        /// worker) and queued with ThumbnailService::WarmMaterial / WarmMesh / WarmPose / WarmPainted, scene
+        /// first, for the splash's warm-only capture pass (ThumbnailWarmup::SplashWarmList). Returns how many
+        /// captures it queued or is still resolving.
+        std::size_t WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
+                                           const std::vector<ThumbnailWarmup::WarmItem>& project );
+
+        /// The splash's captures have landed: hand the project's pictures that are not resident yet — the PNGs
+        /// those captures just wrote — to the workers again, so they are uploaded before the hand-over too.
+        void RequestProjectPictures();
+
+        /// How many pictures the browser holds on the GPU (ThumbnailCache::ResidentCount).
+        [[nodiscard]] std::size_t ResidentThumbnails() const;
+
+        /// Meshes WarmProjectThumbnails found cold (read in flight on a worker): asked again each frame until
+        /// each is resident and queued, or refused. Returns how many are still being read — they hold the
+        /// hand-over like a queued capture does, within the same budget.
+        std::size_t TickWarmMeshes();
 
         bool RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
         // Right-click context menu on a file/folder: Open (default app), Show in Explorer, Open folder, etc.
@@ -160,6 +139,7 @@ namespace Desert::Editor
         // True while any tile (card rect / list row) is hovered this frame — clicking elsewhere in the
         // body clears the selection (the ScrollY table is a child window, so an item-based check can't work).
         bool m_TileHovered = false;
+
         // Paths of the current multi-selection; falls back to m_CurrentSelected when empty.
         std::vector<std::string> SelectionPaths() const;
         // Cut/copy/paste of the current selection into the current directory.
@@ -180,6 +160,10 @@ namespace Desert::Editor
         // Phase-4 engine integration: instantiate a prefab into the open scene; create a new material asset.
         void AddPrefabToScene( const std::string& prefabPath );
         void CreateNewMaterial();
+        // UE's "Add Level Sequence": an empty `.dseq` (LevelSequenceAsset::Save) in the open folder, selected
+        // once the folder is re-listed. The ONE creation route: the Assets window's context menu and the
+        // palette's "Assets / New Level Sequence" (Editor/Core/ContentCreateCommands.hpp) both call this.
+        Common::BoolResultStr CreateNewLevelSequence();
 
         /// Which of the four cloud formats a "New Cloud Asset" item creates.
         ///
@@ -199,9 +183,10 @@ namespace Desert::Editor
         // The two volume formats are generated on a worker; see m_CloudBake.
         void CreateNewCloudAsset( CloudAssetKind kind );
         // UE-style "Capture Thumbnail": grab the current main-viewport rendered image, center-crop to a
-        // square, downscale, and save it AS this asset's thumbnail (same DiskPath key the grid reads). Lets
-        // the user frame the asset in the scene and use that exact view as the preview.
-        void CaptureThumbnailFromViewport( const std::string& assetPath );
+        // square, downscale, and save it AS this asset's thumbnail — under the key its tile reads, with the
+        // hash its judge compares (ThumbnailProducers::CaptureKeyOf -> ThumbnailService::PictureKey), so the
+        // service does not re-shoot over it. Lets the user frame the asset in the scene and use that view.
+        Common::BoolResultStr CaptureThumbnailFromViewport( const DirectoryInformation& entry );
         // Filtered (m_SearchBuf) + sorted (m_SortMode) child indices for the current directory.
         std::vector<size_t> BuildDisplayOrder() const;
         void DrawFolder( DirectoryInformation* dirInfo, bool defaultOpen = false );
@@ -237,9 +222,73 @@ namespace Desert::Editor
         // then renames) and, for a folder, open it. The palette offers these per shown entry, so a client on
         // the control channel reaches an asset the way a click does.
         std::vector<std::string> ShownEntries( bool folders ) const;
-        Common::BoolResultStr    SelectEntry( const std::string& path );
+        // The selected entries whose thumbnail has an editable orbit (ThumbnailProducers::HasThumbnailOrbit): the
+        // palette's "Edit Thumbnail: <file> <step>" commands are offered for these. `Asset` is the entry as the
+        // browser lists it, `OrbitFile` the file its picture's orbit is read from and written to
+        // (ThumbnailOrbitFile).
+        struct ThumbnailOrbitSubject
+        {
+            std::string Asset;
+            std::string OrbitFile;
+        };
+        std::vector<ThumbnailOrbitSubject> SelectedThumbnailSubjects();
+        Common::BoolResultStr              SelectEntry( const std::string& path );
+        // UE's Content Browser navigation (SyncBrowserToFolders / SyncBrowserToAssets), for the palette and the
+        // control channel: "Content Browser / Go to Folder <path>" opens a folder anywhere under the browser's
+        // root, "Content Browser / Sync to Asset <path>" opens the asset's folder and selects it. Refused, by
+        // path, for a path that is not a folder / not a file under the root.
+        Common::BoolResultStr GoToFolder( const std::string& path );
+        Common::BoolResultStr SyncToAsset( const std::string& path );
+        // Every folder / every file under the browser's root, as the browser spells them (generic paths, its
+        // hidden-file rule applied): the palette offers one Go to Folder / Sync to Asset per entry.
+        std::vector<std::string> ContentFolders() const;
+        std::vector<std::string> ContentFiles() const;
+        // The Content Browser commands (ContentBrowserCommands.hpp) on the selection: the item context menu
+        // draws them through CommandMenuItem and the palette offers them; both land here. Refused, with the
+        // reason, when the selection does not fit the command.
+        Common::BoolResultStr RunCommand( ContentBrowserCommand command );
 
     private:
+        // EDIT THUMBNAIL (UE: context menu -> "Edit Thumbnail"): the tile of m_EditThumbnailPath is interactive —
+        // a left drag orbits, the wheel zooms — and ONE gesture is ONE ThumbnailEdit::EditOrbit (one write into
+        // the asset's home, one undo entry) when it ends: the drag is released, or the wheel rests for
+        // kThumbnailWheelRestSeconds, or the pointer leaves the tile. Esc or a click outside the tile leaves the
+        // mode, and so does leaving the folder (ChangeDirectory). While a gesture runs the tile shows the LIVE
+        // picture: ThumbnailService::RequestPreview* with the live orbit (UE's realtime thumbnail), never written
+        // or cached; the orbit the gesture settles on is re-shot from the home after.
+        struct ThumbnailGesture
+        {
+            Assets::ThumbnailOrbit From;               // the orbit the home stated when the gesture began
+            Assets::ThumbnailOrbit Live;               // From moved by the drag and the wheel so far
+            ImVec2                 Drag{ 0.0f, 0.0f }; // pixels of the current left drag
+            float                  Wheel     = 0.0f;   // notches so far
+            double                 LastWheel = 0.0;    // ImGui time of the last notch
+            std::string            PreviewKey;         // the path the service files this asset's preview under
+            std::string            PreviewPng;         // ThumbnailKey::PreviewPath of it, once a preview was asked
+        };
+        static constexpr double         kThumbnailWheelRestSeconds = 0.35;
+        std::string                     m_EditThumbnailPath;
+        std::string                     m_EditThumbnailOrbitFile; // ThumbnailOrbitFile of m_EditThumbnailPath
+        std::optional<ThumbnailGesture> m_ThumbnailGesture;
+        // Runs the mode on the tile item just drawn (the thumbnail button, rect @p min..@p max).
+        void DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min, const ImVec2& max );
+        // The gesture's orbit written as one edit; the gesture ends whether or not the write succeeded.
+        void CommitThumbnailGesture();
+        // One context-menu row for @p command: its label and shortcut from the command's info, RunCommand on
+        // click, a refusal logged by name.
+        void CommandMenuItem( ContentBrowserCommand command, bool selected = false, bool enabled = true );
+        // The entries of the current folder that are selected (SelectionPaths, resolved to entries).
+        std::vector<DirectoryInformation*> SelectedEntries() const;
+        // The live orbit asked of ThumbnailService as a preview (subject resolved as the tile resolves it).
+        void RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture );
+        // Leaves Edit Thumbnail: a running gesture is committed first, its preview ended.
+        void LeaveThumbnailEdit();
+        // THE FILE @p entry's THUMBNAIL ORBIT LIVES UNDER, the one its picture is filed under: a material's
+        // .demat; a posed kind's own .skmesh / .skeleton / .anim; a model's or a foliage type's mesh picture
+        // (MeshPictureFor: a static mesh's .stmesh, a skinned source's .skmesh). nullopt for a kind with no orbit
+        // (ThumbnailProducers::HasThumbnailOrbit) or a model with no picture yet (not imported).
+        std::optional<std::string> ThumbnailOrbitFile( const DirectoryInformation& entry );
+
         // Collects a finished cloud-volume generation, exactly once. Called from OnPreUpdate rather than
         // from the render so that a collapsed or hidden Assets window still finishes what it started.
         void PollCloudAssetBake();
@@ -293,6 +342,9 @@ namespace Desert::Editor
         std::string m_AssetPath;
 
         bool m_Refresh = false;
+        // A file this panel just created, selected by the refresh that lists it (the entry does not exist
+        // before that re-listing, so it cannot be selected at creation).
+        std::string m_SelectAfterRefresh;
 
         bool m_UpdateNavigationPath = true;
 
@@ -348,7 +400,10 @@ namespace Desert::Editor
         // What PrefetchCurrentFolderThumbnails last handed to the workers: the one list the splash's upload
         // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
         std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
-        std::vector<ThumbnailPrefetch::Item> m_ScenePrefetchItems; // WarmSceneThumbnails' pictures, decoded too
+        std::vector<ThumbnailPrefetch::Item>
+             m_ProjectPrefetchItems; // WarmProjectThumbnails' pictures, decoded too
+        std::vector<ThumbnailWarmup::WarmItem>
+             m_WarmMeshesPending; // TickWarmMeshes: cold meshes/poses still being read
 
         // PER-TILE WORK THAT USED TO BE REDONE EVERY FRAME FOR EVERY TILE (THUMB3, sampled in a folder of 240
         // materials): the cache file name costs a StableKeyForPath (std::filesystem::absolute) and the
@@ -366,23 +421,63 @@ namespace Desert::Editor
         std::weak_ptr<::Desert::Core::Scene>     m_ViewportScene; // for "Capture Thumbnail from viewport"
         std::unordered_set<std::string>          m_FailedThumbs;  // assets that failed to load -> show icon, no retry spam
 
+        // THE FILE A RenderedMesh TILE PHOTOGRAPHS: a model's own path (CookPaths::MeshAsset maps it to its
+        // .stmesh), or the cooked mesh a .defoliage names (ThumbnailFoliage — UE: a foliage type's picture is
+        // its mesh's), so a type and its mesh share one key, one freshness source and one capture. The foliage
+        // read is cached per path and file time; a refusal is logged once and blacklisted in m_FailedThumbs.
+        std::optional<std::string> MeshSourceFor( const DirectoryInformation& entry );
+        // The same answer by path and type — for a registry row, which has no DirectoryInformation.
+        std::optional<std::string> MeshSourceFor( const std::string& assetPath, FileType type );
+        struct MeshSourceRead
+        {
+            std::filesystem::file_time_type Written;
+            std::string                     Source;
+        };
+        std::unordered_map<std::string, MeshSourceRead> m_MeshSourceOf;
+
+        // WHAT A RenderedMesh TILE SHOWS, by the asset its import wrote (THM-FIXB2; UE: a source file is not an
+        // asset — the picture is the imported asset's). A raw source (.fbx/.glb/.gltf/…) is pictured by what its
+        // import record says it imports as: a StaticMesh by its cooked .stmesh, a SkinnedMesh by its .skmesh in
+        // its bind pose, a Skeleton by its .skeleton on its preview mesh; clips only, or a source not imported
+        // yet (no record), keep the type icon — never "has not been cooked". Any other mesh file is its own
+        // cooked form. `Cooked` is the picture's key and freshness source; `Pose` routes it to RequestPose.
+        struct MeshPicture
+        {
+            std::string Cooked;
+            bool        Pose = false;
+        };
+        std::optional<MeshPicture> MeshPictureFor( const std::string& assetPath, FileType type );
+        // The record read, cached per source and the record's file time (a re-import rewrites it).
+        struct SourcePictureRead
+        {
+            std::filesystem::file_time_type Written;
+            std::optional<MeshPicture>      Picture;
+        };
+        std::unordered_map<std::string, SourcePictureRead> m_SourcePictureOf;
+
         // File watcher: cheap throttled poll of the current dir's entry signature -> QueueRefresh on change.
         int    m_PollCounter   = 0;
         size_t m_DirSignature  = 0;
-
-        bool m_IsHovered = false; // is the Assets window hovered this frame (gates OS file-drop import)
 
         // Copy an external image into Resources/Textures, then import+register it (Import button).
         void ImportExternalTexture();
         // Copy one external file into the current dir; cook+register if it's a texture (drag-drop / import).
         void ImportExternalFile( const std::filesystem::path& src );
         // Resolve (existing-only) + draw a texture thumbnail for an entry; returns false if none.
+        // The tile's and the tooltip's picture, by ThumbnailProducers::ProducerOf — the one dispatch. False =
+        // draw the type icon (no picture yet, or none by design).
+        bool DrawThumbnailFor( DirectoryInformation* entry, const ImVec2& size );
         bool DrawTextureThumbnail( DirectoryInformation* entry, const ImVec2& size );
         // Draw a rendered preview for a material entry (material-on-sphere). Generates the PNG lazily
         // (throttled to ~1/frame) on first use and caches it to disk; returns false until the PNG exists.
         bool DrawRenderedMaterialThumbnail( DirectoryInformation* entry, const ImVec2& size );
         // Same, for a mesh entry (the mesh auto-framed by its bounds).
         bool DrawRenderedMeshThumbnail( DirectoryInformation* entry, const ImVec2& size );
+        // Same, for a skinned mesh in its bind pose (ThumbnailPose; the .skmesh is its own cooked form).
+        // @p subject is the posed asset: the entry itself, or the .skmesh/.skeleton a skinned source's import
+        // wrote.
+        bool DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size,
+                                        const std::string& subject );
         // Same, for a file whose picture is PAINTED from its own bytes rather than rendered — the four
         // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
         bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );

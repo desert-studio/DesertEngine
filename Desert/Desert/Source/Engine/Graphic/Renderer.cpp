@@ -222,9 +222,9 @@ namespace Desert::Graphic
         s_RendererAPI->SetScissor( x, y, width, height );
     }
 
-    void Renderer::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )
+    Common::BoolResultStr Renderer::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )
     {
-        s_RendererAPI->BeginRenderPass( renderPass, clearFrame );
+        return s_RendererAPI->BeginRenderPass( renderPass, clearFrame );
     }
 
     void Renderer::EndRenderPass()
@@ -305,6 +305,7 @@ namespace Desert::Graphic
         Runtime::ResourceRegistry::ClearAll();
         Geometry::PrimitiveMeshFactory::ReleaseShared();
 
+        API::Vulkan::ReleaseSlotSamplers();
         if ( const auto released = FallbackTextures::Get().Release(); !released )
         {
             LOG_ERROR( "[Renderer] fallback textures were not released: {}", released.GetError() );

@@ -39,4 +39,11 @@ namespace Desert::Editor
         }
         return false;
     }
+
+    bool TakeDetailsActionRequest( std::string_view action )
+    {
+        DetailsNavigation& navigation = GetDetailsNavigation();
+        navigation.NoteAction( action );
+        return navigation.TakeAction( action );
+    }
 } // namespace Desert::Editor

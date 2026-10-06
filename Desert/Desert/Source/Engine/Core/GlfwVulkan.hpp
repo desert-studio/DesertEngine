@@ -24,4 +24,6 @@ extern "C"
     // NOLINTNEXTLINE(readability-redundant-declaration)
     GLFWAPI VkResult glfwCreateWindowSurface( VkInstance instance, GLFWwindow* window,
                                               const VkAllocationCallbacks* allocator, VkSurfaceKHR* surface );
+    // NOLINTNEXTLINE(readability-redundant-declaration)
+    GLFWAPI void glfwInitVulkanLoader( PFN_vkGetInstanceProcAddr loader );
 }

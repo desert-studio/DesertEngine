@@ -35,6 +35,12 @@ namespace Desert::Runtime
     //   .dcmv   — re-reads a sculpted hero-cloud body and re-uploads it, so a re-bake is visible in the
     //             sky the next frame. Nothing needs telling here either: the cloud renderer resolves the
     //             body through the service every frame.
+    //   .deprefab — re-reads the prefab's entity payloads in place (a failed parse keeps the old ones), so every
+    //             reader that asks the asset at use time sees the edit: the PlayerStart's capsule (the level's
+    //             Default Pawn), the pawn Play spawns, a placement, a nested prefab resolved through it. An
+    //             asset nobody has loaded yet is left alone - its first load reads the file as it is now -
+    //             and so is a capture not yet written (its payload is the only copy). Instances ALREADY placed
+    //             in a scene are entities of their own and are not re-instanced.
     //   .shader — recompiles the program (errors land in the log / Logs panel, the old
     //             pipelines keep drawing); on success the pipeline cache entries for that
     //             shader are dropped after a device-idle wait, so the next frame draws with
@@ -51,7 +57,7 @@ namespace Desert::Runtime
 
     private:
         void PollMaterials( Assets::AssetManager& assetManager, Core::Scene* scene );
-        void PollShaders( Assets::AssetManager& assetManager, Core::Scene* scene );
+        void PollShaders( Assets::AssetManager& assetManager );
         // No scene argument: a volume is not referenced by any component the way a material is — the
         // renderer looks its own up by handle every frame — so there is nothing in the scene to refresh.
         void PollCloudNoiseVolumes( Assets::AssetManager& assetManager );
@@ -65,6 +71,9 @@ namespace Desert::Runtime
         // frame, so re-registering the flattened table IS the whole of the reload — no scene to refresh.
         void PollUIThemes( Assets::AssetManager& assetManager );
         void PollLandscapeLayerInfos( Assets::AssetManager& assetManager );
+        // No scene argument: nothing in a scene caches a prefab's payload - its readers ask the asset each
+        // time they need it - so re-reading the asset is the whole of the reload.
+        void PollPrefabs( Assets::AssetManager& assetManager );
 
         // Reports whether @p path CHANGED since the last poll (Common::Utils::WriteWatch: a moved stamp, or a
         // racy stamp over different content). A file seen for the first time returns false: the first

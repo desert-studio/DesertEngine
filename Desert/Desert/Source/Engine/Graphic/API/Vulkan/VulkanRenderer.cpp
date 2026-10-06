@@ -32,6 +32,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -335,8 +336,25 @@ namespace Desert::Graphic::API::Vulkan
         return false;
     }
 
-    void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                         float lineWidth, const MaterialExecutor* materialExecutor )
+    const std::shared_ptr<VertexBuffer>& VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
+    {
+        // White colour and UV1 (0,0) in every vertex — what UE's GNullColorVertexBuffer and a missing TexCoord1
+        // give a material. Grown, never shrunk; the replaced buffer is released through the allocator's
+        // per-frame deletion queue, so a command buffer still in flight keeps reading valid memory.
+        if ( m_DefaultVertexStreams == nullptr || capacity > m_DefaultVertexStreamsCapacity )
+        {
+            std::vector<MeshVertexStreams> defaults( capacity );
+            m_DefaultVertexStreams = VertexBuffer::Create(
+                 defaults.data(), static_cast<uint32_t>( defaults.size() * sizeof( MeshVertexStreams ) ) );
+            const auto uploaded = m_DefaultVertexStreams->RT_Invalidate();
+            DESERT_VERIFY( uploaded.IsSuccess(), "the default vertex-streams buffer could not be uploaded" );
+            m_DefaultVertexStreamsCapacity = capacity;
+        }
+        return m_DefaultVertexStreams;
+    }
+
+    void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+                                         const MaterialExecutor* materialExecutor )
     {
         if ( !IsRecording() || vertexCount == 0 )
             return;
@@ -612,6 +630,25 @@ namespace Desert::Graphic::API::Vulkan
         const VkBuffer     vbuffer =
              sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetVertexBuffer() )->GetVulkanBuffer();
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
+        // Binding 1, the optional streams (MeshVertexLayout): the mesh's own, or the shared default holding at
+        // least as many vertices as this mesh - one pipeline, one stride either way. HasVertexStreams is read off
+        // the pipeline's BUILT vertex input (layout and vertex-stage inputs,
+        // VulkanPipeline::CreateVertexInputState): a pipeline whose shader reads no stream has no binding 1 and
+        // gets no buffer there. It implies a layout.
+        if ( const auto& layout = pipeline.GetSpecification().Layout;
+             graphics->HasVertexStreams() && layout.has_value() )
+        {
+            const auto&    own = mesh.GetStreamBuffer();
+            const VkBuffer sbuffer =
+                 sp_cast<API::Vulkan::VulkanVertexBuffer>(
+                      own != nullptr ? own
+                                     : DefaultVertexStreams(
+                                            DefaultVertexStreamsFor( *layout, mesh.GetVertexBuffer()->GetSize(),
+                                                                     m_DefaultVertexStreamsCapacity )
+                                                 .Capacity ) )
+                      ->GetVulkanBuffer();
+            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, offsets );
+        }
         const auto indexBuffer = mesh.GetIndexBuffer();
         if ( indexBuffer )
         {
@@ -1179,14 +1216,17 @@ namespace Desert::Graphic::API::Vulkan
         // Through the device, not vkDeviceWaitIdle here: it must hold the queue lock (VK1).
         EngineContext::GetInstance().GetDevice()->WaitIdle();
     }
+    // The window swapchain's composite wrapper: the format every pipeline drawing into the back buffer is
+    // built against. Asked of the swapchain itself, so it exists from the first frame on, before any pass.
     std::shared_ptr<Framebuffer> VulkanRendererAPI::GetCompositeFramebuffer() const
     {
-        // The window swapchain's composite wrapper: the format every pipeline drawing into the back buffer is
-        // built against. Asked of the swapchain itself, so it exists from the first frame on.
         const auto window = m_Window.lock();
         if ( !window )
+        {
             return nullptr;
-        return SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetCompositeFramebuffer();
+        }
+        const auto vulkanSwap = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
+        return vulkanSwap ? vulkanSwap->GetCompositeFramebuffer() : nullptr;
     }
     void VulkanRendererAPI::SetViewportAndScissor( const uint32_t width, const uint32_t height )
     {

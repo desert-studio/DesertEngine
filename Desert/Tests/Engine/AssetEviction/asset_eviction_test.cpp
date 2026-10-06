@@ -38,6 +38,7 @@
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
@@ -58,10 +59,14 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 using namespace Desert;
 using namespace Desert::Assets;
@@ -192,7 +197,13 @@ namespace
     // Real files, for the reason the probe `.demat` above is a real file: the edge under test is the one
     // the LOADER produces. A one-bone rig and a one-triangle mesh, because the relation has nothing to do
     // with either of their sizes.
-    std::string WriteProbeRig( const std::filesystem::path& path )
+    // `withChild` writes the same rig with one more bone under the root — what a reimport of a source that
+    // gained a bone rewrites the file to. The rig's IDENTITY is its header GUID (the mesh names it by that,
+    // SkinnedMeshAsset::ResolveDependencies binds HandleForGuid of it), so both writes state the SAME GUID —
+    // a reimport keeps the rig's identity and changes only its bones.
+    constexpr Common::Content::AssetGuid kProbeRigGuid{ 0x5e1e7a0e7c1c7100ull, 0x00000000000e71c7ull };
+
+    std::string WriteProbeRig( const std::filesystem::path& path, const bool withChild = false )
     {
         Desert::Animation::BoneInfo root;
         root.Name               = "Root";
@@ -201,7 +212,16 @@ namespace
         root.ParentBoneID       = std::nullopt;
 
         Desert::Assets::Serialization::SkeletonAssetData data;
-        data.Bones     = { root };
+        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Skeleton, kProbeRigGuid,
+                                                       Desert::Assets::Serialization::SkeletonTextSubsystems() );
+        data.Bones  = { root };
+        if ( withChild )
+        {
+            Desert::Animation::BoneInfo child = root;
+            child.Name                        = "Child";
+            child.ParentBoneID                = 0U;
+            data.Bones.push_back( child );
+        }
         data.Signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
 
         std::ofstream out( path, std::ios::binary | std::ios::trunc );
@@ -209,11 +229,12 @@ namespace
         return path.generic_string();
     }
 
-    std::string WriteProbeSkinnedMesh( const std::filesystem::path& path, const std::uint64_t signature )
+    std::string WriteProbeSkinnedMesh( const std::filesystem::path&      path,
+                                       const Common::Content::AssetGuid& skeleton )
     {
         Desert::Assets::Serialization::MeshAssetData data;
-        data.IsSkinned         = true;
-        data.SkeletonSignature = signature;
+        data.IsSkinned = true;
+        data.Skeleton  = skeleton;
 
         for ( int i = 0; i < 3; ++i )
         {
@@ -292,6 +313,18 @@ namespace
 // RELATION 1 — referenced stays, unreferenced goes. BOTH HALVES, ONE TEST.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
+namespace
+{
+    // A material names its template by GUID (there is no default by absence); the probes name the engine's
+    // standard surface. No manager here holds it — the edges under test are the texture and the submesh.
+    void StateProbeTemplate( Desert::Assets::MaterialData& data )
+    {
+        const auto guid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
+        ASSERT_TRUE( guid ) << guid.GetError();
+        data.SetShader( guid.GetValue(), "engine:Shaders/Programs/PBR/StandardSurface.shader" );
+    }
+} // namespace
+
 TEST( AssetEviction, AnAssetNothingReferencesIsReleasedAndAReferencedOneIsNot )
 {
     AssetManager manager;
@@ -347,6 +380,49 @@ TEST( AssetEviction, AnOpenEditorsPinnedSubjectSurvivesTheSweepAndIsReleasedOnce
     RecordingSink sink;
     (void)AssetEviction::Run( manager, roots, sink );
     EXPECT_FALSE( edited->IsReadyForUse() );
+}
+
+// THE DEFAULT SURFACE TEMPLATE IS A ROOT FOR THE ENGINE'S LIFE (THM-FIXA, 09-30). No scene names it, so the
+// first sweep with no roots released StandardSurface.shader; FindDefaultSurfaceTemplate then found no loaded
+// template and every slotless mesh was dropped ("mesh system did not initialise", no Fox in the preview).
+// Two halves: the pin the engine holds keeps the template through a sweep whose only roots are pins (a
+// probe stands in for the shader, which cannot load without the shader compiler here), and the boot path
+// really takes that pin on the handle it found — the wiring the first half cannot see.
+TEST( AssetEviction, TheDefaultSurfaceTemplateSurvivesASweepWithNoRootsBecauseTheEngineHoldsItsPin )
+{
+    AssetManager manager;
+    const auto   surface = Register( manager, "probe/StandardSurface.deprefab", true );
+    const auto   other   = Register( manager, "probe/unnamed.deprefab", true );
+    {
+        // What MaterialService::PinDefaultSurfaceTemplate holds (a unique_ptr<AssetRootPin>) until Clear().
+        const AssetRootPin pin( surface->GetMetadata().Handle, "the engine's Default Surface template" );
+        AssetRootSet       roots;
+        AssetRootPin::MarkAll( roots ); // the sweep's only roots: no scene, no open editor
+        RecordingSink sink;
+        (void)AssetEviction::Run( manager, roots, sink );
+        EXPECT_TRUE( surface->IsReadyForUse() ) << "a rootless sweep released the Default Surface template";
+        EXPECT_FALSE( other->IsReadyForUse() )
+             << "control: the sweep released nothing, so the half above is vacuous";
+    }
+
+    const auto readSource = []( const char* relative )
+    {
+        std::ifstream in( Desert::TestSupport::RepositoryRoot() / relative, std::ios::binary );
+        return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+    };
+    const std::string boot = Desert::Tests::ConsumerText::StripComments(
+         readSource( "Desert/Desert/Source/Engine/Assets/BootContent.cpp" ) );
+    ASSERT_FALSE( boot.empty() ) << "BootContent.cpp not found above the working directory";
+    const auto found = boot.find( "FindDefaultSurfaceTemplate(" );
+    ASSERT_NE( found, std::string::npos ) << "the boot no longer looks the Default Surface template up";
+    EXPECT_NE( boot.find( "PinDefaultSurfaceTemplate( defaultSurface.GetValue() )", found ), std::string::npos )
+         << "the boot finds the Default Surface template but no longer pins it: the first eviction sweep "
+            "releases it and every slotless mesh is dropped";
+
+    const std::string service = Desert::Tests::ConsumerText::StripComments(
+         readSource( "Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp" ) );
+    EXPECT_NE( service.find( "m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(" ), std::string::npos )
+         << "MaterialService no longer holds the Default Surface template as an AssetRootPin";
 }
 
 TEST( AssetEviction, EveryMeshStillBuiltAfterTheSweepIsNamedWithWhy )
@@ -554,14 +630,15 @@ TEST( AssetEviction, AnUnloadedAssetStopsAnsweringWithItsPayload )
 
     SkinnedMeshAsset skinned( path );
     ASSERT_TRUE( skinned.Unload() );
-    EXPECT_EQ( skinned.GetSkeletonSignature(), 0U )
-         << "an unloaded skinned mesh still claims a rig signature; ResolveDependencies matches rigs on "
-            "that number";
+    EXPECT_TRUE( skinned.GetSkeleton().IsNull() )
+         << "an unloaded skinned mesh still names a skeleton; ResolveDependencies binds HandleForGuid of "
+            "that GUID, so a released mesh would keep resolving a rig it no longer holds the data for";
 
     AnimationAsset animation( path );
     ASSERT_TRUE( animation.Unload() );
-    EXPECT_EQ( animation.GetSkeletonSignature(), 0U );
-    EXPECT_TRUE( animation.GetClip().Tracks.empty() );
+    EXPECT_TRUE( animation.GetSkeleton().IsNull() );
+    EXPECT_TRUE( animation.GetClip().Sequence.Tracks.empty() );
+    EXPECT_TRUE( animation.GetClip().Sequence.Bindings.empty() );
 
     CloudNoiseVolumeAsset noise( path );
     ASSERT_TRUE( noise.Unload() );
@@ -629,6 +706,7 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
         // Through the one .demat writer, so the probe states the header and schema generation the loader
         // requires; a hand-typed body without them loads as substituted defaults and names no texture.
         MaterialData probe;
+        StateProbeTemplate( probe );
         probe.SetTexture( "u_AlbedoTexture", textureSource.Guid, "assets:Textures/EvictionProbe.detex" );
         const auto written = WriteMaterialFile( materialPath, probe );
         ASSERT_TRUE( written ) << written.GetError();
@@ -733,7 +811,7 @@ TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
     ASSERT_NE( signature, 0U ) << "the probe rig did not load; the relation cannot be tested";
 
     auto mesh = manager.CreateAsset<SkinnedMeshAsset>(
-         Common::Filepath( WriteProbeSkinnedMesh( dir / "probe.skmesh", signature ) ),
+         Common::Filepath( WriteProbeSkinnedMesh( dir / "probe.skmesh", kProbeRigGuid ) ),
          /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
@@ -751,7 +829,7 @@ TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
             "cannot be found again by anything.";
 
     // THE SCENE COMES BACK. This is MeshService::Get's build-on-miss, and everything it needs is in the
-    // registry: the same two files, the same two handles, the same signature inside the mesh.
+    // registry: the same two files, the same two handles, the same skeleton GUID inside the mesh.
     ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
 
     EXPECT_TRUE( mesh->GetSkeletonDependency().IsValid() )
@@ -815,27 +893,22 @@ namespace
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/AssetBase.hpp",
                       "nothing. The base's empty body, which is what an asset that names no other asset "
                       "inherits." },
-         ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.hpp",
-                      "a rig, by SIGNATURE — a number computed from the rig's BONES, i.e. from its "
-                      "payload. This is the dangerous kind, and the one this suite's "
-                      "ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth exists for: it is safe only "
-                      "because SkeletonAsset keeps its signature across Unload and this resolver loads "
-                      "the rig back and re-checks the number against the bones it just read." },
+         ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.cpp",
+                      "a rig, by GUID — the .skmesh header's SkeletonGuid, folded to the handle the "
+                      "rig adopted from its own header (HandleForGuid). Identity, not payload: it "
+                      "outlives Unload by construction, and the resolver loads the rig's bones back "
+                      "before it counts as bound; this suite's "
+                      "ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth pins that." },
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
                       "a noise volume, by PATH. A path is identity: eviction releases payloads and is "
                       "forbidden to touch identity, so this resolver cannot lose its target." },
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp",
-                      "a SOURCE RIG, by PATH, on the cloud type's terms one row up and NOT on the skinned "
-                      "mesh's two rows up — which is the interesting half, because a signature was the "
-                      "first answer here and the mesh had already built the machinery for it. It is wrong "
-                      "for this file twice over. Survival is the smaller reason: a path is identity and "
-                      "outlives Unload by construction, where a signature has to be deliberately kept. The "
-                      "larger one is that a signature cannot IDENTIFY the thing being asked for — "
-                      "Skeleton::ComputeSignature hashes the sorted name<parentName pairs and nothing "
-                      "else, so two exports of one character at different proportions share it, and those "
-                      "are exactly the pair a retarget exists to bridge. A signature-keyed lookup could "
-                      "therefore bind the TARGET's own rig as the source and the retarget would silently "
-                      "become the identity." },
+                      "a SOURCE RIG, by GUID - the .skeleton's header GUID, created from its registry row "
+                      "(CreateFromRegistryGuid), as the skinned mesh two rows up. Identity, not payload: it "
+                      "outlives Unload by construction. Never a signature: Skeleton::ComputeSignature hashes "
+                      "the sorted name<parentName pairs and nothing else, so two exports of one character at "
+                      "different proportions share it, and those are exactly the pair a retarget exists to "
+                      "bridge - a signature-keyed lookup could bind the TARGET's own rig as the source." },
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp",
                       "a shader, by the NAME the material's own data states — nothing is looked up in the "
                       "manager, so no target can be released under it. The name is read from the material's "
@@ -909,6 +982,39 @@ namespace
 // the class's own loader, so that an edge which stopped being READ fails as surely as one that stopped
 // being walked.
 
+// A REIMPORT RE-READS A LOADED RIG AT THE SAME ADDRESS (THM1l-b9). SkinnedMesh holds `const Skeleton*` and
+// Animator `const Skeleton&` to the asset's object; the reimport path used to `Unload()` + `Load()`, which freed
+// it under both. `Load()` on a loaded rig now rewrites the object in place, and the new signature is what tells
+// the Animator to rebuild (Animation::EnsureAnimatorFor, tested in AnimatorPose).
+TEST( AssetEviction, AReloadedRigKeepsItsAddressAndTakesTheNewBones )
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction_reload";
+    std::filesystem::create_directories( dir );
+    const std::filesystem::path file = dir / "probe.skeleton";
+
+    AssetManager manager;
+    auto         skeleton = manager.CreateAsset<SkeletonAsset>( Common::Filepath( WriteProbeRig( file ) ) );
+    ASSERT_TRUE( skeleton );
+    const Desert::Animation::Skeleton* const before    = skeleton->GetSkeleton();
+    const std::uint64_t                      signature = skeleton->GetSignature();
+    ASSERT_NE( before, nullptr ) << "the probe rig did not load; the reload cannot be tested";
+    ASSERT_EQ( before->GetBones().size(), 1U );
+
+    WriteProbeRig( file, /*withChild=*/true );
+    ASSERT_TRUE( skeleton->Load().IsSuccess() );
+
+    EXPECT_EQ( skeleton->GetSkeleton(), before )
+         << "the reload replaced the Skeleton object: every SkinnedMesh and Animator pointing at it now reads "
+            "freed memory";
+    EXPECT_NE( skeleton->GetSignature(), signature ) << "the bones changed and the signature did not, so no "
+                                                        "Animator can notice it was built on the old rig";
+    EXPECT_EQ( skeleton->GetSignature(), before->GetSignature() );
+    ASSERT_EQ( before->GetBones().size(), 2U ) << "the object kept its address but not the new bones";
+    EXPECT_EQ( before->GetBones()[1].Name, "Child" );
+
+    std::filesystem::remove_all( dir );
+}
+
 TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
 {
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction_edges";
@@ -920,7 +1026,9 @@ TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
     AssetManager manager;
 
     {
-        const auto written = WriteMaterialFile( materialPath, MaterialData{} );
+        MaterialData probe;
+        StateProbeTemplate( probe );
+        const auto written = WriteMaterialFile( materialPath, probe );
         ASSERT_TRUE( written ) << written.GetError();
     }
     auto material = manager.CreateAsset<SurfaceMaterialAsset>( Common::Filepath( materialPath ) );
@@ -1138,6 +1246,8 @@ TEST( ResourceLedger, EveryKindAndEveryOwnerHasAName )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

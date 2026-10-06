@@ -6,9 +6,13 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/MaterialParamDiff.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
@@ -22,6 +26,7 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
+#include <format>
 #include <initializer_list>
 #include <string>
 #include <system_error>
@@ -29,6 +34,37 @@
 
 namespace Desert::Editor::MaterialAssetUtils
 {
+    // States in @p data the template every NEW material is created with: the project's `.deproj`
+    // DefaultSurfaceTemplate when it names one, else the one loaded shader declaring `Default Surface`
+    // (Assets::FindDefaultSurfaceTemplate). A material is never written without a template.
+    [[nodiscard]] inline Common::BoolResultStr StateDefaultSurface( Assets::MaterialData&       data,
+                                                                    const Assets::AssetManager& manager )
+    {
+        const auto shader = Assets::FindDefaultSurfaceTemplate(
+             manager, Project::ProjectContext::DefaultSurfaceTemplate(), Project::ProjectContext::FilePath() );
+        if ( !shader )
+            return Common::MakeError( shader.GetError() );
+        return Assets::SurfaceMaterialAsset::StateShader( data, manager, shader.GetValue() );
+    }
+
+    // States in @p data the template @p templateGuid names (a shader header GUID, 32 hex digits); EMPTY names
+    // the `Default Surface` template (StateDefaultSurface). Refused with the GUID when it is malformed or names
+    // no loaded shader — never answered with the default, which would author the params on a template that
+    // has no row for them.
+    [[nodiscard]] inline Common::BoolResultStr
+    StateTemplate( Assets::MaterialData& data, const Assets::AssetManager& manager, std::string_view templateGuid )
+    {
+        if ( templateGuid.empty() )
+            return StateDefaultSurface( data, manager );
+        const auto guid = Common::Content::AssetGuidFromText( templateGuid );
+        if ( !guid )
+            return Common::MakeError(
+                 std::format( "template '{}' is not a shader GUID ({})", templateGuid, guid.GetError() ) );
+        const Common::AssetHandle handle(
+             static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) );
+        return Assets::SurfaceMaterialAsset::StateShader( data, manager, handle );
+    }
+
     // WHICH OF THE TWO THINGS HAPPENED. The function below can either author a material or hand back
     // one somebody else authored, and those are different answers to the caller's question — which is
     // precisely what it used to be unable to say. `Reused` does NOT mean "wrong": a demo material the
@@ -63,7 +99,8 @@ namespace Desert::Editor::MaterialAssetUtils
         }
     };
 
-    // Finds, or else authors, a StaticMeshPBR material ASSET (.demat) carrying the given schema params;
+    // Finds, or else authors, a material ASSET (.demat) on @p templateGuid's template (empty = the `Default
+    // Surface` one, see StateTemplate) carrying the given schema params;
     // registers its shell with the MaterialService (the runtime material builds lazily on first Get, so
     // this is safe before shaders are preloaded) and returns the handle to drop into a mesh material
     // slot.
@@ -82,7 +119,8 @@ namespace Desert::Editor::MaterialAssetUtils
     // quietly become unreachable code.
     [[nodiscard]] inline MaterialAssetOutcome
     FindOrCreatePBRMaterialAsset( const Assets::AssetManager* am, const std::string& name,
-                                  const std::vector<Assets::MaterialParamRequest>& params )
+                                  const std::vector<Assets::MaterialParamRequest>& params,
+                                  std::string_view                                 templateGuid = {} )
     {
         MaterialAssetOutcome outcome;
         if ( !am )
@@ -122,6 +160,11 @@ namespace Desert::Editor::MaterialAssetUtils
         if ( !onDisk )
         {
             Assets::MaterialData data;
+            if ( const auto stated = StateTemplate( data, *am, templateGuid ); !stated )
+            {
+                LOG_ERROR( "[Material] '{}' was not created: {}", path.generic_string(), stated.GetError() );
+                return outcome;
+            }
             for ( const auto& param : params )
                 data.SetParam( param.Name, param.Value );
             // REFUSED rather than carried on: the CreateAsset below would load the file that was not
@@ -157,13 +200,14 @@ namespace Desert::Editor::MaterialAssetUtils
     // The brace-list spelling the demo builders read best. Same function.
     [[nodiscard]] inline MaterialAssetOutcome
     FindOrCreatePBRMaterialAsset( const Assets::AssetManager* am, const std::string& name,
-                                  std::initializer_list<std::pair<const char*, glm::vec4>> params )
+                                  std::initializer_list<std::pair<const char*, glm::vec4>> params,
+                                  std::string_view                                         templateGuid = {} )
     {
         std::vector<Assets::MaterialParamRequest> requested;
         requested.reserve( params.size() );
         for ( const auto& [pname, value] : params )
             requested.push_back( { std::string( pname ), value } );
-        return FindOrCreatePBRMaterialAsset( am, name, requested );
+        return FindOrCreatePBRMaterialAsset( am, name, requested, templateGuid );
     }
 
     [[nodiscard]] inline MaterialAssetOutcome FindOrCreatePBRMaterialAsset( const Assets::AssetManager* am,

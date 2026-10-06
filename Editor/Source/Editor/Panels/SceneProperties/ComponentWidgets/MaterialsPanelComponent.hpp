@@ -3,7 +3,7 @@
 #include "IComponentWidget.hpp"
 
 #include <Editor/Core/Selection/SelectionManager.hpp>
-#include <Engine/Graphic/Materials/MaterialFactory.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <ImGui/imgui.h>
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
@@ -22,7 +22,7 @@ namespace Desert::Editor
     class MaterialComponentWidget
     {
     public:
-        MaterialComponentWidget( const Assets::AssetManager* assetManager );
+        MaterialComponentWidget( Assets::AssetManager* assetManager );
 
         // @p scene supplies the active camera for the "drawing LOD n" readout; without it that line is
         // simply omitted.
@@ -137,7 +137,7 @@ namespace Desert::Editor
 
     private:
         std::unique_ptr<Editor::UI::UIHelper> m_UIHelper;
-        const Assets::AssetManager*           m_AssetManager;
+        Assets::AssetManager*                 m_AssetManager;
         // Decoded rendered-thumbnail PNGs (the shared on-disk cache the asset browser fills).
         ThumbnailCache m_Thumbnails;
     };

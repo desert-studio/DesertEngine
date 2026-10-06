@@ -45,7 +45,7 @@ namespace Desert::Assets
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
-        /// Binds `SourceSkeletonSignature` to the `SkeletonAsset` that answers it. Re-runnable by
+        /// Binds `SourceSkeleton` (by GUID) to the `SkeletonAsset` it names. Re-runnable by
         /// construction: the previous answer is dropped first, so a second call after the file is parsed
         /// cannot leave a stale binding behind and cannot be mistaken for the first.
         void ResolveDependencies( AssetManager& manager ) override;

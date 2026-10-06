@@ -5,6 +5,7 @@ Shader "Terrain"
     // parameters of this program: the material contributes the Tint every layer is multiplied by.
 
     Domain Terrain
+    Role Terrain
 
     // Binding(1) is what makes these parameters a ROW of the shared `Materials[]` storage buffer, read
     // through `u_Material` in the fragment stage. The block used to be written out by hand below and was

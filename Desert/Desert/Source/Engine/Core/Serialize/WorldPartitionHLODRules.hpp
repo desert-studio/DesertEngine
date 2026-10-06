@@ -25,7 +25,8 @@
 // The batch key is everything an ISM carries that changes the picture: mesh GUID and path, material GUIDs and
 // paths, primitive, CastShadows. What a StaticMesh carries and an ISM cannot is NOT carried: ForcedLOD/LODBias
 // (an HLOD is seen from beyond its cell's loading range, where the automatic pick is the one wanted),
-// ReceiveShadows and OutlineDraw (editor/forward-only flags). HiddenSubmeshes is different — dropping it would
+// ReceiveShadows and OutlineDraw (editor/forward-only flags), TranslucencySortPriority (the translucency
+// pass sorts the static queue only; an ISM is never in it). HiddenSubmeshes is different — dropping it would
 // draw geometry the author hid — so a record with hidden submeshes is not batched and says so.
 //
 // ── WHAT IS NOT, AND WHY IT IS RETURNED RATHER THAN DROPPED ──────────────────────────────────────

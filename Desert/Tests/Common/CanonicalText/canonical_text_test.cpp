@@ -18,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 using Common::Content::CanonicalJsonText;
@@ -27,16 +28,8 @@ namespace
 {
     fs::path RepoRoot()
     {
-        fs::path prefix = ".";
-        for ( int up = 0; up < 8; ++up )
-        {
-            if ( fs::exists( prefix / "Editor" / "Desert.deproj" ) )
-                return fs::absolute( prefix ).lexically_normal();
-            prefix /= "..";
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
-
     std::string ReadAll( const fs::path& file )
     {
         std::ifstream      in( file, std::ios::binary );
@@ -63,13 +56,14 @@ namespace
     std::vector<fs::path> TextCorpus()
     {
         std::vector<fs::path> files;
-        const fs::path        root = RepoRoot() / "Editor";
-        for ( const auto& entry : fs::recursive_directory_iterator( root ) )
-        {
-            const std::string ext = entry.path().extension().string();
-            if ( entry.is_regular_file() && ( ext == ".desce" || ext == ".demat" || ext == ".deprefab" ) )
-                files.push_back( entry.path() );
-        }
+        // The engine's tree and every project's: the sample project's content left Editor/ (PRJ1).
+        for ( const char* tree : { "Editor", "Projects" } )
+            for ( const auto& entry : fs::recursive_directory_iterator( RepoRoot() / tree ) )
+            {
+                const std::string ext = entry.path().extension().string();
+                if ( entry.is_regular_file() && ( ext == ".desce" || ext == ".demat" || ext == ".deprefab" ) )
+                    files.push_back( entry.path() );
+            }
         return files;
     }
 
@@ -92,8 +86,8 @@ TEST( CanonicalText, EveryCorpusFileIsCanonicalAndRoundTripsThroughTheSingleLine
     // Pinned by name, not by a floor (SCN1 deleted the 68 scenes nothing named): one scene, one material and one
     // prefab the walk must reach, so a wrong root cannot pass over zero files.
     for ( const char* expected :
-          { "Editor/Resources/Assets/Scenes/Starter.desce", "Editor/Resources/Assets/Materials/CB_Glass.demat",
-            "Editor/Resources/Assets/Prefabs/UI_Card.deprefab" } )
+          { "Projects/Desert/Content/Scenes/Starter.desce", "Projects/Desert/Content/Materials/CB_Glass.demat",
+            "Projects/Desert/Content/Prefabs/UI_Card.deprefab" } )
         ASSERT_NE( std::find( corpus.begin(), corpus.end(), fs::path( RepoRoot() ) / expected ), corpus.end() )
              << expected << " is not in the walked corpus";
     for ( const fs::path& file : corpus )
@@ -111,7 +105,8 @@ TEST( CanonicalText, EveryCorpusFileIsCanonicalAndRoundTripsThroughTheSingleLine
 // One field of one entity changed -> exactly one line of the file changed; the rest of the scene is untouched.
 TEST( CanonicalText, ChangingOneFieldOfOneEntityChangesOnlyItsLine )
 {
-    const std::string text = ReadAll( RepoRoot() / "Editor/Resources/Assets/Scenes/ANIM_ClipProbe.desce" );
+    const std::string text =
+         ReadAll( Desert::TestSupport::TestDataDir() / "Resources/Assets/Scenes/ANIM_ClipProbe.desce" );
     ASSERT_FALSE( text.empty() );
     yyjson_doc*     doc      = yyjson_read( text.data(), text.size(), YYJSON_READ_NOFLAG );
     yyjson_mut_doc* mutable_ = yyjson_doc_mut_copy( doc, nullptr );
@@ -136,12 +131,13 @@ TEST( CanonicalText, ChangingOneFieldOfOneEntityChangesOnlyItsLine )
     EXPECT_EQ( changed, 1u ) << "a one-field edit changed " << changed << " lines of " << lines.size();
 }
 
-// Every double reads back bit-identical, and its spelling is as short as std::to_chars' shortest form.
+// Every double reads back bit-identical, and its spelling is as short as std::to_chars' shortest form. (-0.0 is
+// the one exception, by design: NegativeZeroIsSpelledAsZero.)
 TEST( CanonicalText, NumbersRoundTripExactlyAndShortest )
 {
     const std::array<double, 12> values = { 0.1,
                                             1.0 / 3.0,
-                                            -0.0,
+                                            0.0,
                                             static_cast<double>( 0.3f ),
                                             static_cast<double>( FLT_MAX ),
                                             static_cast<double>( FLT_MIN ),
@@ -166,6 +162,20 @@ TEST( CanonicalText, NumbersRoundTripExactlyAndShortest )
         EXPECT_EQ( std::memcmp( &back, &v, sizeof v ), 0 ) << spelled << " came back as " << token;
         EXPECT_LE( token.size(), spelled.size() + 2 ) << token << " is longer than the shortest " << spelled;
     }
+}
+
+// ONE SPELLING OF ZERO (SKEL-fixa): a re-import that computed -0.0 where the committed file states 0.0 (an inverse
+// bind matrix's off-diagonal) rewrote the file at the first editor start with no change in it. The sign of a real
+// zero is dropped wherever it stands - inline, in a wrapped array, as an object member, in exponent form - and an
+// integer zero stays an integer.
+TEST( CanonicalText, NegativeZeroIsSpelledAsZero )
+{
+    const auto text = CanonicalJsonText( R"({"a": -0.0, "b": [-0.0, 0.0, -1.5], "c": 0, "d": -0.0e0})" );
+    ASSERT_TRUE( text ) << text.GetError();
+    EXPECT_EQ( text.GetValue(),
+               "{\n    \"a\": 0.0,\n    \"b\": [0.0, 0.0, -1.5],\n    \"c\": 0,\n    \"d\": 0.0\n}\n" );
+    EXPECT_TRUE( IsCanonicalJsonText( "[0.0]\n" ) );
+    EXPECT_FALSE( IsCanonicalJsonText( "[-0.0]\n" ) );
 }
 
 TEST( CanonicalText, LayoutRulesArePinned )
@@ -266,10 +276,6 @@ namespace
          CanonicalAtSource{
               "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/PrefabComponentWidget.cpp",
               "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
-         // Since WP16b the editor's scene saves go through ExternalEntities::WriteSceneText, and every file that
-         // writes (the scene, its header, each entity piece) is laid out by Common::Json::WriteCanonical, which
-         // hands the text to CanonicalJsonText.
-         CanonicalAtSource{ "Editor/Source/EditorLayer.cpp", "Desert/Common/Source/Common/Json/Carry.cpp" },
     };
 
     // Files that serialize and write, but what they write is not an authored text asset: machine and editor

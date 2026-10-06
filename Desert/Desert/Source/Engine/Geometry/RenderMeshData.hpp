@@ -34,6 +34,11 @@ namespace Desert::Geometry
         // Index-aligned with Submeshes. ToRenderMesh fills it; FromRenderMesh reads it, and when it is empty
         // submesh i becomes MaterialID i.
         std::vector<int> SubmeshMaterialIds;
+        // The optional streams (MeshBinary v4): empty, or one entry per render vertex. ToRenderMesh fills Colors
+        // from the colour layer (linear RGBA) and UV1 from UV layer 1 when it draws UV layer 0; FromRenderMesh
+        // turns each non-empty one back into that layer.
+        std::vector<glm::vec4> Colors;
+        std::vector<glm::vec2> UV1;
         // ToRenderMesh only: the EditMesh vertex each render vertex came from, and the EditMesh triangle each
         // render triangle came from - what a tool needs to map a pick or a paint stroke back.
         std::vector<int> SourceVertices;

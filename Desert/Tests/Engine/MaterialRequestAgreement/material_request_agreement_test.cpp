@@ -8,7 +8,7 @@
 // edits to a demo material survive a restart, and the caller's values are a true statement of what the
 // material should be — and a unit test of either passes. What had no owner was the AGREEMENT.
 //
-// What it cost, measured: `Editor/Resources/Assets/Materials/CB_Red.demat` sat in the repository
+// What it cost, measured: `Projects/Desert/Content/Materials/CB_Red.demat` sat in the repository
 // carrying MetallicFactor 1.0 and RoughnessFactor 0.0 — a chrome mirror — against a call site asking
 // for roughness 0.9 and no metalness. A conductor has no diffuse lobe, so the Cornell box's left wall
 // rendered essentially black: 0.010 mean sRGB luminance against the mirror-image right wall's 0.563,
@@ -21,28 +21,28 @@
 //   * the reporting is right — Engine/Assets/MaterialParamDiff.hpp names every disagreeing parameter
 //     with BOTH values, distinguishes "the file says something else" from "the file is silent", and
 //     stays quiet when they agree;
-//   * the corpus is clean — every material in Editor/Core/DemoMaterials.hpp agrees with the .demat that
-//     was generated from it. This is the one that would have caught CB_Red, and it needs no editor, no
+//   * the corpus is clean — every material in CornellDemoMaterials.hpp (beside this file) agrees with
+//     the shipped .demat. This is the one that would have caught CB_Red, and it needs no editor, no
 //     GPU and no human looking at a picture.
 //
-// The table is the SOURCE of those files, not a mirror of them (see DemoMaterials.hpp), so this is a
-// generated-from relation and not the "two copies that must not drift" shape — which is why the failure
-// message tells you to fix the FILE.
+// The table is what the files' author asked for (see CornellDemoMaterials.hpp); the files are the content,
+// which is why the failure message tells you to fix the FILE.
 
 #include <Common/Json/Document.hpp>
 #include <gtest/gtest.h>
 
-#include <Editor/Core/DemoMaterials.hpp>
+#include "CornellDemoMaterials.hpp"
 #include <Engine/Assets/MaterialParamDiff.hpp>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
 
 using namespace Desert::Assets;
-using namespace Desert::Editor::MaterialAssetUtils;
+using namespace Desert::Tests::CornellDemo;
 
 namespace
 {
@@ -78,6 +78,20 @@ namespace
             return data;
         const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
         EXPECT_EQ( root.GetKind(), Common::Json::Kind::Object ) << path;
+
+        // The template the author asked for is part of the request (SURF2): read the file's Shader
+        // reference, so an absent one is the file's silence and not this reader's.
+        if ( const auto shader = root.Find( "Shader" ) )
+        {
+            AssetGuidRef ref;
+            if ( const auto guid = shader->Find( "Guid" ) )
+                if ( const auto text = guid->AsString() )
+                    ref.Guid = text.GetValue();
+            if ( const auto where = shader->Find( "Path" ) )
+                if ( const auto text = where->AsString() )
+                    ref.Path = text.GetValue();
+            data.Shader = std::move( ref );
+        }
 
         const auto params = root.Find( "Params" );
         if ( !params.has_value() )
@@ -191,15 +205,24 @@ TEST( MaterialRequestAgreement, EveryShippedDemoMaterialStillSaysWhatItsAuthorAs
 
     for ( const auto& demo : CornellDemoMaterials() )
     {
-        const std::string path = root + "Editor/Resources/Assets/Materials/" + std::string( demo.Name ) + ".demat";
+        const std::string path = std::format( "{}Projects/Desert/Content/Materials/{}.demat", root, demo.Name );
         ASSERT_TRUE( std::filesystem::exists( path ) )
              << path << " is in the demo material table but not in the repository";
 
         const MaterialData onDisk = LoadMaterialFile( path );
         ASSERT_FALSE( onDisk.Params.empty() ) << path << " parsed to no parameters at all";
+        // The template is part of what the author asked: glass params on the Default Surface template would be
+        // params with no row (SURF2). An empty Template is the Default Surface one, which the file states too.
+        if ( !demo.Template.empty() )
+        {
+            if ( !onDisk.Shader.has_value() )
+                FAIL() << path << " states no template";
+            EXPECT_EQ( onDisk.Shader->Guid, demo.Template )
+                 << path << " is authored on a different template than CornellDemoMaterials.hpp names";
+        }
         const auto divergences = DiffRequestedParams( demo.Params, onDisk );
         EXPECT_TRUE( divergences.empty() )
-             << path << " has drifted from Editor/Core/DemoMaterials.hpp, which is what generated it: "
+             << path << " has drifted from CornellDemoMaterials.hpp, what its author asked for: "
              << DescribeDivergences( divergences )
              << ". Fix the FILE — the table is the source, and the builder cannot rewrite an existing "
                 "material by design.";
@@ -213,7 +236,7 @@ TEST( MaterialRequestAgreement, AnUnknownDemoMaterialIsRefusedRatherThanAnswered
 {
     EXPECT_EQ( FindDemoMaterial( "CB_NoSuchMaterial" ), nullptr );
     ASSERT_NE( FindDemoMaterial( "CB_Red" ), nullptr );
-    EXPECT_FALSE( FindDemoMaterial( "CB_Red" )->empty() );
+    EXPECT_FALSE( FindDemoMaterial( "CB_Red" )->Params.empty() );
 }
 
 int main( int argc, char** argv )

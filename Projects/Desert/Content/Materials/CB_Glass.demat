@@ -1,0 +1,26 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "b7de7b6da944bded0382e39126712944",
+        "Versions": {
+            "MATL": 4
+        },
+        "Dependencies": ["2cd21e52ff88b0c7a42c25d9a6ab4238"]
+    },
+    "Shader": {
+        "Guid": "2cd21e52ff88b0c7a42c25d9a6ab4238",
+        "Path": "engine:Shaders/Programs/PBR/StaticMeshGlass.shader"
+    },
+    "Params": [
+        {
+            "Name": "IOR",
+            "Value": [1.5, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "GlassTint",
+            "Value": [0.75, 0.8999999761581421, 1.0, 1.0]
+        }
+    ],
+    "Textures": [],
+    "CloudAssets": []
+}

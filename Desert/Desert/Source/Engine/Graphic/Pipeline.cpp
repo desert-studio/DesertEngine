@@ -4,8 +4,33 @@
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
 
+#include <algorithm>
+
 namespace Desert::Graphic
 {
+    bool AnyPipelineBehindItsShader()
+    {
+        const std::lock_guard lock( detail::LivePipelines().Mutex );
+        return std::ranges::any_of( detail::LivePipelines().All,
+                                    []( const IPipeline* pipeline ) { return pipeline->IsBehindItsShader(); } );
+    }
+
+    size_t RebuildPipelinesBehindTheirShader()
+    {
+        // Under the lock for the whole pass: a pipeline destroyed on another thread mid-pass would otherwise be
+        // rebuilt after its destructor ran. A rebuild creates no pipeline objects, so it never re-enters here.
+        const std::lock_guard lock( detail::LivePipelines().Mutex );
+        size_t                rebuilt = 0;
+        for ( IPipeline* pipeline : detail::LivePipelines().All )
+        {
+            if ( !pipeline->IsBehindItsShader() )
+                continue;
+            pipeline->Invalidate(); // records the new generation; a refusal logs its reason and leaves it unbuilt
+            ++rebuilt;
+        }
+        return rebuilt;
+    }
+
     Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
     GraphicsPipeline::Create( const GraphicsPipelineSpecification& spec )
     {

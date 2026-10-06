@@ -2,11 +2,15 @@
 // the shared bind pose). The buffer is ADDITIVE: it never touches LocalBindTransform, and normal clip
 // playback ignores it — only ApplyLocalPose() renders it.
 
+#include <Engine/Animation/AnimationTick.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
+
+#include "../ClipFixture.hpp"
 
 #include <gtest/gtest.h>
 
@@ -15,7 +19,6 @@
 using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 using Desert::Animation::FrameNumber;
 using Desert::Animation::FrameTime;
 using Desert::Animation::PROJECT_TICK_RATE;
@@ -53,21 +56,10 @@ namespace
         return ::testing::AssertionSuccess();
     }
 
+    /// One second on the project grid, "child" held at @p pos: a Bone binding with one Transform track.
     AnimationClip ChildPosClip( const glm::vec3& pos )
     {
-        AnimationClip clip;
-        // A5: the clip states a length in TICKS on the project grid. `Duration` + `TicksPerSecond = 1`
-        // used to say "one second" by setting the rate so a tick WAS a second.
-        clip.AnimationName = "test";
-        clip.DurationTicks = FrameNumber{ PROJECT_TICK_RATE.Numerator };
-
-        BoneTrack track;
-        track.BoneName = "child";
-        track.PositionKeys.push_back( { FrameNumber{ 0 }, pos } );
-        track.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } );
-        track.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0f ) } );
-        clip.Tracks.push_back( track );
-        return clip;
+        return ClipFixture::StaticBoneClip( "test", FrameNumber{ PROJECT_TICK_RATE.Numerator }, "child", pos );
     }
 } // namespace
 
@@ -164,11 +156,11 @@ TEST( AnimatorPose, SamplingAClipIntoTheBufferResetsBonesTheClipDoesNotAnimate )
 
 // ── A SECTION REACHES THE SKINNING MATRICES, NOT ONLY THE CLIP (A28) ───────────────────────────────
 //
-// THE POSITIVE CONTROL THE `ClipSections` SUITE CANNOT PROVIDE. That suite asserts the section maths and
-// that `AnimationClip::SampleTrack` applies it; neither says whether PLAYBACK goes through `SampleTrack`
-// at all. A `SampleLocalTransform` still calling `track.Sample` directly would leave every assertion
-// over there green while no section in the project changed a single pixel — which is exactly the shape
-// of "both named suites stayed green while the graph received nothing".
+// THE POSITIVE CONTROL THE `ClipSections` SUITE CANNOT PROVIDE. That suite asserts the section maths
+// (`Timeline::WeightAt`); it does not say whether PLAYBACK folds a bone track's section weight. A pose sampler
+// reading the Transform channel past the section would leave every assertion over there green while no section in
+// the project changed a single pixel — which is exactly the shape of "both named suites stayed green while the
+// graph received nothing".
 //
 // `GetPose().Matrices` is what the renderer uploads (Scene.cpp and MeshECSSystem.hpp are its only two
 // consumers), so asserting here is asserting about the frame.
@@ -182,18 +174,13 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
     anim.SetTime( 0.0f );
     const glm::mat4 unsectioned = anim.GetPose().Matrices[1];
 
-    // The same clip, muted by a section. Nothing else about it changes.
-    AnimationClip                  muted = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
-    Desert::Animation::ClipSection off;
+    // The same clip, its bone track's section muted by a zero Weight. Nothing else about it changes.
+    AnimationClip muted = ClipFixture::Clip( "test", FrameNumber{ PROJECT_TICK_RATE.Numerator } );
+    Desert::Animation::Timeline::Section& off =
+         ClipFixture::AddStaticBone( muted, "child", glm::vec3( 0.0f, 5.0f, 0.0f ) );
     off.Name  = "muted";
-    off.Start = FrameNumber{ 0 };
-    off.End   = muted.DurationTicks;
     off.Blend = Desert::Animation::SectionBlendType::Absolute;
-    Desert::Animation::ScalarKey zero;
-    zero.Tick  = FrameNumber{ 0 };
-    zero.Value = 0.0f;
-    off.Weight.push_back( zero );
-    muted.Sections.push_back( off );
+    off.Weight.push_back( ClipFixture::Key( FrameNumber{ 0 }, 0.0f ) );
 
     Animator silent( skel );
     silent.Play( muted );
@@ -202,7 +189,7 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
 
     EXPECT_FALSE( MatNear( unsectioned, sectioned ) )
          << "a zero-weight section changed nothing in the matrices the renderer uploads, so playback is "
-            "not going through AnimationClip::SampleTrack";
+            "not folding the bone track's section weight (Timeline::WeightAt)";
 
     // AND IT IS THE REST POSE IT FELL BACK TO, not an arbitrary difference. A clip that broke for any
     // other reason would also satisfy the assertion above.
@@ -211,13 +198,14 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
 
     // NEGATIVE CONTROL: a FULL-weight Absolute section must leave the same matrices the unsectioned clip
     // produced, because that is what every migrated file in the repository now carries.
-    AnimationClip                  full = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
-    Desert::Animation::ClipSection whole;
+    // Keyed at 1 rather than left empty (empty already IS the clip above): the keyed-weight path at full
+    // weight must be the identity too.
+    AnimationClip full = ClipFixture::Clip( "test", FrameNumber{ PROJECT_TICK_RATE.Numerator } );
+    Desert::Animation::Timeline::Section& whole =
+         ClipFixture::AddStaticBone( full, "child", glm::vec3( 0.0f, 5.0f, 0.0f ) );
     whole.Name  = "whole";
-    whole.Start = FrameNumber{ 0 };
-    whole.End   = full.DurationTicks;
     whole.Blend = Desert::Animation::SectionBlendType::Absolute;
-    full.Sections.push_back( whole );
+    whole.Weight.push_back( ClipFixture::Key( FrameNumber{ 0 }, 1.0f ) );
 
     Animator unchanged( skel );
     unchanged.Play( full );
@@ -226,8 +214,130 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
          << "a full-weight Absolute section is what the whole corpus migrated to; it must be invisible";
 }
 
+// A REIMPORTED RIG IS THE SAME SKELETON OBJECT WITH OTHER BONES (SkeletonAsset::LoadFromFile rewrites it in
+// place, AssetEviction.AReloadedRigKeepsItsAddressAndTakesTheNewBones). The Animator's `const Skeleton&` stays
+// valid, but its bind pose and buffers were sized from the old list: only the signature stamp can tell, and
+// EnsureAnimatorFor is the one rule AnimationECSSystem and the editor preview rebuild by.
+TEST( AnimatorPose, AnAnimatorIsRebuiltWhenItsSkeletonIsRewrittenWithAnExtraBone )
+{
+    std::vector<BoneInfo> one( 1 );
+    one[0].Name               = "root";
+    one[0].LocalBindTransform = glm::mat4( 1.0f );
+    one[0].OffsetMatrix       = glm::mat4( 1.0f );
+    Skeleton rig( std::move( one ) );
+
+    std::unique_ptr<Animator> animator;
+    uint64_t                  built = 0;
+    ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) ) << "no Animator was built";
+    animator->ApplyLocalPose();
+    ASSERT_EQ( animator->GetPose().Matrices.size(), 1U );
+    const Animator* const first = animator.get();
+    EXPECT_FALSE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) )
+         << "an unchanged rig rebuilt the Animator, which throws away its live pose every frame";
+    EXPECT_EQ( animator.get(), first );
+
+    rig = MakeChain(); // the reimport: same object, one more bone
+    ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) )
+         << "the rig gained a bone and the Animator built on one bone was kept";
+    EXPECT_EQ( &animator->GetSkeleton(), &rig );
+    EXPECT_EQ( built, rig.GetContentSignature() ) << "the stamp is the rig's content (names + binds)";
+    animator->ApplyLocalPose();
+    EXPECT_EQ( animator->GetPose().Matrices.size(), 2U ) << "the rebuilt pose does not have the new bone";
+    EXPECT_EQ( animator->GetLocalPose().Size(), 2U );
+}
+
+// THM1l-b19: A RIG REREAD WITH THE SAME BONE NAMES AND OTHER BINDS (a reimport at another Uniform Scale) is
+// another rig to the Animator: the name signature stays, the content signature moves, and EnsureAnimatorFor
+// builds a new Animator. Kept across it, the old one posed Fox.glb's rescaled mesh with the old binds.
+TEST( AnimatorPose, ARigRereadWithOtherBindsRebuildsTheAnimator )
+{
+    Skeleton                                     skeleton = MakeChain();
+    std::unique_ptr<Desert::Animation::Animator> animator;
+    uint64_t                                     built = 0;
+    ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, skeleton ) );
+    EXPECT_FALSE( Desert::Animation::EnsureAnimatorFor( animator, built, skeleton ) )
+         << "an unchanged rig rebuilt";
+
+    std::vector<BoneInfo> scaled = skeleton.GetBones();
+    for ( auto& bone : scaled )
+    {
+        bone.LocalBindTransform[3] = glm::vec4( 10.0f * glm::vec3( bone.LocalBindTransform[3] ), 1.0f );
+        bone.OffsetMatrix[3]       = glm::vec4( 10.0f * glm::vec3( bone.OffsetMatrix[3] ), 1.0f );
+    }
+    const uint64_t names = skeleton.GetSignature();
+    skeleton             = Skeleton( std::move( scaled ) ); // SkeletonAsset::LoadFromFile: the same address
+    EXPECT_EQ( skeleton.GetSignature(), names );
+    EXPECT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, skeleton ) )
+         << "the Animator kept the old binds across a reread";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ANIM-FIX1 — UE's bUpdateAnimationInEditor. The RELATION, not the rule alone: two editor-world ticks of a
+// MOVING clip, each advanced by exactly what AnimationECSSystem advances it by (AnimationAdvanceSeconds with
+// gameplay time 0, the editor frame time 0.1 s), leave the pose where it was with the flag off and move it
+// with the flag on; a gameplay tick moves it either way.
+namespace
+{
+    /// One second on the project grid, "child" rising from y=0 to y=10: a pose that differs at any two times.
+    AnimationClip ChildRisingClip()
+    {
+        const FrameNumber end{ PROJECT_TICK_RATE.Numerator };
+        AnimationClip     clip = ClipFixture::Clip( "rise", end );
+        const FrameNumber at   = clip.Sequence.Start;
+
+        Desert::Animation::Timeline::TransformChannel channel;
+        channel.Translation.X.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Translation.Y.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Translation.Y.Keys.push_back( ClipFixture::Key( end, 10.0F ) );
+        channel.Translation.Z.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Rotation.X.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Rotation.Y.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Rotation.Z.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Rotation.W.Keys.push_back( ClipFixture::Key( at, 1.0F ) );
+        channel.Scale.X.Keys.push_back( ClipFixture::Key( at, 1.0F ) );
+        channel.Scale.Y.Keys.push_back( ClipFixture::Key( at, 1.0F ) );
+        channel.Scale.Z.Keys.push_back( ClipFixture::Key( at, 1.0F ) );
+        ClipFixture::AddBoneChannel( clip, "child", std::move( channel ) );
+        return clip;
+    }
+
+    /// The child's pose after two ticks of @p seconds each, starting 0.2 s into the clip.
+    std::pair<glm::mat4, glm::mat4> TwoTicks( float seconds )
+    {
+        static const Skeleton      skel = MakeChain();
+        static const AnimationClip clip = ChildRisingClip();
+        Animator                   anim( skel );
+        anim.Play( clip );
+        anim.SetTime( 0.2f );
+        anim.Update( Common::Timestep( seconds ) );
+        const glm::mat4 first = anim.GetPose().Matrices[1];
+        anim.Update( Common::Timestep( seconds ) );
+        return { first, anim.GetPose().Matrices[1] };
+    }
+} // namespace
+
+TEST( AnimatorPose, InTheEditorWorldAPoseHoldsStillUnlessUpdateAnimationInEditorIsOn )
+{
+    using Desert::Animation::AnimationAdvanceSeconds;
+    constexpr float kEditorFrame = 0.1f;
+
+    const auto [offA, offB] = TwoTicks( AnimationAdvanceSeconds( 0.0f, kEditorFrame, false ) );
+    EXPECT_TRUE( MatNear( offA, offB ) ) << "UpdateAnimationInEditor off, yet the pose moved between two Edit "
+                                            "ticks — the edited level is animating (UE holds it still)";
+
+    const auto [onA, onB] = TwoTicks( AnimationAdvanceSeconds( 0.0f, kEditorFrame, true ) );
+    EXPECT_FALSE( MatNear( onA, onB ) ) << "UpdateAnimationInEditor on, yet the pose did not move in Edit";
+
+    // Play: the gameplay time advances every component, the flag notwithstanding.
+    const auto [playA, playB] = TwoTicks( AnimationAdvanceSeconds( 1.0f / 60.0f, 0.0f, false ) );
+    EXPECT_FALSE( MatNear( playA, playB ) ) << "a gameplay tick did not advance a component whose editor "
+                                               "flag is off — the flag must gate the EDITOR world only";
+
+    // Paused (no gameplay time, not the editor world): nothing moves, whatever the flag says.
+    EXPECT_FLOAT_EQ( AnimationAdvanceSeconds( 0.0f, 0.0f, true ), 0.0f );
 }

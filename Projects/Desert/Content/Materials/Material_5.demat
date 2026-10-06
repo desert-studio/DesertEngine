@@ -1,0 +1,17 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "015c6ad94421f5ea19132f879f717bcb",
+        "Versions": {
+            "MATL": 4
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/PBR/StandardSurface.shader"
+    },
+    "Params": [],
+    "Textures": [],
+    "CloudAssets": []
+}

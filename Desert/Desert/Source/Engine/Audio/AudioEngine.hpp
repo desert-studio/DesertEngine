@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 
+struct ma_engine;
+
 namespace Desert::Audio
 {
     // Engine-wide audio playback on miniaudio. Two kinds of playback:
@@ -45,6 +47,10 @@ namespace Desert::Audio
 
         // Stops + destroys every source and finished one-shots (Play -> Edit transition).
         void StopAll();
+
+        // The miniaudio engine itself, for a producer that streams its own PCM into the mix (Media's
+        // MediaAudioOutput). Initializes the device on first use; nullptr when there is no audio device.
+        ma_engine* GetNativeEngine();
 
         // Per-frame housekeeping: reclaims finished one-shots.
         void Update();

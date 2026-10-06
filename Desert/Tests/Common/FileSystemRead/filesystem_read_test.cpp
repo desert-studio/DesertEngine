@@ -28,6 +28,8 @@
 #include <fstream>
 
 #include "../../TestSupport/result_assert.hpp"
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace fs = std::filesystem;
 
@@ -48,16 +50,6 @@ namespace
         out << content;
     }
 
-    // Restores the working directory even when an assertion throws out of the test body.
-    struct CwdGuard
-    {
-        fs::path Old = fs::current_path();
-        ~CwdGuard()
-        {
-            std::error_code ec;
-            fs::current_path( Old, ec );
-        }
-    };
 } // namespace
 
 TEST( FileSystemRead, MissingFileIsANamedErrorInsteadOfDying )
@@ -209,11 +201,12 @@ TEST( FileSystemRead, ListFilesRecursiveResolvesARelativeRootThroughThePak )
         ASSERT_TRUE( writer.Finalize() > 0 );
     }
 
-    CwdGuard cwd;
-    fs::current_path( dir );
+    const Desert::TestSupport::EngineDirScope engineDir( dir );
+    // A packaged game is a project too (no project, no content): its folder is the one beside the pak.
+    const Desert::TestSupport::ProjectScope project( dir, "Content" );
     const auto mounted = Common::Utils::VFS::MountPak( dir / "Content.dpak" );
     ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
-    ASSERT_FALSE( fs::exists( "Resources/Fonts" ) ); // nothing loose — the pak is the only source
+    ASSERT_FALSE( fs::exists( dir / "Resources/Fonts" ) ); // nothing loose — the pak is the only source
 
     const auto listed = Common::Utils::FileSystem::ListFilesRecursive( "Resources/Fonts/" );
     ASSERT_EQ( listed.size(), 1u );
@@ -231,6 +224,7 @@ TEST( FileSystemRead, ListFilesRecursiveMissingRootIsEmptyNotAnError )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

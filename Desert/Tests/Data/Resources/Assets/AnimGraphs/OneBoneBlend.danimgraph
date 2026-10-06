@@ -1,0 +1,62 @@
+{
+    "Header": {
+        "Kind": "AnimGraph",
+        "Guid": "5533f20f4432c76df2f0d7515450000b",
+        "Versions": {
+            "ANGR": 4
+        },
+        "Dependencies": []
+    },
+    "Name": "OneBoneBlend",
+    "TargetSkeleton": {
+        "Guid": "acf475090f8a76b0eac6ee0c3e5d32fd",
+        "Path": "Meshes/Skinned/SkinProbe.skeleton"
+    },
+    "Parameters": [],
+    "Nodes": [
+        {
+            "Name": "StateMachine",
+            "Kind": 0,
+            "PoseInputs": [],
+            "ParameterInputs": [],
+            "Machine": {
+                "Entry": "Hover",
+                "States": [
+                    {
+                        "Name": "Hover",
+                        "Clip": "SkinProbe_Hover",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 0.0,
+                        "Y": 0.0,
+                        "Transitions": [
+                            {
+                                "To": "Tilt",
+                                "Blend": 2.0,
+                                "HasExitTime": true,
+                                "ExitTime": 0.25,
+                                "Conditions": [],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            }
+                        ]
+                    },
+                    {
+                        "Name": "Tilt",
+                        "Clip": "SkinProbe_Tilt",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 260.0,
+                        "Y": 0.0,
+                        "Transitions": []
+                    }
+                ]
+            },
+            "X": 0.0,
+            "Y": 0.0
+        }
+    ],
+    "OutputPose": "StateMachine",
+    "OutputPoseX": 260.0,
+    "OutputPoseY": 0.0
+}

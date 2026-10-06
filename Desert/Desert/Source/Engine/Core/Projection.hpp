@@ -77,6 +77,13 @@ namespace Desert::Core
         return glm::perspectiveRH_ZO( fovYRadians, aspect, farPlane, nearPlane );
     }
 
+    inline constexpr float kEditorViewportFovXDegrees = 90.0f;
+
+    [[nodiscard]] inline float VerticalFovKeepingHorizontal( float fovXRadians, float aspect )
+    {
+        return 2.0f * glm::atan( glm::tan( fovXRadians * 0.5f ) / aspect );
+    }
+
     // Reversed-Z orthographic projection, by the same swap. Reversing an ortho projection gains no
     // precision (its depth is linear), but the VIEWPORT camera must agree with the depth test and the
     // clear value that the rest of the frame uses, and those are not per-projection-type.

@@ -61,9 +61,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- the modelling bake parallelises through Common's JobSystem
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialog); linking Common pulls it in.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "system:windows"

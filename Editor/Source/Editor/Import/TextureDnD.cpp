@@ -44,6 +44,16 @@ namespace Desert::Editor::TextureDnD
         return FindRegistered( mgr, sourcePath );
     }
 
+    Assets::AssetHandle ImportAndRegister( ImportManager& importer, Assets::AssetManager& mgr,
+                                           const std::filesystem::path& sourcePath )
+    {
+        const auto asset = importer.ImportTextureAsset( mgr, sourcePath );
+        if ( !asset )
+            return Common::UUID::Null();
+        Runtime::ResourceRegistry::GetTextureService()->Register( asset );
+        return asset->GetMetadata().Handle;
+    }
+
     Assets::AssetHandle ResolveOrImport( Assets::AssetManager& mgr, const std::string& sourcePath )
     {
         if ( const auto existing = FindRegistered( mgr, sourcePath ); !existing.IsNull() )
@@ -51,7 +61,7 @@ namespace Desert::Editor::TextureDnD
             return existing;
         }
 
-        return Importer().ImportAndRegisterTexture( mgr, sourcePath );
+        return ImportAndRegister( Importer(), mgr, sourcePath );
     }
 
     std::shared_ptr<Graphic::Image2D> ResolveImage( const Assets::AssetHandle& handle )

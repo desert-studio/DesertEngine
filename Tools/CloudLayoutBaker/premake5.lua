@@ -2,7 +2,7 @@
 --
 -- WHY A TOOL EXISTS BESIDE THE PANEL. The panel is what the owner asked for — "load a texture" is a thing
 -- you do by dropping a file into a slot — and it is where an artist works. This is the other half: a
--- painting has to be reproducible from a command, or the shipped example in Resources/Assets/Clouds/Layouts
+-- painting has to be reproducible from a command, or the shipped example in Projects/Desert/Content/Clouds/Layouts
 -- is a binary nobody can regenerate, and the acceptance frame of this phase rests on a file whose
 -- provenance is "somebody clicked". The same division `.dcmv` already has between Tools/CloudVolumeBaker
 -- and the sculpting panel.
@@ -60,10 +60,6 @@ project "CloudLayoutBaker"
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        -- The bake is written through Common::Utils::FileSystem (the tree's one write primitive), and
-        -- Common's file dialog is Objective-C, so linking it needs AppKit + the ObjC runtime. Same
-        -- reason PakTool carries these two lines.
-        links { "Cocoa.framework", "Foundation.framework" }
 
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }

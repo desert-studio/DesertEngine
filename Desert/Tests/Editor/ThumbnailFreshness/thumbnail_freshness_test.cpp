@@ -201,10 +201,9 @@ int main( int argc, char** argv )
     return RUN_ALL_TESTS();
 }
 
-// TH1c. The service gives up waiting on a slow capture, but the renderer still writes the PNG later. That
-// late picture must carry the hash taken at DISPATCH, or the next session re-renders it (the two
-// M_SIL_*_Clouds materials in the TH1b measurement were re-captured on every launch).
-TEST( ThumbnailFreshness, APictureWrittenAfterTheWaitWasGivenUpIsStillRecorded )
+// THM1n-3: a capture ends only by the renderer's answer. However long it runs, it stays outstanding, and
+// the picture it writes carries the hash taken at DISPATCH, or the next session re-renders it.
+TEST( ThumbnailFreshness, ASlowCaptureStaysOutstandingUntilItsPictureLandsAndIsRecorded )
 {
     const TempDir  dir;
     const fs::path source = dir.Root / "M.demat";
@@ -213,24 +212,22 @@ TEST( ThumbnailFreshness, APictureWrittenAfterTheWaitWasGivenUpIsStillRecorded )
 
     ThumbnailFreshness::Capture capture;
     capture.Begin( "assets:M.demat", png, source );
-    capture.GiveUp();
     EXPECT_TRUE( capture.Outstanding() );
-    EXPECT_FALSE( capture.Waiting() );
+    EXPECT_EQ( capture.Identity(), "assets:M.demat" );
 
-    WriteFile( png, "late-png-bytes" ); // the renderer finishes after the service stopped waiting
+    WriteFile( png, "slow-png-bytes" ); // the renderer answers, however late
     const auto settled = capture.Settle();
     ASSERT_TRUE( settled.has_value() );
     const ThumbnailFreshness::Capture::Settled landed = settled.value_or( ThumbnailFreshness::Capture::Settled{} );
     EXPECT_EQ( landed.What, ThumbnailFreshness::Capture::Landed::Written );
-    EXPECT_TRUE( landed.Late );
     EXPECT_FALSE( landed.RecordError.has_value() );
     EXPECT_FALSE( capture.Outstanding() );
 
-    EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show ) << "the late picture was re-queued";
+    EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show ) << "the slow picture was re-queued";
 }
 
 // The dispatch-time hash is the one recorded: an edit made while the (slow) capture ran must read as stale.
-TEST( ThumbnailFreshness, ALatePictureOfAnEditedAssetIsStillStale )
+TEST( ThumbnailFreshness, APictureOfAnAssetEditedDuringTheCaptureIsStillStale )
 {
     const TempDir  dir;
     const fs::path source = dir.Root / "M.demat";
@@ -239,7 +236,6 @@ TEST( ThumbnailFreshness, ALatePictureOfAnEditedAssetIsStillStale )
 
     ThumbnailFreshness::Capture capture;
     capture.Begin( "assets:M.demat", png, source );
-    capture.GiveUp();
     WriteFile( source, "material v2, edited during the capture" );
     WriteFile( png, "late-png-of-v1" );
     ASSERT_TRUE( capture.Settle().has_value() );
@@ -247,8 +243,10 @@ TEST( ThumbnailFreshness, ALatePictureOfAnEditedAssetIsStillStale )
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Capture );
 }
 
-// An old picture already at the target is not a capture: the file has to MOVE, late or on time.
-TEST( ThumbnailFreshness, AnUntouchedOldPictureIsNotCertifiedByACapture )
+// THE REFUSAL IS AN ANSWER TOO. The renderer that refuses goes idle without touching the target, and that
+// settles the capture as NotWritten — the service records the failure instead of waiting on a clock. An
+// old picture already at the target is not a capture: the file has to MOVE.
+TEST( ThumbnailFreshness, ARendererThatRefusesSettlesTheCaptureAsNotWritten )
 {
     const TempDir  dir;
     const fs::path source = dir.Root / "M.demat";
@@ -258,11 +256,30 @@ TEST( ThumbnailFreshness, AnUntouchedOldPictureIsNotCertifiedByACapture )
 
     ThumbnailFreshness::Capture capture;
     capture.Begin( "assets:M.demat", png, source );
-    capture.GiveUp();
-    const auto settled = capture.Settle(); // renderer went idle without writing
+    const auto settled = capture.Settle(); // the renderer refused: idle without writing
     ASSERT_TRUE( settled.has_value() );
     const ThumbnailFreshness::Capture::Settled landed = settled.value_or( ThumbnailFreshness::Capture::Settled{} );
     EXPECT_EQ( landed.What, ThumbnailFreshness::Capture::Landed::NotWritten );
     EXPECT_FALSE( fs::exists( ThumbnailFreshness::RecordPath( png ) ) );
     EXPECT_FALSE( capture.Settle().has_value() ) << "a settled capture must not settle twice";
+}
+
+// THE PICTURE DEPENDS ON HOW IT IS PHOTOGRAPHED (THM1l-c3): an info kept in another file than the asset's bytes
+// (an imported mesh's orbit in its import record) moves the hash the picture is judged against; the default
+// info leaves it alone, so every picture recorded before an orbit was stated stays fresh.
+TEST( ThumbnailFreshness, AnEditOfTheThumbnailInfoIsCaptured )
+{
+    const std::optional<uint64_t> bytes = 0x1234u;
+    EXPECT_EQ( ThumbnailFreshness::WithInfo( bytes, std::nullopt ), bytes );
+    const auto a = ThumbnailFreshness::WithInfo( bytes, 7u );
+    const auto b = ThumbnailFreshness::WithInfo( bytes, 8u );
+    ASSERT_TRUE( a && b );
+    EXPECT_NE( a, bytes );
+    EXPECT_NE( a, b );
+    EXPECT_FALSE( ThumbnailFreshness::WithInfo( std::nullopt, 7u ) ) << "an unreadable source stays unreadable";
+
+    ThumbnailFreshness::Observation seen{ true, a, b };
+    EXPECT_EQ( ThumbnailFreshness::Judge( seen ), ThumbnailFreshness::Verdict::Capture );
+    seen.Current = a;
+    EXPECT_EQ( ThumbnailFreshness::Judge( seen ), ThumbnailFreshness::Verdict::Show );
 }

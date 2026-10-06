@@ -28,6 +28,7 @@ namespace Desert::Scripting
         RegisterAnimationBindings( *m_Impl ); // after EntityCore: extends the Entity usertype
         RegisterUIBindings( *m_Impl );
         RegisterLocalizationBindings( *m_Impl );
+        RegisterProjectBindings( *m_Impl );
     }
 
     ScriptEngine::~ScriptEngine() = default;

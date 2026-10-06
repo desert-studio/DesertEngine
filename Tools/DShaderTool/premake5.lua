@@ -13,6 +13,10 @@ project "DShaderTool"
         "Source/**.cpp",
         -- The parser depends only on Core/Formats headers + Common — no engine lib needed.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
     }
 
     includedirs {
@@ -25,7 +29,9 @@ project "DShaderTool"
         externalincludedirs { path }
     end
 
-    links { "Common" }
+    -- ReflectCpp: DShaderParser reads the shader's AF1 envelope through Common::ShaderAssetHeader, whose
+    -- JSON header Common's TextAssetHeader parses through rfl::json (reflect-cpp + its bundled yyjson).
+    links { "Common", "ReflectCpp" }
 
     filter "configurations:Debug"
         symbols "On"

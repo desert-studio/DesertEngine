@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MovieRender.hpp"
+
 #include <Engine/Core/PlayerStart.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Assets/ContentGate.hpp>
@@ -17,9 +19,17 @@
 
 namespace Desert::Graphic
 {
+    class Framebuffer;
+    class RenderPass;
     class GraphicsPipeline;
     class MaterialExecutor;
 } // namespace Desert::Graphic
+namespace Desert::Media
+{
+    class MediaAudioOutput;
+    class MediaTexture;
+    class StartupMoviePlayer;
+} // namespace Desert::Media
 namespace Desert::Graphic::Render2D
 {
     class DrawList2D;
@@ -43,14 +53,22 @@ namespace Desert::Player
         // worker threads — see the quit handler in OnUpdate).
         // @p play: how the FIRST level begins Play (`--player-start`); a level switch begins with the default
         // start, since a tag names a start in the level it was given for.
+        // @p movie: the --render-movie request; a development build's only (MovieRender.hpp).
+#if DESERT_DEV_INSTRUMENTS
+        RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play,
+                      std::optional<MovieRenderRequest> movie, Engine::Application* application );
+#else
         RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play, Engine::Application* application );
+#endif
         ~RuntimeLayer();
 
         [[nodiscard]] Common::BoolResultStr OnAttach() override;
         [[nodiscard]] Common::BoolResultStr OnDetach() override;
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
         [[nodiscard]] Common::BoolResultStr OnUIRender() override;
-        void                                OnEvent( Common::Event& event ) override;
+        bool                                OnMouseScrolled( Common::MouseScrolledEvent& scroll );
+        bool                                OnKeyTyped( Common::KeyTypedEvent& typed );
+        bool                                OnKeyPressed( Common::KeyPressedEvent& key );
         /// The frame is out. It counts presented frames in every build; in a development build it is also
         /// the half of the unattended capture that COLLECTS — see RuntimeShot.hpp.
         void OnFramePresented() override;
@@ -100,6 +118,7 @@ namespace Desert::Player
         bool                                         m_Backspace     = false; // backspace pressed since present
         bool                                         m_TabPressed    = false; // Tab pressed since present
         bool                                         m_SubmitPressed = false; // Enter pressed since present
+        int m_Navigate = 0; // Up/W = -1, Down/S = +1 since present (UIInput::Navigate)
         bool                                         m_EscapePressed = false; // Escape pressed since present
         entt::entity                                 m_FocusedUI     = entt::null; // the focused control (or null)
 
@@ -108,6 +127,9 @@ namespace Desert::Player
         // entity ids from the old registry never answer for the new one, and a canvas destroyed mid-level
         // takes its cell with it.
         UI::UIViewContext m_UIView;
+        // This frame's step, recorded by OnUpdate for the UI walk in OnUIRender (which is handed no time):
+        // UI::BeginUIFrame advances the view by exactly the step the host ticked, not by a clock of its own.
+        float m_UIFrameDtSeconds = 0.0f;
 
         Common::BoolResultStr InitPresent( const std::shared_ptr<Graphic::Framebuffer>& swapFb );
 
@@ -118,6 +140,19 @@ namespace Desert::Player
         // Scene::Resize destroys GPU resources — deferred to the top of OnUpdate (same rule as the
         // editor's viewport panel).
         std::optional<std::pair<uint32_t, uint32_t>> m_PendingResize;
+
+        // THE MOVIE RENDER (--render-movie, MovieRender.hpp). Set, the frame is composed into m_MovieTarget —
+        // an offscreen framebuffer of the requested size — instead of the swapchain, and every frame drawn
+        // after the content gate opened is read back and written as the next numbered PNG. Absent from a
+        // Shipping build, with the flag.
+#if DESERT_DEV_INSTRUMENTS
+        std::optional<MovieRenderRequest>     m_Movie;
+        std::shared_ptr<Graphic::Framebuffer> m_MovieTarget;
+        uint32_t                              m_MovieFrame      = 0;     // index of the next PNG
+        bool                                  m_MovieFrameDrawn = false; // this frame showed the world -> write it
+        Common::BoolResultStr                 InitMovieTarget();
+        void                                  CollectMovieFrame();
+#endif
         uint32_t                                     m_LastWidth = 0, m_LastHeight = 0;
 
         // A UI button clicked this frame with an "scene:<path>" OnClickMessage — applied next OnUpdate.
@@ -169,5 +204,26 @@ namespace Desert::Player
         float               m_SplashDuration = 0.0f;
         float               m_SplashFade     = 0.4f;
         void                TriggerSplash();
+
+        // ===== Startup movies (Config/Game.json StartupMovies; UE Project Settings ▸ Movies) =====
+        // Full screen, one after another, from the first presented frame; the level is shown only once
+        // they are over AND the world is complete. The sound is declared before the sequence because the
+        // sequence's player holds a raw pointer to it; the texture outlives both until OnDetach, since the
+        // frame that drew the last movie picture may still be sampling it when the sequence ends.
+        std::unique_ptr<Media::MediaAudioOutput>   m_StartupSound;
+        std::unique_ptr<Media::StartupMoviePlayer> m_StartupMovies;
+        std::unique_ptr<Media::MediaTexture>       m_StartupPicture;
+        bool                                       m_SkipStartupMovie = false; // a key / click since the last tick
+        bool m_StartupMoviesStarted  = false; // on the tick after the first presented frame
+        bool m_StartupPictureCurrent = false; // the movie texture holds the player's current frame this tick
+        bool m_PrevAnyMouseDown      = false; // for the press edge that skips
+        bool m_SplashAfterMovies     = false; // the world completed under a movie: its splash waits for the end
+        void BeginStartupMovies();
+        void TickStartupMovies( double deltaSeconds );
+        [[nodiscard]] bool StartupMoviesPlaying() const;
+        void               DrawStartupMovie( Graphic::Render2D::DrawList2D& dl, float w, float h );
+        /// What a covered frame (loading screen, startup movie) does with input: drops it, so nothing
+        /// pressed during the cover reaches the first frame the player can see.
+        void DiscardHeldInput();
     };
 } // namespace Desert::Player

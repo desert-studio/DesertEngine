@@ -9,12 +9,16 @@
 // moment this file was edited at all: "no type named 'AnimationLibrary'", and two static_casts between
 // classes "not related by inheritance" because only the forward declarations were visible.
 #include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Animation/AnimationTick.hpp>
+#include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/TwoBoneIKControl.hpp>
 #include <Engine/Animation/Retarget/RetargetSource.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -44,6 +48,31 @@ namespace Desert::ECS
     {
     public:
         /**
+         * @brief UE LinkAnimClassLayers on an entity: the `.danimgraph` `graph` joins the END of the entity's
+         *        LinkedLayerGraphs (moved there if listed), so its layers replace those of every earlier
+         *        entry for the interfaces it implements. The Animator is relinked on the system's next tick
+         *        (SyncLinkedLayers), where every refusal of the link is reported by name. Refuses a null
+         *        handle.
+         */
+        [[nodiscard]] static Common::BoolResultStr LinkAnimLayers( ECS::AnimationComponent& anim,
+                                                                   Assets::AssetHandle      graph )
+        {
+            if ( static_cast<uint64_t>( graph ) == 0 )
+                return Common::MakeError<bool>(
+                     std::string( "cannot link anim layers: the graph handle is null (no .danimgraph named)" ) );
+            std::erase( anim.LinkedLayerGraphs, graph );
+            anim.LinkedLayerGraphs.push_back( graph );
+            return Common::MakeSuccess( true );
+        }
+        /// UE UnlinkAnimClassLayers: `graph` leaves LinkedLayerGraphs and its interfaces return to an
+        /// earlier entry implementing them, else to the pose graph's own implementation (UE's default linked
+        /// layer), else pass their input through. False when it was not listed.
+        static bool UnlinkAnimLayers( ECS::AnimationComponent& anim, Assets::AssetHandle graph )
+        {
+            return std::erase( anim.LinkedLayerGraphs, graph ) != 0;
+        }
+
+        /**
          * @param assetManager where a `ControlRigComponent`'s handle is resolved to a parsed `.derig`. May
          *        be null: a host with no asset manager simply has no rigs, and the refusal says so once
          *        rather than crashing on the first entity that names one.
@@ -53,19 +82,18 @@ namespace Desert::ECS
         {
         }
 
-        void SetWorldTime( const Core::WorldTime& time ) override
+        void SetEditorTick( const Common::Timestep& editorTs ) override
         {
-            m_WorldDeltaSeconds = time.GetDeltaSeconds();
+            m_EditorSeconds = editorTs.GetSeconds();
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& /*renderCommandBuffer*/,
-                     const Common::Timestep& /*ts*/ ) override
+                     const Common::Timestep& ts ) override
         {
-            // THE WORLD'S STEP (Core::WorldTime), not the gameplay timestep: an animation with "Playing" on
-            // previews in the editor while the viewport is Realtime, holds on pause, follows dilation, and
-            // steps by the fixed capture step in a headless shot. It used to keep a wall clock of its own
-            // for the preview, so a paused world's characters kept moving.
-            const Common::Timestep animTs( m_WorldDeltaSeconds );
+            // Gameplay time in Play; in the editor world, the editor's frame time for the components that
+            // asked for it (UpdateAnimationInEditor) and nothing for the rest —
+            // Animation::AnimationAdvanceSeconds.
+            const float gameplaySeconds = ts.GetSeconds();
             auto view = registry.view<ECS::SkinnedMeshComponent, ECS::AnimationComponent>();
 
             for ( auto entity : view )
@@ -88,12 +116,18 @@ namespace Desert::ECS
 
                 auto skinnedMeshPtr = static_cast<Desert::SkinnedMesh*>( meshBase );
 
-                if ( !anim.Animator )
-                {
-                    anim.Animator = std::make_unique<Animation::Animator>( skinnedMeshPtr->GetSkeleton() );
-                }
-
                 const Animation::Skeleton& skeleton = skinnedMeshPtr->GetSkeleton();
+
+                // A REIMPORTED RIG IS THE SAME OBJECT WITH OTHER BONES (SkeletonAsset::LoadFromFile), so the
+                // signature, not the pointer, says the Animator was built on something that no longer
+                // exists. Rebuilt BEFORE any stage below reads it; the rig stage died with the old Animator,
+                // so its stamps go too and SyncControlRig attaches a fresh one.
+                if ( Animation::EnsureAnimatorFor( anim.Animator, anim.BuiltSkeletonSignature, skeleton ) )
+                {
+                    anim.BuiltRigSource    = 0;
+                    anim.BuiltRigRevision  = 0;
+                    anim.BuiltRigSignature = 0;
+                }
 
                 // FIRST OF THE THREE SYNCS, because it is first in the pipeline it feeds: a retarget
                 // changes which rig the SOURCE stage samples, and everything below reads the pose that
@@ -110,14 +144,13 @@ namespace Desert::ECS
                 // below. Attaching after the update would put the rig one frame behind the pose it operates on.
                 SyncControlRig( registry, entity, anim, *anim.Animator, skeleton );
 
-                // THE RIG A CLIP IS LOOKED UP AGAINST, which a retarget changes and which every clip
-                // lookup below has to use. `ClipDrivesRig` binds on the clip's bone NAMES, so asking the
-                // TARGET rig about a foreign clip refuses exactly the clips a retarget exists to play —
-                // the middle-link defect, introduced by the change that makes retargeting reachable.
-                // SyncRetarget above has already attached or detached, so this is settled for the frame.
-                const Animation::Skeleton& clipRig = anim.Animator->GetRetarget() != nullptr
-                                                          ? anim.Animator->GetRetarget()->GetSourceSkeleton()
-                                                          : skeleton;
+                // THE SKELETON A CLIP IS LOOKED UP AGAINST (ClipPlaysOnMesh), which a retarget changes and
+                // which every clip lookup below has to use: with a retarget attached the clip plays on the
+                // retarget's SOURCE skeleton, so asking the mesh's own skeleton would refuse exactly the clips
+                // a retarget exists to play (the middle-link defect). SyncRetarget above has already attached
+                // or detached, so this is settled for the frame.
+                const Animation::MeshSkeletonIdentity clipRig =
+                     ClipSkeletonOf( registry, entity, skinnedMesh, anim.Animator->GetRetarget() != nullptr );
 
                 // BEFORE the graph path, because it is what puts a graph there: the entity names a
                 // `.danimgraph` and this is where that handle becomes the object below.
@@ -125,8 +158,18 @@ namespace Desert::ECS
 
                 // AnimGraph path: the state machine PICKS the clip; the Animator just plays it. Falls back to
                 // the CurrentClip path below when no graph is attached.
-                if ( anim.Graph && !anim.Graph->States.empty() )
+                // The base source of Output Pose (Graph::BaseSourceNode) plays in the Source stage: a machine
+                // picks its clip (with no states it picks nothing), a sequence player names it.
+                const Animation::Graph::PoseNode* baseSource =
+                     anim.Graph ? Animation::Graph::BaseSourceNode( *anim.Graph ) : nullptr;
+                const Animation::Graph::StateMachine* outputMachine =
+                     anim.Graph ? Animation::Graph::OutputMachine( *anim.Graph ) : nullptr;
+                const Animation::Graph::SequencePlayerNode* baseSequence =
+                     baseSource != nullptr && baseSource->Sequence ? &*baseSource->Sequence : nullptr;
+                const bool baseIsSequence = baseSequence != nullptr;
+                if ( baseIsSequence || ( outputMachine != nullptr && !outputMachine->States.empty() ) )
                 {
+                    bool graphRebuilt = true;
                     if ( !anim.GraphEvaluator )
                     {
                         anim.GraphEvaluator     = std::make_shared<Animation::Graph::Evaluator>( *anim.Graph );
@@ -137,6 +180,10 @@ namespace Desert::ECS
                         // Re-sync after an editor edit WITHOUT resetting the active state / live parameters.
                         anim.GraphEvaluator->SyncGraph( *anim.Graph );
                         anim.BuiltGraphRevision = graphRevision;
+                    }
+                    else
+                    {
+                        graphRebuilt = false;
                     }
 
                     ReportGraphStructure( *anim.GraphEvaluator );
@@ -158,6 +205,7 @@ namespace Desert::ECS
                     // footstep is an audible desync. Asserted by Tests/Engine/AnimGraphScript so it stays a
                     // decision and not a habit.
                     DrainGraphParams( anim );
+                    RequestGraphClips( *anim.Graph, clipRig );
 
                     if ( anim.Playing )
                     {
@@ -170,15 +218,21 @@ namespace Desert::ECS
                         const auto res = anim.GraphEvaluator->Update( norm );
                         if ( res.Current )
                         {
-                            const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, res.Current->Clip );
+                            const auto found = m_AnimationLibrary->FindForMesh( clipRig, res.Current->Clip );
                             if ( found )
                             {
                                 const auto& clip = found.GetValue()->GetClip();
                                 const auto* cur  = anim.Animator->GetCurrentClip();
                                 if ( !cur || cur->AnimationName != clip.AnimationName )
                                 {
-                                    if ( res.Changed && res.Blend > 0.0f )
-                                        anim.Animator->CrossFade( clip, res.Blend, res.Current->Loop );
+                                    // THE ANIMATOR'S FADE IS THE MACHINE'S TRANSITION, read from the machine
+                                    // and not from the one tick it fired on (`res.Changed`): a clip that was
+                                    // still being read on that tick used to arrive ticks later as a Play —
+                                    // no blend at all, and the switch shown late. It now joins the
+                                    // transition at its elapsed time, so the alphas match tick for tick.
+                                    if ( const auto entering = anim.GraphEvaluator->EnteringTransition() )
+                                        anim.Animator->CrossFade( clip, entering->Duration, res.Current->Loop,
+                                                                  entering->Curve, entering->Elapsed );
                                     else
                                         anim.Animator->Play( clip, res.Current->Loop );
                                 }
@@ -190,19 +244,34 @@ namespace Desert::ECS
                             }
                             anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed * res.Current->Speed );
                         }
+                        else if ( baseSequence != nullptr )
+                        {
+                            PlaySequence( anim, clipRig, baseSource->Name, *baseSequence );
+                        }
 
+                        DrivePoseGraph( anim, clipRig, graphRebuilt );
+                        const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
+                             gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
                         anim.Animator->Update( animTs );
+                        // The machine's active transitions on the SAME step the Animator's fades just took
+                        // (its clock scales by the playback speed), so both stacks retire on one frame.
+                        anim.GraphEvaluator->AdvanceTransitions( animTs.GetSeconds() *
+                                                                 anim.Animator->GetPlaybackSpeed() );
                         anim.PendingNotifies = anim.Animator->ConsumeNotifyEvents();
                     }
                     continue;
                 }
+
+                // NO GRAPH PLAYS: a pose graph the entity had (its graph removed or emptied) leaves with it.
+                if ( anim.Animator->GetPoseGraph() != nullptr )
+                    anim.Animator->ClearPoseGraph();
 
                 if ( !anim.CurrentClip.empty() )
                 {
                     // SAME RULE AS THE PICKER that wrote this name into the component. It used to be an
                     // exact-signature scan here against a tolerant one in the Details panel, so a clip an
                     // artist had just chosen could fail to play with nothing said.
-                    const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, anim.CurrentClip );
+                    const auto found = m_AnimationLibrary->FindForMesh( clipRig, anim.CurrentClip );
                     if ( found )
                     {
                         const auto& clip    = found.GetValue()->GetClip();
@@ -224,7 +293,7 @@ namespace Desert::ECS
 
                 else
                 {
-                    const auto animations = m_AnimationLibrary->GetForSkeleton( clipRig );
+                    const auto animations = m_AnimationLibrary->GetForMesh( clipRig );
 
                     if ( !animations.empty() )
                     {
@@ -252,6 +321,8 @@ namespace Desert::ECS
                     anim.Animator->SetLoop( anim.Loop );
                     anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed );
 
+                    const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
+                         gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
                     anim.Animator->Update( animTs );
 
                     // Notify markers crossed this frame -> queued for ScriptSystem to dispatch (assigned, so
@@ -274,6 +345,30 @@ namespace Desert::ECS
          * here means the graph changed under a queued write — a real event with a different cause, and it
          * is reported with the same once-per-distinct-message rule the clip failures next door use.
          */
+        /// UE: an AnimBP holds hard references to the sequences its states play, so they are resident before
+        /// a transition can ask for one. Here a graph names its clips by name and the library reads a clip on
+        /// demand — asked first on the tick a state is entered, the clip of that state was still being read
+        /// for several ticks and the transition's blend was lost. Every clip the graph can play is asked for
+        /// on every tick (a resident clip is a lookup; an evicted one is read again), so the machine never
+        /// enters a state whose clip it has not already requested.
+        void RequestGraphClips( const Animation::Graph::AnimGraph&     graph,
+                                const Animation::MeshSkeletonIdentity& rig )
+        {
+            const auto request = [&]( const std::string& clip )
+            {
+                if ( !clip.empty() )
+                    static_cast<void>( m_AnimationLibrary->FindForMesh( rig, clip ) );
+            };
+            for ( const Animation::Graph::PoseNode& node : graph.Nodes )
+            {
+                if ( node.Machine )
+                    for ( const Animation::Graph::State& state : node.Machine->States )
+                        request( state.Clip );
+                if ( node.Sequence )
+                    request( node.Sequence->Clip );
+            }
+        }
+
         void DrainGraphParams( ECS::AnimationComponent& anim )
         {
             if ( anim.PendingGraphParams.empty() )
@@ -330,6 +425,212 @@ namespace Desert::ECS
          * The read side cannot refuse (Evaluator::GetFloat is called per condition per frame), so the
          * report lives here — at the one place per frame that holds the evaluator and a logger.
          */
+        /// A SequencePlayer at the base of Output Pose: its clip in the Source stage, started once (a clip
+        /// already playing keeps its clock).
+        void PlaySequence( ECS::AnimationComponent& anim, const Animation::MeshSkeletonIdentity& clipRig,
+                           const std::string& nodeName, const Animation::Graph::SequencePlayerNode& sequence )
+        {
+            const auto found = m_AnimationLibrary->FindForMesh( clipRig, sequence.Clip );
+            if ( !found )
+            {
+                if ( !m_AnimationLibrary->HasPending( sequence.Clip ) )
+                    ReportUnplayableState( clipRig, nodeName, sequence.Clip, found.GetError() );
+                return;
+            }
+            const auto& clip = found.GetValue()->GetClip();
+            const auto* cur  = anim.Animator->GetCurrentClip();
+            if ( cur == nullptr || cur->AnimationName != clip.AnimationName )
+                anim.Animator->Play( clip, sequence.Loop );
+            anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed );
+        }
+
+        /**
+         * @brief The graph's pose graph -> the Animator's Graph stage: the graph (its per-bone tables built only
+         *        when the graph was rebuilt or the Animator lost it), then this tick's clip of every source
+         *        node other than the base — a machine's running state's, a sequence player's — and the
+         *        parameters its pins read.
+         *
+         * The base source is not here: `Update` reported it (or PlaySequence played it) into the Source stage
+         * above. A graph whose Output Pose IS a source has nothing to blend and clears the stage.
+         */
+        void DrivePoseGraph( ECS::AnimationComponent& anim, const Animation::MeshSkeletonIdentity& clipRig,
+                             bool graphRebuilt )
+        {
+            namespace AG                   = Animation::Graph;
+            const AG::Evaluator& evaluator = *anim.GraphEvaluator;
+            const AG::AnimGraph& graph     = evaluator.Graph();
+            const AG::PoseNode*  output    = AG::FindNode( graph, graph.OutputPose );
+            if ( output == nullptr || AG::IsSourceKind( static_cast<AG::PoseNodeKind>( output->Kind ) ) )
+            {
+                if ( anim.Animator->GetPoseGraph() != nullptr )
+                    anim.Animator->ClearPoseGraph();
+                return;
+            }
+            bool poseGraphSet = false;
+            if ( graphRebuilt || anim.Animator->GetPoseGraph() == nullptr )
+            {
+                if ( const auto set = anim.Animator->SetPoseGraph( graph ); !set )
+                {
+                    ReportOnce( fmt::format( "posegraph:{}", graph.Name ), set.GetError() );
+                    return;
+                }
+                poseGraphSet = true;
+            }
+            for ( const AG::Parameter& parameter : graph.Parameters )
+                anim.Animator->SetPoseGraphParameter( parameter.Name, evaluator.GetFloat( parameter.Name ) );
+            for ( size_t n = 0; n < graph.Nodes.size(); ++n )
+            {
+                const AG::PoseNode* node  = &graph.Nodes[n];
+                std::string         clip  = node->Sequence ? node->Sequence->Clip : std::string();
+                std::string         owner = node->Name;
+                bool                loop  = node->Sequence ? node->Sequence->Loop : true;
+                if ( node->Machine )
+                {
+                    const AG::State* current = evaluator.CurrentState( node->Name );
+                    if ( current == nullptr )
+                        continue;
+                    clip  = current->Clip;
+                    owner = current->Name;
+                    loop  = current->Loop;
+                }
+                if ( clip.empty() )
+                    continue;
+                const auto found = m_AnimationLibrary->FindForMesh( clipRig, clip );
+                if ( found )
+                    anim.Animator->SetPoseGraphSource( n, found.GetValue()->GetClip(), loop );
+                else if ( !m_AnimationLibrary->HasPending( clip ) )
+                    ReportUnplayableState( clipRig, owner, clip, found.GetError() );
+            }
+            SyncLinkedLayers( anim, poseGraphSet );
+
+            // The linked layers' sources: sequence players name their clip; a layer's state machines are run
+            // by the link's own Evaluator on the HOST's live parameters (by name, types checked at link) and
+            // their running state names the clip, exactly as the host's machines do above.
+            const auto linked = anim.Animator->GetLinkedLayers().Layers();
+            for ( size_t slot = 0; slot < linked.size(); ++slot )
+            {
+                const AG::AnimGraph& layerGraph = linked[slot].Instance.Graph();
+                AG::Evaluator*       machines   = anim.Animator->GetLinkedLayerMachines( slot );
+                if ( machines != nullptr )
+                {
+                    for ( const AG::Parameter& parameter : layerGraph.Parameters )
+                    {
+                        const auto hostDeclares =
+                             std::any_of( graph.Parameters.begin(), graph.Parameters.end(),
+                                          [&]( const AG::Parameter& p ) { return p.Name == parameter.Name; } );
+                        if ( !hostDeclares )
+                            continue;
+                        const float value = evaluator.GetFloat( parameter.Name );
+                        switch ( static_cast<AG::ParamType>( parameter.Type ) )
+                        {
+                            case AG::ParamType::Bool:
+                                (void)machines->SetBool( parameter.Name, value != 0.0F );
+                                break;
+                            case AG::ParamType::Int:
+                                (void)machines->SetInt( parameter.Name, static_cast<int>( value ) );
+                                break;
+                            default:
+                                (void)machines->SetFloat( parameter.Name, value );
+                                break;
+                        }
+                    }
+                    const AG::PoseNode* base = AG::BaseSourceNode( layerGraph );
+                    const size_t baseNode = base != nullptr ? static_cast<size_t>( base - layerGraph.Nodes.data() )
+                                                            : layerGraph.Nodes.size();
+                    (void)machines->Update( anim.Animator->GetLinkedLayerSourceFraction( slot, baseNode ) );
+                }
+                for ( size_t n = 0; n < layerGraph.Nodes.size(); ++n )
+                {
+                    const AG::PoseNode& node  = layerGraph.Nodes[n];
+                    std::string         clip  = node.Sequence ? node.Sequence->Clip : std::string();
+                    std::string         owner = node.Name;
+                    bool                loop  = node.Sequence ? node.Sequence->Loop : true;
+                    if ( node.Machine && machines != nullptr )
+                    {
+                        const AG::State* current = machines->CurrentState( node.Name );
+                        if ( current == nullptr )
+                            continue;
+                        clip  = current->Clip;
+                        owner = current->Name;
+                        loop  = current->Loop;
+                    }
+                    if ( clip.empty() )
+                        continue;
+                    const auto found = m_AnimationLibrary->FindForMesh( clipRig, clip );
+                    if ( found )
+                        anim.Animator->SetLinkedLayerSource( slot, n, found.GetValue()->GetClip(), loop );
+                    else if ( !m_AnimationLibrary->HasPending( clip ) )
+                        ReportUnplayableState( clipRig, owner, clip, found.GetError() );
+                }
+            }
+        }
+
+        /**
+         * @brief AnimationComponent::LinkedLayerGraphs becomes the Animator's links (UE: the Default Linked
+         *        Layers applied at initialisation, then LinkAnimClassLayers). Relinks — every link undone,
+         *        the list linked again in order — when the pose graph was just (re)set or the list, a listed
+         *        graph object or its revision changed; otherwise nothing. A graph still loading defers the
+         *        whole relink (the old links keep playing); a missing one and every refused link are
+         *        reported once, by name. An entry whose every layer a later entry replaced leaves the list,
+         *        as UE's replaced link is gone rather than waiting underneath.
+         */
+        void SyncLinkedLayers( ECS::AnimationComponent& anim, bool poseGraphSet )
+        {
+            namespace AG = Animation::Graph;
+            std::vector<ECS::AnimationComponent::AppliedLayerLink> wanted;
+            std::vector<std::shared_ptr<AG::AnimGraph>>            graphs;
+            for ( const Assets::AssetHandle handle : anim.LinkedLayerGraphs )
+            {
+                const auto guid = static_cast<uint64_t>( handle );
+                if ( m_AssetManager == nullptr )
+                {
+                    ReportOnce( "layers-no-manager", "an entity links anim layers, but this host has no asset "
+                                                     "manager to resolve them through; nothing is linked" );
+                    return;
+                }
+                bool pending = false;
+                auto asset =
+                     Demand<Assets::AnimGraphAsset>( handle, Common::Content::ContentKind::AnimGraph, pending );
+                if ( !asset || !asset->IsReadyForUse() || !asset->GetGraph() )
+                {
+                    if ( pending )
+                        return; // being read: relink once it has landed
+                    ReportOnce( fmt::format( "layers-missing:{}", guid ),
+                                fmt::format( "linked anim layer graph {} is not loaded; its layers are not linked",
+                                             guid ) );
+                    continue;
+                }
+                wanted.push_back( { guid, asset->GetGraph().get(), asset->GetRevision() } );
+                graphs.push_back( asset->GetGraph() );
+            }
+            if ( !poseGraphSet && wanted == anim.AppliedLayerLinks )
+                return;
+
+            anim.Animator->ClearLinkedLayers();
+            std::vector<uint64_t> linkedOk;
+            for ( size_t i = 0; i < wanted.size(); ++i )
+            {
+                if ( const auto linked = anim.Animator->LinkLayers( wanted[i].Guid, *graphs[i] ); !linked )
+                    ReportOnce( fmt::format( "layers-refused:{}:{}", wanted[i].Guid, wanted[i].Revision ),
+                                linked.GetError() );
+                else
+                    linkedOk.push_back( wanted[i].Guid );
+            }
+            // A link that succeeded and no longer answers any layer was replaced whole by a later one.
+            const auto layers   = anim.Animator->GetLinkedLayers().Layers();
+            const auto replaced = [&]( const Assets::AssetHandle handle )
+            {
+                const auto guid = static_cast<uint64_t>( handle );
+                return std::find( linkedOk.begin(), linkedOk.end(), guid ) != linkedOk.end() &&
+                       std::none_of( layers.begin(), layers.end(), [&]( const AG::LinkedLayerTable::Layer& l )
+                                     { return l.Implementation == guid; } );
+            };
+            std::erase_if( anim.LinkedLayerGraphs, replaced );
+            std::erase_if( wanted, [&]( const ECS::AnimationComponent::AppliedLayerLink& link )
+                           { return replaced( Assets::AssetHandle( link.Guid ) ); } );
+            anim.AppliedLayerLinks = std::move( wanted );
+        }
+
         void ReportGraphStructure( const Animation::Graph::Evaluator& evaluator )
         {
             const std::string& error = evaluator.GetStructureError();
@@ -726,14 +1027,16 @@ namespace Desert::ECS
          * reports, and a state that starts resolving and breaks again reports again only if the reason
          * changes rigs.
          */
-        void ReportUnplayableState( const Animation::Skeleton& skeleton, const std::string& stateName,
+        void ReportUnplayableState( const Animation::MeshSkeletonIdentity& rig, const std::string& stateName,
                                     const std::string& clipName, const std::string& reason ) const
         {
-            ReportOnce( std::to_string( skeleton.GetSignature() ) + '|' + stateName + '|' + clipName,
-                        fmt::format( "state '{}' asks for clip '{}' and nothing will play: {} The rig has {} "
-                                     "bone(s), signature {}.",
-                                     stateName, clipName, reason, skeleton.GetBones().size(),
-                                     skeleton.GetSignature() ) );
+            const std::string skeleton = rig.Skeleton.Guid.IsNull()
+                                              ? std::string( "no skeleton" )
+                                              : Common::Content::AssetGuidToText( rig.Skeleton.Guid );
+            ReportOnce( skeleton + '|' + stateName + '|' + clipName,
+                        fmt::format( "state '{}' asks for clip '{}' and nothing will play: {} The mesh's skeleton "
+                                     "is '{}' ({}).",
+                                     stateName, clipName, reason, rig.Skeleton.Name, skeleton ) );
         }
 
     private:
@@ -742,6 +1045,48 @@ namespace Desert::ECS
          * loader (AL1-6) - none of them is created at boot any more. Null with @p pending set while the
          * read is in flight: the caller waits quietly; null without it is a real miss the caller reports.
          */
+        /**
+         * The skeleton side of ClipPlaysOnMesh for one entity: the retarget's SOURCE skeleton reference
+         * (RetargetAssetData::SourceSkeleton) when @p retargeted, otherwise the mesh asset's skeleton and its
+         * CompatibleSkeletons (AnimationLibrary::IdentifyMeshHandle). An editor-built runtime rig has no asset and
+         * so references no skeleton: the rule refuses every clip on it, by name.
+         */
+        Animation::MeshSkeletonIdentity ClipSkeletonOf( entt::registry& registry, entt::entity entity,
+                                                        const ECS::SkinnedMeshComponent& component,
+                                                        const bool                       retargeted ) const
+        {
+            Animation::MeshSkeletonIdentity identity;
+            identity.Skeleton.Name = "(none)";
+            if ( m_AssetManager == nullptr )
+                return identity;
+            if ( retargeted )
+            {
+                const Assets::AssetHandle wanted = registry.get<ECS::RetargetComponent>( entity ).Data.Retarget;
+                const auto                retarget =
+                     m_AssetManager->ProbeByHandle<Assets::RetargetAsset>( Common::UUID( wanted ) );
+                if ( !retarget )
+                    return identity;
+                const auto& source = retarget->GetData().SourceSkeleton;
+                if ( const auto guid = Common::Content::AssetGuidFromText( source.Guid ) )
+                {
+                    identity = Animation::MeshSkeletonIdentity{
+                         Animation::AnimationLibrary::SkeletonRefOf( guid.GetValue() ), {} };
+                    if ( const auto sourceAsset = m_AssetManager->ProbeByHandle<Assets::SkeletonAsset>(
+                              Common::UUID( Common::Content::HandleForGuid( guid.GetValue() ) ) ) )
+                    {
+                        const auto compatible = sourceAsset->GetCompatibleSkeletons();
+                        identity.Compatible.assign( compatible.begin(), compatible.end() );
+                    }
+                }
+                return identity;
+            }
+            if ( component.RuntimeMesh || m_AnimationLibrary == nullptr )
+                return identity;
+            // The pickers' own question (IdentifyMeshHandle): the mesh asset's skeleton, or the reference a
+            // procedural mesh registered (the built-in humanoid) - one answer for editor and runtime.
+            return m_AnimationLibrary->IdentifyMeshHandle( component.MeshHandle );
+        }
+
         template <typename AssetType>
         Assets::Asset<AssetType> Demand( const Assets::AssetHandle&         wanted,
                                          const Common::Content::ContentKind kind, bool& pending ) const
@@ -792,7 +1137,8 @@ namespace Desert::ECS
         // Non-owning: the manager belongs to the host, which outlives its scene. MAY BE NULL — a host
         // that builds no asset manager simply has no rigs, and SyncControlRig says so once.
         Assets::AssetManager*                 m_AssetManager = nullptr;
-        float m_WorldDeltaSeconds = 0.0f; // this frame's WorldTime::GetDeltaSeconds (SetWorldTime)
+        /// The editor world's frame time this frame (Scene::SetEditorTick): real time in Edit, 0 in Play/Paused.
+        float m_EditorSeconds = 0.0f;
 
         // ONE dedupe store for every complaint this system makes, and it remembers the MESSAGE rather than
         // just the key. The set it replaces could only say "already complained about this state", so a

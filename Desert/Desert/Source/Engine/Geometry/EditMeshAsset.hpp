@@ -17,9 +17,10 @@ namespace Desert::Geometry
     //
     // WHAT A .stmesh CAN HOLD, AND WHAT IT CANNOT. The asset's vertex carries one normal, one tangent frame and
     // one UV, and each submesh one material; MeshBinary v2 adds one polygroup per face. That is exactly what
-    // ToRenderMesh already puts on screen for an EditMesh entity, so the asset draws what the entity drew. A
-    // mesh carrying MORE than that - a colour layer, or a second UV layer - is REFUSED by name rather than
-    // written without it: the file would silently lose a layer the user authored.
+    // ToRenderMesh already puts on screen for an EditMesh entity, so the asset draws what the entity drew.
+    // MeshBinary v4 adds the colour layer and UV layer 1 as optional per-vertex streams. A mesh carrying MORE
+    // than that - a third UV layer - is REFUSED by name rather than written without it: the file would silently
+    // lose a layer the user authored.
     //
     // MATERIALS ARE SUBMESH SLOTS. ToRenderMesh emits one submesh per distinct MaterialID in ascending order,
     // and the renderer binds entity slot k to submesh k (not to MaterialID k). The asset keeps that rule:
@@ -27,7 +28,7 @@ namespace Desert::Geometry
     // triangles. A mesh whose IDs were already 0..N-1 comes back with the same IDs; one with gaps (0 and 2)
     // comes back compacted (0 and 1), bound to the same materials it drew with.
 
-    // Refused, with the layer named, on a colour layer or more than one UV layer; otherwise refused only where
+    // Refused, with the layer named, on more than two UV layers; otherwise refused only where
     // ToRenderMesh refuses (an unset normal / tangent / UV element). An empty mesh is refused: an asset with
     // no submesh draws nothing and has no bounds for the registry.
     [[nodiscard]] Common::ResultStr<Assets::Serialization::MeshAssetData>

@@ -30,11 +30,14 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/committed_projects.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -80,34 +83,33 @@ namespace
         fs::path prefix = ".";
         for ( int up = 0; up < 8; ++up )
         {
-            if ( fs::exists( prefix / "Editor" / "Desert.deproj" ) )
+            if ( fs::exists( prefix / "Projects" / "Desert" / "Desert.deproj" ) )
                 return fs::absolute( prefix ).lexically_normal();
             prefix /= "..";
         }
         return {};
     }
 
-    // Opens the sandbox project the way the editor opens it, WORKING DIRECTORY included: engine
-    // resource roots are never remapped by a project, so `Resources/Shaders/` resolves against the
-    // process's cwd and both hosts `cd` into the directory that holds it. A census that did not would
-    // walk no shaders at all and still report itself green.
+    // Opens a committed project (by default the Sandbox) the way the editor opens it: the engine directory is
+    // the checkout's Editor/ (engine resources resolve against it, never against the working directory) and the
+    // project root is the directory of the .deproj, its assets root read from the file.
     class SandboxProject
     {
     public:
-        explicit SandboxProject( const fs::path& repoRoot )
-             : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ), m_SavedCwd( fs::current_path() )
+        explicit SandboxProject( const fs::path&        repoRoot,
+                                 const std::string_view deproj = Desert::TestSupport::kCommittedProjects[0] )
+             : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ), m_EngineDir( repoRoot / "Editor" )
         {
-            const fs::path editorDir = repoRoot / "Editor";
-            fs::current_path( editorDir );
+            const fs::path projectFile = repoRoot / fs::path( deproj );
+            const fs::path projectDir  = projectFile.parent_path();
 
-            const auto json =
-                 Common::Utils::FileSystem::ReadFileContent( ( editorDir / "Desert.deproj" ).string() );
+            const auto json = Common::Utils::FileSystem::ReadFileContent( projectFile.string() );
             if ( !json )
                 return;
             const auto project = Common::Project::ReadProjectFile( json.GetValue() );
             if ( !project )
                 return;
-            Common::Constants::Path::SetProjectRoot( editorDir, project.GetValue().AssetsRoot );
+            Common::Constants::Path::SetProjectRoot( projectDir, project.GetValue().AssetsRoot );
             m_Opened = true;
         }
 
@@ -115,8 +117,6 @@ namespace
         {
             VFS::Unmount();
             Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
-            std::error_code ec;
-            fs::current_path( m_SavedCwd, ec );
         }
 
         SandboxProject( const SandboxProject& )            = delete;
@@ -129,7 +129,7 @@ namespace
 
     private:
         Common::Constants::Path::ProjectRootState m_SavedRoot;
-        fs::path                                  m_SavedCwd;
+        Desert::TestSupport::EngineDirScope       m_EngineDir;
         bool                                      m_Opened = false;
     };
 
@@ -259,6 +259,39 @@ namespace
             return Common::MakeFormattedError<AssetRegistry>( "the project registry refused {} file(s), first: {}",
                                                               gathered.Refused.size(), gathered.Refused.front() );
         return Common::MakeSuccess( std::move( gathered.Registry ) );
+    }
+
+    // EVERY COMMITTED PROJECT, EACH PACKAGED AS ITSELF. The committed content is the union of the projects
+    // (TestSupport/committed_projects.hpp, the one list); a package is one project's. So each project is opened in
+    // turn, its registry gathered, its tree walked and proven against that registry and one file of each kind
+    // sampled, and `body` runs while that project is open - the per-project chunk/pak work. The kinds sampled
+    // across ALL projects land in `kinds`, which is what "the tree carries every committed kind" is asked of.
+    using ProjectBody =
+         std::function<void( const AssetRegistry& registry, const std::vector<fs::path>& tree,
+                             const std::map<std::string, fs::path>& byKind, const std::vector<fs::path>& corpus )>;
+
+    void ForEachCommittedProject( const fs::path& repo, std::set<std::string>& kinds, const ProjectBody& body )
+    {
+        for ( const std::string_view deproj : Desert::TestSupport::kCommittedProjects )
+        {
+            SCOPED_TRACE( std::string( deproj ) );
+            const SandboxProject project( repo, deproj );
+            ASSERT_TRUE( project.Opened() ) << deproj << " could not be read";
+
+            const auto registry = GatherProjectRegistry();
+            ASSERT_TRUE( registry ) << registry.GetError();
+
+            std::vector<fs::path> tree;
+            ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheGatheredRegistry( registry.GetValue(), tree ) );
+            std::map<std::string, fs::path> byKind;
+            const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
+            for ( const auto& sampled : byKind )
+                kinds.insert( sampled.first );
+
+            body( registry.GetValue(), tree, byKind, corpus );
+            if ( ::testing::Test::HasFatalFailure() )
+                return;
+        }
     }
 
     fs::path MakeTempDir( const std::string& name )
@@ -489,7 +522,7 @@ TEST( PakChunks, TheDesertProjectStatesItsDivisionInItsOwnFile )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "the repository root could not be found from the test's cwd";
     const SandboxProject project( root );
-    ASSERT_TRUE( project.Opened() ) << "Editor/Desert.deproj could not be read";
+    ASSERT_TRUE( project.Opened() ) << "Projects/Desert/Desert.deproj could not be read";
     const auto loaded = LoadChunkScheme( ChunkSchemePath() );
     ASSERT_TRUE( loaded ) << loaded.GetError();
     const auto gathered = GatherProjectRegistry();
@@ -527,73 +560,70 @@ TEST( PakChunks, EveryFileOfEveryContentKindLandsInExactlyOneArchiveAndNoneInZer
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() ) << "the repository root could not be found from the test's cwd";
-    const SandboxProject project( repo );
-    ASSERT_TRUE( project.Opened() ) << "Editor/Desert.deproj could not be read";
+    std::set<std::string> kinds;
+    ASSERT_NO_FATAL_FAILURE( ForEachCommittedProject(
+         repo, kinds,
+         [&]( const AssetRegistry&                   registry, const std::vector<fs::path>& /*tree*/,
+              const std::map<std::string, fs::path>& byKind, const std::vector<fs::path>& corpus )
+         {
+             // A chunk rooted at a real material of the project, so the closure below is over real edges.
+             ASSERT_EQ( byKind.count( "Material" ), 1u ) << "a committed project carries no material";
+             const fs::path    materialFile = byKind.at( "Material" );
+             const std::string materialKey  = Common::AssetHandle::StableKeyForPath( materialFile );
+             ASSERT_NE( registry.FindByKey( materialKey ), nullptr ) << materialKey;
 
-    const auto registry = GatherProjectRegistry();
-    ASSERT_TRUE( registry ) << registry.GetError();
+             ChunkScheme scheme;
+             scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
 
-    std::vector<fs::path> tree;
-    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheGatheredRegistry( registry.GetValue(), tree ) );
+             const auto plan = BuildChunkPlan( registry, scheme );
+             ASSERT_TRUE( plan ) << plan.GetError();
+             ASSERT_EQ( plan.GetValue().Count(), 2u );
 
-    std::map<std::string, fs::path> byKind;
-    const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
+             std::vector<std::pair<std::string, fs::path>> files;
+             files.reserve( files.size() + corpus.size() );
+             for ( const fs::path& file : corpus )
+                 files.emplace_back( ArchiveKey( file ), file );
 
-    // EVERY KIND, NOT ONE. A round trip that exercised a single extension would prove nothing about
-    // every committed kind the engine enumerates.
-    ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount )
-         << "the tree no longer carries a file of every committed kind ContentKinds.hpp declares";
+             const fs::path dir     = MakeTempDir( "census" );
+             const auto     written = WriteChunkedPaks( dir / "Content.dpak", plan.GetValue(), files );
+             ASSERT_TRUE( written ) << written.GetError();
 
-    // A chunk rooted at a real asset of the project, so the closure below is over real edges.
-    const fs::path    materialFile = byKind.at( "Material" );
-    const std::string materialKey  = Common::AssetHandle::StableKeyForPath( materialFile );
-    ASSERT_NE( registry.GetValue().FindByKey( materialKey ), nullptr ) << materialKey;
+             // ── THE CENSUS ITSELF ───────────────────────────────────────────────────────────────────────
+             std::vector<std::unique_ptr<PakReader>> archives;
+             for ( const fs::path& archive : written.GetValue().Archives )
+             {
+                 archives.push_back( std::make_unique<PakReader>( archive ) );
+                 ASSERT_TRUE( archives.back()->IsOpen() )
+                      << archive.string() << ": " << archives.back()->OpenError();
+             }
 
-    ChunkScheme scheme;
-    scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
+             for ( const auto& [key, source] : files )
+             {
+                 int carriers = 0;
+                 for ( const auto& archive : archives )
+                     carriers += archive->Contains( key ) ? 1 : 0;
 
-    const auto plan = BuildChunkPlan( registry.GetValue(), scheme );
-    ASSERT_TRUE( plan ) << plan.GetError();
-    ASSERT_EQ( plan.GetValue().Count(), 2u );
+                 EXPECT_EQ( carriers, 1 ) << key << " is in " << carriers
+                                          << " archive(s): 0 means it never reaches a player, 2 means which "
+                                             "bytes they get depends on mount order";
+             }
 
-    std::vector<std::pair<std::string, fs::path>> files;
-    files.reserve( files.size() + corpus.size() );
-    for ( const fs::path& file : corpus )
-        files.emplace_back( ArchiveKey( file ), file );
+             // AND THE TOTAL, because a per-key loop cannot see a file the writer INVENTED. The base also
+             // carries the chunk list, which is one entry and is not content.
+             std::size_t entries = 0;
+             for ( const std::size_t count : written.GetValue().Entries )
+                 entries += count;
+             EXPECT_EQ( entries, files.size() + 1 );
 
-    const fs::path dir     = MakeTempDir( "census" );
-    const auto     written = WriteChunkedPaks( dir / "Content.dpak", plan.GetValue(), files );
-    ASSERT_TRUE( written ) << written.GetError();
+             // The division actually happened: the region is not empty and it is not everything.
+             EXPECT_GT( written.GetValue().Entries[1], 0u );
+             EXPECT_GT( written.GetValue().Entries[BASE_CHUNK], written.GetValue().Entries[1] );
+         } ) );
 
-    // ── THE CENSUS ITSELF ───────────────────────────────────────────────────────────────────────
-    std::vector<std::unique_ptr<PakReader>> archives;
-    for ( const fs::path& archive : written.GetValue().Archives )
-    {
-        archives.push_back( std::make_unique<PakReader>( archive ) );
-        ASSERT_TRUE( archives.back()->IsOpen() ) << archive.string() << ": " << archives.back()->OpenError();
-    }
-
-    for ( const auto& [key, source] : files )
-    {
-        int carriers = 0;
-        for ( const auto& archive : archives )
-            carriers += archive->Contains( key ) ? 1 : 0;
-
-        EXPECT_EQ( carriers, 1 ) << key << " is in " << carriers
-                                 << " archive(s): 0 means it never reaches a player, 2 means which "
-                                    "bytes they get depends on mount order";
-    }
-
-    // AND THE TOTAL, because a per-key loop cannot see a file the writer INVENTED. The base also
-    // carries the chunk list, which is one entry and is not content.
-    std::size_t entries = 0;
-    for ( const std::size_t count : written.GetValue().Entries )
-        entries += count;
-    EXPECT_EQ( entries, files.size() + 1 );
-
-    // The division actually happened: the region is not empty and it is not everything.
-    EXPECT_GT( written.GetValue().Entries[1], 0u );
-    EXPECT_GT( written.GetValue().Entries[BASE_CHUNK], written.GetValue().Entries[1] );
+    // EVERY KIND, NOT ONE, over every committed project: a round trip that exercised a single extension would
+    // prove nothing about every committed kind the engine enumerates.
+    ASSERT_EQ( kinds.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount )
+         << "the committed projects no longer carry a file of every committed kind ContentKinds.hpp declares";
 }
 
 TEST( PakChunks, TheWholeContentTreeIsAssignedAndTheAssignmentIsAFunction )
@@ -637,155 +667,159 @@ TEST( PakChunks, APatchOverridesBaseAndChunkAndTheSourceArchiveIsAnAnswerNotAnIn
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    const SandboxProject project( repo );
-    ASSERT_TRUE( project.Opened() );
+    std::set<std::string> kinds;
+    ASSERT_NO_FATAL_FAILURE( ForEachCommittedProject(
+         repo, kinds,
+         [&]( const AssetRegistry&                   registry, const std::vector<fs::path>& /*tree*/,
+              const std::map<std::string, fs::path>& byKind, const std::vector<fs::path>& corpus )
+         {
+             // A chunk rooted at a real material of the project, so the closure below is over real edges.
+             ASSERT_EQ( byKind.count( "Material" ), 1u ) << "a committed project carries no material";
+             const fs::path    materialFile = byKind.at( "Material" );
+             const std::string materialKey  = Common::AssetHandle::StableKeyForPath( materialFile );
+             ChunkScheme       scheme;
+             scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
 
-    const auto registry = GatherProjectRegistry();
-    ASSERT_TRUE( registry ) << registry.GetError();
+             const auto plan = BuildChunkPlan( registry, scheme );
+             ASSERT_TRUE( plan ) << plan.GetError();
 
-    std::vector<fs::path> tree;
-    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheGatheredRegistry( registry.GetValue(), tree ) );
-    std::map<std::string, fs::path> byKind;
-    const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
-    ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount );
+             std::vector<std::pair<std::string, fs::path>> files;
+             files.reserve( files.size() + corpus.size() );
+             for ( const fs::path& file : corpus )
+                 files.emplace_back( ArchiveKey( file ), file );
 
-    const fs::path    materialFile = byKind.at( "Material" );
-    const std::string materialKey  = Common::AssetHandle::StableKeyForPath( materialFile );
-    ChunkScheme       scheme;
-    scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
+             const fs::path dir     = MakeTempDir( "patch" );
+             const fs::path base    = dir / "Content.dpak";
+             const auto     written = WriteChunkedPaks( base, plan.GetValue(), files );
+             ASSERT_TRUE( written ) << written.GetError();
 
-    const auto plan = BuildChunkPlan( registry.GetValue(), scheme );
-    ASSERT_TRUE( plan ) << plan.GetError();
+             const std::string baseBefore = ReadBytes( base );
+             ASSERT_FALSE( baseBefore.empty() );
 
-    std::vector<std::pair<std::string, fs::path>> files;
-    files.reserve( files.size() + corpus.size() );
-    for ( const fs::path& file : corpus )
-        files.emplace_back( ArchiveKey( file ), file );
+             // Pick one key from the base and one from the chunk, so the patch is shown to beat BOTH.
+             const std::string chunkedKey = ArchiveKey( materialFile );
+             std::string       baseKey;
+             for ( const auto& [key, source] : files )
+                 if ( plan.GetValue().ChunkFor( Common::AssetHandle::StableKeyForPath( source ) ) == BASE_CHUNK )
+                 {
+                     baseKey = key;
+                     break;
+                 }
+             ASSERT_FALSE( baseKey.empty() );
 
-    const fs::path dir     = MakeTempDir( "patch" );
-    const fs::path base    = dir / "Content.dpak";
-    const auto     written = WriteChunkedPaks( base, plan.GetValue(), files );
-    ASSERT_TRUE( written ) << written.GetError();
+             const std::string patched = "PATCHED-BY-THE-UPDATE";
+             const fs::path    patch   = dir / "Patch_01.dpak";
+             {
+                 Common::Utils::PakWriter writer( patch );
+                 ASSERT_TRUE( writer.IsOpen() );
+                 ASSERT_TRUE( writer.AddData( baseKey, patched.data(), patched.size() ) );
+                 ASSERT_TRUE( writer.AddData( chunkedKey, patched.data(), patched.size() ) );
+                 ASSERT_GT( writer.Finalize(), 0u );
+             }
 
-    const std::string baseBefore = ReadBytes( base );
-    ASSERT_FALSE( baseBefore.empty() );
+             // THE BASE IS NOT REWRITTEN. Byte for byte, after the patch exists — an update that edits the
+             // archive it overlays has no rollback, and the whole overlay model is there to avoid exactly that.
+             EXPECT_EQ( ReadBytes( base ), baseBefore )
+                  << "building a patch changed the base archive; an interrupted update would then have nothing "
+                     "to fall back to";
 
-    // Pick one key from the base and one from the chunk, so the patch is shown to beat BOTH.
-    const std::string chunkedKey = ArchiveKey( materialFile );
-    std::string       baseKey;
-    for ( const auto& [key, source] : files )
-        if ( plan.GetValue().ChunkFor( Common::AssetHandle::StableKeyForPath( source ) ) == BASE_CHUNK )
-        {
-            baseKey = key;
-            break;
-        }
-    ASSERT_FALSE( baseKey.empty() );
+             VFS::Unmount();
+             ASSERT_TRUE( VFS::MountPak( base ) );
+             for ( std::size_t i = 1; i < written.GetValue().Archives.size(); ++i )
+                 ASSERT_TRUE( VFS::MountPak( written.GetValue().Archives[i] ) );
 
-    const std::string patched = "PATCHED-BY-THE-UPDATE";
-    const fs::path    patch   = dir / "Patch_01.dpak";
-    {
-        Common::Utils::PakWriter writer( patch );
-        ASSERT_TRUE( writer.IsOpen() );
-        ASSERT_TRUE( writer.AddData( baseKey, patched.data(), patched.size() ) );
-        ASSERT_TRUE( writer.AddData( chunkedKey, patched.data(), patched.size() ) );
-        ASSERT_GT( writer.Finalize(), 0u );
-    }
+             // BEFORE the patch is mounted: the chunked key must come from the CHUNK, not the base. This is
+             // the half that proves the division is real — the bytes are identical either way, so only
+             // SourcePak can tell.
+             EXPECT_EQ( VFS::SourcePak( dir / fs::path( chunkedKey ) ),
+                        std::optional<fs::path>( written.GetValue().Archives[1] ) );
+             EXPECT_EQ( VFS::SourcePak( dir / fs::path( baseKey ) ), std::optional<fs::path>( base ) );
 
-    // THE BASE IS NOT REWRITTEN. Byte for byte, after the patch exists — an update that edits the
-    // archive it overlays has no rollback, and the whole overlay model is there to avoid exactly that.
-    EXPECT_EQ( ReadBytes( base ), baseBefore )
-         << "building a patch changed the base archive; an interrupted update would then have nothing "
-            "to fall back to";
+             ASSERT_TRUE( VFS::MountPak( patch ) );
 
-    VFS::Unmount();
-    ASSERT_TRUE( VFS::MountPak( base ) );
-    for ( std::size_t i = 1; i < written.GetValue().Archives.size(); ++i )
-        ASSERT_TRUE( VFS::MountPak( written.GetValue().Archives[i] ) );
+             EXPECT_EQ( VFS::SourcePak( dir / fs::path( baseKey ) ), std::optional<fs::path>( patch ) );
+             EXPECT_EQ( VFS::SourcePak( dir / fs::path( chunkedKey ) ), std::optional<fs::path>( patch ) );
+             EXPECT_EQ( VFS::ReadFile( dir / fs::path( baseKey ) ), std::optional<std::string>( patched ) );
+             EXPECT_EQ( VFS::ReadFile( dir / fs::path( chunkedKey ) ), std::optional<std::string>( patched ) );
 
-    // BEFORE the patch is mounted: the chunked key must come from the CHUNK, not the base. This is
-    // the half that proves the division is real — the bytes are identical either way, so only
-    // SourcePak can tell.
-    EXPECT_EQ( VFS::SourcePak( dir / fs::path( chunkedKey ) ),
-               std::optional<fs::path>( written.GetValue().Archives[1] ) );
-    EXPECT_EQ( VFS::SourcePak( dir / fs::path( baseKey ) ), std::optional<fs::path>( base ) );
+             // The negative control: a key the patch does NOT carry still comes from where it was, so the
+             // assertions above are about precedence and not about the patch having swallowed the stack.
+             std::string untouched;
+             for ( const auto& [key, source] : files )
+                 if ( key != baseKey && key != chunkedKey )
+                 {
+                     untouched = key;
+                     break;
+                 }
+             ASSERT_FALSE( untouched.empty() );
+             EXPECT_NE( VFS::SourcePak( dir / fs::path( untouched ) ), std::optional<fs::path>( patch ) );
 
-    ASSERT_TRUE( VFS::MountPak( patch ) );
+             VFS::Unmount();
+         } ) );
 
-    EXPECT_EQ( VFS::SourcePak( dir / fs::path( baseKey ) ), std::optional<fs::path>( patch ) );
-    EXPECT_EQ( VFS::SourcePak( dir / fs::path( chunkedKey ) ), std::optional<fs::path>( patch ) );
-    EXPECT_EQ( VFS::ReadFile( dir / fs::path( baseKey ) ), std::optional<std::string>( patched ) );
-    EXPECT_EQ( VFS::ReadFile( dir / fs::path( chunkedKey ) ), std::optional<std::string>( patched ) );
-
-    // The negative control: a key the patch does NOT carry still comes from where it was, so the
-    // assertions above are about precedence and not about the patch having swallowed the stack.
-    std::string untouched;
-    for ( const auto& [key, source] : files )
-        if ( key != baseKey && key != chunkedKey )
-        {
-            untouched = key;
-            break;
-        }
-    ASSERT_FALSE( untouched.empty() );
-    EXPECT_NE( VFS::SourcePak( dir / fs::path( untouched ) ), std::optional<fs::path>( patch ) );
-
-    VFS::Unmount();
+    // EVERY KIND, NOT ONE, over every committed project: a round trip that exercised a single extension would
+    // prove nothing about every committed kind the engine enumerates.
+    ASSERT_EQ( kinds.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount )
+         << "the committed projects no longer carry a file of every committed kind ContentKinds.hpp declares";
 }
 
 TEST( PakChunks, EveryContentKindSurvivesTheDivisionByteForByte )
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    const SandboxProject project( repo );
-    ASSERT_TRUE( project.Opened() );
+    std::set<std::string> kinds;
+    ASSERT_NO_FATAL_FAILURE( ForEachCommittedProject(
+         repo, kinds,
+         [&]( const AssetRegistry&                   registry, const std::vector<fs::path>& /*tree*/,
+              const std::map<std::string, fs::path>& byKind, const std::vector<fs::path>& corpus )
+         {
+             // A chunk rooted at a real material of the project, so the closure below is over real edges.
+             ASSERT_EQ( byKind.count( "Material" ), 1u ) << "a committed project carries no material";
+             const std::string materialKey = Common::AssetHandle::StableKeyForPath( byKind.at( "Material" ) );
+             ChunkScheme       scheme;
+             scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
+             const auto plan = BuildChunkPlan( registry, scheme );
+             ASSERT_TRUE( plan ) << plan.GetError();
 
-    const auto registry = GatherProjectRegistry();
-    ASSERT_TRUE( registry ) << registry.GetError();
+             std::vector<std::pair<std::string, fs::path>> files;
+             files.reserve( files.size() + corpus.size() );
+             for ( const fs::path& file : corpus )
+                 files.emplace_back( ArchiveKey( file ), file );
 
-    std::vector<fs::path> tree;
-    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheGatheredRegistry( registry.GetValue(), tree ) );
-    std::map<std::string, fs::path> byKind;
-    const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
-    ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount );
+             const fs::path dir     = MakeTempDir( "roundtrip" );
+             const auto     written = WriteChunkedPaks( dir / "Content.dpak", plan.GetValue(), files );
+             ASSERT_TRUE( written ) << written.GetError();
 
-    const std::string materialKey = Common::AssetHandle::StableKeyForPath( byKind.at( "Material" ) );
-    ChunkScheme       scheme;
-    scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
-    const auto plan = BuildChunkPlan( registry.GetValue(), scheme );
-    ASSERT_TRUE( plan ) << plan.GetError();
+             VFS::Unmount();
+             for ( const fs::path& archive : written.GetValue().Archives )
+                 ASSERT_TRUE( VFS::MountPak( archive ) );
 
-    std::vector<std::pair<std::string, fs::path>> files;
-    files.reserve( files.size() + corpus.size() );
-    for ( const fs::path& file : corpus )
-        files.emplace_back( ArchiveKey( file ), file );
+             // THE ROUND TRIP, PER KIND — the codec is chosen per entry from the DATA, so a text-shaped kind
+             // and a compressed-binary kind take different paths through the writer and the reader.
+             for ( const auto& [kind, file] : byKind )
+             {
+                 const std::string key         = ArchiveKey( file );
+                 const std::string onDisk      = ReadBytes( file );
+                 const auto        fromArchive = VFS::ReadFile( dir / fs::path( key ) );
+                 ASSERT_TRUE( fromArchive.has_value() ) << kind << ": " << key << " did not read back";
+                 EXPECT_EQ( *fromArchive, onDisk ) << kind << ": " << key << " changed in the archive";
+             }
 
-    const fs::path dir     = MakeTempDir( "roundtrip" );
-    const auto     written = WriteChunkedPaks( dir / "Content.dpak", plan.GetValue(), files );
-    ASSERT_TRUE( written ) << written.GetError();
+             // The base's own declaration of what else has to be mounted, read back out of the archive.
+             const auto manifest = VFS::ReadFile( dir / fs::path( std::string( CHUNK_MANIFEST_KEY ) ) );
+             ASSERT_TRUE( manifest.has_value() );
+             const auto names = ParseChunkManifest( *manifest );
+             ASSERT_TRUE( names ) << names.GetError();
+             ASSERT_EQ( names.GetValue().size(), 1u );
+             EXPECT_EQ( names.GetValue().front(), "Region" );
 
-    VFS::Unmount();
-    for ( const fs::path& archive : written.GetValue().Archives )
-        ASSERT_TRUE( VFS::MountPak( archive ) );
+             VFS::Unmount();
+         } ) );
 
-    // THE ROUND TRIP, PER KIND — the codec is chosen per entry from the DATA, so a text-shaped kind
-    // and a compressed-binary kind take different paths through the writer and the reader.
-    for ( const auto& [kind, file] : byKind )
-    {
-        const std::string key         = ArchiveKey( file );
-        const std::string onDisk      = ReadBytes( file );
-        const auto        fromArchive = VFS::ReadFile( dir / fs::path( key ) );
-        ASSERT_TRUE( fromArchive.has_value() ) << kind << ": " << key << " did not read back";
-        EXPECT_EQ( *fromArchive, onDisk ) << kind << ": " << key << " changed in the archive";
-    }
-
-    // The base's own declaration of what else has to be mounted, read back out of the archive.
-    const auto manifest = VFS::ReadFile( dir / fs::path( std::string( CHUNK_MANIFEST_KEY ) ) );
-    ASSERT_TRUE( manifest.has_value() );
-    const auto names = ParseChunkManifest( *manifest );
-    ASSERT_TRUE( names ) << names.GetError();
-    ASSERT_EQ( names.GetValue().size(), 1u );
-    EXPECT_EQ( names.GetValue().front(), "Region" );
-
-    VFS::Unmount();
+    // EVERY KIND, NOT ONE, over every committed project: a round trip that exercised a single extension would
+    // prove nothing about every committed kind the engine enumerates.
+    ASSERT_EQ( kinds.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount )
+         << "the committed projects no longer carry a file of every committed kind ContentKinds.hpp declares";
 }
 
 TEST( PakChunks, ADeclaredChunkThatReceivesNoFileIsARefusalAndNotAnEmptyArchive )
@@ -1137,6 +1171,7 @@ TEST( PakChunks, EveryPackedTextFileIsCheckedOutVerbatim )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

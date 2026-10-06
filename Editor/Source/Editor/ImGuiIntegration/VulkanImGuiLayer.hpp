@@ -18,7 +18,6 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr OnAttach() override;
         Common::BoolResultStr OnDetach() override;
         Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
-        void                  OnEvent( Common::Event& event ) override;
         void                  Begin() override;
         void                  End() override;
 

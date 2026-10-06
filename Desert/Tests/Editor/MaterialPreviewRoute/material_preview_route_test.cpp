@@ -3,7 +3,8 @@
 //
 // The engine has two routes for a data-driven material, and they are NOT equivalent:
 //
-//   * the per-SLOT route -- StaticMeshComponent::MaterialSlots -> MaterialFactory -> a DataDrivenMaterial
+//   * the per-SLOT route -- StaticMeshComponent::MaterialSlots -> MaterialService (CreateSurfaceMaterial) -> a
+//   DataDrivenMaterial
 //     that IS the asset. What a real scene mesh takes.
 //   * the shader-OVERRIDE route -- MaterialComponent::ShaderName + per-draw overrides, driving a material
 //     shared by shader name. MeshRenderer re-applies ApplyDefaults() to it EVERY frame, so an asset's
@@ -25,6 +26,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -353,4 +355,31 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THM1n-14: every capture starts from the BASE preview scene (UE: one clean FThumbnailPreviewScene per
+// picture). A cloud dome captured after an HDR dome kept the HDR skybox up, and its PNG was byte-identical to
+// the cubemap material's; the take-down lived in one branch, so the other branch leaked. Now one reset, once
+// per capture, before the subject is staged — and the staging itself is once per capture, not per frame.
+TEST_F( MaterialPreviewRoute, EveryCaptureStartsFromTheBaseScene )
+{
+    const std::string src =
+         ReadFile( std::format( "{}Editor/Source/Editor/Widgets/AssetThumbnailRenderer.cpp", RepoRoot() ) );
+    ASSERT_FALSE( src.empty() );
+    const auto staged = src.find( "if ( !m_Staged )" );
+    ASSERT_NE( staged, std::string::npos );
+    const auto reset = src.find( "ResetPreviewScene();", staged );
+    const auto stage = src.find( "StageSubject()", staged );
+    ASSERT_NE( reset, std::string::npos );
+    ASSERT_NE( stage, std::string::npos );
+    EXPECT_LT( reset, stage );
+
+    // The reset owns every layer's take-down; StageSubject only puts the subject in.
+    const auto body = src.find( "bool AssetThumbnailRenderer::StageSubject()" );
+    ASSERT_NE( body, std::string::npos );
+    const auto        next      = src.find( "\n    }\n", body );
+    const std::string stageBody = src.substr( body, next - body );
+    EXPECT_EQ( stageBody.find( "RemoveComponent" ), std::string::npos );
+    EXPECT_EQ( stageBody.find( "SkyboxHandle = Assets::AssetHandle()" ), std::string::npos );
+    EXPECT_EQ( stageBody.find( "VolumetricCloudComponent>().Data.Enabled = false" ), std::string::npos );
 }

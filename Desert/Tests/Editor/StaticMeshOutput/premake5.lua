@@ -39,6 +39,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/MeshLOD.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/MeshSimplifier.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MeshDeriver.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/VoxelBlockout.cpp", -- CG1: the blockout Accept writes
     }
 
@@ -66,10 +67,6 @@ project(test_name)
     end
 
     links { "Common", "Optick", "MeshOptimizer" } -- Optick: Commons JobSystem; MeshOptimizer: the LOD builder
-
-    -- Common contains Objective-C (the MacOS file dialog), so the ObjC runtime + AppKit link too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

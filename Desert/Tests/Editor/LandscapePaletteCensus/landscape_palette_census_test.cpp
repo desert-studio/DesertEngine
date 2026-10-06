@@ -1,13 +1,14 @@
 // EVERY LANDSCAPE PALETTE ENTRY IS NAMED HERE.
 //
-// The Landscape group of the command palette (EditorLayer::BuildPaletteCommands) is how an agent with no cursor
+// The Landscape group of the command palette (AppendLandscapeCommands) is how an agent with no cursor
 // drives the Landscape mode: Sculpt / Paint / Manage, the New Landscape form, heightmap import/export, the Paint
 // target layers, the Edit Layers stack and every tool control. Each `{ "Landscape", <label>, ... }` entry of
-// Editor/Source/EditorLayer.cpp is a row of the register below — its label expression, how many entries are
-// built from that expression, and what it reaches. A new entry with no row, a row whose entry is gone, and a
-// changed count are each red here, so the palette cannot grow a command nobody has accounted for.
+// Editor/Source/Editor/Panels/Landscape/LandscapeCommands.cpp is a row of the register below — its label
+// expression, how many entries are built from that expression, and what it reaches. A new entry with no row, a row
+// whose entry is gone, and a changed count are each red here, so the palette cannot grow a command nobody has
+// accounted for.
 //
-// EditorLayer.cpp is compiled by no suite, so it is READ AS TEXT.
+// LandscapeCommands.cpp is compiled by no suite, so it is READ AS TEXT.
 
 #include <gtest/gtest.h>
 
@@ -36,9 +37,9 @@ namespace
         { "\"New Landscape: noise fill without erosion\"", 1, "New Landscape form: noise fill preset" },
         { "\"New Landscape: Create\"", 1, "New Landscape form: Create" },
         { "\"New Landscape: Cancel\"", 1, "New Landscape form: Cancel" },
-        { "\"Import heightmap as a new landscape: \" + rel", 1, "Manage: import a heightmap file as a new landscape" },
-        { "\"Import heightmap into the landscape: \" + rel", 1, "Manage: import a heightmap file into the landscape" },
-        { R"(( selected ? "Export heightmap of the selected tiles: " : "Export heightmap: " ) + rel)", 1,
+        { R"(std::format( "Import heightmap as a new landscape: {}", rel ))", 1, "Manage: import a heightmap file as a new landscape" },
+        { R"(std::format( "Import heightmap into the landscape: {}", rel ))", 1, "Manage: import a heightmap file into the landscape" },
+        { R"(selected ? std::format( "Export heightmap of the selected tiles: {}", rel ) : std::format( "Export heightmap: {}", rel ))", 1,
           "Manage: export the whole landscape / the selected tiles" },
         { "label", 1, R"("Paint mode" and "Tool: Paint": the Paint tab and its one tool)" },
         { "\"Create Layer Info\"", 1, "Paint: the \"+\" of the Target Layers list" },
@@ -51,14 +52,14 @@ namespace
           "Edit Layers: the height/weight alpha sliders (0.0, 0.5, 1.0)" },
         { "std::format( \"Edit layer: {}\", layer.Name )", 1, "Edit Layers: select a row (make it editing)" },
         { "\"Target layer: Visibility (holes)\"", 1, "Paint: the Visibility target layer" },
-        { "\"Target layer: \" + info->LayerName", 1, "Paint: a target layer row" },
+        { R"(std::format( "Target layer: {}", info->LayerName ))", 1, "Paint: a target layer row" },
         { "control.Label", 2, "every Core::LandscapeToolControls() row: a stroke request, or a settings step" },
         { R"(lower ? "Stroke at the viewport centre, lowering" : "Stroke at the viewport centre")", 1,
           "a brush stroke at the viewport centre (the viewport click)" },
     };
     // clang-format on
 
-    constexpr const char* kLayer = "Editor/Source/EditorLayer.cpp";
+    constexpr const char* kLayer = "Editor/Source/Editor/Panels/Landscape/LandscapeCommands.cpp";
 
     std::string RepoRoot()
     {
@@ -163,7 +164,7 @@ TEST( LandscapePaletteCensus, EveryPaletteEntryHasARow )
         const auto row = registered.find( label );
         if ( row == registered.end() )
         {
-            ADD_FAILURE() << "EditorLayer.cpp builds the Landscape palette entry '" << label
+            ADD_FAILURE() << "LandscapeCommands.cpp builds the Landscape palette entry '" << label
                           << "' and the census has no row for it. Add a row naming what it reaches.";
             continue;
         }
@@ -178,7 +179,7 @@ TEST( LandscapePaletteCensus, EveryRowStillHasItsEntry )
     for ( const PaletteRow& row : kRegister )
         EXPECT_TRUE( labels.count( row.Label ) )
              << "the census names the Landscape palette entry '" << row.Label
-             << "' and EditorLayer.cpp no longer builds it; remove the row with the entry";
+             << "' and LandscapeCommands.cpp no longer builds it; remove the row with the entry";
 }
 
 int main( int argc, char** argv )

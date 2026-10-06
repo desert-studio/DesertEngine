@@ -25,6 +25,8 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace
 {
@@ -141,6 +143,8 @@ TEST( CloudNoiseVolumeHandle, TwoAssetsOverOnePathAgreeWithinASingleProcess )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     // The child branch. Deliberately before InitGoogleTest: this invocation is not a test run, it is one
     // half of the measurement the test above makes.
     if ( argc >= 3 && std::strcmp( argv[1], kPrintHandleFlag ) == 0 )

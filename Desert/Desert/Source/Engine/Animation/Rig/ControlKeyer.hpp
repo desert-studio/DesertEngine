@@ -6,21 +6,20 @@
  * T5.3. Taking what a control says right now and writing it into a clip is four lines; the task is the
  * two behaviours around it, and both exist because the naive version is subtly wrong rather than slow.
  *
- * ── WHERE A CONTROL KEY LANDS: AN ORDINARY TRACK, AND NO FORMAT CHANGE ───────────────────────────────
+ * ── WHERE A CONTROL KEY LANDS: THE CLIP'S SEQUENCE, AND NO FORMAT CHANGE ────────────────────────────
  *
- * `AnimationClip::Tracks` is NOT indexed by bone and says so at its declaration: "Playback resolves by
- * name (Animator::ResolveTrack), so position here means nothing". `BoneTrack` is therefore a NAMED
- * TRANSFORM TRACK with three channels, and a control's animated value is a `BoneTransform` — the same
- * three quantities. A control's keys are a track whose name is the control's name, and `.anim` does not
- * move: `kAnimationVersion` stays at 2 and no clip in the corpus is touched.
+ * A clip's data is its `Timeline::Sequence` (AnimationClip.hpp; UE's IAnimationDataModel), and a subject's
+ * keys are the Transform track of a Bone binding whose LOCATOR is the subject's name, written through
+ * TrackEditing's sequence edits (`SetBoneKey`; UE's IAnimationDataController) — binding, track and section
+ * created as needed, `Sequence.Revision` bumped. A control's animated value is a `BoneTransform`, the same
+ * three quantities a bone's track holds, so a control needs no track kind of its own.
  *
- * THE PRICE OF THAT IS ONE AMBIGUITY, AND IT IS REFUSED RATHER THAN RESOLVED. A track name is the only
- * binding key there is; UE can let a control and a bone share a name because `FRigElementKey` is
- * {name, TYPE} and ours is {name}. So a control named exactly like a bone of the skeleton would have its
- * keys bound straight onto that bone by `Animator::ResolveTrack` — driving the bone with a value that
- * means "offset from the control's parent space", which is wrong by the offset and by the whole parent
- * chain, and wrong in a way that looks like bad animation data rather than like a defect. `Key` refuses
- * that control by name and says which bone it collided with. A rename is the fix; a silent bind is not.
+ * THE PRICE OF THAT IS ONE AMBIGUITY, AND IT IS REFUSED RATHER THAN RESOLVED. The locator is the only thing
+ * playback binds on (`Timeline::BindBones`, by bone name); UE can let a control and a bone share a name
+ * because `FRigElementKey` is {name, TYPE} and ours is {name}. So a control named exactly like a bone of
+ * the skeleton would have its keys bound straight onto that bone — driving it with a value that means
+ * "offset from the control's parent space", wrong in a way that looks like bad animation data rather than
+ * like a defect. `Key` refuses that control by name and says which bone it collided with.
  *
  * ── SCALE: WHAT A9 ASKED T5.3 TO ANSWER BEFORE SHE BUILDS THE DRAG ───────────────────────────────────
  *

@@ -22,6 +22,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- <Editor/Widgets/ThumbnailFraming.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source", -- <Engine/Geometry/PosedBounds.hpp>, <Engine/Assets/ThumbnailInfo.hpp> (header-only)
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

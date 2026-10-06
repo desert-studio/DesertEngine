@@ -24,6 +24,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "../ClipFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -38,11 +40,11 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 using Desert::Animation::BoneTransform;
 using Desert::Animation::ControlHierarchy;
 using Desert::Animation::ControlRigStage;
@@ -155,27 +157,15 @@ namespace
 
     AnimationClip ArmClip()
     {
-        AnimationClip clip;
-        clip.AnimationName = "wave";
-        clip.DurationTicks = FrameNumber{ PROJECT_TICK_RATE.Numerator };
+        const FrameNumber end{ PROJECT_TICK_RATE.Numerator };
+        AnimationClip     clip = ClipFixture::Clip( "wave", end );
 
-        BoneTrack shoulder;
-        shoulder.BoneName = "Shoulder";
-        shoulder.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 10.0F, 20.0F, 0.0F ) } );
-        shoulder.PositionKeys.push_back(
-             { FrameNumber{ PROJECT_TICK_RATE.Numerator }, glm::vec3( 40.0F, 55.0F, -12.0F ) } );
-        shoulder.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ) } );
-        shoulder.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
-        clip.Tracks.push_back( shoulder );
-
-        BoneTrack hand;
-        hand.BoneName = "Hand";
-        hand.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 0.0F, -30.0F, 0.0F ) } );
-        hand.PositionKeys.push_back(
-             { FrameNumber{ PROJECT_TICK_RATE.Numerator }, glm::vec3( 7.0F, -22.0F, 4.0F ) } );
-        hand.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ) } );
-        hand.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
-        clip.Tracks.push_back( hand );
+        const auto keyed = []( const Common::BoolResultStr& result )
+        { EXPECT_TRUE( result.IsSuccess() ) << result.GetError(); };
+        keyed( ClipFixture::KeyBone( clip, "Shoulder", FrameNumber{ 0 }, glm::vec3( 10.0F, 20.0F, 0.0F ) ) );
+        keyed( ClipFixture::KeyBone( clip, "Shoulder", end, glm::vec3( 40.0F, 55.0F, -12.0F ) ) );
+        keyed( ClipFixture::KeyBone( clip, "Hand", FrameNumber{ 0 }, glm::vec3( 0.0F, -30.0F, 0.0F ) ) );
+        keyed( ClipFixture::KeyBone( clip, "Hand", end, glm::vec3( 7.0F, -22.0F, 4.0F ) ) );
 
         return clip;
     }
@@ -209,6 +199,7 @@ namespace
     {
         RigFile::ControlRigData data;
         data.Name = "ArmRig";
+        data.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/ArmRig.skeleton" };
 
         RigFile::ControlElementData wrist;
         wrist.Name      = "Wrist_CTRL";
@@ -289,27 +280,7 @@ namespace
         return worst;
     }
 
-    // The repository root, found by walking up from the working directory until a marker is seen — the
-    // same trick the AnimGraphScript census uses, because a source-text census has to read the tree.
-    std::string RepoRoot()
-    {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int i = 0; i < 12; ++i )
-        {
-            if ( std::filesystem::exists( here / "Desert" / "Desert" / "Source" / "Engine" ) )
-            {
-                return here.string() + "/";
-            }
-            if ( !here.has_parent_path() || here.parent_path() == here )
-            {
-                break;
-            }
-            here = here.parent_path();
-        }
-        return {};
-    }
-
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -366,7 +337,7 @@ TEST( ControlRigAssetTest, ARigThatHasBeenThroughTheRuntimeFormIsStillTheSameRig
     const auto      built = RigFile::BuildControlRig( original, skeleton, stage );
     ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
 
-    auto back = RigFile::BuildDataFromControlRig( original.Name, stage, skeleton );
+    auto back = RigFile::BuildDataFromControlRig( original.Name, original.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
 
     // THIS IS THE TRIP A RIG ACTUALLY TAKES, and the one where a name could quietly become an index: the
@@ -458,7 +429,8 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
     // must load, and its controls must draw exactly as they always did. That equivalence is the whole
     // argument for leaving kControlRigVersion where it is, so it is asserted rather than reasoned about.
     const std::string legacy = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Legacy",
       "Controls": [
         { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
@@ -483,7 +455,8 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
 
     // A FILE THAT NAMES A SIZE gets that size, to the float, on the control it names and on no other.
     const std::string sizedText = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Sized",
       "Controls": [
         { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
@@ -522,13 +495,15 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
 
     // THE WRITER PICKS ONE SPELLING. A rig whose controls are all identity comes back without the field,
     // so a generation-1 file round-trips through the runtime unchanged instead of gaining ones.
-    auto legacyBack = RigFile::BuildDataFromControlRig( "Legacy", legacyStage, skeleton );
+    auto legacyBack =
+         RigFile::BuildDataFromControlRig( "Legacy", ArmRigFile().TargetSkeleton, legacyStage, skeleton );
     ASSERT_TRUE( legacyBack.IsSuccess() ) << legacyBack.GetError();
     EXPECT_FALSE( legacyBack.GetValue().Controls[0].ShapeTransform.has_value() );
     EXPECT_EQ( RigFile::WriteControlRig( legacyBack.GetValue() ).find( "ShapeTransform" ), std::string::npos )
          << "the absent spelling must not be written out as an identity block";
 
-    auto sizedBack = RigFile::BuildDataFromControlRig( "Sized", sizedStage, skeleton );
+    auto sizedBack =
+         RigFile::BuildDataFromControlRig( "Sized", ArmRigFile().TargetSkeleton, sizedStage, skeleton );
     ASSERT_TRUE( sizedBack.IsSuccess() ) << sizedBack.GetError();
     const auto hand = std::find_if( sizedBack.GetValue().Controls.begin(), sizedBack.GetValue().Controls.end(),
                                     []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
@@ -542,7 +517,8 @@ TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTh
 {
     const Skeleton    skeleton = MakeArmRig();
     const std::string text     = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Painted",
       "Controls": [
         { "Name": "Hand_L_CTRL", "ShapeName": "CircleXY",
@@ -564,7 +540,7 @@ TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTh
     EXPECT_EQ( rig.Get( rig.Find( "Hand_L_CTRL" ) ).Color, Animation::ControlSideColor( "Hand_L_CTRL" ) );
     EXPECT_EQ( rig.Get( rig.Find( "Tail_CTRL" ) ).Color, glm::vec3( 0.0F, 1.0F, 0.0F ) );
 
-    auto back = RigFile::BuildDataFromControlRig( "Painted", stage, skeleton );
+    auto back = RigFile::BuildDataFromControlRig( "Painted", ArmRigFile().TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     for ( const RigFile::ControlElementData& c : back.GetValue().Controls )
     {
@@ -817,8 +793,8 @@ TEST( ControlRigAssetTest, EveryShapeOfUnusableRigIsRefusedAndTheMessageNamesThe
 
 TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
+    // The checkout the build baked in, never searched for from the working directory.
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
 
     struct Link
     {
@@ -848,13 +824,13 @@ TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
            "Demand<Assets::ControlRigAsset>( wanted, Common::Content::ContentKind::ControlRig",
            "rigs load on demand (AL1-6): without this the handle a scene names is never read and the "
            "character poses from its clip alone" },
-         { "Editor/Source/EditorLayer.cpp",
-           "AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() )",
+         { "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp",
+           "AddSystem<ECS::AnimationECSSystem>( m_Animations.get(), m_Assets.get() )",
            "without the manager the system cannot resolve a rig handle at all" },
          { "Runtime/Source/RuntimeLayer.cpp",
            "AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() )",
            "a rig that works in the editor and not in the packaged runtime is worse than no rig" },
-         { "Editor/Source/EditorLayer.cpp", "ControlRigPanel",
+         { "Editor/Source/Editor/LevelEditor/EditorPanels.cpp", "panels.Add<Editor::ControlRigPanel>(",
            "without this the panel exists as a file nobody opens" },
          { "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp", "Animation::BuildFrame(",
            "THE CALLER ControlManipulator NEVER HAD: without it the controls are never drawn" },
@@ -878,7 +854,7 @@ TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
     for ( const Link& link : links )
     {
         SCOPED_TRACE( std::string( link.File ) + " :: " + link.Needle );
-        const std::string text = ReadFile( root + link.File );
+        const std::string text = ReadFile( root / link.File );
         ASSERT_FALSE( text.empty() ) << "could not read " << link.File;
         EXPECT_NE( text.find( link.Needle ), std::string::npos ) << link.Why;
         ++checked;
@@ -890,4 +866,19 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// A rig that names no skeleton, or the null GUID, is refused by name: the binding is part of the asset
+// (ANIM-SKELREF).
+TEST( ControlRigAssetTest, ARigWithoutATargetSkeletonGuidIsRefusedByName )
+{
+    RigFile::ControlRigData missing = ArmRigFile();
+    missing.TargetSkeleton          = {};
+    const auto refused              = RigFile::ValidateControlRigData( missing );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "TargetSkeleton" ), std::string::npos ) << refused.GetError();
+
+    RigFile::ControlRigData null = ArmRigFile();
+    null.TargetSkeleton.Guid     = "00000000000000000000000000000000";
+    EXPECT_FALSE( RigFile::ValidateControlRigData( null ).IsSuccess() );
 }

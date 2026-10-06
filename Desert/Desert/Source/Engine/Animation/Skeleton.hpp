@@ -141,6 +141,19 @@ namespace Desert::Animation
         }
 
         /**
+         * @brief The rig AS READ: its structure (GetSignature) and every bone's bind and inverse bind, hashed when
+         * the skeleton is built. GetSignature names the rig a clip plays on and a reimport at another scale keeps
+         * it (the bone names do not move); this one moves, because what an Animator sized and cached from the old
+         * binds is then wrong for the new ones (THM1l-b19: Fox.glb reimported at Scale 10 drew a torn star). A
+         * rest-pose edit in the session (SetLocalBindTransform) does not change it: that is the rig being
+         * authored, not a different one read.
+         */
+        [[nodiscard]] uint64_t GetContentSignature() const
+        {
+            return m_ContentSignature;
+        }
+
+        /**
          * @brief Empty when the rig's parent links form a forest; otherwise what is wrong with them.
          *
          * Recorded at construction rather than discovered at use. The tree's old behaviour for a bone whose
@@ -176,6 +189,8 @@ namespace Desert::Animation
                                                                     const std::string& sourceName ) const;
 
         static uint64_t ComputeSignature( const std::vector<BoneInfo>& bones );
+        /// ComputeSignature folded with every bone's LocalBindTransform and OffsetMatrix (GetContentSignature).
+        static uint64_t ComputeContentSignature( const std::vector<BoneInfo>& bones );
 
     private:
         /// Fills m_Parents, m_ResolveOrder and m_StructureError. One pass, Kahn-style, so a cycle is what is
@@ -183,7 +198,8 @@ namespace Desert::Animation
         void BuildStructure();
 
         std::vector<BoneInfo> m_Bones;
-        uint64_t              m_Signature = 0;
+        uint64_t              m_Signature        = 0;
+        uint64_t              m_ContentSignature = 0;
 
         std::unordered_map<std::string, uint32_t> m_NameToIndex;
         std::vector<uint32_t>                     m_Parents;      ///< resolvable parent, or NO_PARENT

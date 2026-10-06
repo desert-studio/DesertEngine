@@ -6,6 +6,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <filesystem>
+#include <optional>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
@@ -19,9 +20,13 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Projection.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Timeline/Binding.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
@@ -32,6 +37,7 @@
 // here so that "the components" remains one include for every consumer.
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
+#include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
@@ -80,8 +86,9 @@ namespace Desert::ECS
     };
 
     // "Reflected render-data block": editable, reflected fields the editor draws and the renderer maps
-    // to its GPU representation. This is the general concept — a surface Material (PBRSurfaceParams) is
-    // just ONE specialization; camera and lights are others. NOT a material, hence the member is `Data`.
+    // to its GPU representation. This is the general concept — a surface material (its template's
+    // MaterialLayout) is just ONE specialization; camera and lights are others. NOT a material, hence the member
+    // is `Data`.
     struct CameraData
     {
         REFLECT()
@@ -148,6 +155,10 @@ namespace Desert::ECS
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)
+        // Translucency pass order override (UE's TranslucencySortPriority): a LOWER value draws first, i.e.
+        // behind a higher one whatever their distances; within one value the pass sorts back to front
+        // (Graphic::System::TranslucentSortOrder). Only meaningful for a Translucent-blend material.
+        int TranslucencySortPriority = 0;
         // Per-submesh visibility: bit i set = submesh i is HIDDEN (skipped at draw). 0 = all visible. Up to
         // 64 submeshes; edited per Element in the Materials panel.
         uint64_t HiddenSubmeshes = 0;
@@ -245,6 +256,26 @@ namespace Desert::ECS
     struct FoliageComponent
     {
         Assets::AssetHandle FoliageType;
+    };
+
+    // One binding of the sequence re-pointed at another entity of THIS scene (UE: a binding override on
+    // ALevelSequenceActor). The `.dseq` stays the same file for every actor that plays it.
+    struct LevelSequenceBindingOverride
+    {
+        Animation::Timeline::BindingGuid Binding;
+        Common::UUID                     Entity = Common::UUID::Null();
+    };
+
+    // A LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor + FMovieSceneSequencePlaybackSettings). Plays the
+    // `.dseq` named by `Sequence` in Play (ECS/System/LevelSequenceSystem.hpp); its Entity bindings name
+    // entities of this scene by UUID. Saved as {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides}
+    // (ComponentRegistry.cpp); a sequence the project does not have refuses the load with both.
+    struct LevelSequenceComponent
+    {
+        Assets::AssetHandle                       Sequence;
+        Animation::Timeline::LoopMode             Loop     = Animation::Timeline::LoopMode::Once;
+        bool                                      AutoPlay = true;
+        std::vector<LevelSequenceBindingOverride> BindingOverrides;
     };
 
     // HOW A LANDSCAPE LOOKS (UE: ALandscape::LandscapeMaterial), on the root entity beside its
@@ -347,6 +378,10 @@ namespace Desert::ECS
     // Assigns an arbitrary shader (by program name) to whatever renderer draws this entity, with its
     // parameters edited generically in Details (built from the shader's #pragma param schema). The
     // renderer builds a DataDrivenMaterial from ShaderName and applies these overrides.
+    // ShaderName is the ShaderService COMPILE KEY of a template that is NOT `Role PBRSurface`, resolved from
+    // the template's handle by whoever sets it (scene load, a role lookup); empty = no override, the mesh
+    // draws its PBR material slots and Params are only the slot-0 hand-off buffer. No decision compares it
+    // to a template's name.
     struct MaterialComponent
     {
         std::string                          ShaderName;
@@ -366,6 +401,14 @@ namespace Desert::ECS
         bool Loop    = true;
 
         float PlaybackSpeed = 1.0f;
+
+        /**
+         * @brief UE's `bUpdateAnimationInEditor`: whether this component advances in the EDITOR world (Edit
+         *        mode). Off by default, as in UE — an edited level holds still while it is being laid out;
+         *        Play always advances. AUTHORED (scene + prefab block); read by AnimationECSSystem through
+         *        Animation::AnimationAdvanceSeconds. Scrubbing Time in Details poses the character either way.
+         */
+        bool UpdateAnimationInEditor = false;
 
         // NO ROOT-MOTION FLAG. `bool EnableRootMotion` sat here, was written to every scene and prefab and
         // drawn as a checkbox in Details, and NOTHING in the engine ever read it: there was no root-delta
@@ -439,6 +482,30 @@ namespace Desert::ECS
         std::vector<PendingGraphParam> PendingGraphParams;
 
         /**
+         * @brief The `.danimgraph`s whose implemented layers answer this entity's LinkedAnimLayer nodes, in
+         *        link order (UE: the Default Linked Layers of the AnimBP plus what LinkAnimClassLayers /
+         *        UnlinkAnimClassLayers did since). AUTHORED — the scene states it — and the one list both the
+         *        Details default and a script's `linkAnimLayers` write, so "what is linked" has one home.
+         *
+         * Applied by AnimationECSSystem whenever the entity's pose graph is set or the list / a listed
+         * graph changes: every link is undone and the list is linked again in order, so a later entry
+         * replaces an earlier one's interfaces exactly as a later LinkAnimClassLayers does. A GUID and not
+         * a name, because a link is identified by its graph (UE: its class) and two files may share a name.
+         */
+        std::vector<Assets::AssetHandle> LinkedLayerGraphs;
+
+        /// What the Animator's links were last built from: per entry of LinkedLayerGraphs its GUID, graph
+        /// object and asset revision. TRANSIENT, plain numbers (not references; see BuiltGraphSource).
+        struct AppliedLayerLink
+        {
+            uint64_t                           Guid                                        = 0;
+            const Animation::Graph::AnimGraph* Graph                                       = nullptr;
+            uint32_t                           Revision                                    = 0;
+            bool                               operator==( const AppliedLayerLink& ) const = default;
+        };
+        std::vector<AppliedLayerLink> AppliedLayerLinks;
+
+        /**
          * @brief What this entity's evaluator was built FROM. TRANSIENT, and the same shape as
          *        BuiltRigSource/BuiltRigRevision below.
          *
@@ -482,6 +549,18 @@ namespace Desert::ECS
         uint64_t BuiltRigSource    = 0;
         uint32_t BuiltRigRevision  = 0;
         uint64_t BuiltRigSignature = 0;
+
+        /**
+         * @brief The signature of the skeleton `Animator` was constructed on. TRANSIENT, same shape as the
+         *        stamps above.
+         *
+         * A reimport re-reads the rig AT THE SAME ADDRESS (SkeletonAsset::LoadFromFile), so the Animator's
+         * `const Skeleton&` stays valid while its bind pose, pose buffers and clip bindings were all sized
+         * from the OLD bone list. The address cannot tell a reimported rig from the one it was built on; the
+         * signature can. AnimationECSSystem rebuilds the Animator when this differs (UE: the anim instance is
+         * re-initialised when the skeleton changes).
+         */
+        uint64_t BuiltSkeletonSignature = 0;
 
         AnimationComponent() = default;
 
@@ -1061,6 +1140,136 @@ namespace Desert::ECS
     struct UIProgressBarComponent
     {
         UIProgressBarData Data;
+    };
+
+    // How UIPath joins its control points.
+    enum class UIPathCurve
+    {
+        Linear, // straight segments: a polyline through the points
+        Smooth  // centripetal Catmull-Rom THROUGH every point (no cusps on unevenly spaced points)
+    };
+
+    // A stroked line drawn as UI — the pen line of a logo, an underline that draws itself, a dune contour.
+    // An element of the canvas like a panel: it lives in its UILayout rect, and its points are FRACTIONS of
+    // that rect ((0,0) top-left, (1,1) bottom-right), so it follows anchors and resolution like everything
+    // else; stretch the element over the canvas and the points are fractions of the canvas.
+    //
+    // Reveal draws the line by ARC LENGTH (0 = nothing, 0.5 = the first half of its length, 1 = all of it),
+    // from P0 towards the last point — the "drawn by hand" reveal; a UI animation drives it with the
+    // "Reveal" property. The stroke is antialiased by geometry (Feather px of fringe), its ends are round
+    // half-discs, and Glow is the same stroke widened by Glow Radius and fading to nothing.
+    //
+    // WHY EIGHT FIXED POINTS rather than a list: reflection has no array field (FieldType has no sequence),
+    // so a list would be invisible to Details, to the timeline and to the serializer alike. Point Count
+    // says how many of P0..P7 the path uses.
+    struct UIPathData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Curve" ), Category( "UI Path" ) )
+        UIPathCurve Curve = UIPathCurve::Smooth;
+
+        PROPERTY( DisplayName( "Point Count" ), Category( "UI Path" ), Range( 2.0f, 8.0f ) )
+        int PointCount = 3;
+
+        PROPERTY( DisplayName( "Reveal" ), Category( "UI Path" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "Fraction of the line's LENGTH drawn, from the first point on. Animate as 'Reveal'." ) )
+        float Reveal = 1.0f;
+
+        PROPERTY( DisplayName( "Thickness" ), Category( "UI Path" ), Range( 0.5f, 64.0f ), Units( "px" ) )
+        float Thickness = 4.0f; // design px, scaled by the canvas scale
+
+        PROPERTY( DisplayName( "Color" ), Category( "UI Path" ), Color )
+        glm::vec3 Color = glm::vec3( 0.95f, 0.78f, 0.45f );
+
+        PROPERTY( DisplayName( "Opacity" ), Category( "UI Path" ), Range( 0.0f, 1.0f ) )
+        float Opacity = 1.0f;
+
+        PROPERTY( DisplayName( "Round Caps" ), Category( "UI Path" ) )
+        bool RoundCaps = true;
+
+        PROPERTY( DisplayName( "Antialias Width" ), Category( "UI Path" ), Range( 0.0f, 4.0f ), Units( "px" ),
+                  Tooltip( "Soft fringe on each side of the stroke, in screen px. 0 = hard edge." ) )
+        float Feather = 1.0f;
+
+        PROPERTY( DisplayName( "Point 0" ), Category( "UI Path Points" ) )
+        glm::vec2 P0 = glm::vec2( 0.1f, 0.5f );
+        PROPERTY( DisplayName( "Point 1" ), Category( "UI Path Points" ) )
+        glm::vec2 P1 = glm::vec2( 0.5f, 0.3f );
+        PROPERTY( DisplayName( "Point 2" ), Category( "UI Path Points" ) )
+        glm::vec2 P2 = glm::vec2( 0.9f, 0.5f );
+        PROPERTY( DisplayName( "Point 3" ), Category( "UI Path Points" ) )
+        glm::vec2 P3 = glm::vec2( 1.0f, 0.5f );
+        PROPERTY( DisplayName( "Point 4" ), Category( "UI Path Points" ) )
+        glm::vec2 P4 = glm::vec2( 1.0f, 0.5f );
+        PROPERTY( DisplayName( "Point 5" ), Category( "UI Path Points" ) )
+        glm::vec2 P5 = glm::vec2( 1.0f, 0.5f );
+        PROPERTY( DisplayName( "Point 6" ), Category( "UI Path Points" ) )
+        glm::vec2 P6 = glm::vec2( 1.0f, 0.5f );
+        PROPERTY( DisplayName( "Point 7" ), Category( "UI Path Points" ) )
+        glm::vec2 P7 = glm::vec2( 1.0f, 0.5f );
+
+        PROPERTY( DisplayName( "Glow" ), Category( "Effects" ) )
+        bool Glow = false;
+        PROPERTY( DisplayName( "Glow Color" ), Category( "Effects" ), Color, EditCondition( "Glow" ) )
+        glm::vec3 GlowColor = glm::vec3( 1.0f, 0.70f, 0.35f );
+        PROPERTY( DisplayName( "Glow Radius" ), Category( "Effects" ), Range( 0.0f, 64.0f ), Units( "px" ),
+                  EditCondition( "Glow" ) )
+        float GlowRadius = 12.0f; // design px past the stroke's edge over which the glow fades out
+        PROPERTY( DisplayName( "Glow Strength" ), Category( "Effects" ), Range( 0.0f, 1.0f ),
+                  EditCondition( "Glow" ) )
+        float GlowStrength = 0.6f; // glow opacity at the stroke's edge
+    };
+    struct UIPathComponent
+    {
+        UIPathData Data;
+    };
+
+    // UE Retainer Box: the element and its whole subtree are drawn into their own offscreen RGBA target
+    // (sized to what the subtree covers on screen, so DPI and canvas scale are already in it), and that
+    // picture is composited back through ONE effect pass. Every effect of the layer goes through that pass
+    // — a mask by another element's shape, a heat haze — rather than each being a special case of one
+    // primitive. Render2D::AddRetainedPasses renders the targets (graph passes); Engine/Graphic/Render2D/RetainerEffect.hpp
+    // is the effect's math, mirrored by UIRetainer.shader.
+    struct UIRetainerData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Opacity" ), Category( "UI Retainer" ), Range( 0.0f, 1.0f ) )
+        float Opacity = 1.0f;
+
+        PROPERTY( DisplayName( "Mask" ), Category( "UI Retainer Mask" ),
+                  Tooltip( "Show the layer only where the Mask Element covers it (its alpha, its shape)." ) )
+        bool Mask = false;
+
+        PROPERTY( DisplayName( "Mask Element" ), Category( "UI Retainer Mask" ), EditCondition( "Mask" ),
+                  Tooltip( "Name of the element on this canvas whose drawn subtree is the mask. It is "
+                           "captured even when hidden, so a hidden element is a pure mask." ) )
+        std::string MaskElement;
+
+        PROPERTY( DisplayName( "Invert Mask" ), Category( "UI Retainer Mask" ), EditCondition( "Mask" ),
+                  Tooltip( "Show the layer where the mask is NOT — a sun hidden behind a dune." ) )
+        bool InvertMask = false;
+
+        PROPERTY( DisplayName( "Heat Haze" ), Category( "UI Retainer Haze" ) )
+        bool Haze = false;
+
+        PROPERTY( DisplayName( "Haze Amplitude" ), Category( "UI Retainer Haze" ), Range( 0.0f, 64.0f ),
+                  Units( "px" ), EditCondition( "Haze" ),
+                  Tooltip( "Largest UV displacement. Animate as 'HazeAmplitude'." ) )
+        float HazeAmplitude = 3.0f; // design px, scaled by the canvas scale
+
+        PROPERTY( DisplayName( "Haze Scale" ), Category( "UI Retainer Haze" ), Range( 1.0f, 512.0f ),
+                  Units( "px" ), EditCondition( "Haze" ), Tooltip( "Size of one shimmer cell." ) )
+        float HazeScale = 24.0f; // design px
+
+        PROPERTY( DisplayName( "Haze Speed" ), Category( "UI Retainer Haze" ), Range( 0.0f, 16.0f ),
+                  EditCondition( "Haze" ), Tooltip( "Cells per second the shimmer rises, on the view's clock." ) )
+        float HazeSpeed = 1.5f;
+    };
+    struct UIRetainerComponent
+    {
+        UIRetainerData Data;
     };
 
     // A checkbox: a box that fills with the check colour when on. A click (runtime) flips Value.
@@ -1656,10 +1865,17 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Material" ), Category( "UI Material" ), Asset<MaterialAsset> )
         Assets::AssetHandle Material;
 
+        // WebM (AV1 + Opus) .webm streamed into this panel (loops, tinted by Color*Opacity). Drag a .webm from
+        // the Content Browser. Overrides the sprite/gradient fill while set. Unset = no video. (Handle<->path
+        // owned by the VideoService.) The clip's Opus track plays through the panel's own audio output — the
+        // MediaSoundComponent of UE's Media Framework — at Video Volume; Video Muted is the explicit "picture
+        // only" switch (the sound path still exists and is torn down, not skipped by a missing sink).
         PROPERTY( DisplayName( "Video" ), Category( "UI Panel" ), Asset<VideoAsset> )
-        Assets::AssetHandle Video; // MPEG1 .mpg/.mpeg streamed into this panel (loops, tinted by Color*Opacity).
-                                   // Drag a .mpg from the Content Browser. Overrides the sprite/gradient fill
-                                   // while set. Unset = no video. (Handle<->path owned by the VideoService.)
+        Assets::AssetHandle Video;
+        PROPERTY( DisplayName( "Video Volume" ), Category( "UI Panel" ), Range( 0.0f, 1.0f ) )
+        float VideoVolume = 1.0f;
+        PROPERTY( DisplayName( "Video Muted" ), Category( "UI Panel" ) )
+        bool VideoMuted = false;
 
         // --- Shape (Phase C) ------------------------------------------------------------------------------
         PROPERTY( DisplayName( "Circle" ), Category( "UI Panel" ) )
@@ -1818,37 +2034,25 @@ namespace Desert::ECS
         UIBindingData Data;
     };
 
-    // One keyframe of a UI animation track. Value is read exactly like UITweenData::From/To — xy for
-    // Offset/Size, x for Opacity, rgb for Color — and Easing shapes the segment ENDING at this key.
-    struct UIAnimKey
-    {
-        float     Time   = 0.0f;
-        glm::vec4 Value  = glm::vec4( 0.0f );
-        UIEasing  Easing = UIEasing::CubicOut;
-    };
-
-    // One property's lane on the timeline. Keys are kept sorted by time; a lane with a single key just
-    // holds that value.
-    struct UIAnimTrack
-    {
-        UITweenProperty        Property = UITweenProperty::Offset;
-        std::vector<UIAnimKey> Keys;
-    };
-
-    // A multi-key UI animation, authored on the timeline (View -> Sequencer with a UI element selected).
-    // UITween is the one-shot from->to; this is the clip: several properties, many keys, one clock.
-    // Serialized by hand (ComponentRegistry) because the reflected path has no vector-of-struct support —
-    // the Sequencer is its editor, not the Details grid.
+    // A multi-key UI animation: a Timeline::Sequence hosted as UIAnimation (Timeline/Hosts.hpp) — UE's
+    // UWidgetAnimation, the same MovieScene core a LevelSequence plays; widgets own no key model of their own.
+    // Its Widget bindings name elements by entity UUID, so one clip may drive several elements. Authored on the
+    // Sequencer, serialized by hand (ComponentRegistry) as the TMLN text block.
     struct UIAnimData
     {
-        std::vector<UIAnimTrack> Tracks;
-        float                    Duration = 1.0f;
-        bool                     Loop     = false;
-        bool                     Playing  = true;
+        Animation::Timeline::Sequence Sequence = []
+        {
+            Animation::Timeline::Sequence hosted; // every other field keeps the Sequence's own default
+            hosted.Host = Animation::Timeline::SequenceHost::UIAnimation;
+            return hosted;
+        }();
+        Animation::Timeline::LoopMode Loop     = Animation::Timeline::LoopMode::Once;
+        bool                          AutoPlay = true;
 
-        // Playhead. RUNTIME only — never serialized, so scrubbing in the editor cannot dirty the scene.
-        // The canvas advances it while Playing; the Sequencer pauses and writes it directly to scrub.
-        float Time = 0.0f;
+        // Where playback is. RUNTIME only — never serialized, so scrubbing in the editor cannot dirty the
+        // scene. Created lazily from Sequence.TickRate/Start/End by the one view that drives scene animation
+        // (UIAnimationPlayback.hpp); whoever edits the range resets it so the next frame re-creates it.
+        std::optional<Animation::Timeline::Player> Playback;
     };
     struct UIAnimComponent
     {
@@ -2206,7 +2410,7 @@ namespace Desert::ECS
         // (SCNE 31, `"Scene": {Guid, Path}`, ComponentRegistry.cpp), so a moved scene is still found.
         PROPERTY( DisplayName( "Scene" ), Category( "UI Render Texture" ),
                   Tooltip( "Path to a .desce rendered live into this element, e.g. "
-                           "Resources/Assets/Scenes/UI_Portrait.desce" ) )
+                           "Content/Scenes/UI_Portrait.desce" ) )
         std::string ScenePath;
 
         PROPERTY( DisplayName( "Tint" ), Category( "UI Render Texture" ), Color )
@@ -2293,6 +2497,18 @@ namespace Desert::ECS
         bool Outline = false;
         PROPERTY( DisplayName( "Outline Color" ), Category( "Effects" ), Color )
         glm::vec3 OutlineColor = glm::vec3( 0.0f );
+        // A soft halo around the glyphs (logo titles over a dark sky): rings of the glyphs pushed out to
+        // Glow Radius, fainter with distance, drawn beneath the text.
+        PROPERTY( DisplayName( "Glow" ), Category( "Effects" ) )
+        bool Glow = false;
+        PROPERTY( DisplayName( "Glow Color" ), Category( "Effects" ), Color, EditCondition( "Glow" ) )
+        glm::vec3 GlowColor = glm::vec3( 1.0f, 0.70f, 0.35f );
+        PROPERTY( DisplayName( "Glow Radius" ), Category( "Effects" ), Range( 0.0f, 32.0f ), Units( "px" ),
+                  EditCondition( "Glow" ) )
+        float GlowRadius = 6.0f; // design px
+        PROPERTY( DisplayName( "Glow Strength" ), Category( "Effects" ), Range( 0.0f, 1.0f ),
+                  EditCondition( "Glow" ) )
+        float GlowStrength = 0.5f;
     };
     struct UITextComponent2D
     {

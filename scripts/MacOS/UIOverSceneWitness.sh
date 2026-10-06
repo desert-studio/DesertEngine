@@ -56,7 +56,7 @@ export DYLD_FALLBACK_LIBRARY_PATH="$B/lib"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 
-( cd "$ROOT/Editor" && "$EDITOR_BIN" --project Desert.deproj --control-socket "$SOCKET" ) > "$LOG" 2>&1 &
+( cd "$ROOT/Editor" && "$EDITOR_BIN" --project ../Projects/Desert/Desert.deproj --control-socket "$SOCKET" ) > "$LOG" 2>&1 &
 
 cleanup() {
     "$CTL" --socket "$SOCKET" quit 0 > /dev/null 2>&1

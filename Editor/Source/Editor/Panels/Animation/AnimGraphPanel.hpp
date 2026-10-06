@@ -2,8 +2,10 @@
 
 #include "../IPanel.hpp"
 
+#include <Editor/Core/Commands/AnimGraphEdit.hpp>
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Panels/Animation/AnimGraphCanvasPlan.hpp>
+#include <Editor/Panels/Animation/PoseGraphEdit.hpp>
 
 #include <Common/Core/UUID.hpp>
 
@@ -43,8 +45,15 @@ namespace Desert::Assets
     class AnimGraphAsset;
 } // namespace Desert::Assets
 
+namespace Desert::Editor::UI
+{
+    class UIHelper;
+}
+
 namespace Desert::Editor
 {
+    class PreviewViewport;
+
     // ── THE ANIM GRAPH OF ONE ENTITY: A DOCUMENT, NOT A TOOL ──────────────────────────────────────────
     //
     // An imgui-node-editor canvas over ONE AnimationComponent's graph — STATES are nodes, TRANSITIONS are
@@ -81,13 +90,13 @@ namespace Desert::Editor
         }
 
         AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
-                        const std::shared_ptr<::Desert::Core::Scene>& scene,
-                        const Animation::AnimationLibrary* library, Assets::AssetManager* assetManager );
+                        const std::shared_ptr<::Desert::Core::Scene>& scene, Animation::AnimationLibrary* library,
+                        Assets::AssetManager* assetManager );
         ~AnimGraphPanel() override;
 
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
-            return { 1040.0f, 640.0f };
+            return { 1440.0f, 640.0f };
         }
 
         void OnUIRender() override;
@@ -107,19 +116,17 @@ namespace Desert::Editor
             return ResolveComponent() != nullptr;
         }
 
-        // A NODE CANVAS COSTS NO RENDERER SLOT. Everything this window draws is ImGui geometry; there is
-        // no Scene, no SceneRenderer and no offscreen target, so it is not pending demand for one of the
-        // six and closing it would free nothing. Answering the base class's conservative `true` would have
-        // it refuse a sixth window over a slot it was never going to take.
-        [[nodiscard]] bool HoldsView() const override
-        {
-            return false;
-        }
+        // THE PREVIEW VIEWPORT IS A RENDERER SLOT (UE Persona: the asset window owns a preview world). The
+        // canvas is ImGui geometry, but the pane beside it is a Scene and a SceneRenderer of its own, so the
+        // window claims one of the six, holds it while the preview lives, and gives it back on ReleaseView.
+        [[nodiscard]] bool HoldsView() const override;
 
         [[nodiscard]] bool ClaimsView() const override
         {
-            return false;
+            return true;
         }
+
+        void ReleaseView() override;
 
         // DELIBERATELY A NO-OP, AND NOT AN OVERSIGHT. The scene fanout (EditorLayer::SetActiveScene) exists
         // so the Outliner, Details and Settings follow whichever viewport has the focus. A document must
@@ -136,6 +143,9 @@ namespace Desert::Editor
         // and by the liveness answer, so "the window found something to draw" and "the subject is alive"
         // cannot disagree.
         [[nodiscard]] ECS::AnimationComponent* ResolveComponent() const;
+        /// The subject entity's SkinnedMeshComponent::MeshHandle (null without one): the mesh whose skeleton
+        /// reference decides which clips this graph's states can name.
+        [[nodiscard]] Assets::AssetHandle ResolveMeshHandle() const;
 
         /// @p width and @p height are passed rather than taken from the child window that used to wrap
         /// this: see the note at the call site, and `Graph::DeferredFrameAll` for what the child was
@@ -182,6 +192,10 @@ namespace Desert::Editor
         // only ever have re-synced the one entity whose window was open.
         void MarkEdited();
 
+        /// This window's graph as an undo owner: the asset resolved by handle at every use, so an entry outlives
+        /// a reload of the file; a restore bumps the asset's revision (every entity re-syncs).
+        [[nodiscard]] AnimGraphOwner GraphOwner() const;
+
         // Writes the graph to its own file. Reports through the status line, which is this window's one
         // error channel.
         void SaveGraph();
@@ -198,12 +212,59 @@ namespace Desert::Editor
         void DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
                             float height );
 
+        // ── THE POSE GRAPH (UE's AnimGraph tab): the graph's own nodes on a canvas of their own ─────────
+        //
+        // Every edit is ONE function of `PoseGraphEdit` (no ImGui, measured by AnimGraphValidation), called
+        // alike by the canvas drag, the context menu and the document action of the same name; a refusal
+        // goes to the status line with the unit's sentence, and the graph is left as it was.
+
+        /// Adds a node of @p kind: at @p where (canvas coordinates) from the context menu, on the free grid
+        /// cell from a document action. A Sequence Player starts on the skeleton's first playable clip.
+        void AddPoseNode( Animation::Graph::PoseNodeKind kind, const std::optional<glm::vec2>& where );
+        /// Wires @p from into Pose pin @p pin of @p to; @p to empty means Output Pose.
+        void WirePose( const std::string& from, const std::string& to, int pin );
+        void RemovePoseNode( const std::string& name );
+        /// Reports a refused edit on the status line. Returns whether the edit went through.
+        bool Report( const Common::BoolResultStr& result );
+        /// The pose graph the canvas shows: the host's nodes and Output Pose, or a layer graph's. A layer
+        /// that no longer exists (renamed, undone) falls back to the host. REFERENCES, not pointers: there is
+        /// always a graph to show (the fallback), and the view lives no longer than the call that resolved it.
+        struct PoseGraphTarget
+        {
+            std::vector<Animation::Graph::PoseNode>& Nodes;
+            std::string&                             Output;
+            float&                                   OutputX; // the Output Pose node's canvas position
+            float&                                   OutputY;
+            Animation::Graph::GraphScope             Scope = Animation::Graph::GraphScope::Host;
+        };
+        [[nodiscard]] PoseGraphTarget ResolvePoseTarget( Animation::Graph::AnimGraph& graph );
+        /// The machine the state canvas edits (m_MachineNode in the shown pose graph, else the host's Output
+        /// Pose machine), or nullptr.
+        [[nodiscard]] Animation::Graph::StateMachine* ResolveMachine( Animation::Graph::AnimGraph& graph );
+        /// The canvas on screen: the state machine's or the pose graph's. The view controls (Frame All, Frame
+        /// Selection, the toolbar buttons) act on THIS one, never on a hidden canvas.
+        [[nodiscard]] ax::NodeEditor::EditorContext* ShownCanvas() const
+        {
+            return m_EditingMachine ? m_Context : m_PoseContext;
+        }
+        /// Show the host's AnimGraph (empty) or a layer graph; the canvas ids and selection start over.
+        void ShowPoseGraph( std::optional<std::pair<std::string, std::string>> layer );
+        /// Open the state machine node `node` of the shown pose graph on the state canvas.
+        void OpenMachine( const std::string& node );
+        void AppendPoseActions( ECS::AnimationComponent& anim, std::vector<DocumentAction>& actions );
+        void DrawPoseCanvas( ECS::AnimationComponent& anim, float width, float height );
+        void DrawPoseSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
+                                float height );
+        /// A parameter pin's binding as a combo of the declared parameters ("unbound" = the pin's default).
+        bool DrawPinBinding( Animation::Graph::AnimGraph& graph, Animation::Graph::PoseNode& node,
+                             const std::string& pin );
+
         // WEAK, not shared. A document that held its scene alive would keep a closed level in memory for
         // as long as its window was open, and — worse — would then answer "my subject is alive" about an
         // entity in a registry nothing else can reach. Expiry IS one of the ways this document's subject
         // dies, and a weak_ptr is what makes it visible rather than invisible.
         std::weak_ptr<::Desert::Core::Scene> m_Scene;
-        const Animation::AnimationLibrary*   m_Library      = nullptr;
+        Animation::AnimationLibrary*         m_Library      = nullptr;
         Assets::AssetManager*                m_AssetManager = nullptr;
         std::string                          m_Status; // last save result line
         bool                                 m_StatusIsError = false;
@@ -231,5 +292,44 @@ namespace Desert::Editor
         // first frame, and a navigation issued while it is still changing size is thrown away. The whole
         // measurement is at the class's declaration.
         Graph::DeferredFrameAll m_FrameAll;
+
+        // The pose graph's canvas: its own editor context and id table, because a state and a pose node may
+        // carry one name and must not share a canvas identity (nor a view: each canvas keeps its own pan).
+        ax::NodeEditor::EditorContext* m_PoseContext = nullptr;
+        Graph::ElementIdMap            m_PoseIds;
+        Graph::PoseGraphCanvas         m_PoseCanvas;
+        Graph::DeferredFrameAll        m_PoseFrameAll;
+        /// Which canvas is shown: the AnimGraph (pose graph, UE's default tab) or the Output Pose's state
+        /// machine (double-click its node, as in UE).
+        bool m_EditingMachine = false;
+        /// WHICH GRAPH THE POSE CANVAS SHOWS (UE: the AnimGraph tab or a layer function graph): empty = the
+        /// graph's own AnimGraph (GraphScope::Host), else (interface, layer) of a layer graph it implements
+        /// (GraphScope::Layer — where Linked Input Pose may be added).
+        std::optional<std::pair<std::string, std::string>> m_LayerGraph;
+        /// WHICH MACHINE THE STATE CANVAS EDITS: a state machine node of the shown pose graph, by name
+        /// (double-click it, as in UE); empty = the machine at the host's Output Pose.
+        std::string m_MachineNode;
+        std::string m_SelectedPoseNode;
+
+        // The preview world (AnimGraphPanelPreview.cpp): the subject's skinned mesh playing this graph live, and
+        // the translate gizmo on the selected skeletal-control node's goal. Rebuilt when the mesh or graph
+        // changes.
+        void                             DrawPreview( ECS::AnimationComponent& anim, float width, float height );
+        void                             DrawGoalGizmo( const glm::vec2& origin, const glm::vec2& size );
+        void                             DestroyPreview();
+        std::unique_ptr<PreviewViewport> m_Preview;
+        std::unique_ptr<UI::UIHelper>    m_UIHelper;
+        uint64_t                         m_PreviewMesh       = 0;
+        uint64_t                         m_PreviewGraph      = 0;
+        bool                             m_GizmoHovered      = false;
+        bool        m_PoseSelectPending = false; // a document action picked the node
+        glm::vec2   m_PoseMenuAt{};              // where the context menu was opened
+
+        // EVERY EDIT OF THE GRAPH IS ONE UNDO ENTRY (UE: FScopedTransaction on the AnimBlueprint): discrete edits
+        // open a Scope, the canvas and the side panel are observed once per frame (a drag = one entry).
+        AnimGraphEditTransaction m_GraphEdit;
+        // The asset revision this window last wrote or saw. A move it did not make (Undo, Redo, another window)
+        // re-issues both canvases' ids, so the restored X/Y are pushed into the node editor, not pulled over.
+        std::optional<uint32_t> m_SeenRevision;
     };
 } // namespace Desert::Editor

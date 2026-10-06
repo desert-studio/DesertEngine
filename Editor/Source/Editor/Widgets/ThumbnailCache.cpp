@@ -15,6 +15,7 @@
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <optional>
 #include <string>
 #include <thread>
@@ -56,30 +57,28 @@ namespace Desert::Editor
         }
     }
 
+    std::size_t ThumbnailCache::ResidentCount() const
+    {
+        return static_cast<std::size_t>( std::count_if( m_Cache.begin(), m_Cache.end(), []( const auto& entry )
+                                                        { return entry.second != nullptr; } ) );
+    }
+
     std::shared_ptr<Graphic::Image2D> ThumbnailCache::Get( const std::string& sourcePath )
     {
-        if ( m_Cache.size() >= kMaxEntries && !m_Cache.contains( sourcePath ) )
-        {
-            m_Cache.clear(); // simple bound; thumbnails re-decode lazily
-            m_Watch.Clear();
-            m_Outdated.clear();
-        }
-
         // Observed BEFORE the decode reads the file, so a write that lands between the two makes the next Get()
         // decode again rather than keep the older picture. A same-size rewrite inside one tick of the file
         // system's clock is a change too: the watch hashes the content while the stamp is racy (FIX2's class).
         // The watch reports a change ONCE, and the new picture may take a worker several frames: the path stays
-        // in m_Outdated until its new picture is cached, or the old one would be served as current from then on.
+        // in m_Outdated until pixels read after this observation are cached (ThumbnailOutdated), or the old one
+        // would be served as current from then on. The moment is taken AFTER Observe hashed the file.
         if ( m_Watch.Observe( sourcePath, sourcePath ) == Common::Utils::WriteWatch::Seen::Changed )
-            m_Outdated.insert( sourcePath );
-        // Sampled BEFORE the stat: a write landing after it carries a stamp at or past it (the racy rule).
-        const auto                        readBegan = std::filesystem::file_time_type::clock::now();
+            m_Outdated.Flag( sourcePath, ThumbnailOutdated::Clock::now() );
         std::error_code                   stampEc;
         const auto                        stamp = std::filesystem::last_write_time( sourcePath, stampEc );
         std::shared_ptr<Graphic::Image2D> previous;
         if ( const auto it = m_Cache.find( sourcePath ); it != m_Cache.end() )
         {
-            if ( !m_Outdated.contains( sourcePath ) )
+            if ( !m_Outdated.Contains( sourcePath ) )
                 return it->second; // may be null (decode previously failed)
             // The file was rewritten since it was decoded (a capture landed): the old picture stays on
             // screen until the worker has the new one, instead of the icon for those frames.
@@ -112,15 +111,15 @@ namespace Desert::Editor
             const int                                 th       = decoded->Height;
             const double                              decodeMs = decoded->DecodeMs;
             const bool                                onMain   = decoded->DecodedOn == std::this_thread::get_id();
-            const Core::Formats::Image2DSpecification spec     = {
-                     .Tag        = "Thumb_" + std::filesystem::path( sourcePath ).filename().string(),
-                     .Width      = static_cast<uint32_t>( tw ),
-                     .Height     = static_cast<uint32_t>( th ),
-                     .Format     = Core::Formats::ImageFormat::RGBA8F,
-                     .Mips       = 1u,
-                     .Data       = std::move( decoded->Rgba ),
-                     .Usage      = Core::Formats::Image2DUsage::Image2D,
-                     .Properties = Core::Formats::Sample,
+            const ::Desert::Core::Formats::Image2DSpecification spec = {
+                 .Tag        = std::format( "Thumb_{}", std::filesystem::path( sourcePath ).filename().string() ),
+                 .Width      = static_cast<uint32_t>( tw ),
+                 .Height     = static_cast<uint32_t>( th ),
+                 .Format     = ::Desert::Core::Formats::ImageFormat::RGBA8F,
+                 .Mips       = 1u,
+                 .Data       = std::move( decoded->Rgba ),
+                 .Usage      = ::Desert::Core::Formats::Image2DUsage::Image2D,
+                 .Properties = ::Desert::Core::Formats::Sample,
             };
             // THIS IMAGE HAS AN OWNER, AND IT SAYS SO. Every thumbnail in the editor is created on this
             // one line — the browser grid, the Collections cards, both Details slots, the drag ghost —
@@ -191,11 +190,12 @@ namespace Desert::Editor
                        sourcePath, failure );
         }
         m_Cache[sourcePath] = result; // cache success or failure (null)
-        // The worker's pixels are matched by write time. A stamp still inside the racy window may be shared by a
-        // same-size rewrite in the same file-system tick, so such a picture stays outdated and is asked for again
-        // until the stamp settles; a settled stamp names one content.
-        if ( stampEc || !Common::Utils::IsRacyWriteTime( stamp, readBegan ) )
-            m_Outdated.erase( sourcePath );
+        // Current once the pixels were read after the rewrite was seen; a same-tick rewrite after that read is
+        // the watch's to report (it hashes while the stamp is racy), so one capture costs one decode.
+        if ( stampEc )
+            m_Outdated.Forget( sourcePath );
+        else
+            m_Outdated.Settle( sourcePath, acquired.ReadBegan );
         return result;
     }
 
@@ -203,14 +203,14 @@ namespace Desert::Editor
     {
         m_Cache.erase( sourcePath );
         m_Watch.Forget( sourcePath );
-        m_Outdated.erase( sourcePath );
+        m_Outdated.Forget( sourcePath );
     }
 
     void ThumbnailCache::Clear()
     {
         m_Cache.clear();
         m_Watch.Clear();
-        m_Outdated.clear();
+        m_Outdated.Clear();
     }
 
     std::unordered_set<ThumbnailCache*>& ThumbnailCache::Live()
