@@ -39,6 +39,7 @@
 #include <chrono>
 #include <format>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 
@@ -675,6 +676,17 @@ namespace Desert::Editor
                       material.Name, sourcePath.generic_string(), chosen.ShaderName, key );
 
         Assets::MaterialData data = ImportedMaterialDocument( chosen, fill );
+        // TEX-SRGB: one image may feed two slots (a glTF MASK binds the albedo image as the opacity map too);
+        // sRGB wins, since a format's alpha is linear either way and the colour slot needs the decode.
+        std::map<std::filesystem::path, ::Desert::Core::Formats::TextureColorSpace> spaces;
+        for ( const ImportedTextureSlot& slot : fill.Textures )
+        {
+            const std::filesystem::path image = slot.NeedsPacking() ? PackedTexturePath( slot )
+                                                                    : slot.Parts.front().Source;
+            auto [at, fresh] = spaces.try_emplace( image, slot.ColorSpace );
+            if ( !fresh && slot.ColorSpace == ::Desert::Core::Formats::TextureColorSpace::SRGB )
+                at->second = ::Desert::Core::Formats::TextureColorSpace::SRGB;
+        }
         for ( const ImportedTextureSlot& slot : fill.Textures )
         {
             std::filesystem::path image = slot.Parts.front().Source;
@@ -685,6 +697,20 @@ namespace Desert::Editor
                     return Common::MakeError<bool>( std::format( "material '{}' in '{}': {}", material.Name,
                                                                  sourcePath.generic_string(),
                                                                  packed.GetError() ) );
+            }
+            // The slot states the space of a texture asset this import CREATES (UE: the material importer sets
+            // SRGB on the textures it makes); an asset that exists keeps its own, so an edit in its Details stays.
+            if ( !Assets::IsTextureSourceAssetFile( TextureImporter::AssetPathFor( image ) ) )
+            {
+                const auto created = TextureImporter::ImportSourceAsset( image );
+                if ( !created )
+                    return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}': {}",
+                                                                 material.Name, sourcePath.generic_string(),
+                                                                 image.generic_string(), created.GetError() ) );
+                if ( const auto set = Assets::SetTextureColorSpace( created.GetValue(), spaces.at( image ) ); !set )
+                    return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}': {}",
+                                                                 material.Name, sourcePath.generic_string(),
+                                                                 created.GetValue().generic_string(), set.GetError() ) );
             }
             if ( static_cast<uint64_t>( ImportTexture( image.string() ) ) == 0 )
                 return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}' for slot '{}' "

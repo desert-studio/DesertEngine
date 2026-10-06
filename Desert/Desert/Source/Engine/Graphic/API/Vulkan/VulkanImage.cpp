@@ -252,8 +252,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !m_Resource.Image ) return BOOLSUCCESS;
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
+        if ( m_EncodedView != VK_NULL_HANDLE )
+            m_MipViews.push_back( m_EncodedView ); // destroyed with the other extra views, on the same queue
         allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_Resource.Sampler, m_MipViews );
-        m_Resource = {}; m_MipViews.clear(); m_IsLoaded = false;
+        m_Resource = {}; m_MipViews.clear(); m_EncodedView = VK_NULL_HANDLE; m_IsLoaded = false;
         return BOOLSUCCESS;
     }
 
@@ -476,6 +478,11 @@ namespace Desert::Graphic::API::Vulkan
              .usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
              .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
+        // An sRGB image is also viewed through its UNORM alias (GetEncodedView): the two formats are one
+        // compatibility class, which the mutable-format bit lets two views of one image use.
+        const bool srgb = m_Specification.ColorSpace == Core::Formats::TextureColorSpace::SRGB;
+        if ( srgb )
+            info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
 
         // A multisampled image is written by the render pass and consumed by its RESOLVE — plain
         // transfer usage does not apply to it (and mip generation is illegal on MS images).
@@ -541,6 +548,9 @@ namespace Desert::Graphic::API::Vulkan
             VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         
         m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
+        if ( srgb )
+            m_EncodedView = Utils::CreateView( vkDevice, m_Resource.Image, GetImageVulkanFormat( m_Specification.Format ),
+                                               aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
 
         if ( m_Specification.Properties & Core::Formats::Sample )
             Utils::CreateSampler( vkDevice, m_Resource.Sampler, Utils::SamplerFilterPolicy::Global );

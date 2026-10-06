@@ -319,6 +319,9 @@ namespace Desert::Graphic::API::Vulkan
         // sampler; the default state keeps the image's own, which the global filter setting recreates live.
         if ( textureProp->GetSamplerState() != Core::Formats::SamplerState{} )
             descriptorImageInfo.sampler = AcquireSlotSampler( textureProp->GetSamplerState() );
+        if ( textureProp->SamplesEncoded() )
+            if ( const auto* image = dynamic_cast<const VulkanImage2D*>( textureProp->GetImage() ) )
+                descriptorImageInfo.imageView = image->GetEncodedView();
         const auto handle = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
 
         // A set that already points at this image view with this version has nothing to learn; a new set

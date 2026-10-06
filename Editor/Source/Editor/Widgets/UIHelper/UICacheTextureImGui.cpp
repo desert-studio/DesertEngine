@@ -61,8 +61,13 @@ namespace Desert::Editor::UI
         }
 
         return m_Ids.Acquire(
-             image, vulkanImage->GetResourceGeneration(), [&res]() -> ImTextureID
-             { return ImGui_ImplVulkan_AddTexture( res.Sampler, res.ImageView, res.Layout ); }, retire );
+             image, vulkanImage->GetResourceGeneration(), [&res, &vulkanImage]() -> ImTextureID
+             {
+                 // ImGui draws into a display-encoded UNORM target: an sRGB texture shows its stored bytes
+                 // through the UNORM alias, not their linear decode (which would draw it darker).
+                 return ImGui_ImplVulkan_AddTexture( res.Sampler, vulkanImage->GetEncodedView(), res.Layout );
+             },
+             retire );
     }
 
     std::size_t UICacheTextureImGui::RetireReleased()

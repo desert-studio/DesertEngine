@@ -2,6 +2,7 @@
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/Formats/SamplerState.hpp>
+#include <Engine/Core/Formats/TextureIntent.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 
 #include <glm/vec4.hpp>
@@ -84,11 +85,20 @@ namespace Desert::Editor
         std::optional<::Desert::Core::Formats::SamplerState> Sampler;
         // Every channel the template's rows route into this slot (empty = some row takes the whole image).
         std::string TemplateChannels;
+        // How the slot's image encodes its values (TEX-SRGB), stated by the SOURCE format for the key that fed
+        // it (SourceKeyColorSpace): sRGB when any part is a colour key, Linear otherwise. The importer gives a
+        // texture asset it CREATES this space; an existing asset keeps the one it states (a user's edit stays).
+        ::Desert::Core::Formats::TextureColorSpace ColorSpace = ::Desert::Core::Formats::TextureColorSpace::Linear;
         // The slot binds one source image AS IS only when one image fills every channel the template routes
         // here; otherwise the importer packs the parts into a derived image (a glTF occlusion map that is not
         // the metallic-roughness image, or a metallic-roughness image whose R is not occlusion at all).
         [[nodiscard]] bool NeedsPacking() const;
     };
+    // The colour space the source format states for the image a key names. glTF 2.0 §3.9: baseColorTexture and
+    // emissiveTexture are sRGB-encoded, every other texture (normal, metallic-roughness, occlusion, masks) is
+    // linear; FBX's DiffuseColor and EmissiveColor maps are colour, its other maps data. One home for the list.
+    [[nodiscard]] ::Desert::Core::Formats::TextureColorSpace SourceKeyColorSpace( std::string_view sourceKey );
+
     struct TemplateFill
     {
         std::vector<ImportedParam>       Params;

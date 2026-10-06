@@ -75,6 +75,25 @@ namespace Desert::Graphic
             return m_Sampler;
         }
 
+        /// TEX-SRGB: the slot reads the image's STORED encoding (VulkanImage2D::GetEncodedView) instead of its
+        /// decoded view. Set by a pass that draws into a display-encoded target (Render2D's RGBA8 layer), so an
+        /// sRGB texture keeps the brightness it is authored with; a lit pass keeps the hardware decode.
+        void SetSamplesEncoded( const bool encoded )
+        {
+            if ( encoded == m_SamplesEncoded )
+                return;
+            m_SamplesEncoded = encoded;
+            NoteWritten();
+        }
+        [[nodiscard]] bool SamplesEncoded() const noexcept
+        {
+            return m_SamplesEncoded;
+        }
+        [[nodiscard]] const Image2D* GetImage() const noexcept
+        {
+            return m_Texture;
+        }
+
         const auto& GetUniform() const
         {
             return m_Uniform;
@@ -84,6 +103,7 @@ namespace Desert::Graphic
         std::shared_ptr<ShaderResources::UniformImage2D> m_Uniform;
         const Image2D*                                   m_Texture        = nullptr;
         Core::Formats::SamplerState                      m_Sampler;
+        bool                                             m_SamplesEncoded = false;
         uint64_t                                         m_UniformVersion = PropertyVersion::kNeverWritten;
     };
 } // namespace Desert::Graphic
