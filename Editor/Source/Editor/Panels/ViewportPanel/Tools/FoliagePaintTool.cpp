@@ -776,7 +776,11 @@ namespace Desert::Editor::Tools
         {
             std::vector<ECS::Entity> fields;
             for ( const auto& entity : scene.GetAllEntities() )
-                if ( IsFoliageField( entity ) && entity.GetComponent<ECS::FoliageComponent>().FoliageType == type )
+                // S1: a field a procedural volume generated is its volume's (rewritten by Resimulate), not the
+                // brush's: painting the same type grows its own fields beside it (UE: procedural instances are
+                // not painted into).
+                if ( IsFoliageField( entity ) && !entity.HasComponent<ECS::ProceduralFoliageFieldComponent>() &&
+                     entity.GetComponent<ECS::FoliageComponent>().FoliageType == type )
                     fields.push_back( entity );
             return fields;
         }

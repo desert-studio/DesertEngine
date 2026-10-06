@@ -173,6 +173,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PostProcessVolumeComponent, 
 // component rather than another field of the layer, because there may be several of them and each has a
 // place in the world; the layer is one shell and has none.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::HeroCloudComponent, Data, "HeroCloudData", "Hero Cloud" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ProceduralFoliageComponent, Data, "ProceduralFoliageData",
+                                     "Procedural Foliage" )
 // Sky Atmosphere is a CUSTOM entry: the reflected fields PLUS the sky-colour ramp (which needs the scene's
 // sun elevation, and that is not a field) and the IBL bake button. See
 // ComponentWidgets/SkyAtmosphereComponent.cpp.

@@ -76,6 +76,26 @@ namespace Desert::Reflection
         return { std::move( array ) };
     }
 
+    // The handles of a std::vector of asset handles, and the vector rebuilt from handles (FieldInfo::ContainerHandles
+    // / AssignHandles): what lets the serializer write each element in its asset type's reference form.
+    template <typename Vector>
+    [[nodiscard]] std::vector<std::uint64_t> ContainerHandles( const void* field )
+    {
+        std::vector<std::uint64_t> out;
+        for ( const auto& element : *static_cast<const Vector*>( field ) )
+            out.push_back( static_cast<std::uint64_t>( element ) );
+        return out;
+    }
+
+    template <typename Vector>
+    void AssignHandles( void* field, const std::vector<std::uint64_t>& handles )
+    {
+        Vector assigned;
+        for ( const std::uint64_t handle : handles )
+            assigned.push_back( typename Vector::value_type( handle ) );
+        *static_cast<Vector*>( field ) = std::move( assigned );
+    }
+
     // Reads the array back under the wrong-type rule, and a vector is ONE field: any element of the wrong
     // type is an Issue (with its index in the path) and the WHOLE vector keeps its current value — a
     // vector with one element silently missing would shift every later index.
