@@ -1392,6 +1392,11 @@ TEST( RigGraphTest, ConstructionRunsOnceAndBeforeTheFirstForwardsSolve )
     auto                stage    = TwoControlRig( skeleton, &a, &b );
     const BoneTransform original = stage->GetHierarchy().Get( a ).Pose;
     const BoneTransform moved    = Placed( { -70.0F, 33.0F, 8.0F }, -45.0F, { 1.0F, 1.0F, 0.0F } );
+    // A drives a bone too: the Forwards graph writes only A, and a forwards solve whose writes reach no
+    // driven bone is refused at SetGraph (it could not change the pose).
+    const auto drives =
+         stage->SetDrives( skeleton, { ControlBoneDrive{ a, kShoulder }, ControlBoneDrive{ b, kHand } } );
+    ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
 
     // Construction copies A into B; Forwards moves A. Before-the-first-Forwards => B holds A's ORIGINAL;
     // once => a second frame does not copy the moved A over it.
@@ -1431,6 +1436,9 @@ TEST( RigGraphTest, ALimitClampsWhatTheGraphWritesBecauseTheSetterApplysIt )
     ControlElement     limited = MakeControl( "L_CTRL", world, BoneTransform{}, BoneTransform{} );
     limited.Limits.push_back( ControlLimit{ ControlLimitChannel::TranslationX, -1.0F, 1.0F } );
     const uint32_t l = MustAdd( stage->GetHierarchy(), limited );
+    // Drives first: a forwards graph is installed only against them (SetGraph refuses otherwise).
+    const auto drives = stage->SetDrives( skeleton, { ControlBoneDrive{ l, kHand } } );
+    ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
 
     std::vector<RigNode> nodes;
     nodes.push_back( MakeNode( "push", RigNodeKind::SetControl,
