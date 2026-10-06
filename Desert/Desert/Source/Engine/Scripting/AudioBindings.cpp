@@ -14,9 +14,9 @@ namespace Desert::Scripting
         sol::table audio = implRef.Lua.create_named_table( "Audio" );
 
         audio["play"] = sol::overload(
-             []( const std::string& clip ) { Audio::AudioEngine::Get().PlayOneShot( clip ); },
+             []( const std::string& clip ) { Audio::AudioEngine::Get().PlayOneShot( clip, Audio::SoundClass::Effects ); },
              []( const std::string& clip, float volume )
-             { Audio::AudioEngine::Get().PlayOneShot( clip, volume ); } );
+             { Audio::AudioEngine::Get().PlayOneShot( clip, Audio::SoundClass::Effects, volume ); } );
 
         audio["stopAll"] = []() { Audio::AudioEngine::Get().StopAll(); };
     }

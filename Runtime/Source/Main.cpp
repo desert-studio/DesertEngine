@@ -27,6 +27,7 @@
 #include <Engine/EntryPoint.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Project/StartupLayout.hpp>
+#include <Engine/Settings/GameUserSettings.hpp>
 
 #include <Common/Core/Constants.hpp>
 
@@ -58,6 +59,8 @@ namespace Desert::Player
 {
     static std::string       s_SceneOverride;
     static Core::PlayRequest s_PlayRequest;
+    // Loaded in CreateApplication, before the window exists; applied in OnCreate, once it does.
+    static Settings::GameUserSettings s_UserSettings;
 #if DESERT_DEV_INSTRUMENTS
     static std::optional<MovieRenderRequest>
          s_Movie; // --render-movie: offline render of a level (MovieRender.hpp)
@@ -72,6 +75,11 @@ namespace Desert::Player
 
         void OnCreate() override
         {
+            // UE's ApplySettings at startup: the window was created from these DisplaySettings, the rest — the
+            // pacer, the mix, the language, the quality groups — reaches its consumers here.
+            if ( const auto applied = Settings::ApplyGameUserSettings( s_UserSettings, *GetWindow(), GetFramePacer() );
+                 !applied )
+                LOG_ERROR( "[Settings] {}", applied.GetError() );
 #if DESERT_DEV_INSTRUMENTS
             // A movie is rendered on fixed time: frame N is at N / fps of world time on every run.
             if ( s_Movie.has_value() )
@@ -366,17 +374,28 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // (PKG1). Before the application: the device reads it while it is being created.
     Desert::Graphic::PipelineCacheFile::DeclareHost( Desert::Graphic::PipelineCacheFile::Host::Game );
 
+    // THE PLAYER'S SETTINGS (UE: UGameUserSettings::LoadSettings) — theirs from their own directory, else the
+    // game's defaults from <project>/Config; neither is a refusal, not a guessed window. Before the
+    // application: the window is CREATED in the player's mode, size and VSync rather than moved there.
+    auto userSettings = Desert::Settings::LoadGameUserSettings(
+         Desert::Project::ProjectContext::Directory(),
+         Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) );
+    if ( !userSettings )
+        FailStartup( "Settings: " + userSettings.GetError(), 1 );
+    Desert::Player::s_UserSettings = userSettings.GetValue();
+
     ApplicationInfo appInfo;
-    appInfo.Title = Desert::Project::ProjectContext::Current().Name;
-    appInfo.VSync = true; // a game default: tear-free presentation
-    // Width/Height left as std::nullopt -> fullscreen at the monitor's native resolution.
+    appInfo.Title   = Desert::Project::ProjectContext::Current().Name;
+    appInfo.Display = Desert::Player::s_UserSettings.Display;
     // A movie renders into its own offscreen target; the window is only the host of the device, so it is a
     // small window rather than a fullscreen one covering the desktop for the length of the render.
 #if DESERT_DEV_INSTRUMENTS
     if ( Desert::Player::s_Movie.has_value() )
     {
-        appInfo.Width  = 640u;
-        appInfo.Height = 360u;
+        appInfo.Display.Mode        = Desert::WindowMode::Windowed;
+        appInfo.Display.ResolutionX = 640u;
+        appInfo.Display.ResolutionY = 360u;
+        Desert::Player::s_UserSettings.Display = appInfo.Display;
     }
 #endif
 

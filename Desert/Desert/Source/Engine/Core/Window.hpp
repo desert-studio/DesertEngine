@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include <Common/Core/Events/EventTree.hpp>
@@ -14,6 +15,20 @@ namespace Desert::Graphic
 
 namespace Desert
 {
+    // HOW THE WINDOW SITS ON THE MONITOR — UE's EWindowMode plus the editor's own maximized frame. One value
+    // where there were two flags (Fullscreen + FullscreenCoverTaskbar) that spelled three states between them.
+    //   Windowed           — a framed window of Width x Height;
+    //   Maximized          — zoomed to the monitor's work area, taskbar/Dock visible (the editor's start);
+    //   WindowedFullscreen — borderless over the whole monitor at its native mode (UE: WindowedFullscreen);
+    //   Fullscreen         — the monitor itself is switched to Width x Height (UE: Fullscreen, exclusive).
+    enum class WindowMode : uint8_t
+    {
+        Windowed,
+        Maximized,
+        WindowedFullscreen,
+        Fullscreen,
+    };
+
     struct WindowSpecification
     {
         std::string Title  = "Sandbox";
@@ -29,12 +44,9 @@ namespace Desert
         // (borderless OVER the monitor). У9 gave it the reader: both platforms' Init() applies it, and
         // both apply it AFTER glfwCreateWindow rather than through the hint. That is not a style choice
         // and the reason is measured — see the block above the call in MacOSWindow::Init.
-        bool        Decorated  = true;
-        bool        Fullscreen = false;
-        // When Fullscreen (borderless): cover the whole monitor (over the taskbar) if true, else fit the
-        // monitor work area (taskbar stays visible).
-        bool        FullscreenCoverTaskbar = false;
-        bool        VSync                  = true;
+        bool       Decorated = true;
+        WindowMode Mode      = WindowMode::Windowed;
+        bool       VSync     = true;
         // FALSE = CREATED HIDDEN, and nothing but `Window::Show` puts it on screen. The editor asks for it:
         // a full-size window that is blank and not answering for the seconds its start takes is what its
         // own splash exists to replace (Editor/Splash/SplashScreen.hpp), and the swapchain renders into a
@@ -103,6 +115,14 @@ namespace Desert
         // call each for that reason. Read by the bar to pick between the maximize and restore icons, and
         // by the double-click to decide which way to toggle.
         [[nodiscard]] virtual bool IsWindowMaximized() const = 0;
+
+        // Moves the live window into @p mode — GameUserSettings::Apply's door to the window. @p width x
+        // @p height is the client size for Windowed and the monitor's video mode for Fullscreen; the other
+        // two modes take their size from the monitor. The swapchain is rebuilt for the new size.
+        // Refuses, with the reason, when there is no monitor to put the window on (a closed lid).
+        [[nodiscard]] virtual Common::BoolResultStr SetWindowMode( WindowMode mode, uint32_t width,
+                                                                   uint32_t height ) = 0;
+        [[nodiscard]] virtual WindowMode            GetWindowMode() const            = 0;
 
         // Whether the OS draws this window's frame. Read by the editor: the chrome is drawn only when the
         // application owns the frame, so one build serves both answers and neither is a second code path

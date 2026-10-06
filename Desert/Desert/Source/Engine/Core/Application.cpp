@@ -20,22 +20,17 @@ namespace Desert::Engine
     {
         WindowSpecification windowSpec;
         windowSpec.Title     = appInfo.Title;
-        windowSpec.VSync     = appInfo.VSync;
+        windowSpec.VSync     = appInfo.Display.VSync;
         windowSpec.Decorated = appInfo.Decorated;
         windowSpec.Visible   = appInfo.Visible;
-        if ( appInfo.Width.has_value() && appInfo.Height.has_value() )
+        windowSpec.Mode      = appInfo.Display.Mode;
+        // The two monitor-sized modes take their size from the monitor in the platform window's Init.
+        if ( appInfo.Display.UsesResolution() )
         {
-            windowSpec.Width      = *appInfo.Width;
-            windowSpec.Height     = *appInfo.Height;
-            windowSpec.Fullscreen = false;
+            windowSpec.Width  = appInfo.Display.ResolutionX;
+            windowSpec.Height = appInfo.Display.ResolutionY;
         }
-        else
-        {
-            // No explicit size -> fullscreen at the monitor's native resolution (WindowsWindow::Init fills
-            // Width/Height from the primary monitor's video mode).
-            windowSpec.Fullscreen             = true;
-            windowSpec.FullscreenCoverTaskbar = appInfo.FullscreenCoverTaskbar;
-        }
+        m_FramePacer.SetLimit( appInfo.Display.FrameRateLimit );
 
         m_Window = Window::Create( windowSpec );
         m_WindowEventNode = m_Events.Attach<Window>( m_ApplicationEventNode, *m_Window );
@@ -356,6 +351,13 @@ namespace Desert::Engine
                 DESERT_PROFILE_SCOPE( "PersistPipelineCache" );
                 if ( const auto persisted = m_Device->PersistPipelineCache(); !persisted )
                     LOG_WARN( "[PipelineCache] not written: {}", persisted.GetError() );
+            }
+
+            // 9. The frame rate limit (GameUserSettings::Display.FrameRateLimit): the next frame starts on
+            // the pacer's schedule. Returns at once when there is no limit.
+            {
+                DESERT_PROFILE_SCOPE( "FramePacer" );
+                m_FramePacer.WaitForNextFrame();
             }
         }
 

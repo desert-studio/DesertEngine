@@ -41,6 +41,12 @@ namespace Desert::Platform::MacOS
 
         [[nodiscard]] bool HasDrawableArea() const override;
 
+        [[nodiscard]] Common::BoolResultStr SetWindowMode( WindowMode mode, uint32_t width, uint32_t height ) override;
+        [[nodiscard]] WindowMode            GetWindowMode() const override
+        {
+            return m_Data.Specification.Mode;
+        }
+
         [[nodiscard]] virtual uint32_t GetWidth() const override;
         [[nodiscard]] virtual uint32_t GetHeight() const override;
         // Mirrors WindowsWindow: the swapchain picks its present mode at creation, so the new pacing only
@@ -92,6 +98,9 @@ namespace Desert::Platform::MacOS
         GLFWwindow*                         m_GLFWWindow;
         // A window created hidden is maximized when it is SHOWN, never before: see Show().
         bool                                m_MaximizeOnShow = false;
+        // The Decorated the application ASKED for. Specification.Decorated holds what the window HAS, which a
+        // monitor-covering mode turns off; the windowed modes give the request back (SetWindowMode).
+        bool m_RequestedFrame = true;
         std::shared_ptr<Graphic::SwapChain> m_SwapChain;
     };
 } // namespace Desert::Platform::MacOS
