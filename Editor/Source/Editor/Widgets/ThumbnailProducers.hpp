@@ -64,6 +64,8 @@ namespace Desert::Editor::ThumbnailProducers
          Row{ FileType::LandscapeLayerInfo, Producer::TypeIcon, "a layer's settings; UE draws its colour swatch" },
          Row{ FileType::LevelSequence, Producer::TypeIcon,
               "UE (ULevelSequence): the class icon; a sequence has no still" },
+         Row{ FileType::Fracture, Producer::TypeIcon,
+              "the class icon until DST-02 photographs the pieces (UE renders the geometry collection)" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::RenderedPose,

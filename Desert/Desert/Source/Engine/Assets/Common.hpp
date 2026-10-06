@@ -97,6 +97,10 @@ namespace Desert::Assets
         // Entity bindings name entities of the scene that places it through a LevelSequenceComponent. See
         // Engine/Assets/LevelSequenceAsset.hpp.
         LevelSequence,
+        // A FRACTURE (`.dfrac`): UE's UGeometryCollection — a static mesh baked into Voronoi pieces, their
+        // cluster hierarchy, damage thresholds and convex hulls (Engine/Destruction/FractureBake.hpp). See
+        // Engine/Assets/FractureAsset.hpp.
+        Fracture,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -183,6 +187,10 @@ namespace Desert::Assets
             // A LEVEL SEQUENCE IS SCENE-SCOPED for the retarget's reason: `LevelSequenceComponent::Sequence`
             // is an `AssetHandle` held by a live entity.
             case AssetTypeID::LevelSequence:
+            // A FRACTURE IS SCENE-SCOPED for the retarget's reason: the entity that breaks names it through
+            // an `AssetHandle` (UE's UGeometryCollectionComponent::RestCollection), so it lives exactly as
+            // long as a live entity holds it.
+            case AssetTypeID::Fracture:
             case AssetTypeID::Count:
                 return false;
         }
@@ -249,6 +257,8 @@ namespace Desert::Assets
                 return "LandscapeLayerInfo";
             case AssetTypeID::LevelSequence:
                 return "LevelSequence";
+            case AssetTypeID::Fracture:
+                return "Fracture";
             case AssetTypeID::Count:
                 return "Count";
         }
