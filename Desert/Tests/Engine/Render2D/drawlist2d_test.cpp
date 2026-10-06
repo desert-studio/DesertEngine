@@ -1094,3 +1094,76 @@ TEST( UIMaterialFallback, OneBrokenMaterialAmongSeveralThroughThePreparedPath )
     EXPECT_NE( logs[0].find( "'UIMatError'" ), std::string::npos ) << logs[0];
     EXPECT_EQ( logs[0].find( "UI_Gradient" ), std::string::npos ) << "only the broken material is reported";
 }
+
+// RDG-FAULT1 C3b: a UI material built from a shader that has since HOT-RELOADED is rebuilt on the reload, not left
+// on the default. The entry records its shader's reload generation (Shader::GetReloadGeneration, the key
+// ShaderBindingLayoutCache uses); UIMaterialCache::Resolve runs UIMaterialFallback::RebuildIfReloaded on every hit
+// before the frame's draws are prepared (census RenderGraphCompile.UIMaterialDrawsFallBackPerDrawNotPerNode).
+// Here: the reload adds a parameter, so the old row no longer fits; bumping the generation rebuilds the row from
+// the new layout and the next preparation draws the material itself, with nothing reported. Same generation: no
+// rebuild.
+TEST( UIMaterialFallback, AShaderReloadRebuildsTheMaterialInsteadOfFallingBack )
+{
+    using R2D::UIMaterialFallback;
+    using Fields = std::vector<std::string>;
+    struct Entry
+    {
+        bool        Error = false;
+        std::string AssetName;
+        Fields      Row;
+        uint32_t    ShaderGeneration = 0;
+    };
+    Fields      layout     = { "TopColor", "BottomColor" }; // the shader's parameter layout, as compiled
+    uint32_t    generation = 0;                             // Shader::GetReloadGeneration
+    Entry       material{ false, "UI_Gradient", layout, generation };
+    const Entry error{ true, "", {}, 0 };
+    int         rebuilds = 0;
+    const auto  rebuild  = [&]( Entry& stale )
+    {
+        ++rebuilds;
+        stale.Row = layout; // a fresh build takes the reloaded shader's schema
+        return true;
+    };
+    UIMaterialFallback       fallback;
+    std::vector<std::string> logs;
+    const auto               draw = [&]()
+    {
+        return fallback.Choose(
+             material, [&]() { return &error; },
+             [&]( const Entry& e ) {
+                 return e.Error ? std::string()
+                                : UIMaterialFallback::RowFault( true, layout, e.Row, e.Row.size() );
+             },
+             []( const Entry& ) { return std::string( "UIGradient" ); },
+             [&]( const std::string& line ) { logs.push_back( line ); }, "UIMatError" );
+    };
+
+    EXPECT_FALSE( UIMaterialFallback::RebuildIfReloaded( material, generation, rebuild ) );
+    EXPECT_EQ( draw(), &material );
+
+    // The shader reloads with one more parameter.
+    layout.push_back( "Glow" );
+    ++generation;
+    EXPECT_TRUE( UIMaterialFallback::RebuildIfReloaded( material, generation, rebuild ) )
+         << "a bumped reload generation rebuilds the entry";
+    EXPECT_EQ( material.ShaderGeneration, generation );
+    EXPECT_EQ( draw(), &material ) << "the reloaded material draws itself, not the default";
+    EXPECT_TRUE( logs.empty() ) << "nothing falls back, so nothing is reported";
+    EXPECT_FALSE( UIMaterialFallback::RebuildIfReloaded( material, generation, rebuild ) )
+         << "the same generation does not rebuild again";
+    EXPECT_EQ( rebuilds, 1 );
+
+    // A rebuild that fails is tried once per reload, not every frame.
+    ++generation;
+    layout.push_back( "Edge" );
+    const auto failing = [&]( Entry& )
+    {
+        ++rebuilds;
+        return false;
+    };
+    EXPECT_FALSE( UIMaterialFallback::RebuildIfReloaded( material, generation, failing ) );
+    EXPECT_FALSE( UIMaterialFallback::RebuildIfReloaded( material, generation, failing ) );
+    EXPECT_EQ( rebuilds, 2 );
+    EXPECT_EQ( draw(), &error ) << "an entry that could not follow its shader falls back (reported once)";
+    EXPECT_EQ( logs.size(), 1u );
+}

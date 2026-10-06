@@ -121,15 +121,57 @@ namespace Desert::Graphic::Render2D
             return entry;
         }
 
-        entry.Pipeline = pipeline.GetValue();
-        entry.Material = std::make_unique<DataDrivenMaterial>( shaderName );
+        entry.Pipeline         = pipeline.GetValue();
+        entry.Material         = std::make_unique<DataDrivenMaterial>( shaderName );
+        entry.ShaderGeneration = shader->GetReloadGeneration();
         return entry;
+    }
+
+    template <class Rebuild>
+    void UIMaterialCache::FollowShaderReload( Entry& entry, Rebuild&& rebuild )
+    {
+        if ( !entry.Pipeline || !entry.Pipeline->GetSpecification().Shader )
+        {
+            return;
+        }
+        const uint32_t generation = entry.Pipeline->GetSpecification().Shader->GetReloadGeneration();
+        UIMaterialFallback::RebuildIfReloaded(
+             entry, generation,
+             [&]( Entry& stale )
+             {
+                 std::string refusal;
+                 Entry       rebuilt = rebuild( refusal );
+                 if ( !rebuilt.Pipeline )
+                 {
+                     LOG_ERROR(
+                          "[UIMaterial] '{}' did not rebuild after its shader '{}' reloaded ({}); it keeps the "
+                          "previous build",
+                          stale.AssetName, stale.Material ? stale.Material->GetShaderName() : std::string(),
+                          refusal );
+                     return false;
+                 }
+                 const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+                 m_RetiredBuilds.push_back(
+                      RetiredBuild{ std::move( stale.Material ), std::move( stale.Pipeline ), frame } );
+                 rebuilt.Error         = stale.Error;
+                 rebuilt.LastUsedFrame = stale.LastUsedFrame;
+                 if ( rebuilt.AssetName.empty() )
+                 {
+                     rebuilt.AssetName = stale.AssetName;
+                 }
+                 stale = std::move( rebuilt );
+                 return true;
+             } );
     }
 
     const UIMaterialCache::Entry* UIMaterialCache::ErrorEntry()
     {
         if ( m_Error )
+        {
+            FollowShaderReload( *m_Error,
+                                [this]( std::string& refusal ) { return Build( kErrorShaderName, refusal ); } );
             return m_Error.get();
+        }
 
         std::string refusal;
         Entry       built = Build( kErrorShaderName, refusal );
@@ -193,23 +235,17 @@ namespace Desert::Graphic::Render2D
         if ( hit != m_Entries.end() )
         {
             hit->second.LastUsedFrame = frame;
+            // A shader hot reload since this entry was built rebuilds it here, before any draw of this frame is
+            // prepared - a reloaded material draws its new self, not the default.
+            FollowShaderReload( hit->second, [this, &handle]( std::string& refusal )
+                                { return BuildFromAsset( handle, refusal ); } );
             if ( hit->second.Pipeline )
                 return &hit->second;
             return ErrorEntry();
         }
 
-        auto* materialService = Runtime::ResourceRegistry::GetMaterialService();
-        if ( !materialService )
-            return ErrorEntry();
-
-        const std::string shaderName = materialService->ShaderNameOf( handle );
-        std::string       refusal;
-        Entry             built;
-        if ( shaderName.empty() )
-            refusal = "the handle names no material asset (it was deleted, or never registered)";
-        else
-            built = Build( shaderName, refusal );
-
+        std::string refusal;
+        Entry       built = BuildFromAsset( handle, refusal );
         if ( !built.Pipeline )
         {
             // Once per handle. The picture repeats the complaint every frame; the log does not have to.
@@ -221,6 +257,32 @@ namespace Desert::Graphic::Render2D
             }
             return ErrorEntry();
         }
+
+        built.LastUsedFrame = frame;
+        auto [it, inserted] = m_Entries.emplace( handle, std::move( built ) );
+        return &it->second;
+    }
+
+    UIMaterialCache::Entry UIMaterialCache::BuildFromAsset( const Assets::AssetHandle& handle,
+                                                            std::string&               refusal ) const
+    {
+        auto* materialService = Runtime::ResourceRegistry::GetMaterialService();
+        if ( !materialService )
+        {
+            refusal = "no material service";
+            return Entry{};
+        }
+
+        const std::string shaderName = materialService->ShaderNameOf( handle );
+        Entry             built;
+        if ( shaderName.empty() )
+        {
+            refusal = "the handle names no material asset (it was deleted, or never registered)";
+            return built;
+        }
+        built = Build( shaderName, refusal );
+        if ( !built.Pipeline )
+            return built;
 
         // The asset's authored values, flattened through the instance chain (base first, child last).
         // Applied by NAME, so a parameter the shader no longer declares is dropped by SetParam rather
@@ -254,12 +316,10 @@ namespace Desert::Graphic::Render2D
             }
         }
 
-        built.LastUsedFrame = frame;
         built.AssetName     = materialService->AssetNameOf( handle );
         if ( built.AssetName.empty() )
             built.AssetName = std::format( "<material {}>", static_cast<uint64_t>( handle ) );
-        auto [it, inserted] = m_Entries.emplace( handle, std::move( built ) );
-        return &it->second;
+        return built;
     }
 
     std::string UIMaterialCache::PrepareDraw( const Entry& entry, const glm::mat4& projection )
@@ -314,6 +374,8 @@ namespace Desert::Graphic::Render2D
         const uint64_t frame  = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const uint32_t window = ExecutorRetireWindow();
 
+        std::erase_if( m_RetiredBuilds, [&]( const RetiredBuild& retired )
+                       { return MayRetireExecutor( retired.Frame, frame, window ); } );
         for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
         {
             if ( MayRetireExecutor( it->second.LastUsedFrame, frame, window ) )

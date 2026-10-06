@@ -4322,6 +4322,28 @@ TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
          << "the fallback's one report no longer reaches the log";
     EXPECT_NE( cache.find( "built.AssetName=materialService->AssetNameOf(handle);" ), std::string::npos )
          << "an entry no longer keeps the asset name it was resolved from";
+    // A SHADER HOT RELOAD REBUILDS THE ENTRY (drawlist2d AShaderReloadRebuildsTheMaterialInsteadOfFallingBack pins
+    // RebuildIfReloaded): Build records the generation, every Resolve hit and the error fill follow it, and the
+    // follow keys on the entry's PIPELINE's shader - the one PrepareDraw judges the row against.
+    EXPECT_NE( cache.find( "entry.ShaderGeneration=shader->GetReloadGeneration();" ), std::string::npos )
+         << "Build no longer records the shader generation the entry was built at";
+    const std::string follow = FunctionBody( cache, "voidUIMaterialCache::FollowShaderReload(" );
+    ASSERT_FALSE( follow.empty() ) << "UIMaterialCache::FollowShaderReload moved";
+    EXPECT_NE( follow.find( "entry.Pipeline->GetSpecification().Shader->GetReloadGeneration()" ),
+               std::string::npos );
+    EXPECT_NE( follow.find( "UIMaterialFallback::RebuildIfReloaded(entry,generation," ), std::string::npos );
+    EXPECT_NE( follow.find( "m_RetiredBuilds.push_back(" ), std::string::npos )
+         << "a reload destroys the replaced pipeline/material under a frame that may still read them";
+    const std::string resolveEntry =
+         FunctionBody( cache, "UIMaterialCache::Resolve(constAssets::AssetHandle&handle)" );
+    EXPECT_NE( resolveEntry.find( "FollowShaderReload(hit->second," ), std::string::npos )
+         << "a cached entry no longer follows its shader's reload";
+    EXPECT_NE( FunctionBody( cache, "UIMaterialCache::ErrorEntry()" ).find( "FollowShaderReload(*m_Error," ),
+               std::string::npos )
+         << "the default UI material no longer follows its shader's reload";
+    EXPECT_NE( FunctionBody( cache, "voidUIMaterialCache::RetireUnused()" ).find( "m_RetiredBuilds" ),
+               std::string::npos )
+         << "replaced builds are never released";
     // The fallback and the setup refusal cannot disagree: PrepareDraw judges by the row's fit AND the very
     // ValidatePassBindings the setup runs, and the row is written nowhere else.
     const std::size_t prepare = cache.find( "std::stringUIMaterialCache::PrepareDraw(" );

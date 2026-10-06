@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <span>
 #include <string>
@@ -119,6 +120,25 @@ namespace Desert::Graphic::Render2D
                                   defaultName, fault ) );
             }
             return nullptr;
+        }
+
+        // A UI MATERIAL FOLLOWS ITS SHADER'S HOT RELOAD. @p entry records the reload generation of the shader it
+        // was built from (`.ShaderGeneration`, Shader::GetReloadGeneration - the key ShaderBindingLayoutCache
+        // re-derives a layout on). When @p generation differs, @p rebuild( entry ) rebuilds it from the reloaded
+        // shader (pipeline + runtime material + row from the new parameter layout) and returns whether it did;
+        // without this the entry keeps the old schema's row, RowFault refuses it, and the material draws the
+        // default until restart. The generation is recorded either way: a failed rebuild is tried once per reload,
+        // not once per frame. Returns whether the entry was rebuilt.
+        template <class Entry, class Rebuild>
+        static bool RebuildIfReloaded( Entry& entry, const uint32_t generation, Rebuild&& rebuild )
+        {
+            if ( entry.ShaderGeneration == generation )
+            {
+                return false;
+            }
+            const bool rebuilt     = rebuild( entry );
+            entry.ShaderGeneration = generation;
+            return rebuilt;
         }
 
         [[nodiscard]] std::size_t ReportedCount() const
