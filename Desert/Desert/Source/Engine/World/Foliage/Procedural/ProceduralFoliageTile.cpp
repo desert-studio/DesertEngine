@@ -352,7 +352,7 @@ namespace Desert::World::Foliage::Procedural
         {
             const auto&     instance = m_Storage[id];
             const glm::vec2 corner   = instance.Location - glm::vec2( RadiiOfId( id ).Max() );
-            const bool      isOwned  = corner.x >= owned.Min.x && corner.x < owned.Max.x && corner.y >= owned.Min.y &&
+            const bool isOwned = corner.x >= owned.Min.x && corner.x < owned.Max.x && corner.y >= owned.Min.y &&
                                  corner.y < owned.Max.y;
             const bool blocks = corner.x >= blocking.Min.x && corner.x <= blocking.Max.x &&
                                 corner.y >= blocking.Min.y && corner.y <= blocking.Max.y;

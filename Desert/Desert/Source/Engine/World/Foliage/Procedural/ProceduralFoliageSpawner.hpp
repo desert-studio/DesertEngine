@@ -5,7 +5,7 @@
 // the types are FoliageTypeData values (their Procedural block, RandomYaw and RandomPitchAngle drive the
 // simulation) rather than UFoliageType objects; tiles are simulated in order on the calling thread (no editor
 // progress or cancel); RAND_MAX is UE's Windows value on every platform; a composite tile's neighbours are copied
-// with per-axis reach (see ProceduralFoliageTile::CopyInstancesToTile) and the top neighbours over the same
+// inside a blocking box (see ProceduralFoliageTile::CopyInstancesToTile) and the top neighbours over the same
 // [0, Overlap) strip as the right one (UE uses [-Overlap, Overlap) for the top ones); the result is the placed
 // instances on the ground plane, before any trace against the world.
 

@@ -164,14 +164,13 @@ namespace Desert::Assets::Serialization
                                                          value );
             return BOOLSUCCESS;
         };
-        for ( const auto& [name, value] : { std::pair{ "CollisionRadius", p.CollisionRadius },
-                                            std::pair{ "ShadeRadius", p.ShadeRadius },
-                                            std::pair{ "InitialSeedDensity", p.InitialSeedDensity },
-                                            std::pair{ "AverageSpreadDistance", p.AverageSpreadDistance },
-                                            std::pair{ "SpreadVariance", p.SpreadVariance },
-                                            std::pair{ "MaxInitialSeedOffset", p.MaxInitialSeedOffset },
-                                            std::pair{ "MaxInitialAge", p.MaxInitialAge },
-                                            std::pair{ "MaxAge", p.MaxAge } } )
+        for ( const auto& [name, value] :
+              { std::pair{ "CollisionRadius", p.CollisionRadius }, std::pair{ "ShadeRadius", p.ShadeRadius },
+                std::pair{ "InitialSeedDensity", p.InitialSeedDensity },
+                std::pair{ "AverageSpreadDistance", p.AverageSpreadDistance },
+                std::pair{ "SpreadVariance", p.SpreadVariance },
+                std::pair{ "MaxInitialSeedOffset", p.MaxInitialSeedOffset },
+                std::pair{ "MaxInitialAge", p.MaxInitialAge }, std::pair{ "MaxAge", p.MaxAge } } )
             if ( auto ok = nonNegative( name, value ); !ok )
                 return ok;
         if ( !std::isfinite( p.OverlapPriority ) )
@@ -184,9 +183,10 @@ namespace Desert::Assets::Serialization
         if ( auto ok = CheckInterval( "Procedural.ProceduralScale", p.ProceduralScale ); !ok )
             return ok;
         if ( p.ProceduralScale.Min <= 0.0f )
-            return Common::MakeFormattedError<bool>( "Procedural.ProceduralScale.Min {} must be above zero (a zero "
-                                                     "scale is an invisible instance)",
-                                                     p.ProceduralScale.Min );
+            return Common::MakeFormattedError<bool>(
+                 "Procedural.ProceduralScale.Min {} must be above zero (a zero "
+                 "scale is an invisible instance)",
+                 p.ProceduralScale.Min );
         if ( p.ScaleCurve.empty() )
             return Common::MakeFormattedError<bool>( "Procedural.ScaleCurve must hold at least one key" );
         for ( size_t i = 0; i < p.ScaleCurve.size(); ++i )

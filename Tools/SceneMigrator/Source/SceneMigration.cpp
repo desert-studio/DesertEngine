@@ -839,22 +839,22 @@ namespace Desert::Migration
         struct FoliageTypeDataV6
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
-            Assets::Serialization::FoliageTypeKind                    Kind = Assets::Serialization::FoliageTypeKind::Mesh;
-            Assets::AssetGuidRef                                      Mesh;
-            Assets::AssetGuidRef                                      Prefab;
-            float                                                     Density = 100.0f;
-            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
-            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
-            bool                                                      AlignToNormal    = true;
-            bool                                                      RandomYaw        = true;
-            float                                                     RandomPitchAngle = 0.0f;
-            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
-            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
-            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
-            float                                                     MinimumLayerWeight = 0.0f;
-            Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
-            Assets::Serialization::FoliageWind                        Wind;
-            bool                                                      IncludeInHLOD = true;
+            Assets::Serialization::FoliageTypeKind      Kind = Assets::Serialization::FoliageTypeKind::Mesh;
+            Assets::AssetGuidRef                        Mesh;
+            Assets::AssetGuidRef                        Prefab;
+            float                                       Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ZOffset{ 0.0f, 0.0f };
+            bool                                        AlignToNormal    = true;
+            bool                                        RandomYaw        = true;
+            float                                       RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>           LandscapeLayers;
+            float                                       MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
+            Assets::Serialization::FoliageWind          Wind;
+            bool                                        IncludeInHLOD = true;
         };
 
         // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.

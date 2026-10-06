@@ -134,8 +134,8 @@ namespace Desert::World::Foliage::Procedural
     /**
      * @brief Of two overlapping instances, the one that dies; nullptr when neither does (UE Domination).
      *
-     * A blocker always survives (two blockers: neither dies); otherwise the higher OverlapPriority, then the older, then the larger wins. A
-     * shade overlap kills nobody whose type CanGrowInShade.
+     * A blocker always survives (two blockers: neither dies); otherwise the higher OverlapPriority, then the
+     * older, then the larger wins. A shade overlap kills nobody whose type CanGrowInShade.
      */
     [[nodiscard]] const ProceduralFoliageInstance*
     Dominated( const ProceduralFoliageInstance& a, const Assets::Serialization::FoliageProcedural& aType,

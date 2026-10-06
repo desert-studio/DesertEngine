@@ -1,6 +1,6 @@
 // FO-3: FOLT 1 -> 2; FO-5: FOLT 2 -> 3 (CullDistance joins at UE's never-culled default); FO-7: FOLT 3 -> 4
-// (Wind joins, still); FO-6: FOLT 4 -> 5 (IncludeInHLOD); FO-8: FOLT 5 -> 6 (Kind Mesh, Prefab joins); S1: FOLT 6 -> 7
-// (Procedural joins at UE defaults). A v1
+// (Wind joins, still); FO-6: FOLT 4 -> 5 (IncludeInHLOD); FO-8: FOLT 5 -> 6 (Kind Mesh, Prefab joins); S1: FOLT 6
+// -> 7 (Procedural joins at UE defaults). A v1
 // `.defoliage` stated Density per brush dab; v2 states it per 1000x1000 cm (UE). The step converts through the v1
 // brush's default radius, so one reference dab places the same count under both, keeps every other number and the
 // GUID, and the engine reads the result while refusing v1.
@@ -267,7 +267,7 @@ TEST( FoliageTypeMigration, VersionFiveIsRaisedToSixAsAMeshTypeKeepingEveryValue
 TEST( FoliageTypeMigration, VersionSixIsRaisedToSevenWithUEProceduralDefaults )
 {
     // A v6 Prefab type: FOLT 6 -> 7 keeps the kind, the prefab and every value, adds Procedural at UE's defaults.
-    const std::string v6 = R"({
+    const std::string v6   = R"({
     "Header": {
         "Kind": "FoliageType",
         "Versions": { "FOLT": 6 },
@@ -291,7 +291,7 @@ TEST( FoliageTypeMigration, VersionSixIsRaisedToSevenWithUEProceduralDefaults )
     "Wind": { "Strength": 0.0, "Speed": 0.5, "Height": 100.0, "DirectionDegrees": 0.0 },
     "IncludeInHLOD": false
 })";
-    const auto toV7 = Migration::MigrateFoliageTypeV6ToV7( v6 );
+    const auto        toV7 = Migration::MigrateFoliageTypeV6ToV7( v6 );
     ASSERT_TRUE( toV7 ) << toV7.GetError();
     const auto parsed = Assets::Serialization::ParseFoliageType( toV7.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
