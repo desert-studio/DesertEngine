@@ -3027,7 +3027,12 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
     EXPECT_NE( runtime.find( "pass.ColorTarget(0,target," ), std::string::npos );
     EXPECT_NE( runtime.find( "bindings.Sampled(\"u_Texture\",sceneRef,Graphic::RDG::Access::SampledGraphics" ),
                std::string::npos );
-    EXPECT_NE( runtime.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ),
+    // The ref the graph extracts is the imported back buffer itself, not the node's target: under
+    // --render-movie the node composes into the movie target and the back buffer is only cleared.
+    EXPECT_NE( runtime.find( "constGraphic::RDG::TextureRefbackBufferRef=graph.RegisterExternal(backBuffer,"
+                             "\"BackBuffer\");" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "graph.Extract(backBufferRef,backBuffer,Graphic::RDG::Access::Present)" ),
                std::string::npos );
     EXPECT_NE( runtime.find( "renderer.ExecuteGraph(graph)" ), std::string::npos );
     for ( const char* gone : { "BeginSwapChainRenderPass", "SubmitIndexed", "SubmitFullscreenTriangle",

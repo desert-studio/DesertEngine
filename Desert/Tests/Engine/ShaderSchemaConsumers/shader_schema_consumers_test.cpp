@@ -385,8 +385,10 @@ namespace
            nullptr },
          // A surface template's BlendMode (UE EBlendMode): MeshRenderer reads it off the material's schema to
          // route a Translucent material to the forward translucent pass (its pipeline blends src-alpha over
-         // the scene) and to give a Masked material its own shadow-caster cell (SURF2).
-         { "ShaderProgramMeta", "Blend", kMeshRend, nullptr },
+         // the scene) and to give a Masked material its own shadow-caster cell (SURF2). The routing is
+         // IsTranslucent in MeshRenderer.cpp, shared by the forward, deferred and shadow files.
+         { "ShaderProgramMeta", "Blend", "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
+           nullptr },
 
          // ---- The parser's own result ---------------------------------------------------------------
 
