@@ -5,10 +5,10 @@
 // the types are FoliageTypeData values (their Procedural block, RandomYaw and RandomPitchAngle drive the
 // simulation) rather than UFoliageType objects; the unique tiles grow in parallel on the JobSystem (UE: one
 // async task per tile), seeded in order from the spawner's stream so the result does not depend on scheduling (no
-// editor progress or cancel); RAND_MAX is UE's Windows value on every platform; a composite tile's neighbours are copied
-// inside a blocking box (see ProceduralFoliageTile::CopyInstancesToTile) and the top neighbours over the same
-// [0, Overlap) strip as the right one (UE uses [-Overlap, Overlap) for the top ones); the result is the placed
-// instances on the ground plane, before any trace against the world.
+// editor progress or cancel); RAND_MAX is UE's Windows value on every platform; a composite tile's neighbours are
+// copied inside a blocking box (see ProceduralFoliageTile::CopyInstancesToTile) and the top neighbours over the
+// same [0, Overlap) strip as the right one (UE uses [-Overlap, Overlap) for the top ones); the result is the
+// placed instances on the ground plane, before any trace against the world.
 
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/World/Foliage/Procedural/ProceduralFoliageTile.hpp>

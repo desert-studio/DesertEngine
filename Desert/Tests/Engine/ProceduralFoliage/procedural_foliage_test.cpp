@@ -226,15 +226,15 @@ TEST( ProceduralFoliage, AVolumePlacesOnlyInsideItselfOnTheGroundItsTraceFinds )
 
 TEST( ProceduralFoliage, ResimulatingReplacesTheVolumesOwnFieldsAndNoOtherOnes )
 {
-    const Common::UUID volume( 11u );
-    const Common::UUID other( 22u );
+    const Common::UUID                      volume( 11u );
+    const Common::UUID                      other( 22u );
     std::vector<ProceduralFoliageTypeField> fresh{ { 0, { 0, 0 }, {} }, { 0, { 1, 0 }, {} }, { 1, { 0, 0 }, {} } };
     std::vector<ProceduralFoliageExistingField> existing{
          { Common::UUID::Null(), 0, { 0, 0 } }, // painted by hand
-         { other, 0, { 0, 0 } },                         // another volume's
-         { volume, 0, { 0, 0 } },                        // ours, still occupied
-         { volume, 0, { 5, 5 } },                        // ours, nothing lands there any more
-         { volume, UINT32_MAX, { 1, 0 } },               // ours, a type the volume dropped
+         { other, 0, { 0, 0 } },                // another volume's
+         { volume, 0, { 0, 0 } },               // ours, still occupied
+         { volume, 0, { 5, 5 } },               // ours, nothing lands there any more
+         { volume, UINT32_MAX, { 1, 0 } },      // ours, a type the volume dropped
     };
     const auto plan = PlanProceduralFields( existing, volume, fresh );
     EXPECT_EQ( plan.Rewrite, ( std::vector<std::pair<size_t, size_t>>{ { 2, 0 } } ) );
@@ -242,8 +242,8 @@ TEST( ProceduralFoliage, ResimulatingReplacesTheVolumesOwnFieldsAndNoOtherOnes )
     EXPECT_EQ( plan.Remove, ( std::vector<size_t>{ 3, 4 } ) );
 
     // A second resimulation over the fields the first one left keeps every one of them.
-    std::vector<ProceduralFoliageExistingField> after{ existing[0], existing[1], existing[2],
-                                                       { volume, 0, { 1, 0 } }, { volume, 1, { 0, 0 } } };
+    std::vector<ProceduralFoliageExistingField> after{
+         existing[0], existing[1], existing[2], { volume, 0, { 1, 0 } }, { volume, 1, { 0, 0 } } };
     const auto again = PlanProceduralFields( after, volume, fresh );
     EXPECT_TRUE( again.Remove.empty() );
     EXPECT_TRUE( again.Create.empty() );

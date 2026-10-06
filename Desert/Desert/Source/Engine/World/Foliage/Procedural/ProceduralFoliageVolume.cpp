@@ -15,9 +15,9 @@ namespace Desert::World::Foliage::Procedural
         const glm::vec2 lo{ volume.Min.x, volume.Min.z };
         const glm::vec2 hi{ volume.Max.x, volume.Max.z };
         const auto      layout = TileLayoutFor( lo, hi, size, tileOverlap );
-        const glm::vec2 origin = glm::vec2( static_cast<float>( layout.BottomLeftX ),
-                                            static_cast<float>( layout.BottomLeftY ) ) *
-                                 size;
+        const glm::vec2 origin =
+             glm::vec2( static_cast<float>( layout.BottomLeftX ), static_cast<float>( layout.BottomLeftY ) ) *
+             size;
 
         std::vector<ProceduralFoliageDesired> desired;
         for ( const auto& placement : GenerateProceduralContent( spawner, layout, origin, tileOverlap ) )
@@ -26,8 +26,8 @@ namespace Desert::World::Foliage::Procedural
             const glm::vec2 at = placement.Location;
             if ( at.x < lo.x || at.x > hi.x || at.y < lo.y || at.y > hi.y )
                 continue;
-            desired.push_back( ProceduralFoliageDesired{ placement, { at.x, volume.Max.y, at.y },
-                                                         { at.x, volume.Min.y, at.y } } );
+            desired.push_back( ProceduralFoliageDesired{
+                 placement, { at.x, volume.Max.y, at.y }, { at.x, volume.Min.y, at.y } } );
         }
         return desired;
     }
@@ -44,8 +44,8 @@ namespace Desert::World::Foliage::Procedural
         for ( const auto& d : desired )
         {
             if ( d.Placement.TypeIndex >= typeCount )
-                return Common::MakeFormattedError<Fields>( "a placement names type {} of {}", d.Placement.TypeIndex,
-                                                           typeCount );
+                return Common::MakeFormattedError<Fields>( "a placement names type {} of {}",
+                                                           d.Placement.TypeIndex, typeCount );
             const auto ground = trace( d.TraceStart, d.TraceEnd );
             if ( !ground )
                 continue;

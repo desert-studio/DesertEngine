@@ -91,7 +91,7 @@ namespace Desert::World::Foliage::Procedural
     /// index into the volume's types; UINT32_MAX = a type the volume no longer lists) and its cell.
     struct ProceduralFoliageExistingField
     {
-        Common::UUID Owner = Common::UUID::Null();
+        Common::UUID Owner     = Common::UUID::Null();
         uint32_t     TypeIndex = UINT32_MAX;
         CellCoord    Cell;
     };
