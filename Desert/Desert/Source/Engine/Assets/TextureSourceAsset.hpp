@@ -135,7 +135,8 @@ namespace Desert::Assets
     // SceneMigrator's step for a version-1 `.detex` (no ColorSpace): the same asset at the current version with
     // ColorSpace = DefaultTextureColorSpace. nullopt = already current; an error = not a texture asset or
     // unreadable at either version.
-    Common::ResultStr<std::optional<std::vector<std::byte>>> UpgradeTextureSourceAsset( std::span<const std::byte> file );
+    Common::ResultStr<std::optional<std::vector<std::byte>>>
+    UpgradeTextureSourceAsset( std::span<const std::byte> file );
 
     // Rewrites the asset at @p asset with @p space when it states another (identity, source and intent kept).
     // True when the file changed. The material importer's slot is the authority for the textures it binds.

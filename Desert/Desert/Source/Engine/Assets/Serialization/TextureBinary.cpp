@@ -216,8 +216,8 @@ namespace Desert::Assets::Serialization
 
         // The 2x2 box of BoxDownsample over RGBA8 sRGB texels, averaged in LINEAR LIGHT: RGB decoded through
         // a 256-entry table, averaged, re-encoded; alpha is coverage and is averaged as stored, rounded.
-        void SRGBBoxDownsample( const unsigned char* src, const uint32_t srcW, const uint32_t srcH, unsigned char* dst,
-                                const uint32_t dstW, const uint32_t dstH )
+        void SRGBBoxDownsample( const unsigned char* src, const uint32_t srcW, const uint32_t srcH,
+                                unsigned char* dst, const uint32_t dstW, const uint32_t dstH )
         {
             static const std::array<float, 256> kDecode = []
             {
@@ -330,9 +330,9 @@ namespace Desert::Assets::Serialization
     }
 
     Common::ResultStr<std::vector<TextureLevel>> BuildMipChain( const uint32_t width, const uint32_t height,
-                                                                const Core::Formats::ImageFormat  format,
-                                                                const std::vector<unsigned char>& base,
-                                                                std::vector<unsigned char>&       chainOut,
+                                                                const Core::Formats::ImageFormat       format,
+                                                                const std::vector<unsigned char>&      base,
+                                                                std::vector<unsigned char>&            chainOut,
                                                                 const Core::Formats::TextureColorSpace space )
     {
         using Fmt = Core::Formats::ImageFormat;
@@ -716,7 +716,7 @@ namespace Desert::Assets::Serialization
         header.LayerCount         = layerCount;
         header.Kind               = static_cast<uint32_t>( data.Kind );
         header.Intent             = static_cast<uint32_t>( data.Intent );
-        header.Flags             = data.ColorSpace == Core::Formats::TextureColorSpace::SRGB ? kTextureFlagSRGB : 0u;
+        header.Flags = data.ColorSpace == Core::Formats::TextureColorSpace::SRGB ? kTextureFlagSRGB : 0u;
         header.SourceKeyLength   = static_cast<uint32_t>( data.SourcePath.size() );
         header.SourceKeyOffset   = static_cast<uint32_t>( keyOffset );
         header.SourceContentHash = data.SourceContentHash;
@@ -1063,9 +1063,10 @@ namespace Desert::Assets::Serialization
             info.LayerCount         = header.LayerCount;
             info.Kind               = kind;
             info.Intent             = static_cast<Core::Formats::TextureIntent>( header.Intent );
-            info.ColorSpace         = ( header.Flags & kTextureFlagSRGB ) != 0 ? Core::Formats::TextureColorSpace::SRGB
-                                                                              : Core::Formats::TextureColorSpace::Linear;
-            if ( info.ColorSpace == Core::Formats::TextureColorSpace::SRGB && !Core::Formats::HasSRGBVariant( format ) )
+            info.ColorSpace = ( header.Flags & kTextureFlagSRGB ) != 0 ? Core::Formats::TextureColorSpace::SRGB
+                                                                       : Core::Formats::TextureColorSpace::Linear;
+            if ( info.ColorSpace == Core::Formats::TextureColorSpace::SRGB &&
+                 !Core::Formats::HasSRGBVariant( format ) )
             {
                 return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
                      "'{}' is marked sRGB and its format {} has no sRGB view; the marking cannot be honoured. "

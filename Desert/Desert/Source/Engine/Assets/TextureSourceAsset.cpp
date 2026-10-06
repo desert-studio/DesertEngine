@@ -115,7 +115,8 @@ namespace Desert::Assets
             info.Settings.ColorSpace = Core::Formats::TextureColorSpaceFromName( spaceName );
             if ( info.Settings.ColorSpace == Core::Formats::TextureColorSpace::Count )
                 return Common::MakeFormattedError<TextureImportInfo>(
-                     "texture ImportInfo names colour space '{}'; this build knows 'Linear' and 'sRGB'", spaceName );
+                     "texture ImportInfo names colour space '{}'; this build knows 'Linear' and 'sRGB'",
+                     spaceName );
             return Common::MakeSuccess( std::move( info ) );
         }
 
@@ -467,26 +468,29 @@ namespace Desert::Assets
         };
         if ( startsWith( "#?RADIANCE" ) || startsWith( "#?RGBE" ) )
             return Core::Formats::TextureColorSpace::Linear;
-        return intent == Core::Formats::TextureIntent::Colour || intent == Core::Formats::TextureIntent::Unspecified
+        return intent == Core::Formats::TextureIntent::Colour ||
+                         intent == Core::Formats::TextureIntent::Unspecified
                     ? Core::Formats::TextureColorSpace::SRGB
                     : Core::Formats::TextureColorSpace::Linear;
     }
 
-    Common::ResultStr<std::optional<std::vector<std::byte>>> UpgradeTextureSourceAsset( std::span<const std::byte> file )
+    Common::ResultStr<std::optional<std::vector<std::byte>>>
+    UpgradeTextureSourceAsset( std::span<const std::byte> file )
     {
         using Out = std::optional<std::vector<std::byte>>;
         if ( DecodeTextureSourceAsset( file ).IsSuccess() )
             return Common::MakeSuccess( Out{} );
-        const CC::SubsystemVersion v1[] = { { kTextureAssetSubsystemTag, 1 } };
-        auto envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v1 } );
+        const CC::SubsystemVersion v1[]     = { { kTextureAssetSubsystemTag, 1 } };
+        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v1 } );
         if ( !envelope.IsSuccess() )
             return Common::MakeError<Out>( envelope.GetError() );
         const CC::AssetEnvelope& e = envelope.GetValue();
         if ( e.Asset.Kind != CC::ContentKind::Texture && e.Asset.Kind != CC::ContentKind::Skybox )
-            return Common::MakeFormattedError<Out>( "the envelope is kind '{}', not a texture", CC::KindName( e.Asset.Kind ) );
+            return Common::MakeFormattedError<Out>( "the envelope is kind '{}', not a texture",
+                                                    CC::KindName( e.Asset.Kind ) );
         TextureSourceAsset asset;
-        asset.Kind = e.Asset.Kind;
-        asset.Guid = e.Asset.Guid;
+        asset.Kind      = e.Asset.Kind;
+        asset.Guid      = e.Asset.Guid;
         bool haveImport = false, haveSource = false;
         for ( const CC::EnvelopeSectionData& s : e.Sections )
         {
@@ -514,7 +518,7 @@ namespace Desert::Assets
         if ( !haveImport || !haveSource )
             return Common::MakeError<Out>( "a version-1 texture asset without IMPT or SRCE cannot be raised" );
         asset.Import.Settings.ColorSpace = DefaultTextureColorSpace( asset.Import.Settings.Intent, asset.Source );
-        auto encoded = EncodeTextureSourceAsset( asset );
+        auto encoded                     = EncodeTextureSourceAsset( asset );
         if ( !encoded.IsSuccess() )
             return Common::MakeError<Out>( encoded.GetError() );
         return Common::MakeSuccess( Out{ encoded.ExtractValue() } );

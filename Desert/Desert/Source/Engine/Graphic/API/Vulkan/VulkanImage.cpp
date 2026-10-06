@@ -195,7 +195,8 @@ namespace Desert::Graphic::API::Vulkan
         return Utils::GetVulkanFormat( format, deviceDepthFormat );
     }
 
-    VkFormat GetImageVulkanFormat( const Core::Formats::ImageFormat& format, const Core::Formats::TextureColorSpace space )
+    VkFormat GetImageVulkanFormat( const Core::Formats::ImageFormat&      format,
+                                   const Core::Formats::TextureColorSpace space )
     {
         if ( space != Core::Formats::TextureColorSpace::SRGB )
             return GetImageVulkanFormat( format );
@@ -402,7 +403,7 @@ namespace Desert::Graphic::API::Vulkan
         auto vkDevice = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
 
-        m_Resource.Format     = GetImageVulkanFormat( m_Specification.Format, m_Specification.ColorSpace );
+        m_Resource.Format = GetImageVulkanFormat( m_Specification.Format, m_Specification.ColorSpace );
         if ( m_Resource.Format == VK_FORMAT_UNDEFINED )
             return Common::MakeFormattedError<bool>(
                  "image '{}' is marked sRGB and its format {} has no sRGB variant", m_Specification.Tag,

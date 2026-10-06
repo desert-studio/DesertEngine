@@ -670,9 +670,8 @@ namespace Desert::Editor
         // every load with `vkCmdBlitImage`, which is impossible for the block-compressed formats this
         // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
         // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
-        auto chain =
-             Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels,
-                                                   asset.Import.Settings.ColorSpace );
+        auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels,
+                                                           asset.Import.Settings.ColorSpace );
         if ( !chain.IsSuccess() )
         {
             LOG_ERROR( "[TextureImporter] '{0}' was decoded but its mip chain could not be built: {1}. "
@@ -905,7 +904,8 @@ namespace Desert::Editor
                        assetPath.string(), authored.Problem );
             settings.Intent = Fmt::TextureIntent::Data;
         }
-        settings.ColorSpace = Assets::DefaultTextureColorSpace( settings.Intent, std::as_bytes( std::span( bytes ) ) );
+        settings.ColorSpace =
+             Assets::DefaultTextureColorSpace( settings.Intent, std::as_bytes( std::span( bytes ) ) );
         const fs::path rel =
              fs::relative( Common::Constants::Path::FullPath( source ), Common::Constants::Path::SKYBOX_PATH );
         const bool     sky  = !rel.empty() && rel.begin()->string() != "..";
