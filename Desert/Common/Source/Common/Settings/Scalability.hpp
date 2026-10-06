@@ -40,16 +40,14 @@
 //     MeshLOD                 -> MeshLOD                   (ViewDistance)
 //     CloudQualityTier        -> CloudQuality              (Effects; UE puts volumetric clouds under
 //     sg.EffectsQuality)
-//   The five fields are DELETED from MachineSettings and its JSON; MachineSettings gains one field,
-//   `QualitySelection Quality`. MachineSettings::MigrateRetiredKeys gains one pass: when machine.json carries any
-//   of the retired keys, each becomes an Override on a selection whose levels are all High — EXCEPT a retired
-//   value equal to the High table value, which writes no override (so a machine that never touched a knob comes
-//   out with zero overrides). The keys are removed; the next save writes only `Quality`. Logged once: file, how
-//   many keys moved, how many became overrides. MachineSettings::EffectiveAA / ResolveAA / CommitAntiAliasing
-//   and Graphic::RenderConfig::TextureFilter / AnisotropyLevel / MaxMSAASamples are replaced by ResolvedQuality
-//   and QualityState::Apply (RenderConfig keeps only the atomic push the sampler thread reads, written by Apply's
-//   listener, nothing else). The old AntiAliasingMethod enum in MachineSettings.hpp is deleted in favour of
-//   Common::Scalability::AntiAliasingMethod (same leading values, so a stored int keeps its meaning).
+//   The six fields were DELETED from MachineSettings and its JSON; MachineSettings gained
+//   `std::optional<QualitySelection> Quality`. MachineSettings::MigrateRetiredKeys turns each retired key a
+//   machine.json still carries into an Override on an all-High selection — except a value equal to the High table
+//   value, which writes no override (an untouched machine comes out with zero overrides) — removes the keys and
+//   logs once. The former per-setting AA resolvers and RenderConfig's device maxima were replaced by
+//   ResolvedQuality and QualityState::Apply (RenderConfig keeps only the atomic TextureFilter / AnisotropyLevel
+//   push the sampler path reads, written by QualityBoot's listener). The old AntiAliasingMethod enum in
+//   MachineSettings.hpp was deleted in favour of Common::Scalability::AntiAliasingMethod (same leading values).
 namespace Common::Scalability
 {
     // The groups — UE's sg.* set plus AntiAliasing and ResolutionScale, which UE keeps as sg.AntiAliasingQuality

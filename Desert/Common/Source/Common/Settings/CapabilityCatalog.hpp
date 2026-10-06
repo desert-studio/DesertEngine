@@ -10,14 +10,14 @@
 // THE CAPABILITY CATALOG — WHAT THIS DEVICE OFFERS, PER SETTING, AS A LIST (SCAL1).
 //
 // WHY A LIST AND NOT A CHECK. Until SCAL1 every selector asked the device at the moment of choice — the
-// Scalability panel reads RenderConfig::MaxMSAASamples to trim its MSAA combo, SceneRenderer clamps the sample
-// count again when it builds its framebuffers, the swapchain walks IMMEDIATE -> MAILBOX -> FIFO on its own, the
+// Scalability panel read a device MSAA maximum to trim its MSAA combo, SceneRenderer clamped the sample
+// count again when it built its framebuffers, the swapchain walks IMMEDIATE -> MAILBOX -> FIFO on its own, the
 // GPU profiler switches itself off. Four places, four answers to one question, and two of them silent. UE has
 // the same shape scattered across RHI feature flags and per-CVar clamps. The catalog is the better shape: built
 // ONCE when the device is created, it is the only source of "what this device can do", every selector (editor
 // UI, game menu, the console, the scalability resolver) OFFERS its list, and a saved value the list does not
-// contain is resolved ONCE by Scalability::Resolve with one logged fallback (the MachineSettings::ResolveAA
-// pattern, generalised).
+// contain is resolved ONCE by Scalability::Resolve with one logged fallback (the pattern the retired
+// per-setting AA resolver had, generalised).
 //
 // WHY IT LIVES IN COMMON. It is engine-core DATA — no Vulkan, no ImGui, no Editor type. The resolver that turns
 // a saved choice into an effective one lives in Common/Settings next to machine.json (the packaged Runtime runs
