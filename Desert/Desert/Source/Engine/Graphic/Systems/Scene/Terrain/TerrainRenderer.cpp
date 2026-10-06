@@ -363,21 +363,23 @@ namespace Desert::Graphic::System
     namespace
     {
         // SETUP of a node drawing the terrain: one binding block per executor (TerrainRenderer::GroupExecutors),
-        // in order - the shader's reflected layout, the material's route fill, and @p view's scene/view inputs
-        // where the layout has their slots (none: a program that samples none). Returns how many it declared.
+        // in order - the layout kept for the shader of @p pipeline, the one EVERY group's draws record with
+        // (RecordDraws), the material's route fill, and @p view's scene/view inputs where the layout has their
+        // slots (none: a program that samples none). Returns how many it declared.
         template <typename Declaration>
-        uint32_t DeclareGroupBlocks( Declaration&                                declaration,
+        uint32_t DeclareGroupBlocks( Declaration& declaration, const GraphicsPipeline* pipeline,
+                                     ShaderBindingLayoutCache&                   layoutCache,
                                      const std::vector<const MaterialExecutor*>& executors,
                                      const SceneViewInputs*                      view )
         {
+            const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
+                 layoutCache.Get( pipeline->GetSpecification().Shader );
             for ( const MaterialExecutor* executor : executors )
             {
-                const RDG::ShaderBindingLayout layout =
-                     Renderer::GetInstance().GetBindingLayout( *executor->GetShader() );
                 auto block = declaration.Bindings( layout, executor->GetRouteFill() );
-                if ( view != nullptr && SamplesSceneViewInputs( layout ) )
+                if ( view != nullptr && SamplesSceneViewInputs( *layout ) )
                 {
-                    BindSceneViewInputs( block, *view, layout );
+                    BindSceneViewInputs( block, *view, *layout );
                 }
             }
             return static_cast<uint32_t>( executors.size() );
@@ -458,7 +460,8 @@ namespace Desert::Graphic::System
                 return;
             }
             const SceneViewInputs view = SceneViewInputsOf( refs );
-            (void)DeclareGroupBlocks( declared, GroupExecutors( &ProgramMaterials::Forward ), &view );
+            (void)DeclareGroupBlocks( declared, m_Pipeline.get(), m_ForwardLayout,
+                                      GroupExecutors( &ProgramMaterials::Forward ), &view );
         };
     }
 
@@ -484,7 +487,8 @@ namespace Desert::Graphic::System
         {
             return;
         }
-        (void)DeclareGroupBlocks( pass, GroupExecutors( &ProgramMaterials::GBuffer ), nullptr );
+        (void)DeclareGroupBlocks( pass, m_GBufferPipeline.get(), m_GBufferLayout,
+                                  GroupExecutors( &ProgramMaterials::GBuffer ), nullptr );
     }
 
     uint32_t TerrainRenderer::DeclareShadowCascade( RenderPassDeclaration& declared, uint32_t /*cascade*/ )
@@ -492,7 +496,8 @@ namespace Desert::Graphic::System
         if ( !m_ShadowPipeline || m_FrameDraws.empty() )
             return 0;
         // A depth-only caster samples no scene/view input.
-        return DeclareGroupBlocks( declared, GroupExecutors( &ProgramMaterials::Shadow ), nullptr );
+        return DeclareGroupBlocks( declared, m_ShadowPipeline.get(), m_ShadowLayout,
+                                   GroupExecutors( &ProgramMaterials::Shadow ), nullptr );
     }
 
     Common::BoolResultStr TerrainRenderer::RecordShadowCascade( const RDG::PassContext& context,

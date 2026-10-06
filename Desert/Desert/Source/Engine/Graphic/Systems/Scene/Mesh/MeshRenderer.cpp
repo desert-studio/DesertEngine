@@ -204,8 +204,9 @@ namespace Desert::Graphic::System
         {
             m_Commands.clear();
             m_BlockOf.clear();
-            m_Executors.clear();
+            m_Blocks.clear();
             m_Error.reset();
+            m_Layouts.DropExpired();
         }
 
         void MeshDrawList::Add( MeshDrawCommand command )
@@ -222,10 +223,26 @@ namespace Desert::Graphic::System
                                                                     : "material shader" ) );
                 return;
             }
-            const auto known = std::find( m_Executors.begin(), m_Executors.end(), command.Material );
-            m_BlockOf.push_back( static_cast<uint32_t>( known - m_Executors.begin() ) );
-            if ( known == m_Executors.end() )
-                m_Executors.push_back( command.Material );
+            const Shader* recordedWith = command.Pipeline->GetSpecification().Shader.get();
+            if ( recordedWith == nullptr )
+            {
+                Fail( "mesh draw refused: its pipeline has no shader" );
+                return;
+            }
+            // A block per executor AND recording shader: one executor drawn through pipelines of two shaders
+            // (a material shared by two vertex paths) is two blocks, each validated against its own layout.
+            const auto known =
+                 std::find_if( m_Blocks.begin(), m_Blocks.end(),
+                               [&]( const Block& block )
+                               {
+                                   return block.Material == command.Material &&
+                                          block.Pipeline->GetSpecification().Shader.get() == recordedWith;
+                               } );
+            m_BlockOf.push_back( static_cast<uint32_t>( known - m_Blocks.begin() ) );
+            if ( known == m_Blocks.end() )
+            {
+                m_Blocks.push_back( Block{ command.Material, command.Pipeline } );
+            }
             m_Commands.push_back( std::move( command ) );
         }
 
@@ -235,36 +252,34 @@ namespace Desert::Graphic::System
                 m_Error = std::move( error );
         }
 
-        namespace
+        // One block per (executor, recording shader), in block-index order: the layout kept for the shader the
+        // block's draws record with, the executor's route fill, and the scene/view inputs where the layout has
+        // their slots.
+        template <typename Declaration>
+        void MeshDrawList::DeclareBlocks( Declaration&                          declaration,
+                                          const std::optional<SceneViewInputs>& view ) const
         {
-            // One block per executor, in block-index order: the shader's reflected layout, the material's route
-            // fill, and the scene/view inputs where the layout has their slots.
-            template <typename Declaration>
-            void DeclareBlocks( Declaration& declaration, const std::vector<const MaterialExecutor*>& executors,
-                                const std::optional<SceneViewInputs>& view )
+            for ( const Block& declared : m_Blocks )
             {
-                for ( const MaterialExecutor* executor : executors )
+                const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
+                     m_Layouts.Get( declared.Pipeline->GetSpecification().Shader );
+                auto block = declaration.Bindings( layout, declared.Material->GetRouteFill() );
+                if ( view && SamplesSceneViewInputs( *layout ) )
                 {
-                    const RDG::ShaderBindingLayout layout =
-                         Renderer::GetInstance().GetBindingLayout( *executor->GetShader() );
-                    auto block = declaration.Bindings( layout, executor->GetRouteFill() );
-                    if ( view && SamplesSceneViewInputs( layout ) )
-                    {
-                        BindSceneViewInputs( block, *view, layout );
-                    }
+                    BindSceneViewInputs( block, *view, *layout );
                 }
             }
-        } // namespace
+        }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const
         {
-            DeclareBlocks( pass, m_Executors, view );
+            DeclareBlocks( pass, view );
         }
 
         void MeshDrawList::Declare( RenderPassDeclaration&                declared,
                                     const std::optional<SceneViewInputs>& view ) const
         {
-            DeclareBlocks( declared, m_Executors, view );
+            DeclareBlocks( declared, view );
         }
 
         Common::BoolResultStr MeshDrawList::Record( const RDG::PassContext& context ) const
@@ -272,8 +287,8 @@ namespace Desert::Graphic::System
             if ( m_Error )
                 return Common::MakeFormattedError( "{}", *m_Error );
             std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
-            blocks.reserve( m_Executors.size() );
-            for ( uint32_t index = 0; index < m_Executors.size(); ++index )
+            blocks.reserve( m_Blocks.size() );
+            for ( uint32_t index = 0; index < m_Blocks.size(); ++index )
                 blocks.push_back( std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
             for ( size_t i = 0; i < m_Commands.size(); ++i )
             {

@@ -533,11 +533,12 @@ namespace Desert::Graphic::System
         // material as the other route, the scene snapshot the glass samples for refraction (binding 19,
         // glass-shader-only) with the sampler the material route sampled the copy with (the image's own: linear,
         // REPEAT), and the scene/view inputs the glass shader has a slot for.
-        const RDG::ShaderBindingLayout layout = Renderer::GetInstance().GetBindingLayout( *executor.GetShader() );
-        RDG::BindingBlockBuilder       block  = pass.Bindings( layout, executor.GetRouteFill() );
+        const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
+             m_GlassLayout.Get( m_StaticGlassPipeline->GetSpecification().Shader );
+        RDG::BindingBlockBuilder block = pass.Bindings( layout, executor.GetRouteFill() );
         block.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearRepeat() );
-        BindSceneViewInputs( block, view, layout );
+        BindSceneViewInputs( block, view, *layout );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context ) const

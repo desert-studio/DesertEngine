@@ -265,9 +265,9 @@ namespace Desert::Graphic::System
         //    the resolve discards empty texels). The resolve's one block: the shader's reflected layout, the
         //    material as the other route, and the accumulation as u_Overdraw with the sampler the material route
         //    sampled it with (the image's own: linear, REPEAT).
-        const MaterialExecutor&        executor = *m_OverdrawResolveMaterial->GetMaterialExecutor();
-        const RDG::ShaderBindingLayout layout = Renderer::GetInstance().GetBindingLayout( *executor.GetShader() );
-        pass.Bindings( layout, executor.GetRouteFill() )
+        const MaterialExecutor& executor = *m_OverdrawResolveMaterial->GetMaterialExecutor();
+        pass.Bindings( m_OverdrawResolveLayout.Get( m_OverdrawResolvePipeline->GetSpecification().Shader ),
+                       executor.GetRouteFill() )
              .Sampled( "u_Overdraw", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearRepeat() );
     }

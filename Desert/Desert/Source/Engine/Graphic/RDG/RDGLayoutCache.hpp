@@ -2,7 +2,9 @@
 
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 
+#include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -40,5 +42,35 @@ namespace Desert::Graphic::RDG
         std::shared_ptr<const ShaderBindingLayout> m_Layout;
         std::weak_ptr<const void>                  m_Source;     // the object m_Layout was derived from
         std::optional<uint32_t>                    m_Generation; // its reload generation at that time
+    };
+
+    // One LayoutCache PER SOURCE OBJECT, for a node that declares one block per shader its draws record with (a
+    // mesh draw list: one block per material executor and recording pipeline). Keyed on the source's ownership
+    // (owner order of the weak_ptr, like LayoutCache's identity), so a new object allocated where a destroyed one
+    // lived gets its own cache, never the dead one's layout. DropExpired forgets the caches of destroyed sources
+    // (the owner of the set calls it once per frame, before the frame's Gets).
+    class LayoutCacheSet
+    {
+    public:
+        template <class Source, class Derive>
+        [[nodiscard]] const std::shared_ptr<const ShaderBindingLayout>& Get( const std::shared_ptr<Source>& source,
+                                                                             uint32_t generation, Derive&& derive )
+        {
+            return m_Caches[std::weak_ptr<const void>( source )].Get( source, generation,
+                                                                      std::forward<Derive>( derive ) );
+        }
+
+        void DropExpired()
+        {
+            std::erase_if( m_Caches, []( const auto& cached ) { return cached.first.expired(); } );
+        }
+
+        [[nodiscard]] std::size_t Size() const
+        {
+            return m_Caches.size();
+        }
+
+    private:
+        std::map<std::weak_ptr<const void>, LayoutCache, std::owner_less<>> m_Caches;
     };
 } // namespace Desert::Graphic::RDG

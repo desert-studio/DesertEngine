@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -64,11 +65,12 @@ namespace Desert::Graphic::System
         };
 
         // THE frame's draw list of one lit mesh node. The material (hence shader and route fill) of every draw is
-        // chosen ONCE, by Build* in the node's setup; Declare declares one binding block per distinct material
-        // executor of the list (its shader's reflected layout, the executor's route fill, and the scene/view
-        // inputs the layout has slots for), so ValidatePassBindings judges every draw before anything is
-        // recorded; Record (the exec) walks the same list with the block each draw's executor was declared as.
-        // A build that failed is kept and is Record's error, before any draw.
+        // chosen ONCE, by Build* in the node's setup; Declare declares one binding block per distinct (material
+        // executor, recording pipeline's shader) pair of the list (the layout kept for the shader the draws RECORD
+        // with - `Pipeline->GetSpecification().Shader`, re-derived only on its reload, never per frame - the
+        // executor's route fill, and the scene/view inputs the layout has slots for), so ValidatePassBindings
+        // judges every draw before anything is recorded; Record (the exec) walks the same list with the block each
+        // draw's executor was declared as. A build that failed is kept and is Record's error, before any draw.
         class MeshDrawList
         {
         public:
@@ -80,11 +82,11 @@ namespace Desert::Graphic::System
             {
                 return m_Commands.empty();
             }
-            // The binding blocks Declare declares (one per distinct material executor): a node declaring more
-            // blocks after the list's numbers them from here.
+            // The binding blocks Declare declares (one per distinct executor + recording shader): a node declaring
+            // more blocks after the list's numbers them from here.
             [[nodiscard]] uint32_t BlockCount() const
             {
-                return static_cast<uint32_t>( m_Executors.size() );
+                return static_cast<uint32_t>( m_Blocks.size() );
             }
 
             // The blocks are the node's ONLY binding blocks (indices 0..n-1, in first-use order). @p view: the
@@ -95,10 +97,23 @@ namespace Desert::Graphic::System
             [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const;
 
         private:
-            std::vector<MeshDrawCommand>         m_Commands;
-            std::vector<uint32_t>                m_BlockOf; // per command: its executor's block
-            std::vector<const MaterialExecutor*> m_Executors;
-            std::optional<std::string>           m_Error;
+            // One declared block: the executor whose route fills it and the pipeline of its first draw, whose
+            // shader keys its layout (every draw of the block records with a pipeline of that same shader).
+            struct Block
+            {
+                const MaterialExecutor* Material = nullptr;
+                const GraphicsPipeline* Pipeline = nullptr;
+            };
+
+            template <typename Declaration>
+            void DeclareBlocks( Declaration& declaration, const std::optional<SceneViewInputs>& view ) const;
+
+            std::vector<MeshDrawCommand> m_Commands;
+            std::vector<uint32_t>        m_BlockOf; // per command: its block
+            std::vector<Block>           m_Blocks;
+            std::optional<std::string>   m_Error;
+            // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
+            mutable ShaderBindingLayoutSet m_Layouts;
         };
     } // namespace MeshRendererDetail
 
@@ -565,6 +580,8 @@ namespace Desert::Graphic::System
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
         std::shared_ptr<Shader>           m_StaticGlassShader;
         std::shared_ptr<GraphicsPipeline> m_StaticGlassPipeline;
+        // The glass block's layout, keyed on m_StaticGlassPipeline's shader (kept, not re-derived per frame).
+        ShaderBindingLayoutCache m_GlassLayout;
         // `bool m_GlassPass` stood here, described as "set true only while drawing the transparent glass
         // pass". No line in the engine ever set it, so its two readers were a transparency test that could
         // only ever mean "skip glass" and a pipeline branch nothing could reach — and the unreachable
@@ -717,6 +734,8 @@ namespace Desert::Graphic::System
         std::unique_ptr<MaterialOverdraw>        m_OverdrawMaterial;
         std::shared_ptr<Framebuffer>             m_OverdrawFB;
         std::shared_ptr<GraphicsPipeline>        m_OverdrawResolvePipeline;
+        // The resolve block's layout, keyed on m_OverdrawResolvePipeline's shader.
+        ShaderBindingLayoutCache                 m_OverdrawResolveLayout;
         std::shared_ptr<Shader>                  m_OverdrawResolveShader;
         std::unique_ptr<MaterialOverdrawResolve> m_OverdrawResolveMaterial;
 #endif // DESERT_DEV_INSTRUMENTS

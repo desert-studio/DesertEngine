@@ -2926,12 +2926,13 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
          // builds (MeshDrawList::Declare -> BindSceneViewInputs), so the graph sees each sampled input as a
          // block binding of that node rather than a blanket read.
          { "Systems/Scene/Mesh/MeshRenderer.cpp", "m_ForwardDraws.Declare(declared,SceneViewInputsOf(refs));" },
-         { "Systems/Scene/Mesh/MeshRenderer.cpp", "BindSceneViewInputs(block,*view,layout);" },
+         { "Systems/Scene/Mesh/MeshRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
          // The terrain node likewise: one block per Forward material of the frame's groups, each binding the
          // scene/view inputs its shader has slots for (TerrainRenderer's DeclareGroupBlocks).
          { "Systems/Scene/Terrain/TerrainRenderer.cpp",
-           "(void)DeclareGroupBlocks(declared,GroupExecutors(&ProgramMaterials::Forward),&view);" },
-         { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,layout);" },
+           "(void)DeclareGroupBlocks(declared,m_Pipeline.get(),m_ForwardLayout,GroupExecutors(&ProgramMaterials::"
+           "Forward),&view);" },
+         { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
            "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
          // The fog apply's image: the entry of its block (no material route), the read.
@@ -3346,7 +3347,16 @@ TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
     files.push_back( "Runtime/Source/RuntimeLayer.cpp" );
     files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp" );
     files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp" );
-    const std::regex get( R"(([Ll]ayout\.Get\())" );
+    // The terrain and mesh renderers (C3b gap 5): the terrain keeps one layout per program, keyed on the pipeline
+    // every group records with; a mesh draw list keeps one per recording shader (ShaderBindingLayoutSet).
+    const char* const sceneMeshFiles[] = {
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp" };
+    for ( const char* file : sceneMeshFiles )
+        files.push_back( file );
+    const std::regex get( R"(([Ll]ayout(?:s|Cache)?\.Get\())" );
     const std::regex key( R"(^[A-Za-z_][\w\[\]\.]*->GetSpecification\(\)\.Shader\))" );
     size_t           gets = 0;
     for ( const std::string& file : files )
@@ -3363,11 +3373,32 @@ TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
     }
     EXPECT_GT( gets, 10u ) << "the census found almost no layout lookups: the needle is stale";
     // The Skybox LUT and cloud compute helpers take the kept layout; neither derives one per frame any more.
-    for ( const char* file :
-          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
-            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp" } )
-        EXPECT_EQ( SqueezedSource( root, file ).find( "GetBindingLayout(" ), std::string::npos )
+    std::vector<std::string> keptOnly = {
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp" };
+    keptOnly.insert( keptOnly.end(), std::begin( sceneMeshFiles ), std::end( sceneMeshFiles ) );
+    for ( const std::string& file : keptOnly )
+        EXPECT_EQ( SqueezedSource( root, file.c_str() ).find( "GetBindingLayout(" ), std::string::npos )
              << file << " derives a binding layout per frame again (Renderer::GetBindingLayout)";
+    // Each lookup above is one of these, not a stray: the terrain's three programs, the draw list's per-block Get,
+    // the glass and overdraw-resolve blocks.
+    const std::string terrain = SqueezedSource( root, sceneMeshFiles[0] );
+    EXPECT_NE( terrain.find( "layoutCache.Get(pipeline->GetSpecification().Shader)" ), std::string::npos );
+    for ( const char* program :
+          { "(declared,m_Pipeline.get(),m_ForwardLayout,", "(pass,m_GBufferPipeline.get(),m_GBufferLayout,",
+            "(declared,m_ShadowPipeline.get(),m_ShadowLayout," } )
+        EXPECT_NE( terrain.find( std::string( "DeclareGroupBlocks" ) + program ), std::string::npos )
+             << "a terrain program's blocks are not keyed on the pipeline it records with: " << program;
+    const std::string meshList = SqueezedSource( root, sceneMeshFiles[1] );
+    EXPECT_NE( meshList.find( "m_Layouts.Get(declared.Pipeline->GetSpecification().Shader)" ), std::string::npos )
+         << "a draw-list block's layout is no longer the kept one of its recording pipeline's shader";
+    // A block is per executor AND recording shader: one executor drawn through pipelines of two shaders must not
+    // share a block validated against only one of their layouts.
+    EXPECT_NE( meshList.find( "block.Material==command.Material&&block.Pipeline->GetSpecification().Shader.get()=="
+                              "recordedWith" ),
+               std::string::npos );
+    EXPECT_NE( meshList.find( "m_Layouts.DropExpired();" ), std::string::npos )
+         << "the draw list no longer forgets the layouts of destroyed shaders";
 }
 
 // RDG-FAULT1 C3b, the scene and UI systems that record from setup-declared blocks: no exec in these files opens a
@@ -3859,6 +3890,47 @@ TEST( RenderGraphCompile, LayoutCacheKeysOnTheShaderObjectAndItsReload )
     second.reset(); // destroyed; a new object (possibly at the same address) is never the old one
     auto third = std::make_shared<FakeShader>( FakeShader{ "Third" } );
     EXPECT_EQ( cache.Get( third, 1, derive )->ShaderName, "Third" );
+    EXPECT_EQ( derived, 4 );
+}
+
+// RDG-FAULT1 C3b (mesh draw lists): one kept layout PER SHADER OBJECT. Two shaders in one set each derive once and
+// keep their own pointer; a reload of one re-derives only it; a destroyed shader's cache is dropped and a new
+// object never inherits its layout.
+TEST( RenderGraphCompile, LayoutCacheSetKeepsOneLayoutPerShaderObject )
+{
+    struct FakeShader
+    {
+        std::string Name;
+    };
+    int        derived = 0;
+    const auto derive  = [&]( const FakeShader& shader )
+    {
+        ++derived;
+        return ShaderBindingLayout{ shader.Name, {}, 0 };
+    };
+    LayoutCacheSet                                   set;
+    auto                                             lit   = std::make_shared<FakeShader>( FakeShader{ "Lit" } );
+    auto                                             glass = std::make_shared<FakeShader>( FakeShader{ "Glass" } );
+    const std::shared_ptr<const ShaderBindingLayout> litKept   = set.Get( lit, 0, derive );
+    const std::shared_ptr<const ShaderBindingLayout> glassKept = set.Get( glass, 0, derive );
+    EXPECT_EQ( litKept->ShaderName, "Lit" );
+    EXPECT_EQ( glassKept->ShaderName, "Glass" );
+    EXPECT_EQ( derived, 2 );
+    // The next frame: both hand back their kept pointer, nothing re-derived (alternating does not evict).
+    EXPECT_EQ( set.Get( lit, 0, derive ).get(), litKept.get() );
+    EXPECT_EQ( set.Get( glass, 0, derive ).get(), glassKept.get() );
+    EXPECT_EQ( derived, 2 );
+
+    glass->Name = "GlassReloaded";
+    EXPECT_EQ( set.Get( glass, 1, derive )->ShaderName, "GlassReloaded" );
+    EXPECT_EQ( set.Get( lit, 0, derive ).get(), litKept.get() ) << "a reload of one shader re-derived another";
+    EXPECT_EQ( derived, 3 );
+
+    lit.reset();
+    set.DropExpired();
+    EXPECT_EQ( set.Size(), 1u ) << "a destroyed shader's layout is kept forever";
+    auto newcomer = std::make_shared<FakeShader>( FakeShader{ "Newcomer" } );
+    EXPECT_EQ( set.Get( newcomer, 0, derive )->ShaderName, "Newcomer" );
     EXPECT_EQ( derived, 4 );
 }
 

@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
@@ -124,6 +125,11 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
+        // Each program's block layout, keyed on the shader of the pipeline its draws record with (kept, not
+        // re-derived per frame; a reload re-derives it).
+        ShaderBindingLayoutCache m_ForwardLayout;
+        ShaderBindingLayoutCache m_GBufferLayout;
+        ShaderBindingLayoutCache m_ShadowLayout;
 
         std::unordered_map<std::string, ProgramMaterials> m_Materials;
 

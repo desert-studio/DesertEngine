@@ -27,4 +27,23 @@ namespace Desert::Graphic
     private:
         RDG::LayoutCache m_Cache;
     };
+
+    // The layouts of a node that declares one block PER SHADER its draws record with (a mesh draw list: every
+    // material executor + recording pipeline pair is a block): one kept layout per shader object
+    // (RDG::LayoutCacheSet), each re-derived only on that shader's reload, never per frame. Get keys on the
+    // RECORDING pipeline's shader (`pipeline->GetSpecification().Shader`). DropExpired once per frame.
+    class ShaderBindingLayoutSet
+    {
+    public:
+        [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>&
+        Get( const std::shared_ptr<Shader>& shader );
+
+        void DropExpired()
+        {
+            m_Caches.DropExpired();
+        }
+
+    private:
+        RDG::LayoutCacheSet m_Caches;
+    };
 } // namespace Desert::Graphic

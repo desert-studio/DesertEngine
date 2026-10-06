@@ -11,4 +11,11 @@ namespace Desert::Graphic
         return m_Cache.Get( shader, shader->GetReloadGeneration(),
                             []( const Shader& s ) { return Renderer::GetInstance().GetBindingLayout( s ); } );
     }
+
+    const std::shared_ptr<const RDG::ShaderBindingLayout>&
+    ShaderBindingLayoutSet::Get( const std::shared_ptr<Shader>& shader )
+    {
+        return m_Caches.Get( shader, shader->GetReloadGeneration(),
+                             []( const Shader& s ) { return Renderer::GetInstance().GetBindingLayout( s ); } );
+    }
 } // namespace Desert::Graphic
