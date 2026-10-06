@@ -587,9 +587,10 @@ TEST( SceneFrameCapability, EverySceneResourceTheMockDeclaresHasAWriter )
 // well is the "filled both" refusal on every lit draw.
 TEST_F( ShaderRootFixture, TheCloudShadowMapIsAPassParameterNotTheFrameSnapshots )
 {
-    const std::string applier =
-         ReadFile( "../Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.cpp" );
-    ASSERT_FALSE( applier.empty() ) << "PBRSceneFrame.cpp not found from " << std::filesystem::current_path();
+    const std::filesystem::path file = Desert::TestSupport::RepositoryRoot() /
+                                       "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.cpp";
+    const std::string applier = ReadFile( file );
+    ASSERT_FALSE( applier.empty() ) << file.string() << " not found";
     EXPECT_NE( applier.find( "CloudShadowUpload( material, CloudShadow )" ), std::string::npos )
          << "PBRSceneFrame::ApplyTo must upload CloudShadowUB through CloudShadowUpload";
     EXPECT_EQ( applier.find( "\"u_CloudShadowMap\"" ), std::string::npos )
