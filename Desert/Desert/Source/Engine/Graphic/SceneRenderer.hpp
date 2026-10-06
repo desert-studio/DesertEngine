@@ -453,9 +453,6 @@ namespace Desert::Graphic
         /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
-        // The shadow images a lit pass samples: every valid cascade of the directional shadow, and the cloud
-        // layer's shadow map. A system whose materials receive shadows calls this from its pass's Declare.
-        void DeclareShadowReads( RenderPassDeclaration& declared ) const;
 
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
@@ -565,7 +562,6 @@ namespace Desert::Graphic
                                            const glm::vec4& lightColor );
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                           const std::vector<RDG::TextureRef>& shadowReads,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const glm::vec4& cameraPos );
         // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a

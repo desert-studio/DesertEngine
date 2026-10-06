@@ -887,17 +887,9 @@ namespace Desert::Graphic
                 giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, viewProj, lightColor );
             }
 
-            std::vector<RDG::TextureRef> shadowReads;
-            {
-                // The lighting pass shades with the cascades and the cloud layer's shadow map.
-                RenderPassDeclaration shadows;
-                DeclareShadowReads( shadows );
-                std::vector<RDG::TextureRef> shadowMaps;
-                if ( ResolveDeclared( textures, shadows, "Deferred: Composite", shadowMaps ) )
-                    shadowReads = std::move( shadowMaps );
-            }
-            AddFrameComposite( graph, textures, gbuffer, giAccum, shadowReads, meshRenderer, lightDir, lightColor,
-                               cameraPos );
+            // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
+            // with their neutral defaults), not as a second, separately resolved read list.
+            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, cameraPos );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
@@ -1555,27 +1547,6 @@ namespace Desert::Graphic
         cloudShadow.BorderFadeUv = view.BorderFadeUv;
         cloudShadow.Enabled      = true;
         return cloudShadow;
-    }
-
-    void SceneRenderer::DeclareShadowReads( RenderPassDeclaration& declared ) const
-    {
-        // `find`, as GetCloudShadowInput: a const observer inserts no empty system.
-        if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
-        {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
-            if ( mesh && mesh->AreShadowsEnabled() )
-                for ( uint32_t c = 0; c < mesh->GetValidCascadeCount(); ++c )
-                    declared.Read( mesh->GetCascadeShadowImage( c ), RDG::Access::SampledGraphics,
-                                   std::format( "ShadowCascade{}", c ) );
-        }
-        if ( const auto it = m_RenderSystems.find( "VolumetricCloudSystem" ); it != m_RenderSystems.end() )
-        {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second );
-            if ( clouds && clouds->HasShadowMap() )
-                declared.Read( clouds->GetShadowMap(), RDG::Access::SampledGraphics, "Clouds.ShadowMap" );
-        }
     }
 
 } // namespace Desert::Graphic

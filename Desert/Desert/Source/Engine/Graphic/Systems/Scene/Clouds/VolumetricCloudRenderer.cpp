@@ -1158,7 +1158,7 @@ namespace Desert::Graphic::System
         push.Depth = glm::vec4( m_ShadowMapView.FarDepthKm, 0.0f, 0.0f, 0.0f );
 
         // One Compute node: it samples the cloud volumes and writes the shadow map the lit passes sample
-        // (SceneRenderer::DeclareShadowReads).
+        // (as a scene view input, SceneViewInputsOf).
         ComputeNodeDeclaration shadow;
         shadow.Name = "Clouds: ShadowMap";
         // SETUP: the shadow map it writes is a block entry (the graph imports, orders and barriers it); the

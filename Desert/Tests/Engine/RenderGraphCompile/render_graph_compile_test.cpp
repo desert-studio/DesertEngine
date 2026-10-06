@@ -3064,11 +3064,15 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
           { "Systems/Scene/Skybox/SkyboxRenderer.cpp", "Systems/Scene/Fog/HeightFogRenderer.cpp" } )
         EXPECT_EQ( source( file ).find( "ComputeImage" ), std::string::npos ) << file;
 
-    // The composite reads the cloud shadow map (through DeclareShadowReads), so the graph brings it back to a
-    // sampled layout after the shadow node's storage write.
-    EXPECT_NE( source( "SceneRenderer.cpp" )
-                    .find( "ResolveDeclared(textures,shadows,\"Deferred:Composite\",shadowMaps)" ),
-               std::string::npos );
+    // The composite reads the cascades and the cloud shadow map ONLY as scene view inputs (block entries with
+    // their neutral defaults, below), so the graph brings the map back to a sampled layout after the shadow
+    // node's storage write. The second, separately resolved read list (DeclareShadowReads -> shadowReads ->
+    // ReadAll) is gone: it declared the same images twice and, when it did not resolve, silently dropped them.
+    for ( const char* file : { "SceneRenderer.cpp", "SceneRenderer.hpp", "SceneRendererFrameDeferred.cpp" } )
+    {
+        EXPECT_EQ( source( file ).find( "DeclareShadowReads" ), std::string::npos ) << file;
+        EXPECT_EQ( source( file ).find( "shadowReads" ), std::string::npos ) << file;
+    }
 
     // RDG-TAILS-D2: the map is a graph ref of the frame (imported where its node runs), the composite declares
     // it and binds it by shader name; its material only uploads CloudShadowUB (a slot filled by both routes is

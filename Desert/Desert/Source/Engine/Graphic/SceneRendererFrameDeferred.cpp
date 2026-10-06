@@ -307,7 +307,6 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                           const std::vector<RDG::TextureRef>& shadowReads,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const glm::vec4& cameraPos )
     {
@@ -384,8 +383,6 @@ namespace Desert::Graphic
                                          shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ),
                                          cloudShadow, environment );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
-                 // The cascades the frame rendered are read even where the shader samples fewer of them.
-                 ReadAll( pass, shadowReads, RDG::Access::SampledGraphics );
                  DeferredFrameNodes::LoadTarget( pass, target );
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr

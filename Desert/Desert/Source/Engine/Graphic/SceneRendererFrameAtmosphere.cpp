@@ -68,14 +68,15 @@ namespace Desert::Graphic
     {
         // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of the
         // frame, because its readers are the lit passes (the deferred Composite, the forward meshes and terrain),
-        // which declare it through DeclareShadowReads. It reads no scene depth, no G-buffer and no atmosphere LUT.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        // which take it as a scene view input (SceneViewInputsOf). It reads no scene depth, no G-buffer and no
+        // atmosphere LUT. NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this
+        // exact type
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
         if ( !clouds )
             return;
         clouds->SettleShadowMapNodes( AddComputeNodes( graph, textures, clouds->DeclareShadowMapNodes() ) );
-        // The readers that bind it by name (the deferred Composite) take it as a graph ref; the same import as
-        // DeclareShadowReads' "Clouds.ShadowMap" (one registration per engine image).
+        // Its readers take this graph ref through SceneViewInputsOf (CloudShadowMapOrWhite): one registration
+        // per engine image.
         if ( clouds->HasShadowMap() )
             textures.Transients.CloudShadowMap = textures.Import( clouds->GetShadowMap(), "Clouds.ShadowMap" );
     }
