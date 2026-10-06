@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <ctime>
 #include <fstream>
 #include <sstream>
@@ -300,9 +301,10 @@ namespace CrashReporter
     {
         ReportView view;
         view.audience         = AudienceOf( inReport );
-        const std::string gpu = inReport.gpuDriver.empty() ? inReport.gpu
-                                                           : inReport.gpu + "  -  driver " + inReport.gpuDriver +
-                                                                  "  -  Vulkan " + inReport.gpuApi;
+        const std::string gpu = inReport.gpuDriver.empty()
+                                     ? inReport.gpu
+                                     : std::format( "{}  -  driver {}  -  Vulkan {}", inReport.gpu,
+                                                    inReport.gpuDriver, inReport.gpuApi );
 
         if ( view.audience == Audience::Player )
         {
@@ -319,15 +321,15 @@ namespace CrashReporter
         }
 
         view.summary = {
-             { "Kind", inReport.codename + "  [" + inReport.kind + "]", false },
-             { "Code", inReport.code + " at " + inReport.address, true },
-             { "Module", inReport.module + " + " + inReport.moduleOffset, true },
+             { "Kind", std::format( "{}  [{}]", inReport.codename, inReport.kind ), false },
+             { "Code", std::format( "{} at {}", inReport.code, inReport.address ), true },
+             { "Module", std::format( "{} + {}", inReport.module, inReport.moduleOffset ), true },
              { "Version",
-               inReport.version + "  sha " + inReport.sha + "  branch " + inReport.branch +
-                    ( inReport.dirty == "1" ? "  (dirty tree)" : "" ),
+               std::format( "{}  sha {}  branch {}{}", inReport.version, inReport.sha, inReport.branch,
+                            inReport.dirty == "1" ? "  (dirty tree)" : "" ),
                true },
-             { "Time", FormatCrashTime( inReport ) + "  (started " + inReport.started + ")", false },
-             { "Machine", inReport.machine + "  -  " + inReport.os, false },
+             { "Time", std::format( "{}  (started {})", FormatCrashTime( inReport ), inReport.started ), false },
+             { "Machine", std::format( "{}  -  {}", inReport.machine, inReport.os ), false },
              { "GPU", gpu, false },
              { "Scene", inReport.scene, false },
         };

@@ -3,6 +3,7 @@
 // report, the same report with the CR1c gpu_* / game keys, and the damaged ones a real crash can leave (a
 // process killed mid-write, a garbled stack line, a file that is not a report at all).
 
+#include <format>
 #include <CrashReport.hpp>
 
 #include <gtest/gtest.h>
@@ -242,7 +243,7 @@ TEST( CrashReportParse, ThePlayerViewDrawsOnlyThePlayersRows )
     // Even a Shipping-tagged report that DID carry the development keys draws none of them: the view
     // asks for the player's fields only.
     const CrashReporter::Report leaky =
-         CrashReporter::ParseCrashText( kHead + "game=Sandbox\n" + kTail, "crash.txt" );
+         CrashReporter::ParseCrashText( std::format( "{}game=Sandbox\n{}", kHead, kTail ), "crash.txt" );
     CrashReporter::Report tagged = leaky;
     tagged.config                = "Shipping";
     for ( const CrashReporter::SummaryLine& line : CrashReporter::ComposeView( tagged ).summary )
