@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Settings/CapabilityCatalog.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
 #include <cstdint>
@@ -102,6 +103,16 @@ namespace Desert::Engine
         /// Sampling + blending into 32-bit float colour targets. Every screen-space pass that accumulates
         /// (SSR trace/resolve, GI resolve, bloom) writes RGBA32F, so this gates them.
         bool SupportsFloatRenderTargets = false;
+
+        // --- The selectable lists (SCAL1) -------------------------------------------------------------
+        /// What this device OFFERS per quality setting — AA methods, upscalers, RT modes, MSAA counts,
+        /// anisotropy levels, display outputs, present modes, compression families, async compute, timing.
+        /// The only source every selector and Scalability::Resolve read; filled once by the backend
+        /// (Vulkan: BuildCapabilityCatalog over a CatalogProbe) and immutable for the device's life. The
+        /// facts above stay for the code that branches on them; a list here replaces every use-time support
+        /// check for a CHOICE (the swapchain's present-mode walk, the panel's MSAA trim, SceneRenderer's
+        /// sample clamp). Each list names its reader in CapabilityCatalog.hpp.
+        Common::Scalability::CapabilityCatalog Catalog;
 
         [[nodiscard]] bool IsDiscrete() const
         {
