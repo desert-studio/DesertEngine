@@ -299,11 +299,10 @@ namespace CrashReporter
     ReportView ComposeView( const Report& inReport )
     {
         ReportView view;
-        view.audience = AudienceOf( inReport );
-        const std::string gpu =
-             inReport.gpuDriver.empty()
-                  ? inReport.gpu
-                  : inReport.gpu + "  -  driver " + inReport.gpuDriver + "  -  Vulkan " + inReport.gpuApi;
+        view.audience         = AudienceOf( inReport );
+        const std::string gpu = inReport.gpuDriver.empty() ? inReport.gpu
+                                                           : inReport.gpu + "  -  driver " + inReport.gpuDriver +
+                                                                  "  -  Vulkan " + inReport.gpuApi;
 
         if ( view.audience == Audience::Player )
         {
@@ -312,12 +311,9 @@ namespace CrashReporter
             view.showLog  = false;
             view.showPath = false;
             view.summary  = {
-                 { "Game", inReport.game, false },
-                 { "Error", inReport.codename, false },
-                 { "Version", inReport.version, true },
-                 { "Time", FormatCrashTime( inReport ), false },
-                 { "System", inReport.os, false },
-                 { "GPU", gpu, false },
+                 { "Game", inReport.game, false },      { "Error", inReport.codename, false },
+                 { "Version", inReport.version, true }, { "Time", FormatCrashTime( inReport ), false },
+                 { "System", inReport.os, false },      { "GPU", gpu, false },
             };
             return view;
         }

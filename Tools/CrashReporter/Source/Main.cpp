@@ -933,7 +933,7 @@ int main( int inArgc, char** inArgv )
             ImGui::BeginGroup();
             // The player view names no path; the line still opens the folder on click.
             ImGui::TextColored( ToVec4( kColMuted ), "%s",
-                                !view.showPath               ? "Report folder"
+                                !view.showPath              ? "Report folder"
                                 : report.sourcePath.empty() ? "(no report path)"
                                                             : report.sourcePath.c_str() );
             if ( ImGui::IsItemHovered() )
