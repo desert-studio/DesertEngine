@@ -94,9 +94,8 @@ namespace Desert::Graphic::API::Vulkan
         // PresentModes list is what the surface offers, and Scalability::ResolvePresentMode is the one walk
         // (VSync on -> FIFO; off -> IMMEDIATE, else MAILBOX, else FIFO with a reason). The swapchain no longer
         // walks the surface's modes itself, so the settings UI, the resolver and the swapchain cannot disagree.
-        const Common::Scalability::ResolvedPresentMode present =
-             Common::Scalability::ResolvePresentMode( m_Display,
-                                                      EngineContext::GetInstance().GetCapabilities().Catalog );
+        const Common::Scalability::ResolvedPresentMode present = Common::Scalability::ResolvePresentMode(
+             m_Display, EngineContext::GetInstance().GetCapabilities().Catalog );
         VkPresentModeKHR swapchainPresentMode = VK_PRESENT_MODE_FIFO_KHR;
         switch ( present.Mode )
         {
