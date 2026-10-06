@@ -704,6 +704,9 @@ namespace Desert::Graphic
         m_BloomEnabled = post.EnableBloom;
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
              ->SetThreshold( post.BloomThreshold / exposureNormalisation );
+        // PostProcess.BloomMips (Scalability; High 6 = the former BloomRenderer::kMaxBloomMips).
+        UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
+             ->SetMaxMips( static_cast<uint32_t>( m_Quality.As<int>( Common::Scalability::Parameter::BloomMips ) ) );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetBloomIntensity( post.EnableBloom ? post.BloomIntensity : 0.0f );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )

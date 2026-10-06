@@ -84,7 +84,7 @@ namespace Desert::Graphic::System
         const uint32_t bh = std::max( 1u, scene->GetFramebufferHeight() / 2 );
         return RDG::TextureDesc{ .Size   = { .Width = bw, .Height = bh },
                                  .Format = kBloomFormat,
-                                 .Mips   = std::min( kMaxBloomMips, Utils::CalculateMipCount( bw, bh ) ) };
+                                 .Mips   = std::min( m_MaxMips, Utils::CalculateMipCount( bw, bh ) ) };
     }
 
     Common::BoolResultStr BloomRenderer::RecordDownsample( const RDG::PassContext& context,

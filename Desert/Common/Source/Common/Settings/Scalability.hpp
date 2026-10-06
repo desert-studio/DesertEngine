@@ -111,7 +111,7 @@ namespace Common::Scalability
         ReflectionMaxSteps,        // SSR trace march steps (SSRRenderer push constant). 8..64
         GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
         AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
-        BloomMips,                 // bloom down/up-sample chain length (BloomRenderer). 2..kMaxBloomMips
+        BloomMips,                 // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB,      // Textures: resident texture budget
