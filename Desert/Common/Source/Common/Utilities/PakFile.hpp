@@ -23,18 +23,15 @@ namespace Common::Utils
     //   index record (v3):
     //     u32 pathLen | path utf8 | u64 offset | u64 storedSize | u64 size | u64 hash | u32 crc | u32 codec
     //
-    // THE MAGIC IS THE VERSION SEQUENCE, and it is the whole migration story: DPK1, DPK2, DPK3, in
-    // that order, each a superset of the last. The reader accepts all three and says which it read;
-    // anything that begins "DPK" and is not one of them is refused BY NAME ("a DPK7 archive — this
-    // build reads DPK1..DPK3"), not as "corrupt", because a newer archive in an older build is a
-    // version problem with a different remedy than a damaged download. There is no in-place migration
-    // and there must not be one: an archive is a build artifact, so the migration of a v1 pak is to
-    // cook it again, and the only thing the reader owes it is to keep reading it meanwhile.
+    // ONE FORMAT: "DPK3". The reader and the writer know this layout and no other. An archive is a
+    // build artifact, so a file in any other version is not migrated or read on a best-effort basis —
+    // it is REFUSED with its path and its version number, and the remedy is to cook it again. The
+    // refusal names the version rather than calling the file corrupt, because a DPK1 left over from an
+    // old cook ("repack it") and a DPK4 from a newer build ("this program is older than the content")
+    // have different remedies than a damaged download. No archive in an earlier version ever shipped.
     //
-    //   v1  offset/size only. No integrity column at all; read unverified, as it always was.
-    //   v2  + hash: FNV-1a 64 of the CONTENT. Verified on every read, at 0.77 GB/s (see below).
-    //   v3  + storedSize/crc/codec: the payload may be compressed, and the integrity check is a
-    //       CRC-32C of the bytes AS STORED.
+    //   DPK3  offset/storedSize/size/hash/crc/codec per entry: the payload may be compressed, and the
+    //         integrity check is a CRC-32C of the bytes AS STORED.
     //
     // WHAT v3 CHANGED AND WHY, in the numbers that forced it (2026-09-22, Release -O2, the shipping
     // cooked tree: 1069 entries, 229 187 752 bytes, 7 repeats). Reading every entry cost 373.7 ms:
@@ -183,15 +180,6 @@ namespace Common::Utils
         LZ4   = 1, // Lz4Block.hpp, one block, no frame
     };
 
-    // Which archive version a file turned out to be. Reported by PakReader so a test — and `PakTool
-    // list` — can say WHICH format it read rather than inferring it from which columns look plausible.
-    enum class PakVersion : uint32_t
-    {
-        V1 = 1, // offset/size only, no integrity column
-        V2 = 2, // + FNV-1a content hash, verified at read
-        V3 = 3, // + storedSize/crc/codec
-    };
-
     class PakWriter
     {
     public:
@@ -201,8 +189,7 @@ namespace Common::Utils
             // Begins a new archive, truncating whatever was there.
             Create,
             // APPENDS to an existing one. The archive must open cleanly first (a damaged archive is
-            // not something to add to), and the file must already be a v3: appending to a v1 or v2
-            // would mean rewriting its index in a format its own header does not declare.
+            // not something to add to); an archive in any other version does not open at all.
             //
             // THE OLD INDEX IS NEVER OVERWRITTEN, and that single rule is what makes an interrupted
             // append cost nothing. The naive append writes new blobs where the old index starts —
@@ -301,9 +288,6 @@ namespace Common::Utils
         // which archive answered — see VFS::SourcePak.
         const std::filesystem::path& ArchivePath() const;
 
-        // Which of the three formats this file turned out to be. Meaningful only when IsOpen().
-        PakVersion Version() const;
-
         // WHY the archive did not open, naming the STEP and the actual numbers — "the index is
         // declared at offset 4194304 but the file is only 1048576 bytes". Empty exactly when
         // IsOpen().
@@ -321,14 +305,14 @@ namespace Common::Utils
         // Size of the CONTENT — what Read() hands back, and what a manifest records. Not the number
         // of bytes the entry occupies; see EntryStoredSize.
         std::optional<uint64_t> EntrySize( const std::string& key ) const;
-        // Bytes the entry actually occupies in the archive. Equal to EntrySize for a stored entry and
-        // for every v1/v2 archive; smaller for a compressed one.
+        // Bytes the entry actually occupies in the archive. Equal to EntrySize for a stored entry;
+        // smaller for a compressed one.
         std::optional<uint64_t> EntryStoredSize( const std::string& key ) const;
-        // How the payload lies on disk. Always Store before v3.
+        // How the payload lies on disk.
         std::optional<PakCodec> EntryCodec( const std::string& key ) const;
-        // Content hash from the index (0 for v1 archives that predate hashing).
+        // Content hash (FNV-1a 64 of the content) from the index.
         std::optional<uint64_t> EntryHash( const std::string& key ) const;
-        // CRC-32C of the stored bytes (0 before v3, which has no such column).
+        // CRC-32C of the stored bytes.
         std::optional<uint32_t> EntryCrc( const std::string& key ) const;
         // Where the payload begins in the file. Exposed because an APPEND must carry every existing
         // entry's span across unchanged — the one thing the mode promises — and because the reader's
@@ -346,12 +330,10 @@ namespace Common::Utils
         // was stored compressed.
         //
         // VERIFIES THE ENTRY BEFORE HANDING THE BYTES BACK, and the check is named in the failure: a
-        // v3 entry by the CRC-32C of its stored bytes, a v2 entry by the FNV-1a of its content (which
-        // is all a v2 archive carries), a v1 entry not at all because it carries nothing to check
-        // against. A mismatch logs the key, the archive and both values and returns nullopt — corrupt
+        // CRC-32C of its stored bytes. A mismatch logs the key, the archive and both values and returns nullopt — corrupt
         // content is a failed read, never a successful one.
         //
-        // WHY THE v3 CHECK IS OVER THE STORED BYTES AND NOT THE DECODED ONES. Decoding is
+        // WHY THE CHECK IS OVER THE STORED BYTES AND NOT THE DECODED ONES. Decoding is
         // deterministic, so stored bytes that are provably intact decode to content that is provably
         // intact; checking after decoding would instead cost a pass over the LARGER buffer, which is
         // the cost this version exists to remove. What that does NOT cover is a fault in the decoder
@@ -369,8 +351,8 @@ namespace Common::Utils
             uint64_t Offset     = 0;
             uint64_t StoredSize = 0;
             uint64_t Size       = 0;
-            uint64_t Hash       = 0; // 0 when the archive is v1 (pre-hash)
-            uint32_t Crc        = 0; // meaningful from v3
+            uint64_t Hash       = 0;
+            uint32_t Crc        = 0;
             PakCodec Codec      = PakCodec::Store;
         };
 
@@ -386,7 +368,6 @@ namespace Common::Utils
         std::vector<std::string>              m_Deleted;
         std::unordered_set<std::string>       m_DeletedLookup;
         std::string                           m_OpenError;
-        bool                                  m_Ok      = false;
-        PakVersion                            m_Version = PakVersion::V1;
+        bool                                  m_Ok = false;
     };
 } // namespace Common::Utils
