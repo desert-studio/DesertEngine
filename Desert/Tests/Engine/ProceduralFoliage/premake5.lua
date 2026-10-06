@@ -14,6 +14,8 @@ project(test_name)
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Foliage/Procedural/*.cpp",
+        -- S1-b: the volume files its instances into the FO-6 cell fields.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Foliage/FoliageCells.cpp",
     }
 
     includedirs {

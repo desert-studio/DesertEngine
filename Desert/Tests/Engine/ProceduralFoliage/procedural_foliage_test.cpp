@@ -4,6 +4,7 @@
 // strip along it.
 
 #include <Engine/World/Foliage/Procedural/ProceduralFoliageSpawner.hpp>
+#include <Engine/World/Foliage/Procedural/ProceduralFoliageVolume.hpp>
 
 #include <gtest/gtest.h>
 
@@ -163,6 +164,109 @@ TEST( ProceduralFoliage, StitchedTilesPlaceEveryPlantOnceWithNoOverlapOrBareStri
     ASSERT_GT( interior, 10u );
     EXPECT_GE( static_cast<float>( seam ), 0.6f * static_cast<float>( interior ) )
          << "seam " << seam << " against interior " << interior;
+}
+
+// S1-b: the volume. A resimulation traces every placement inside the volume onto the ground, files it by type and
+// cell, and replaces only the fields its own volume owns: painted fields and another volume's stay as they were.
+namespace
+{
+    using Desert::World::Foliage::FoliageCellOf;
+
+    std::optional<ProceduralFoliageGround> GroundAt( const glm::vec3& start, const glm::vec3& end, float height )
+    {
+        if ( start.y < height || end.y > height )
+            return std::nullopt;
+        return ProceduralFoliageGround{ { start.x, height, start.z }, { 0.0f, 1.0f, 0.0f } };
+    }
+
+    std::optional<glm::mat4> Upright( const ProceduralFoliagePlacement& p, const ProceduralFoliageGround& g )
+    {
+        glm::mat4 m( p.Scale );
+        m[3] = glm::vec4( g.Point, 1.0f );
+        return m;
+    }
+} // namespace
+
+TEST( ProceduralFoliage, AVolumePlacesOnlyInsideItselfOnTheGroundItsTraceFinds )
+{
+    ProceduralFoliageSpawner spawner( Settings( 7, 3, 1000.0f ), { Type( 20.0f, 40.0f, 0.0f, 2.0f ) } );
+    spawner.Simulate();
+    const ProceduralFoliageBox volume{ { -700.0f, -500.0f, 300.0f }, { 1500.0f, 800.0f, 2600.0f } };
+    const auto                 desired = DesiredInstancesInVolume( spawner, volume, 0.0f );
+    ASSERT_FALSE( desired.empty() );
+    for ( const auto& d : desired )
+    {
+        EXPECT_GE( d.Placement.Location.x, volume.Min.x );
+        EXPECT_LE( d.Placement.Location.x, volume.Max.x );
+        EXPECT_GE( d.Placement.Location.y, volume.Min.z );
+        EXPECT_LE( d.Placement.Location.y, volume.Max.z );
+        EXPECT_EQ( d.TraceStart.y, volume.Max.y );
+        EXPECT_EQ( d.TraceEnd.y, volume.Min.y );
+    }
+
+    const auto trace  = []( const glm::vec3& s, const glm::vec3& e ) { return GroundAt( s, e, 120.0f ); };
+    const auto fields = PlaceProceduralFoliage( desired, 1, trace, Upright, 1000.0 );
+    ASSERT_TRUE( fields ) << fields.GetError();
+    size_t placed = 0;
+    for ( const auto& field : fields.GetValue() )
+        for ( const auto& m : field.Instances )
+        {
+            ++placed;
+            EXPECT_FLOAT_EQ( m[3].y, 120.0f );
+            EXPECT_EQ( FoliageCellOf( m, 1000.0 ), field.Cell );
+        }
+    EXPECT_EQ( placed, desired.size() );
+
+    // A ground below the volume is out of every trace's reach: nothing is placed.
+    const auto deep    = []( const glm::vec3& s, const glm::vec3& e ) { return GroundAt( s, e, -900.0f ); };
+    const auto nothing = PlaceProceduralFoliage( desired, 1, deep, Upright, 1000.0 );
+    ASSERT_TRUE( nothing );
+    EXPECT_TRUE( nothing.GetValue().empty() );
+}
+
+TEST( ProceduralFoliage, ResimulatingReplacesTheVolumesOwnFieldsAndNoOtherOnes )
+{
+    const Desert::Common::UUID volume( 11u );
+    const Desert::Common::UUID other( 22u );
+    std::vector<ProceduralFoliageTypeField> fresh{ { 0, { 0, 0 }, {} }, { 0, { 1, 0 }, {} }, { 1, { 0, 0 }, {} } };
+    std::vector<ProceduralFoliageExistingField> existing{
+         { Desert::Common::UUID::Null(), 0, { 0, 0 } }, // painted by hand
+         { other, 0, { 0, 0 } },                         // another volume's
+         { volume, 0, { 0, 0 } },                        // ours, still occupied
+         { volume, 0, { 5, 5 } },                        // ours, nothing lands there any more
+         { volume, UINT32_MAX, { 1, 0 } },               // ours, a type the volume dropped
+    };
+    const auto plan = PlanProceduralFields( existing, volume, fresh );
+    EXPECT_EQ( plan.Rewrite, ( std::vector<std::pair<size_t, size_t>>{ { 2, 0 } } ) );
+    EXPECT_EQ( plan.Create, ( std::vector<size_t>{ 1, 2 } ) );
+    EXPECT_EQ( plan.Remove, ( std::vector<size_t>{ 3, 4 } ) );
+
+    // A second resimulation over the fields the first one left keeps every one of them.
+    std::vector<ProceduralFoliageExistingField> after{ existing[0], existing[1], existing[2],
+                                                       { volume, 0, { 1, 0 } }, { volume, 1, { 0, 0 } } };
+    const auto again = PlanProceduralFields( after, volume, fresh );
+    EXPECT_TRUE( again.Remove.empty() );
+    EXPECT_TRUE( again.Create.empty() );
+    EXPECT_EQ( again.Rewrite.size(), 3u );
+}
+
+TEST( ProceduralFoliage, TilesGrownInParallelMatchTheSameSeedEveryRun )
+{
+    for ( int run = 0; run < 3; ++run )
+    {
+        ProceduralFoliageSpawner a( Settings( 5, 6, 800.0f ), { Type( 15.0f, 30.0f, 0.0f, 3.0f ) } );
+        ProceduralFoliageSpawner b( Settings( 5, 6, 800.0f ), { Type( 15.0f, 30.0f, 0.0f, 3.0f ) } );
+        a.Simulate();
+        b.Simulate();
+        for ( int32_t x = 0; x < 6; ++x )
+        {
+            const auto pa = a.GetRandomTile( x, x * 3 )->PlacedInstances();
+            const auto pb = b.GetRandomTile( x, x * 3 )->PlacedInstances();
+            ASSERT_EQ( pa.size(), pb.size() );
+            for ( size_t i = 0; i < pa.size(); ++i )
+                EXPECT_EQ( pa[i].Location, pb[i].Location );
+        }
+    }
 }
 
 int main( int argc, char** argv )

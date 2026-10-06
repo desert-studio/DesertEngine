@@ -1,5 +1,7 @@
 #include <Engine/World/Foliage/Procedural/ProceduralFoliageSpawner.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
 #include <cmath>
 
@@ -30,15 +32,18 @@ namespace Desert::World::Foliage::Procedural
 
     void ProceduralFoliageSpawner::Simulate( int32_t numSteps )
     {
-        RandomStream stream( m_Settings.RandomSeed );
+        // The seeds are drawn in order from the one stream, so each tile's seed is the same however the tiles are
+        // then scheduled; a tile reads only this spawner and writes only itself, so the tiles grow in parallel.
+        RandomStream         stream( m_Settings.RandomSeed );
+        std::vector<int32_t> seeds;
         m_Tiles.clear();
         for ( int32_t i = 0; i < m_Settings.NumUniqueTiles; ++i )
         {
-            const auto seed = static_cast<int32_t>( stream.FRand() * static_cast<float>( kProceduralRandMax ) );
-            auto       tile = std::make_unique<ProceduralFoliageTile>();
-            tile->Simulate( *this, seed, numSteps );
-            m_Tiles.push_back( std::move( tile ) );
+            seeds.push_back( static_cast<int32_t>( stream.FRand() * static_cast<float>( kProceduralRandMax ) ) );
+            m_Tiles.push_back( std::make_unique<ProceduralFoliageTile>() );
         }
+        Common::JobSystem::Get().ParallelFor( m_Tiles.size(), [&]( size_t i )
+                                              { m_Tiles[i]->Simulate( *this, seeds[i], numSteps ); } );
     }
 
     const ProceduralFoliageTile* ProceduralFoliageSpawner::GetRandomTile( int32_t x, int32_t y ) const
