@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
 #include <Engine/Graphic/Render2D/UIMaterialCache.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
