@@ -863,8 +863,8 @@ TEST( TextureBinaryFormat, ASrgbMarkingIsHonouredNotRefused )
 {
     // Bit 0 is no longer a guard: it is the colour space, and it must survive the round trip on both
     // the full decode and the header-only read the streamer uses.
-    TextureAssetData data = Cook( 8, 8, SyntheticRGBA8( 8, 8 ) );
-    data.ColorSpace       = Desert::Core::Formats::TextureColorSpace::SRGB;
+    TextureAssetData data     = Cook( 8, 8, SyntheticRGBA8( 8, 8 ) );
+    data.ColorSpace           = Desert::Core::Formats::TextureColorSpace::SRGB;
     const std::string encoded = EncodeTextureBinary( data );
 
     uint32_t flags = 0;

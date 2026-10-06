@@ -77,6 +77,80 @@ namespace Desert::Editor
 
     TextureViewerDocument::~TextureViewerDocument() = default;
 
+    std::string TextureViewerDocument::AssetFile() const
+    {
+        if ( m_Assets == nullptr )
+            return {};
+        const auto* metadata = m_Assets->FindMetadataByHandle( Assets::AssetHandle( Subject().Owner ) );
+        return metadata != nullptr ? metadata->Filepath.string() : std::string{};
+    }
+
+    Common::ResultStr<::Desert::Core::Formats::TextureColorSpace> TextureViewerDocument::CurrentColorSpace() const
+    {
+        using Space = ::Desert::Core::Formats::TextureColorSpace;
+        if ( m_ColorSpace )
+            return Common::MakeSuccess( *m_ColorSpace );
+        const std::string file = AssetFile();
+        if ( file.empty() )
+            return Common::MakeError<Space>( "the texture asset is no longer registered" );
+        auto read = Assets::ReadTextureSourceAssetFile( file );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<Space>( read.GetError() );
+        m_ColorSpace = read.GetValue().Import.Settings.ColorSpace;
+        return Common::MakeSuccess( *m_ColorSpace );
+    }
+
+    Common::BoolResultStr TextureViewerDocument::ApplyColorSpace( const ::Desert::Core::Formats::TextureColorSpace space )
+    {
+        const std::string file = AssetFile();
+        if ( file.empty() )
+            return Common::MakeError<bool>( "the texture asset is no longer registered" );
+        const auto set = Assets::SetTextureColorSpace( file, space );
+        if ( !set.IsSuccess() )
+            return Common::MakeError<bool>( set.GetError() );
+        m_ColorSpace = space;
+        // The colour space is part of the DDC key (TextureImporter CookSignature), so dropping the built image is
+        // the whole re-cook: the next Get misses the old entry and cooks under the new one.
+        if ( set.GetValue() )
+            if ( auto* textures = Runtime::ResourceRegistry::GetTextureService() )
+                textures->EvictBuilt( Assets::AssetHandle( Subject().Owner ) );
+        return Common::MakeSuccess( set.GetValue() );
+    }
+
+    std::vector<EditableProperty> TextureViewerDocument::EditableProperties() const
+    {
+        EditableProperty property;
+        property.Name       = "ColorSpace";
+        property.Label      = "Colour space (0 = Linear, 1 = sRGB)";
+        property.Group      = "Texture";
+        property.Type       = "int";
+        property.Components = 1;
+        property.Min        = 0.0f;
+        property.Max        = 1.0f;
+        property.Timing     = "Rebake";
+        const auto current  = CurrentColorSpace();
+        if ( current.IsSuccess() )
+            property.Value[0] = static_cast<float>( static_cast<uint32_t>( current.GetValue() ) );
+        else
+        {
+            property.Settable          = false;
+            property.NotSettableReason = current.GetError();
+        }
+        return { property };
+    }
+
+    Common::BoolResultStr TextureViewerDocument::SetEditableProperty( const std::string&        name,
+                                                                      const std::vector<float>& value )
+    {
+        if ( name != "ColorSpace" )
+            return Common::MakeFormattedError<bool>(
+                 "a texture offers only 'ColorSpace'; '{}' is not one of its properties.", name );
+        if ( value.size() != 1u || ( value[0] != 0.0f && value[0] != 1.0f ) )
+            return Common::MakeError<bool>( "'ColorSpace' takes one number: 0 (Linear) or 1 (sRGB)." );
+        return ApplyColorSpace( value[0] == 1.0f ? ::Desert::Core::Formats::TextureColorSpace::SRGB
+                                                 : ::Desert::Core::Formats::TextureColorSpace::Linear );
+    }
+
     bool TextureViewerDocument::IsSubjectAlive() const
     {
         return m_Assets != nullptr &&
@@ -127,6 +201,16 @@ namespace Desert::Editor
         ImGui::SameLine();
         // The levels the GPU image HAS, not spec.Mips: a chain supplied from the file lives in spec.MipLevels
         // and leaves Mips at 1 (Image2DSpecification), so the spec's count said "1 mip" for every cooked texture.
+        if ( const auto current = CurrentColorSpace(); current.IsSuccess() )
+        {
+            int space = static_cast<int>( current.GetValue() );
+            ImGui::SetNextItemWidth( 90.0f );
+            if ( ImGui::Combo( "##ColorSpace", &space, "Linear\0sRGB\0" ) )
+                if ( const auto applied = ApplyColorSpace( static_cast<::Desert::Core::Formats::TextureColorSpace>( space ) );
+                     !applied.IsSuccess() )
+                    LOG_ERROR( "[TextureViewer] colour space not changed: {}", applied.GetError() );
+            ImGui::SameLine();
+        }
         const uint32_t mips = image->GetMipmapLevels();
         ImGui::Text( "%u x %u  |  %s  |  %u mip%s  |  %s  |  %.0f%%", spec.Width, spec.Height,
                      FormatName( spec.Format ), mips, mips == 1 ? "" : "s",
