@@ -116,8 +116,9 @@ namespace Desert::Core
         }
 
         // Orbit the camera so it looks ALONG `forward` (a world-space direction) at the current focal point,
-        // preserving the current framing distance. Drives the clickable view-axis gizmo (snap to Front/Top/
-        // Right/... ortho-ish views). Derives yaw/pitch from the target forward under this camera's model.
+        // preserving the current framing distance. Derives yaw/pitch from the target forward under this
+        // camera's model, so the ±89° pitch clamp applies: an axis view (preset or view-axis triad) goes
+        // through SnapToAxisView instead.
         void SnapToDirection( const glm::vec3& forward );
 
         // ── AN AXIS VIEW, WHICH IS NOT AN ORBIT ANGLE ─────────────────────────────────────────────

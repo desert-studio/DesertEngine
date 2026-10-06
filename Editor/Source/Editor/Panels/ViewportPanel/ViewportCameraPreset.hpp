@@ -140,6 +140,24 @@ namespace Desert::Editor
     // Front useful rather than disorienting.
     void ApplyViewportCameraPreset( ::Desert::Core::EditorCamera& camera, ViewportCameraPreset preset );
 
+    // ── THE VIEW-AXIS TRIAD'S CLICK, WHICH IS AN AXIS VIEW TOO ───────────────────────────────────
+    //
+    // A click on a triad tip looks FROM that axis end toward the origin, so the forward is the tip's
+    // world direction negated. Every tip is a world axis, which makes the click the same question the
+    // orthographic presets ask, and it gets the same answer: a basis held exactly. It used to go through
+    // `SnapToDirection`, whose ±89° pitch clamp left the Y tips a full degree off the axis they name.
+    //
+    // nullopt for a direction that is not an axis — refused, never routed through the orbit instead.
+    [[nodiscard]] inline std::optional<::Desert::Core::ViewBasis>
+    ViewAxisTipBasisOf( const glm::vec3& tipWorldDir )
+    {
+        return ::Desert::Core::AxisViewBasisOf( -tipWorldDir );
+    }
+
+    // Put @p camera on the axis view a triad tip names. The projection, framing distance and focal point
+    // are untouched: the triad changes the ANGLE only, unlike a preset, which also names the projection.
+    void ApplyViewAxisTip( ::Desert::Core::EditorCamera& camera, const glm::vec3& tipWorldDir );
+
     // WHICH PRESET THIS CAMERA IS ON RIGHT NOW, or nullopt if it is on none (an orthographic camera the
     // user has since orbited off-axis). A perspective camera is always Perspective: that is what UE's
     // perspective viewport means, and it is the one preset that constrains no direction.

@@ -2357,7 +2357,7 @@ namespace Desert::Editor
         }
 
         if ( hotTip >= 0 && editorCam && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
-            editorCam->SnapToDirection( -tips2[hotTip].WorldDir );
+            ApplyViewAxisTip( *editorCam, tips2[hotTip].WorldDir );
     }
 
     bool ViewportPanel::OnMouseButtonPressed( Common::MouseButtonPressedEvent& e )
