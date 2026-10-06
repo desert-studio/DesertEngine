@@ -574,6 +574,47 @@ namespace Desert::Editor
             dirty |= DrawPinBinding( graph, node, std::string( G::kApplyAdditiveAlphaPin ) );
         }
 
+        // UE's Two Bone IK / Look At details: the bones by name, each target in component space or in a
+        // named bone's, and the Alpha (its own value, or a parameter bound to the Alpha pin).
+        const auto drawTarget = [&dirty]( const char* label, G::BoneControlTarget& target )
+        {
+            ImGui::PushID( label );
+            ImGui::TextUnformatted( label );
+            ImGui::SetNextItemWidth( -1.0f );
+            dirty |= ImGui::DragFloat3( "##position", target.Position.data(), 0.5f, 0.0f, 0.0f, "%.1f cm" );
+            ImGui::TextUnformatted( "Space Bone (empty: component space)" );
+            ImGui::SetNextItemWidth( -1.0f );
+            dirty |= Utils::ImGuiUtilities::InputText( target.Bone, "##spaceBone" );
+            ImGui::PopID();
+        };
+        const auto drawAlpha = [&]( float& alpha )
+        {
+            ImGui::TextUnformatted( "Alpha" );
+            ImGui::SetNextItemWidth( -1.0f );
+            dirty |= ImGui::SliderFloat( "##alpha", &alpha, 0.0f, 1.0f );
+            dirty |= DrawPinBinding( graph, node, std::string( G::kBoneControlAlphaPin ) );
+        };
+        if ( node.TwoBoneIK )
+        {
+            ImGui::TextUnformatted( "End Bone" );
+            ImGui::SetNextItemWidth( -1.0f );
+            dirty |= Utils::ImGuiUtilities::InputText( node.TwoBoneIK->EndBone, "##endBone" );
+            drawTarget( "Effector Goal", node.TwoBoneIK->Goal );
+            drawTarget( "Joint Target (pole)", node.TwoBoneIK->PoleTarget );
+            drawAlpha( node.TwoBoneIK->Alpha );
+        }
+        if ( node.LookAt )
+        {
+            ImGui::TextUnformatted( "Bone" );
+            ImGui::SetNextItemWidth( -1.0f );
+            dirty |= Utils::ImGuiUtilities::InputText( node.LookAt->Bone, "##lookBone" );
+            drawTarget( "Look At Target", node.LookAt->Target );
+            ImGui::TextUnformatted( "Aim Axis (bone local)" );
+            ImGui::SetNextItemWidth( -1.0f );
+            dirty |= ImGui::DragFloat3( "##aimAxis", node.LookAt->AimAxis.data(), 0.01f, -1.0f, 1.0f );
+            drawAlpha( node.LookAt->Alpha );
+        }
+
         if ( node.LinkedLayer )
         {
             ImGui::TextUnformatted( "Interface" );

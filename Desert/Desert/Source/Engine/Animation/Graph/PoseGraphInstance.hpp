@@ -15,6 +15,7 @@
  */
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
+#include <Engine/Animation/Graph/BoneControlNodes.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -132,6 +133,7 @@ namespace Desert::Animation::Graph
         std::vector<float>                           m_WeightScratch;
         std::vector<float>                           m_Weights;     ///< per node: its total weight, see Weight
         std::vector<float>                           m_WeightDelta; ///< one AccumulateWeights call's share
+        BoneControlScratch                           m_ControlScratch; ///< the skeletal control nodes' solve
     };
 
     /**

@@ -7,6 +7,7 @@
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 #include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
+#include <array>
 #include <optional>
 #include <span>
 
@@ -116,6 +117,8 @@ namespace Desert::Animation::Graph
         ApplyAdditive       = 3, ///< UE FAnimNode_ApplyAdditive: Base + Alpha x (Additive - reference pose)
         LinkedAnimLayer     = 4, ///< UE FAnimNode_LinkedAnimLayer: a layer of a declared interface, by name
         LinkedInputPose     = 5, ///< UE FAnimNode_LinkedInputPose: a layer graph's input, only in one
+        TwoBoneIK           = 6, ///< UE FAnimNode_TwoBoneIK: the end bone's chain reaches a goal
+        LookAt              = 7, ///< UE FAnimNode_LookAt: a bone's aim axis turns to a target
     };
 
     /// Where a pose graph lives, which decides one kind: a LinkedInputPose exists only in a LAYER graph (it
@@ -137,6 +140,38 @@ namespace Desert::Animation::Graph
     {
         std::string Clip;
         bool        Loop = true;
+    };
+
+    /// The Alpha pin of a skeletal control node (Two Bone IK, Look At): UE's exposed Alpha of
+    /// FAnimNode_SkeletalControlBase. Unbound, the node's own authored Alpha is used.
+    inline constexpr std::string_view kBoneControlAlphaPin = "Alpha";
+
+    /// A point a skeletal control node aims at, in centimetres: in component space when `Bone` is empty, else
+    /// in the space of that bone of the INPUT pose (UE's FBoneSocketTarget / EBoneControlSpace::BCS_BoneSpace),
+    /// so a goal can ride along with the body it is authored against.
+    struct BoneControlTarget
+    {
+        std::array<float, 3> Position{ 0.0F, 0.0F, 0.0F };
+        std::string          Bone;
+    };
+
+    /// The payload of a TwoBoneIK node: the end bone (its parent and grandparent close the chain), the
+    /// effector goal and the pole target the joint bends towards (UE: EffectorLocation, JointTarget).
+    struct TwoBoneIKNode
+    {
+        std::string       EndBone;
+        BoneControlTarget Goal;
+        BoneControlTarget PoleTarget;
+        float             Alpha = 1.0F;
+    };
+
+    /// The payload of a LookAt node: the bone, which of its local axes aims (UE: LookAt_Axis) and at what.
+    struct LookAtNode
+    {
+        std::string          Bone;
+        BoneControlTarget    Target;
+        std::array<float, 3> AimAxis{ 0.0F, 1.0F, 0.0F };
+        float                Alpha = 1.0F;
     };
 
     [[nodiscard]] const char* KindName( PoseNodeKind kind );
@@ -185,6 +220,8 @@ namespace Desert::Animation::Graph
         std::optional<SequencePlayerNode> Sequence; // the payload, present exactly when Kind == SequencePlayer
         /// The payload, present exactly when Kind == LinkedAnimLayer: the interface and layer it calls.
         std::optional<LinkedAnimLayerNode> LinkedLayer;
+        std::optional<TwoBoneIKNode>       TwoBoneIK; // the payload, present exactly when Kind == TwoBoneIK
+        std::optional<LookAtNode>          LookAt;    // the payload, present exactly when Kind == LookAt
         float                              X = 0.0f; // node editor canvas position (persisted, unused at runtime)
         float                              Y = 0.0f;
     };

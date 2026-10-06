@@ -18,6 +18,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
 #include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
@@ -858,6 +859,7 @@ namespace Desert::Editor
     {
         m_Clip.reset();
         m_AnimationTime = 0.0;
+        m_SceneAnimates = false;
         if ( !m_Target )
             return;
         if ( m_Target.HasComponent<ECS::AnimationComponent>() )
@@ -910,6 +912,27 @@ namespace Desert::Editor
         ResetView();
         m_Framed = TryFrameMesh();
         ++m_ContentRevision;
+    }
+
+    void PreviewViewport::SetSkinnedGraph( const Assets::AssetHandle&              mesh,
+                                           const std::vector<Assets::AssetHandle>& materials,
+                                           const Assets::AssetHandle& graph, Animation::AnimationLibrary* library,
+                                           Assets::AssetManager* assets )
+    {
+        SetSkinnedMesh( mesh, materials, nullptr );
+        if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+            return;
+        if ( !m_HasAnimationSystem )
+        {
+            m_Scene->AddSystem<ECS::AnimationECSSystem>( library, assets );
+            m_HasAnimationSystem = true;
+        }
+        auto& anim                   = m_Target.GetComponent<ECS::AnimationComponent>();
+        anim.GraphAsset              = graph;
+        anim.Playing                 = true;
+        anim.UpdateAnimationInEditor = true; // the preview world is in Edit: its clock is the editor tick
+        m_SceneAnimates              = true;
+        m_Realtime                   = true;
     }
 
     const Animation::Animator* PreviewViewport::GetAnimator() const
@@ -966,6 +989,8 @@ namespace Desert::Editor
     {
         if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
             return true;
+        if ( m_SceneAnimates )
+            return true; // the scene's AnimationECSSystem builds and runs the animator (SetSkinnedGraph)
         auto& anim = m_Target.GetComponent<ECS::AnimationComponent>();
         {
             // THIS SCENE HAS NO AnimationECSSystem (it needs the editor's AnimationLibrary and AssetManager,

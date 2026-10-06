@@ -55,6 +55,10 @@ namespace Desert::Animation::Graph
                 return "LinkedAnimLayer";
             case PoseNodeKind::LinkedInputPose:
                 return "LinkedInputPose";
+            case PoseNodeKind::TwoBoneIK:
+                return "TwoBoneIK";
+            case PoseNodeKind::LookAt:
+                return "LookAt";
         }
         return "?";
     }
@@ -86,6 +90,13 @@ namespace Desert::Animation::Graph
             case PoseNodeKind::LinkedInputPose:
                 // The caller's pose: a leaf of the layer graph.
                 return PoseNodePins{ .PoseInputs = 0, .ParameterPins = {} };
+            case PoseNodeKind::TwoBoneIK:
+            case PoseNodeKind::LookAt:
+            {
+                // Pin 0 the component pose it controls; Alpha its strength (UE SkeletalControlBase's Alpha).
+                static constexpr std::array<const char*, 1> kPins{ kBoneControlAlphaPin.data() };
+                return PoseNodePins{ .PoseInputs = 1, .ParameterPins = kPins };
+            }
         }
         return PoseNodePins{};
     }
@@ -380,6 +391,14 @@ namespace Desert::Animation::Graph
                 return std::format( "AnimGraph '{}': node '{}' ({}) carries a sequence player setup, which only a "
                                     "SequencePlayer node has",
                                     graph.Name, node.Name, KindName( kind ) );
+            if ( ( kind == PoseNodeKind::TwoBoneIK ) != node.TwoBoneIK.has_value() )
+                return std::format( "AnimGraph '{}': node '{}' ({}) {}", graph.Name, node.Name, KindName( kind ),
+                                    node.TwoBoneIK ? "carries a two-bone IK setup, which only a TwoBoneIK node has"
+                                                   : "is a TwoBoneIK node with no IK setup in it" );
+            if ( ( kind == PoseNodeKind::LookAt ) != node.LookAt.has_value() )
+                return std::format( "AnimGraph '{}': node '{}' ({}) {}", graph.Name, node.Name, KindName( kind ),
+                                    node.LookAt ? "carries a look-at setup, which only a LookAt node has"
+                                                : "is a LookAt node with no look-at setup in it" );
             if ( std::string linked = LinkedKindError( graph, node, scope ); !linked.empty() )
                 return linked;
             if ( kind == PoseNodeKind::SequencePlayer && node.Sequence->Clip.empty() )

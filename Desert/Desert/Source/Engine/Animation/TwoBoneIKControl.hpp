@@ -20,6 +20,19 @@
 
 namespace Desert::Animation
 {
+    /**
+     * @brief The two-bone solve over an already resolved chain (`root` -> `joint` -> `endBone`, parents first)
+     *        in component space, as three overrides in `out` (upper and lower limb rotated, end bone moved):
+     *        the ONE solve both the bone-control stage (TwoBoneIKControl) and the anim graph's Two Bone IK node
+     *        run. `solution` reports the solve either way; GoalAtRoot / DegenerateChain are refused, `out`
+     *        untouched.
+     */
+    [[nodiscard]] Common::BoolResultStr SolveTwoBoneIKChain( const Skeleton& skeleton, ComponentPose& component,
+                                                             uint32_t root, uint32_t joint, uint32_t endBone,
+                                                             const Solvers::TwoBoneIKGoal& goal,
+                                                             Solvers::TwoBoneIKSolution&   solution,
+                                                             std::vector<BoneOverride>&    out );
+
     class TwoBoneIKControl final : public BoneControl
     {
     public:

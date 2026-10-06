@@ -5,6 +5,8 @@
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Editor/Panels/PanelContext.hpp>
+#include <Editor/Widgets/PreviewViewport.hpp>
+#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -98,8 +100,7 @@ namespace Desert::Editor
 
     AnimGraphPanel::AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
                                     const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                    const Animation::AnimationLibrary*            library,
-                                    Assets::AssetManager*                         assetManager )
+                                    Animation::AnimationLibrary* library, Assets::AssetManager* assetManager )
          : ISubjectDocument( displayName, subject ), m_Scene( scene ), m_Library( library ),
            m_AssetManager( assetManager )
     {
@@ -111,6 +112,7 @@ namespace Desert::Editor
 
     AnimGraphPanel::~AnimGraphPanel()
     {
+        DestroyPreview();
         if ( m_Context != nullptr )
             ed::DestroyEditor( m_Context );
         if ( m_PoseContext != nullptr )
@@ -499,8 +501,12 @@ namespace Desert::Editor
         // widget, and the canvas is refused for that frame. The shader graph never had a child here and
         // survived by four pixels. It gets an explicit WIDTH instead, which is the only thing the child
         // was really doing.
-        constexpr float kSideW  = 300.0f;
-        const float     canvasW = std::max( 160.0f, ImGui::GetContentRegionAvail().x - kSideW );
+        constexpr float kSideW = 300.0f;
+        // The preview pane takes the left two fifths of what the side panel leaves (UE Persona's viewport
+        // beside the graph); the canvas the rest.
+        const float graphW   = std::max( 320.0f, ImGui::GetContentRegionAvail().x - kSideW );
+        const float previewW = std::floor( graphW * 0.4f );
+        const float canvasW  = std::max( 160.0f, graphW - previewW - ImGui::GetStyle().ItemSpacing.x );
 
         // WHAT IS WRONG WITH THIS GRAPH, DECIDED BY A UNIT WITH NO IMGUI IN IT. The clip list is handed
         // over as "Known" only when there was an Animator to ask: an entity whose skeleton has not been
@@ -511,6 +517,8 @@ namespace Desert::Editor
 
         const float stripH  = WarningStripHeight( warnings.size() );
         const float canvasH = std::max( 80.0f, ImGui::GetContentRegionAvail().y - stripH );
+        DrawPreview( *anim, previewW, canvasH );
+        ImGui::SameLine();
         if ( m_EditingMachine )
             DrawCanvas( *anim, canvasW, canvasH );
         else
