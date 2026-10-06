@@ -24,12 +24,12 @@ namespace Desert::Graphic::System
         m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(),
                                targetFramebuffer->GetFramebufferHeight() );
 
-        m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "FXAA" );
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "FXAA" );
 
         Graphic::GraphicsPipelineSpecification pipeSpec;
         pipeSpec.DebugName   = debugName;
         pipeSpec.Framebuffer = m_Framebuffer;
-        pipeSpec.Shader      = m_Shader;
+        pipeSpec.Shader      = shader;
 
         // Same unchecked GetByName as TonemapRenderer: a missing 'FXAA' shader was a null dereference.
         const auto pipeline = Graphic::GraphicsPipeline::Create( pipeSpec );
@@ -52,7 +52,8 @@ namespace Desert::Graphic::System
     {
         if ( !m_Pipeline || !m_MaterialFXAA )
             return;
-        pass.Bindings( m_BindingLayout.Get( m_Shader ), m_MaterialFXAA->GetMaterialExecutor()->GetRouteFill() )
+        pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
+                       m_MaterialFXAA->GetMaterialExecutor()->GetRouteFill() )
              .Sampled( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearRepeat() );
     }

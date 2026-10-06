@@ -54,27 +54,27 @@ namespace Desert::Graphic::System
         // Edges + weights are LDR (RGBA8) graph transients; the final output matches the FXAA output (RGBA32F).
         m_Framebuffer = MakeColorFB( "SMAABlend", ViewTargetFormats::kSMAABlend, w, h );
 
-        auto& shaders   = *Runtime::ResourceRegistry::GetShaderService();
-        m_EdgesShader   = shaders.GetByName( "SMAAEdges" );
-        m_WeightsShader = shaders.GetByName( "SMAAWeights" );
-        m_BlendShader   = shaders.GetByName( "SMAABlend" );
+        // The shaders are held by the pipelines alone: each node's layout is keyed on the shader its pipeline
+        // records with (GetSpecification().Shader), so no second handle can go stale under a reload.
+        auto&      shaders       = *Runtime::ResourceRegistry::GetShaderService();
+        const auto edgesShader   = shaders.GetByName( "SMAAEdges" );
+        const auto weightsShader = shaders.GetByName( "SMAAWeights" );
+        const auto blendShader   = shaders.GetByName( "SMAABlend" );
 
         // The three shaders above were taken from GetByName WITHOUT a check until Г22, and a missing one
         // is a null shared_ptr that reached VulkanPipeline::CreatePipelineLayout and was dereferenced.
         // The rule inside Create refuses it by name now, and the refusal arrives here.
-        const auto edges = MakePipeline( "SMAAEdges", nullptr, m_EdgesShader, ViewTargetFormats::kSMAAEdges );
+        const auto edges = MakePipeline( "SMAAEdges", nullptr, edgesShader, ViewTargetFormats::kSMAAEdges );
         if ( !edges )
             return Common::MakeError( edges.GetError() );
         m_EdgesPipeline = edges.GetValue();
 
-        const auto weights =
-             MakePipeline( "SMAAWeights", nullptr, m_WeightsShader, ViewTargetFormats::kSMAAEdges );
+        const auto weights = MakePipeline( "SMAAWeights", nullptr, weightsShader, ViewTargetFormats::kSMAAEdges );
         if ( !weights )
             return Common::MakeError( weights.GetError() );
         m_WeightsPipeline = weights.GetValue();
 
-        const auto blend =
-             MakePipeline( "SMAABlend", m_Framebuffer, m_BlendShader, ViewTargetFormats::kSMAABlend );
+        const auto blend = MakePipeline( "SMAABlend", m_Framebuffer, blendShader, ViewTargetFormats::kSMAABlend );
         if ( !blend )
             return Common::MakeError( blend.GetError() );
         m_BlendPipeline = blend.GetValue();
@@ -156,9 +156,9 @@ namespace Desert::Graphic::System
     // No SMAA pass has a material: the other route fills nothing.
     void SMAARenderer::DeclareEdgesBindings( RDG::PassBuilder& pass, RDG::TextureRef input ) const
     {
-        if ( !m_EdgesPipeline || !m_EdgesShader )
+        if ( !m_EdgesPipeline )
             return; // RecordEdges refuses by name
-        pass.Bindings( m_EdgesLayout.Get( m_EdgesShader ), RDG::OtherRouteFill{} )
+        pass.Bindings( m_EdgesLayout.Get( m_EdgesPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
              .Sampled( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() );
     }
@@ -174,9 +174,9 @@ namespace Desert::Graphic::System
     void SMAARenderer::DeclareWeightsBindings( RDG::PassBuilder& pass, RDG::TextureRef edges, RDG::TextureRef area,
                                                RDG::TextureRef search ) const
     {
-        if ( !m_WeightsPipeline || !m_WeightsShader )
+        if ( !m_WeightsPipeline )
             return; // RecordWeights refuses by name
-        pass.Bindings( m_WeightsLayout.Get( m_WeightsShader ), RDG::OtherRouteFill{} )
+        pass.Bindings( m_WeightsLayout.Get( m_WeightsPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
              .Sampled( "u_EdgesTex", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_AreaTex", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
@@ -197,9 +197,9 @@ namespace Desert::Graphic::System
                                              RDG::TextureRef weights, RDG::TextureRef edges,
                                              RDG::TextureRef area ) const
     {
-        if ( !m_BlendPipeline || !m_BlendShader )
+        if ( !m_BlendPipeline )
             return; // RecordBlend refuses by name
-        pass.Bindings( m_BlendLayout.Get( m_BlendShader ), RDG::OtherRouteFill{} )
+        pass.Bindings( m_BlendLayout.Get( m_BlendPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
              .Sampled( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_BlendTex", weights, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),

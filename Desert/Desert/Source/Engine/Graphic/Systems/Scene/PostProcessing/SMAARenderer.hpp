@@ -73,10 +73,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_EdgesPipeline;
         std::shared_ptr<GraphicsPipeline> m_WeightsPipeline;
         std::shared_ptr<GraphicsPipeline> m_BlendPipeline;
-        std::shared_ptr<Shader>           m_EdgesShader;
-        std::shared_ptr<Shader>           m_WeightsShader;
-        std::shared_ptr<Shader>           m_BlendShader;
-        mutable ShaderBindingLayoutCache  m_EdgesLayout; // the three shaders' layouts, kept between frames
+        // The three pipelines' shaders' layouts, kept between frames (keyed on GetSpecification().Shader).
+        mutable ShaderBindingLayoutCache  m_EdgesLayout;
         mutable ShaderBindingLayoutCache  m_WeightsLayout;
         mutable ShaderBindingLayoutCache  m_BlendLayout;
 

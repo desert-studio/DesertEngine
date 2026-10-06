@@ -46,8 +46,7 @@ namespace Desert::Graphic::System
 
     private:
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
-        std::shared_ptr<Shader>           m_Shader;
-        // The block layout, derived from m_Shader's reflection once per compile (not per frame).
+        // The block layout, derived from the pipeline's shader's reflection once per compile (not per frame).
         mutable ShaderBindingLayoutCache  m_BindingLayout;
         std::unique_ptr<MaterialFXAA>     m_MaterialFXAA;
     };

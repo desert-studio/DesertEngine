@@ -134,7 +134,6 @@ namespace Desert::Graphic::System
 
     private:
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
-        std::shared_ptr<Shader>   m_Shader;
         mutable ShaderBindingLayoutCache  m_BindingLayout; // the tonemap shader's layout, kept between frames
 
         std::unique_ptr<MaterialTonemap> m_MaterialTonemap;

@@ -3322,6 +3322,38 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
     EXPECT_LT( jfaDeclare, jfaExec ) << "both in the setup, before the exec";
 }
 
+// RDG-FAULT1 C3b (cb3f65f9d rule): a node's kept layout is keyed on the shader the pipeline it records with
+// holds - `<pipeline>->GetSpecification().Shader` - never on a separate shader handle the renderer keeps beside
+// the pipeline, which a reload or a rebuilt pipeline does not update (the cache then hands out the old shader's
+// layout while the pipeline records the new one). Every ShaderBindingLayoutCache::Get in the post-processing
+// renderers (every file of the directory, so a new one is covered) and in the converted scene systems.
+TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    std::vector<std::string> files;
+    const std::string        dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
+    for ( const auto& entry : fs::directory_iterator( root / dir ) )
+        files.push_back( dir + entry.path().filename().string() );
+    files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    const std::regex get( R"(([Ll]ayout\.Get\())" );
+    const std::regex key( R"(^[A-Za-z_][\w\[\]\.]*->GetSpecification\(\)\.Shader\))" );
+    size_t           gets = 0;
+    for ( const std::string& file : files )
+    {
+        const std::string text = SqueezedSource( root, file.c_str() );
+        for ( auto it = std::sregex_iterator( text.begin(), text.end(), get ); it != std::sregex_iterator(); ++it )
+        {
+            ++gets;
+            const std::string after = text.substr( static_cast<size_t>( it->position() + it->length() ), 120 );
+            EXPECT_TRUE( std::regex_search( after, key ) )
+                 << file << ": a layout keyed on " << after.substr( 0, after.find( ')' ) + 1 )
+                 << ", not on the recording pipeline's GetSpecification().Shader";
+        }
+    }
+    EXPECT_GT( gets, 10u ) << "the census found almost no layout lookups: the needle is stale";
+}
+
 // RDG-FAULT1 C3b, the scene and UI systems that record from setup-declared blocks: no exec in these files opens a
 // name-taking PassBindings( context ) - every RDG::PassBindings is constructed over a declared block
 // (PassBindings( context, context.GetBindingBlock( n ) )). A file joins the table when its nodes are converted.

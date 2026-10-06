@@ -26,14 +26,14 @@ namespace Desert::Graphic::System
                                targetFramebuffer->GetFramebufferHeight() );
 
         // Pipeline
-        m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SceneComposite" );
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SceneComposite" );
 
         Graphic::GraphicsPipelineSpecification pipeSpec;
         pipeSpec.DebugName   = debugName;
         pipeSpec.Framebuffer = m_Framebuffer;
-        pipeSpec.Shader      = m_Shader;
+        pipeSpec.Shader      = shader;
 
-        // m_Shader is whatever GetByName returned, INCLUDING nullptr — this site never checked, and a
+        // shader is whatever GetByName returned, INCLUDING nullptr — this site never checked, and a
         // null shader used to be dereferenced inside the backend. Create's rule names it now.
         const auto pipeline = Graphic::GraphicsPipeline::Create( pipeSpec );
         if ( !pipeline )
@@ -59,7 +59,8 @@ namespace Desert::Graphic::System
         // image's own (linear, REPEAT), the three effect images with LinearClamp at mip 0. Any of the three may
         // be the same System.Black ref: three read entries of one ref in one state are one read of the pass
         // (RenderGraphCompile TwoBlockEntriesReadingOneImageInOneState...).
-        pass.Bindings( m_BindingLayout.Get( m_Shader ), m_MaterialTonemap->GetMaterialExecutor()->GetRouteFill() )
+        pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
+                       m_MaterialTonemap->GetMaterialExecutor()->GetRouteFill() )
              .Sampled( "u_GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
              .Sampled( "u_AvgLuminance", inputs.AvgLuminance, RDG::Access::SampledGraphics,
