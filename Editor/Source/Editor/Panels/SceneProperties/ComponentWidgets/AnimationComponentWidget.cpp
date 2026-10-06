@@ -454,9 +454,9 @@ namespace Desert::Editor
 
         // THE TARGET SKELETON IS PICKED AT CREATION (UE: UAnimBlueprint::TargetSkeleton): the graph animates
         // the skeleton of the mesh it is created for. A mesh that names none gets no graph, by name.
-        const Assets::AssetHandle meshHandle = entity.HasComponent<ECS::SkinnedMeshComponent>()
-                                                    ? entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle
-                                                    : Assets::AssetHandle{};
+        const Assets::AssetHandle        meshHandle = entity.HasComponent<ECS::SkinnedMeshComponent>()
+                                                           ? entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle
+                                                           : Assets::AssetHandle{};
         const Common::Content::AssetGuid skeleton =
              m_AnimationLibrary->IdentifyMeshHandle( meshHandle ).Skeleton.Guid;
         if ( skeleton.IsNull() )

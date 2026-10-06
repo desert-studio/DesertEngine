@@ -495,13 +495,15 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
 
     // THE WRITER PICKS ONE SPELLING. A rig whose controls are all identity comes back without the field,
     // so a generation-1 file round-trips through the runtime unchanged instead of gaining ones.
-    auto legacyBack = RigFile::BuildDataFromControlRig( "Legacy", ArmRigFile().TargetSkeleton, legacyStage, skeleton );
+    auto legacyBack =
+         RigFile::BuildDataFromControlRig( "Legacy", ArmRigFile().TargetSkeleton, legacyStage, skeleton );
     ASSERT_TRUE( legacyBack.IsSuccess() ) << legacyBack.GetError();
     EXPECT_FALSE( legacyBack.GetValue().Controls[0].ShapeTransform.has_value() );
     EXPECT_EQ( RigFile::WriteControlRig( legacyBack.GetValue() ).find( "ShapeTransform" ), std::string::npos )
          << "the absent spelling must not be written out as an identity block";
 
-    auto sizedBack = RigFile::BuildDataFromControlRig( "Sized", ArmRigFile().TargetSkeleton, sizedStage, skeleton );
+    auto sizedBack =
+         RigFile::BuildDataFromControlRig( "Sized", ArmRigFile().TargetSkeleton, sizedStage, skeleton );
     ASSERT_TRUE( sizedBack.IsSuccess() ) << sizedBack.GetError();
     const auto hand = std::find_if( sizedBack.GetValue().Controls.begin(), sizedBack.GetValue().Controls.end(),
                                     []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
@@ -866,7 +868,8 @@ int main( int argc, char** argv )
     return RUN_ALL_TESTS();
 }
 
-// A rig that names no skeleton, or the null GUID, is refused by name: the binding is part of the asset (ANIM-SKELREF).
+// A rig that names no skeleton, or the null GUID, is refused by name: the binding is part of the asset
+// (ANIM-SKELREF).
 TEST( ControlRigAssetTest, ARigWithoutATargetSkeletonGuidIsRefusedByName )
 {
     RigFile::ControlRigData missing = ArmRigFile();

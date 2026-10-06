@@ -1169,7 +1169,8 @@ TEST( RigGraphTest, ARigWithAGraphRoundTripsByValueThroughTextAndThroughTheRunti
     ASSERT_TRUE( stage.HasGraph() );
     EXPECT_EQ( stage.GetGraph().GetNodes().size(), 3U );
 
-    const auto back = Serialization::BuildDataFromControlRig( source.Name, source.TargetSkeleton, stage, skeleton );
+    const auto back =
+         Serialization::BuildDataFromControlRig( source.Name, source.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_TRUE( back.GetValue() == source ) << "the runtime round trip changed the rig";
 }
