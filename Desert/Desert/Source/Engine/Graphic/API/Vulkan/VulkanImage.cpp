@@ -195,6 +195,23 @@ namespace Desert::Graphic::API::Vulkan
         return Utils::GetVulkanFormat( format, deviceDepthFormat );
     }
 
+    VkFormat GetImageVulkanFormat( const Core::Formats::ImageFormat& format, const Core::Formats::TextureColorSpace space )
+    {
+        if ( space != Core::Formats::TextureColorSpace::SRGB )
+            return GetImageVulkanFormat( format );
+        switch ( format )
+        {
+            case Core::Formats::ImageFormat::RGBA8F:
+                return VK_FORMAT_R8G8B8A8_SRGB;
+            case Core::Formats::ImageFormat::BGRA8F:
+                return VK_FORMAT_B8G8R8A8_SRGB;
+            case Core::Formats::ImageFormat::BC7_UNORM:
+                return VK_FORMAT_BC7_SRGB_BLOCK;
+            default:
+                return VK_FORMAT_UNDEFINED;
+        }
+    }
+
     VkImageAspectFlags GetImageVulkanAspect( Core::Formats::ImageFormat format )
     {
         const Core::Formats::ImageAspect aspect = Core::Formats::GetImageAspect( format );
@@ -385,7 +402,11 @@ namespace Desert::Graphic::API::Vulkan
         auto vkDevice = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
 
-        m_Resource.Format     = GetImageVulkanFormat( m_Specification.Format );
+        m_Resource.Format     = GetImageVulkanFormat( m_Specification.Format, m_Specification.ColorSpace );
+        if ( m_Resource.Format == VK_FORMAT_UNDEFINED )
+            return Common::MakeFormattedError<bool>(
+                 "image '{}' is marked sRGB and its format {} has no sRGB variant", m_Specification.Tag,
+                 static_cast<uint32_t>( m_Specification.Format ) );
         m_Resource.MipLevels  = m_Specification.Mips;
         m_Resource.LayerCount = 1;
         m_Resource.Layout     = VK_IMAGE_LAYOUT_UNDEFINED;

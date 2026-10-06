@@ -20,6 +20,7 @@ namespace Desert::Graphic
         uint32_t                                 Width  = 0;
         uint32_t                                 Height = 0;
         Core::Formats::ImageFormat               Format{};
+        Core::Formats::TextureColorSpace         ColorSpace = Core::Formats::TextureColorSpace::Linear;
         Core::Formats::ImagePixelData            Pixels;
         std::vector<Core::Formats::MipLevelSpan> Levels;
 

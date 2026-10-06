@@ -69,6 +69,7 @@ namespace Desert::Graphic
         cooked.Width  = data.Width;
         cooked.Height = data.Height;
         cooked.Format = data.Format;
+        cooked.ColorSpace = data.ColorSpace;
         cooked.Pixels = std::move( data.Pixels );
         cooked.Levels = std::move( spans );
         return Common::MakeSuccess( std::move( cooked ) );
@@ -88,7 +89,8 @@ namespace Desert::Graphic
                                                                  .Data       = std::move( cooked.Pixels ),
                                                                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                                                                  .Properties = Core::Formats::Sample,
-                                                                 .MipLevels  = std::move( cooked.Levels ) };
+                                                                 .MipLevels  = std::move( cooked.Levels ),
+                                                                 .ColorSpace = cooked.ColorSpace };
 
         auto image = Image2D::Create( imageSpec );
         if ( !image )

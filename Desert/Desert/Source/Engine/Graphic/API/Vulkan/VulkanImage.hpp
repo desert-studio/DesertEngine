@@ -110,6 +110,10 @@ namespace Desert::Graphic::API::Vulkan
 
     // Resolves the device-dependent depth entry and defers to Utils::GetVulkanFormat.
     VkFormat GetImageVulkanFormat( const Core::Formats::ImageFormat& format );
+    // The view/storage format of an image whose values are in @p space: the `*_SRGB` variant for SRGB (the
+    // sampler then decodes to linear in hardware, UE TexCreate_SRGB). VK_FORMAT_UNDEFINED when @p format has
+    // no sRGB variant (Core::Formats::HasSRGBVariant) -- the caller refuses, never draws it linear.
+    VkFormat GetImageVulkanFormat( const Core::Formats::ImageFormat& format, Core::Formats::TextureColorSpace space );
 
     // Aspect mask a barrier or a view must name for this format. Translates the backend-independent
     // Core::Formats::GetImageAspect answer into Vulkan bits explicitly, rather than assuming the two
