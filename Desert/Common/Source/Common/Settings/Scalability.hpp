@@ -120,7 +120,8 @@ namespace Common::Scalability
         ShadowRayTracing,             // Shadows: RayTracingMode
         GlobalIlluminationRayTracing, // GlobalIllumination: RayTracingMode
         ReflectionRayTracing,         // Reflections: RayTracingMode
-        TemporalAAQuality,            // AntiAliasing: 0..3
+        TemporalAAQuality,            // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
+                                      // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
         UpscalerSharpness,            // ResolutionScale: percent
         Count
     };
@@ -184,7 +185,7 @@ namespace Common::Scalability
     //   { "Version": 1,
     //     "Groups": {
     //       "AntiAliasing": {
-    //         "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 1, ... },
+    //         "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 1, ... },   // Samples > 1 only under MSAA
     //         ...
     //         "Cinematic": { "AntiAliasing.Method": "MSAA", "AntiAliasing.Samples": 8, ... } }, ... },
     //     "Recommend": {

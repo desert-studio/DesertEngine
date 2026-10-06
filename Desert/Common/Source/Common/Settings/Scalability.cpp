@@ -60,7 +60,7 @@ namespace Common::Scalability
                CL::RayTracingModes, std::nullopt },
              { P::ReflectionRayTracing, G::Reflections, "Reflections.RayTracing", 0, kRtMax, CL::RayTracingModes,
                std::nullopt },
-             { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 3, CL::None, std::nullopt },
+             { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 2, CL::None, std::nullopt },
              { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None, std::nullopt },
         } };
     } // namespace
@@ -209,6 +209,26 @@ namespace Common::Scalability
             return false;
         }
 
+        // AntiAliasing.Samples is the MSAA sample count and nothing else: the framebuffer reads it only under MSAA,
+        // and the temporal methods' quality is AntiAliasing.TemporalQuality. A level that pairs FXAA or TAA with
+        // Samples 4 reads as "TAA at 4 samples" to whoever edits the table, so the loader refuses it (TAA1 brief).
+        void CheckSamplesOnlyUnderMsaa( const Json::Node& levelNode, std::string_view groupKey,
+                                        std::string_view levelKey,
+                                        const std::array<ParameterValue, kParameterCount>& values,
+                                        const std::array<bool, kParameterCount>& parsed, Errors& errors )
+        {
+            constexpr auto kMethod  = static_cast<std::size_t>( Parameter::AntiAliasingMethod );
+            constexpr auto kSamples = static_cast<std::size_t>( Parameter::AntiAliasingSamples );
+            if ( !parsed[kMethod] || !parsed[kSamples] )
+                return;
+            const ParameterValue method = values[kMethod];
+            if ( method == static_cast<ParameterValue>( AntiAliasingMethod::MSAA ) || values[kSamples] == 1 )
+                return;
+            errors.Add( levelNode, "{}.{}: '{}' is the MSAA sample count; under method '{}' it must be 1, not {}",
+                        groupKey, levelKey, SpecOf( Parameter::AntiAliasingSamples ).Key,
+                        kAntiAliasingMethodNames[static_cast<std::size_t>( method )], values[kSamples] );
+        }
+
         void ParseGroups( const Json::Node& groups, ScalabilityTable& table, Errors& errors )
         {
             if ( !ExpectObject( groups, "Groups", errors ) )
@@ -243,7 +263,7 @@ namespace Common::Scalability
                     levelSeen[l]        = true;
                     if ( !ExpectObject( levelNode, levelKey, errors ) )
                         return;
-                    std::array<bool, kParameterCount> set{};
+                    std::array<bool, kParameterCount> set{}, parsed{};
                     levelNode.ForEachMember( [&]( std::string_view key, const Json::Node& valueNode ) {
                         const ParameterSpec* spec = FindSpec( key );
                         if ( !spec )
@@ -260,11 +280,15 @@ namespace Common::Scalability
                         const std::size_t p = static_cast<std::size_t>( spec->Id );
                         set[p]              = true;
                         if ( const auto value = ParseValue( *spec, valueNode, errors ) )
+                        {
                             table.Values[g][l][p] = *value;
+                            parsed[p]             = true;
+                        }
                     } );
                     for ( const ParameterSpec& spec : ParameterSpecs() )
                         if ( spec.Owner == *group && !set[static_cast<std::size_t>( spec.Id )] )
                             errors.Add( levelNode, "{}.{}: '{}' is not set", groupKey, levelKey, spec.Key );
+                    CheckSamplesOnlyUnderMsaa( levelNode, groupKey, levelKey, table.Values[g][l], parsed, errors );
                 } );
                 for ( std::size_t l = 0; l < kLevelCount; ++l )
                     if ( !levelSeen[l] )

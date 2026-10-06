@@ -14,18 +14,18 @@
       },
       "High": {
         "AntiAliasing.Method": "FXAA",
-        "AntiAliasing.Samples": 4,
+        "AntiAliasing.Samples": 1,
         "AntiAliasing.TemporalQuality": 2
       },
       "Epic": {
         "AntiAliasing.Method": "MSAA",
         "AntiAliasing.Samples": 4,
-        "AntiAliasing.TemporalQuality": 3
+        "AntiAliasing.TemporalQuality": 2
       },
       "Cinematic": {
         "AntiAliasing.Method": "MSAA",
         "AntiAliasing.Samples": 8,
-        "AntiAliasing.TemporalQuality": 3
+        "AntiAliasing.TemporalQuality": 2
       }
     },
     "ResolutionScale": {

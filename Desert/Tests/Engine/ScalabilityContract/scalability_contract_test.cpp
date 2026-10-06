@@ -1,9 +1,9 @@
 // SCALABILITY CONTRACT (SCAL1-C0): the interface of the capability catalog, the scalability groups and the
-// recommended settings, pinned BEFORE the implementation exists. Written against the headers only; it does not
-// link until SCAL1's implementation step lands, and that step is done when this suite passes unchanged.
+// recommended settings, pinned against the headers before the implementation (SCAL1-S1) was written.
 //
 // Every device here is a CatalogProbe fixture (an RTX card, an AMD card, MoltenVK on Apple Silicon); no GPU runs.
-// The table is a JSON fixture in the shape of Editor/Resources/Config/Scalability.json.
+// The table is a JSON fixture in the shape of Editor/Resources/Config/Scalability.json; one test parses the
+// SHIPPED file itself, so a hand edit that breaks the loader's rules reddens here and not at the player's boot.
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <Common/Settings/DisplaySettings.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
@@ -13,7 +13,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -28,11 +31,11 @@ namespace
   "Version": 1,
   "Groups": {
     "AntiAliasing": {
-      "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 2, "AntiAliasing.TemporalQuality": 0 },
-      "Medium":    { "AntiAliasing.Method": "SMAA", "AntiAliasing.Samples": 2, "AntiAliasing.TemporalQuality": 1 },
-      "High":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 4, "AntiAliasing.TemporalQuality": 2 },
-      "Epic":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 8, "AntiAliasing.TemporalQuality": 3 },
-      "Cinematic": { "AntiAliasing.Method": "DLAA", "AntiAliasing.Samples": 8, "AntiAliasing.TemporalQuality": 3 }
+      "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 0 },
+      "Medium":    { "AntiAliasing.Method": "SMAA", "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 1 },
+      "High":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 },
+      "Epic":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 },
+      "Cinematic": { "AntiAliasing.Method": "DLAA", "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 }
     },
     "ResolutionScale": {
       "Low":       { "Resolution.Percent": 50,  "Resolution.Upscaler": "DLSS", "Resolution.Sharpness": 20 },
@@ -249,6 +252,35 @@ TEST( ScalabilityContract, TheTableRefusesEveryErrorNotTheFirst )
     EXPECT_NE( parsed.GetError().find( "Effects.CloudQuality" ), std::string::npos );
     // Each error names where it sits in the file.
     EXPECT_NE( parsed.GetError().find( "Groups.Effects.Medium" ), std::string::npos ) << parsed.GetError();
+}
+
+// AntiAliasing.Samples is the MSAA count only; TAA's quality is its own (placeholder) row, 0..2.
+TEST( ScalabilityContract, SamplesAboveOneUnderANonMsaaMethodIsRefused )
+{
+    std::string bad( kTable );
+    const std::string high = R"("AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1)";
+    bad.replace( bad.find( high ), high.size(), R"("AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 4)" );
+    const auto parsed = ScalabilityTable::Parse( bad );
+    ASSERT_FALSE( parsed.IsSuccess() );
+    EXPECT_NE( parsed.GetError().find( "Groups.AntiAliasing.High" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "MSAA sample count" ), std::string::npos ) << parsed.GetError();
+}
+
+TEST( ScalabilityContract, TemporalQualityIsAHiddenPlaceholderOfThreeLevels )
+{
+    const ParameterSpec& spec = SpecOf( Parameter::TemporalAAQuality );
+    EXPECT_EQ( spec.Owner, Group::AntiAliasing );
+    EXPECT_EQ( spec.Key, "AntiAliasing.TemporalQuality" );
+    EXPECT_EQ( spec.Min, 0 );
+    EXPECT_EQ( spec.Max, 2 );
+    EXPECT_EQ( spec.NarrowedBy, CatalogList::None );
+    EXPECT_TRUE( IsPlaceholder( spec ) );
+    std::string bad( kTable );
+    const std::string epic = R"("AntiAliasing.TemporalQuality": 2 },
+      "Cinematic")";
+    bad.replace( bad.find( epic ), epic.size(), R"("AntiAliasing.TemporalQuality": 3 },
+      "Cinematic")" );
+    EXPECT_FALSE( ScalabilityTable::Parse( bad ).IsSuccess() );
 }
 
 TEST( ScalabilityContract, AParameterUnderAGroupThatDoesNotOwnItIsRefused )
@@ -487,8 +519,12 @@ TEST( ScalabilityContract, MsaaOnAPathThatCannotMultisampleRunsFxaaAndSaysWhy )
     const ResolvedQuality  r        = Resolve( s, Table(), Vk::BuildCapabilityCatalog( RtxProbe() ) );
     const PathAntiAliasing forward  = ResolveAntiAliasingForPath( r, true );
     const PathAntiAliasing deferred = ResolveAntiAliasingForPath( r, false );
+    s.Overrides.push_back( { std::string( SpecOf( Parameter::AntiAliasingSamples ).Key ), 4 } );
+    const ResolvedQuality  r4       = Resolve( s, Table(), Vk::BuildCapabilityCatalog( RtxProbe() ) );
+    const PathAntiAliasing forward4 = ResolveAntiAliasingForPath( r4, true );
+    EXPECT_EQ( forward4.Samples, 4 );
     EXPECT_EQ( forward.Method, AntiAliasingMethod::MSAA );
-    EXPECT_EQ( forward.Samples, 4 );
+    EXPECT_EQ( forward.Samples, 1 ); // the method alone keeps the level count (High is TAA, so 1)
     EXPECT_TRUE( forward.Reason.empty() );
     EXPECT_EQ( deferred.Method, AntiAliasingMethod::FXAA );
     EXPECT_EQ( deferred.Samples, 1 );
@@ -501,6 +537,41 @@ TEST( ScalabilityContract, AnOverrideWithAnUnknownKeyIsReportedNotApplied )
     s.Overrides.push_back( { "Shadows.FutureKnob", 3 } );
     const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
     EXPECT_EQ( Resolve( s, Table(), c ).Values, Resolve( AllAt( Level::High ), Table(), c ).Values );
+}
+
+namespace
+{
+    std::string RepoRoot()
+    {
+        std::string prefix = "./";
+        for ( int up = 0; up < 6; ++up )
+        {
+            const std::ifstream probe( prefix + "Editor/Resources/Config/Scalability.json" );
+            if ( probe )
+                return prefix;
+            prefix += "../";
+        }
+        return {};
+    }
+} // namespace
+
+// The file the packager ships (GamePackager's Config tree), not the fixture: it parses under every loader rule,
+// and its High level is what a capable device runs with no fallback.
+TEST( ScalabilityContract, TheShippedTableParsesAndHighNeedsNoFallbackOnACapableDevice )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "Editor/Resources/Config/Scalability.json not found above the working directory";
+    const std::ifstream in( std::filesystem::path( root ) / "Editor/Resources/Config/Scalability.json",
+                            std::ios::binary );
+    std::ostringstream text;
+    text << in.rdbuf();
+    const auto parsed = ScalabilityTable::Parse( text.str() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const ResolvedQuality r =
+         Resolve( AllAt( Level::High ), parsed.GetValue(), Vk::BuildCapabilityCatalog( RtxProbe() ) );
+    for ( const Fallback& f : r.Fallbacks )
+        ADD_FAILURE() << FormatFallback( f );
+    EXPECT_EQ( r.Scale, ScaleMode::Native );
 }
 
 // ---- Presets ---------------------------------------------------------------------------------------------
@@ -595,4 +666,10 @@ TEST( ScalabilityContract, TheCacheIsValidOnlyForTheSameDeviceDriverAndTable )
     BenchmarkCacheKey newTable = key;
     newTable.TableVersion      = 2;
     EXPECT_FALSE( CacheValid( cached, newTable ) );
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

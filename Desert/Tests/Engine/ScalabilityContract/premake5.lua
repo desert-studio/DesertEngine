@@ -1,7 +1,6 @@
 -- ScalabilityContract (SCAL1-C0): the capability catalog, the scalability groups and the recommended settings,
--- pinned against the headers before the implementation exists. No GPU: devices are CatalogProbe fixtures.
--- It links once SCAL1's implementation adds the sources below and Common's Settings/Scalability*.cpp;
--- until then the link failure IS the contract's open state.
+-- No GPU: devices are CatalogProbe fixtures. The suite has its own main (like every suite here). One test reads the
+-- shipped Editor/Resources/Config/Scalability.json, found by walking up from the working directory.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)
