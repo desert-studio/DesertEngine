@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSAO.hpp>
@@ -61,8 +62,7 @@ namespace Desert::Graphic::System
             if ( !m_Pipeline || !m_Material )
                 return;
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            pass.Bindings( Renderer::GetInstance().GetBindingLayout( *m_Shader ),
-                           m_Material->GetMaterialExecutor()->GetRouteFill() )
+            pass.Bindings( m_BindingLayout.Get( *m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_GBufferPos", worldPos, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler )
                  .Sampled( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
@@ -85,6 +85,8 @@ namespace Desert::Graphic::System
 
     private:
         std::shared_ptr<Shader>            m_Shader;
+        // The block layout, derived from m_Shader's reflection once per compile (not per frame).
+        mutable ShaderBindingLayoutCache   m_BindingLayout;
         std::shared_ptr<GraphicsPipeline>  m_Pipeline;
         std::unique_ptr<MaterialSSAO>      m_Material;
     };

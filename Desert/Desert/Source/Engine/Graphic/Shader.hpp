@@ -39,6 +39,17 @@ namespace Desert::Graphic
         }
 
         virtual Common::BoolResultStr Reload()                                                                 = 0;
+
+        // Bumped by every successful compile (0 = never compiled; never reset, so a recorded value stays
+        // comparable for the life of the process). An object derived from this shader's reflection records the
+        // generation it was derived at, and a mismatch means the shader was recompiled since (hot reload):
+        // a pipeline the renderer owns cannot be reached by a reload, but a cached ShaderBindingLayout re-derives
+        // (ShaderBindingLayoutCache).
+        [[nodiscard]] uint32_t GetReloadGeneration() const
+        {
+            return m_ReloadGeneration;
+        }
+
         virtual const std::string     GetName() const                                                          = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::UniformBuffer> GetUniformBufferModels() const = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::StorageBuffer> GetStorageBufferModels() const = 0;
@@ -93,6 +104,10 @@ namespace Desert::Graphic
         static std::shared_ptr<Shader> Create( const Assets::Asset<Assets::ShaderAsset>& asset,
                                                const ShaderVariant&                      variant  = {},
                                                const std::string&                        passName = {} );
+
+    protected:
+        // The backend bumps it at the end of every successful compile (VulkanShader::Reload).
+        uint32_t m_ReloadGeneration = 0;
 
     private:
         ResourceOwnership m_Accounting;

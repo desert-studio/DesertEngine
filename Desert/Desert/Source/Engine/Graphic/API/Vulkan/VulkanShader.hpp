@@ -137,19 +137,6 @@ namespace Desert::Graphic::API::Vulkan
             return m_DescriptorSetLayouts;
         }
 
-        /**
-         * Bumped by every successful recompile.
-         *
-         * What it is for: an object built from this shader records the generation it was built at, and
-         * a later mismatch means "you are running code this shader no longer contains". That is a
-         * legitimate state — a hot reload cannot reach a pipeline the renderer built and owns — but it
-         * is never a silent one.
-         */
-        uint32_t GetReloadGeneration() const
-        {
-            return m_ReloadGeneration;
-        }
-
         const ShaderResource::ReflectionData& GetReflectionData() const
         {
             return m_ReflectionData;
@@ -209,10 +196,6 @@ namespace Desert::Graphic::API::Vulkan
 
         ShaderResource::ReflectionData      m_ReflectionData;
         std::vector<DescriptorSetLayoutRef> m_DescriptorSetLayouts; // indexed by set
-
-        // Monotonic; 0 means "never compiled". Never reset, so a comparison against a recorded value
-        // stays meaningful for the life of the process.
-        uint32_t m_ReloadGeneration = 0;
 
         DescriptorSetInfo m_DescriptorSetInfo;
     };

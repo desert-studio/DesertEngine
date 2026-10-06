@@ -4,6 +4,7 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp> // MaterialSSRResolve (shared temporal resolve)
@@ -146,8 +147,8 @@ namespace Desert::Graphic::System
         void DeclareGatherBindings( RDG::PassBuilder& pass, const GIGatherInputs& inputs ) const
         {
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            auto       block = pass.Bindings( Renderer::GetInstance().GetBindingLayout( *m_Pipeline->GetShader() ),
-                                              m_Material->GetMaterialExecutor()->GetRouteFill() );
+            auto                       block    = pass.Bindings( m_GatherLayout.Get( *m_Pipeline->GetShader() ),
+                                                                 m_Material->GetMaterialExecutor()->GetRouteFill() );
             const auto sampled = [&]( std::string_view name, RDG::TextureRef texture ) {
                 block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                                kSampler );
@@ -165,7 +166,7 @@ namespace Desert::Graphic::System
                                       RDG::TextureRef worldPos ) const
         {
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            pass.Bindings( Renderer::GetInstance().GetBindingLayout( *m_ResolvePipeline->GetShader() ),
+            pass.Bindings( m_ResolveLayout.Get( *m_ResolvePipeline->GetShader() ),
                            m_ResolveMaterial->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler )
@@ -216,6 +217,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline>   m_ResolvePipeline;
         std::unique_ptr<MaterialGIResolve>  m_Material;
         std::unique_ptr<MaterialSSRResolve> m_ResolveMaterial;
+        // The two block layouts, derived from each pipeline shader's reflection once per compile (not per frame).
+        mutable ShaderBindingLayoutCache    m_GatherLayout;
+        mutable ShaderBindingLayoutCache    m_ResolveLayout;
         std::shared_ptr<Framebuffer>        m_AccumFB[2];
 
         glm::mat4 m_PrevViewProj{ 1.0f };

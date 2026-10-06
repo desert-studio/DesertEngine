@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -49,7 +50,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_Pipeline )
                 return;
-            pass.Bindings( Renderer::GetInstance().GetBindingLayout( *m_Shader ), RDG::OtherRouteFill{} )
+            pass.Bindings( m_BindingLayout.Get( *m_Shader ), RDG::OtherRouteFill{} )
                  .Sampled( "u_Input", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearRepeat() );
         }
@@ -65,6 +66,8 @@ namespace Desert::Graphic::System
 
     private:
         std::shared_ptr<Shader>           m_Shader;
+        // The block layout, derived from m_Shader's reflection once per compile (not per frame).
+        mutable ShaderBindingLayoutCache  m_BindingLayout;
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
     };
 } // namespace Desert::Graphic::System

@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -110,8 +111,7 @@ namespace Desert::Graphic::System
         {
             if ( !IsReady() || !sceneDepth.IsValid() )
                 return;
-            pass.Bindings( Renderer::GetInstance().GetBindingLayout( *m_Shader ),
-                           m_Material->GetMaterialExecutor()->GetRouteFill() )
+            pass.Bindings( m_BindingLayout.Get( *m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::PointClamp() );
         }
@@ -129,6 +129,8 @@ namespace Desert::Graphic::System
     private:
         std::shared_ptr<Framebuffer>               m_Resolved;
         std::shared_ptr<Shader>                    m_Shader;
+        // The block layout, derived from m_Shader's reflection once per compile (not per frame).
+        mutable ShaderBindingLayoutCache           m_BindingLayout;
         std::shared_ptr<GraphicsPipeline>          m_Pipeline;
         std::unique_ptr<MaterialSceneDepthResolve> m_Material;
     };
