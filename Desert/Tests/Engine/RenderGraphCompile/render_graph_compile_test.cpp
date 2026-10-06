@@ -4329,6 +4329,23 @@ TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
          << "PrepareDraw no longer runs the setup's own binding validation";
     EXPECT_EQ( render2d.find( "kMaterialRowBlockName" ), std::string::npos )
          << "Render2D.cpp writes the parameter row again - PrepareDraw is the one place";
+    // PREPARED ONCE PER FRAME: the setup prepares the draw list (PreparedDraws, drawlist2d_test), Flush records
+    // exactly that list and resolves / prepares / validates nothing itself.
+    const std::string declareBody = FunctionBody( render2d, "voidRender2D::DeclareInto(" );
+    ASSERT_FALSE( declareBody.empty() ) << "Render2D::DeclareInto moved";
+    EXPECT_NE( declareBody.find( "m_Prepared.Prepare(m_DrawList.GetCommands()," ), std::string::npos )
+         << "the setup no longer prepares the frame's draws";
+    EXPECT_NE( declareBody.find( "Resolve(cmd,backdropValid)" ), std::string::npos );
+    const std::string flushBody = FunctionBody( render2d, "Common::BoolResultStrRender2D::Flush(" );
+    ASSERT_FALSE( flushBody.empty() ) << "Render2D::Flush moved";
+    for ( const char* again : { "Resolve(", "DrawableOrDefault(", "PrepareDraw(", "ValidatePassBindings(",
+                                "m_Prepared.Prepare(", "m_DrawList.GetCommands())" } )
+        EXPECT_EQ( flushBody.find( again ), std::string::npos )
+             << "Render2D::Flush calls " << again << " - a draw is prepared a second time in the exec";
+    EXPECT_NE( flushBody.find( "for(constauto&draw:m_Prepared.Draws())" ), std::string::npos )
+         << "Flush no longer records the list the setup prepared";
+    EXPECT_NE( flushBody.find( "if(!m_Prepared.Ready())" ), std::string::npos )
+         << "Flush records a list nobody prepared";
 }
 
 // RDG-FAULT1: every producer whose loss a surviving reader can absorb names the value the reader gets instead, at

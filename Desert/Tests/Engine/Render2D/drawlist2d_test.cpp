@@ -2,12 +2,14 @@
 // ECS — just verifies that primitives emit the expected vertices, indices and state batches.
 
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
+#include <Engine/Graphic/Render2D/PreparedDraws.hpp>
 #include <Engine/Graphic/Render2D/UIMaterialFallback.hpp>
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -972,4 +974,49 @@ TEST( UIMaterialFallback, OneBrokenMaterialFallsBackAloneAndIsReportedOnce )
     const std::string report = UIMaterialFallback::Report( "UI_Broken", "UIGradient", "short row", "UIMatError" );
     EXPECT_NE( report.find( "material 'UI_Broken' (shader 'UIGradient')" ), std::string::npos ) << report;
     EXPECT_NE( report.find( "'UIMatError'" ), std::string::npos ) << report;
+}
+
+// RDG-FAULT1 C3b: a UI draw is prepared ONCE per frame. Render2D's setup (DeclareInto) prepares every command of
+// the draw list through PreparedDraws - for a UI material that is UIMaterialCache::DrawableOrDefault's
+// PrepareDraw: row, push, validation, or the default material - and Flush records PreparedDraws::Draws() as they
+// are (census RenderGraphCompile.UIMaterialDrawsFallBackPerDrawNotPerNode: Flush resolves nothing). Here: the
+// preparation runs exactly once per command, the exec walk sees each drawn command once with its prepared value
+// and its index back into the list, and a list nobody prepared is not Ready (Flush refuses it instead of preparing
+// it itself).
+TEST( PreparedDraws, EveryDrawIsPreparedOnceAndTheExecRecordsThePreparedList )
+{
+    struct Command
+    {
+        int  Id;
+        bool Draws;
+    };
+    const std::vector<Command> commands = { { 0, true }, { 1, false }, { 2, true }, { 3, true } };
+    R2D::PreparedDraws<int>    prepared;
+    EXPECT_FALSE( prepared.Ready() ) << "a list nobody prepared must not be recorded";
+    std::vector<int> preparedIds;
+    prepared.Prepare( commands,
+                      [&]( const Command& command ) -> std::optional<int>
+                      {
+                          preparedIds.push_back( command.Id );
+                          if ( !command.Draws )
+                          {
+                              return std::nullopt;
+                          }
+                          return command.Id * 10;
+                      } );
+    EXPECT_EQ( preparedIds, ( std::vector<int>{ 0, 1, 2, 3 } ) ) << "each command is prepared exactly once";
+    ASSERT_TRUE( prepared.Ready() );
+    std::vector<uint32_t> recorded;
+    std::vector<int>      values;
+    for ( const auto& draw : prepared.Draws() )
+    {
+        recorded.push_back( draw.Command );
+        values.push_back( draw.Value );
+    }
+    EXPECT_EQ( recorded, ( std::vector<uint32_t>{ 0, 2, 3 } ) ) << "a skipped command opens no block";
+    EXPECT_EQ( values, ( std::vector<int>{ 0, 20, 30 } ) ) << "the exec records the value the setup prepared";
+    EXPECT_EQ( preparedIds.size(), 4u ) << "walking the prepared list prepares nothing again";
+    prepared.Reset();
+    EXPECT_FALSE( prepared.Ready() ) << "the next frame's list is not the last frame's";
+    EXPECT_TRUE( prepared.Draws().empty() );
 }

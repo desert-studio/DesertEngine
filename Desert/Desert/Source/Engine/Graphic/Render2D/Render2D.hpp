@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
+#include <Engine/Graphic/Render2D/PreparedDraws.hpp>
 #include <Engine/Graphic/Render2D/UIMaterialCache.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
@@ -121,8 +122,18 @@ namespace Desert::Graphic::Render2D
             Material,
             Plain
         };
-        // Defined in Render2D.cpp: a value of one Resolve call, never kept past the loop that made it.
-        struct ResolvedCommand;
+        // What one drawn command binds: made by Resolve ONCE per command in the setup (DeclareInto) and kept in
+        // m_Prepared until that frame's Flush records it. Non-owning: every pointer is into this Render2D (its
+        // pipelines, executor caches, layouts) or into the UIMaterialCache entry the command resolved to.
+        struct ResolvedCommand
+        {
+            CommandKind               Kind     = CommandKind::Skip;
+            GraphicsPipeline*         Pipeline = nullptr;
+            const MaterialExecutor*   Executor = nullptr;
+            MaterialExecutor*         Plain    = nullptr; // the 2D/text executor (its projection is pushed)
+            DataDrivenMaterial*       Material = nullptr; // a UI material's
+            ShaderBindingLayoutCache* Layout   = nullptr; // keyed on Pipeline's shader
+        };
         ResolvedCommand Resolve( const DrawCommand& cmd, bool backdrop );
         template <class Declaration>
         void DeclareInto( Declaration& declared, RDG::TextureRef backdrop );
@@ -175,6 +186,9 @@ namespace Desert::Graphic::Render2D
         bool m_UsedBackdrop = false; // glass drawn in the last Flush -> keep the pyramid alive
 
         DrawList2D m_DrawList;
+        // The frame's draws as the setup prepared them (DeclareInto); Flush records exactly these. Reset by
+        // BeginFrame and after Flush, so nothing prepared outlives its frame.
+        PreparedDraws<ResolvedCommand> m_Prepared;
         glm::mat4  m_Projection = glm::mat4( 1.0f );
         glm::vec4  m_ViewportPx = { 0.0f, 0.0f, 0.0f, 0.0f }; // x,y,w,h — the unclipped scissor / reset rect
     };

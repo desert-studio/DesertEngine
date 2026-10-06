@@ -134,6 +134,7 @@ namespace Desert::Graphic::Render2D
              glm::ortho( viewportPx.x, viewportPx.x + viewportPx.z, viewportPx.y + viewportPx.w, viewportPx.y );
         m_ViewportPx = viewportPx;
         m_DrawList.Reset();
+        m_Prepared.Reset();
     }
 
     void Render2D::EnsureCapacity( uint32_t vertexCount, uint32_t indexCount )
@@ -208,18 +209,6 @@ namespace Desert::Graphic::Render2D
         static_assert( sizeof( GlassPush ) == 128 );
     } // namespace
 
-    // Non-owning: every pointer is into this Render2D (its pipelines, executor caches, layouts) or into the
-    // UIMaterialCache entry the command carries, and the value lives for one iteration of the walk that made it.
-    struct Render2D::ResolvedCommand
-    {
-        CommandKind               Kind     = CommandKind::Skip;
-        GraphicsPipeline*         Pipeline = nullptr;
-        const MaterialExecutor*   Executor = nullptr;
-        MaterialExecutor*         Plain    = nullptr; // the 2D/text executor (its projection is pushed)
-        DataDrivenMaterial*       Material = nullptr; // a UI material's
-        ShaderBindingLayoutCache* Layout   = nullptr; // keyed on Pipeline's shader
-    };
-
     Render2D::ResolvedCommand Render2D::Resolve( const DrawCommand& cmd, const bool backdrop )
     {
         ResolvedCommand resolved;
@@ -280,12 +269,23 @@ namespace Desert::Graphic::Render2D
     {
         if ( !m_Pipeline || !m_TextPipeline || m_DrawList.Empty() )
             return; // Flush draws nothing either
-        for ( const auto& cmd : m_DrawList.GetCommands() )
+        // THE ONE PREPARATION of this frame's draws (PreparedDraws): Resolve - and for a UI material
+        // UIMaterialCache::DrawableOrDefault's PrepareDraw - runs here once per command; Flush records the result.
+        const bool backdropValid = backdrop.IsValid();
+        m_Prepared.Prepare( m_DrawList.GetCommands(),
+                            [&]( const DrawCommand& cmd ) -> std::optional<ResolvedCommand>
+                            {
+                                ResolvedCommand resolved = Resolve( cmd, backdropValid );
+                                if ( resolved.Kind == CommandKind::Skip )
+                                {
+                                    return std::nullopt;
+                                }
+                                return resolved;
+                            } );
+        for ( const auto& draw : m_Prepared.Draws() )
         {
-            const ResolvedCommand resolved = Resolve( cmd, backdrop.IsValid() );
-            if ( resolved.Kind == CommandKind::Skip )
-                continue;
-            ShaderBindingLayoutCache& layout = *resolved.Layout;
+            const ResolvedCommand&    resolved = draw.Value;
+            ShaderBindingLayoutCache& layout   = *resolved.Layout;
             if ( resolved.Kind == CommandKind::Glass )
             {
                 // The sampler the glass sampled its backdrop with before: LinearClamp over every mip.
@@ -324,6 +324,11 @@ namespace Desert::Graphic::Render2D
             return Common::MakeError( "Render2D::Flush: the 2D pipelines were not created (Init)" );
         if ( m_DrawList.Empty() )
             return BOOLSUCCESS;
+        if ( !m_Prepared.Ready() )
+        {
+            return Common::MakeError( "Render2D::Flush: the draws were not prepared - DeclareBindings must run in "
+                                      "the node's setup for this frame's draw list" );
+        }
 
         const auto& verts = m_DrawList.GetVertices();
         const auto& idx   = m_DrawList.GetIndices();
@@ -369,14 +374,15 @@ namespace Desert::Graphic::Render2D
                                      (uint32_t)m_ViewportPx.w );
         };
 
-        // The commands are walked by the same Resolve as DeclareBindings: the n-th drawn command opens block n.
-        uint32_t block = firstBlock;
-        for ( const auto& cmd : m_DrawList.GetCommands() )
+        // The draws the setup prepared (DeclareBindings), recorded as they are: the n-th opens block n. Nothing is
+        // resolved, prepared or validated again here.
+        const auto& commands = m_DrawList.GetCommands();
+        uint32_t    block    = firstBlock;
+        for ( const auto& draw : m_Prepared.Draws() )
         {
-            const ResolvedCommand resolved = Resolve( cmd, backdrop.IsValid() );
-            if ( resolved.Kind == CommandKind::Skip )
-                continue;
-            const uint32_t index = block++;
+            const DrawCommand&     cmd      = commands[draw.Command];
+            const ResolvedCommand& resolved = draw.Value;
+            const uint32_t         index    = block++;
 
             if ( resolved.Kind == CommandKind::Glass )
             {
@@ -428,6 +434,7 @@ namespace Desert::Graphic::Render2D
 
         m_UsedBackdrop = usedBackdrop;
 
+        m_Prepared.Reset();
         RetireUnusedExecutors();
         m_MaterialCache.RetireUnused();
         return failure;
