@@ -49,6 +49,8 @@ project "Opus"
     -- not code anyone steps through, and at -O0 decoding an Opus packet falls behind the sound clock — a Debug
     -- game then drops every frame of its startup movie and shows the last, faded-out one (2026-10-05).
     optimize "Speed"
+    -- MSVC refuses /O2 together with the /RTC1 MSBuild adds to every Debug configuration (D8016).
+    runtimechecks "Off"
 
     filter "system:windows"
         systemversion "latest"

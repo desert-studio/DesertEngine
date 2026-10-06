@@ -54,10 +54,8 @@
 #include <Engine/ECS/System/AudioECSSystem.hpp>
 
 // STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); declare only.
-// Only the capture writes a PNG from this host, so a shipping build does not need the declaration either.
-#if DESERT_DEV_INSTRUMENTS
+// Unconditional: --render-movie writes its frames with it in every configuration, Shipping included.
 #include <stb_image/stb_image_write.h>
-#endif
 
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
