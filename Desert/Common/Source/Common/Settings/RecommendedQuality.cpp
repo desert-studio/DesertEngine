@@ -89,7 +89,7 @@ namespace Common::Scalability
                      pass.Milliseconds, pass.Work ) );
             logSum += std::log( ( pass.Work / pass.Milliseconds ) / reference->WorkPerMillisecond );
         }
-        return static_cast<float>( 100.0 * std::exp( logSum / static_cast<double>( passes.size() ) ) );
+        return Common::MakeSuccess( static_cast<float>( 100.0 * std::exp( logSum / static_cast<double>( passes.size() ) ) ) );
     }
 
     bool CacheValid( const std::optional<RecommendedQuality>& cached, const BenchmarkCacheKey& now )

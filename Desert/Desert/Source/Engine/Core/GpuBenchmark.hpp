@@ -12,7 +12,7 @@ namespace Desert::Engine
     /**
      * @brief The recommended-settings benchmark's GPU half (SCAL1; UE FSynthBenchmark's GPU part).
      *
-     * Runs a fixed set of synthetic passes (fill-rate, ALU, texture bandwidth) for about 200 ms of GPU time on the
+     * Runs a fixed set of synthetic passes (ALU, memory bandwidth: VulkanGpuBenchmark.cpp) on the
      * device the game will render on, timing each with timestamps, and returns a perf index normalised to the
      * reference GPU. At first launch (or when RecommendedQuality's cache key no longer matches) the host runs it
      * before the first level loads, then calls QualityState::ApplyRecommended with RecommendLevels' answer — only
