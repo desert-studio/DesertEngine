@@ -15,6 +15,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -68,4 +69,98 @@ namespace Desert::Editor::Tools
     [[nodiscard]] Common::ResultStr<ProceduralFoliageResimulated> ResimulateProceduralFoliage(
          const ECS::ProceduralFoliageData& volume, const glm::vec3& center, const Common::UUID& owner,
          std::span<const Assets::Serialization::FoliageTypeData> types, const ProceduralFoliageHost& host );
+
+    /// How a ProceduralFoliageTransaction reads and writes one field of the world, whole (every component, as
+    /// UE's transaction serialises the touched objects). @p Snapshot is the host's copy of one field.
+    template <class Snapshot>
+    struct ProceduralFoliageFieldStore
+    {
+        /// The field as it stands now; nullopt when there is no such field.
+        std::function<std::optional<Snapshot>( const Common::UUID& )> Capture;
+        /// The field goes (nothing when it is already gone).
+        std::function<void( const Common::UUID& )> Destroy;
+        /// The field back as captured, under its own UUID; false when it cannot be made.
+        std::function<bool( const Snapshot& )> Restore;
+    };
+
+    /**
+     * @brief One Resimulate as ONE undo step (UE wraps ResimulateProceduralContent in an FScopedTransaction):
+     *        what every field it rewrote or removed was before, and what every field it rewrote or created is
+     *        after. Undo puts the before back exactly (removed fields return under their UUIDs, created ones
+     *        go); Redo puts the after back.
+     *
+     * The host calls Touch before it rewrites or removes a field and Made after it creates one; Close takes the
+     * after state once the resimulation is done.
+     */
+    template <class Snapshot>
+    class ProceduralFoliageTransaction
+    {
+    public:
+        explicit ProceduralFoliageTransaction( ProceduralFoliageFieldStore<Snapshot> store )
+             : m_Store( std::move( store ) )
+        {
+        }
+
+        void Touch( const Common::UUID& field )
+        {
+            if ( Knows( field ) )
+                return;
+            m_Ids.push_back( field );
+            if ( auto before = m_Store.Capture( field ) )
+                m_Before.push_back( { field, std::move( *before ) } );
+        }
+        void Made( const Common::UUID& field )
+        {
+            if ( !Knows( field ) )
+                m_Ids.push_back( field );
+        }
+        void Close()
+        {
+            m_After.clear();
+            for ( const auto& id : m_Ids )
+                if ( auto after = m_Store.Capture( id ) )
+                    m_After.push_back( { id, std::move( *after ) } );
+        }
+
+        [[nodiscard]] bool Empty() const
+        {
+            return m_Ids.empty();
+        }
+        bool Undo()
+        {
+            return Put( m_Before );
+        }
+        bool Redo()
+        {
+            return Put( m_After );
+        }
+
+    private:
+        struct Held
+        {
+            Common::UUID Id;
+            Snapshot     State;
+        };
+
+        bool Knows( const Common::UUID& field ) const
+        {
+            return std::find( m_Ids.begin(), m_Ids.end(), field ) != m_Ids.end();
+        }
+        // Every field the step touched goes, then @p state's fields return: a field absent from @p state is
+        // one that did not exist on that side of the step.
+        bool Put( const std::vector<Held>& state )
+        {
+            for ( const auto& id : m_Ids )
+                m_Store.Destroy( id );
+            bool all = true;
+            for ( const auto& held : state )
+                all = m_Store.Restore( held.State ) && all;
+            return all;
+        }
+
+        ProceduralFoliageFieldStore<Snapshot> m_Store;
+        std::vector<Common::UUID>             m_Ids;
+        std::vector<Held>                     m_Before;
+        std::vector<Held>                     m_After;
+    };
 } // namespace Desert::Editor::Tools

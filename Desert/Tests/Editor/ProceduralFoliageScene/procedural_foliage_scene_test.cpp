@@ -6,6 +6,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <optional>
+#include <tuple>
 #include <vector>
 
 namespace
@@ -43,7 +46,8 @@ namespace
 
         Common::ResultStr<Editor::Tools::ProceduralFoliageResimulated>
         Resimulate( const ECS::ProceduralFoliageData& volume, const Common::UUID& owner,
-                    const std::vector<FoliageTypeData>& types )
+                    const std::vector<FoliageTypeData>&                     types,
+                    Editor::Tools::ProceduralFoliageTransaction<Field>* transaction = nullptr )
         {
             Editor::Tools::ProceduralFoliageHost host;
             host.CellSize = 2000.0;
@@ -66,13 +70,27 @@ namespace
                 live.push_back( i );
             }
             std::vector<bool> removed( Fields.size(), false );
+            const auto touch = [&]( size_t e )
+            {
+                if ( transaction )
+                    transaction->Touch( IdOf( Fields[live[e]] ) );
+            };
             host.Rewrite = [&]( size_t e, std::vector<glm::mat4> instances )
-            { Fields[live[e]].Instances = std::move( instances ); };
-            host.Remove = [&]( size_t e ) { removed[live[e]] = true; };
+            {
+                touch( e );
+                Fields[live[e]].Instances = std::move( instances );
+            };
+            host.Remove = [&]( size_t e )
+            {
+                touch( e );
+                removed[live[e]] = true;
+            };
             std::vector<Field> created;
             host.Create = [&]( const Procedural::ProceduralFoliageTypeField& fresh ) -> Common::BoolResultStr
             {
                 created.push_back( { owner, fresh.TypeIndex, fresh.Cell, fresh.Instances, NextId++ } );
+                if ( transaction )
+                    transaction->Made( IdOf( created.back() ) );
                 return BOOLSUCCESS;
             };
             auto done =
@@ -84,7 +102,46 @@ namespace
             for ( auto& f : created )
                 kept.push_back( std::move( f ) );
             Fields = std::move( kept );
+            if ( transaction )
+                transaction->Close();
             return done;
+        }
+
+        static Common::UUID IdOf( const Field& field )
+        {
+            return Common::UUID( static_cast<uint64_t>( field.Id ) );
+        }
+
+        // The store a Resimulate's undo step reads and writes this world through.
+        Editor::Tools::ProceduralFoliageFieldStore<Field> Store()
+        {
+            return {
+                 .Capture = [this]( const Common::UUID& id ) -> std::optional<Field>
+                 {
+                     for ( const auto& f : Fields )
+                         if ( IdOf( f ) == id )
+                             return f;
+                     return std::nullopt;
+                 },
+                 .Destroy = [this]( const Common::UUID& id )
+                 { std::erase_if( Fields, [&]( const Field& f ) { return IdOf( f ) == id; } ); },
+                 .Restore =
+                      [this]( const Field& field )
+                 {
+                     Fields.push_back( field );
+                     return true;
+                 } };
+        }
+
+        // The fields in Id order, as a comparable list (an undo may bring a field back at another position).
+        std::vector<std::tuple<int, Common::UUID, uint32_t, int32_t, int32_t, std::vector<glm::mat4>>> State() const
+        {
+            std::vector<std::tuple<int, Common::UUID, uint32_t, int32_t, int32_t, std::vector<glm::mat4>>> out;
+            for ( const auto& f : Fields )
+                out.emplace_back( f.Id, f.Owner, f.Type, f.Cell.X, f.Cell.Z, f.Instances );
+            std::sort( out.begin(), out.end(),
+                       []( const auto& a, const auto& b ) { return std::get<0>( a ) < std::get<0>( b ); } );
+            return out;
         }
     };
 
@@ -158,4 +215,37 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( ProceduralFoliageScene, ResimulateIsOneUndoStepThatPutsTheFieldsBackAsTheyWere )
+{
+    FakeWorld world;
+    world.Fields.push_back( { Common::UUID::Null(), 0, { 0, 0 }, { glm::mat4( 1.0f ) }, world.NextId++ } );
+    const auto                         owner = Common::UUID( 77u );
+    const std::vector<FoliageTypeData> types{ Type( 60.0f, 2.0f ) };
+    const auto                         painted = world.State();
+
+    // Created fields: Undo takes them away, Redo brings the same ones back.
+    Editor::Tools::ProceduralFoliageTransaction<Field> grow( world.Store() );
+    ASSERT_TRUE( world.Resimulate( Volume(), owner, types, &grow ) );
+    const auto grown = world.State();
+    ASSERT_GT( grown.size(), painted.size() );
+    ASSERT_FALSE( grow.Empty() );
+    EXPECT_TRUE( grow.Undo() );
+    EXPECT_EQ( world.State(), painted ) << "undo leaves the painted field alone and no generated one";
+    EXPECT_TRUE( grow.Redo() );
+    EXPECT_EQ( world.State(), grown ) << "redo brings the same fields, ids and instances";
+
+    // Rewritten and removed fields: a resimulation that grows nothing removes the volume's fields; Undo
+    // returns them under their own ids with their instances, Redo removes them again.
+    auto noLandscape           = Volume();
+    noLandscape.AllowLandscape = false;
+    Editor::Tools::ProceduralFoliageTransaction<Field> clear( world.Store() );
+    ASSERT_TRUE( world.Resimulate( noLandscape, owner, types, &clear ) );
+    const auto cleared = world.State();
+    ASSERT_EQ( cleared, painted );
+    EXPECT_TRUE( clear.Undo() );
+    EXPECT_EQ( world.State(), grown );
+    EXPECT_TRUE( clear.Redo() );
+    EXPECT_EQ( world.State(), cleared );
 }
