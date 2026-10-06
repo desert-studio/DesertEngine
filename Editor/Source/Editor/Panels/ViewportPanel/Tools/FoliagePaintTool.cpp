@@ -565,7 +565,8 @@ namespace Desert::Editor::Tools
                 p.ScaleCurve.erase( p.ScaleCurve.begin() + static_cast<std::ptrdiff_t>( *erase ) );
                 commit = true;
             }
-            Row::BeginPropertyRow( "", "Add a key: at time 1 if the curve ends earlier, else halfway between the last two" );
+            Row::BeginPropertyRow(
+                 "", "Add a key: at time 1 if the curve ends earlier, else halfway between the last two" );
             if ( ImGui::SmallButton( "+ Key" ) )
             {
                 auto& keys = p.ScaleCurve;
@@ -575,9 +576,11 @@ namespace Desert::Editor::Tools
                     keys.push_back( { 1.0f, keys.back().Value } );
                 else
                 {
-                    const Assets::Serialization::FoliageScaleCurveKey prev = keys.size() > 1 ? keys[keys.size() - 2] : Assets::Serialization::FoliageScaleCurveKey{};
+                    const Assets::Serialization::FoliageScaleCurveKey prev =
+                         keys.size() > 1 ? keys[keys.size() - 2] : Assets::Serialization::FoliageScaleCurveKey{};
                     const Assets::Serialization::FoliageScaleCurveKey last = keys.back();
-                    keys.insert( keys.end() - 1, { 0.5f * ( prev.Time + last.Time ), 0.5f * ( prev.Value + last.Value ) } );
+                    keys.insert( keys.end() - 1,
+                                 { 0.5f * ( prev.Time + last.Time ), 0.5f * ( prev.Value + last.Value ) } );
                 }
                 commit = true;
             }
@@ -855,8 +858,8 @@ namespace Desert::Editor::Tools
         /// (Commands::CaptureEntityState), under its UUID.
         struct ProceduralFieldSnapshot
         {
-            Common::UUID                                                 Id;
-            std::shared_ptr<const Commands::EntityStateSnapshot>         State;
+            Common::UUID                                         Id;
+            std::shared_ptr<const Commands::EntityStateSnapshot> State;
         };
 
         /// One Resimulate of a procedural foliage volume, undone and redone as a whole (UE: the
@@ -1238,8 +1241,8 @@ namespace Desert::Editor::Tools
         }
 
         // The step's undo (UE FScopedTransaction): every field it rewrites, removes or creates, whole.
-        ::Desert::Core::Scene* const target      = &scene;
-        auto                         transaction = std::make_shared<ProceduralFoliageTransaction<ProceduralFieldSnapshot>>(
+        ::Desert::Core::Scene* const target = &scene;
+        auto transaction = std::make_shared<ProceduralFoliageTransaction<ProceduralFieldSnapshot>>(
              ProceduralFoliageFieldStore<ProceduralFieldSnapshot>{
                   .Capture = []( const Common::UUID& id ) -> std::optional<ProceduralFieldSnapshot>
                   {

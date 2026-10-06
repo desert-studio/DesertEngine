@@ -46,7 +46,7 @@ namespace
 
         Common::ResultStr<Editor::Tools::ProceduralFoliageResimulated>
         Resimulate( const ECS::ProceduralFoliageData& volume, const Common::UUID& owner,
-                    const std::vector<FoliageTypeData>&                     types,
+                    const std::vector<FoliageTypeData>&                 types,
                     Editor::Tools::ProceduralFoliageTransaction<Field>* transaction = nullptr )
         {
             Editor::Tools::ProceduralFoliageHost host;
@@ -70,7 +70,7 @@ namespace
                 live.push_back( i );
             }
             std::vector<bool> removed( Fields.size(), false );
-            const auto touch = [&]( size_t e )
+            const auto        touch = [&]( size_t e )
             {
                 if ( transaction )
                     transaction->Touch( IdOf( Fields[live[e]] ) );
@@ -115,26 +115,26 @@ namespace
         // The store a Resimulate's undo step reads and writes this world through.
         Editor::Tools::ProceduralFoliageFieldStore<Field> Store()
         {
-            return {
-                 .Capture = [this]( const Common::UUID& id ) -> std::optional<Field>
-                 {
-                     for ( const auto& f : Fields )
-                         if ( IdOf( f ) == id )
-                             return f;
-                     return std::nullopt;
-                 },
-                 .Destroy = [this]( const Common::UUID& id )
-                 { std::erase_if( Fields, [&]( const Field& f ) { return IdOf( f ) == id; } ); },
-                 .Restore =
-                      [this]( const Field& field )
-                 {
-                     Fields.push_back( field );
-                     return true;
-                 } };
+            return { .Capture = [this]( const Common::UUID& id ) -> std::optional<Field>
+                     {
+                         for ( const auto& f : Fields )
+                             if ( IdOf( f ) == id )
+                                 return f;
+                         return std::nullopt;
+                     },
+                     .Destroy = [this]( const Common::UUID& id )
+                     { std::erase_if( Fields, [&]( const Field& f ) { return IdOf( f ) == id; } ); },
+                     .Restore =
+                          [this]( const Field& field )
+                     {
+                         Fields.push_back( field );
+                         return true;
+                     } };
         }
 
         // The fields in Id order, as a comparable list (an undo may bring a field back at another position).
-        std::vector<std::tuple<int, Common::UUID, uint32_t, int32_t, int32_t, std::vector<glm::mat4>>> State() const
+        std::vector<std::tuple<int, Common::UUID, uint32_t, int32_t, int32_t, std::vector<glm::mat4>>>
+        State() const
         {
             std::vector<std::tuple<int, Common::UUID, uint32_t, int32_t, int32_t, std::vector<glm::mat4>>> out;
             for ( const auto& f : Fields )
