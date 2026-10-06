@@ -534,7 +534,8 @@ namespace Desert::Graphic::RDG
                     roots += fmt::format( "{}'{}'", roots.empty() ? "" : ", ", m_Passes[p].Name );
                 result.Frame = FrameFault{ fmt::format( "graph '{}': {} lost every writer to the fault of {}",
                                                         m_Name, externals, roots ),
-                                           {}, fatalRoots };
+                                           {},
+                                           fatalRoots };
                 for ( const uint32_t r : fatal )
                     result.Frame->Externals.push_back( MakeFrameFaultExternal( r ) );
             }

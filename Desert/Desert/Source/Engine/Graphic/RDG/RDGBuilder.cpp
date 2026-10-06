@@ -1026,7 +1026,8 @@ namespace Desert::Graphic::RDG
                                 m_Resources[r].Name );
             std::sort( lateRoots.begin(), lateRoots.end() );
             lateRoots.erase( std::unique( lateRoots.begin(), lateRoots.end() ), lateRoots.end() );
-            FrameFault fault{ std::format( "{} lost every writer to a fault during execution", names ), {},
+            FrameFault fault{ std::format( "{} lost every writer to a fault during execution", names ),
+                              {},
                               std::move( lateRoots ) };
             for ( const uint32_t r : lateFatal )
                 fault.Externals.push_back( MakeFrameFaultExternal( r ) );

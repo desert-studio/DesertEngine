@@ -145,8 +145,8 @@ namespace Desert::Graphic::RDG
     struct FrameFault
     {
         std::string                     Reason;
-        std::vector<FrameFaultExternal> Externals;  // FrameFatal externals left without a defined picture
-        std::vector<uint32_t>           RootPasses; // the faulted passes that caused it (empty: the graph is broken)
+        std::vector<FrameFaultExternal> Externals; // FrameFatal externals left without a defined picture
+        std::vector<uint32_t> RootPasses; // the faulted passes that caused it (empty: the graph is broken)
     };
 
     // The result of one Builder::Execute, kept by the builder (Builder::GetExecuteReport). An error returned by

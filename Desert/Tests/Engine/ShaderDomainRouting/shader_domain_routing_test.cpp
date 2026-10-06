@@ -70,7 +70,7 @@ TEST( ShaderDomainRouting, OnlySchemaTexturesBecomeMaterialProperties )
     asset.IsTexture = true;
     asset.AssetKind = "CloudLayout";
     ShaderParam tint;
-    tint.Name = "u_Tint";
+    tint.Name   = "u_Tint";
     meta.Params = { albedo, environment, asset, tint };
 
     ASSERT_NE( FindMaterialTextureParameter( meta, "u_Albedo", false ), nullptr );

@@ -848,7 +848,7 @@ namespace Desert::Graphic::API::Vulkan
             };
             for ( const RDG::FrameFaultExternal& entry : fault.Externals )
             {
-                const uint32_t resource = entry.Resource;
+                const uint32_t        resource = entry.Resource;
                 RDG::ExternalTexture* external = graph.FindExternalTexture( resource );
                 if ( !external )
                     return Common::MakeError(
@@ -861,8 +861,7 @@ namespace Desert::Graphic::API::Vulkan
 
                 const RDG::TextureDesc&          desc        = external->Desc;
                 const RDG::AccessState           dst         = RDG::GetAccessState( RDG::Access::CopyDst );
-                const RDG::AccessState           after =
-                     entry.FinalAccess ? RDG::GetAccessState( *entry.FinalAccess ) : dst;
+                const RDG::AccessState after = entry.FinalAccess ? RDG::GetAccessState( *entry.FinalAccess ) : dst;
 
                 std::vector<VkImageSubresourceRange> ranges;
                 for ( uint32_t layer = 0; layer < desc.Layers; ++layer )
