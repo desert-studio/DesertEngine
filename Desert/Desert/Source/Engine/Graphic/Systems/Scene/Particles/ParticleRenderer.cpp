@@ -9,33 +9,23 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/VFX/VFXWorld.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cstdint>
 
 namespace Desert::Graphic::System
 {
-    namespace
-    {
-        double NowSeconds()
-        {
-            static const auto start = std::chrono::steady_clock::now();
-            return std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
-        }
-    } // namespace
-
     ParticleRenderer::~ParticleRenderer() = default;
 
     Common::BoolResultStr ParticleRenderer::Initialize()
     {
         if ( !CreatePipelines() )
             return Common::MakeError( "ParticleRenderer: failed to create pipelines (missing shaders?)" );
-        m_LastTime = NowSeconds();
         return BOOLSUCCESS;
     }
 
@@ -112,7 +102,7 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    ParticleRenderer::EmitterGpu& ParticleRenderer::GetOrCreate( uint32_t entityId, int maxParticles )
+    ParticleRenderer::EmitterGpu& ParticleRenderer::GetOrCreate( uint32_t entityId, int maxParticles, uint32_t stepCapacity )
     {
         auto&     e   = m_Emitters[entityId];
         const int cap = std::max( 1, maxParticles );
@@ -126,8 +116,7 @@ namespace Desert::Graphic::System
             // binding 0 -> VUID-VkWriteDescriptorSet-descriptorType-00319.
             e.Particles = ShaderResources::StorageBuffer::Create(
                  "ParticleState", static_cast<uint32_t>( cap ) * kParticleStride, 1, /*persistent=*/true );
-            e.Counter    = ShaderResources::StorageBuffer::Create( "ParticleSpawn", sizeof( uint32_t ), 1 );
-            e.SpawnAccum = 0.0f;
+            e.Generation = 0; // freshly zeroed below: no generation to clear
 
             // THIS emitter's material, holding THIS emitter's buffer in its descriptors. Created with
             // the buffer (and kept across a capacity change — Update rebinds the new buffer) so the
@@ -152,6 +141,14 @@ namespace Desert::Graphic::System
                 e.Particles = nullptr;
             }
         }
+        if ( e.StepCapacity != stepCapacity || !e.Steps )
+        {
+            // Per-frame-in-flight (not persistent): the CPU rewrites the table every frame. Binding 1 is
+            // ParticleSimulate's Buffer(1); compute binds by the explicit SetStorageBuffer argument.
+            e.StepCapacity = stepCapacity;
+            e.Steps        = ShaderResources::StorageBuffer::Create(
+                 "ParticleSteps", std::max( 1u, stepCapacity ) * kParticleStepStride, 1 );
+        }
         return e;
     }
 
@@ -174,74 +171,81 @@ namespace Desert::Graphic::System
     {
         m_FrameEmitters.clear();
 
-        const double now = NowSeconds();
-        float        dt  = static_cast<float>( now - m_LastTime );
-        m_LastTime       = now;
-        dt               = std::clamp( dt, 0.0f, 0.1f ); // guard against pauses / first frame
+        // The time, the steps and the randomness all come from the scene's VFXWorld, ticked once per
+        // scene update; this view only turns them into dispatches. No clock is read here.
+        const VFX::VFXWorld& world        = scene.GetVFXWorld();
+        const auto&          clock        = world.GetClock().GetSettings();
+        const float          stepSeconds  = static_cast<float>( clock.StepSeconds );
+        const uint32_t       stepCapacity = std::max( clock.MaxStepsPerTick, clock.MaxSeekStepsPerTick );
 
-        const float time = static_cast<float>( now );
-
-        auto& reg  = const_cast<entt::registry&>( scene.GetRegistry() );
-        auto  view = reg.view<ECS::ParticleEmitterComponent, ECS::TransformComponent>();
+        const auto& reg  = scene.GetRegistry();
+        auto        view = reg.view<const ECS::ParticleEmitterComponent, const ECS::TransformComponent,
+                                    const ECS::UUIDComponent>();
         view.each(
-             [&]( entt::entity entity, ECS::ParticleEmitterComponent& emitter, ECS::TransformComponent& transform )
+             [&]( entt::entity entity, const ECS::ParticleEmitterComponent& emitter,
+                  const ECS::TransformComponent& transform, const ECS::UUIDComponent& id )
              {
                  const auto& d = emitter.Data;
-
-                 // One-shot Restart from the editor transport. Handled BEFORE the enabled check so a
-                 // paused emitter also comes back empty, and by ZEROING the state rather than dropping
-                 // the buffer — the GPU may still be reading it this frame.
-                 if ( emitter.RequestRestart )
-                 {
-                     emitter.RequestRestart = false;
-                     const auto it          = m_Emitters.find( static_cast<uint32_t>( entity ) );
-                     if ( it != m_Emitters.end() && it->second.Particles )
-                     {
-                         const std::vector<uint8_t> zeros(
-                              static_cast<size_t>( it->second.MaxParticles ) * kParticleStride, 0 );
-                         // A Restart that wrote nothing left the emitter running with the OLD state
-                         // while the editor's transport reported it restarted. The report is the log
-                         // here: the transport flag has already been consumed and there is no second
-                         // place to put a failure, but "the button did nothing" must at least be
-                         // findable.
-                         const auto restarted =
-                              it->second.Particles->SetData( zeros.data(), static_cast<uint32_t>( zeros.size() ) );
-                         if ( !restarted.IsSuccess() )
-                             LOG_ERROR( "[Particles] Restart on emitter {} did not clear the state: {}",
-                                        static_cast<uint32_t>( entity ), restarted.GetError() );
-                         it->second.SpawnAccum = 0.0f;
-                     }
-                 }
-
                  if ( !d.Enabled || d.MaxParticles <= 0 )
                      return;
 
-                 EmitterGpu& gpu = GetOrCreate( static_cast<uint32_t>( entity ), d.MaxParticles );
-
-                 // GetOrCreate refuses by leaving the state buffer null when it could not be zeroed
-                 // (see there). It has already said why; this emitter simply does not take part in the
-                 // frame, and the next frame tries to create it again.
-                 if ( !gpu.Particles || !gpu.Counter )
+                 // An emitter added after this update's VFX tick joins on the next one.
+                 const VFX::EmitterInstance* instance = world.FindEmitter( static_cast<uint64_t>( id.UUID ) );
+                 if ( !instance )
                      return;
 
-                 // Spawn budget for this frame (fractional carry so low rates still emit).
-                 gpu.SpawnAccum += d.SpawnRate * dt;
-                 uint32_t budget = static_cast<uint32_t>( gpu.SpawnAccum );
-                 gpu.SpawnAccum -= static_cast<float>( budget );
-                 if ( !d.Looping )
-                     budget = 0; // one-shot bursts are a follow-up; looping emits continuously
+                 const auto  entityId = static_cast<uint32_t>( entity );
+                 EmitterGpu& gpu      = GetOrCreate( entityId, d.MaxParticles, stepCapacity );
 
-                 // Zero the spawn counter for this frame. A counter that did not reset holds LAST
-                 // frame's atomic total, so the compute pass would spawn from an index past the end of
-                 // the live range — the emitter must sit this frame out rather than simulate from it.
-                 const uint32_t zero    = 0;
-                 const auto     counter = gpu.Counter->SetData( &zero, sizeof( zero ) );
-                 if ( !counter.IsSuccess() )
+                 // GetOrCreate refuses by leaving a buffer null when it could not be created or zeroed
+                 // (see there). It has already said why; this emitter sits the frame out and the next
+                 // frame tries again.
+                 if ( !gpu.Particles || !gpu.Steps )
+                     return;
+
+                 // The world threw this instance's state away (Restart, reset, backwards seek): zero it
+                 // — every particle dead — by ZEROING rather than dropping the buffer, which the GPU may
+                 // still be reading. Fresh state (generation 0) is already zero.
+                 if ( gpu.Generation != instance->Generation )
                  {
-                     LOG_ERROR( "[Particles] emitter {} sits out this frame, its spawn counter did not "
-                                "reset: {}",
-                                static_cast<uint32_t>( entity ), counter.GetError() );
-                     return;
+                     if ( gpu.Generation != 0 )
+                     {
+                         const std::vector<uint8_t> zeros( static_cast<size_t>( gpu.MaxParticles ) *
+                                                                kParticleStride,
+                                                           0 );
+                         const auto cleared =
+                              gpu.Particles->SetData( zeros.data(), static_cast<uint32_t>( zeros.size() ) );
+                         if ( !cleared.IsSuccess() )
+                         {
+                             // Running the new generation's steps on the old state would be a simulation
+                             // that is neither: the emitter sits out until the state can be cleared.
+                             LOG_ERROR( "[Particles] emitter {} sits out this frame, its state did not "
+                                        "reset: {}",
+                                        entityId, cleared.GetError() );
+                             return;
+                         }
+                     }
+                     gpu.Generation = instance->Generation;
+                 }
+
+                 // This frame's step table. A table that did not upload must not run: the steps would
+                 // read last frame's counters and id bases. The emitter still draws its current state.
+                 uint32_t stepCount =
+                      std::min( static_cast<uint32_t>( instance->Steps.size() ), gpu.StepCapacity );
+                 if ( stepCount > 0 )
+                 {
+                     std::vector<StepGpu> table( stepCount );
+                     for ( uint32_t s = 0; s < stepCount; ++s )
+                         table[s] = { 0u, instance->Steps[s].IdBase, instance->Seed, instance->Steps[s].Budget };
+                     const auto uploaded =
+                          gpu.Steps->SetData( table.data(), stepCount * static_cast<uint32_t>( sizeof( StepGpu ) ) );
+                     if ( !uploaded.IsSuccess() )
+                     {
+                         LOG_ERROR( "[Particles] emitter {} does not simulate this frame, its step table did "
+                                    "not upload: {}",
+                                    entityId, uploaded.GetError() );
+                         stepCount = 0;
+                     }
                  }
 
                  const glm::vec3 worldPos = glm::vec3( transform.GetTransform()[3] );
@@ -253,21 +257,20 @@ namespace Desert::Graphic::System
                  FrameEmitter fe;
                  fe.Gpu             = &gpu;
                  fe.Additive        = ( d.Blend == ECS::ParticleBlendMode::Additive );
-                 fe.Push.EmitterPos = glm::vec4( worldPos, dt );
-                 fe.Push.Gravity    = glm::vec4( d.Gravity, time );
+                 fe.StepCount       = stepCount;
+                 fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
+                 fe.Push.Gravity    = glm::vec4( d.Gravity, 0.0f );
                  fe.Push.Direction  = glm::vec4( dir, glm::radians( d.ConeAngle ) );
                  fe.Push.Params     = glm::vec4( d.StartSpeed, d.SpeedVariance, d.Lifetime, d.LifetimeVariance );
                  fe.Push.StartColor = glm::vec4( d.StartColor, d.StartAlpha );
                  fe.Push.EndColor   = glm::vec4( d.EndColor, d.EndAlpha );
                  fe.Push.Sizes      = glm::vec4( d.StartSize, d.EndSize, d.SizeCurvePower, 0.0f );
                  // Counts.w = local-space simulation (WorldSpace off): the sim keeps each particle's
-                 // offset FROM the emitter and rebases it on the current emitter position every frame, so
-                 // the whole system rides a moving emitter instead of trailing behind it. The particle
-                 // buffer still holds world positions either way — the billboard pass needs no per-emitter
-                 // uniform and does not change. (Only the TRANSLATION rides; the emitter's rotation is not
-                 // applied to the cloud.)
-                 fe.Push.Counts =
-                      glm::uvec4( static_cast<uint32_t>( gpu.MaxParticles ), budget, 1u, d.WorldSpace ? 0u : 1u );
+                 // offset FROM the emitter and rebases it on the current emitter position every step, so
+                 // the whole system rides a moving emitter instead of trailing behind it. (Only the
+                 // TRANSLATION rides; the emitter's rotation is not applied to the cloud.) Counts.y, the
+                 // step, is set per dispatch.
+                 fe.Push.Counts = glm::uvec4( static_cast<uint32_t>( gpu.MaxParticles ), 0u, 0u, d.WorldSpace ? 0u : 1u );
 
                  m_FrameEmitters.push_back( fe );
              } );
@@ -278,18 +281,38 @@ namespace Desert::Graphic::System
         if ( !m_SimPipeline || m_FrameEmitters.empty() )
             return;
 
-        auto& renderer = Renderer::GetInstance();
-        for ( auto& fe : m_FrameEmitters )
+        uint32_t maxSteps   = 0;
+        uint32_t dispatches = 0;
+        for ( const auto& fe : m_FrameEmitters )
         {
-            m_SimPipeline->SetStorageBuffer( 0, fe.Gpu->Particles.get() );
-            m_SimPipeline->SetStorageBuffer( 1, fe.Gpu->Counter.get() );
-            m_SimPipeline->SetPushConstants( &fe.Push, sizeof( fe.Push ) );
+            maxSteps = std::max( maxSteps, fe.StepCount );
+            dispatches += fe.StepCount;
+        }
 
-            const uint32_t groups =
-                 ( static_cast<uint32_t>( fe.Gpu->MaxParticles ) + kParticleLocalSize - 1 ) / kParticleLocalSize;
-            // DispatchComputeCull (not InFrame): its barrier makes the writes visible to the VERTEX stage that
-            // the billboard shader reads the particle buffer from.
-            renderer.DispatchComputeCull( m_SimPipeline.get(), groups, 1, 1 );
+        // Steps in order, each step over every emitter: step s+1 reads what step s wrote, which the
+        // compute-to-compute barrier of DispatchComputeInFrame makes visible. The LAST dispatch of the
+        // frame goes through DispatchComputeCull instead, whose barrier makes every write so far visible
+        // to the billboard VERTEX stage that reads the particle buffers.
+        auto& renderer = Renderer::GetInstance();
+        for ( uint32_t step = 0; step < maxSteps; ++step )
+        {
+            for ( auto& fe : m_FrameEmitters )
+            {
+                if ( step >= fe.StepCount )
+                    continue;
+                SimPush push  = fe.Push;
+                push.Counts.y = step;
+                m_SimPipeline->SetStorageBuffer( 0, fe.Gpu->Particles.get() );
+                m_SimPipeline->SetStorageBuffer( 1, fe.Gpu->Steps.get() );
+                m_SimPipeline->SetPushConstants( &push, sizeof( push ) );
+
+                const uint32_t groups =
+                     ( static_cast<uint32_t>( fe.Gpu->MaxParticles ) + kParticleLocalSize - 1 ) / kParticleLocalSize;
+                if ( --dispatches == 0 )
+                    renderer.DispatchComputeCull( m_SimPipeline.get(), groups, 1, 1 );
+                else
+                    renderer.DispatchComputeInFrame( m_SimPipeline.get(), groups, 1, 1 );
+            }
         }
     }
 

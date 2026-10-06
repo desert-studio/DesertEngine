@@ -7,6 +7,8 @@
 #include <Engine/Graphic/Materials/Particles/MaterialParticleBillboard.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
+#include "ParticleGpuLayout.hpp"
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -47,33 +49,44 @@ namespace Desert::Graphic::System
         // may still be being read by the last submitted frame, and this engine has no deferred-free queue.
         void OnSceneReplaced() override;
 
-        // CPU snapshot of the scene's emitters (params, world position, per-frame spawn budget, zeroed spawn
-        // counters). Call once per frame in BeginScene.
+        // CPU snapshot of the scene's emitters (params, world position) and of this frame's steps from the
+        // scene's VFXWorld (id bases, seeds, budgets — uploaded as the step table). A state whose
+        // generation the world has moved past is zeroed first. Call once per frame in BeginScene.
         void PrepareFrame( const ::Desert::Core::Scene& scene );
 
-        // Record the per-emitter compute dispatches. Call in OnUpdate, outside any render pass, BEFORE the
-        // render graph records the billboard draw.
+        // Record the compute dispatches: one per emitter per fixed step of this frame, steps in order.
+        // Call in OnUpdate, outside any render pass, BEFORE the render graph records the billboard draw.
         void SimulateInFrame();
 
     private:
         // Push constant for ParticleSimulate (must match the shader's 128-byte block).
         struct SimPush
         {
-            glm::vec4  EmitterPos; // xyz world pos, w dt
-            glm::vec4  Gravity;    // xyz gravity, w time
+            glm::vec4  EmitterPos; // xyz world pos, w the fixed step length (seconds)
+            glm::vec4  Gravity;    // xyz gravity, w unused
             glm::vec4  Direction;  // xyz dir, w cone half-angle (rad)
             glm::vec4  Params;     // startSpeed, speedVar, lifetime, lifetimeVar
             glm::vec4  StartColor; // rgb + start alpha
             glm::vec4  EndColor;   // rgb + end alpha
             glm::vec4  Sizes;      // startSize, endSize, 0, 0
-            glm::uvec4 Counts;     // maxParticles, spawnBudget, enabled, 0
+            glm::uvec4 Counts;     // maxParticles, step index into the step table, 0, local-space
         };
+
+        // One element of ParticleSimulate's step table (binding 1, `struct VFXStep`).
+        struct StepGpu
+        {
+            uint32_t SpawnCount = 0; // zeroed by the upload, consumed atomically by the step
+            uint32_t IdBase     = 0;
+            uint32_t Seed       = 0;
+            uint32_t Budget     = 0;
+        };
+        static_assert( sizeof( StepGpu ) == kParticleStepStride );
 
         // One emitter's persistent GPU state, cached across frames by entity id.
         struct EmitterGpu
         {
             std::shared_ptr<ShaderResources::StorageBuffer> Particles; // persistent particle state
-            std::shared_ptr<ShaderResources::StorageBuffer> Counter;   // per-frame spawn counter
+            std::shared_ptr<ShaderResources::StorageBuffer> Steps;     // this frame's step table
 
             // The billboard material is PER EMITTER, never shared across them: the particle SSBO is a
             // descriptor, a descriptor set belongs to the material, and the set is written at most once
@@ -82,8 +95,9 @@ namespace Desert::Graphic::System
             // Same arrangement as JumpFloodOutlineRenderer's per-step materials.
             std::unique_ptr<MaterialParticleBillboard> Material;
 
-            int   MaxParticles = 0;
-            float SpawnAccum   = 0.0f; // fractional spawn carry
+            int      MaxParticles  = 0;
+            uint32_t StepCapacity  = 0;
+            uint64_t Generation    = 0; // the VFXWorld instance generation this state belongs to; 0 = fresh
         };
 
         // This frame's active emitters (built by PrepareFrame, consumed by SimulateInFrame + the draw pass).
@@ -91,11 +105,12 @@ namespace Desert::Graphic::System
         {
             EmitterGpu* Gpu = nullptr;
             SimPush     Push;
-            bool        Additive = true;
+            bool        Additive  = true;
+            uint32_t    StepCount = 0; // fixed steps to run this frame
         };
 
         bool        CreatePipelines();
-        EmitterGpu& GetOrCreate( uint32_t entityId, int maxParticles );
+        EmitterGpu& GetOrCreate( uint32_t entityId, int maxParticles, uint32_t stepCapacity );
 
         std::shared_ptr<ComputePipeline>  m_SimPipeline;
         std::shared_ptr<GraphicsPipeline> m_AddPipeline;   // additive blend
@@ -103,6 +118,5 @@ namespace Desert::Graphic::System
 
         std::unordered_map<uint32_t, EmitterGpu> m_Emitters;
         std::vector<FrameEmitter>                m_FrameEmitters;
-        double                                   m_LastTime = 0.0;
     };
 } // namespace Desert::Graphic::System

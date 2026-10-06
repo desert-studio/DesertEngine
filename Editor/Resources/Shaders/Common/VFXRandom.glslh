@@ -1,0 +1,31 @@
+// THE EFFECTS LAYER'S RANDOM FUNCTION, GPU side: a stateless hash of four integers.
+//
+// Port of UE's Rand4DPCG32 (Engine/Shaders/Private/RandomPCG.ush:80-104); the C++ copy is
+// Engine/VFX/VFXRandom.hpp and both are the same integer operations on wrapping uint32. A random value
+// is a function of (seed, particle id, call) — never of time or of thread order — so a frame of
+// particles is the same on every run (plan 02 §3.3-6).
+uvec4 Rand4DPCG32( uvec4 v )
+{
+    v = v * 1664525u + 1013904223u;
+
+    v.x += v.y * v.w;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v.w += v.y * v.z;
+
+    v ^= ( v >> 16u );
+
+    v.x += v.y * v.w;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v.w += v.y * v.z;
+    return v;
+}
+
+// Four uniform numbers in [0, 1) from the top 24 bits of each lane (NiagaraStatelessCommon.ush
+// RandomFloat4) — 24 bits being what a float's mantissa holds exactly.
+vec4 VFXRandomFloat4( uvec4 key )
+{
+    uvec4 v = Rand4DPCG32( key );
+    return vec4( ( v >> 8u ) & 0x00ffffffu ) / 16777216.0;
+}
