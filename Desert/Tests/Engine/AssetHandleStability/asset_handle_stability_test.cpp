@@ -25,6 +25,8 @@
 // red is the point, not an inconvenience.
 
 #include <gtest/gtest.h>
+#include <Common/Utilities/FileSystem.hpp>
+#include "../../TestSupport/runner.hpp"
 
 #include "../../TestSupport/scratch_dir.hpp"
 
@@ -80,11 +82,12 @@ using Desert::Assets::AssetTypeID;
 
 namespace
 {
-    // argv[0] of this run, captured by main. The child is this same binary.
-    std::string g_ExecutablePath;
+    // The runner that holds this suite; the child is the same binary, entered through a --desert-child
+    // entry point (TestSupport/runner.hpp). Absolute: the child-process tests run from a scratch directory.
+    const std::string g_ExecutablePath = Common::Utils::FileSystem::ExecutablePath().string();
 
-    constexpr const char* kPrintHandlesFlag = "--print-handles";
-    constexpr const char* kResolveFlag      = "--resolve";
+    constexpr const char* kPrintHandlesFlag = "--desert-child=asset-print-handles";
+    constexpr const char* kResolveFlag      = "--desert-child=asset-resolve-handle";
 
     // The subject: the handle an asset carries THE MOMENT IT IS CONSTRUCTED, before any file is read.
     // Construction and not post-Load, because the AssetManager keys a not-yet-loaded registry shell by it
@@ -1321,37 +1324,38 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
     }
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    // The child branch. Deliberately before InitGoogleTest: this invocation is not a test run, it is one
-    // half of the measurement the cross-process test makes.
-    if ( argc >= 3 && std::strcmp( argv[1], kPrintHandlesFlag ) == 0 )
+    // `<runner> --desert-child=asset-print-handles <path>`: one handle per catalogue entry. Not a test run:
+    // it is one half of the measurement the cross-process test makes.
+    int PrintHandlesChild( int argc, char** argv )
     {
+        if ( argc < 2 )
+            return 2;
         for ( const auto& kind : Catalogue() )
-            printf( "%llu\n", static_cast<unsigned long long>( kind.Handle( argv[2] ) ) );
+            printf( "%llu\n", static_cast<unsigned long long>( kind.Handle( argv[1] ) ) );
         return 0;
     }
 
-    // The "restart" half of the round-trip: a fresh process, a fresh AssetManager, and a handle that came
-    // from somewhere else entirely — which is what a saved scene is.
-    if ( argc >= 4 && std::strcmp( argv[1], kResolveFlag ) == 0 )
+    // `<runner> --desert-child=asset-resolve-handle <path> <handle>`: the "restart" half of the round-trip —
+    // a fresh process, a fresh AssetManager, and a handle that came from somewhere else entirely, which is
+    // what a saved scene is.
+    int ResolveHandleChild( int argc, char** argv )
     {
+        if ( argc < 3 )
+            return 2;
         Desert::Assets::AssetManager manager;
-        manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( argv[2] ) );
+        manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( argv[1] ) );
 
-        const uint64_t wanted = std::strtoull( argv[3], nullptr, 10 );
+        const uint64_t wanted = std::strtoull( argv[2], nullptr, 10 );
         const auto     found  = manager.FindByHandle<Desert::Assets::SkyboxAsset>( Common::AssetHandle( wanted ) );
         printf( "%s\n", found ? "RESOLVED" : "MISSED" );
         return 0;
     }
 
-    // Absolute: the child-process tests run from a scratch working directory, where a relative argv[0]
-    // would name nothing.
-    g_ExecutablePath = std::filesystem::absolute( argv[0] ).string();
-
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    const Desert::TestSupport::ChildEntry kPrintHandles{ "asset-print-handles", &PrintHandlesChild };
+    const Desert::TestSupport::ChildEntry kResolveHandle{ "asset-resolve-handle", &ResolveHandleChild };
+} // namespace
 
 // A CLOUD TYPE'S HANDLE IS HandleForGuid OF ITS HEADER GUID (AF7v), adopted at creation, before any load:
 // the same file under two paths is the same type, and the path no longer takes part.

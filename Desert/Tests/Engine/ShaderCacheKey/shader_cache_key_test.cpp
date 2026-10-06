@@ -21,6 +21,8 @@
 //      the validation layer compares, so a shader that gains a binding is visible here first.
 
 #include <gtest/gtest.h>
+#include <Common/Utilities/FileSystem.hpp>
+#include "../../TestSupport/runner.hpp"
 
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
@@ -511,11 +513,11 @@ TEST_F( ShaderCacheKeyShaderRoot, SubstitutingTheShippedMediumMovesTheKeyOfTheRe
 
 namespace
 {
-    // Captured during static initialisation, before any fixture moves the working directory, so a
-    // relative argv[0] still resolves.
-    const std::filesystem::path kStartDirectory = std::filesystem::current_path();
-
-    constexpr const char* kPrintKeysFlag = "--print-shader-keys";
+    // The child is this runner again, entered through `--desert-child=shader-cache-keys` (TestSupport/
+    // runner.hpp): it runs the one printing test below with the printer switched on.
+    constexpr const char* kPrintKeysChild = "shader-cache-keys";
+    constexpr const char* kPrinterTest    = "ShaderCacheKeyShaderRoot.PrintsTheKeysForAnotherProcess";
+    bool                  g_PrintKeys     = false;
     constexpr const char* kKeyLinePrefix = "SHADERKEY ";
 
     // Real shipped programs, both debug-info profiles, and one substituting variant: each input the
@@ -560,20 +562,26 @@ namespace
 
     bool AskedToPrintKeys()
     {
-        const auto& argv = ::testing::internal::GetArgvs();
-        return std::find( argv.begin(), argv.end(), std::string( kPrintKeysFlag ) ) != argv.end();
+        return g_PrintKeys;
     }
+
+    int PrintKeysChild( int argc, char** argv )
+    {
+        g_PrintKeys = true;
+        ::testing::InitGoogleTest( &argc, argv );
+        GTEST_FLAG_SET( filter, kPrinterTest );
+        return RUN_ALL_TESTS();
+    }
+
+    const Desert::TestSupport::ChildEntry kPrintKeys{ kPrintKeysChild, &PrintKeysChild };
 
     // Runs this binary as a child that prints the keys; returns the key lines in order.
     std::vector<std::string> KeysFromAnotherProcess()
     {
-        std::filesystem::path self( ::testing::internal::GetArgvs().at( 0 ) );
-        if ( self.is_relative() )
-            self = kStartDirectory / self;
+        std::filesystem::path self = Common::Utils::FileSystem::ExecutablePath();
         // Double quotes: cmd.exe does not treat single quotes as quoting, POSIX sh accepts both.
-        const std::string command =
-             std::format( "\"{}\" --gtest_filter=ShaderCacheKeyShaderRoot.PrintsTheKeysForAnotherProcess {} 2>&1",
-                          self.make_preferred().string(), kPrintKeysFlag );
+        const std::string command = std::format( "\"{}\" --desert-child={} 2>&1", self.make_preferred().string(),
+                                                 kPrintKeysChild );
 #ifdef _WIN32
         // cmd /c strips the outer pair of quotes when the line starts with one; a second pair survives it.
         FILE* pipe = _popen( ( "\"" + command + "\"" ).c_str(), "r" );
@@ -2501,11 +2509,7 @@ TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsMetadataIsTheSameAfterTheS
     EXPECT_GE( programs, 70u ) << "the shader walk found too few programs to be the shipped set";
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+
 
 namespace
 {
