@@ -656,9 +656,3 @@ TEST( GraphCanvasIdentity, NeitherCanvasIsWrappedInAChildWindow )
              << "ed::Begin is inside an unclosed ImGui::BeginChild";
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

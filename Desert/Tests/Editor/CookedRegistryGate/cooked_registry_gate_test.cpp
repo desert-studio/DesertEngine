@@ -502,9 +502,3 @@ TEST( CookedRegistryGate, ACacheOfAnotherRowFormIsRebuiltWithoutBeingDeleted )
     EXPECT_EQ( rebuilt.FromCache, 0u );
     EXPECT_EQ( rebuilt.Registry.Serialize(), registry.Serialize() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

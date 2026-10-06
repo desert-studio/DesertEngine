@@ -150,9 +150,3 @@ TEST( DrawCounterFunnel, TheFunnelsThemselvesStillRecord )
     EXPECT_EQ( records, draws ) << "каждая воронка обязана считать РОВНО один раз: " << records
                                 << " вызовов Record на " << draws << " отрисовок";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

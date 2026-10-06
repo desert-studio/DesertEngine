@@ -461,9 +461,3 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositorySTATESTheSectionItsValuesAreR
 
     EXPECT_GE( clips, 6u ) << "this census is measuring the wrong tree";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

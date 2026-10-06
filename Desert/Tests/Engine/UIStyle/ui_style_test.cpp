@@ -550,8 +550,3 @@ TEST( UIThemeLibrary, DesertDarkResolvesToTheComponentsOwnDefaults )
 
 // The suite's own entry point, as every suite here has: the TestSpecific dependency links gtest but not
 // gtest_main, so a suite without this links to nothing and fails at `_main` rather than at a test.
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

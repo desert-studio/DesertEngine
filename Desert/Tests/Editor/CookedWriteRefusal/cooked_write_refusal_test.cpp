@@ -141,9 +141,3 @@ TEST( CookedWriteRefusal, ABlendConvertScriptThatCannotBeWrittenReturnsNoPath )
          << "a script that was never written was handed back as a path to run";
     EXPECT_EQ( ReadRaw( script ), previous ) << "the failed write cost the script that was already there";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

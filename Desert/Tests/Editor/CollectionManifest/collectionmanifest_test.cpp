@@ -216,9 +216,3 @@ TEST_F( CollectionManifestFile, AnUndeclaredKeyIsRefusedAndNamed )
     ASSERT_FALSE( read ) << "an undeclared key was accepted";
     EXPECT_NE( read.GetError().find( "Rating" ), std::string::npos ) << read.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

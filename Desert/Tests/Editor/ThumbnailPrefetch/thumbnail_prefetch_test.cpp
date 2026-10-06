@@ -352,9 +352,3 @@ TEST( ThumbnailPrefetch, TheServiceAsksTheViewBudgetAsBackgroundWork )
     EXPECT_NE( code.find( "Demand::Background" ), std::string::npos );
     EXPECT_EQ( code.find( "Demand::UserSurface" ), std::string::npos );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

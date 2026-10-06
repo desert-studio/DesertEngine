@@ -318,9 +318,3 @@ TEST( MeshDerivedData, LodSectionsMustLineUpWithLodZero )
     ASSERT_FALSE( gapped.IsSuccess() );
     EXPECT_NE( gapped.GetError().find( "no faces in LOD1" ), std::string::npos ) << gapped.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

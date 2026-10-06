@@ -592,13 +592,6 @@ TEST( AnimationClipFormat, BuildAssetDataFromClipCarriesEveryChannelAndNotify )
     ASSERT_EQ( data.Notifies.size(), 1u );
     EXPECT_EQ( data.Notifies[0].Name, "Footstep" );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── GENERATION 2 -> 3: THE SECTION IS ADDED AND NOTHING ELSE MOVES (A28) ────────────────────────────
 //
 // THE TRAP THIS CLOSES, AND IT WAS LIVE FOR THE LENGTH OF ONE COMMIT. `MigrateAnimationJson` wrote a

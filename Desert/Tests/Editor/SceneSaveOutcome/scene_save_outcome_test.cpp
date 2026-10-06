@@ -266,9 +266,3 @@ TEST( SceneSaveIdentity, ASceneWithNoFileHasNoIdentityToKeep )
 {
     EXPECT_FALSE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "", "Assets/Scenes/Starter.desce" ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

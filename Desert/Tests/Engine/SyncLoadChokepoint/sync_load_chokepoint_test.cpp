@@ -430,9 +430,3 @@ TEST( SyncLoadChokepointCensus, BothHostsCloseTheirBootSoAnInFrameLoadCanBeRecog
              << layer << " never closes its boot, so every load it makes afterwards counts as boot work";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

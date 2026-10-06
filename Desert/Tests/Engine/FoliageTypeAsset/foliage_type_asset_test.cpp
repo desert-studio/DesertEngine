@@ -199,9 +199,3 @@ TEST( FoliageTypeAsset, TheKindHasItsOneRegistryRow )
         rows += row.Extension == std::string_view( kFoliageTypeExtension ) ? 1 : 0;
     EXPECT_EQ( rows, 1 );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -256,9 +256,3 @@ TEST( AssetResolverCensus, TheEngineResourceTreesAreDeliberatelyNotProjectCensus
     EXPECT_FALSE( Common::AssetHandle::EngineTag().empty() );
     EXPECT_FALSE( Common::AssetHandle::AssetsTag().empty() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

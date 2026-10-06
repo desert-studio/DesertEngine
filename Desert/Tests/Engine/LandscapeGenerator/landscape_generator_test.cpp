@@ -294,13 +294,6 @@ TEST( LandscapeGenerator, JobRefusesInvalidSettingsAtOnce )
     EXPECT_FALSE( started.IsSuccess() );
     EXPECT_FALSE( job.Running() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // UE: a new ALandscape starts with one edit layer. The root's stack is [Base], every tile carries the Base's
 // plane, and merging the stack gives back the samples the map was cut into.
 TEST( LandscapeGenerator, ANewLandscapeHasABaseLayerWhoseMergeIsTheSamples )

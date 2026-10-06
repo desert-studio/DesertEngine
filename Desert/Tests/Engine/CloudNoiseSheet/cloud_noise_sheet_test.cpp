@@ -256,7 +256,7 @@ TEST( CloudNoiseSheet, APixelBufferThatDisagreesWithItsOwnSizeIsRefused )
 // The container's new field, and the migration that keeps old files readable exactly once
 // ---------------------------------------------------------------------------------------------------
 
-TEST( CloudNoiseContainer, TheOriginSurvivesTheContainer )
+TEST( CloudNoiseSheetContainer, TheOriginSurvivesTheContainer )
 {
     for ( const auto origin : { CloudNoiseVolumeOrigin::Generated, CloudNoiseVolumeOrigin::Imported } )
     {
@@ -277,7 +277,7 @@ TEST( CloudNoiseContainer, TheOriginSurvivesTheContainer )
 // The finding is inside gtest's TEST macro (it registers the test through a raw `new` handed to a
 // non-owner parameter), not in this test; every TEST line carries it, this one is on a changed line.
 // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-TEST( CloudNoiseContainer, ThePayloadIsTheSizeTheConstantClaims )
+TEST( CloudNoiseSheetContainer, ThePayloadIsTheSizeTheConstantClaims )
 {
     const CloudNoiseVolumeData       volume  = PatternedVolume( 64u );
     const std::vector<unsigned char> payload = EncodeCloudNoisePayload( volume );
@@ -285,7 +285,7 @@ TEST( CloudNoiseContainer, ThePayloadIsTheSizeTheConstantClaims )
     EXPECT_EQ( payload.size(), kCloudNoiseHeaderSize + volume.Voxels.size() );
 }
 
-TEST( CloudNoiseContainer, AnImportedFileCarryingARecipeIsRefused )
+TEST( CloudNoiseSheetContainer, AnImportedFileCarryingARecipeIsRefused )
 {
     // The two halves of the header disagreeing about where the voxels came from. Hand-built, because the
     // encoder cannot produce it — which is the point: this guards against a file from somewhere else.
@@ -299,10 +299,4 @@ TEST( CloudNoiseContainer, AnImportedFileCarryingARecipeIsRefused )
     const auto refused = DecodeCloudNoisePayload( bytes );
     EXPECT_FALSE( refused );
     EXPECT_NE( refused.GetError().find( "4242" ), std::string::npos ) << refused.GetError();
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

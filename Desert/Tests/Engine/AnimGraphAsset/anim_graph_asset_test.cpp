@@ -346,9 +346,3 @@ TEST( AnimGraphAsset, AGraphWithNoHeaderIsRefusedByNameAndPointsAtTheMigrator )
     EXPECT_NE( loaded.GetError().find( "format version 0" ), std::string::npos ) << loaded.GetError();
     EXPECT_NE( loaded.GetError().find( "SceneMigrator" ), std::string::npos ) << loaded.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

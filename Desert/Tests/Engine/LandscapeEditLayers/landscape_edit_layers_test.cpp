@@ -331,13 +331,6 @@ TEST( LandscapeEditLayers, ABrokenEditLayerSectionIsRefusedWithTheReason )
     EXPECT_NE( heights.GetError().find( "edit layer 0 states 3 heights" ), std::string::npos )
          << heights.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── Brushes write the editing layer (UE: ALandscape::GetEditingLayer), and the tile is its merge ─────────
 namespace
 {

@@ -117,9 +117,3 @@ TEST_F( AnimationLibraryOnDemand, ALookupRequestsOnlyTheNamedClipAndItBecomesPla
     EXPECT_EQ( asset->GetClip().AnimationName, kClip );
     EXPECT_FALSE( library.HasPending( kClip ) ) << "a read clip is still reported as pending";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

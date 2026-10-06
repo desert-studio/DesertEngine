@@ -347,9 +347,3 @@ TEST( SkyPanoramaCensus, TheSkyboxProgramHasNoBrightnessOfItsOwn )
          << "the skybox program has a brightness uniform of its own again";
     EXPECT_EQ( code.find( "u_SkyboxParams" ), std::string::npos );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

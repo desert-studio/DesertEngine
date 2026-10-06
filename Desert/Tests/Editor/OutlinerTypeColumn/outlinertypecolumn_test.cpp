@@ -98,9 +98,3 @@ TEST( OutlinerTypeColumn, EntityTypeOfIndexesTheCensusInOrder )
         EXPECT_STREQ( EntityTypeOf( kind ).Name, kEntityTypes[i].Name );
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

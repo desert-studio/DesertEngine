@@ -609,9 +609,3 @@ TEST( GraphicsPipelineRefusal, EveryBareSharedPtrFactoryIsOnTheRegister )
                 "ComputePipeline::Create has gone back to a bare shared_ptr.";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

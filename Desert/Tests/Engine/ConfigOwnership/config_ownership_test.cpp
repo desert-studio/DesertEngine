@@ -1337,13 +1337,6 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     EXPECT_TRUE( CallsFunction( layer, {}, "SetQuality" ) )
          << "the packaged game loads the machine's quality and never gives it to a renderer";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // AA1: the retired pair `AA` + `MSAASamples` becomes the one method, in the loader, and only the new keys are
 // written back.
 namespace

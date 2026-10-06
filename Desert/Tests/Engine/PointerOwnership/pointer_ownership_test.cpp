@@ -633,13 +633,6 @@ TEST( PointerOwnership, Render2DExecutorRetirementRespectsFramesInFlight )
     EXPECT_NE( src.find( "MayRetireExecutor(" ), std::string::npos )
          << "the sweep no longer goes through the tested predicate.";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 TEST( PointerOwnership, EditorLayerSeedsEveryScenePanelAtRegistration )
 {
     // A PANEL THAT FOLLOWS THE ACTIVE SCENE MUST BE BORN WITH ONE (L8e). IPanel::SetScene is called only

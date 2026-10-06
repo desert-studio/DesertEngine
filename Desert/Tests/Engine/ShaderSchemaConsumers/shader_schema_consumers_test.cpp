@@ -925,9 +925,3 @@ TEST( ShaderSchemaConsumers, EveryTexturePropertyHasASamplerToBindTo )
          << "the known-unsampled list and what the shaders actually declare have drifted apart — a slot "
             "that got its sampler must leave this list, or the list is describing a repair as debt";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

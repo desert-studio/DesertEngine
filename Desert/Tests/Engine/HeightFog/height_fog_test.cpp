@@ -489,9 +489,3 @@ TEST( FogPayload, PhysicalAtmosphereLobeIsTheLightOnTheGroundNotTheSkysSun )
     // ten, which is what makes the retune of every physical fog scene a requirement rather than taste.
     EXPECT_GT( unlit.Directional.x, 10.0f * lit.Directional.x );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

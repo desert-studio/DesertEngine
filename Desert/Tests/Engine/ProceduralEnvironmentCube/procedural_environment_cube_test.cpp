@@ -523,9 +523,3 @@ TEST( ProceduralEnvironmentCube, TheSkyboxRendererOwnsItsEnvironmentRatherThanCo
             "process-wide ImageService and nothing unregisters the last bake when the view closes: the "
             "8.16 MiB-per-view leak RT2k measured.";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -1219,9 +1219,3 @@ TEST( TextureBinaryFormat, TheSourceSignatureSeparatesFilesOfTheSameLengthAndOfT
                SourceSignature( longer.data(), longer.size() ) >> 32 );
     EXPECT_EQ( SourceSignature( a.data(), a.size() ) >> 32, a.size() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

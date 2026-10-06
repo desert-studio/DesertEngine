@@ -1,10 +1,12 @@
 // The ENGINE's half of the shared-format contract. The conformance suite itself lives in the
-// desert-shared submodule (Tests/project_format_test.cpp — compiled into this binary by the
-// premake next door, and by the launcher's runner on its side); this file asserts the one relation
-// the submodule cannot know about: its content-folder census against the engine's own
-// Constants::Path globals. It also provides the gtest main() the shared file deliberately lacks.
+// desert-shared submodule (Tests/project_format_test.cpp — compiled into EngineTests by
+// Desert/Tests/premake5.lua and adopted below, and by the launcher's runner on its side); this file asserts the
+// one relation the submodule cannot know about: its content-folder census against the engine's own Constants::Path
+// globals.
 
 #include <gtest/gtest.h>
+
+#include "TestSupport/runner.hpp"
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Version.hpp>
@@ -18,6 +20,14 @@
 #include <fstream>
 #include <string>
 #include <string_view>
+
+// The launcher and the engine must agree on the project format, so both compile the shared suite in
+// desert-shared; its tests are this suite's (TestSupport/runner.hpp, "A TEST SOURCE OUTSIDE Desert/Tests").
+namespace
+{
+    const Desert::TestSupport::AdoptedTestSource kSharedProjectFormat{
+         "desert-shared/Tests/project_format_test.cpp" };
+} // namespace
 
 TEST( ProjectFormatEngine, EveryCensusRowIsAConstantTheEngineReads )
 {
@@ -315,10 +325,4 @@ TEST( ProjectContextRecent, ARegistryReadAndWrittenBackUnchangedIsByteIdentical 
 
     std::error_code ec;
     std::filesystem::remove_all( config, ec );
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

@@ -2152,9 +2152,3 @@ TEST( WorldPartitionPrefabInstances, EveryCorpusPrefabInstanceLandsWhereItsWorld
     EXPECT_EQ( seen, named ) << "the corpus's prefab instances are not the named rows";
     EXPECT_EQ( refused, kRefusedRegister ) << "a prefab instance the partitioner cannot place";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

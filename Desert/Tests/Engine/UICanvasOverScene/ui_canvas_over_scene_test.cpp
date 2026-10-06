@@ -507,9 +507,3 @@ TEST( CanvasOverSceneViewChange, AWorldSpaceCanvasIsStillDrawnByTheUIPhase )
     EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
     EXPECT_FALSE( dl.GetVertices().empty() ) << "a world-space canvas emitted no geometry at all";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

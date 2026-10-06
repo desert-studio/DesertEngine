@@ -157,9 +157,3 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
     EXPECT_TRUE( unresolved.empty() ) << unresolved.size()
                                       << " material(s) did not resolve their shader:" << joined;
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

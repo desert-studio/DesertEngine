@@ -604,9 +604,3 @@ TEST( ComponentPersistence, TheOutlinerEyeIsWrittenToTheScene )
          << "the scene key for the visibility flag is gone; every .desce already written carries "
             "\"Visibility\" and would silently load as visible.";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

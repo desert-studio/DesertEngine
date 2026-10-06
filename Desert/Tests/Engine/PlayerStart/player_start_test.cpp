@@ -212,13 +212,6 @@ TEST( PawnIsAStreamingSource, StreamingBeginsAfterThePawnIsSpawned )
         EXPECT_GT( firstStreamer, src.find( "BeginPlay( *" ) ) << file << ": streaming begins before Play";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 TEST( PlayRequestArgs, NoFlagIsTheDefaultStart )
 {
     const std::vector<std::string> args{ "--scene", "Scenes/Starter.desce" };

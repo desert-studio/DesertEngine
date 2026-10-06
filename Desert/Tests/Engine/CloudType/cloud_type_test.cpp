@@ -1631,13 +1631,6 @@ TEST( CloudLayoutFormat, ABareVersionOneFileIsRefusedNamingTheMigrator )
     EXPECT_NE( refused.GetError().find( "version 1" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // FORMAT 3 IS REFUSED BY NAME (AF7v). A v3 file is a complete, legal type with no identity; reading it
 // would hand it a handle nothing can name again, so the refusal says what moved and which tool fixes it.
 TEST( CloudTypeFormat, AVersionThreeFileWithoutAHeaderIsRefusedNamingTheMigrator )

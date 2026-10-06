@@ -592,9 +592,3 @@ TEST( ClipSections, RemovingEveryWeightKeyIsFullWeightAndNotSilence )
     EXPECT_FLOAT_EQ( section.WeightAt( FrameTime{ FrameNumber{ 0 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ),
                      1.0F );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -35,6 +35,13 @@ namespace Desert::TestSupport
             return table;
         }
 
+        // Path suffix -> adopting suite. Function-local for the same reason as ChildTable.
+        std::map<std::string_view, std::string>& AdoptedTable()
+        {
+            static std::map<std::string_view, std::string> table;
+            return table;
+        }
+
         void PrintError( const std::string& text )
         {
             std::fputs( std::format( "[desert-runner] {}\n", text ).c_str(), stderr );
@@ -72,6 +79,25 @@ namespace Desert::TestSupport
                 return std::nullopt;
             }
             return normalised.substr( suiteBegin, suiteEnd - suiteBegin );
+        }
+
+        // SuiteOfFile, or the suite that adopted the file (AdoptedTestSource).
+        std::optional<std::string> SuiteOfTest( std::string_view file )
+        {
+            if ( auto suite = SuiteOfFile( file ) )
+            {
+                return suite;
+            }
+            std::string normalised( file );
+            std::replace( normalised.begin(), normalised.end(), '\\', '/' );
+            for ( const auto& [suffix, suite] : AdoptedTable() )
+            {
+                if ( normalised.ends_with( suffix ) )
+                {
+                    return suite;
+                }
+            }
+            return std::nullopt;
         }
 
         // gtest's own filter grammar ("pos1:pos2-neg1:neg2", '*' and '?' wildcards), so `--gtest_filter`
@@ -176,7 +202,7 @@ namespace Desert::TestSupport
                 {
                     const testing::TestInfo& info = *testSuite.GetTestInfo( t );
                     const std::string fullName    = std::format( "{}.{}", info.test_suite_name(), info.name() );
-                    const auto        suite       = SuiteOfFile( info.file() );
+                    const auto               suite       = SuiteOfTest( info.file() );
                     if ( !suite )
                     {
                         unmapped.push_back( std::format( "{} ({})", fullName, info.file() ) );
@@ -227,6 +253,25 @@ namespace Desert::TestSupport
         if ( !inserted )
         {
             PrintError( std::format( "two --desert-child entry points are registered as '{}'", name ) );
+            std::abort();
+        }
+    }
+
+    AdoptedTestSource::AdoptedTestSource( std::string_view pathSuffix, std::source_location where )
+    {
+        const auto suite = SuiteOfFile( where.file_name() );
+        if ( !suite )
+        {
+            PrintError(
+                 std::format( "AdoptedTestSource '{}' is constructed outside Desert/Tests/<Layer>/<Suite>/ ({})",
+                              pathSuffix, where.file_name() ) );
+            std::abort();
+        }
+        auto [it, inserted] = AdoptedTable().emplace( pathSuffix, *suite );
+        if ( !inserted )
+        {
+            PrintError(
+                 std::format( "'{}' is adopted by two suites, '{}' and '{}'", pathSuffix, it->second, *suite ) );
             std::abort();
         }
     }

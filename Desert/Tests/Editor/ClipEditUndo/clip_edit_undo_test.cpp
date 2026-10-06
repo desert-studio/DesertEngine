@@ -837,13 +837,6 @@ TEST_F( ClipEditUndo, ONEEntryCarriesTheKEYSAndTheSECTIONWhenOneInteractionDidBo
     EXPECT_TRUE( SameTracks( rig.m_Clip.Tracks, tracksBefore ) );
     EXPECT_TRUE( SameSections( rig.m_Clip.Sections, sectionsBefore ) );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── THE CONTROL-RIG DRAG (A33) ───────────────────────────────────────────────────────────────────────
 //
 // The third thing in this editor that authors a pose, and until now the one with no undo at all. Same

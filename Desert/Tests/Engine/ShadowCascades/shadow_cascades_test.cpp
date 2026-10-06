@@ -373,9 +373,3 @@ TEST( ShadowCascades, DegenerateSetupsProduceNothing )
     inverted.MaxDistance  = inverted.CameraNear * 0.5f;
     EXPECT_EQ( ComputeShadowCascades( inverted, fits ), 0u );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

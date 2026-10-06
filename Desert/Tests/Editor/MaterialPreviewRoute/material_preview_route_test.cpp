@@ -143,26 +143,26 @@ namespace
         }
         return n;
     }
+
+    class MaterialPreviewRoute : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            m_Root = RepoRoot();
+            ASSERT_FALSE( m_Root.empty() ) << "repository root not found from the test's working directory";
+        }
+
+        std::string Code( const std::string& relative ) const
+        {
+            const std::string text = ReadFile( m_Root + relative );
+            EXPECT_FALSE( text.empty() ) << "could not read " << relative;
+            return CodeOnly( text );
+        }
+
+        std::string m_Root;
+    };
 } // namespace
-
-class MaterialPreviewRoute : public ::testing::Test
-{
-protected:
-    void SetUp() override
-    {
-        m_Root = RepoRoot();
-        ASSERT_FALSE( m_Root.empty() ) << "repository root not found from the test's working directory";
-    }
-
-    std::string Code( const std::string& relative ) const
-    {
-        const std::string text = ReadFile( m_Root + relative );
-        EXPECT_FALSE( text.empty() ) << "could not read " << relative;
-        return CodeOnly( text );
-    }
-
-    std::string m_Root;
-};
 
 // The positive half: SetMaterial itself puts the material in a SLOT.
 TEST_F( MaterialPreviewRoute, PreviewViewportPutsTheMaterialInASlot )
@@ -347,10 +347,4 @@ TEST_F( MaterialPreviewRoute, TheShapeComboBelongsToTheSurfaceDomainAlone )
     EXPECT_EQ( CountOf( body, "\"##preview_shape\"" ), CountOf( surfaceOnly, "\"##preview_shape\"" ) )
          << "a Shape combo is drawn OUTSIDE the Surface-domain gate as well. One copy inside the gate does "
             "not help if another is unconditional — a cubemap material would still be offered Cube/Plane.";
-}
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

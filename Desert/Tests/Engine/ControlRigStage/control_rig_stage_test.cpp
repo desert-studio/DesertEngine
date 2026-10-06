@@ -596,9 +596,3 @@ TEST( ControlRigStageTest, ARigOverTheWrongSkeletonRefusesAndLeavesThePoseAsTheS
     // honest answer a rig that cannot read the skeleton has.
     EXPECT_TRUE( SameBytes( animator.GetPose().Matrices, before ) );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

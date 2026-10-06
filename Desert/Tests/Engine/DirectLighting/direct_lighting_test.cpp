@@ -346,9 +346,3 @@ TEST( DirectLighting, NoShaderCarriesADiffuseLobeOfItsOwn )
 
     EXPECT_EQ( withDivision, 1 ) << "Mesh/DirectLighting.glslh was not found under the shader root";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

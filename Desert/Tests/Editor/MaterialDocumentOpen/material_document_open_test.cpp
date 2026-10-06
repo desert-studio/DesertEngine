@@ -217,9 +217,3 @@ TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
          << "shader GUID " << shader.Guid << " ('" << shader.Path
          << "') did not resolve to a name, so the Material Editor would report the shader '' is not loaded";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

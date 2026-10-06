@@ -315,9 +315,3 @@ TEST( MaterialPipelines, OnLoadRequestsReachEveryRendererFromItsOwnCursor )
     EXPECT_EQ( requests.Since( preview ), ( std::vector<std::string>{ "MatA", "MatB", "MatC" } ) );
     EXPECT_EQ( requests.Since( main ), ( std::vector<std::string>{ "MatC" } ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

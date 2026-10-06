@@ -319,9 +319,3 @@ TEST( ThumbnailFraming, DegenerateExtentStaysFinite )
     EXPECT_NEAR( ndc.x, 0.0f, 0.02f );
     EXPECT_NEAR( ndc.y, 0.0f, 0.02f );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

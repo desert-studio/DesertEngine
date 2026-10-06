@@ -225,9 +225,3 @@ TEST( TextureSourceFormatCensus, NoSecondExtensionListExists )
              << x.Path << " is excluded here but no longer names two image extensions in its code (or "
              << "is gone) — the row is stale and should go.";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

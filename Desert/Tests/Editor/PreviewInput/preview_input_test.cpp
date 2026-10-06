@@ -303,13 +303,6 @@ TEST( PreviewInput, PreviewWidgetClaimsTheWheelThroughTheRule )
     EXPECT_LT( rule - zoomable, 200u );
     EXPECT_EQ( source.find( "PreviewOwnsWheel" ), std::string::npos ); // a second wheel rule is back
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── The asset document's preview pane (Editor/Widgets/PreviewPaneLayout.hpp) ─────────────────────────────
 //
 // The Material Editor's preview is a column that fills its half of the document; these pin the arithmetic

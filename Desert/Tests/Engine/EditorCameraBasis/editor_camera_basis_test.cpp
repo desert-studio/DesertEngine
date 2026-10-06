@@ -166,9 +166,3 @@ TEST( EditorCameraBasis, TheClampIsUNCHANGED )
     EXPECT_FLOAT_EQ( ClampOrbitPitch( 0.25f ), 0.25f );
     EXPECT_FLOAT_EQ( kMaxCameraPitch, glm::radians( 90.0f - kCameraPitchClampMissDegrees ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

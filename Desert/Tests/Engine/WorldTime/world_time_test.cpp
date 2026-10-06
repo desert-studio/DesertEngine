@@ -281,9 +281,3 @@ TEST( WorldTimeOneSource, TheWallClockAllowListHasNoDeadRows )
              << file << " no longer reads a wall clock; remove its row";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

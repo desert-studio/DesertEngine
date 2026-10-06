@@ -390,9 +390,3 @@ TEST( PanelInterfaceBoundary, TheInterfaceHeaderStillExplainsTheRuleAndTheEditor
     EXPECT_NE( drawingCode.find( "GetWindowPadding" ), std::string::npos )
          << kConversionSite << " no longer asks a panel for its padding at all.";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

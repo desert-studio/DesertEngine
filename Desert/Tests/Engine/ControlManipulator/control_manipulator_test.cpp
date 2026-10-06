@@ -859,9 +859,3 @@ TEST( ControlManipulatorTest, ADragRefusesWhatItCannotMeasure )
     EXPECT_FALSE(
          drag.Begin( rig, index, ManipulatorMode::Translate, noPixels, glm::vec2( 0.0F ), 20.0F ).IsSuccess() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

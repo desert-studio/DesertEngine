@@ -320,9 +320,3 @@ TEST( StaticMeshViewerStats, AShorterChainCountsItsCoarsestLevelAtDeeperLODs )
     EXPECT_EQ( stats.TrianglesPerLOD[1], 4u );
     EXPECT_EQ( stats.TrianglesPerLOD[2], 3u );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -59,6 +59,60 @@ local function DesertTestsCommonSettings(deps)
     filter {}
 end
 
+-- Desert and its link closure: what a runner that LINKS the engine needs (Tools, Engine, Editor). The engine
+-- sources a suite tests come from Desert.lib, the same objects the editor ships; before BUILD1 the suites
+-- compiled them (and vk_mem_alloc, VkBootstrap, stb, ImGui) one by one, so none of them is listed here.
+local function DesertRunnerSettings(deps)
+    files {
+        -- Desert.lib registers the reflected types from an object nothing here references; this
+        -- reference links it (see the file). Before BUILD1 the suites compiled Reflection.gen.cpp.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Tests/TestSupport/EngineReflectionLink.cpp",
+    }
+    includedirs {
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        -- Engine suites read header-only editor types (component editors' data, command records).
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+    }
+    externalincludedirs {
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
+    }
+    -- Every engine third-party include (Jolt, Lua/sol2, stb, entt, meshoptimizer, OpenSubdiv, Vulkan...),
+    -- from the engine's own list so the two stay in sync. pairs() skips the Vulkan keys when no SDK is set.
+    for _, p in pairs(deps.DesertSpecific.IncludeDir) do
+        externalincludedirs { p }
+    end
+    defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
+    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp" }
+    filter "system:windows"
+        buildoptions { "/bigobj" }
+    -- gmake does not link a static library's own dependencies transitively (Visual Studio does, through
+    -- the project references), so on macOS the runner names what Desert.lib uses, exactly as
+    -- Editor/premake5.lua does for the editor.
+    filter "system:macosx"
+        links {
+            "Common",
+            "Jolt",
+            "Lua",
+            "ReflectCpp",
+            "Cocoa.framework",
+            "IOKit.framework",
+            "CoreFoundation.framework",
+            "CoreVideo.framework",
+            "CoreMedia.framework",
+            "AVFoundation.framework",
+            "QuartzCore.framework",
+        }
+    filter "configurations:Debug"
+        defines { "DESERT_CONFIG_DEBUG" }
+        links { deps.DesertSpecific.Libraries.Debug }
+    filter "configurations:Release"
+        defines { "DESERT_CONFIG_RELEASE" }
+        links { deps.DesertSpecific.Libraries.Release }
+    filter {}
+end
+
 -- What each runner adds to the common settings: the union of what its suites' own scripts carried
 -- before BUILD1, each with the reason it is there.
 local kRunners = {
@@ -85,8 +139,8 @@ local kRunners = {
         links { "Common", "Optick" }
     end,
     Tools = function(deps)
-        -- The tools are executables, so the sources their suites test are compiled here, once. The engine
-        -- sources they need come from Desert.lib: the same objects the editor ships.
+        DesertRunnerSettings(deps)
+        -- The tools are executables, so the sources their suites test are compiled here, once.
         files {
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MigratorMain.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SceneMigration.cpp",
@@ -94,45 +148,95 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldBuild.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldGenMain.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source/CrashReport.cpp",
+            -- WorldCells holds the world cook's cell partition (the file has no main of its own).
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source/WorldCookMain.cpp",
             -- BuildScriptContract holds the editor's asset-reference scan to the build scripts.
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
-            -- Desert.lib registers the reflected types from an object nothing here references; this
-            -- reference links it (see the file). Before BUILD1 the suites compiled Reflection.gen.cpp.
-            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/TestSupport/EngineReflectionLink.cpp",
         }
         includedirs {
-            "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-            "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source",
-            -- LandscapeData's headers include the shared shader layout (CODEMAP note).
-            "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source",
+        }
+    end,
+    Engine = function(deps)
+        DesertRunnerSettings(deps)
+        files {
+            -- The launcher/engine project-format conformance suite; Engine/ProjectFormat adopts it.
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Tests/project_format_test.cpp",
+        }
+        includedirs {
+            -- Two suites share the EditMesh suite's fixture builders, and one reads SettingConsumers' table.
+            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/EditMesh",
+            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/SettingConsumers",
+            -- Header-only tool cores the image and lattice censuses measure with.
+            "%{_MAIN_SCRIPT_DIR}/Tools/ImageDiff/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/LatticePeak/Source",
+        }
+    end,
+    Editor = function(deps)
+        DesertRunnerSettings(deps)
+        -- The editor is an executable, so the editor sources its suites test are compiled here, once
+        -- (the union of what the suites compiled one by one before BUILD1).
+        files {
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetFileOps.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/InstanceFold.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/LandscapeEditLayerEdits.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/PoseEditTransaction.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/UIClipEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Control/ControlSocket.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/EditorPreferences.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/FuzzyMatch.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GizmoState.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GraphCanvas/GraphCanvas.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/LogView.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/MultiEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Selection/ModelingToolTarget.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/SubjectEditorRegistry.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ThemeManager.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ViewportModes.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/EditedMeshAsset.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportUnits.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportedMeshAsset.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/LandscapeHeightmapIO.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MeshDeriver.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/GamePackager.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/PackageCook.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Collections/CollectionFoliageTypes.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Foliage/FoliagePalette.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraphCanvasPlan.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/PropertyEditor/PropertyReset.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/CurveView.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliageBrush.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/WorldPartition/WorldPartitionMap.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Splash/SplashImage.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/CloudThumbnail.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/HdrSphereThumbnail.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp",
+        }
+        includedirs {
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph",
+            "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui",
         }
         externalincludedirs {
-            deps.DesertSpecific.IncludeDir.base,
-            "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
-            "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
-            "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
-            "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
+            "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
+            "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
         }
-        for _, key in ipairs({ "Vulkan", "shaderc", "spirv_cross" }) do
-            local p = deps.DesertSpecific.IncludeDir[key]
-            if p then externalincludedirs { p } end
-        end
-        defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
-        -- Desert and its link closure, exactly as Desert/Tests/Engine/EngineHost links it.
-        links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp" }
+        links { "ImGuiNodeEditor" }
         filter "system:windows"
-            buildoptions { "/bigobj" }
-        filter "configurations:Debug"
-            defines { "DESERT_CONFIG_DEBUG" }
-            links { deps.DesertSpecific.Libraries.Debug }
-        filter "configurations:Release"
-            defines { "DESERT_CONFIG_RELEASE" }
-            links { deps.DesertSpecific.Libraries.Release }
+            -- The control socket (ControlTransport, ControlDispatch) is Winsock.
+            links { "ws2_32", "advapi32" }
         filter {}
     end,
 }

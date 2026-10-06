@@ -610,9 +610,3 @@ TEST( UIEventPersistence, AnAbsentKeyLeavesTheTargetUntouchedRatherThanResetting
     EXPECT_EQ( live.Phase, ECS::UIEventPhase::Tunnel );
     EXPECT_TRUE( live.StopPropagation );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

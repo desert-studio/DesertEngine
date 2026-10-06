@@ -171,9 +171,3 @@ TEST( DeviceLostGate, TwoThreadsDiscoveringItAtOnceStillProduceOneMessage )
     EXPECT_EQ( DeviceLost::ReportCount(), 1u );
     EXPECT_TRUE( DeviceLost::IsLost() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

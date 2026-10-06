@@ -167,9 +167,3 @@ TEST( AutoExposureResponse, ALightSourceThatFillsTheFrameDoesMoveTheMeter )
 
     EXPECT_GT( bright - dim, 1.0f ) << "a source covering 30% of the frame must move the meter by stops";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

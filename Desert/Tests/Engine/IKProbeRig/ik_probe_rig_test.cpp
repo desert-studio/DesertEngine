@@ -443,9 +443,3 @@ TEST( IKProbeRig, TheShippedSolverReachesTheShippedGoalFromTheShippedClip )
     // The control bone is untouched in SKINNING SPACE, which is the space the frame is made from.
     EXPECT_EQ( plain.GetPose().Matrices[kerb], solved.GetPose().Matrices[kerb] );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -675,9 +675,3 @@ TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )
             " examined nothing. Either add such a comment back, or delete this test and say why in the"
             " commit.";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

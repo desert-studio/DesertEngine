@@ -787,9 +787,3 @@ TEST( ControlPointerDrag, ATargetOlderThanOneFrameIsNotAimedAt )
     EXPECT_FALSE( C::PointerInjection::FreshTarget( C::Subject::Document, 7 ).has_value() );
     EXPECT_FALSE( C::PointerInjection::FreshTarget( C::Subject::Viewport, 5 ).has_value() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

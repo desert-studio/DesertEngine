@@ -573,9 +573,3 @@ TEST( AssetHandleInverse, NothingInProductionClearsTheIndex )
          << "Clear() exists for tests that move the project root. An asset that is unloaded must still be "
             "able to say which file it came from, or the reference that reloads it is a different asset.";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

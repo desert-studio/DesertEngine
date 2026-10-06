@@ -901,13 +901,6 @@ TEST( Rebake, CloudsMovingRebakeAStillSun )
     EXPECT_FALSE( ShouldRebakeSkyEnvironment( SunAt( 0.0f ), SunAt( 0.0f ), 5.0f, /*autoRebake=*/false, true,
                                               false, 0x1234ull, 0x5678ull, kSameSky, kSameSky ) );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ONE BAKE WHEN THE INPUTS ARE READY. Startup used to bake the sky alone, then with clouds, then with the
 // sky-occlusion volume: three bakes where the last had every answer. The rule waits while the layer's
 // inputs are pending and never while they are complete or absent.

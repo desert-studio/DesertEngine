@@ -347,9 +347,3 @@ TEST( MeshSourceAsset, MalformedSourceModelsAreRefused )
     ASSERT_FALSE( twoSkinned.IsSuccess() );
     EXPECT_NE( twoSkinned.GetError().find( "exactly one" ), std::string::npos ) << twoSkinned.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

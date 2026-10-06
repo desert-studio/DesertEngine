@@ -674,9 +674,3 @@ TEST_F( AsyncAssetLoad, AnAwaitWithANullDelegateIsRefused )
     EXPECT_FALSE( awaited.IsValid() );
     EXPECT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

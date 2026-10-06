@@ -515,9 +515,3 @@ TEST( AssetPathIdentity, ARootRelativeReferenceIsAnotherIdentityUntilItsOwnForma
     EXPECT_EQ( mgr.FindByPath<TextureProbe>( rooted ).get(), registered.get() )
          << "the joined spelling is the one the registry holds";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

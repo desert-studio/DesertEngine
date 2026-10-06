@@ -157,9 +157,3 @@ TEST( SceneInitDeferral, TheEditorPassRegistryIsNotBuiltAgainstAnUninitialisedSc
     EXPECT_LT( first - guard, 120u ) << "the IsInitialized guard is " << ( first - guard )
                                      << " characters in front of the construction it governs";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

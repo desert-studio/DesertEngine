@@ -73,9 +73,3 @@ TEST( AssetTooltipLayout, AWindowNarrowerThanTheCapShrinksTheTooltip )
     EXPECT_FLOAT_EQ( r.Height, 100.0f );
     ExpectInside( r, window );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -1624,13 +1624,6 @@ TEST( RenderGraphVulkan, EveryGraphLayoutRoundTripsThroughItsVulkanLayout )
              << static_cast<int>( layout );
     EXPECT_FALSE( RdgLayoutFromVulkan( VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL ).has_value() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // Renderer::ImportImage of a VulkanImage3D and Renderer::ImportBuffer of a persistent StorageBuffer, on the
 // device: a volume and a buffer the graph does not own (VulkanRdgTexture::Wrap / VulkanRdgBuffer::Wrap), a
 // compute pass that writes both, then a copy that reads the volume into the buffer. Two frames: the second

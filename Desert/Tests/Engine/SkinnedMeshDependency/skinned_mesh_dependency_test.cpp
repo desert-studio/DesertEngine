@@ -399,9 +399,3 @@ TEST( SkinnedMeshDependency, TheShippedProbeKeepsTheIdentityTheSceneWasSavedWith
     EXPECT_FALSE( Common::Content::HandleForGuid( expected ) == Common::AssetHandle::Null() )
          << "the probe mesh's GUID folds to the null handle, so the scene's reference would name nothing";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

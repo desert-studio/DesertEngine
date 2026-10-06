@@ -69,9 +69,3 @@ TEST( MeshSimplifier, DegenerateInputReturnedUnchanged )
     EXPECT_TRUE( SimplifyMesh( nullptr, 3, idx, 0.5f ).Indices == idx );
     EXPECT_TRUE( SimplifyMesh( pos, 3, {}, 0.5f ).Indices.empty() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

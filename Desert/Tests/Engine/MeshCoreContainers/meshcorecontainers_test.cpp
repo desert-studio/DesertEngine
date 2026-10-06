@@ -449,9 +449,3 @@ TEST( MeshCoreSmallListSet, CompactAndAppendPreserveEveryList )
     Joined.Insert( 5, 1 ); // appended free block must be usable
     EXPECT_EQ( ListOf( Joined, 5 ), ( std::vector<int>{ 1 } ) );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

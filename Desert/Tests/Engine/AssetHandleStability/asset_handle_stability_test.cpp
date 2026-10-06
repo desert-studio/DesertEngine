@@ -1660,11 +1660,11 @@ namespace
     {
         return info.param.Name;
     }
-} // namespace
 
-class AssetOpenedByItsOldPath : public testing::TestWithParam<OldPathKind>
-{
-};
+    class AssetOpenedByItsOldPath : public testing::TestWithParam<OldPathKind>
+    {
+    };
+} // namespace
 
 TEST_P( AssetOpenedByItsOldPath, IsTheMovedAssetAndLoadsItsBytes )
 {

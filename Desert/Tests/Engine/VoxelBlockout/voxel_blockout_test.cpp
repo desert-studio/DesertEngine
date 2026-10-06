@@ -443,13 +443,6 @@ TEST( VoxelBlockoutSlideDrag, DragExtrudeBlocksRoundsToWholeStepsOfBlocksPerStep
     EXPECT_EQ( DragExtrudeBlocks( 350.0f, 100.0f, 2 ), 4 );
     EXPECT_EQ( DragExtrudeBlocks( 350.0f, 0.0f, 1 ), 0 );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // M10: the grid frame carries a rotation as well as an origin. The edits stay frame-space (cell indices); the bake
 // carries every layer into the world by its OWN frame, and layers in turned frames never cull or paint each other.
 TEST( VoxelBlockoutFrame, FrameRoundTripsAndMakeGridFrameUsesDegreesAboutXYZ )

@@ -238,9 +238,3 @@ TEST( ControlDispatch, EveryViewpointIsInsideThePitchLimitTheMouseObeys )
              << "'" << viewpoint.Name << "' would be clamped, and would not be the angle it names";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

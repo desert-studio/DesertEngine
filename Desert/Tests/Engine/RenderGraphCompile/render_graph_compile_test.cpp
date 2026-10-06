@@ -1306,13 +1306,6 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
         EXPECT_NE( result.GetError().find( "mip 3" ), std::string::npos ) << result.GetError();
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── Backend seam (RDG2) ─────────────────────────────────────────────────────────────────────────────────
 
 // Execute owns the order; the backend only records. The sequence is: acquire what executed passes use,

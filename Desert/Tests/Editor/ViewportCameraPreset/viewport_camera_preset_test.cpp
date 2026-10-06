@@ -185,9 +185,3 @@ TEST( ViewportCameraPreset, ADegenerateDirectionIsRefusedRatherThanGuessed )
     // right answer here for the wrong reason — so it is refused explicitly instead.
     EXPECT_FALSE( PresetOfDirection( glm::vec3( 0.0f ), true ).has_value() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

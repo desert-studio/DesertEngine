@@ -1152,9 +1152,3 @@ TEST( MaterialEditStates, TheCensusWalksTheGroupsInTheSameOrderTheWindowDrawsThe
     EXPECT_TRUE( census[3].Group.empty() )
          << "empty is the shader declaring no category, which the window shows under a heading that says so";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

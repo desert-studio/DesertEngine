@@ -389,9 +389,3 @@ TEST( FrustumCulling, NoSurfaceShaderMovesAVertexOffItsAuthoredBounds )
     EXPECT_GT( checked, 0 ) << "no Surface-domain shader was found — the search is looking in the "
                                "wrong place, and a census that examines nothing passes silently";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -797,9 +797,3 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
     for ( const auto& row : allowed )
         EXPECT_TRUE( writers.count( row ) == 1 ) << "this row no longer writes the context: " << row;
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

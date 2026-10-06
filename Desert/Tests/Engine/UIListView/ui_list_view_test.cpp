@@ -1012,9 +1012,3 @@ TEST( ListViewBoundCost, WalkTimeAgainstRecordCount )
     std::printf( "\n" );
     UI::UIDataStore::Get().Clear();
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

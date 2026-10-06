@@ -215,9 +215,3 @@ TEST( MaterialRequestAgreement, AnUnknownDemoMaterialIsRefusedRatherThanAnswered
     ASSERT_NE( FindDemoMaterial( "CB_Red" ), nullptr );
     EXPECT_FALSE( FindDemoMaterial( "CB_Red" )->empty() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

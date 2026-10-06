@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include "TestSupport/repo_root.hpp"
+
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
@@ -70,7 +72,8 @@ namespace
     // Every tracked scene mesh, discovered (as DynamicMeshSerialization discovers them).
     void AddScenes( std::vector<Case>& out )
     {
-        for ( const auto& entry : std::filesystem::recursive_directory_iterator( DESERT_SCENES_DIR ) )
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator(
+                   Desert::TestSupport::RepoRoot() / "Editor/Resources/Assets/Scenes" ) )
         {
             if ( entry.path().extension() != ".desce" )
                 continue;
@@ -435,10 +438,4 @@ TEST( DynamicMeshAsset, BothCoresSkipDegenerateAndDuplicateFacesAlike )
          << "the skipped faces moved another face's data";
     EXPECT_TRUE( Bytes( ToMeshAssetData( e.Mesh, kSlots ), "dirty" ) == Ser::EncodeMeshBinary( clean ) )
          << "the EditMesh reader moved another face's data";
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

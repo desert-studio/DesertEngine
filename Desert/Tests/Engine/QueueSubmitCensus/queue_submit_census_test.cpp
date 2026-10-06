@@ -190,9 +190,3 @@ TEST( QueueSubmitCensus, DetachedImGuiWindowsRenderUnderTheQueueLock )
          << "UpdatePlatformWindows / RenderPlatformWindowsDefault must run inside a scope that took "
             "VulkanLogicalDevice::LockQueues() first: the backend submits and presents on the shared queue.";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

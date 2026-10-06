@@ -225,9 +225,3 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
     EXPECT_TRUE( MatNear( unsectioned, unchanged.GetPose().Matrices[1] ) )
          << "a full-weight Absolute section is what the whole corpus migrated to; it must be invisible";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

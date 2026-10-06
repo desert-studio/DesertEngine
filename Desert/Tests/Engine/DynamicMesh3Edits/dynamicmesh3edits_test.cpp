@@ -520,9 +520,3 @@ TEST( DynamicMesh3Edits, SplitVertexDetachesTheGivenFan )
 
     EXPECT_EQ( Mesh.SplitVertex( 999, Quad, Info ), MeshResult::Failed_NotAVertex );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

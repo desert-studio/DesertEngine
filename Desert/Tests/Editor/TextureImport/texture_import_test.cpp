@@ -951,9 +951,3 @@ TEST_F( TextureImport, AnExtendedRangeSourceIsOfferedNoBlockFormatWhateverTheInt
     EXPECT_EQ( markedHeader.Format, Fmt::ImageFormat::RGBA32F );
     EXPECT_EQ( markedHeader.Intent, Fmt::TextureIntent::Colour );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

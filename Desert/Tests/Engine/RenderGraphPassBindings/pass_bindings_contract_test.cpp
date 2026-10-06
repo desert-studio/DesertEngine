@@ -356,9 +356,3 @@ TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
     EXPECT_TRUE( executed.IsSuccess() ) << executed.GetError();
     EXPECT_TRUE( bound );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -370,9 +370,3 @@ TEST( KeyInterpolationWitness, RefreshingTangentsLeavesAUserKeyAloneEvenWhenItIs
     Desert::Animation::RefreshTangents( track, Desert::Animation::PROJECT_TICK_RATE );
     EXPECT_FLOAT_EQ( track.PositionKeys[0].ArriveTangent.y, 0.0F );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

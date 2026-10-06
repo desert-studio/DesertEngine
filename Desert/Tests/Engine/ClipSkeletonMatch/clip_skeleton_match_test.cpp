@@ -193,9 +193,3 @@ TEST( ClipSkeletonMatch, UnclaimedSignatureIsNotAnIdentity )
     EXPECT_FALSE( ClipDrivesRig( clips[0], rig ) );
     EXPECT_TRUE( SelectClipsForRig( clips, rig ).empty() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

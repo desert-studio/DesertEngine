@@ -145,13 +145,6 @@ TEST( SceneAssetGuidRoundTrip, AssetWithNoHeaderGuidIsRefusedNamingTheField )
          << written.GetError();
     EXPECT_NE( written.GetError().find( "Bare.shader" ), std::string::npos ) << written.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ScenePathForRef read {Guid, Path} with to_string().value_or( "" ): a number where the GUID belongs became an
 // empty GUID, refused as "states no GUID" without naming the field's place or the value the file holds.
 TEST( SceneAssetGuidRoundTrip, ANonStringGuidIsAnIssueAtTheFieldNotAnEmptyGuid )

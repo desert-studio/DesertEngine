@@ -469,9 +469,3 @@ TEST( ControlHierarchyTest, WritingAGlobalResolvesTheParentsItIsMeasuredAgainst 
     EXPECT_NEAR( got.y, 8.0F, 1e-3F );
     EXPECT_NEAR( got.z, 9.0F, 1e-3F );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

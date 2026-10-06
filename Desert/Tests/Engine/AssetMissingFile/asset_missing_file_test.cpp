@@ -376,13 +376,6 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
     Common::AssetPathIndex::Clear();
     fs::remove_all( project );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // AN ON-DEMAND CLOUD KIND WHOSE FILE IS GONE IS AN ERROR THAT NAMES IT (AL1-2). The boot no longer creates a
 // shell for every `.dclayout`; the service creates one from the registry row when a scene names the handle.
 // When the row outlives its file, the answer must carry the path and the GUID - the old outcome was a

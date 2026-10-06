@@ -157,9 +157,3 @@ TEST( InsetMeshRegion, RegionWithInteriorVertexIsRefused )
     EXPECT_NE( Op.m_FailureReason.find( "interior" ), std::string::npos ) << Op.m_FailureReason;
     EXPECT_EQ( M.TriangleCount(), Before );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

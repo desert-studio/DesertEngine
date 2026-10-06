@@ -270,9 +270,3 @@ TEST_F( ShaderMapBuildFixture, OneStageTextInEightFilesIsOneCompileWithoutDebugI
         EXPECT_EQ( binaries[i], binaries[0] ) << "file " << i;
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

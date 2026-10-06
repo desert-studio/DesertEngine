@@ -250,9 +250,3 @@ TEST( MeshImportUnits, AScaleMustBeFiniteAndPositive )
     EXPECT_FALSE( ImportUnits::IsUsableScale( std::numeric_limits<float>::quiet_NaN() ) );
     EXPECT_FALSE( ImportUnits::IsUsableScale( std::numeric_limits<float>::infinity() ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

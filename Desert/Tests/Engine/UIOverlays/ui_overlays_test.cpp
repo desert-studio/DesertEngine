@@ -871,9 +871,3 @@ TEST( OverlayAuthoring, AnElementInsideAnOverlayGetsItsMaterialLikeAnyOtherEleme
          << "the overlay's own panel never reached the material path, so an overlay is NOT ordinary UI";
     EXPECT_EQ( materials.Asked.front(), 0xC0FFEEull );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

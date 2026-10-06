@@ -351,13 +351,6 @@ TEST( GenericBlockRead, AnInstancedStaticMeshCarriesTheRenameSafeGuidsAsWellAsTh
     ExpectSameMatrices( read.InstanceTransforms.value(), // NOLINT(bugprone-unchecked-optional-access)
                         NineDistinctInstances() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // The refusal is REPORTED at the block's full path, not only logged by key (the wrong-type rule for a
 // Ser-struct block, Common/Json/Document.hpp): the whole block is dropped and the Issue says where.
 TEST( GenericBlockRead, AWrongTypedBlockIsDroppedWholeWithAnIssueAtItsPath )

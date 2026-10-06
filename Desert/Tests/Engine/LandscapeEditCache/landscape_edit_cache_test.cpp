@@ -276,9 +276,3 @@ TEST( LandscapeEditCache, ExtendingKeepsWrittenValuesAndRefusesOutsideTheCache )
     LandscapeHeightCache empty( w.Root, w.Lookup() );
     EXPECT_FALSE( empty.GetCachedData( 0, 0, 0, 0 ).IsSuccess() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

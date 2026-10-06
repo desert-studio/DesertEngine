@@ -307,9 +307,3 @@ TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
     const std::regex palette( R"("Open Scene " \+ SceneLabel\( scene \)[^}]*SceneOpenRequest::Request\()" );
     EXPECT_TRUE( std::regex_search( layer, palette ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

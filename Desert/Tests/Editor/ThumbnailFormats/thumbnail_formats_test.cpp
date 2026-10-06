@@ -579,9 +579,3 @@ TEST( ThumbnailMaterialDomains, EachDrawableDomainGetsThePictureItsOwnPathProduc
     // loop above so that adding one is a deliberate edit of this line.
     EXPECT_FALSE( TS::PreviewForDomain( F::kTerrainPathDomain, false ).has_value() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

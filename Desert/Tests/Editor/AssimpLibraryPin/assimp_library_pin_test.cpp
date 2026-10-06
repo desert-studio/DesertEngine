@@ -508,9 +508,3 @@ TEST( AssimpLibraryPin, TheImporterStillUsesTheFlagsAndTheShapeTheseNumbersWereM
          << "the importer no longer supplies its own scale factor, so the scaling phase falls back to "
             "assimp's default of metres.";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

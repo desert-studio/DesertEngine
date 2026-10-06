@@ -385,9 +385,3 @@ TEST( CloudProtocolScene, TheThreeHeroCostLegsDifferOnlyInHowManyHeroCloudsAreEn
              << "the hero cost legs' CLOUD MATERIALS differ, so their A/B measures a different sky as well "
                 "as a different instance count";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

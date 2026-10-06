@@ -438,13 +438,6 @@ TEST( LocalizedContentCensus, EveryShippedTranslationHasAReader )
         }
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // A WORLD LABEL IS DRAWN AT Size x ITS TRANSFORM SCALE, IN CENTIMETRES (PKG2c). The metre -> centimetre corpus
 // migration of 2026-08-18 (f12f85ccc) multiplied BOTH the Text's Size (0.8 -> 80) and its entity Scale (1 -> 100),
 // so Starter's "Desert Engine" was 80 m tall: from any Starter camera one glyph filled the view and read as a

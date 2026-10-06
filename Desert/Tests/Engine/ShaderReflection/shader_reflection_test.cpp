@@ -495,9 +495,3 @@ void main() { o_Color = texture(u_Albedo, vec2(0.5)); }
     EXPECT_NE( second.front().find( "Transform" ), std::string::npos ) << second.front();
     EXPECT_NE( second.front().find( "u_Albedo" ), std::string::npos ) << second.front();
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

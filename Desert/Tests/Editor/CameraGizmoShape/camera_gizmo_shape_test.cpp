@@ -253,9 +253,3 @@ TEST( CameraGizmoShape, DrawnBaseIsNeverInsideTheNearPlane )
                                                 kNearPlane, kFarPlane, glm::vec3( 0.0f, 0.0f, 10.0f ) );
     EXPECT_FLOAT_EQ( close.Depth, kNearPlane );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

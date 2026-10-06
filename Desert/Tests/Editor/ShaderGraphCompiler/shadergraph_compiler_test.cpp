@@ -917,9 +917,3 @@ TEST( ShaderGraphFormat, TheDocumentSavesToItsSubjectsOwnPath )
          << "m_Path no longer comes from the subject's own metadata, so 'the file it was opened on' is "
             "now whatever else set it.";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

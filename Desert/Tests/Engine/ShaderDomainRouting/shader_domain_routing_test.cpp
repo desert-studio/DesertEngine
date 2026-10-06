@@ -187,9 +187,3 @@ TEST( ShaderDomainRouting, EachPathConstantIsTheDomainItsPredicateAccepts )
     EXPECT_TRUE( DrawnByTerrainPath( kTerrainPathDomain ) );
     EXPECT_NE( kMeshPathDomain, kTerrainPathDomain );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

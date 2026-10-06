@@ -344,9 +344,3 @@ TEST( MappedMemoryGuard, UnmappingEarlyIsIdempotentAndClosesTheMapping )
             "the same corruption by a later route";
     EXPECT_NE( wrote.GetError().find( "already been released" ), std::string::npos ) << wrote.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

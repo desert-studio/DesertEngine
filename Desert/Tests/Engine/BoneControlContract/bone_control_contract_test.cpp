@@ -492,9 +492,3 @@ TEST( BoneControlContract, TheSkinningMatricesTheGPUSEESCarryTheSolve )
                                        << ( moved ? "moved" : "did not move" );
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

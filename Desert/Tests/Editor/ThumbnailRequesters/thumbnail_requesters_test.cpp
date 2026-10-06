@@ -704,9 +704,3 @@ TEST( ThumbnailRequesters, NoCensusedFileHidesAnUndeclaredDrawingSite )
                                "than the census claims exist — the definition scanner has stopped seeing "
                                "them, and a scanner that finds nothing certifies nothing";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

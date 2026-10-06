@@ -185,9 +185,3 @@ TEST( EntityLock, TheNullEntityIsNeitherLockedNorLockable )
     SetLockedRecursive( registry, entt::null, true ); // must not reach the registry at all
     EXPECT_FALSE( IsLocked( registry, entt::null ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

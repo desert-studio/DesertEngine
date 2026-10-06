@@ -204,7 +204,7 @@ namespace
     }
 
     // The engine resolves `#include <...>` against a path relative to the editor's working directory.
-    struct ShaderRootFixture : ::testing::Test
+    struct MeshVertexPathShaderRoot : ::testing::Test
     {
         static void SetUpTestSuite()
         {
@@ -228,7 +228,7 @@ namespace
 // itself what the table calls it — is what a rename breaks: the DSL's `Shader "Name"` is what the shader
 // service registers under, so a file renamed without its declaration (or the reverse) resolves to
 // nothing.
-TEST_F( ShaderRootFixture, EveryCellOfTheTableNamesAShaderThatExistsAndCallsItselfThat )
+TEST_F( MeshVertexPathShaderRoot, EveryCellOfTheTableNamesAShaderThatExistsAndCallsItselfThat )
 {
     for ( const auto path : kAllPaths )
     {
@@ -258,7 +258,7 @@ TEST_F( ShaderRootFixture, EveryCellOfTheTableNamesAShaderThatExistsAndCallsItse
 //
 // Stated over the paths rather than checked for the skinned one, because the next path added (terrain
 // blades, decals, anything) inherits the requirement without anyone remembering it.
-TEST_F( ShaderRootFixture, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
+TEST_F( MeshVertexPathShaderRoot, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
 {
     for ( const auto path : kAllPaths )
     {
@@ -284,7 +284,7 @@ TEST_F( ShaderRootFixture, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
 // Stated over the paths, like the shadow rule above, with the ONE exception named and argued rather
 // than the rule being written as "the instanced path must have a G-buffer cell". A path added tomorrow
 // inherits the question.
-TEST_F( ShaderRootFixture, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
+TEST_F( MeshVertexPathShaderRoot, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
 {
     // The exception, and why it is one: a skinned mesh is not rasterized into the G-buffer at all. It is
     // drawn FORWARD over the deferred composite (MeshRenderer::RenderSkinnedManual), so a (Skinned x
@@ -308,7 +308,7 @@ TEST_F( ShaderRootFixture, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
 // cells write the same four MRT targets from the same material payload; if they drifted apart, a scene
 // would shade its ISM entities by one G-buffer contract and its plain meshes by another, and the only
 // symptom would be that two cubes with one material look different.
-TEST_F( ShaderRootFixture, TheInstancedGBufferCellIsTheStaticOnePlusItsOwnBinding )
+TEST_F( MeshVertexPathShaderRoot, TheInstancedGBufferCellIsTheStaticOnePlusItsOwnBinding )
 {
     const char* staticName    = MeshShaderFor( MeshVertexPath::Static, MeshPass::GBuffer );
     const char* instancedName = MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer );
@@ -342,7 +342,7 @@ TEST_F( ShaderRootFixture, TheInstancedGBufferCellIsTheStaticOnePlusItsOwnBindin
 // slot no shader uses and the C++ would be describing a shader that does not exist. Without "declares
 // nobody else's", a surface binding could quietly move onto a path slot and the sets would still look
 // equal after subtraction.
-TEST_F( ShaderRootFixture, TheForwardVariantsAreOneSurfacePlusExactlyThePathsOwnBinding )
+TEST_F( MeshVertexPathShaderRoot, TheForwardVariantsAreOneSurfacePlusExactlyThePathsOwnBinding )
 {
     std::map<MeshVertexPath, std::map<uint32_t, std::string>> bindings;
     for ( const auto path : kAllPaths )
@@ -415,7 +415,7 @@ TEST_F( ShaderRootFixture, TheForwardVariantsAreOneSurfacePlusExactlyThePathsOwn
 //     surface and can read nothing the surface does not have; PROPER, because a G-buffer write reads no
 //     lights, no cascades and no environment — and a G-buffer set that has grown back to the forward
 //     set's size is a shader padded to borrow somebody else's descriptors.
-TEST_F( ShaderRootFixture, TheGBufferCellIsAProperSubsetOfItsPathsForwardSurface )
+TEST_F( MeshVertexPathShaderRoot, TheGBufferCellIsAProperSubsetOfItsPathsForwardSurface )
 {
     std::map<MeshPass, std::map<uint32_t, std::string>> bindings;
     for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Glass } )
@@ -468,7 +468,7 @@ TEST_F( ShaderRootFixture, TheGBufferCellIsAProperSubsetOfItsPathsForwardSurface
 // The caster variants, on the same terms. A caster is depth, so its set is small; the point is that the
 // skinned caster added the SKINNED path's binding and nothing else — a caster that quietly grew a surface
 // binding would need the surface's descriptors bound to it, which the cascade pass does not do.
-TEST_F( ShaderRootFixture, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBinding )
+TEST_F( MeshVertexPathShaderRoot, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBinding )
 {
     std::map<MeshVertexPath, std::map<uint32_t, std::string>> bindings;
     for ( const auto path : kAllPaths )
@@ -509,7 +509,7 @@ TEST_F( ShaderRootFixture, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBi
 // which fires here; delete BoneOffset and it shrinks, which fires here; and either way the alternative is
 // a renderer writing the bone offset over the material index and a character rendered with somebody
 // else's albedo, silently.
-TEST_F( ShaderRootFixture, EachPushBlockIsAsLongAsTheLastFieldTheRendererWritesIntoIt )
+TEST_F( MeshVertexPathShaderRoot, EachPushBlockIsAsLongAsTheLastFieldTheRendererWritesIntoIt )
 {
     struct Expectation
     {
@@ -548,7 +548,7 @@ TEST_F( ShaderRootFixture, EachPushBlockIsAsLongAsTheLastFieldTheRendererWritesI
 // so this asserts it three ways per cell: the stage includes Common/FoliageWind.glslh, calls
 // InstancedWorldPosition with the push block's wind, and projects THAT position (no second
 // `model * a_Position` path beside it); and the compiled SPIR-V really contains the function.
-TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFunction )
+TEST_F( MeshVertexPathShaderRoot, EveryInstancedVertexStagePositionsThroughTheOneWindFunction )
 {
     for ( const MeshPass pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::ShadowDepth } )
     {
@@ -574,10 +574,4 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
         EXPECT_NE( words.find( "FoliageWindOffset(" ), std::string::npos )
              << name << "'s SPIR-V has no FoliageWindOffset";
     }
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

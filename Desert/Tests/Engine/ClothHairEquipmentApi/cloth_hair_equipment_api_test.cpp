@@ -523,9 +523,3 @@ TEST( ClothHairEquipmentApi, TheGroomRenderFrameCarriesTheAssetsCurveLayout )
     EXPECT_EQ( frame.Groups[0].Positions.size(), group.Strands.Points.size() );
     EXPECT_EQ( frame.Groups[0].CurvePointCount.size(), 2u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -295,9 +295,3 @@ TEST( WorldPartitionMap, TheLegendNamesEveryStateAndSumsToTheCellCount )
     EXPECT_EQ( Map::LegendStates( true ).size(), 5u );
     EXPECT_EQ( Map::LegendStates( false ).size(), 1u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

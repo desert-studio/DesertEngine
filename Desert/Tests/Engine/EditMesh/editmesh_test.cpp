@@ -876,9 +876,3 @@ TEST( EditMeshFuzz, AttributeLayersFollowEveryOperation )
     // it has no interior END and the collapse refusal cannot fire here; SeamEndCollapseIsRefused covers it.)
     EXPECT_GT( stats.SeamRefused[static_cast<int>( Op::Flip )], 20 );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

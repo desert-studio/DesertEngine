@@ -505,9 +505,3 @@ TEST( AssimpBoundary, TheImporterRegisterGivesEveryFormatAReason )
     }
     EXPECT_GE( rows, 1 ) << "the register names no importers at all.";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

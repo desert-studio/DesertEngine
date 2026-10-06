@@ -525,9 +525,3 @@ TEST( UIRenderTexture, TheBudgetIsAskedForTheElementsOwnViewAsAUserSurface )
     reading.UsageBytes   = 400;
     EXPECT_TRUE( Engine::ViewBudget::MayCreate( request.Who, 600, 1, reading ).Ok );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

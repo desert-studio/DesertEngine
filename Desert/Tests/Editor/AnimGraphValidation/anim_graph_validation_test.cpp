@@ -858,9 +858,3 @@ TEST( AnimGraphValidation, TheClipListIsDerivedOnceForThePickerAndForTheValidato
     EXPECT_NE( source.find( "m_Library->GetForSkeleton( anim.Animator->GetSkeleton() )" ), std::string::npos )
          << "the one derivation no longer asks the library the way AnimationECSSystem does";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

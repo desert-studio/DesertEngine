@@ -1118,9 +1118,3 @@ TEST( CloudShadowReceiver, TheShaderIsToldToFetchExactlyWhenThereIsSomethingToFe
     EXPECT_FLOAT_EQ( Desert::Graphic::CloudShadowPackUniforms( none ).Params.y, 0.0f );
     EXPECT_EQ( Desert::Graphic::CloudShadowPackUniforms( none ).WorldToMap, glm::mat4( 1.0f ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

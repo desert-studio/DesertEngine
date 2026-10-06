@@ -961,9 +961,3 @@ In vec3 a_Position;
     EXPECT_NE( translated.find( "layout(location = 0) in vec3 a_Old;" ), std::string::npos ) << translated;
     EXPECT_NE( translated.find( "layout(location = 1) in vec3 a_Position;" ), std::string::npos ) << translated;
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

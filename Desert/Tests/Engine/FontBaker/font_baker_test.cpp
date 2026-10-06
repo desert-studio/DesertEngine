@@ -246,9 +246,3 @@ TEST( FontBaker, ACodepointTheFontLacksIsSkippedNotFailed )
     ASSERT_TRUE( missing.Valid() );
     EXPECT_EQ( missing.Glyphs.size(), ascii.Glyphs.size() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -773,9 +773,3 @@ TEST( AssetReferenceCensus, NoTwoShippedContentFilesDeriveTheSameHandle )
     EXPECT_GT( files, 100u ) << "only " << files
                              << " content files were walked — the sweep is not looking at the project";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

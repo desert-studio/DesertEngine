@@ -351,9 +351,3 @@ TEST( PrefabFoliage, APrefabIsNamedByItsHeaderGuid )
     EXPECT_FALSE( World::Foliage::PrefabFileGuid( dir / "Missing.deprefab" ) );
     std::filesystem::remove_all( dir );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -194,13 +194,6 @@ TEST( ThumbnailFreshness, ThePlaceholderIsOnlyForNoPictureAtAll )
                     EXPECT_EQ( ThumbnailFreshness::Judge( seen ), ThumbnailFreshness::Verdict::Capture );
             }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // TH1c. The service gives up waiting on a slow capture, but the renderer still writes the PNG later. That
 // late picture must carry the hash taken at DISPATCH, or the next session re-renders it (the two
 // M_SIL_*_Clouds materials in the TH1b measurement were re-captured on every launch).

@@ -306,9 +306,3 @@ TEST( GroupTopology, TriEditPicksOneCubeEdgeAtItsMiddle )
     EXPECT_EQ( TriEditEdgePick( Mesh, mid + glm::vec3( 60, -200, 250 ), mid ),
                std::vector<int>{ Mesh.FindEdge( 4, 5 ) } );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
