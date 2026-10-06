@@ -224,9 +224,10 @@ TEST( VFXStackCompile, TheStackDerivesItsAttributesSortedByName )
     for ( const auto& a : compiled.Layout.Attributes )
         names.push_back( a.Name );
     // Init + Gravity + Solve + UpdateAge declarations, plus Position from the Particles.Position binding.
-    EXPECT_EQ( names, ( std::vector<std::string>{ "Age", "Alive", "Lifetime", "Mass", "PhysicsDrag",
-                                                  "PhysicsForce", "Position", "Spin", "Velocity" } ) );
-    EXPECT_EQ( compiled.Layout.TotalFloatComponents, 1u + 1u + 1u + 1u + 3u + 3u + 3u );
+    EXPECT_EQ( names,
+               ( std::vector<std::string>{ "Age", "Alive", "Lifetime", "Mass", "PhysicsDrag", "PhysicsForce",
+                                           "PhysicsRotationalDrag", "Position", "Spin", "Velocity" } ) );
+    EXPECT_EQ( compiled.Layout.TotalFloatComponents, 1u + 1u + 1u + 1u + 3u + 1u + 3u + 3u );
     EXPECT_EQ( compiled.Layout.TotalIntComponents, 2u );
 }
 
@@ -432,7 +433,9 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
             paths.push_back( entry.path() );
     std::sort( paths.begin(), paths.end() );
     for ( const char* expected : { "ShapePoint", "ShapeSphere", "ShapeBox", "ShapeCone", "AddVelocityInCone",
-                                   "InitializeLifetime", "UpdateAge", "Gravity", "SolveForcesAndVelocity" } )
+                                   "InitializeLifetime", "UpdateAge", "Gravity", "SolveForcesAndVelocity", "Drag",
+                                   "CurlNoiseForce", "InitializeColor", "ColorOverLife", "InitializeSpriteSize",
+                                   "SizeOverLife", "InitializeRotation", "UpdateRotation", "SubUVAnimation" } )
         EXPECT_NE( std::find( paths.begin(), paths.end(), VFX::EngineModuleDir() / ( std::string( expected ) + ".shader" ) ),
                    paths.end() )
              << expected;
@@ -479,6 +482,99 @@ TEST( VFXStackCompile, EveryModuleCallHasItsOwnRandomKey )
     for ( const char* key : { "i.VFXModuleKey = 2147483648u;", "i.VFXModuleKey = 2147483664u;",
                               "i.VFXModuleKey = 2147549184u;" } )
         EXPECT_NE( compiled.ShaderText.find( key ), std::string::npos ) << key << "\n" << compiled.ShaderText;
+}
+
+// VFX-06b: each force / over-life module writes the attributes the solver and the sprite renderer (VFX-08) read,
+// with the types they read them as — a module that drifted to another name or type would compile and feed nobody.
+TEST( VFXStackCompile, EveryOverLifeAndForceModuleWritesItsAttributes )
+{
+    using T = S::VFXValueType;
+    struct Row
+    {
+        const char*                            Module;
+        std::vector<std::pair<std::string, T>> Writes;
+    };
+    const std::vector<Row> rows = {
+         { "Drag", { { "PhysicsDrag", T::Float }, { "PhysicsRotationalDrag", T::Float } } },
+         { "CurlNoiseForce", { { "PhysicsForce", T::Vec3 }, { "Position", T::Vec3 } } },
+         { "InitializeColor", { { "Color", T::Vec4 }, { "InitialColor", T::Vec4 } } },
+         { "ColorOverLife", { { "Color", T::Vec4 }, { "InitialColor", T::Vec4 } } },
+         { "InitializeSpriteSize", { { "SpriteSize", T::Vec2 }, { "InitialSpriteSize", T::Vec2 } } },
+         { "SizeOverLife", { { "SpriteSize", T::Vec2 }, { "InitialSpriteSize", T::Vec2 } } },
+         { "InitializeRotation", { { "SpriteRotation", T::Float }, { "SpriteRotationRate", T::Float } } },
+         { "UpdateRotation", { { "SpriteRotation", T::Float }, { "SpriteRotationRate", T::Float } } },
+         { "SubUVAnimation", { { "SubImageIndex", T::Float }, { "Age", T::Float }, { "Lifetime", T::Float } } },
+         { "SolveForcesAndVelocity", { { "PhysicsDrag", T::Float }, { "PhysicsRotationalDrag", T::Float } } } };
+    for ( const Row& row : rows )
+    {
+        const auto         path = VFX::EngineModuleDir() / ( std::string( row.Module ) + ".shader" );
+        std::ifstream      in( path );
+        std::ostringstream text;
+        text << in.rdbuf();
+        const auto module = VFX::ParseParticleModule( text.str(), path.string() );
+        ASSERT_TRUE( module.IsSuccess() ) << row.Module << ": " << module.GetError();
+
+        std::vector<S::VFXModuleInput> inputs;
+        for ( const auto& d : module.GetValue().Inputs )
+            inputs.push_back( ValueInput( d.Name, d.Type, glm::vec4( 1.0f ) ) );
+        S::VFXSystemData  system;
+        S::VFXEmitterData emitter;
+        emitter.Name                 = row.Module;
+        emitter.Stack.ParticleUpdate = { Use( std::string( "engine:" ) + row.Module, inputs ) };
+        system.Emitters.push_back( emitter );
+        const auto compiled = Compile( system );
+        for ( const auto& [name, type] : row.Writes )
+        {
+            const auto* attribute = compiled.Layout.Find( name );
+            ASSERT_NE( attribute, nullptr ) << row.Module << " does not declare " << name;
+            EXPECT_EQ( attribute->FloatCount, S::ComponentCount( type ) ) << row.Module << " " << name;
+            EXPECT_NE( compiled.ShaderText.find( "p." + name ), std::string::npos ) << row.Module << " " << name;
+        }
+    }
+}
+
+// The over-life inputs are curves over the normalised age: Scale of ColorOverLife (vec4), of SizeOverLife (vec2)
+// and RateScale of UpdateRotation (float) each read their LUT row, and the stack compiles inside the host program.
+TEST( VFXStackCompile, OverLifeScalesAreCurvesOverTheNormalisedAge )
+{
+    const auto curve = []( std::string name, S::VFXValueType type, std::size_t channels )
+    {
+        S::VFXModuleInput in;
+        in.Name   = std::move( name );
+        in.Type   = type;
+        in.Source = S::VFXInputSource::Curve;
+        in.Curve  = std::vector<std::vector<S::VFXCurveKey>>(
+             channels, { S::VFXCurveKey{ 0.0f, 1.0f }, S::VFXCurveKey{ 1.0f, 0.0f } } );
+        return in;
+    };
+    S::VFXSystemData  system;
+    S::VFXEmitterData emitter;
+    emitter.Name                = "Puffs";
+    emitter.Stack.ParticleSpawn = {
+         Use( "engine:InitializeLifetime",
+              { ValueInput( "Lifetime", S::VFXValueType::Float, glm::vec4( 2.0f ) ) } ),
+         Use( "engine:InitializeColor", { ValueInput( "Color", S::VFXValueType::Vec4, glm::vec4( 1.0f ) ) } ),
+         Use( "engine:InitializeSpriteSize", { ValueInput( "Size", S::VFXValueType::Vec2, glm::vec4( 20.0f ) ) } ),
+         Use( "engine:InitializeRotation",
+              { RandomInput( "Rotation", S::VFXValueType::Float, glm::vec4( 0.0f ), glm::vec4( 360.0f ) ),
+                ValueInput( "RotationRate", S::VFXValueType::Float, glm::vec4( 90.0f ) ) } ) };
+    emitter.Stack.ParticleUpdate = {
+         Use( "engine:ColorOverLife", { curve( "Scale", S::VFXValueType::Vec4, 4 ) } ),
+         Use( "engine:SizeOverLife", { curve( "Scale", S::VFXValueType::Vec2, 2 ) } ),
+         Use( "engine:Drag", { ValueInput( "Drag", S::VFXValueType::Float, glm::vec4( 0.5f ) ),
+                               ValueInput( "RotationalDrag", S::VFXValueType::Float, glm::vec4( 0.25f ) ) } ),
+         Use( "engine:UpdateRotation", { curve( "RateScale", S::VFXValueType::Float, 1 ) } ),
+         Use( "engine:SolveForcesAndVelocity",
+              { ValueInput( "SpeedLimit", S::VFXValueType::Float, glm::vec4( 0.0f ) ) } ),
+         Use( "engine:UpdateAge", {} ) };
+    system.Emitters.push_back( emitter );
+    const auto compiled = Compile( system );
+    for ( const char* sample :
+          { "VFX_NormalizedAge( p.Age, p.Lifetime ), 4u )", "VFX_NormalizedAge( p.Age, p.Lifetime ), 2u ).xy",
+            "VFX_NormalizedAge( p.Age, p.Lifetime ), 1u ).x" } )
+        EXPECT_NE( compiled.ShaderText.find( sample ), std::string::npos ) << sample << "\n"
+                                                                           << compiled.ShaderText;
+    EXPECT_EQ( HostCompileError( compiled ), "" );
 }
 
 int main( int argc, char** argv )

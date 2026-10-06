@@ -17,6 +17,7 @@
 #ifndef VFX_PARTICLE_CONTRACT_GLSLH
 #define VFX_PARTICLE_CONTRACT_GLSLH
 
+#include <Common/VFXNoise.glslh>
 #include <Common/VFXRandom.glslh>
 
 // The per-particle simulation state the host hands in. Seed, ParticleId and Step key the random stream
@@ -54,6 +55,15 @@ vec4 VFX_Random( in VFXSim sim, uint slot )
 vec4 VFX_ModuleRandom( in VFXSim sim, uint moduleKey, uint n )
 {
     return VFXRandomFloat4( uvec4( sim.Seed, sim.ParticleId, sim.Step, moduleKey + n ) );
+}
+
+// Four uniform numbers in [0, 1) that stay the same from step to step while @p epoch does — a draw made once per
+// particle (epoch 0: a SubUV start frame) or once per interval of its life (epoch = age / interval: UE SubUV Random
+// mode's RandomFloat(Age * InitialFrameRateChange)). The epoch lane carries the top bit, so it never meets a step
+// number of VFX_ModuleRandom.
+vec4 VFX_ModuleRandomStable( in VFXSim sim, uint moduleKey, uint n, uint epoch )
+{
+    return VFXRandomFloat4( uvec4( sim.Seed, sim.ParticleId, 0x80000000u | epoch, moduleKey + n ) );
 }
 
 // A uniformly distributed unit vector from a module draw (UE RandomUnitFloat3: SafeNormalize(Random - 0.5));
