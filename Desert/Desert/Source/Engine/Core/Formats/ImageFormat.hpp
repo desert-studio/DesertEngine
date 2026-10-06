@@ -92,6 +92,10 @@ namespace Desert::Core::Formats
         /// ever carries depth in .r (Shadow.shader). Full float, not half: half precision would band a
         /// normalised depth across a 150 m cascade. APPENDED for the same renumbering reason as R16_UNORM.
         R32F,
+        /// `VK_FORMAT_R16G16_SFLOAT`. Two half-float channels: the per-view velocity target (TAA1,
+        /// View/SceneViewState.hpp kVelocityFormat) — an NDC delta, where half's 2^-11 relative step is about
+        /// 1/1000 of a pixel at 4K for any motion under a screen. APPENDED for the renumbering reason above.
+        RG16F,
 
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
