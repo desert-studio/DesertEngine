@@ -226,11 +226,11 @@ TEST( ProceduralFoliage, AVolumePlacesOnlyInsideItselfOnTheGroundItsTraceFinds )
 
 TEST( ProceduralFoliage, ResimulatingReplacesTheVolumesOwnFieldsAndNoOtherOnes )
 {
-    const Desert::Common::UUID volume( 11u );
-    const Desert::Common::UUID other( 22u );
+    const Common::UUID volume( 11u );
+    const Common::UUID other( 22u );
     std::vector<ProceduralFoliageTypeField> fresh{ { 0, { 0, 0 }, {} }, { 0, { 1, 0 }, {} }, { 1, { 0, 0 }, {} } };
     std::vector<ProceduralFoliageExistingField> existing{
-         { Desert::Common::UUID::Null(), 0, { 0, 0 } }, // painted by hand
+         { Common::UUID::Null(), 0, { 0, 0 } }, // painted by hand
          { other, 0, { 0, 0 } },                         // another volume's
          { volume, 0, { 0, 0 } },                        // ours, still occupied
          { volume, 0, { 5, 5 } },                        // ours, nothing lands there any more
