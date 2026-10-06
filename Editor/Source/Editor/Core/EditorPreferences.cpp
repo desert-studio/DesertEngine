@@ -236,9 +236,8 @@ namespace Desert::Editor
 
     static bool IsRetiredKey( std::string_view block, const std::string& key )
     {
-        static constexpr RetiredKey retired[] = { { "", "PhotogrammetryCaptureCommand" },
-                                                  { "", "PhotogrammetryMode" },
-                                                  { "", "MSAASamples" } };
+        static constexpr RetiredKey retired[] = {
+             { "", "PhotogrammetryCaptureCommand" }, { "", "PhotogrammetryMode" }, { "", "MSAASamples" } };
         return std::any_of( std::begin( retired ), std::end( retired ),
                             [&]( const RetiredKey& row ) { return row.Block == block && row.Key == key; } );
     }

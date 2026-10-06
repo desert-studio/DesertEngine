@@ -1227,12 +1227,13 @@ namespace
 {
     struct NestedBlock
     {
-        const char*                                           Name;
+        const char* Name;
         Common::Json::CarriedKeys& ( *KeysOf )( EditorPreferences& );
     };
 
     const NestedBlock kNestedBlocks[] = {
-         { "DebugView", []( EditorPreferences& p ) -> Common::Json::CarriedKeys& { return p.DebugView.UnknownKeys; } },
+         { "DebugView",
+           []( EditorPreferences& p ) -> Common::Json::CarriedKeys& { return p.DebugView.UnknownKeys; } },
          { "PreviewScene",
            []( EditorPreferences& p ) -> Common::Json::CarriedKeys& { return p.PreviewScene.UnknownKeys; } },
     };
@@ -1282,7 +1283,7 @@ TEST( PreferenceOwnershipUnknownKeys, ASaveKeepsANestedKeyThatAppearedAfterThisE
         SCOPED_TRACE( block.Name );
 
         FreshInstall();
-        EditorPreferences::Get() = EditorPreferences{};
+        EditorPreferences::Get()             = EditorPreferences{};
         EditorPreferences::Get().CameraSpeed = 2.0f;
         ASSERT_TRUE( EditorPreferences::Save() );
         ASSERT_TRUE( block.KeysOf( EditorPreferences::Get() ).empty() );
