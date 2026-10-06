@@ -6,6 +6,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <limits>
@@ -116,6 +117,49 @@ namespace Desert::Physics
         Rebuilt, ///< A new height left the range the shape can encode: the shape was rebuilt, the body kept.
     };
 
+    /**
+     * @brief A body that is the union of convex parts (UE: a geometry-collection cluster, one rigid made of its
+     * pieces' implicits). Each part is the hull of its points, in the body's own space — the frame every
+     * piece of a fracture shares, so a piece's mesh draws with the body's transform as it is.
+     *
+     * Part i of the body is reported as ContactImpulse::Part i. One part is that part's hull alone (Jolt
+     * collapses a one-part compound), and its contacts report Part 0.
+     */
+    struct CompoundBodyDesc
+    {
+        std::span<const std::span<const glm::vec3>> Parts; ///< Read during CreateCompoundBody only.
+
+        BodyType  Type        = BodyType::Dynamic;
+        float     Mass        = 1.0f; ///< Dynamic only; kilograms, inertia from the parts at this mass.
+        float     Friction    = 0.5f;
+        float     Restitution = 0.1f;
+
+        glm::vec3 Position        = { 0.0f, 0.0f, 0.0f };
+        glm::quat Rotation        = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+        glm::vec3 LinearVelocity  = { 0.0f, 0.0f, 0.0f }; ///< cm/s, at the body's centre of mass
+        glm::vec3 AngularVelocity = { 0.0f, 0.0f, 0.0f }; ///< rad/s
+
+        /// The body's contacts are measured every step (GetStepContactImpulses). Off for everything that
+        /// does not read them: the estimate is a small solve per contact.
+        bool ReportContactImpulses = false;
+    };
+
+    /**
+     * @brief One contact of the last fixed step that touches a body created with ReportContactImpulses: the
+     * normal impulse it carries (Jolt EstimateCollisionResponse, summed over the manifold's points), in
+     * kg·cm/s — the unit UE's damage thresholds are written in.
+     */
+    struct ContactImpulse
+    {
+        BodyHandle Body1   = kInvalidBody;
+        BodyHandle Body2   = kInvalidBody;
+        uint32_t   Part1   = 0u; ///< Index into Body1's CompoundBodyDesc::Parts; 0 for any other shape.
+        uint32_t   Part2   = 0u;
+        glm::vec3  Point   = { 0.0f, 0.0f, 0.0f }; ///< World, on Body1's surface
+        glm::vec3  Normal  = { 0.0f, 1.0f, 0.0f }; ///< World, from Body1 towards Body2
+        float      Impulse = 0.0f;
+    };
+
     struct RayHit
     {
         BodyHandle Body     = kInvalidBody;
@@ -146,10 +190,22 @@ namespace Desert::Physics
         // Advance the simulation by dt seconds (fixed-step accumulated internally).
         void Step( float dt );
 
+        /// Called after every fixed step inside Step, with that step's length: where a system that reacts to
+        /// the solve (DestructionWorld) runs, at the solver's rate rather than the frame's. One subscriber;
+        /// an empty function unsubscribes.
+        void SetStepCallback( std::function<void( float )> callback );
+
+        /// The contacts of the last fixed step on bodies that asked for them (ReportContactImpulses).
+        [[nodiscard]] std::span<const ContactImpulse> GetStepContactImpulses() const;
+
         /// Refused by name: a Mesh on a dynamic body, a Mesh or ConvexHull without points, an index out of
         /// range, a shape Jolt cannot cook. Mesh and ConvexHull shapes are cooked once per content (the points,
         /// the indices, the kind) and shared by every body built from the same data.
         Common::ResultStr<BodyHandle> CreateBody( const BodyDesc& desc );
+
+        /// Refused by name: no parts, a part without points, a hull Jolt cannot cook. Each part's hull is
+        /// cooked once per content and shared, as a ConvexHull collider's is.
+        Common::ResultStr<BodyHandle> CreateCompoundBody( const CompoundBodyDesc& desc );
 
         /// How many distinct Mesh / ConvexHull shapes the world has cooked — the measure of the shape cache.
         [[nodiscard]] uint32_t GetCookedShapeCount() const;
@@ -182,6 +238,12 @@ namespace Desert::Physics
         // Teleport / drive a body (use for Kinematic bodies or resetting on Play).
         void SetTransform( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         void SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity );
+        [[nodiscard]] glm::vec3 GetLinearVelocity( BodyHandle handle ) const;  ///< cm/s, at the centre of mass
+        [[nodiscard]] glm::vec3 GetAngularVelocity( BodyHandle handle ) const; ///< rad/s
+        /// The velocity of the body's material at the world point @p point (zero for a static body).
+        [[nodiscard]] glm::vec3 GetPointVelocity( BodyHandle handle, const glm::vec3& point ) const;
+        /// Jolt has not put the body to sleep. A static body is never active.
+        [[nodiscard]] bool IsActive( BodyHandle handle ) const;
 
         // How many bodies / characters the world holds right now. The measure of "destroying an entity gave
         // its body back" — without it, a leak is only visible as a collision with something that is not there.

@@ -6,6 +6,7 @@
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
+#include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -72,6 +73,7 @@ namespace Desert::ECS
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
                     m_RefusedColliders.clear();
                     m_Landscape.reset();
+                    m_Destruction.reset();
                     m_World->Shutdown();
                     m_World.reset();
                 }
@@ -87,6 +89,7 @@ namespace Desert::ECS
                 m_World->Init( m_AppliedGravity );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
+                m_Destruction = std::make_unique<Destruction::DestructionWorld>( *m_World );
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
             {
@@ -197,6 +200,8 @@ namespace Desert::ECS
             if ( !playing )
                 return; // Paused (and not stepping): bodies exist but time is frozen.
 
+            // The events of this frame's steps are readable until the next frame's physics.
+            m_Destruction->ClearEvents();
             m_World->Step( ts.GetSeconds() );
 
             // Write the simulated pose back into the transform for moving bodies.
@@ -366,6 +371,8 @@ namespace Desert::ECS
         std::unique_ptr<PhysicsBodyLifetime> m_Lifetime;
         // Same rule: the landscape's heightfield bodies live in m_World.
         std::unique_ptr<LandscapeCollision> m_Landscape;
+        // Same rule: the scene's destructibles are bodies in m_World, advanced by its fixed step.
+        std::unique_ptr<Destruction::DestructionWorld> m_Destruction;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.
