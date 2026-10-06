@@ -405,7 +405,8 @@ namespace Desert::Graphic::System
 
         /**
          * @brief Resolves the medium's OWN properties out of the same `.demat` — its values into
-         *        m_MediumValues and its image handles into m_MediumImages.
+         *        m_MediumValues, its images into m_MediumImages and their sampler names into
+         *        m_MediumTextureNames.
          *
          * SEPARATE FROM ResolveMaterial's typed resolve, because the two schemas are separate: the shipped
          * one is mirrored field for field onto CloudMaterialValues, and this one is a list whose names the
@@ -418,13 +419,16 @@ namespace Desert::Graphic::System
          */
         void ResolveMediumValues( const MaterialOverrides& overrides );
 
-        /// Writes m_MediumValues into @p buffer and binds it plus every declared image to @p pipeline —
-        /// the one statement of "how a medium reaches a dispatch", shared by the march, the shadow map and
-        /// the sky-occlusion volume so three call sites cannot come to disagree about a binding number.
-        ///
-        /// EVERY DECLARED SLOT IS WRITTEN, fallback included: an unwritten descriptor invalidates the whole
-        /// set, and this backend answers an invalid set by returning without dispatching — silently.
+        /// Writes m_MediumValues into @p buffer and binds it to @p pipeline — the one statement of "how a
+        /// medium's values reach a dispatch", shared by the march, the shadow map and the sky-occlusion
+        /// volume. The medium's images are not bound here: they are block entries (SampledMedium).
         void BindMedium( ComputePipeline* pipeline, ShaderResources::StorageBuffer* buffer ) const;
+
+        /// The medium's images as entries of a cloud compute node's block (shadow, sky occlusion, march), by
+        /// sampler name. EVERY DECLARED SLOT IS AN ENTRY, the RGBA32F 2D fallback where no image resolved: a
+        /// declared sampler with no image is an invalid descriptor set, which setup refuses by name.
+        RenderPassDeclaration::BlockDeclaration
+        SampledMedium( RenderPassDeclaration::BlockDeclaration block ) const;
 
         /// Creates the three pipelines whose programs carry the medium, from the variant currently held
         /// (or from the registered programs when it is default). Split out of CreatePipelines because
@@ -479,10 +483,14 @@ namespace Desert::Graphic::System
         /// trigger is one integer. 0 is "this medium exposes nothing", which is every shipped scene.
         uint64_t m_MediumValuesFingerprint = 0;
 
-        /// The medium's images, resolved from m_MediumValues.Textures once per frame. BORROWED — the
-        /// texture service owns them — and one entry per declared slot, null where the material assigned
-        /// nothing, because an unassigned slot is still a descriptor that has to be written.
-        std::vector<Image2D*> m_MediumImages;
+        /// The medium's images, resolved from m_MediumValues.Textures once per frame. SHARED with the texture
+        /// service (or DefaultTextures) that owns them, so a block entry can import each by owner; one entry
+        /// per declared slot, because an unassigned slot is still a descriptor that has to be written.
+        std::vector<std::shared_ptr<Image2D>> m_MediumImages;
+
+        /// The shader's sampler name of each slot in m_MediumImages: the medium's Texture2D property names in
+        /// schema order, which is exactly what the emitter declares (`uniform sampler2D <ParamName>`).
+        std::vector<std::string> m_MediumTextureNames;
 
         /// Handles already reported as naming nothing the texture service has, so an unresolvable medium
         /// image is said once rather than once per frame.

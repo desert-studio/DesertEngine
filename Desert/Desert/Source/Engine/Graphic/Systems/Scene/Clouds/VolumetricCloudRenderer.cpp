@@ -1048,7 +1048,9 @@ namespace Desert::Graphic::System
         // call by a submit-and-wait — while the IMAGES are borrowed, exactly like the noise volumes beside
         // them, because the texture service owns them and outlives the bake.
         bake.MediumValues = m_MediumValues.Params;
-        bake.MediumImages = m_MediumImages;
+        bake.MediumImages.clear();
+        for ( const std::shared_ptr<Image2D>& image : m_MediumImages )
+            bake.MediumImages.push_back( image.get() );
 
         bake.Marched = true;
         bake.Fingerprint =
@@ -1165,8 +1167,9 @@ namespace Desert::Graphic::System
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowParamsBinding, m_ShadowParamsBuffer.get() );
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowAuthoredBinding, m_ShadowAuthoredBuffer.get() );
         BindMedium( m_ShadowMapPipeline.get(), m_ShadowMediumParamsBuffer.get() );
-        SampledVolumes( DeclareComputeBlock( shadow.Access, *m_ShadowMapPipeline,
-                                             static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) )
+        SampledMedium(
+             SampledVolumes( DeclareComputeBlock( shadow.Access, *m_ShadowMapPipeline,
+                                                  static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) ) )
              .Storage( "u_CloudShadowMap", m_ShadowMapImage, RDG::Access::StorageWrite, "Clouds.ShadowMap" );
         shadow.Record = [this, push, resolution]( RDG::PassContext& context,
                                                   const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -1349,6 +1352,15 @@ namespace Desert::Graphic::System
         // otherwise, so a medium whose image the artist has not chosen yet draws the sky it drew before
         // the slot existed. A generic backend fallback would be a different colour by accident.
         m_MediumImages.assign( m_MediumValues.Textures.size(), nullptr );
+        m_MediumTextureNames.clear();
+        if ( schema )
+        {
+            for ( const Core::Formats::ShaderParam& p : *schema )
+            {
+                if ( p.IsTexture )
+                    m_MediumTextureNames.push_back( p.Name );
+            }
+        }
 
         auto* textures = Runtime::ResourceRegistry::GetTextureService();
         auto* images   = Runtime::ResourceRegistry::GetImageService();
@@ -1358,8 +1370,9 @@ namespace Desert::Graphic::System
             if ( !handle.IsNull() && textures && images )
             {
                 auto* texture = textures->Get( handle );
-                if ( auto* image = texture ? static_cast<Image2D*>( images->Resolve( texture->GetImageHandle() ) )
-                                           : nullptr )
+                if ( auto image =
+                          texture ? std::static_pointer_cast<Image2D>( images->Share( texture->GetImageHandle() ) )
+                                  : nullptr )
                 {
                     m_MediumImages[slot] = image;
                     continue;
@@ -1378,7 +1391,7 @@ namespace Desert::Graphic::System
             const Core::Formats::DefaultTextureKind kind = schema && slot < schema->size()
                                                                 ? DefaultTextureOfSlot( *schema, slot )
                                                                 : Core::Formats::DefaultTextureKind::White;
-            m_MediumImages[slot] = const_cast<Image2D*>( DefaultTextures::Get().Resolve( kind ) );
+            m_MediumImages[slot]                         = DefaultTextures::Get().Share( kind );
         }
     }
 
@@ -1406,18 +1419,26 @@ namespace Desert::Graphic::System
             }
             pipeline->SetStorageBuffer( Core::kCloudMediumParamsBinding, buffer );
         }
+    }
 
-        auto* fallback = FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get();
-        for ( std::size_t slot = 0; slot < m_MediumImages.size(); ++slot )
+    RenderPassDeclaration::BlockDeclaration
+    VolumetricCloudRenderer::SampledMedium( RenderPassDeclaration::BlockDeclaration block ) const
+    {
+        // ResolveMediumValues leaves no null here — an unassigned slot already carries the schema's own
+        // default image. The fallback is for the one case it cannot cover, a default-texture service that has
+        // not come up. Each image is an Image2D read with the sampler it carried as its own (the global
+        // texture filter, REPEAT).
+        const std::shared_ptr<Image> fallback =
+             FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F );
+        const std::size_t named = std::min( m_MediumImages.size(), m_MediumTextureNames.size() );
+        for ( std::size_t slot = 0; slot < named; ++slot )
         {
-            // ResolveMediumValues leaves no null here — an unassigned slot already carries the schema's
-            // own default image. The guard is for the one case it cannot cover, a default-texture service
-            // that has not come up, and it binds SOMETHING because an unwritten descriptor costs the whole
-            // dispatch rather than one sampler.
-            pipeline->SetInput( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
-                                m_MediumImages[slot] ? m_MediumImages[slot] : fallback,
-                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            block.Sampled( m_MediumTextureNames[slot],
+                           m_MediumImages[slot] ? std::shared_ptr<Image>( m_MediumImages[slot] ) : fallback,
+                           RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
+                           std::format( "Clouds.Medium{}", slot ) );
         }
+        return block;
     }
 
     void VolumetricCloudRenderer::BuildAuthoredPayload( const CloudGpuPayload& payload )
@@ -1864,7 +1885,7 @@ namespace Desert::Graphic::System
             // ExecuteInFrame between the march's own upload and the march itself, which is exactly the
             // window m_ParamsBuffer is already shared across.
             BindMedium( m_SkyOcclusionPipeline.get(), m_MediumParamsBuffer.get() );
-            SampledVolumes( DeclareComputeBlock( occlusion.Access, *m_SkyOcclusionPipeline, 0 ) )
+            SampledMedium( SampledVolumes( DeclareComputeBlock( occlusion.Access, *m_SkyOcclusionPipeline, 0 ) ) )
                  .Storage( "u_CloudSkyOcclusion", m_SkyOcclusionVolume, RDG::Access::StorageWrite,
                            "Clouds.SkyOcclusion" );
             occlusion.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -1970,8 +1991,8 @@ namespace Desert::Graphic::System
              skyOcclusionReady
                   ? std::shared_ptr<Image>( m_SkyOcclusionVolume )
                   : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
-        SampledVolumes(
-             DeclareComputeBlock( march.Access, *m_MarchPipeline, static_cast<uint32_t>( sizeof( CloudPush ) ) ) )
+        SampledMedium( SampledVolumes( DeclareComputeBlock( march.Access, *m_MarchPipeline,
+                                                            static_cast<uint32_t>( sizeof( CloudPush ) ) ) ) )
              .Storage( "u_CloudScatter", trace, RDG::Access::StorageWrite )
              .Storage( "u_CloudGuide", traceGuide, RDG::Access::StorageWrite )
              .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),

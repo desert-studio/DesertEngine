@@ -419,11 +419,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudEnvironmentBake.hpp",
           "CloudBakeBinding", "MediumImages", Guard::CallScoped,
           kWhyArgumentPack },
-        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp",
-          "VolumetricCloudRenderer", "m_MediumImages", Guard::FrameScoped,
-          "borrowed from the texture service and rebuilt from scratch by ResolveMediumValues once per "
-          "frame, before any pass reads it. Nothing here survives a frame boundary, so an image the "
-          "service released between frames cannot be bound: the vector is assigned, not patched" },
         { "Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp",
           "Compiler", "touchedParams", Guard::ObservedContainsUs,
           "addresses of nodes in the Document the Compiler holds a reference to and never mutates; the "

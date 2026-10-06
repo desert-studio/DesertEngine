@@ -2876,7 +2876,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "sampledLuts(declareBlock(distant.Access,*m_DistantLightPipeline,0))" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
-           { "SampledVolumes(DeclareComputeBlock(shadow.Access,*m_ShadowMapPipeline,",
+           { "SampledMedium(SampledVolumes(DeclareComputeBlock(shadow.Access,*m_ShadowMapPipeline,",
              "Storage(\"u_CloudShadowMap\",m_ShadowMapImage,RDG::Access::StorageWrite,\"Clouds.ShadowMap\")" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
@@ -2888,7 +2888,13 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
            "VolumetricCloudRenderer::DeclareFrameNodes(",
            { "Storage(\"u_CloudSkyOcclusion\",m_SkyOcclusionVolume,RDG::Access::StorageWrite",
              "Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
-             "SampledVolumes(DeclareComputeBlock(march.Access,*m_MarchPipeline,",
+             "SampledMedium(SampledVolumes(DeclareComputeBlock(march.Access,*m_MarchPipeline,",
+             // The sky's three images are entries of the march with the sampler each carried as its own.
+             ".Sampled(\"u_DistantSkyLight\",distantSkyLight,RDG::Access::SampledCompute,"
+             "GlobalTextureFilterSampler()",
+             ".Sampled(\"u_CloudAerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
+             ".Sampled(\"u_CloudSunTransmittanceLut\",sunTransmittanceLut,RDG::Access::SampledCompute,"
+             "GlobalTextureFilterSampler()",
              // The trace pair: block entries of the march (written) and of the resolve (sampled).
              ".Storage(\"u_CloudScatter\",trace,RDG::Access::StorageWrite)",
              ".Sampled(\"u_CloudTrace\",trace,RDG::Access::SampledCompute",
