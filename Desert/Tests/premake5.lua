@@ -15,13 +15,11 @@ os.mkdir(currentDir .. "/build/TestReports")
 -- needs beyond that (an include directory, a library, a tool source) goes into its RUNNER's entry in
 -- `kRunners` below, once, with the reason.
 --
--- THE TRANSITION. A suite that still has its own premake5.lua is still its own project (the script is
--- included below) and is listed in the manifest as its own executable; it keeps its own `main`. The
--- Engine and Editor suites, and CrashHandler (its child-process mode moves to `--desert-child=crash`),
--- are converted by the second half of P1, which then removes this branch. A suite WITHOUT a premake5.lua
--- in a layer that has no runner fails generation, so no suite can end up built nowhere; and
--- Desert/Tests/Common/TestRunnerLayout fails a suite that has a main without a premake5.lua or the other
--- way round, so "exactly one of the two" holds for every suite.
+-- NO SUITE HAS A PROJECT OF ITS OWN. A premake5.lua in a suite directory fails generation with what to
+-- do instead (a branch from another team that adds a suite the old way converts it in a minute:
+-- BuildScripts/BUILD1-CONTRACT.md §4). Set-up a suite's main used to do is a SuiteEnvironment, a mode in
+-- which the suite re-launches itself is a ChildEntry (TestSupport/runner.hpp); and
+-- Desert/Tests/Common/TestRunnerLayout fails a suite that still defines a main.
 local testsDir = currentDir .. "/Desert/Tests"
 local kLayers  = { "Common", "Engine", "Editor", "Runtime", "Tools" }
 
@@ -256,19 +254,14 @@ for _, layer in ipairs(kLayers) do
     for _, dir in ipairs(suiteDirs) do
         local suite = path.getname(dir)
         if os.isfile(dir .. "/premake5.lua") then
-            include(dir)
-            project(suite)
-                removeconfigurations { "Shipping" }
-            table.insert(test_projects, suite)
-            table.insert(manifest_lines, suite .. " " .. suite)
-        else
-            if not configure then
-                error(string.format("Desert/Tests/%s/%s has no premake5.lua, and the %s layer has no runner yet",
-                    layer, suite, layer), 0)
-            end
-            table.insert(converted, dir)
-            table.insert(manifest_lines, runnerName .. " " .. suite)
+            error(string.format("Desert/Tests/%s/%s has its own premake5.lua: a suite is compiled into %s. "
+                .. "Delete the script, delete the suite's main (set-up it did goes into a SuiteEnvironment, "
+                .. "a child mode into a ChildEntry: TestSupport/runner.hpp), and move any source or include "
+                .. "directory it added into kRunners.%s above (BuildScripts/BUILD1-CONTRACT.md §4)",
+                layer, suite, runnerName, layer), 0)
         end
+        table.insert(converted, dir)
+        table.insert(manifest_lines, runnerName .. " " .. suite)
     end
     if configure and #converted > 0 then
         project(runnerName)

@@ -4,17 +4,18 @@
 // chosen at run time with `--desert-suite=<Suite>`. That only stays correct while the tree keeps four
 // properties nothing else checks:
 //
-//   1. A suite is either a runner suite (no premake5.lua, no `main`) or, until the second half of P1
-//      converts it, its own project (a premake5.lua AND its own `main`). One without the other is a suite
-//      whose `main` collides with RunnerMain's, or a project that links no `main` at all.
-//   2. No `main` under Desert/Tests other than TestSupport/RunnerMain.cpp and those unconverted suites.
+//   1. A suite has no premake5.lua and no `main`: it is compiled into its layer's runner. (Generation
+//      refuses a suite premake5.lua too; this says the same where a test run reads it.) Set-up a main
+//      used to do is a SuiteEnvironment, a child mode a ChildEntry (TestSupport/runner.hpp).
+//   2. No `main` under Desert/Tests other than TestSupport/RunnerMain.cpp.
 //   3. No gtest test-suite name in two suite directories of one runner: gtest aborts the whole runner
 //      when one name maps to two fixture classes, and TEST() names of two suites would merge in reports.
 //   4. No class or struct DEFINED at namespace scope outside an anonymous namespace in a runner suite's
 //      .cpp: two suites' `struct Carrier` in one binary is an ODR violation the linker resolves silently
 //      (one suite runs against the other's inline members). JsonDocument and JsonFacade both had one.
 //
-// HOW TO CONVERT A SUITE (what the messages below point at): delete its premake5.lua and its `int main`;
+// HOW TO CONVERT A SUITE (what the messages below point at): delete its premake5.lua and its `int main`
+// (what the main set up goes into a SuiteEnvironment, a self-launch mode into a ChildEntry);
 // move what the script added (include dir, library, tool source) into the runner's entry in kRunners,
 // Desert/Tests/premake5.lua; put file-local types into `namespace { }`; give its tests a test-suite name
 // no other suite of the layer uses. BuildScripts/BUILD1-CONTRACT.md, "Adding a suite".
@@ -214,7 +215,7 @@ namespace
         std::string           layer;
         std::string           name;
         fs::path              dir;
-        bool                  ownProject = false; // still has its own premake5.lua (not converted yet)
+        bool                  ownProject = false; // has its own premake5.lua (refused: rule 1)
         std::vector<fs::path> sources;            // *.cpp directly in the suite directory
     };
 
@@ -315,33 +316,20 @@ namespace
             const bool hasMain =
                  std::any_of( suite.sources.begin(), suite.sources.end(),
                               []( const fs::path& file ) { return DefinesMain( ReadFile( file ) ); } );
-            if ( suite.ownProject )
-            {
-                EXPECT_TRUE( hasMain ) << Relative( suite.dir, root )
-                                       << " has a premake5.lua but no `main`: " << kHowToConvert;
-            }
-            else
-            {
-                ++runnerSuites;
-                EXPECT_FALSE( hasMain )
-                     << Relative( suite.dir, root ) << " is built into its layer's runner, whose "
-                     << "only main is TestSupport/RunnerMain.cpp: delete the suite's `int main`";
-            }
+            EXPECT_FALSE( suite.ownProject ) << Relative( suite.dir, root ) << " has its own premake5.lua: "
+                                             << kHowToConvert;
+            ++runnerSuites;
+            EXPECT_FALSE( hasMain ) << Relative( suite.dir, root ) << " is built into its layer's runner, whose "
+                                    << "only main is TestSupport/RunnerMain.cpp: " << kHowToConvert;
         }
         EXPECT_GT( runnerSuites, 0u );
     }
 
-    TEST( TestRunnerLayout, NoMainUnderDesertTestsButTheRunnersAndUnconvertedSuites )
+    TEST( TestRunnerLayout, NoMainUnderDesertTestsButTheRunners )
     {
         const fs::path root  = RepoRoot();
         const fs::path tests = root / "Desert" / "Tests";
         ASSERT_TRUE( fs::is_directory( tests ) );
-        std::set<fs::path> ownProjects;
-        for ( const Suite& suite : Suites( root ) )
-        {
-            if ( suite.ownProject )
-                ownProjects.insert( suite.dir );
-        }
         size_t runnerMains = 0;
         for ( const auto& entry : fs::recursive_directory_iterator( tests ) )
         {
@@ -353,10 +341,8 @@ namespace
                 ++runnerMains;
                 continue;
             }
-            EXPECT_TRUE( ownProjects.contains( entry.path().parent_path() ) )
-                 << Relative( entry.path(), root )
-                 << " defines `main`, but it is not the top level of a suite that is "
-                 << "still its own project: " << kHowToConvert;
+            ADD_FAILURE() << Relative( entry.path(), root ) << " defines `main`; the runners' one main is "
+                          << "TestSupport/RunnerMain.cpp: " << kHowToConvert;
         }
         EXPECT_EQ( runnerMains, 1u ) << "TestSupport/RunnerMain.cpp must define the runners' one main";
     }
@@ -367,8 +353,6 @@ namespace
         std::map<std::string, std::map<std::string, std::set<std::string>>> owners; // layer -> name -> suites
         for ( const Suite& suite : Suites( root ) )
         {
-            if ( suite.ownProject )
-                continue;
             for ( const fs::path& file : suite.sources )
             {
                 for ( const std::string& name : TestSuiteNames( ReadFile( file ) ) )
@@ -394,8 +378,6 @@ namespace
         const fs::path root = RepoRoot();
         for ( const Suite& suite : Suites( root ) )
         {
-            if ( suite.ownProject )
-                continue;
             for ( const fs::path& file : suite.sources )
             {
                 for ( const std::string& type : NamespaceScopeTypes( ReadFile( file ) ) )
