@@ -39,12 +39,20 @@ namespace Desert::Editor::Render
         pass.Phase                 = Graphic::RenderPhase::UI;
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Render2D.GetPipeline()->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
-                               Graphic::RDG::PassContext&          node ) -> Common::BoolResultStr
+        // THE FRAME'S UI IS GATHERED IN SETUP (UE: Slate's elements are batched before the render pass that draws
+        // them). The canvas walk - input feed, clicks, the draw list - runs while the frame graph is built, so the
+        // node can declare one binding block per batch it will draw (Render2D::DeclareBindings) and the graph
+        // validates them before anything is recorded; the exec only uploads and draws the list (Render2D::Flush).
+        // Once per frame per view, as before: a view's graph is built and executed before the next view's.
+        //
+        // Render2D samples the backdrop pyramid behind a blurred panel: an engine image the frame graph's blur
+        // nodes write as storage, so the pass names it and the graph brings it to a sampled layout before the UI
+        // draws.
+        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExternalPassContext& ctx )
         {
             const auto scene = m_Scene.lock();
             if ( !scene || !ctx.Target )
-                return BOOLSUCCESS;
+                return;
 
             const float w = static_cast<float>( ctx.Target->GetFramebufferWidth() );
             const float h = static_cast<float>( ctx.Target->GetFramebufferHeight() );
@@ -161,14 +169,11 @@ namespace Desert::Editor::Render
                  wait != nullptr && wait->Assessment.Blocks() )
                 UI::DrawStreamingWaitOverlay( m_Render2D.GetDrawList(), w, h, wait->FramesWaiting );
             // Glass panels sample THIS VIEW's blurred scene snapshot, built just before this phase as a transient
-            // of this view's graph (ctx.Graph), bound by name over this node's context. It is only built when the
-            // canvas asked for it LAST frame, so hand the flag back after flushing.
-            const Common::BoolResultStr flushed = m_Render2D.Flush( node, ctx.Graph.Transients.BackdropBlur );
-
-            if ( auto* renderer = ctx.Renderer )
-                renderer->SetBackdropBlurNeeded( m_Render2D.UsedBackdrop() );
-            if ( !flushed.IsSuccess() )
-                return flushed;
+            // of this view's graph (ctx.Graph): each glass batch's block names it (u_Backdrop).
+            if ( ctx.Graph.Transients.BackdropBlur.IsValid() )
+                declared.Read( ctx.Graph.Transients.BackdropBlur, Graphic::RDG::Access::SampledGraphics,
+                               Graphic::RDG::SubresourceRange::All() );
+            m_Render2D.DeclareBindings( declared, ctx.Graph.Transients.BackdropBlur );
 
             // A button fired in preview: report it, but DON'T execute scene-load / quit / open-URL here —
             // that would close or switch the editor. Interactive toggles/sliders/inputs already mutated in
@@ -189,17 +194,18 @@ namespace Desert::Editor::Render
                 LOG_INFO( "[UI Preview] {}", msg );
                 UI::UIMessageQueue::Get().Push( msg ); // scripts hear preview messages too, if any run
             }
-            return BOOLSUCCESS;
         };
-
-        // Render2D samples the backdrop pyramid behind a blurred panel: an engine image the frame graph's blur
-        // nodes write as storage, so the pass names it and the graph brings it to a sampled layout before the UI
-        // draws.
-        pass.Declare = []( Graphic::RenderPassDeclaration& declared, const Graphic::ExternalPassContext& ctx )
+        // Draws the list the setup gathered, over the blocks it declared. The backdrop pyramid is only built when
+        // the canvas asked for it LAST frame, so hand the flag back after flushing.
+        pass.Execute = [this]( const Graphic::ExternalPassContext& ctx,
+                               Graphic::RDG::PassContext&          node ) -> Common::BoolResultStr
         {
-            if ( ctx.Graph.Transients.BackdropBlur.IsValid() )
-                declared.Read( ctx.Graph.Transients.BackdropBlur, Graphic::RDG::Access::SampledGraphics,
-                               Graphic::RDG::SubresourceRange::All() );
+            if ( m_Scene.expired() || !ctx.Target )
+                return BOOLSUCCESS; // the setup gathered nothing either
+            const Common::BoolResultStr flushed = m_Render2D.Flush( node, ctx.Graph.Transients.BackdropBlur, 0 );
+            if ( auto* renderer = ctx.Renderer )
+                renderer->SetBackdropBlurNeeded( m_Render2D.UsedBackdrop() );
+            return flushed;
         };
         scene->RegisterExternalPass( std::move( pass ) );
         return BOOLSUCCESS;

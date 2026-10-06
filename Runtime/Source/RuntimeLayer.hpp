@@ -6,6 +6,7 @@
 #include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 
 #include <entt/entt.hpp>
@@ -93,6 +94,8 @@ namespace Desert::Player
         std::unique_ptr<Graphic::Render2D::UIRenderTextureCache> m_UIRenderTextures;
         std::shared_ptr<Graphic::GraphicsPipeline>   m_BlitPipeline;
         std::unique_ptr<Graphic::MaterialExecutor>   m_BlitExecutor;
+        // The present node's blit block (RDG-FAULT1), keyed on m_BlitPipeline's shader.
+        Graphic::ShaderBindingLayoutCache            m_BlitLayout;
         bool                                         m_PresentReady  = false;
         bool                                         m_PrevMouseDown = false; // for the click (down->up) edge
         float                                        m_ScrollAccum   = 0.0f;  // wheel delta since last present

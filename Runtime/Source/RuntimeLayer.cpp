@@ -895,7 +895,8 @@ namespace Desert::Player
         // THE PRESENT IS A GRAPH NODE (UE: the viewport's back buffer is registered as an external texture each
         // frame, the final passes write it, and the present follows the graph). The node clears the acquired
         // image, samples the scene's final image as a declared pass parameter, draws the 2D batch over it, and the
-        // graph leaves the back buffer in the present layout.
+        // graph leaves the back buffer in the present layout. Every draw's binding block is declared in the setup
+        // (the blit's first, then one per 2D batch: Render2D::DeclareBindings over the list gathered above).
         Graphic::RDG::Builder         graph( "RuntimePresent" );
         Graphic::RDG::ExternalTexture backBuffer;
         if ( const auto imported = renderer.ImportBackBuffer( backBuffer ); !imported )
@@ -916,25 +917,29 @@ namespace Desert::Player
              [&]( Graphic::RDG::PassBuilder& pass )
              {
                  pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f ) );
+                 // Block 0: the scene blit, with the sampler it sampled the final image with before.
                  if ( sceneRef.IsValid() )
-                     pass.Read( sceneRef, Graphic::RDG::Access::SampledGraphics );
+                     pass.Bindings( m_BlitLayout.Get( m_BlitPipeline->GetSpecification().Shader ),
+                                    m_BlitExecutor->GetRouteFill() )
+                          .Sampled( "u_Texture", sceneRef, Graphic::RDG::Access::SampledGraphics,
+                                    Graphic::RDG::SubresourceRange::All(),
+                                    Graphic::RDG::SamplerDesc::LinearClamp() );
+                 // The runtime has no backdrop pyramid: a glass panel draws as its flat tinted fill.
+                 if ( drawUI )
+                     m_Render2D->DeclareBindings( pass, Graphic::RDG::TextureRef{} );
              },
              [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  if ( sceneRef.IsValid() )
                  {
-                     Graphic::RDG::PassBindings bindings( context );
-                     bindings.Sampled( "u_Texture", sceneRef, Graphic::RDG::Access::SampledGraphics,
-                                       Graphic::RDG::SubresourceRange::All(),
-                                       Graphic::RDG::SamplerDesc::LinearClamp() );
+                     const Graphic::RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      if ( const auto drawn =
                                renderer.DrawFullscreen( bindings, *m_BlitPipeline, m_BlitExecutor.get() );
                           !drawn )
                          return Common::MakeError( "the scene blit: " + drawn.GetError() );
                  }
-                 // The runtime has no backdrop pyramid: a glass panel draws as its flat tinted fill.
                  if ( drawUI )
-                     return m_Render2D->Flush( context, Graphic::RDG::TextureRef{} );
+                     return m_Render2D->Flush( context, Graphic::RDG::TextureRef{}, sceneRef.IsValid() ? 1u : 0u );
                  return BOOLSUCCESS;
              } );
         graph.Extract( target, backBuffer, Graphic::RDG::Access::Present );

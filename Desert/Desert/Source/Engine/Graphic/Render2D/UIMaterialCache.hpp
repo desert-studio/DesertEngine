@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
 
@@ -49,6 +50,9 @@ namespace Desert::Graphic::Render2D
             // compared by pointer at the call site so the backend cannot forget to ask.
             bool     Error         = false;
             uint64_t LastUsedFrame = 0;
+            // The binding layout Render2D declares this entry's draws against (RDG-FAULT1), kept with the pipeline
+            // whose shader keys it. Mutable: the draw list hands the entry out const.
+            mutable ShaderBindingLayoutCache Layout;
         };
 
         // (Re)build every pipeline against @p target. Called from Render2D::Init, i.e. after every

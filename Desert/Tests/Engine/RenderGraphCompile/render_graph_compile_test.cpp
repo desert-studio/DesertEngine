@@ -3338,6 +3338,8 @@ TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
     files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
     files.push_back( "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp" );
     files.push_back( "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" );
+    files.push_back( "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
+    files.push_back( "Runtime/Source/RuntimeLayer.cpp" );
     const std::regex get( R"(([Ll]ayout\.Get\())" );
     const std::regex key( R"(^[A-Za-z_][\w\[\]\.]*->GetSpecification\(\)\.Shader\))" );
     size_t           gets = 0;
@@ -3363,9 +3365,11 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    for ( const char* file : { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-                               "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp",
-                               "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" } )
+    for ( const char* file :
+          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+            "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp",
+            "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp",
+            "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
     {
         const std::string text   = SqueezedSource( root, file );
         size_t            opened = 0;
@@ -3424,6 +3428,50 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
                    std::string::npos )
              << file << " declares no setup block";
     }
+
+    // Render2D: the setup (DeclareInto) and the exec (Flush) walk the draw list through the one Resolve, so the
+    // n-th drawn command opens the n-th declared block; the executors are filled in the setup only.
+    const std::string r2d   = SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
+    const std::string setup = SqueezedBody( r2d, "voidRender2D::DeclareInto(", "voidRender2D::" );
+    const std::string flush = SqueezedBody( r2d, "Common::BoolResultStrRender2D::Flush(", "voidRender2D::" );
+    ASSERT_FALSE( setup.empty() );
+    ASSERT_FALSE( flush.empty() );
+    for ( const std::string* body : { &setup, &flush } )
+        EXPECT_NE( body->find( "constResolvedCommandresolved=Resolve(cmd,backdrop.IsValid());" ),
+                   std::string::npos );
+    for ( const char* fill :
+          { "SetRawData(", "SetPushMatrix(", "SetMaterialIndex(", "PushConstant(&m_Projection" } )
+    {
+        EXPECT_NE( setup.find( fill ), std::string::npos ) << fill;
+        EXPECT_EQ( flush.find( fill ), std::string::npos ) << "Flush fills an executor: " << fill;
+    }
+    EXPECT_NE( setup.find( ".Sampled(\"u_Backdrop\",backdrop,RDG::Access::SampledGraphics,RDG::SubresourceRange::"
+                           "All(),RDG::SamplerDesc::LinearClamp()).PushConstantBytes(static_cast<uint32_t>(sizeof("
+                           "GlassPush)));" ),
+               std::string::npos );
+    EXPECT_NE( flush.find( "uint32_tblock=firstBlock;" ), std::string::npos );
+
+    // The editor's UI pass gathers the frame (the canvas walk) in its Declare and declares the draw list's
+    // blocks there; its exec only flushes.
+    const std::string ui = SqueezedSource( root, "Editor/Source/Editor/RenderSystems/Passes/EditorUIPass.cpp" );
+    const size_t      uiDeclare = ui.find( "pass.Declare=[this](Graphic::RenderPassDeclaration&declared," );
+    const size_t      uiExec    = ui.find( "pass.Execute=[this](constGraphic::ExternalPassContext&ctx," );
+    ASSERT_NE( uiDeclare, std::string::npos );
+    ASSERT_NE( uiExec, std::string::npos );
+    ASSERT_LT( uiDeclare, uiExec );
+    const std::string uiSetup = ui.substr( uiDeclare, uiExec - uiDeclare );
+    const std::string uiRun   = ui.substr( uiExec );
+    EXPECT_NE( uiSetup.find( "UI::RenderCanvas2D(" ), std::string::npos );
+    EXPECT_NE( uiSetup.find( "m_Render2D.DeclareBindings(declared,ctx.Graph.Transients.BackdropBlur);" ),
+               std::string::npos );
+    EXPECT_EQ( uiRun.find( "UI::RenderCanvas2D(" ), std::string::npos ) << "the canvas walk is back in the exec";
+    EXPECT_NE( uiRun.find( "m_Render2D.Flush(node,ctx.Graph.Transients.BackdropBlur,0);" ), std::string::npos );
+    // The runtime declares the blit as block 0 and the 2D batch after it.
+    const std::string runtime = SqueezedSource( root, "Runtime/Source/RuntimeLayer.cpp" );
+    EXPECT_NE( runtime.find( "m_Render2D->DeclareBindings(pass,Graphic::RDG::TextureRef{});" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "m_Render2D->Flush(context,Graphic::RDG::TextureRef{},sceneRef.IsValid()?1u:0u);" ),
+               std::string::npos );
 }
 
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and
@@ -3574,7 +3622,11 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
     EXPECT_NE( runtime.find( "graph.AddPass(\"RuntimePresent\",Graphic::RDG::PassFlags::Raster" ),
                std::string::npos );
     EXPECT_NE( runtime.find( "pass.ColorTarget(0,target," ), std::string::npos );
-    EXPECT_NE( runtime.find( "bindings.Sampled(\"u_Texture\",sceneRef,Graphic::RDG::Access::SampledGraphics" ),
+    // The blit's block is declared in the node's setup (RDG-FAULT1 C3b) with the sampler it had: LinearClamp.
+    EXPECT_NE( runtime.find( "pass.Bindings(m_BlitLayout.Get(m_BlitPipeline->GetSpecification().Shader),"
+                             "m_BlitExecutor->GetRouteFill()).Sampled(\"u_Texture\",sceneRef,"
+                             "Graphic::RDG::Access::SampledGraphics,Graphic::RDG::SubresourceRange::All(),"
+                             "Graphic::RDG::SamplerDesc::LinearClamp());" ),
                std::string::npos );
     EXPECT_NE( runtime.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ),
                std::string::npos );
@@ -3586,9 +3638,9 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
 
     const std::string render2D =
          SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp" );
-    EXPECT_NE(
-         render2D.find( "Common::BoolResultStrFlush(constRDG::PassContext&context,RDG::TextureRefbackdrop);" ),
-         std::string::npos )
+    EXPECT_NE( render2D.find( "Common::BoolResultStrFlush(constRDG::PassContext&context,RDG::TextureRefbackdrop,"
+                              "uint32_tfirstBlock);" ),
+               std::string::npos )
          << "Render2D::Flush takes the node's context, with no default";
     for ( const char* file : { "Desert/Desert/Source/Engine/Graphic/Renderer.hpp",
                                "Desert/Desert/Source/Engine/Graphic/RendererAPI.hpp",
