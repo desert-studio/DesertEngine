@@ -222,16 +222,22 @@ namespace Desert::Destruction
                     uDir[uAxis]               = 1.0;
                     const glm::dvec3 tang     = glm::normalize( uDir - n * glm::dot( n, uDir ) );
                     const glm::dvec3 frame[3] = { n, tang, glm::cross( n, tang ) };
+                    // An overlay element belongs to ONE parent vertex, so a flat value still takes one element
+                    // per corner (UE PlanarCut appends per vertex); Index3i(e,e,e) is refused by SetTriangle.
                     for ( int layer = 0; layer < attributes.NumNormalLayers() && layer < 3; ++layer )
                     {
-                        auto*     overlay = attributes.GetNormalLayer( layer );
-                        const int e       = overlay->AppendElement( glm::vec3( frame[layer] ) );
-                        overlay->SetTriangle( tid, Index3i( e, e, e ) );
+                        auto* overlay = attributes.GetNormalLayer( layer );
+                        int   e[3];
+                        for ( int i = 0; i < 3; ++i )
+                            e[i] = overlay->AppendElement( glm::vec3( frame[layer] ) );
+                        overlay->SetTriangle( tid, Index3i( e[0], e[1], e[2] ) );
                     }
                     if ( auto* colors = attributes.PrimaryColors() )
                     {
-                        const int e = colors->AppendElement( glm::vec4( 1.0f ) );
-                        colors->SetTriangle( tid, Index3i( e, e, e ) );
+                        int e[3];
+                        for ( int i = 0; i < 3; ++i )
+                            e[i] = colors->AppendElement( glm::vec4( 1.0f ) );
+                        colors->SetTriangle( tid, Index3i( e[0], e[1], e[2] ) );
                     }
                 }
             }
