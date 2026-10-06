@@ -9,7 +9,9 @@
 //   - a Curve input (VFX-05) is one parameter row saying where its table sits in the system's curve atlas:
 //     its keys are not in the text, and its time axis brings the Age / Lifetime attributes;
 //   - the generated fragment, included by a host compute program that defines the contract's storage
-//     functions, compiles through shaderc with the engine's own includer.
+//     functions, compiles through shaderc with the engine's own includer — for every module of the engine
+//     library (VFX-06), in both GPU groups;
+//   - every module call has its own random key, apart from every input slot.
 
 #include "../../TestSupport/engine_dir.hpp"
 #include <gtest/gtest.h>
@@ -22,6 +24,9 @@
 #include <Common/Core/Constants.hpp>
 
 #include <shaderc/shaderc.hpp>
+
+#include <algorithm>
+#include <filesystem>
 
 #include <format>
 #include <fstream>
@@ -90,7 +95,7 @@ namespace
                               "            p.Spin = i.Turns;\n"
                               "        }\n    }\n}\n";
 
-    // Falling sparks: spawn = local Init; update = Gravity, SolveForcesAndVelocity (engine library).
+    // Falling sparks: spawn = local Init; update = Gravity, SolveForcesAndVelocity, UpdateAge (engine library).
     S::VFXSystemData Sparks()
     {
         S::VFXSystemData system;
@@ -108,7 +113,8 @@ namespace
              Use( "engine:Gravity",
                   { ValueInput( "Gravity", S::VFXValueType::Vec3, glm::vec4( 0, 0, -981.25f, 0 ) ) } ),
              Use( "engine:SolveForcesAndVelocity",
-                  { BindingInput( "SpeedLimit", S::VFXValueType::Float, "User.Limit" ) } ) };
+                  { BindingInput( "SpeedLimit", S::VFXValueType::Float, "User.Limit" ) } ),
+             Use( "engine:UpdateAge", {} ) };
         system.Emitters.push_back( emitter );
         return system;
     }
@@ -118,6 +124,50 @@ namespace
         auto compiled = VFX::CompileEmitterStack( system, 0, VFX::EngineModuleDir() );
         EXPECT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
         return compiled.IsSuccess() ? compiled.ExtractValue() : VFX::VFXCompiledEmitter{};
+    }
+
+    // The compiled fragment inside a host compute program that defines the contract's six storage functions;
+    // empty when shaderc accepts it, else its message and the program.
+    std::string HostCompileError( const VFX::VFXCompiledEmitter& compiled )
+    {
+        const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( compiled.ShaderText );
+        if ( !parsed.IsSuccess() )
+            return parsed.GetError();
+        const std::string host = std::format(
+             "#version 450\n"
+             "layout( local_size_x = 64 ) in;\n"
+             "layout( std430, set = 0, binding = 0 ) buffer Floats {{ float F[]; }};\n"
+             "layout( std430, set = 0, binding = 1 ) buffer Ints {{ int I[]; }};\n"
+             "layout( std430, set = 0, binding = 2 ) readonly buffer Params {{ vec4 P[]; }};\n"
+             "layout( std430, set = 0, binding = 3 ) readonly buffer Curves {{ float C[]; }};\n"
+             "layout( push_constant ) uniform Push {{ uint Count; uint Base; float Dt; uint Seed; }} pc;\n"
+             "{}\n"
+             "vec4 VFX_Param( uint slot ) {{ return P[pc.Base + slot]; }}\n"
+             "float VFX_ReadFloat( uint particle, uint c ) {{ return F[c * pc.Count + particle]; }}\n"
+             "int VFX_ReadInt( uint particle, uint c ) {{ return I[c * pc.Count + particle]; }}\n"
+             "void VFX_WriteFloat( uint particle, uint c, float v ) {{ F[c * pc.Count + particle] = v; }}\n"
+             "void VFX_WriteInt( uint particle, uint c, int v ) {{ I[c * pc.Count + particle] = v; }}\n"
+             "float VFX_CurveLUT( uint index ) {{ return C[index]; }}\n"
+             "void main()\n{{\n"
+             "    const uint id = gl_GlobalInvocationID.x;\n"
+             "    if ( id >= pc.Count ) return;\n"
+             "    VFXSim sim;\n"
+             "    sim.DeltaTime = pc.Dt; sim.EmitterAge = 0.0; sim.Seed = pc.Seed; sim.ParticleId = id;\n"
+             "    sim.Step = 0u; sim.Spawned = id == 0u; sim.Kill = false;\n"
+             "    VFX_SimulateParticle( id, sim );\n}}\n",
+             parsed.GetValue().Meta.ParticleSource );
+
+        const auto              path = VFX::EngineModuleDir() / "Gravity.shader";
+        shaderc::Compiler       compiler;
+        shaderc::CompileOptions options;
+        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
+        options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
+        options.SetWarningsAsErrors();
+        const auto result =
+             compiler.CompileGlslToSpv( host, shaderc_compute_shader, path.string().c_str(), options );
+        if ( result.GetCompilationStatus() == shaderc_compilation_status_success )
+            return {};
+        return result.GetErrorMessage() + "\n" + host;
     }
 
     std::string Refusal( const S::VFXSystemData& system )
@@ -173,7 +223,7 @@ TEST( VFXStackCompile, TheStackDerivesItsAttributesSortedByName )
     std::vector<std::string> names;
     for ( const auto& a : compiled.Layout.Attributes )
         names.push_back( a.Name );
-    // Init + Gravity + Solve declarations, plus Position from the Particles.Position binding.
+    // Init + Gravity + Solve + UpdateAge declarations, plus Position from the Particles.Position binding.
     EXPECT_EQ( names, ( std::vector<std::string>{ "Age", "Alive", "Lifetime", "Mass", "PhysicsDrag",
                                                   "PhysicsForce", "Position", "Spin", "Velocity" } ) );
     EXPECT_EQ( compiled.Layout.TotalFloatComponents, 1u + 1u + 1u + 1u + 3u + 3u + 3u );
@@ -368,45 +418,67 @@ TEST( VFXStackCompile, TheCompiledStackCompilesInsideAHostProgram )
     for ( const auto& system : { Sparks(), CurvedSparks( -1.0f, -2.0f ) } )
     {
         const auto compiled = Compile( system );
-        const auto parsed   = Desert::Core::Preprocess::DShaderParser::Parse( compiled.ShaderText );
-        ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-
-        const std::string host = std::format(
-             "#version 450\n"
-             "layout( local_size_x = 64 ) in;\n"
-             "layout( std430, set = 0, binding = 0 ) buffer Floats {{ float F[]; }};\n"
-             "layout( std430, set = 0, binding = 1 ) buffer Ints {{ int I[]; }};\n"
-             "layout( std430, set = 0, binding = 2 ) readonly buffer Params {{ vec4 P[]; }};\n"
-             "layout( std430, set = 0, binding = 3 ) readonly buffer Curves {{ float C[]; }};\n"
-             "layout( push_constant ) uniform Push {{ uint Count; uint Base; float Dt; uint Seed; }} pc;\n"
-             "{}\n"
-             "vec4 VFX_Param( uint slot ) {{ return P[pc.Base + slot]; }}\n"
-             "float VFX_ReadFloat( uint particle, uint c ) {{ return F[c * pc.Count + particle]; }}\n"
-             "int VFX_ReadInt( uint particle, uint c ) {{ return I[c * pc.Count + particle]; }}\n"
-             "void VFX_WriteFloat( uint particle, uint c, float v ) {{ F[c * pc.Count + particle] = v; }}\n"
-             "void VFX_WriteInt( uint particle, uint c, int v ) {{ I[c * pc.Count + particle] = v; }}\n"
-             "float VFX_CurveLUT( uint index ) {{ return C[index]; }}\n"
-             "void main()\n{{\n"
-             "    const uint id = gl_GlobalInvocationID.x;\n"
-             "    if ( id >= pc.Count ) return;\n"
-             "    VFXSim sim;\n"
-             "    sim.DeltaTime = pc.Dt; sim.EmitterAge = 0.0; sim.Seed = pc.Seed; sim.ParticleId = id;\n"
-             "    sim.Step = 0u; sim.Spawned = id == 0u; sim.Kill = false;\n"
-             "    VFX_SimulateParticle( id, sim );\n}}\n",
-             parsed.GetValue().Meta.ParticleSource );
-
-        const auto              path = VFX::EngineModuleDir() / "Gravity.shader";
-        shaderc::Compiler       compiler;
-        shaderc::CompileOptions options;
-        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
-        options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
-        options.SetWarningsAsErrors();
-        const auto result =
-             compiler.CompileGlslToSpv( host, shaderc_compute_shader, path.string().c_str(), options );
-        EXPECT_EQ( result.GetCompilationStatus(), shaderc_compilation_status_success )
-             << result.GetErrorMessage() << "\n"
-             << host;
+        EXPECT_EQ( HostCompileError( compiled ), "" );
     }
+}
+
+// VFX-06: every module of the engine library, its inputs given as Values, compiles in a stack — once in the
+// spawn group and once in the update group — and the stack compiles inside the host program.
+TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
+{
+    std::vector<std::filesystem::path> paths;
+    for ( const auto& entry : std::filesystem::directory_iterator( VFX::EngineModuleDir() ) )
+        if ( entry.path().extension() == ".shader" )
+            paths.push_back( entry.path() );
+    std::sort( paths.begin(), paths.end() );
+    for ( const char* expected : { "ShapePoint", "ShapeSphere", "ShapeBox", "ShapeCone", "AddVelocityInCone",
+                                   "InitializeLifetime", "UpdateAge", "Gravity", "SolveForcesAndVelocity" } )
+        EXPECT_NE( std::find( paths.begin(), paths.end(), VFX::EngineModuleDir() / ( std::string( expected ) + ".shader" ) ),
+                   paths.end() )
+             << expected;
+
+    for ( const auto& path : paths )
+    {
+        std::ifstream      in( path );
+        std::ostringstream text;
+        text << in.rdbuf();
+        const auto module = VFX::ParseParticleModule( text.str(), path.string() );
+        ASSERT_TRUE( module.IsSuccess() ) << module.GetError();
+
+        std::vector<S::VFXModuleInput> inputs;
+        for ( const auto& d : module.GetValue().Inputs )
+            inputs.push_back( ValueInput( d.Name, d.Type, glm::vec4( 1.0f, 0, 0, 0 ) ) );
+        const std::string name = "engine:" + path.stem().string();
+
+        S::VFXSystemData  system;
+        S::VFXEmitterData emitter;
+        emitter.Name                 = path.stem().string();
+        emitter.Stack.ParticleSpawn  = { Use( name, inputs ) };
+        emitter.Stack.ParticleUpdate = { Use( name, inputs ) };
+        system.Emitters.push_back( emitter );
+
+        const auto compiled = VFX::CompileEmitterStack( system, 0, VFX::EngineModuleDir() );
+        ASSERT_TRUE( compiled.IsSuccess() ) << name << ": " << compiled.GetError();
+        EXPECT_EQ( HostCompileError( compiled.GetValue() ), "" ) << name;
+    }
+}
+
+// Two calls of one module draw their own numbers: each call's key is its place in the stack with the top bit up, so
+// it differs from the other call's and from every input slot (slots count from zero).
+TEST( VFXStackCompile, EveryModuleCallHasItsOwnRandomKey )
+{
+    S::VFXSystemData  system;
+    S::VFXEmitterData emitter;
+    emitter.Name = "Two spheres";
+    const auto sphere = Use( "engine:ShapeSphere", { ValueInput( "Radius", S::VFXValueType::Float, glm::vec4( 10.0f ) ),
+                                                     ValueInput( "Offset", S::VFXValueType::Vec3, glm::vec4( 0.0f ) ) } );
+    emitter.Stack.ParticleSpawn  = { sphere, sphere };
+    emitter.Stack.ParticleUpdate = { sphere };
+    system.Emitters.push_back( emitter );
+    const auto compiled = Compile( system );
+    for ( const char* key : { "i.VFXModuleKey = 2147483648u;", "i.VFXModuleKey = 2147483664u;",
+                              "i.VFXModuleKey = 2147549184u;" } )
+        EXPECT_NE( compiled.ShaderText.find( key ), std::string::npos ) << key << "\n" << compiled.ShaderText;
 }
 
 int main( int argc, char** argv )

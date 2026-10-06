@@ -1,8 +1,8 @@
 // DesertAsset {"Kind":"Shader","Guid":"d1378c9a2062498ab14e47e7ef29cccb","Versions":{"SHDR":1},"Dependencies":[]}
 // Engine VFX module `engine:SolveForcesAndVelocity` (UE Niagara Content/Modules/Solvers/SolveForcesAndVelocity):
 // the last update module. Integrates the forces the modules above accumulated into the velocity
-// (a = F / m, linear drag as a per-second decay), the velocity into the position, ages the particle and
-// retires it past its lifetime; the force accumulator is cleared for the next step.
+// (a = F / m, linear drag as a per-second decay) and the velocity into the position; the force accumulator is
+// cleared for the next step. Ageing and retiring the particle is UpdateAge's (UE: Particle State), not the solver's.
 Shader "VFX/Modules/SolveForcesAndVelocity"
 {
     Domain Particle
@@ -13,8 +13,6 @@ Shader "VFX/Modules/SolveForcesAndVelocity"
         Attribute PhysicsForce vec3
         Attribute PhysicsDrag float
         Attribute Mass float
-        Attribute Age float
-        Attribute Lifetime float
         Input SpeedLimit float
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
@@ -32,10 +30,6 @@ Shader "VFX/Modules/SolveForcesAndVelocity"
 
             p.Position += p.Velocity * dt;
             p.PhysicsForce = vec3( 0.0 );
-
-            p.Age += dt;
-            if ( p.Lifetime > 0.0 && p.Age >= p.Lifetime )
-                sim.Kill = true;
         }
     }
 }

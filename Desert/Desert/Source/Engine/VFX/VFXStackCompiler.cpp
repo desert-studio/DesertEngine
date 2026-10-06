@@ -476,8 +476,12 @@ namespace Desert::VFX
                     continue;
                 const ResolvedModule& resolved = modules.at( use.Module );
                 std::format_to( std::back_inserter( out ), "        {{\n            {} i;\n", resolved.Inputs );
-                if ( resolved.Module.Inputs.empty() )
-                    out += "            i.VFXNoInputs = 0;\n";
+                // The call's own random key (VFX_ModuleRandom): its place in the stack, top bit up — structure,
+                // not a value, so it belongs in the text.
+                std::format_to( std::back_inserter( out ), "            i.VFXModuleKey = {}u;\n",
+                                0x80000000u + ( ( group == VFXStackGroup::ParticleSpawn ? 0u : 1u ) * 4096u +
+                                                static_cast<uint32_t>( m ) ) *
+                                                   16u );
                 for ( const VFXModuleDecl& d : resolved.Module.Inputs )
                 {
                     const S::VFXModuleInput& in = *std::find_if(
@@ -532,8 +536,7 @@ namespace Desert::VFX
         {
             const ResolvedModule& resolved = modules.at( ref );
             std::format_to( std::back_inserter( body ), "\n// {}\nstruct {}\n{{\n", ref, resolved.Inputs );
-            if ( resolved.Module.Inputs.empty() )
-                body += "    int VFXNoInputs;\n";
+            body += "    uint VFXModuleKey;\n";
             for ( const VFXModuleDecl& d : resolved.Module.Inputs )
                 std::format_to( std::back_inserter( body ), "    {} {};\n", GlslTypeName( d.Type ), d.Name );
             body += "};\n";

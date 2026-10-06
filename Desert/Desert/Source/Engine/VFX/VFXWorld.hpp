@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/VFX/VFXClock.hpp>
+#include <Engine/VFX/VFXEmitterSpawn.hpp>
 
 #include <entt/entt.hpp>
 
@@ -31,8 +32,8 @@ namespace Desert::VFX
         // steps below. Unique across the whole process, so state can never be mistaken for a later one.
         std::uint64_t Generation = 0;
 
-        std::uint32_t    NextId = 0; // particle ids handed out since the last reset
-        SpawnAccumulator Spawn;
+        std::uint32_t NextId = 0; // particle ids handed out since the last reset
+        SpawnState    Spawn;      // the births of each step (VFXEmitterSpawn): lifecycle, rate, bursts
 
         // This tick's steps, in order; empty when the clock ran none or the emitter is disabled.
         std::vector<EmitterStep> Steps;

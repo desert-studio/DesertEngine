@@ -47,6 +47,37 @@ vec4 VFX_Random( in VFXSim sim, uint slot )
     return VFXRandomFloat4( uvec4( sim.Seed, sim.ParticleId, sim.Step, slot ) );
 }
 
+// Four uniform numbers in [0, 1) for a module's OWN draw @p n (0..15) — a shape's point, a cone's direction (UE
+// stateless RandomFloat4(RandomSeedOffset)). @p moduleKey is the module call's `i.VFXModuleKey`, which the
+// compiler sets to the call's place in the stack with the top bit up, so it never meets an input's slot key and
+// two calls of one module draw different numbers.
+vec4 VFX_ModuleRandom( in VFXSim sim, uint moduleKey, uint n )
+{
+    return VFXRandomFloat4( uvec4( sim.Seed, sim.ParticleId, sim.Step, moduleKey + n ) );
+}
+
+// A uniformly distributed unit vector from a module draw (UE RandomUnitFloat3: SafeNormalize(Random - 0.5));
+// the degenerate centre of the cube falls back to +Z.
+vec3 VFX_RandomUnitVector( vec4 r )
+{
+    const vec3  v = r.xyz - 0.5;
+    const float l = length( v );
+    return l > 1e-6 ? v / l : vec3( 0.0, 0.0, 1.0 );
+}
+
+// The rotation that takes +Z to the unit vector @p axis, applied to @p v (UE's cone quaternion, built here from
+// the axis so the stack row stays a plain direction).
+vec3 VFX_RotateZTo( vec3 axis, vec3 v )
+{
+    const float l = length( axis );
+    const vec3  z = l > 1e-6 ? axis / l : vec3( 0.0, 0.0, 1.0 );
+    const float c = z.z;
+    if ( c < -0.999999 )
+        return vec3( v.x, -v.y, -v.z ); // half turn about +X
+    const vec3  k = vec3( -z.y, z.x, 0.0 ); // +Z x z
+    return v * c + cross( k, v ) + k * ( dot( k, v ) / ( 1.0 + c ) );
+}
+
 // The time axis of a particle-group curve. A particle with no lifetime is at the end of its life.
 float VFX_NormalizedAge( float age, float lifetime )
 {

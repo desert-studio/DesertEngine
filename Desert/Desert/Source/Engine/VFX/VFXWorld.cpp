@@ -3,6 +3,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXRandom.hpp>
 
+#include <algorithm>
 #include <unordered_map>
 
 namespace Desert::VFX
@@ -78,12 +79,17 @@ namespace Desert::VFX
                  if ( !d.Enabled || d.MaxParticles <= 0 )
                      return;
 
+                 // The component is an emitter of one SpawnRate module that runs forever; a non-looping one has
+                 // no loop duration to spawn over, so it bears nothing. A `.dfx` emitter's plan comes from
+                 // CompileSpawnPlan over its lifecycle and EmitterUpdate group.
+                 VFXSpawnPlan plan;
+                 plan.Lifecycle.Loop = Assets::Serialization::VFXLoopBehavior::Infinite;
+                 plan.Rate           = d.Looping ? std::max( static_cast<double>( d.SpawnRate ), 0.0 ) : 0.0;
+
                  instance.Steps.reserve( m_Plan.StepCount );
                  for ( std::uint32_t s = 0; s < m_Plan.StepCount; ++s )
                  {
-                     std::uint32_t budget = instance.Spawn.Step( d.SpawnRate, stepSeconds );
-                     if ( !d.Looping )
-                         budget = 0; // one-shot bursts are a follow-up; looping emits continuously
+                     const std::uint32_t budget = instance.Spawn.Step( plan, stepSeconds );
                      instance.Steps.push_back( { instance.NextId, budget } );
                      instance.NextId += budget;
                  }
