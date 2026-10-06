@@ -186,9 +186,9 @@ namespace Desert::Graphic
         RDG::TextureDesc Desc;
         // Graph names of the two sides as registered each frame, e.g. "TAA.History" (written this frame) and
         // "TAA.History.Previous" (read this frame). Both static strings (the graph keeps a view while building),
-        // non-empty and different from each other and from every other history's names — SceneViewState::BeginFrame
-        // refuses an upscaler whose descs break that, naming it: two externals under one name make every graph
-        // dump, fault report and capture ambiguous about which side a pass touched.
+        // non-empty and different from each other and from every other history's names —
+        // SceneViewState::BeginFrame refuses an upscaler whose descs break that, naming it: two externals under
+        // one name make every graph dump, fault report and capture ambiguous about which side a pass touched.
         const char* Name         = "";
         const char* PreviousName = "";
 
@@ -284,8 +284,8 @@ namespace Desert::Graphic
         bool            m_HasCommitted = false;
         ViewFrame       m_Pending;   // returned by the last BeginFrame, committed by EndFrame
         ViewFrame       m_Committed; // the previous frame
-        uint64_t        m_CommittedCameraIdentity = 0; // the camera of m_Committed (written by EndFrame only)
-        uint64_t        m_PendingCameraIdentity   = 0; // the camera of m_Pending (written by BeginFrame)
+        uint64_t        m_CommittedCameraIdentity = 0;     // the camera of m_Committed (written by EndFrame only)
+        uint64_t        m_PendingCameraIdentity   = 0;     // the camera of m_Pending (written by BeginFrame)
         bool            m_FrameOpen               = false; // a BeginFrame succeeded and its EndFrame has not run
         uint64_t        m_SceneIdentity           = 0;
         bool            m_PendingFaultReset       = false;

@@ -73,9 +73,10 @@ namespace Desert::Graphic
                              "SceneViewState::BeginFrame: upscaler '{}' declares history {} with an empty {}",
                              upscalerName, i, side == descs[i].Name ? "Name" : "PreviousName" );
                     if ( std::find( seen.begin(), seen.end(), name ) != seen.end() )
-                        return Common::MakeFormattedError<bool>( "SceneViewState::BeginFrame: upscaler '{}' declares "
-                                                           "the history name '{}' twice (history {})",
-                                                           upscalerName, name, i );
+                        return Common::MakeFormattedError<bool>(
+                             "SceneViewState::BeginFrame: upscaler '{}' declares "
+                             "the history name '{}' twice (history {})",
+                             upscalerName, name, i );
                     seen.push_back( name );
                 }
             }

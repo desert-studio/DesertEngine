@@ -4,6 +4,9 @@
 // headers only; it does not link until TAA1's implementation step lands, and that step is done when this suite
 // passes unchanged. No GPU: the graph is a bare RDG::Builder that is never executed, and the upscaler is a fixture
 // that declares the same history TAA does.
+#include <Engine/Graphic/GraphImageImporter.hpp>
+#include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/ImageFactory.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
@@ -56,7 +59,7 @@ namespace
     }
 
     // Declares exactly what the engine's TAA declares: one RGBA16F colour history at the split's output side.
-    class FixtureUpscaler final : public ITemporalUpscaler
+    class FixtureUpscaler : public ITemporalUpscaler
     {
     public:
         explicit FixtureUpscaler( TemporalMethod method ) : m_Method( method )
@@ -82,6 +85,7 @@ namespace
             desc.Desc.Size   = { side.Width, side.Height, 1 };
             desc.Desc.Format = Desert::Core::Formats::ImageFormat::RGBA16F;
             desc.Name        = "TAA.History";
+            desc.PreviousName = "TAA.History.Previous";
             return { desc };
         }
         Common::ResultStr<TemporalUpscalerOutputs> AddPasses( RDG::Builder&, const ViewFrame&,
@@ -501,4 +505,241 @@ TEST( TemporalViewContract, GpuObjectMotionIsTwoMatrices )
 {
     EXPECT_EQ( sizeof( GpuObjectMotion ), 128u );
     EXPECT_EQ( offsetof( GpuObjectMotion, PrevWorld ), 64u );
+}
+
+// ---- TAA1-I2: the contract-header fixes -----------------------------------------------------------------------
+
+namespace
+{
+    namespace Formats = Desert::Core::Formats;
+
+    class FakeImage2D final : public Image2D
+    {
+    public:
+        explicit FakeImage2D( const Formats::Image2DSpecification& spec ) : m_Spec( spec )
+        {
+        }
+        [[nodiscard]] uint32_t GetWidth() const override
+        {
+            return m_Spec.Width;
+        }
+        [[nodiscard]] uint32_t GetHeight() const override
+        {
+            return m_Spec.Height;
+        }
+        [[nodiscard]] uint32_t GetMipmapLevels() const override
+        {
+            return m_Spec.Mips;
+        }
+        Formats::Image2DSpecification& GetImageSpecification() override
+        {
+            return m_Spec;
+        }
+        Common::BoolResultStr Invalidate() override
+        {
+            return Common::MakeSuccess( true );
+        }
+        Common::BoolResultStr Release() override
+        {
+            return Common::MakeSuccess( true );
+        }
+
+    private:
+        Formats::Image2DSpecification m_Spec;
+    };
+
+    struct MadeImage
+    {
+        uint32_t             Width      = 0;
+        uint32_t             Height     = 0;
+        Formats::ImageFormat Format     = Formats::ImageFormat::RGBA8F;
+        uint32_t             Properties = 0;
+    };
+
+    // The mock device: records every image asked for; Fail makes it answer null like a device out of memory.
+    class MockImageFactory final : public IImageFactory
+    {
+    public:
+        mutable std::vector<MadeImage> Made;
+        bool                           Fail = false;
+
+        [[nodiscard]] std::shared_ptr<Image2D>
+        CreateImage2D( const Formats::Image2DSpecification& spec ) const override
+        {
+            if ( Fail )
+                return nullptr;
+            Made.push_back( { spec.Width, spec.Height, spec.Format, static_cast<uint32_t>( spec.Properties ) } );
+            return std::make_shared<FakeImage2D>( spec );
+        }
+    };
+
+    class FakePhysical final : public RDG::IPhysicalTexture
+    {
+    public:
+        [[nodiscard]] RDG::BackendKind GetBackendKind() const override
+        {
+            return static_cast<RDG::BackendKind>( 0 );
+        }
+    };
+
+    // The mock backend import: the image's own shape as the graph desc, and a fake physical image.
+    class MockImporter final : public IGraphImageImporter
+    {
+    public:
+        [[nodiscard]] Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image,
+                                                         RDG::ExternalTexture&         into ) const override
+        {
+            auto* image2D = dynamic_cast<FakeImage2D*>( image.get() );
+            if ( image2D == nullptr )
+                return Common::MakeFormattedError<bool>( "MockImporter: not a FakeImage2D" );
+            RDG::TextureDesc desc;
+            desc.Size     = { image2D->GetWidth(), image2D->GetHeight(), 1 };
+            desc.Format   = image2D->GetImageSpecification().Format;
+            desc.Mips     = image2D->GetMipmapLevels();
+            into          = RDG::ExternalTexture( desc, RDG::Access::None );
+            into.Physical = std::make_shared<FakePhysical>();
+            return Common::MakeSuccess( true );
+        }
+    };
+
+    // Declares its two sides under one name: what HistoryTextureDesc forbids.
+    class OneNameUpscaler final : public FixtureUpscaler
+    {
+    public:
+        OneNameUpscaler() : FixtureUpscaler( TemporalMethod::TAA )
+        {
+        }
+        std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
+        {
+            std::vector<HistoryTextureDesc> descs = FixtureUpscaler::HistoryDescs( split );
+            descs.front().PreviousName            = descs.front().Name;
+            return descs;
+        }
+    };
+} // namespace
+
+// Fix 1: the device step makes exactly the pair, of the declared shape, once per shape.
+TEST( TemporalViewContract, AllocatePhysicalMakesTwoImagesPerHistoryOfTheDeclaredShape )
+{
+    SceneViewState         state;
+    const FixtureUpscaler  taa( TemporalMethod::TAA );
+    const MockImageFactory factory;
+    const MockImporter     importer;
+    (void)state.BeginFrame( Inputs( 1.0 ), &taa );
+    EXPECT_FALSE( state.History().HasPhysical() );
+
+    const Common::BoolResultStr first = state.History().AllocatePhysical( factory, importer );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    ASSERT_EQ( factory.Made.size(), 2u );
+    for ( const MadeImage& made : factory.Made )
+    {
+        EXPECT_EQ( made.Width, 1920u );
+        EXPECT_EQ( made.Height, 1080u );
+        EXPECT_EQ( made.Format, Formats::ImageFormat::RGBA16F );
+        EXPECT_EQ( made.Properties, static_cast<uint32_t>( Formats::Storage | Formats::Sample ) );
+    }
+    EXPECT_TRUE( state.History().HasPhysical() );
+    ASSERT_TRUE( state.History().AllocatePhysical( factory, importer ).IsSuccess() );
+    EXPECT_EQ( factory.Made.size(), 2u ) << "an allocated history was allocated again";
+    state.EndFrame( RDG::ExecuteReport{} );
+
+    ViewInputs smaller = Inputs( 1.25 );
+    smaller.Output     = { 1280, 720 };
+    (void)state.BeginFrame( smaller, &taa );
+    EXPECT_FALSE( state.History().HasPhysical() ) << "a resized history kept the old images";
+    ASSERT_TRUE( state.History().AllocatePhysical( factory, importer ).IsSuccess() );
+    ASSERT_EQ( factory.Made.size(), 4u );
+    EXPECT_EQ( factory.Made[2].Width, 1280u );
+    EXPECT_EQ( factory.Made[3].Height, 720u );
+}
+
+TEST( TemporalViewContract, AFactoryFailureIsReturnedByHistoryName )
+{
+    SceneViewState        state;
+    const FixtureUpscaler taa( TemporalMethod::TAA );
+    MockImageFactory      factory;
+    const MockImporter    importer;
+    (void)state.BeginFrame( Inputs( 1.0 ), &taa );
+    factory.Fail                           = true;
+    const Common::BoolResultStr allocation = state.History().AllocatePhysical( factory, importer );
+    ASSERT_FALSE( allocation.IsSuccess() );
+    EXPECT_NE( std::string( allocation.GetError() ).find( "TAA.History" ), std::string::npos )
+         << allocation.GetError();
+    EXPECT_FALSE( state.History().HasPhysical() );
+    factory.Fail = false;
+    EXPECT_TRUE( state.History().AllocatePhysical( factory, importer ).IsSuccess() ) << "a failure is retried";
+}
+
+// Fix 2. The history and every Prev* belong to the last COMMITTED frame. A cut frame to camera 8 that never ended
+// wrote no history for camera 8, so the next frame with camera 8 must STILL reset (its history is camera 7's) ...
+TEST( TemporalViewContract, AnUnendedCutStillResetsTheNextFrameOfTheNewCamera )
+{
+    SceneViewState        state;
+    const FixtureUpscaler taa( TemporalMethod::TAA );
+    (void)state.BeginFrame( Inputs( 1.0 ), &taa ); // camera 7
+    state.EndFrame( RDG::ExecuteReport{} );
+    ViewInputs other     = Inputs( 1.25 );
+    other.CameraIdentity = 8;
+    EXPECT_EQ( Value( state.BeginFrame( other, &taa ) ).HistoryReset, HistoryResetReason::CameraCut ); // unended
+    other.TimeSeconds = 1.5;
+    EXPECT_EQ( Value( state.BeginFrame( other, &taa ) ).HistoryReset, HistoryResetReason::CameraCut );
+}
+
+// ... and a frame back on camera 7 is NOT a cut: the unended frame never happened, so camera 7's history is
+// exactly the previous frame. (Committing the identity in BeginFrame made this a spurious reset.)
+TEST( TemporalViewContract, AnUnendedCutDoesNotResetTheCommittedCamera )
+{
+    SceneViewState        state;
+    const FixtureUpscaler taa( TemporalMethod::TAA );
+    (void)state.BeginFrame( Inputs( 1.0 ), &taa ); // camera 7
+    state.EndFrame( RDG::ExecuteReport{} );
+    ViewInputs other     = Inputs( 1.25 );
+    other.CameraIdentity = 8;
+    (void)state.BeginFrame( other, &taa ); // unended
+    EXPECT_EQ( Value( state.BeginFrame( Inputs( 1.5 ), &taa ) ).HistoryReset, HistoryResetReason::None );
+}
+
+// Fix 3: an unended frame drops only its own motion records.
+TEST( TemporalViewContract, PreviousTransformsSurviveAnUnendedFrame )
+{
+    SceneViewState        state;
+    const FixtureUpscaler taa( TemporalMethod::TAA );
+    const MotionKey       key{ 3, 0 };
+    const glm::mat4       t1 = glm::translate( glm::mat4( 1.0f ), glm::vec3( 100.0f, 0.0f, 0.0f ) );
+    const glm::mat4       t2 = glm::translate( glm::mat4( 1.0f ), glm::vec3( 200.0f, 0.0f, 0.0f ) );
+    const glm::mat4       t3 = glm::translate( glm::mat4( 1.0f ), glm::vec3( 300.0f, 0.0f, 0.0f ) );
+    (void)state.BeginFrame( Inputs( 1.0 ), &taa );
+    (void)state.Motion().PreviousTransform( key, t1 );
+    state.EndFrame( RDG::ExecuteReport{} );
+    (void)state.BeginFrame( Inputs( 1.25 ), &taa );
+    (void)state.Motion().PreviousTransform( key, t2 ); // FrameFault: no EndFrame
+    ASSERT_EQ( Value( state.BeginFrame( Inputs( 1.5 ), &taa ) ).HistoryReset, HistoryResetReason::None );
+    EXPECT_EQ( state.Motion().PreviousTransform( key, t3 ), t1 )
+         << "the committed frame's transform was lost (or the unended frame's leaked in)";
+}
+
+// Fix 4: the two sides are told apart by name in the graph.
+TEST( TemporalViewContract, TheTwoHistorySidesAreRegisteredUnderTheirOwnNames )
+{
+    SceneViewState        state;
+    const FixtureUpscaler taa( TemporalMethod::TAA );
+    (void)state.BeginFrame( Inputs( 1.0 ), &taa );
+    RDG::Builder                   graph( "TemporalViewContract" );
+    const std::vector<HistoryRefs> refs = state.History().Register( graph );
+    ASSERT_EQ( refs.size(), 1u );
+    const auto previous = graph.GetTextureName( refs[0].Previous );
+    const auto current  = graph.GetTextureName( refs[0].Current );
+    ASSERT_TRUE( previous.IsSuccess() && current.IsSuccess() );
+    EXPECT_EQ( current.GetValue(), "TAA.History" );
+    EXPECT_EQ( previous.GetValue(), "TAA.History.Previous" );
+}
+
+TEST( TemporalViewContract, AnUpscalerWhoseHistorySidesShareANameIsRefused )
+{
+    SceneViewState        state;
+    const OneNameUpscaler oneName;
+    const auto            frame = state.BeginFrame( Inputs( 1.0 ), &oneName );
+    ASSERT_FALSE( frame.IsSuccess() );
+    EXPECT_NE( std::string( frame.GetError() ).find( "TAA.History" ), std::string::npos ) << frame.GetError();
+    EXPECT_EQ( state.HeldBytes(), 0u ) << "a refused frame changed the state";
 }

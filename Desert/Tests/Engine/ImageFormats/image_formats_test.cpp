@@ -103,6 +103,16 @@ TEST( ImageFormatBytesPerPixel, R16IsOneColourChannelOfTwoBytes )
     EXPECT_EQ( CalculateImageSize( 65, 65, ImageFormat::R16_UNORM ), 65u * 65u * 2u );
 }
 
+// The velocity target (TAA1 kVelocityFormat) is two half floats of NDC motion, sampled as colour: a channel count
+// or a size of anything else would make the view memory line and the staging of a readback wrong.
+TEST( ImageFormatBytesPerPixel, RG16FIsTwoColourChannelsOfFourBytes )
+{
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::RG16F ), 2u );
+    EXPECT_EQ( GetImageAspect( ImageFormat::RG16F ), Formats::ImageAspect_Colour );
+    EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::RG16F ) );
+    EXPECT_EQ( CalculateImageSize( 1920, 1080, ImageFormat::RG16F ), 1920u * 1080u * 4u );
+}
+
 // The property the deleted `return 0U;` used to violate: no declared format answers zero. A zero here
 // is not a wrong number, it is an allocation of nothing for an image that exists.
 TEST( ImageFormatBytesPerPixel, NoEnumeratorAnswersZero )
