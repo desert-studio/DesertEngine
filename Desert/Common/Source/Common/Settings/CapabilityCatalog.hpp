@@ -144,7 +144,7 @@ namespace Common::Scalability
     };
 
     // The written names of the three enums a quality parameter stores, indexed by the enum's value: the
-    // Scalability.yaml loader reads them, the catalog log line and the editor's labels print them. One list per
+    // Scalability.json loader reads them, the catalog log line and the editor's labels print them. One list per
     // enum so a name can never differ between the data file and the log.
     inline constexpr std::array<std::string_view, 7> kAntiAliasingMethodNames{ "None", "FXAA",      "SMAA", "MSAA",
                                                                                "TAA",  "FSRNative", "DLAA" };

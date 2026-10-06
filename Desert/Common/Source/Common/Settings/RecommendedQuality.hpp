@@ -13,13 +13,12 @@
 //
 // UE: Scalability::BenchmarkQualityLevels() runs a synthetic benchmark (FSynthBenchmark: CPU + GPU perf index),
 // then maps each index through PerfIndexThresholds_<Group> in BaseScalability.ini. The shape is kept: a GPU perf
-// index from a short timestamp-timed run, thresholds from the same Scalability.yaml as the levels (one data file,
+// index from a short timestamp-timed run, thresholds from the same Scalability.json as the levels (one data file,
 // ScalabilityTable::RecommendThresholds), then a VRAM cap on the memory-bound groups.
 //
 // DIFFERENCES FROM UE, ON PURPOSE.
-//   * No CPU perf index: no group's cost here is CPU-bound yet (view distance is GPU draw cost); a CPU index with
-//   no
-//     reader is a dead value. It joins when a group's threshold needs it.
+//   * No CPU perf index: no group's cost here is CPU-bound yet (view distance is GPU draw cost); a CPU index
+//     with no reader is a dead value. It joins when a group's threshold needs it.
 //   * The result is CACHED per (device, driver, table version) in machine.json, so a driver update or a table
 //     change re-benchmarks, and nothing else does. UE re-runs on demand only.
 //   * A device that cannot time passes (GpuTiming != AnyStage — MoltenVK on Apple GPUs, or no timestamps) does NOT
