@@ -6,6 +6,8 @@
 //   - any structural change (order, source, binding, enabled, a module's own source) moves the key;
 //   - the attribute layout is UE's BuildLayout: per class (float / int32) prefix sums;
 //   - the parameter buffer rows follow the slots; refusals name what is wrong;
+//   - a Curve input (VFX-05) is one parameter row saying where its table sits in the system's curve atlas:
+//     its keys are not in the text, and its time axis brings the Age / Lifetime attributes;
 //   - the generated fragment, included by a host compute program that defines the contract's storage
 //     functions, compiles through shaderc with the engine's own includer.
 
@@ -14,6 +16,7 @@
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
+#include <Engine/VFX/VFXCurveLUT.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -209,7 +212,9 @@ TEST( VFXStackCompile, AValueIsNeverInTheTextAndChangingItKeepsTheKey )
     // The values live in the parameter buffer, row by row in slot order: spawn Life (Min, Max), Turns (Min, Max),
     // update Gravity, User.Limit.
     ASSERT_EQ( after.Slots.size(), 6u );
-    const auto rows = VFX::BuildEmitterParams( after, system, 0 );
+    const auto atlas = VFX::BuildCurveAtlas( system );
+    ASSERT_TRUE( atlas.IsSuccess() ) << atlas.GetError();
+    const auto rows = VFX::BuildEmitterParams( after, system, 0, atlas.GetValue() );
     ASSERT_TRUE( rows.IsSuccess() ) << rows.GetError();
     EXPECT_EQ( rows.GetValue()[0], glm::vec4( 3, 0, 0, 0 ) );
     EXPECT_EQ( rows.GetValue()[1], glm::vec4( 4, 0, 0, 0 ) );
@@ -287,13 +292,6 @@ TEST( VFXStackCompile, RefusalsNameWhatIsWrong )
          ValueInput( "Gravity", S::VFXValueType::Float, glm::vec4( 1, 0, 0, 0 ) );
     EXPECT_NE( Refusal( mistyped ).find( "the row says float, the module declares vec3" ), std::string::npos );
 
-    auto  curve = Sparks();
-    auto& life  = curve.Emitters[0].Stack.ParticleSpawn[0].Inputs[0];
-    life.Source = S::VFXInputSource::Curve;
-    life.Random.reset();
-    life.Curve = std::vector<std::vector<S::VFXCurveKey>>{ { S::VFXCurveKey{} } };
-    EXPECT_NE( Refusal( curve ).find( "VFX-05" ), std::string::npos );
-
     // Two modules disagreeing about an attribute's type.
     auto clash                   = Sparks();
     clash.LocalModules[0].Source = std::string( kInitSource );
@@ -307,45 +305,108 @@ TEST( VFXStackCompile, RefusalsNameWhatIsWrong )
     EXPECT_NE( Refusal( empty ).find( "no particle attribute" ), std::string::npos );
 }
 
-// The compiled fragment inside a host compute program that defines the contract's five storage functions.
+namespace
+{
+    // Sparks with the update Gravity driven by a curve over the particle's normalised age.
+    S::VFXSystemData CurvedSparks( float z0, float z1 )
+    {
+        auto  system   = Sparks();
+        auto& gravity  = system.Emitters[0].Stack.ParticleUpdate[0].Inputs[0];
+        gravity.Source = S::VFXInputSource::Curve;
+        gravity.Value.reset();
+        const auto flat = []( float v ) { return std::vector<S::VFXCurveKey>{ S::VFXCurveKey{ 0.0f, v } }; };
+        gravity.Curve   = std::vector<std::vector<S::VFXCurveKey>>{
+             flat( 0.0f ), flat( 0.0f ), { S::VFXCurveKey{ 0.0f, z0 }, S::VFXCurveKey{ 1.0f, z1 } } };
+        return system;
+    }
+} // namespace
+
+// VFX-05: a curve input is a LUT row, its keys are data, its time axis is the normalised age.
+TEST( VFXStackCompile, ACurveInputIsALUTRowAndItsKeysAreNotInTheText )
+{
+    auto       system = CurvedSparks( -123.5f, -987.75f );
+    const auto before = Compile( system );
+    for ( const char* digits : { "123.5", "987.75" } )
+        EXPECT_EQ( before.ShaderText.find( digits ), std::string::npos ) << digits;
+    // Spawn Life (Min, Max), Turns (Min, Max), then the curve's row 4.
+    ASSERT_GE( before.Slots.size(), 5u );
+    EXPECT_EQ( before.Slots[4].SlotKind, VFX::VFXParamSlot::Kind::Curve );
+    EXPECT_NE( before.ShaderText.find( "VFX_CurveSample( 4u, VFX_NormalizedAge( p.Age, p.Lifetime ), 3u ).xyz" ),
+               std::string::npos )
+         << before.ShaderText;
+    EXPECT_NE( before.Layout.Find( "Age" ), nullptr );
+
+    // New key values, same program; and Value -> Curve is a structural change that moves it.
+    system.Emitters[0].Stack.ParticleUpdate[0].Inputs[0].Curve->at( 2 ).at( 1 ).Value = -5.0f;
+    const auto after                                                                  = Compile( system );
+    EXPECT_EQ( after.ShaderText, before.ShaderText );
+    EXPECT_EQ( after.Key, before.Key );
+    EXPECT_NE( Compile( Sparks() ).Key, before.Key );
+
+    // The row says where the table is; reading the table at the end of life gives the new last key.
+    const auto atlas = VFX::BuildCurveAtlas( system );
+    ASSERT_TRUE( atlas.IsSuccess() ) << atlas.GetError();
+    ASSERT_EQ( atlas.GetValue().Entries.size(), 1u );
+    const auto& entry = atlas.GetValue().Entries[0].second;
+    const auto  rows  = VFX::BuildEmitterParams( after, system, 0, atlas.GetValue() );
+    ASSERT_TRUE( rows.IsSuccess() ) << rows.GetError();
+    EXPECT_EQ( rows.GetValue()[4], VFX::CurveParamRow( entry ) );
+    EXPECT_FLOAT_EQ( VFX::SampleCurveLUT( atlas.GetValue().Floats, entry, 1.0f ).z, -5.0f );
+
+    // An atlas built from another system has no table for this input: an error, not a zero row.
+    const auto other = VFX::BuildCurveAtlas( Sparks() );
+    ASSERT_TRUE( other.IsSuccess() );
+    const auto stale = VFX::BuildEmitterParams( after, system, 0, other.GetValue() );
+    ASSERT_FALSE( stale.IsSuccess() );
+    EXPECT_NE( stale.GetError().find( "curve atlas" ), std::string::npos ) << stale.GetError();
+}
+
+// The compiled fragment inside a host compute program that defines the contract's six storage functions, with
+// and without a curve input.
 TEST( VFXStackCompile, TheCompiledStackCompilesInsideAHostProgram )
 {
-    const auto compiled = Compile( Sparks() );
-    const auto parsed   = Desert::Core::Preprocess::DShaderParser::Parse( compiled.ShaderText );
-    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    for ( const auto& system : { Sparks(), CurvedSparks( -1.0f, -2.0f ) } )
+    {
+        const auto compiled = Compile( system );
+        const auto parsed   = Desert::Core::Preprocess::DShaderParser::Parse( compiled.ShaderText );
+        ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
 
-    const std::string host = std::format(
-         "#version 450\n"
-         "layout( local_size_x = 64 ) in;\n"
-         "layout( std430, set = 0, binding = 0 ) buffer Floats {{ float F[]; }};\n"
-         "layout( std430, set = 0, binding = 1 ) buffer Ints {{ int I[]; }};\n"
-         "layout( std430, set = 0, binding = 2 ) readonly buffer Params {{ vec4 P[]; }};\n"
-         "layout( push_constant ) uniform Push {{ uint Count; uint Base; float Dt; uint Seed; }} pc;\n"
-         "{}\n"
-         "vec4 VFX_Param( uint slot ) {{ return P[pc.Base + slot]; }}\n"
-         "float VFX_ReadFloat( uint particle, uint c ) {{ return F[c * pc.Count + particle]; }}\n"
-         "int VFX_ReadInt( uint particle, uint c ) {{ return I[c * pc.Count + particle]; }}\n"
-         "void VFX_WriteFloat( uint particle, uint c, float v ) {{ F[c * pc.Count + particle] = v; }}\n"
-         "void VFX_WriteInt( uint particle, uint c, int v ) {{ I[c * pc.Count + particle] = v; }}\n"
-         "void main()\n{{\n"
-         "    const uint id = gl_GlobalInvocationID.x;\n"
-         "    if ( id >= pc.Count ) return;\n"
-         "    VFXSim sim;\n"
-         "    sim.DeltaTime = pc.Dt; sim.EmitterAge = 0.0; sim.Seed = pc.Seed; sim.ParticleId = id;\n"
-         "    sim.Step = 0u; sim.Spawned = id == 0u; sim.Kill = false;\n"
-         "    VFX_SimulateParticle( id, sim );\n}}\n",
-         parsed.GetValue().Meta.ParticleSource );
+        const std::string host = std::format(
+             "#version 450\n"
+             "layout( local_size_x = 64 ) in;\n"
+             "layout( std430, set = 0, binding = 0 ) buffer Floats {{ float F[]; }};\n"
+             "layout( std430, set = 0, binding = 1 ) buffer Ints {{ int I[]; }};\n"
+             "layout( std430, set = 0, binding = 2 ) readonly buffer Params {{ vec4 P[]; }};\n"
+             "layout( std430, set = 0, binding = 3 ) readonly buffer Curves {{ float C[]; }};\n"
+             "layout( push_constant ) uniform Push {{ uint Count; uint Base; float Dt; uint Seed; }} pc;\n"
+             "{}\n"
+             "vec4 VFX_Param( uint slot ) {{ return P[pc.Base + slot]; }}\n"
+             "float VFX_ReadFloat( uint particle, uint c ) {{ return F[c * pc.Count + particle]; }}\n"
+             "int VFX_ReadInt( uint particle, uint c ) {{ return I[c * pc.Count + particle]; }}\n"
+             "void VFX_WriteFloat( uint particle, uint c, float v ) {{ F[c * pc.Count + particle] = v; }}\n"
+             "void VFX_WriteInt( uint particle, uint c, int v ) {{ I[c * pc.Count + particle] = v; }}\n"
+             "float VFX_CurveLUT( uint index ) {{ return C[index]; }}\n"
+             "void main()\n{{\n"
+             "    const uint id = gl_GlobalInvocationID.x;\n"
+             "    if ( id >= pc.Count ) return;\n"
+             "    VFXSim sim;\n"
+             "    sim.DeltaTime = pc.Dt; sim.EmitterAge = 0.0; sim.Seed = pc.Seed; sim.ParticleId = id;\n"
+             "    sim.Step = 0u; sim.Spawned = id == 0u; sim.Kill = false;\n"
+             "    VFX_SimulateParticle( id, sim );\n}}\n",
+             parsed.GetValue().Meta.ParticleSource );
 
-    const auto              path = VFX::EngineModuleDir() / "Gravity.shader";
-    shaderc::Compiler       compiler;
-    shaderc::CompileOptions options;
-    options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
-    options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
-    options.SetWarningsAsErrors();
-    const auto result = compiler.CompileGlslToSpv( host, shaderc_compute_shader, path.string().c_str(), options );
-    EXPECT_EQ( result.GetCompilationStatus(), shaderc_compilation_status_success )
-         << result.GetErrorMessage() << "\n"
-         << host;
+        const auto              path = VFX::EngineModuleDir() / "Gravity.shader";
+        shaderc::Compiler       compiler;
+        shaderc::CompileOptions options;
+        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
+        options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
+        options.SetWarningsAsErrors();
+        const auto result =
+             compiler.CompileGlslToSpv( host, shaderc_compute_shader, path.string().c_str(), options );
+        EXPECT_EQ( result.GetCompilationStatus(), shaderc_compilation_status_success )
+             << result.GetErrorMessage() << "\n"
+             << host;
+    }
 }
 
 int main( int argc, char** argv )

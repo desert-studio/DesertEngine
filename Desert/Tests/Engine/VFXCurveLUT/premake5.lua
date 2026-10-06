@@ -1,6 +1,6 @@
--- VFX-04. The emitter stack compiler: stack -> `Domain Particle` text, the attribute layout (UE BuildLayout
--- port), input slots, the cache key, and the compiled stack inside a host compute program through shaderc.
--- The ShaderCacheKey file list (the DSL parser, the includer, shaderc) plus the `.dfx` format and the compiler.
+-- VFX-05. The curve LUT (Engine/VFX/VFXCurveLUT, port of UE NiagaraDataInterfaceCurveBase UpdateLUT/BuildLUT):
+-- the baked table against the curve itself (discretisation error), extrapolation outside the keys, the atlas.
+-- The `.dfx` format, the animation key maths the curve evaluates through, and the LUT.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)
@@ -15,17 +15,7 @@ project(test_name)
 
     files {
         test_files,
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCacheKey.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderMapCache.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/Includer/ShaderIncluder.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanShaderReflection.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/VFXSystem.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/VFX/VFXStackCompiler.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/VFX/VFXCurveLUT.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",

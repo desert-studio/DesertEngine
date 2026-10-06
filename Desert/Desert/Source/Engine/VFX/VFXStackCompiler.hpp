@@ -114,6 +114,7 @@ namespace Desert::VFX
             RandomMin, ///< the input's Random.Min
             RandomMax, ///< the input's Random.Max
             User,      ///< the system's UserParams row named User
+            Curve,     ///< the input's LUT in the system's curve atlas: CurveParamRow (VFXCurveLUT.hpp)
         };
 
         Kind          SlotKind = Kind::Value;
@@ -144,16 +145,20 @@ namespace Desert::VFX
      * `engine:<Name>` modules are read from @p engineModuleDir (a missing file is an error naming its path),
      * `local:<Id>` from the system's LocalModules. A disabled module contributes nothing. An input the module
      * does not declare, a declared input the row leaves out, a type that disagrees, an attribute declared with
-     * two types and a Curve source (its LUT is VFX-05) are errors naming the emitter, group, module and input.
+     * two types are errors naming the emitter, group, module and input.
      */
     Common::ResultStr<VFXCompiledEmitter> CompileEmitterStack( const Assets::Serialization::VFXSystemData& system,
                                                                std::size_t                  emitterIndex,
                                                                const std::filesystem::path& engineModuleDir );
 
-    /// The parameter buffer of a compiled emitter: one vec4 per slot, from the stack's values and the system's
-    /// user parameter defaults (a placed component's overrides replace User rows later). A slot whose input is
-    /// gone or changed source is an error: the stack's structure moved and @p compiled is stale.
+    struct VFXCurveAtlas;
+
+    /// The parameter buffer of a compiled emitter: one vec4 per slot, from the stack's values, the system's
+    /// user parameter defaults (a placed component's overrides replace User rows later) and, for a Curve input,
+    /// where its table sits in @p curves (BuildCurveAtlas of the same system). A slot whose input is gone or
+    /// changed source, or whose table is missing, is an error: the stack's structure moved and @p compiled is
+    /// stale.
     Common::ResultStr<std::vector<glm::vec4>>
     BuildEmitterParams( const VFXCompiledEmitter& compiled, const Assets::Serialization::VFXSystemData& system,
-                        std::size_t emitterIndex );
+                        std::size_t emitterIndex, const VFXCurveAtlas& curves );
 } // namespace Desert::VFX

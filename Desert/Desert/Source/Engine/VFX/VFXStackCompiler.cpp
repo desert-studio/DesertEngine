@@ -1,5 +1,7 @@
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
+#include <Engine/VFX/VFXCurveLUT.hpp>
+
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -140,6 +142,14 @@ namespace Desert::VFX
             const std::string_view sw = Swizzle( type );
             return std::format( "mix( VFX_Param( {0}u ){2}, VFX_Param( {1}u ){2}, VFX_Random( sim, {0}u ){2} )",
                                 slot, slot + 1, sw );
+        }
+
+        /// The curve input whose LUT row is @p slot, sampled at the particle's normalised age (VFX-05): the keys
+        /// are in the system's curve atlas and the row only says where, so a key edit never reaches the text.
+        std::string CurveExpr( uint32_t slot, VFXValueType type )
+        {
+            return std::format( "VFX_CurveSample( {}u, VFX_NormalizedAge( p.Age, p.Lifetime ), {}u ){}", slot,
+                                S::ComponentCount( type ), Swizzle( type ) );
         }
 
         /// A zero of @p type in GLSL.
@@ -420,9 +430,11 @@ namespace Desert::VFX
                         return Common::MakeFormattedError<Result>( "{}: the row says {}, the module declares {}",
                                                                    inWhere, GlslTypeName( in.Type ),
                                                                    GlslTypeName( decl->Type ) );
+                    // A particle-group curve's time axis is the normalised age, read from these two attributes.
                     if ( in.Source == S::VFXInputSource::Curve )
-                        return Common::MakeFormattedError<Result>(
-                             "{}: a Curve input needs the curve LUT (VFX-05), which does not exist yet", inWhere );
+                        for ( const char* name : { "Age", "Lifetime" } )
+                            if ( auto ok = addAttribute( name, VFXValueType::Float, inWhere ); !ok.IsSuccess() )
+                                return Common::MakeError<Result>( ok.GetError() );
                     if ( in.Source == S::VFXInputSource::Binding && in.Binding &&
                          in.Binding->starts_with( S::kVFXParticlesPrefix ) )
                         if ( auto ok = addAttribute( in.Binding->substr( S::kVFXParticlesPrefix.size() ), in.Type,
@@ -500,7 +512,9 @@ namespace Desert::VFX
                                 expr = "p." + in.Binding->substr( S::kVFXParticlesPrefix.size() );
                             break;
                         case S::VFXInputSource::Curve:
-                            break; // refused in pass 1
+                            compiled.Slots.push_back( { VFXParamSlot::Kind::Curve, group, index, d.Name, {} } );
+                            expr = CurveExpr( slot, d.Type );
+                            break;
                     }
                     std::format_to( std::back_inserter( out ), "            i.{} = {};\n", d.Name, expr );
                 }
@@ -591,7 +605,8 @@ namespace Desert::VFX
 
     Common::ResultStr<std::vector<glm::vec4>> BuildEmitterParams( const VFXCompiledEmitter& compiled,
                                                                   const S::VFXSystemData&   system,
-                                                                  std::size_t               emitterIndex )
+                                                                  std::size_t               emitterIndex,
+                                                                  const VFXCurveAtlas&      curves )
     {
         using Result = std::vector<glm::vec4>;
         if ( emitterIndex >= system.Emitters.size() )
@@ -620,13 +635,29 @@ namespace Desert::VFX
                 for ( const S::VFXModuleInput& x : uses[slot.Module].Inputs )
                     if ( x.Name == slot.Input )
                         in = &x;
-            const bool random = slot.SlotKind != VFXParamSlot::Kind::Value;
-            if ( in == nullptr || ( random ? !in->Random.has_value() : !in->Value.has_value() ) )
+            const bool random =
+                 slot.SlotKind == VFXParamSlot::Kind::RandomMin || slot.SlotKind == VFXParamSlot::Kind::RandomMax;
+            const bool curve   = slot.SlotKind == VFXParamSlot::Kind::Curve;
+            const bool present = in != nullptr && ( random  ? in->Random.has_value()
+                                                    : curve ? in->Curve.has_value()
+                                                            : in->Value.has_value() );
+            if ( !present )
                 return Common::MakeFormattedError<Result>(
                      "slot {}: emitter '{}' {} module {} input '{}' is gone or "
                      "changed source - recompile the stack",
                      s, emitter.Name, GroupName( slot.Group ), slot.Module, slot.Input );
-            if ( !random )
+            if ( curve )
+            {
+                const VFXCurveLUTEntry* entry =
+                     curves.Find( VFXCurveRef{ emitterIndex, slot.Group, slot.Module, slot.Input } );
+                if ( entry == nullptr || entry->Channels != in->Curve->size() )
+                    return Common::MakeFormattedError<Result>(
+                         "slot {}: emitter '{}' {} module {} input '{}' has no table in the curve atlas - rebuild "
+                         "the atlas",
+                         s, emitter.Name, GroupName( slot.Group ), slot.Module, slot.Input );
+                rows.push_back( CurveParamRow( *entry ) );
+            }
+            else if ( !random )
                 rows.push_back( *in->Value );
             else
                 rows.push_back( slot.SlotKind == VFXParamSlot::Kind::RandomMin ? in->Random->Min

@@ -2,7 +2,7 @@
 //
 // Engine/VFX/VFXStackCompiler.cpp turns an emitter's module stack into a `Domain Particle` fragment that
 // includes this file and defines `void VFX_SimulateParticle( uint particle, inout VFXSim sim )`. The HOST
-// program (the simulation compute pass) defines the five storage functions declared below — where the
+// program (the simulation compute pass) defines the six storage functions declared below — where the
 // attribute pool and the parameter buffer live is the host's business, not the stack's:
 //
 //   VFX_Param( slot )                 the emitter's parameter buffer row `slot` (module input values;
@@ -11,6 +11,8 @@
 //   VFX_ReadFloat / VFX_ReadInt       component `component` of the float / int32 class of `particle`,
 //   VFX_WriteFloat / VFX_WriteInt     at the offsets the compiler's attribute layout assigned (port of UE
 //                                     FNiagaraDataSetCompiledData::BuildLayout, SoA by component class)
+//   VFX_CurveLUT( index )             float `index` of the SYSTEM's curve atlas (VFX-05, Engine/VFX/VFXCurveLUT;
+//                                     UE's StaticInputFloat): every Curve input's baked table at its offset
 
 #ifndef VFX_PARTICLE_CONTRACT_GLSLH
 #define VFX_PARTICLE_CONTRACT_GLSLH
@@ -37,11 +39,38 @@ float VFX_ReadFloat( uint particle, uint component );
 int   VFX_ReadInt( uint particle, uint component );
 void  VFX_WriteFloat( uint particle, uint component, float value );
 void  VFX_WriteInt( uint particle, uint component, int value );
+float VFX_CurveLUT( uint index );
 
 // Four uniform numbers in [0, 1) for the input whose first parameter slot is @p slot.
 vec4 VFX_Random( in VFXSim sim, uint slot )
 {
     return VFXRandomFloat4( uvec4( sim.Seed, sim.ParticleId, sim.Step, slot ) );
+}
+
+// The time axis of a particle-group curve. A particle with no lifetime is at the end of its life.
+float VFX_NormalizedAge( float age, float lifetime )
+{
+    return lifetime > 0.0 ? age / lifetime : 1.0;
+}
+
+// The curve input whose parameter row is @p slot — (MinTime, InvTimeRange, Offset, Samples - 1) — at @p time,
+// @p channels components (port of UE NiagaraDataInterfaceCurveTemplate.ush GetCurveLUTIndices + the sample
+// lerp). The normalised time is saturated, so time outside the keys reads the end values. The CPU twin is
+// Desert::VFX::SampleCurveLUT; the two must agree.
+vec4 VFX_CurveSample( uint slot, float time, uint channels )
+{
+    vec4  row  = VFX_Param( slot );
+    float last = row.w;
+    float x    = clamp( ( time - row.x ) * row.y, 0.0, 1.0 ) * last;
+    float a    = floor( x );
+    float b    = min( a + 1.0, last );
+    float f    = x - a;
+    uint  ia   = uint( row.z ) + uint( a ) * channels;
+    uint  ib   = uint( row.z ) + uint( b ) * channels;
+    vec4  v    = vec4( 0.0 );
+    for ( uint c = 0u; c < channels; ++c )
+        v[c] = mix( VFX_CurveLUT( ia + c ), VFX_CurveLUT( ib + c ), f );
+    return v;
 }
 
 #endif
