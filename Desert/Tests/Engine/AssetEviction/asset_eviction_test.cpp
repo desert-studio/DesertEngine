@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include "../../TestSupport/cooked_static_mesh.hpp"
+#include "../../TestSupport/runner.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Engine/Assets/AssetEviction.hpp>
@@ -1136,8 +1137,9 @@ TEST( ResourceLedger, EveryKindAndEveryOwnerHasAName )
     }
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The suite writes cooked meshes into a throwaway DDC for its own run (TestSupport/cooked_static_mesh.hpp).
+    const Desert::TestSupport::SuiteEnvironment kCookedMeshDdc{
+         &Desert::TestSupport::MakeCookedMeshDerivedDataEnvironment };
+} // namespace

@@ -6,6 +6,7 @@
 //  - no Modeling tool reads StaticMeshComponent::EditableMesh itself (census over the tool sources).
 
 #include "../../TestSupport/cooked_static_mesh.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 
@@ -330,8 +331,9 @@ TEST( ModelingToolTargetCensus, NoModelingToolReadsTheEditableMeshItself )
     EXPECT_EQ( seenAllowed.size(), kAllowed.size() ) << "a registered file is gone: remove its row";
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The suite writes cooked meshes into a throwaway DDC for its own run (TestSupport/cooked_static_mesh.hpp).
+    const Desert::TestSupport::SuiteEnvironment kCookedMeshDdc{
+         &Desert::TestSupport::MakeCookedMeshDerivedDataEnvironment };
+} // namespace

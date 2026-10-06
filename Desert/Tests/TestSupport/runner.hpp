@@ -35,9 +35,26 @@
 //
 // The runner premake compiles the adopted file next to the suite's own. A source adopted by two suites
 // aborts the runner at startup, as two child entry points do.
+//
+// SET-UP THAT BELONGS TO ONE SUITE. Before BUILD1 a suite's own main did what its tests needed first (a
+// throwaway DDC, HOME pointed away from the developer's, a singleton the engine creates at startup). A
+// gtest global environment cannot replace that main in a runner: it would run for EVERY suite of the
+// binary. A suite registers its environment instead, from one of its own .cpp files -- the file's path
+// names the suite, as for AdoptedTestSource:
+//
+//     namespace { const Desert::TestSupport::SuiteEnvironment kHost{ &MakeHostEnvironment }; }
+//
+// The runner hands it to gtest (SetUp before the first test, TearDown after the last) only when that
+// suite is selected with --desert-suite, or when the run selects no suite (every test of the runner).
+// A suite may register several; they are set up in registration order within a translation unit.
 
 #include <source_location>
 #include <string_view>
+
+namespace testing
+{
+    class Environment;
+}
 
 namespace Desert::TestSupport
 {
@@ -66,5 +83,19 @@ namespace Desert::TestSupport
 
         AdoptedTestSource( const AdoptedTestSource& )            = delete;
         AdoptedTestSource& operator=( const AdoptedTestSource& ) = delete;
+    };
+
+    // Makes the environment when the suite runs; gtest owns what it returns.
+    using EnvironmentFactory = ::testing::Environment* ( * )();
+
+    // Registers `make` for the suite of the file this object is constructed in. Namespace scope only.
+    class SuiteEnvironment
+    {
+    public:
+        explicit SuiteEnvironment( EnvironmentFactory   make,
+                                   std::source_location where = std::source_location::current() );
+
+        SuiteEnvironment( const SuiteEnvironment& )            = delete;
+        SuiteEnvironment& operator=( const SuiteEnvironment& ) = delete;
     };
 } // namespace Desert::TestSupport

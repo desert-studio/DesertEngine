@@ -41,6 +41,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include "../../TestSupport/cooked_static_mesh.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <Editor/Import/MeshDeriver.hpp>
 #include <Engine/Assets/AssetManager.hpp>
@@ -367,10 +368,30 @@ TEST( StaticMeshCooked, TheShippedProbeKeepsTheIdentityTheSceneNamesItBy )
          << "the probe mesh's path-derived handle changed; M10_MeshSlot.desce would resolve to no mesh.";
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    testing::InitGoogleTest( &argc, argv );
-    // The editor's builder derives a cooked mesh's render form on a DDC miss, as it does in the editor.
-    Desert::Assets::SetMeshPlatformDataBuilder( Desert::Editor::BuildMeshPlatformData );
-    return RUN_ALL_TESTS();
-}
+    // The editor's builder derives a cooked mesh's render form on a DDC miss, as it does in the editor; set
+    // for this suite's run only, and taken back after it so no other suite of the runner inherits it.
+    class EditorMeshBuilderEnvironment final : public ::testing::Environment
+    {
+    public:
+        void SetUp() override
+        {
+            Desert::Assets::SetMeshPlatformDataBuilder( Desert::Editor::BuildMeshPlatformData );
+        }
+        void TearDown() override
+        {
+            Desert::Assets::SetMeshPlatformDataBuilder( {} );
+        }
+    };
+
+    ::testing::Environment* MakeEditorMeshBuilderEnvironment()
+    {
+        return new EditorMeshBuilderEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+    }
+
+    // The cooked meshes go into a throwaway DDC (TestSupport/cooked_static_mesh.hpp), then the builder.
+    const Desert::TestSupport::SuiteEnvironment kCookedMeshDdc{
+         &Desert::TestSupport::MakeCookedMeshDerivedDataEnvironment };
+    const Desert::TestSupport::SuiteEnvironment kEditorMeshBuilder{ &MakeEditorMeshBuilderEnvironment };
+} // namespace

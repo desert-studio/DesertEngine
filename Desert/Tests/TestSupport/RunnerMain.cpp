@@ -14,6 +14,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::TestSupport
@@ -39,6 +40,13 @@ namespace Desert::TestSupport
         std::map<std::string_view, std::string>& AdoptedTable()
         {
             static std::map<std::string_view, std::string> table;
+            return table;
+        }
+
+        // Suite -> its environments, in registration order. Function-local for the same reason as ChildTable.
+        std::vector<std::pair<std::string, EnvironmentFactory>>& EnvironmentTable()
+        {
+            static std::vector<std::pair<std::string, EnvironmentFactory>> table;
             return table;
         }
 
@@ -275,6 +283,18 @@ namespace Desert::TestSupport
             std::abort();
         }
     }
+    SuiteEnvironment::SuiteEnvironment( EnvironmentFactory make, std::source_location where )
+    {
+        const auto suite = SuiteOfFile( where.file_name() );
+        if ( !suite || make == nullptr )
+        {
+            PrintError( std::format( "SuiteEnvironment is constructed outside Desert/Tests/<Layer>/<Suite>/ or "
+                                     "without a factory ({})",
+                                     where.file_name() ) );
+            std::abort();
+        }
+        EnvironmentTable().emplace_back( *suite, make );
+    }
 } // namespace Desert::TestSupport
 
 int main( int argc, char** argv )
@@ -315,6 +335,13 @@ int main( int argc, char** argv )
     if ( suites && !SelectSuites( *suites ) )
     {
         return kSelectionError;
+    }
+    for ( const auto& [suite, make] : EnvironmentTable() )
+    {
+        if ( !suites || suites->contains( suite ) )
+        {
+            ::testing::AddGlobalTestEnvironment( make() );
+        }
     }
     return RUN_ALL_TESTS();
 }

@@ -393,11 +393,7 @@ TEST( StartupLayout, BothPackagersBuildTheLayoutTheDerivationsLookFor )
                                        "scripts\\Windows\\Package.bat" );
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+
 
 TEST( StartupLayout, ABinaryStartedWhereItWasBuiltWorksFromItsCheckoutsEditor )
 {
