@@ -4,6 +4,7 @@
 
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 #include <Engine/Graphic/RDG/RDGBackend.hpp>
+#include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
@@ -91,6 +92,7 @@ namespace Desert::Graphic::RDG
 
     private:
         friend class Builder;
+        friend class PassBindings; // PassBindings( context, block ) reads the block this pass declared
         PassContext( const Builder& builder, const CompileResult& result, IBackend& backend, uint32_t pass )
              : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass )
         {
@@ -295,6 +297,9 @@ namespace Desert::Graphic::RDG
 
         // The faults of the last Execute (empty before it); what an editor panel or a test asks.
         const ExecuteReport& GetExecuteReport() const;
+        // RDG-FAULT1. The external texture registered as resource @p resource (null for a transient, a buffer or
+        // an index out of range): how the caller reaches the images of FrameFault::Externals to clear them.
+        ExternalTexture* FindExternalTexture( uint32_t resource ) const;
 
         const std::string& GetName() const
         {
@@ -335,6 +340,10 @@ namespace Desert::Graphic::RDG
             std::vector<ResourceUse>      Uses;
             std::vector<AttachmentRecord> Attachments;
             ExecFunction                  Exec;
+            // RDG-FAULT1: the binding blocks its setup declared (PassBuilder::Bindings) and the first malformed
+            // declaration of THIS pass. A pass with a declaration error is a Declaration fault, not a graph error.
+            std::vector<DeclaredBindingBlock> Blocks;
+            std::string                       DeclarationError;
         };
 
         struct ResourceRecord
@@ -349,6 +358,8 @@ namespace Desert::Graphic::RDG
             ExternalBuffer*  ExtractBuf     = nullptr;
             bool             HasFinalAccess = false;
             Access           FinalAccess    = Access::None;
+            FaultDefault        Default = FaultDefault::None;                 // SetFaultDefault (transients)
+            ExternalFaultPolicy Policy  = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
 
             bool IsExternal() const
             {
@@ -367,6 +378,8 @@ namespace Desert::Graphic::RDG
         PassBuilder BeginPass( std::string_view name, PassFlags flags );
         // Keeps the FIRST declaration error: later ones are usually its consequences.
         void                  RecordError( std::string message );
+        // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
+        void                  RecordPassError( uint32_t pass, std::string message );
         const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
 
         std::string                 m_Name;
@@ -375,5 +388,11 @@ namespace Desert::Graphic::RDG
         std::string                 m_DeclarationError;
         bool                        m_Executed    = false;
         bool                        m_PassCulling = true;
+        // RDG-FAULT1. The system textures a FaultDefault names (SetFaultDefaultSources), the faults of the last
+        // Execute, and the substitutions Execute made for LATE faults (PassContext::GetTexture honours them
+        // together with CompileResult::Substitutions).
+        TextureRef                       m_FaultBlack, m_FaultWhite, m_FaultBlackCube;
+        ExecuteReport                    m_Report;
+        std::vector<DefaultSubstitution> m_LateSubstitutions;
     };
 } // namespace Desert::Graphic::RDG
