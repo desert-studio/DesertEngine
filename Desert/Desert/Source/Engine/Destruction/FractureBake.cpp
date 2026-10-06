@@ -425,6 +425,10 @@ namespace Desert::Destruction
             source.EnableAttributes();
         if ( !source.Attributes()->HasMaterialID() )
             source.Attributes()->EnableMaterialID();
+        // A piece is stored with a polygroup per triangle; a mesh without groups reports -1 for every
+        // triangle, which the reader (DynamicMeshFromSerialized) rebuilds into an invalid group. One group 0.
+        if ( !source.HasTriangleGroups() )
+            source.EnableTriangleGroups( 0 );
         int32_t maxMaterial = 0;
         for ( const int t : source.TriangleIndicesItr() )
             maxMaterial = std::max( maxMaterial, source.Attributes()->GetMaterialID()->GetValue( t ) );

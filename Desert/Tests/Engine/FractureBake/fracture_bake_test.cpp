@@ -134,14 +134,18 @@ namespace
 
     TEST( FractureBake, BricksCountTheBond )
     {
-        // 100 x 100 x 100 cm cube, stack bond of 50 x 50 x 100 bricks: four bricks, no offsets.
+        // 100 cm cube, stack bond, 51 x 51 cm face: four bricks. UE tiles brick CENTRES from the cell box's Min
+        // in length and depth (FractureEngineFracturing.cpp:844-900), so the first depth row is centred ON the
+        // box's front face and covers only half a depth into it: a single row needs half the depth past the
+        // 103.7 cm cell box (cube + 1.8 cm margin a side). 200 cm depth left a 1.8 cm second row, shifted by half
+        // a length in stack bond: 4 + 6 = 10 pieces.
         FractureSettings      s;
         FractureLevelSettings l;
         l.Method       = FractureMethod::Brick;
         l.Brick.Bond   = BrickBond::Stack;
-        l.Brick.Length = 51.0; // a hair over half the cube plus margin, so each course holds two
+        l.Brick.Length = 51.0; // two per course: [Min, Min+51], [Min+51, Min+102] cover the cube's 101.8 cm
         l.Brick.Height = 51.0;
-        l.Brick.Depth  = 200.0;
+        l.Brick.Depth  = 400.0; // half 200 > 103.7: one depth row
         s.Levels.push_back( l );
         auto baked = BakeFracture( Cube(), s );
         ASSERT_TRUE( baked ) << baked.GetError();
