@@ -171,8 +171,8 @@ namespace Common::Settings
             return;
         }
 
-        // Read LENIENTLY, by the type's own DESERT_JSON_LENIENT mark: a file written by a build with fewer
-        // fields keeps loading — a new field takes its in-struct default instead of failing the whole file.
+        // A file written by a build with fewer fields keeps loading — Json::Read gives every field the file does
+        // not state its in-struct default; keys of a build with MORE fields land in UnknownKeys.
         auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
         if ( !parsed )
         {

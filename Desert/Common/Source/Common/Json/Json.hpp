@@ -24,17 +24,19 @@
 // re-chosen at each of a hundred call sites. The JsonCensus suite refuses rfl::json / rfl::Generic / yyjson_
 // anywhere else that is not a migrator or a named row of its exception register.
 //
-// THE PROJECT OPTIONS, and why (lead decision on JS1a2: a missing config or datum is an error, not a fallback):
-//   - STRICT BY DEFAULT. A field MISSING from the text is an error naming its path, and so is a key the struct
-//     does not declare (rfl::NoExtraFields). A value that may legitimately be absent says so in its own type
-//     (std::optional); nothing else is ever filled in behind the reader's back. A format that changes shape
-//     moves its files forward with a migration, it does not lean on defaults;
-//   - a struct that must carry keys it does not know (a file shared with other builds) declares a CarriedKeys
-//     member: those keys are captured instead of refused and written back on save;
-//   - LENIENT ONLY BY NAME. DESERT_JSON_LENIENT( Type, "reason" ) lets a missing field take its in-struct
-//     default and an unknown key pass, for a file several builds write at once (a settings file shared by
-//     every worktree of the machine), where a key one build lacks is not damage. The reason is mandatory and
-//     compiled in, so every lenient type answers "why" in its own header;
+// THE PROJECT OPTIONS, and why (owner decision 2026-10-07: no per-type leniency, the reader itself decides — the
+// way UE fills a property the archive does not state from the class default object):
+//   - A FIELD MISSING FROM THE TEXT TAKES THE STRUCT'S OWN DEFAULT, for every type (rfl::DefaultIfMissing). The
+//     struct's member initialisers ARE the format's defaults: a file written before a field existed reads as
+//     that default, so adding a field needs neither a version bump nor a migration. A value whose absence
+//     MEANS something says so in its own type (std::optional), and stays absent;
+//   - A KEY THE STRUCT DOES NOT DECLARE IS AN ERROR naming its path (rfl::NoExtraFields): a misspelt or removed
+//     key is damage, never silently dropped. A struct that must carry keys it does not know (a file shared
+//     with other builds) declares a CarriedKeys member: those keys are captured instead of refused and written
+//     back on save;
+//   - THE ONE WAY PAST AN UNKNOWN KEY: DESERT_JSON_PARTIAL( Type, "reason" ) marks a struct that reads a FEW
+//     members of a larger document (a probe for one tag of a whole prefab or clip); every other key is the
+//     rest of that document, not damage. The reason is mandatory and compiled in;
 //   - members are written in declaration order (rfl's only order), compact; a file on disk goes through the
 //     canonical layout (Content/CanonicalText.hpp) so an edit to one field is a diff of one line.
 //
@@ -109,12 +111,12 @@ namespace Common::Json
     template <HasFormat T>
     inline constexpr FormatInfo FormatOf = DesertJsonFormatOf( static_cast<const T*>( nullptr ) );
 
-    // True only for a type marked DESERT_JSON_LENIENT (found by argument-dependent lookup in T's namespace).
+    // True only for a type marked DESERT_JSON_PARTIAL (found by argument-dependent lookup in T's namespace).
     template <typename T>
-    concept IsLenient = requires { DesertJsonLenientReason( static_cast<const T*>( nullptr ) ); };
+    concept IsPartial = requires { DesertJsonPartialReason( static_cast<const T*>( nullptr ) ); };
 
-    template <IsLenient T>
-    inline constexpr std::string_view LenientReason = DesertJsonLenientReason( static_cast<const T*>( nullptr ) );
+    template <IsPartial T>
+    inline constexpr std::string_view PartialReason = DesertJsonPartialReason( static_cast<const T*>( nullptr ) );
 
     template <typename T>
     ResultStr<T> Read( std::string_view json )
@@ -123,10 +125,10 @@ namespace Common::Json
         {
             auto parsed = [&]
             {
-                if constexpr ( IsLenient<T> )
+                if constexpr ( IsPartial<T> )
                     return rfl::json::read<T, rfl::DefaultIfMissing>( json );
                 else
-                    return rfl::json::read<T, rfl::NoExtraFields>( json );
+                    return rfl::json::read<T, rfl::DefaultIfMissing, rfl::NoExtraFields>( json );
             }();
             if ( !parsed )
                 return MakeError<T>( Detail::DescribeReadError( parsed.error().what() ) );
@@ -182,12 +184,14 @@ namespace Common::Json
         return ::Common::Json::FormatInfo{ FormatName, FormatVersion };                                           \
     }
 
-// THE ONE WAY OUT OF STRICT READING (see "THE PROJECT OPTIONS" above). Right after the struct, in its own
-// namespace. The reason is a sentence a reviewer can check; one shorter than a sentence does not compile.
-#define DESERT_JSON_LENIENT( Type, Reason )                                                                       \
+// THE ONE WAY PAST AN UNKNOWN KEY (see "THE PROJECT OPTIONS" above): a struct that reads a few members of a larger
+// document. Right after the struct, in its own namespace. The reason names the document whose rest is skipped;
+// one shorter than a sentence does not compile.
+#define DESERT_JSON_PARTIAL( Type, Reason )                                                                       \
     static_assert( std::string_view( Reason ).size() >= 24,                                                       \
-                   "DESERT_JSON_LENIENT(" #Type "): the reason must say why a missing field may default" );       \
-    [[maybe_unused]] constexpr std::string_view DesertJsonLenientReason( const Type* )                            \
+                   "DESERT_JSON_PARTIAL(" #Type                                                                   \
+                   "): the reason must name the document the other keys belong to" );                             \
+    [[maybe_unused]] constexpr std::string_view DesertJsonPartialReason( const Type* )                            \
     {                                                                                                             \
         return Reason;                                                                                            \
     }

@@ -55,12 +55,12 @@ namespace DocumentTest
         Common::Json::CarriedKeys Other;
     };
 
-    struct Shared
+    struct Probe
     {
         int Old   = 1;
         int Added = 5;
     };
-    DESERT_JSON_LENIENT( Shared, "written by several builds at once, each knowing a different field set" )
+    DESERT_JSON_PARTIAL( Probe, "reads two members of a whole test document; the rest is that document" )
 
     struct Nested
     {
@@ -352,13 +352,13 @@ TEST( JsonDocument, ABlockIsReadWholeOrDroppedWhole )
     EXPECT_EQ( list, ( std::vector<int>{ 1, 2 } ) );
 }
 
-// As<T> is Json::Read's strictness on a subtree: unknown refused unless T carries it, missing refused unless
-// lenient.
-TEST( JsonDocument, AsIsStrictUnlessTheTypeSaysOpen )
+// As<T> is Json::Read's rule on a subtree: unknown refused unless T carries it or is partial, missing takes
+// T's in-struct default.
+TEST( JsonDocument, AsRefusesUnknownUnlessTheTypeSaysOpenAndDefaultsMissing )
 {
     const auto doc =
          MustParse( R"({"Unknown":{"Required":1,"Extra":2},"Missing":{},"Carry":{"Known":3,"Extra":4},)"
-                    R"("Shared":{"Old":2}})" );
+                    R"("Probe":{"Old":2,"Rest":6}})" );
     const auto root = Json::Root( doc, Json::Path{}.Key( "Settings" ) );
 
     const auto unknown = Member( root, "Unknown" ).As<Strict>();
@@ -367,8 +367,9 @@ TEST( JsonDocument, AsIsStrictUnlessTheTypeSaysOpen )
                "Settings.Unknown: field 'Extra': unknown key — the format does not declare it" );
 
     const auto missing = Member( root, "Missing" ).As<Strict>();
-    ASSERT_FALSE( missing );
-    EXPECT_NE( missing.GetError().find( "field 'Required': missing" ), std::string::npos ) << missing.GetError();
+    ASSERT_TRUE( missing ) << missing.GetError();
+    EXPECT_EQ( missing.GetValue().Required, 0 ) << "a missing member is the in-struct default";
+    EXPECT_FALSE( missing.GetValue().Maybe.has_value() );
 
     const auto carried = Member( root, "Carry" ).As<Carrier>();
     ASSERT_TRUE( carried ) << carried.GetError();
@@ -376,9 +377,10 @@ TEST( JsonDocument, AsIsStrictUnlessTheTypeSaysOpen )
     EXPECT_EQ( Json::Write( carried.GetValue() ), R"({"Known":3,"Extra":4})" )
          << "the unknown key is carried back";
 
-    const auto shared = Member( root, "Shared" ).As<Shared>();
-    ASSERT_TRUE( shared ) << shared.GetError();
-    EXPECT_EQ( shared.GetValue().Added, 5 );
+    const auto probe = Member( root, "Probe" ).As<Probe>();
+    ASSERT_TRUE( probe ) << probe.GetError();
+    EXPECT_EQ( probe.GetValue().Old, 2 );
+    EXPECT_EQ( probe.GetValue().Added, 5 );
 }
 
 TEST( JsonDocument, ObjectBuilderKeepsInsertionOrderAndSpellsEachKind )

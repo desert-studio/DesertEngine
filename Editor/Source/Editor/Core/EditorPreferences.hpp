@@ -9,7 +9,7 @@
 #include <glm/glm.hpp>
 
 // The unknown-key carrier below (Common::Json::KeyedValues) is a FIELD of the struct, so the facade is
-// included here and not only in the .cpp; the same header marks the struct lenient after its definition.
+// included here and not only in the .cpp.
 #include <Common/Json/Json.hpp>
 
 // The viewport's debug/show state. An ENGINE type, because the engine's renderer is what consumes it —
@@ -376,7 +376,4 @@ namespace Desert::Editor
         // to mean nothing. Same deduplication and same return meaning as Save().
         static bool SaveMigrated( const std::string& what );
     };
-    DESERT_JSON_LENIENT( EditorPreferences,
-                         "one ~/.desertengine/editor.json shared by every build and worktree at once: a field "
-                         "an older build has not got yet is that build's normal output, not damage" )
 } // namespace Desert::Editor

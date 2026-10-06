@@ -43,14 +43,11 @@ TEST( PreviewEnvironment, DefaultsAreThePresetSkyAtUnitGainWithEverythingShown )
 
 namespace
 {
-    // The record as editor.json nests it: one member of the lenient EditorPreferences, read through the facade.
+    // The record as editor.json nests it: one member of EditorPreferences, read through the facade.
     struct InEditorJson
     {
         Settings PreviewScene;
     };
-    DESERT_JSON_LENIENT( InEditorJson,
-                         "stands in for EditorPreferences, whose editor.json is shared by every build "
-                         "and a field an older build has not got yet is normal output" )
 } // namespace
 
 TEST( PreviewEnvironment, RoundTripsThroughTheSameJsonWriterAsEditorJson )
@@ -68,7 +65,7 @@ TEST( PreviewEnvironment, RoundTripsThroughTheSameJsonWriterAsEditorJson )
     EXPECT_EQ( back.GetValue().PreviewScene, authored ) << text;
 
     // An editor.json written before the record existed, or holding only part of it, reads as defaults
-    // for what it does not state — the leniency EditorPreferences declares and Common::Json::Read applies.
+    // for what it does not state — Common::Json::Read's rule for every type.
     const auto partial = Common::Json::Read<InEditorJson>( R"({"PreviewScene":{"ExposureEV":1.5}})" );
     ASSERT_TRUE( partial ) << partial.GetError();
     Settings expected;

@@ -553,8 +553,8 @@ namespace Desert::Editor
             {
                 LOG_WARN( "[Prefs] {} is empty; using defaults.", PrefsFile() );
             }
-            // Lenient (DESERT_JSON_LENIENT in the header): prefs written by older builds (fewer fields) keep
-            // loading — new fields just take their in-struct defaults instead of failing the whole file.
+            // Prefs written by older builds (fewer fields) keep loading — Json::Read gives every field the file
+            // does not state its in-struct default; keys of a newer build land in UnknownKeys.
             else if ( auto parsed = Common::Json::Read<EditorPreferences>( raw.GetValue() ); parsed )
             {
                 Get() = parsed.GetValue();

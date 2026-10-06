@@ -1,7 +1,8 @@
 // The Common::Json facade (JS1a): the one door between a struct and JSON. What is pinned here is the
-// CONTRACT every caller now relies on instead of choosing rfl flags itself: a round trip is lossless; reading
-// is STRICT (a missing field and an unknown key are errors naming their path) unless the type itself is marked
-// DESERT_JSON_LENIENT with a reason; a struct that asks carries unknown keys instead; every failure names the
+// CONTRACT every caller now relies on instead of choosing rfl flags itself: a round trip is lossless; a field
+// missing from the text takes the struct's own default (UE's class-default rule, owner 2026-10-07); an unknown
+// key is an error naming its path, unless the type is marked DESERT_JSON_PARTIAL with a reason (a probe of a
+// few members of a larger document); a struct that asks carries unknown keys instead; every failure names the
 // field path — and, for a file, the file.
 
 #include <Common/Json/Json.hpp>
@@ -31,17 +32,16 @@ namespace FacadeTest
     };
     DESERT_JSON_STRUCT( Doc, "FacadeTestDoc", 3 )
 
-    // A settings-like type several builds share: the only kind allowed to default a missing field.
-    struct Shared
+    // A probe of one member of a larger document: the only kind allowed to pass an unknown key.
+    struct Probe
     {
-        int Old   = 1;
-        int Added = 5;
+        int Wanted = 1;
     };
-    DESERT_JSON_LENIENT( Shared, "written by several builds at once, each knowing a different field set" )
+    DESERT_JSON_PARTIAL( Probe, "reads the one Wanted member of a whole test document; the rest is that document" )
 
     struct Maybe
     {
-        int                Required = 0;
+        int                Stated = 0;
         std::optional<int> Absent;
     };
 
@@ -76,7 +76,7 @@ static_assert( Json::IsReflectable<Doc> );
 static_assert( !Json::IsReflectable<WithPointer>, "a raw pointer has no JSON meaning" );
 static_assert( !Json::IsReflectable<WithPrivate>, "reflection cannot see private members" );
 static_assert( Json::HasFormat<Doc> && !Json::HasFormat<Inner> );
-static_assert( Json::IsLenient<Shared> && !Json::IsLenient<Doc> && !Json::IsLenient<Inner> );
+static_assert( Json::IsPartial<Probe> && !Json::IsPartial<Doc> && !Json::IsPartial<Inner> );
 static_assert( Json::FormatOf<Doc>.Name == "FacadeTestDoc" && Json::FormatOf<Doc>.Version == 3 );
 
 namespace
@@ -120,22 +120,31 @@ TEST( JsonFacade, ErrorNamesTheFieldPath )
     EXPECT_NE( broken.GetError().find( "document:" ), std::string::npos ) << broken.GetError();
 }
 
-TEST( JsonFacade, StrictTypeRefusesAMissingFieldWithItsPath )
+TEST( JsonFacade, AMissingFieldTakesTheStructDefault )
 {
-    // Everything present but one nested member: the error names exactly that member, and nothing is defaulted.
-    const auto doc = Json::Read<Doc>( R"({"Name":"only","Nested":{"Values":[]},"List":[]})" );
-    ASSERT_FALSE( doc ) << "a missing field was filled from the in-struct default: "
-                        << Json::Write( doc.GetValue() );
-    EXPECT_NE( doc.GetError().find( "field 'Nested.A': missing" ), std::string::npos ) << doc.GetError();
+    // Everything present but one nested member: that member is the in-struct default, the rest is the text's.
+    const auto doc = Json::Read<Doc>( R"({"Name":"only","Nested":{"Values":[2]},"List":[]})" );
+    ASSERT_TRUE( doc ) << doc.GetError();
+    EXPECT_EQ( doc.GetValue().Nested.A, 7 );
+    EXPECT_EQ( doc.GetValue().Nested.Values, std::vector<int>{ 2 } );
+    EXPECT_EQ( doc.GetValue().Name, "only" );
 
-    // Several at once: each one reported with its own path.
-    const auto many = Json::Read<Doc>( R"({"Nested":{"A":1}})" );
-    ASSERT_FALSE( many );
-    for ( const char* path : { "field 'Name'", "field 'List'", "field 'Nested.Values'" } )
-        EXPECT_NE( many.GetError().find( path ), std::string::npos ) << path << " in: " << many.GetError();
+    // Several at once, top level and inside an array element: each is its own default.
+    const auto many = Json::Read<Doc>( R"({"List":[{"Values":[1]}]})" );
+    ASSERT_TRUE( many ) << many.GetError();
+    EXPECT_EQ( many.GetValue().Name, "default" );
+    EXPECT_EQ( many.GetValue().Nested.A, 7 );
+    EXPECT_TRUE( many.GetValue().Nested.Values.empty() );
+    ASSERT_EQ( many.GetValue().List.size(), 1u );
+    EXPECT_EQ( many.GetValue().List[0].A, 7 );
+
+    // The empty object is the default struct, written back identically.
+    const auto empty = Json::Read<Doc>( "{}" );
+    ASSERT_TRUE( empty ) << empty.GetError();
+    EXPECT_EQ( Json::Write( empty.GetValue() ), Json::Write( Doc{} ) );
 }
 
-TEST( JsonFacade, StrictTypeRefusesAnUnknownKeyWithItsPath )
+TEST( JsonFacade, AnUnknownKeyIsRefusedWithItsPath )
 {
     const auto top =
          Json::Read<Doc>( R"({"Name":"a","Nested":{"A":1,"Values":[]},"List":[],"FromANewerBuild":42})" );
@@ -149,33 +158,42 @@ TEST( JsonFacade, StrictTypeRefusesAnUnknownKeyWithItsPath )
          << nested.GetError();
 }
 
-TEST( JsonFacade, OnlyAnOptionalMemberMayBeAbsentFromAStrictType )
+TEST( JsonFacade, AnAbsentOptionalStaysAbsent )
 {
-    const auto without = Json::Read<Maybe>( R"({"Required":3})" );
+    // The default of an optional is "not stated": absence keeps meaning absence, it is never filled in.
+    const auto without = Json::Read<Maybe>( R"({"Stated":3})" );
     ASSERT_TRUE( without ) << without.GetError();
+    EXPECT_EQ( without.GetValue().Stated, 3 );
     EXPECT_FALSE( without.GetValue().Absent.has_value() );
 
-    const auto missingRequired = Json::Read<Maybe>( R"({"Absent":4})" );
-    ASSERT_FALSE( missingRequired );
-    EXPECT_NE( missingRequired.GetError().find( "field 'Required': missing" ), std::string::npos )
-         << missingRequired.GetError();
+    const auto with = Json::Read<Maybe>( R"({"Absent":4})" );
+    ASSERT_TRUE( with ) << with.GetError();
+    EXPECT_EQ( with.GetValue().Stated, 0 );
+    EXPECT_EQ( with.GetValue().Absent, 4 );
 }
 
-TEST( JsonFacade, OnlyALenientTypeDefaultsAMissingFieldAndPassesAnUnknownKey )
+TEST( JsonFacade, OnlyAPartialTypePassesAnUnknownKey )
 {
-    static_assert( Json::LenientReason<Shared>.size() >= 24 );
-    const auto shared = Json::Read<Shared>( R"({"Old":9,"FromANewerBuild":42})" );
-    ASSERT_TRUE( shared ) << shared.GetError();
-    EXPECT_EQ( shared.GetValue().Old, 9 );
-    EXPECT_EQ( shared.GetValue().Added, 5 );
+    static_assert( Json::PartialReason<Probe>.size() >= 24 );
+    const auto probe = Json::Read<Probe>( R"({"Wanted":9,"RestOfTheDocument":{"x":[1,2]}})" );
+    ASSERT_TRUE( probe ) << probe.GetError();
+    EXPECT_EQ( probe.GetValue().Wanted, 9 );
 
-    // The same text shape against a strict type: refused, so leniency is the mark's doing and nothing else's.
-    EXPECT_FALSE( Json::Read<Doc>( R"({"Name":"x","FromANewerBuild":42})" ) );
+    // A partial type still defaults what it wants and the text does not state.
+    const auto absent = Json::Read<Probe>( R"({"RestOfTheDocument":1})" );
+    ASSERT_TRUE( absent ) << absent.GetError();
+    EXPECT_EQ( absent.GetValue().Wanted, 1 );
+
+    // The same text shape against a whole-document type: refused, so passing the key is the mark's doing.
+    const auto whole = Json::Read<Doc>( R"({"Name":"x","RestOfTheDocument":42})" );
+    ASSERT_FALSE( whole );
+    EXPECT_NE( whole.GetError().find( "field 'RestOfTheDocument': unknown key" ), std::string::npos )
+         << whole.GetError();
 }
 
 TEST( JsonFacade, CarriedKeysSurviveARoundTrip )
 {
-    // Strict type, yet the unknown key is CAPTURED (the struct declared a carrier), not refused.
+    // A whole-document type, yet the unknown key is CAPTURED (the struct declared a carrier), not refused.
     const auto carrier = Json::Read<Carrier>( R"({"Known":1,"OtherBuild":{"x":2}})" );
     ASSERT_TRUE( carrier ) << carrier.GetError();
     const std::string text = Json::Write( carrier.GetValue() );
