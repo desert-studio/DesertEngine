@@ -678,6 +678,62 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
     EXPECT_TRUE( HasEdge( result, 0, 1, DependencyKind::ReadAfterWrite ) );
 }
 
+// RDG-FAULT1 C3b: two block entries of one pass may read ONE image (the cloud resolve reads the 2D fallback as
+// both its history and its history guide while the history is invalid) -- the import gives one ref and the pass
+// holds it in one read-only state. The rule is the subresource's state, not the entry count: two reads in two
+// layouts (sampled = shader-read-only, storage read = general) are refused by name, as a read plus a write is
+// ("MalformedDeclarationsFaultTheirPassWithNames", "Both").
+TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndTwoLayoutsAreRefused )
+{
+    int                                           fallbackToken = 0;
+    const std::shared_ptr<Desert::Graphic::Image> fallback(
+         std::shared_ptr<void>(), reinterpret_cast<Desert::Graphic::Image*>( &fallbackToken ) );
+
+    ExternalTexture  fallbackImport( Tex2D( 4, 4, ImageFormat::RGBA8F ), Access::None );
+    ExternalTexture  reconstructed( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
+    Builder          graph( "one image twice" );
+    const TextureRef fallbackRef = graph.RegisterExternal( fallbackImport, "Clouds.HistoryFallback" );
+    const TextureRef output      = graph.RegisterExternal( reconstructed, "Clouds.History0" );
+
+    Desert::Graphic::RenderPassDeclaration resolve;
+    resolve.Bindings( ShaderBindingLayout{}, {} )
+         .Sampled( "u_CloudHistory", fallback, Access::SampledCompute, SamplerDesc::LinearRepeat(),
+                   "Clouds.HistoryFallback" )
+         .Sampled( "u_CloudHistoryGuide", fallback, Access::SampledCompute, SamplerDesc::LinearRepeat(),
+                   "Clouds.HistoryFallback" );
+    ASSERT_EQ( Desert::Graphic::BlockImageEntries( resolve ).size(), 2u );
+    EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( resolve ), nullptr );
+
+    // The one import, once per entry (FrameTextures::Import returns the first ref for the same image).
+    const std::vector<TextureRef> imported{ fallbackRef, fallbackRef };
+    graph.AddPass(
+         "Clouds: Resolve", PassFlags::Compute | PassFlags::NeverCull,
+         [&]( PassBuilder& pass )
+         {
+             Desert::Graphic::DeclareRefsOn( pass, resolve, imported );
+             pass.Write( output, Access::StorageWrite );
+         },
+         Ok );
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    EXPECT_TRUE( result.CulledPassNames.empty() );
+
+    Builder          layouts( "one image two layouts" );
+    const TextureRef twice = layouts.RegisterExternal( fallbackImport, "Clouds.HistoryFallback" );
+    layouts.AddPass(
+         "TwoLayouts", PassFlags::Compute | PassFlags::NeverCull,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( twice, Access::SampledCompute );
+             pass.Read( twice, Access::StorageRead );
+         },
+         Ok );
+    const std::string fault = OnlyDeclarationFault( layouts );
+    ASSERT_FALSE( fault.empty() );
+    EXPECT_NE( fault.find( "TwoLayouts" ), std::string::npos ) << fault;
+    EXPECT_NE( fault.find( "Clouds.HistoryFallback" ), std::string::npos ) << fault;
+}
+
 TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
 {
     Builder          graph( "refused" );

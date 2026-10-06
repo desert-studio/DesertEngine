@@ -3,6 +3,7 @@
 #include <utility>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SkyGroundTransmittance.hpp>
@@ -419,8 +420,9 @@ namespace Desert::Graphic::System
 
         // Each node's one binding block (block 0): the pipeline's shader layout and the push block its exec
         // gives. Every LUT is a block entry naming the renderer's own image (imported by the graph, which orders,
-        // barriers and fault-isolates it; written as a storage image, sampled LinearClamp as the sky draw does);
-        // the pipeline route carries only the sky payload buffer, set here in setup every frame.
+        // barriers and fault-isolates it; written as a storage image, sampled with the sampler the image carries
+        // as its own: GlobalTextureFilterSampler); the pipeline route carries only the sky payload buffer, set
+        // here in setup every frame.
         const auto declareBlock =
              [this]( RenderPassDeclaration& declared, ComputePipeline& pipeline, const uint32_t pushBytes )
         {
@@ -434,9 +436,9 @@ namespace Desert::Graphic::System
         const auto sampledLuts = [this]( RenderPassDeclaration::BlockDeclaration block )
         {
             block.Sampled( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
-                           RDG::SamplerDesc::LinearClamp(), "Sky.TransmittanceLut" )
+                           GlobalTextureFilterSampler(), "Sky.TransmittanceLut" )
                  .Sampled( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::SampledCompute,
-                           RDG::SamplerDesc::LinearClamp(), "Sky.MultiScatterLut" );
+                           GlobalTextureFilterSampler(), "Sky.MultiScatterLut" );
             return block;
         };
 
@@ -461,7 +463,7 @@ namespace Desert::Graphic::System
             multiScatter.Name = "Sky: MultiScatterLut";
             declareBlock( multiScatter.Access, *m_MultiScatterLutPipeline, 0 )
                  .Sampled( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
-                           RDG::SamplerDesc::LinearClamp(), "Sky.TransmittanceLut" )
+                           GlobalTextureFilterSampler(), "Sky.TransmittanceLut" )
                  .Storage( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::StorageWrite,
                            "Sky.MultiScatterLut" );
             multiScatter.Record = [this]( RDG::PassContext& context,

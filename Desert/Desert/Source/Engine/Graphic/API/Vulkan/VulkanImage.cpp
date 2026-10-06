@@ -77,12 +77,13 @@ namespace Desert::Graphic::API::Vulkan
             using FM               = Common::Settings::TextureFilter;
             const bool forceLinear = policy == SamplerFilterPolicy::AlwaysLinear;
             const int  mode        = Graphic::RenderConfig::TextureFilter.load();
-            const bool nearest     = !forceLinear && mode == static_cast<int>( FM::Nearest );
-            const bool linearMip   = forceLinear || mode == static_cast<int>( FM::Trilinear ) ||
-                                   mode == static_cast<int>( FM::Anisotropic );
-
-            const VkFilter            filter  = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
-            const VkSamplerMipmapMode mipMode = linearMip ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            // Filter and mip mode from the one derivation a graph entry reading this image also names.
+            const RDG::SamplerDesc desc = forceLinear ? VolumeSampler() : GlobalTextureFilterSampler();
+            const VkFilter         filter =
+                 desc.MinFilter == RDG::SamplerFilter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+            const VkSamplerMipmapMode mipMode = desc.MipMode == RDG::SamplerMipMode::Linear
+                                                     ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+                                                     : VK_SAMPLER_MIPMAP_MODE_NEAREST;
 
             // Anisotropy: only when requested AND the device supports it (MaxAnisotropy > 1 = supported).
             // Never for a volume: anisotropic filtering of a 3D noise field buys nothing and is not

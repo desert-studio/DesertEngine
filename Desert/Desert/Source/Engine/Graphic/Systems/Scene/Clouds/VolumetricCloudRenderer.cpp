@@ -9,6 +9,7 @@
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
 #include <Engine/Graphic/RenderGraphSort.hpp>
 #include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -2015,9 +2016,10 @@ namespace Desert::Graphic::System
                   ? atmosphere.TransmittanceLut
                   : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
              RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        // The block's entries: the two transients it writes, the scene depth (texelFetch: point) and the
-        // sky-light occlusion volume, on the same always-bound terms as the samplers above -- when the layer does
-        // not want it the image does not exist at all, so the fallback is the entry and push.Frame.x is 0.
+        // The block's entries: the two transients it writes, the scene depth and the sky-light occlusion volume,
+        // on the same always-bound terms as the samplers above -- when the layer does not want it the image does
+        // not exist at all, so the fallback is the entry and push.Frame.x is 0. Each is read with the sampler the
+        // image carries as its own (depth: the global texture filter, REPEAT; a volume: VolumeSampler).
         const std::shared_ptr<Image> skyOcclusion =
              skyOcclusionReady
                   ? std::shared_ptr<Image>( m_SkyOcclusionVolume )
@@ -2025,10 +2027,9 @@ namespace Desert::Graphic::System
         DeclareComputeBlock( march.Access, *m_MarchPipeline, static_cast<uint32_t>( sizeof( CloudPush ) ) )
              .Storage( "u_CloudScatter", trace, RDG::Access::StorageWrite )
              .Storage( "u_CloudGuide", traceGuide, RDG::Access::StorageWrite )
-             .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, RDG::SamplerDesc::PointClamp(),
+             .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
                        "SceneDepth.Compute" )
-             .Sampled( "u_CloudSkyOcclusionVolume", skyOcclusion, RDG::Access::SampledCompute,
-                       RDG::SamplerDesc::LinearClamp(),
+             .Sampled( "u_CloudSkyOcclusionVolume", skyOcclusion, RDG::Access::SampledCompute, VolumeSampler(),
                        skyOcclusionReady ? "Clouds.SkyOcclusion" : "Clouds.SkyOcclusionFallback" );
         march.Record = [this, push, traceWidth, traceHeight]( RDG::PassContext& context,
                                                               const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -2105,10 +2106,10 @@ namespace Desert::Graphic::System
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_CloudTraceGuide", traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_CloudHistory", historyScatter, RDG::Access::SampledCompute,
-                       RDG::SamplerDesc::LinearClamp(), historyName )
+             .Sampled( "u_CloudHistory", historyScatter, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
+                       historyName )
              .Sampled( "u_CloudHistoryGuide", historyGuide, RDG::Access::SampledCompute,
-                       RDG::SamplerDesc::LinearClamp(), historyGuideName )
+                       GlobalTextureFilterSampler(), historyGuideName )
              .Storage( "u_ReconstructedScatter", m_HistoryImage[writeIndex], RDG::Access::StorageWrite,
                        std::format( "Clouds.History{}", writeIndex ) )
              .Storage( "u_ReconstructedGuide", m_HistoryGuideImage[writeIndex], RDG::Access::StorageWrite,
