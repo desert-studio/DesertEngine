@@ -93,7 +93,7 @@ namespace Desert::Editor
         // the missing `.stmesh` surfaced later as an asset that would not resolve. The write itself is
         // WriteCookedJson (Editor/Import/CookedJsonWrite.hpp), which closes before it decides.
         [[nodiscard]] ImportOutcome ImportParsed( const std::filesystem::path&        path,
-                                                  const Assets::SourceImportSettings& settings );
+                                                  const Assets::SourceImportSettings& settings, ImportPass pass );
         // @p written receives every mesh, skeleton and clip file actually written, also when a later write fails.
         [[nodiscard]] Common::BoolResultStr CreateAssetsFromImport( const ImportResult&                 result,
                                                                     const std::filesystem::path&        sourcePath,

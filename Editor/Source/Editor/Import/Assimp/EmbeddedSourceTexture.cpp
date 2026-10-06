@@ -85,7 +85,7 @@ namespace Desert::Editor
 
     Common::ResultStr<SourceTextureFile> ResolveSourceTexture( const aiScene&               scene,
                                                                const std::filesystem::path& sourcePath,
-                                                               const std::string&           reference )
+                                                               const std::string& reference, ImportPass pass )
     {
         const auto [texture, index] = scene.GetEmbeddedTextureAndIndex( reference.c_str() );
         if ( texture == nullptr )
@@ -98,6 +98,17 @@ namespace Desert::Editor
             return Common::MakeError<SourceTextureFile>(
                  std::format( "[Import][Tex] '{}': embedded texture '{}' is '{}', which no texture importer reads",
                               sourcePath.generic_string(), reference, imageType ) );
+
+        if ( pass == ImportPass::Cook )
+        {
+            std::error_code ec;
+            if ( !std::filesystem::is_regular_file( out, ec ) )
+                return Common::MakeError<SourceTextureFile>( std::format(
+                     "[Import][Tex] '{}': embedded texture '{}' has no texture asset '{}': the source was never "
+                     "imported with its textures, and a cook writes nothing into Content - re-import the source",
+                     sourcePath.generic_string(), reference, out.generic_string() ) );
+            return Common::MakeSuccess( SourceTextureFile{ out, PackOutcome::Unchanged } );
+        }
 
         const auto bytes = EncodedBytes( *texture );
         if ( !bytes.IsSuccess() )

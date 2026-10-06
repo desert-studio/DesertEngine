@@ -433,8 +433,8 @@ namespace Desert::Editor
 
     // Extract every source material into its source dictionary, bound to a template's layout at write. Recovers
     // NORMAL + OPACITY maps the old MaterialAssetData path silently dropped, and stamps a stable MaterialId.
-    static std::vector<ImportedMaterial> ExtractMaterials( const aiScene*               scene,
-                                                           const std::filesystem::path& sourcePath )
+    static std::vector<ImportedMaterial>
+    ExtractMaterials( const aiScene* scene, const std::filesystem::path& sourcePath, ImportPass pass )
     {
         std::vector<ImportedMaterial> result;
 
@@ -459,7 +459,8 @@ namespace Desert::Editor
                  ReadSourceMaterial( *mat, SourceFormatOf( sourcePath ), out.Name,
                                      [&]( const std::string& refText )
                                      {
-                                         const auto resolved = ResolveSourceTexture( *scene, sourcePath, refText );
+                                         const auto resolved =
+                                              ResolveSourceTexture( *scene, sourcePath, refText, pass );
                                          if ( !resolved.IsSuccess() )
                                          {
                                              LOG_ERROR( "{}", resolved.GetError() );
@@ -501,7 +502,7 @@ namespace Desert::Editor
     }
 
     static ImportResult ProcessScene( const aiScene* scene, ImportManager& manager,
-                                      const std::filesystem::path& sourcePath )
+                                      const std::filesystem::path& sourcePath, ImportPass pass )
     {
         ImportResult result;
 
@@ -511,7 +512,7 @@ namespace Desert::Editor
         // Resolve the material's texture references RELATIVE TO THE SOURCE FILE's own folder (how FBX/glTF
         // store them, e.g. Poly Haven's "textures/<name>.jpg" sits next to the .fbx). The old code looked in
         // a hardcoded <assets root>/Textures/<stem>/ and never found them.
-        const auto materialData = ExtractMaterials( scene, sourcePath );
+        const auto materialData = ExtractMaterials( scene, sourcePath, pass );
 
         std::unordered_map<std::string, uint32_t> boneMapping;
 
@@ -1113,7 +1114,8 @@ namespace Desert::Editor
         return Common::MakeSuccess( ImportContentKind::StaticMesh );
     }
 
-    ImportResult AssimpImporter::Import( const std::filesystem::path& path, ImportManager& manager )
+    ImportResult AssimpImporter::Import( const std::filesystem::path& path, ImportManager& manager,
+                                         ImportPass pass )
     {
         static ScopedAssimpLogger logger;
         Assimp::Importer          importer;
@@ -1190,7 +1192,7 @@ namespace Desert::Editor
             throw std::runtime_error( "Failed to scale to centimetres on import: " + path.string() );
         }
 
-        return ProcessScene( scene, manager, path );
+        return ProcessScene( scene, manager, path, pass );
     }
 
 } // namespace Desert::Editor

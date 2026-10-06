@@ -487,7 +487,8 @@ namespace
         return ReadSourceMaterial( mat, SourceFormatOf( file ), "M",
                                    [&]( const std::string& ref )
                                    {
-                                       const auto resolved = ResolveSourceTexture( *scene, file, ref );
+                                       const auto resolved =
+                                            ResolveSourceTexture( *scene, file, ref, ImportPass::Import );
                                        EXPECT_TRUE( resolved.IsSuccess() )
                                             << ( resolved.IsSuccess() ? "" : resolved.GetError() );
                                        if ( !resolved.IsSuccess() )
@@ -564,7 +565,7 @@ TEST( MaterialImportAdapter, AnUncompressedEmbeddedTextureIsEncodedToPng )
     std::error_code ec;
     fs::remove_all( dir, ec );
     fs::create_directories( dir );
-    const auto resolved = ResolveSourceTexture( scene, dir / "chair.fbx", "*0" );
+    const auto resolved = ResolveSourceTexture( scene, dir / "chair.fbx", "*0", ImportPass::Import );
     scene.mTextures     = nullptr; // the scene does not own them
     scene.mNumTextures  = 0;
     texture.pcData      = nullptr;
@@ -586,6 +587,43 @@ TEST( MaterialImportAdapter, AnUncompressedEmbeddedTextureIsEncodedToPng )
     const std::vector<uint8_t> got( rgba, rgba + 8 );
     stbi_image_free( rgba );
     EXPECT_EQ( got, ( std::vector<uint8_t>{ 30, 20, 10, 255, 60, 50, 40, 128 } ) );
+}
+
+// SELF-COOK: opening the editor wrote base_basic_pbr_<n>.detex into a clean checkout, because the boot cook ran
+// the import's extraction. A cook reads the texture asset the import left and writes nothing into Content.
+TEST( MaterialImportAdapter, ACookWritesNoEmbeddedTextureAsset )
+{
+    aiTexel   texels[1] = { { 10, 20, 30, 255 } };
+    aiTexture texture;
+    texture.mWidth    = 1;
+    texture.mHeight   = 1;
+    texture.pcData    = texels;
+    aiTexture* list[] = { &texture };
+    aiScene    scene;
+    scene.mNumTextures = 1;
+    scene.mTextures    = list;
+
+    const fs::path  dir = fs::temp_directory_path() / "DesertMaterialImportAdapter" / "embedded-cook";
+    std::error_code ec;
+    fs::remove_all( dir, ec );
+    fs::create_directories( dir );
+    const auto never       = ResolveSourceTexture( scene, dir / "chair.fbx", "*0", ImportPass::Cook );
+    const bool wroteOnCook = fs::exists( dir / "chair_0.detex" );
+    const auto imported    = ResolveSourceTexture( scene, dir / "chair.fbx", "*0", ImportPass::Import );
+    const auto stamp       = fs::last_write_time( dir / "chair_0.detex", ec );
+    const auto cooked      = ResolveSourceTexture( scene, dir / "chair.fbx", "*0", ImportPass::Cook );
+    scene.mTextures        = nullptr; // the scene does not own them
+    scene.mNumTextures     = 0;
+    texture.pcData         = nullptr;
+
+    EXPECT_FALSE( never.IsSuccess() ) << "a cook of a never-imported source answered as if its texture existed";
+    EXPECT_FALSE( wroteOnCook ) << "a cook wrote the embedded texture's asset into the source's folder";
+    ASSERT_TRUE( imported.IsSuccess() ) << imported.GetError();
+    ASSERT_TRUE( cooked.IsSuccess() ) << cooked.GetError();
+    EXPECT_EQ( cooked.GetValue().Path, dir / "chair_0.detex" );
+    ASSERT_TRUE( cooked.GetValue().Extracted.has_value() );
+    EXPECT_EQ( *cooked.GetValue().Extracted, PackOutcome::Unchanged );
+    EXPECT_EQ( fs::last_write_time( dir / "chair_0.detex", ec ), stamp ) << "a cook rewrote the imported asset";
 }
 
 TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )

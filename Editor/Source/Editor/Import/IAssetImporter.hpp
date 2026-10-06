@@ -18,12 +18,24 @@ namespace Desert::Editor
         Animation     // no mesh: a skeleton and/or clips only
     };
 
+    // WHO IS ASKING FOR THE PARSE (UE: a factory import vs. a DDC build). `Import` is the user's (re)import: it
+    // creates the content the source yields - the texture assets of its embedded images, beside the source - and
+    // those files are content, committed with the source. `Cook` is the editor deriving what it loads (the boot
+    // and background cook, Rebuild Cooked Assets): it reads that content and writes only derived data, never a
+    // file into Content - a checkout that was merely opened stays clean (SELF-COOK).
+    enum class ImportPass
+    {
+        Import,
+        Cook
+    };
+
     class IAssetImporter
     {
     public:
         virtual ~IAssetImporter() = default;
 
-        virtual ImportResult Import( const std::filesystem::path& path, ImportManager& manager ) = 0;
+        virtual ImportResult Import( const std::filesystem::path& path, ImportManager& manager,
+                                     ImportPass pass ) = 0;
         // What @p path holds, read without building anything; an error naming the file when it does not parse.
         virtual Common::ResultStr<ImportContentKind> Probe( const std::filesystem::path& path ) = 0;
     };

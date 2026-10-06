@@ -242,7 +242,7 @@ namespace Desert::Editor
             LOG_ERROR( "[Import] '{}' was not imported: {}", path.string(), settings.GetError() );
             return CookVerdict::Failed;
         }
-        return ImportParsed( path, settings.GetValue() ).Verdict;
+        return ImportParsed( path, settings.GetValue(), ImportPass::Cook ).Verdict;
     }
 
     ImportOutcome ImportManager::ImportWithSettings( const std::filesystem::path&        path,
@@ -252,7 +252,7 @@ namespace Desert::Editor
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
         if ( !m_Importers.contains( ext ) )
             return { CookVerdict::NotCookable, {}, {}, {} };
-        return ImportParsed( path, settings );
+        return ImportParsed( path, settings, ImportPass::Import );
     }
 
     Common::ResultStr<ImportContentKind> ImportManager::ProbeContent( const std::filesystem::path& path )
@@ -266,11 +266,11 @@ namespace Desert::Editor
     }
 
     ImportOutcome ImportManager::ImportParsed( const std::filesystem::path&        path,
-                                               const Assets::SourceImportSettings& settings )
+                                               const Assets::SourceImportSettings& settings, ImportPass pass )
     {
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-        auto result = m_Importers[ext]->Import( path, *this );
+        auto result = m_Importers[ext]->Import( path, *this, pass );
         // The cook's verdict stops HERE, at a log line naming the file and the reason. It has nowhere
         // further to go and that is deliberate rather than overlooked: this function is void because
         // both of its callers are fire-and-forget — the boot scan (ImportAllFromDirectory, on
