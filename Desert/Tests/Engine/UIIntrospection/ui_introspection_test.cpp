@@ -615,12 +615,12 @@ TEST( UIIntrospectionCost, RefusesByNameWhenItCannotMeasure )
     Scene scene( 1 );
 
     const UI::UIElementCost noLayout =
-         UI::ProbeElementCost( UIViewContext{}, scene.Registry, scene.Canvas, scene.Canvas, kViewport );
+         UI::ProbeElementCost( UIViewContext{ s_Resources }, scene.Registry, scene.Canvas, scene.Canvas, kViewport );
     EXPECT_FALSE( noLayout.Valid );
     EXPECT_FALSE( noLayout.Refusal.empty() );
 
     const UI::UIElementCost nothing =
-         UI::ProbeElementCost( UIViewContext{}, scene.Registry, scene.Canvas, entt::null, kViewport );
+         UI::ProbeElementCost( UIViewContext{ s_Resources }, scene.Registry, scene.Canvas, entt::null, kViewport );
     EXPECT_FALSE( nothing.Valid );
     EXPECT_FALSE( nothing.Refusal.empty() );
 }

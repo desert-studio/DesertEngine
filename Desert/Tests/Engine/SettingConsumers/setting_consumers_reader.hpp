@@ -407,7 +407,7 @@ namespace Desert::Tests::ConsumerText
         return false;
     }
 
-    // `call( receiver.field )` for one of `receivers` - the shape of an assertion that a particular
+    // `call( ..., receiver.field, ... )` for one of `receivers` - the shape of an assertion that a particular
     // EXPRESSION is present, without pinning the local variable's spelling.
     inline bool CallOnFieldRead( const std::string& s, const std::string& call,
                                  const std::vector<std::string>& receivers, const std::string& field )
@@ -417,23 +417,36 @@ namespace Desert::Tests::ConsumerText
             std::size_t i = SkipSpace( s, at + call.size() );
             if ( i >= s.size() || s[i] != '(' )
                 continue;
-            i = SkipSpace( s, i + 1 );
 
-            const std::string recv = IdentAt( s, i );
-            if ( recv.empty() )
-                continue;
-            bool known = false;
-            for ( const std::string& r : receivers )
-                known = known || r == recv;
-            if ( !known )
-                continue;
+            // Every top-level argument of the call, so a resource or context passed ahead of the field
+            // (`ResolveSpriteImage( res, canvas.Sprite )`) does not hide the read.
+            int depth = 0;
+            for ( std::size_t a = i; a < s.size(); ++a )
+            {
+                const char c = s[a];
+                if ( c == '(' || c == '[' || c == '{' )
+                    ++depth;
+                else if ( c == ')' || c == ']' || c == '}' )
+                {
+                    if ( --depth == 0 )
+                        break;
+                    continue;
+                }
+                if ( !( ( c == '(' && depth == 1 ) || ( c == ',' && depth == 1 ) ) )
+                    continue;
 
-            if ( !MemberReadAt( s, i + recv.size(), field ) )
-                continue;
+                const std::size_t argAt = SkipSpace( s, a + 1 );
+                const std::string recv  = IdentAt( s, argAt );
+                bool              known = false;
+                for ( const std::string& r : receivers )
+                    known = known || ( !recv.empty() && r == recv );
+                if ( !known || !MemberReadAt( s, argAt + recv.size(), field ) )
+                    continue;
 
-            const std::size_t after = SkipSpace( s, s.find( field, i ) + field.size() );
-            if ( after < s.size() && s[after] == ')' )
-                return true;
+                const std::size_t after = SkipSpace( s, s.find( field, argAt ) + field.size() );
+                if ( after < s.size() && ( s[after] == ')' || s[after] == ',' ) )
+                    return true;
+            }
         }
         return false;
     }
