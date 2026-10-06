@@ -26,6 +26,7 @@
 
 #include <GLFW/glfw3.h>
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <array>
 #include <cstring>
@@ -468,9 +469,10 @@ TEST( EngineHost, DrawProceduralDrawsEveryInstance )
                "" );
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    ::testing::InitGoogleTest( &argc, argv );
-    ::testing::AddGlobalTestEnvironment( new HostEnvironment );
-    return RUN_ALL_TESTS();
-}
+    // The host's device is made by the first test that asks for it and shut down once, after the suite.
+    const Desert::TestSupport::SuiteEnvironment kHost{ +[]() -> ::testing::Environment* {
+        return new HostEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+    } };
+} // namespace

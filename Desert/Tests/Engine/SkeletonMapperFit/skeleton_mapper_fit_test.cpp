@@ -35,6 +35,7 @@
 // integration cost, and main() below pays it explicitly so that the cost is visible rather than inherited.
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -1002,12 +1003,20 @@ TEST( SkeletonMapperFit, TheSourceRigMayBeLargerThanTheTargetAndJoltForbidsThat 
          << "the corpus no longer contains a source rig larger than a target rig";
 }
 
-int main( int argc, char** argv )
+namespace
 {
     // See the file header: JPH::Allocate is a null function pointer until this runs, and PhysicsWorld::Init
     // is the only thing in the tree that runs it today.
-    JPH::RegisterDefaultAllocator();
+    class JoltAllocatorEnvironment final : public ::testing::Environment
+    {
+    public:
+        void SetUp() override
+        {
+            JPH::RegisterDefaultAllocator();
+        }
+    };
 
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    const Desert::TestSupport::SuiteEnvironment kJoltAllocator{ +[]() -> ::testing::Environment* {
+        return new JoltAllocatorEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+    } };
+} // namespace

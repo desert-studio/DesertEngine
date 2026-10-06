@@ -73,9 +73,11 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <algorithm>
 #include <cstdlib>
+#include <optional>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -1857,30 +1859,57 @@ TEST( PreferenceOwnershipFavourites, OnlyOnePlaceInTheEditorAndTheEngineComposes
             "no engine code at all.";
 }
 
-int main( int argc, char** argv )
+namespace
 {
     // ~/.desertengine/editor.json is a real file in a real home directory, and this suite writes it. Point
-    // HOME at a temporary directory before anything can read it, or a test run would overwrite the
-    // developer's own editor preferences. ProjectContext::ConfigDirectory() reads HOME on every call and
-    // caches nothing, and it is the variable it consults first on Windows too, so this is enough.
-    const std::filesystem::path home = std::filesystem::temp_directory_path() / "DesertPreferenceOwnership";
+    // HOME at a temporary directory before the first test, or a test run would overwrite the developer's
+    // own editor preferences. ProjectContext::ConfigDirectory() reads HOME on every call and caches nothing,
+    // and it is the variable it consults first on Windows too, so this is enough. TearDown gives the
+    // process its HOME back, so the suites that run after this one in the same runner see the real one.
+    class PrivateHomeEnvironment final : public ::testing::Environment
+    {
+    public:
+        void SetUp() override
+        {
+            if ( const char* home = std::getenv( "HOME" ) ) // NOLINT(concurrency-mt-unsafe): before any test
+                m_PreviousHome = home;
+            std::error_code ec;
+            std::filesystem::remove_all( Home(), ec );
+            std::filesystem::create_directories( Home(), ec );
+            SetHome( Home().string() );
+        }
+        void TearDown() override
+        {
+            std::error_code ec;
+            std::filesystem::remove_all( Home(), ec );
+            SetHome( m_PreviousHome.value_or( "" ) );
+        }
 
-    std::error_code ec;
-    std::filesystem::remove_all( home, ec );
-    std::filesystem::create_directories( home, ec );
-
+    private:
+        static std::filesystem::path Home()
+        {
+            return std::filesystem::temp_directory_path() / "DesertPreferenceOwnership";
+        }
+        // An empty value removes the variable (as it was when HOME was not set before the suite).
+        static void SetHome( const std::string& value )
+        {
 #ifdef DESERT_PLATFORM_WINDOWS
-    _putenv_s( "HOME", home.string().c_str() );
+            _putenv_s( "HOME", value.c_str() );
 #else
-    setenv( "HOME", home.string().c_str(), 1 );
+            if ( value.empty() )
+                unsetenv( "HOME" ); // NOLINT(concurrency-mt-unsafe)
+            else
+                setenv( "HOME", value.c_str(), 1 ); // NOLINT(concurrency-mt-unsafe)
 #endif
+        }
 
-    ::testing::InitGoogleTest( &argc, argv );
-    const int result = RUN_ALL_TESTS();
+        std::optional<std::string> m_PreviousHome;
+    };
 
-    std::filesystem::remove_all( home, ec );
-    return result;
-}
+    const Desert::TestSupport::SuiteEnvironment kPrivateHome{ +[]() -> ::testing::Environment* {
+        return new PrivateHomeEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+    } };
+} // namespace
 
 // THUMB3: the content browser reopens the folder it was left in (UE's last path), per project, relative to
 // the assets root, and the splash prefetches exactly that folder's thumbnails.

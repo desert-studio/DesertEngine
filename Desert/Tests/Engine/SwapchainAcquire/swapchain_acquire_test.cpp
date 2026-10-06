@@ -14,6 +14,7 @@
 #include <Engine/Graphic/SwapchainAcquire.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <array>
 #include <cstdint>
@@ -140,10 +141,19 @@ TEST_F( SwapchainAcquire, OutOfDateTwiceInARowIsANamedFailure )
     EXPECT_NE( result.GetError().find( "out of date again" ), std::string::npos );
 }
 
-int main( int argc, char** argv )
+namespace
 {
     // The engine creates this singleton at startup; GetInstance on an uncreated one dereferences null.
-    Desert::Engine::FrameManager::CreateInstance();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    class FrameManagerEnvironment final : public ::testing::Environment
+    {
+    public:
+        void SetUp() override
+        {
+            Desert::Engine::FrameManager::CreateInstance();
+        }
+    };
+
+    const Desert::TestSupport::SuiteEnvironment kFrameManager{ +[]() -> ::testing::Environment* {
+        return new FrameManagerEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+    } };
+} // namespace

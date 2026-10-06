@@ -24,6 +24,7 @@
 #include <Common/Core/Constants.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -1659,16 +1660,23 @@ TEST( CloudSeam, TheSculptedBodyIsErodedByTheFirstSpeciesVolume )
                                                   "first species' — which is a change of what A0 shipped";
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    ::testing::InitGoogleTest( &argc, argv );
-
     // THE ATLAS IS BOUND BEFORE ANY TEST RUNS, and it is the same rule the renderer works by: a sampler
     // with no image behind it is not an unused descriptor, it is an invalid one. Here it is an empty
     // vector and the fetch walks off the end of it, which is the C++ shape of exactly that defect —
     // found by this suite crashing rather than failing, which is why it is set HERE and not inside the
     // fetch, where an empty atlas would have been quietly papered over.
-    SetSingleBodyAtlas();
+    class SingleBodyAtlasEnvironment final : public ::testing::Environment
+    {
+    public:
+        void SetUp() override
+        {
+            SetSingleBodyAtlas();
+        }
+    };
 
-    return RUN_ALL_TESTS();
-}
+    const Desert::TestSupport::SuiteEnvironment kSingleBodyAtlas{ +[]() -> ::testing::Environment* {
+        return new SingleBodyAtlasEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+    } };
+} // namespace

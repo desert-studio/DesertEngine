@@ -37,6 +37,7 @@
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -2469,22 +2470,26 @@ TEST( CloudField, TheShippedErosionAndAGraphReadTheVolumeAtTheSameCOORDINATE )
          << "a Detail Tile Size of zero produced a non-finite noise coordinate";
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    ::testing::InitGoogleTest( &argc, argv );
-
-    const int status = RUN_ALL_TESTS();
-
     // WHAT THIS SUITE'S TIME WENT ON, as two integers rather than as a claim. Baking the modelling
     // volume is the single largest thing this suite does, and until the cache in CloudFieldReference.hpp
     // it was done once per CloudBindSpecies rather than once per distinct sky — the two coverage sweeps
     // walked the SAME eleven Coverage settings one after the other and re-baked all eleven. `Run` is what
     // it costs now and `Run + Served` is what it cost before, on any machine, which is the part a wall
-    // clock on this suite cannot be trusted to say.
-    std::printf( "[CloudField] modelling volume bakes: %d run, %d served from cache (%d requested)\n",
-                 Desert::Tests::CloudFieldRef::BakeCounts().Run, Desert::Tests::CloudFieldRef::BakeCounts().Served,
-                 Desert::Tests::CloudFieldRef::BakeCounts().Run +
-                      Desert::Tests::CloudFieldRef::BakeCounts().Served );
+    // clock on this suite cannot be trusted to say. Printed after the suite's last test.
+    class BakeCountsEnvironment final : public ::testing::Environment
+    {
+    public:
+        void TearDown() override
+        {
+            const auto& counts = Desert::Tests::CloudFieldRef::BakeCounts();
+            std::printf( "[CloudField] modelling volume bakes: %d run, %d served from cache (%d requested)\n",
+                         counts.Run, counts.Served, counts.Run + counts.Served );
+        }
+    };
 
-    return status;
-}
+    const Desert::TestSupport::SuiteEnvironment kBakeCounts{ +[]() -> ::testing::Environment* {
+        return new BakeCountsEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+    } };
+} // namespace
