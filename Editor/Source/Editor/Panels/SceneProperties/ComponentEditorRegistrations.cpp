@@ -1842,8 +1842,8 @@ namespace Desert::Editor
         e.DataPtr           = []( ::Desert::ECS::Entity& en ) -> void* { return &en.GetComponent<C>().Data; };
         e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
         {
-            using Tool    = ::Desert::Editor::Tools::FoliagePaintTool;
-            auto  manager = ctx.AssetManager.lock();
+            using Tool   = ::Desert::Editor::Tools::FoliagePaintTool;
+            auto manager = ctx.AssetManager.lock();
             if ( !ctx.FieldFilter && manager )
             {
                 if ( ImGui::Button( ICON_MDI_RESTART "  Resimulate", ImVec2( -1.0f, 0.0f ) ) && scene )
@@ -1854,13 +1854,14 @@ namespace Desert::Editor
                         ::Desert::Editor::ToastManager::Push( done.GetError(), ::Desert::Editor::ToastLevel::Error,
                                                               6.0f );
                     else
-                        ::Desert::Editor::ToastManager::Push(
-                             std::format( "Procedural foliage: {} instances ({} fields new, {} rewritten, {} removed)",
-                                          done.GetValue().Instances, done.GetValue().Created,
-                                          done.GetValue().Rewritten, done.GetValue().Removed ) );
+                        ::Desert::Editor::ToastManager::Push( std::format(
+                             "Procedural foliage: {} instances ({} fields new, {} rewritten, {} removed)",
+                             done.GetValue().Instances, done.GetValue().Created, done.GetValue().Rewritten,
+                             done.GetValue().Removed ) );
                 }
                 ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
-                     "Simulate the types and replace the instances this volume generated (painted foliage stays)" );
+                     "Simulate the types and replace the instances this volume generated (painted foliage "
+                     "stays)" );
 
                 auto&  types  = en.GetComponent<C>().Data.FoliageTypes;
                 size_t remove = types.size();

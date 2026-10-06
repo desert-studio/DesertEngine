@@ -998,12 +998,13 @@ namespace Desert::Editor::Tools
             return Common::MakeFormattedError<Result>( "procedural foliage: entity {} is not a volume",
                                                        static_cast<uint64_t>( volumeId ) );
         // Copies: creating a field may move the registry's storage under a reference.
-        const ECS::ProceduralFoliageData volume = found->get().GetComponent<ECS::ProceduralFoliageComponent>().Data;
+        const ECS::ProceduralFoliageData volume =
+             found->get().GetComponent<ECS::ProceduralFoliageComponent>().Data;
         const glm::vec3 center = found->get().GetComponent<ECS::TransformComponent>().Translation;
 
-        std::vector<Assets::Asset<Assets::FoliageTypeAsset>>  assets;
-        std::vector<Assets::Serialization::FoliageTypeData>   types;
-        std::vector<std::vector<std::string>>                 layerNames;
+        std::vector<Assets::Asset<Assets::FoliageTypeAsset>> assets;
+        std::vector<Assets::Serialization::FoliageTypeData>  types;
+        std::vector<std::vector<std::string>>                layerNames;
         for ( const auto& handle : volume.FoliageTypes )
         {
             auto type = ResolveType( manager, handle );
@@ -1048,10 +1049,10 @@ namespace Desert::Editor::Tools
                  hit.Distance > len )
                 return std::nullopt;
             FoliageTraceHit out;
-            out.Point   = hit.Point;
-            out.Normal  = hit.Normal;
-            out.Surface = tiles.OfEntity( hit.Entity ) != nullptr ? FoliageSurface::Landscape
-                                                                  : FoliageSurface::StaticMesh;
+            out.Point  = hit.Point;
+            out.Normal = hit.Normal;
+            out.Surface =
+                 tiles.OfEntity( hit.Entity ) != nullptr ? FoliageSurface::Landscape : FoliageSurface::StaticMesh;
             return out;
         };
         host.LayerWeightAt = [&]( uint32_t typeIndex, const glm::vec3& p ) -> std::optional<float>
@@ -1092,7 +1093,8 @@ namespace Desert::Editor::Tools
         {
             if ( auto field = fieldAt( existing ) )
             {
-                field->GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms = std::move( instances );
+                field->GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms =
+                     std::move( instances );
                 Core::FoliagePaint::Selection().erase( fieldIds[existing] );
             }
         };
@@ -1108,12 +1110,13 @@ namespace Desert::Editor::Tools
                 scene.DestroyEntity( *field );
             }
         };
-        host.Create = [&]( const World::Foliage::Procedural::ProceduralFoliageTypeField& fresh ) -> Common::BoolResultStr
+        host.Create =
+             [&]( const World::Foliage::Procedural::ProceduralFoliageTypeField& fresh ) -> Common::BoolResultStr
         {
             const auto& type = assets[fresh.TypeIndex];
-            std::string tag  = "ProceduralFoliage_" + type->GetDisplayName();
+            std::string tag  = std::format( "ProceduralFoliage_{}", type->GetDisplayName() );
             if ( host.CellSize.has_value() )
-                tag += "_" + std::to_string( fresh.Cell.X ) + "_" + std::to_string( fresh.Cell.Z );
+                std::format_to( std::back_inserter( tag ), "_{}_{}", fresh.Cell.X, fresh.Cell.Z );
             auto& field = scene.CreateNewEntity( std::move( tag ) );
             // FO-6: a cell field stands at its cell's centre; a world that is not partitioned keeps the field
             // where a painted one stands, at the origin (instances are world transforms either way).

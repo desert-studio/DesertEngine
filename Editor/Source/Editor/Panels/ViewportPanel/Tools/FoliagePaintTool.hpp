@@ -149,8 +149,9 @@ namespace Desert::Editor::Tools
         // entity @p volume's simulation, traced onto this scene and filed into its own fields
         // (ProceduralFoliageFieldComponent); painted fields and other volumes' fields are not touched. The Scene
         // host of ResimulateProceduralFoliage.
-        static Common::ResultStr<ProceduralFoliageResimulated>
-        ResimulateProcedural( ::Desert::Core::Scene& scene, Assets::AssetManager& manager, const Common::UUID& volume );
+        static Common::ResultStr<ProceduralFoliageResimulated> ResimulateProcedural( ::Desert::Core::Scene& scene,
+                                                                                     Assets::AssetManager& manager,
+                                                                                     const Common::UUID& volume );
 
         // The footprint preview on the viewport overlay: the brush ring at Core::FoliagePaint::HoverPoint and
         // how many instances one dab would add (Foliage::PreviewFoliageFootprint over the checked types). Drawn
