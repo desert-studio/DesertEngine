@@ -1114,7 +1114,7 @@ namespace Desert::Editor::Tools
             std::string tag  = "ProceduralFoliage_" + type->GetDisplayName();
             if ( host.CellSize.has_value() )
                 tag += "_" + std::to_string( fresh.Cell.X ) + "_" + std::to_string( fresh.Cell.Z );
-            auto& field = scene.CreateNewEntity( tag );
+            auto& field = scene.CreateNewEntity( std::move( tag ) );
             // FO-6: a cell field stands at its cell's centre; a world that is not partitioned keeps the field
             // where a painted one stands, at the origin (instances are world transforms either way).
             if ( host.CellSize.has_value() )
