@@ -145,7 +145,13 @@ TEST( SkeletonSockets, SocketsAndBoneMasksSurviveTheSkel4RoundTrip )
     EXPECT_EQ( socket.Name, "head_hat" );
     EXPECT_EQ( socket.Bone, "spine" );
     EXPECT_FLOAT_EQ( socket.Translation.z, 5.0F );
-    EXPECT_FLOAT_EQ( socket.Rotation.z, 1.0F );
+    // glm::quat( w, x, y, z ): the written rotation is w 0, x 0, y 1, z 0 - every component must come back.
+    const glm::quat written = data.Sockets[0].Rotation;
+    EXPECT_FLOAT_EQ( socket.Rotation.w, written.w );
+    EXPECT_FLOAT_EQ( socket.Rotation.x, written.x );
+    EXPECT_FLOAT_EQ( socket.Rotation.y, written.y );
+    EXPECT_FLOAT_EQ( socket.Rotation.z, written.z );
+    EXPECT_FLOAT_EQ( socket.Rotation.y, 1.0F );
     EXPECT_FLOAT_EQ( socket.Scale.x, 2.0F );
     ASSERT_EQ( back.GetValue().BoneMasks.size(), 1u );
     ASSERT_EQ( back.GetValue().BoneMasks[0].Entries.size(), 1u );
