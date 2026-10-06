@@ -198,8 +198,8 @@ namespace Desert::Editor
             Graph::FrameAll( m_Canvas );
         ImGui::SameLine();
         ImGui::TextUnformatted( "Event:" );
-        for ( const Animation::RigEvent event :
-              { Animation::RigEvent::Construction, Animation::RigEvent::Forwards, Animation::RigEvent::Backwards } )
+        for ( const Animation::RigEvent event : { Animation::RigEvent::Construction, Animation::RigEvent::Forwards,
+                                                  Animation::RigEvent::Backwards } )
         {
             ImGui::SameLine();
             if ( ImGui::RadioButton( std::string( Animation::ToString( event ) ).c_str(),
@@ -212,10 +212,9 @@ namespace Desert::Editor
             }
         }
         ImGui::SameLine();
-        ImGui::TextDisabled( "  Skeleton: %s",
-                             m_Model->GetData().TargetSkeleton.Path.empty()
-                                  ? "(none)"
-                                  : m_Model->GetData().TargetSkeleton.Path.c_str() );
+        ImGui::TextDisabled( "  Skeleton: %s", m_Model->GetData().TargetSkeleton.Path.empty()
+                                                    ? "(none)"
+                                                    : m_Model->GetData().TargetSkeleton.Path.c_str() );
     }
 
     void ControlRigDocument::DrawElements()
@@ -428,8 +427,8 @@ namespace Desert::Editor
                     target = control;
                 else if ( desc.Target == Animation::RigNodeTargetKind::Bone )
                     target = bones.empty() ? std::string() : bones.front();
-                if ( auto added =
-                          m_Model->AddNode( desc.Kind, target, RigNodePositionData{ m_DropPoint.x, m_DropPoint.y } );
+                if ( auto added = m_Model->AddNode( desc.Kind, target,
+                                                    RigNodePositionData{ m_DropPoint.x, m_DropPoint.y } );
                      added )
                 {
                     m_SelectedNode = added.GetValue();
@@ -583,7 +582,8 @@ namespace Desert::Editor
             {
                 if ( on )
                 {
-                    // A fresh range: a full turn for rotation, a metre either side for translation, 0..10 for scale.
+                    // A fresh range: a full turn for rotation, a metre either side for translation, 0..10 for
+                    // scale.
                     const float extent = channel >= 6 ? 10.0f : ( channel >= 3 ? 180.0f : 100.0f );
                     c.Limits.push_back( ControlLimitData{ spelled, channel >= 6 ? 0.0f : -extent, extent } );
                 }
@@ -768,8 +768,8 @@ namespace Desert::Editor
                                  : std::format( "Does not bind to its skeleton: {}", built.GetError() );
             }
             else
-                m_Status = std::format( "{} solve: {} node(s), {} control(s); skeleton not loaded", event,
-                                        nodes, data.Controls.size() );
+                m_Status = std::format( "{} solve: {} node(s), {} control(s); skeleton not loaded", event, nodes,
+                                        data.Controls.size() );
         }
         Graph::DrawStatusLine( m_Status, m_StatusError );
         if ( !m_LastRefusal.empty() )

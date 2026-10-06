@@ -80,8 +80,9 @@ namespace Desert::Assets
         }
         LOG_INFO( "[Animation] Control rig '{}' loaded: {} controls, {} bone drives, {}.", m_DisplayName,
                   m_Data.Controls.size(), m_Data.Drives.size(),
-                  graphs.empty() ? std::string( "no solve graphs (each control's own composition drives its bone)" )
-                                 : graphs );
+                  graphs.empty()
+                       ? std::string( "no solve graphs (each control's own composition drives its bone)" )
+                       : graphs );
         return BOOLSUCCESS;
     }
 

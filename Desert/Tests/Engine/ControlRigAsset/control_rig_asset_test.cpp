@@ -330,8 +330,8 @@ TEST( ControlRigAssetTest, ARigWrittenAndReadBackIsTheSameRigByValue )
 
 namespace
 {
-    RigFile::RigGraphNodeData RigNodeData( std::string name, std::string kind, std::string target, std::string space,
-                                           float x, float y )
+    RigFile::RigGraphNodeData RigNodeData( std::string name, std::string kind, std::string target,
+                                           std::string space, float x, float y )
     {
         RigFile::RigGraphNodeData node;
         node.Name     = std::move( name );
@@ -350,7 +350,8 @@ namespace
         data.Controls[1].Limits.push_back( RigFile::ControlLimitData{ "TX", -1.0F, 1.0F } );
         data.Controls[1].Limits.push_back( RigFile::ControlLimitData{ "RZ", -30.0F, 30.0F } );
 
-        RigFile::RigGraphNodeData copy = RigNodeData( "setTail", "SetControl", "Tail_CTRL", "Local", 300.0F, 60.0F );
+        RigFile::RigGraphNodeData copy =
+             RigNodeData( "setTail", "SetControl", "Tail_CTRL", "Local", 300.0F, 60.0F );
         RigFile::RigGraphInputData from;
         from.Pin  = "Transform";
         from.Link = RigFile::RigLinkData{ "readHand", "Transform" };
@@ -359,7 +360,8 @@ namespace
              "Construction",
              { RigNodeData( "readHand", "GetControl", "Hand_CTRL", "Local", 40.0F, 60.0F ), copy } } );
 
-        RigFile::RigGraphNodeData pose = RigNodeData( "poseWrist", "SetControl", "Wrist_CTRL", "Global", 320.0F, 0.0F );
+        RigFile::RigGraphNodeData pose =
+             RigNodeData( "poseWrist", "SetControl", "Wrist_CTRL", "Global", 320.0F, 0.0F );
         RigFile::RigGraphInputData bone;
         bone.Pin  = "Transform";
         bone.Link = RigFile::RigLinkData{ "readHandBone", "Transform" };

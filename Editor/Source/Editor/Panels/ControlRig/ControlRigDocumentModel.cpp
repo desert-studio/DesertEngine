@@ -58,7 +58,8 @@ namespace Desert::Editor
         }
 
         /// What `Add` would refuse, said at the edit: an unknown channel, a channel named twice, Min > Max.
-        Common::BoolResultStr CheckLimits( const std::string& control, const std::vector<ControlLimitData>& limits )
+        Common::BoolResultStr CheckLimits( const std::string&                   control,
+                                           const std::vector<ControlLimitData>& limits )
         {
             std::unordered_set<std::string> seen;
             for ( const auto& limit : limits )
@@ -471,8 +472,8 @@ namespace Desert::Editor
                                                      Animation::ToString( out->Type ), toNode, toPin,
                                                      Animation::ToString( in->Type ) );
         if ( ClosesCycle( *FindGraph( next, m_Event ), fromNode, toNode ) )
-            return Common::MakeFormattedError<bool>( "wiring {} into {} closes a loop; a solve is one pass in order",
-                                                     fromNode, toNode );
+            return Common::MakeFormattedError<bool>(
+                 "wiring {} into {} closes a loop; a solve is one pass in order", fromNode, toNode );
         RigGraphInputData wired;
         wired.Pin       = toPin;
         wired.Link      = RigLinkData{ fromNode, fromPin };

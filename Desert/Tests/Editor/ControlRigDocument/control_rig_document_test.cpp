@@ -135,7 +135,8 @@ TEST( ControlRigDocumentTest, PositionsLimitsAndEventsSurviveSaveAndLoadAndUndo 
     EXPECT_FLOAT_EQ( model.GetGraph()->Nodes[0].Position.X, 300.0f );
     ASSERT_TRUE( history.Redo() );
 
-    ASSERT_TRUE( model.SetLimits( "Hand_CTRL", { Serialization::ControlLimitData{ "TX", -1.0f, 1.0f } } ).IsSuccess() );
+    ASSERT_TRUE(
+         model.SetLimits( "Hand_CTRL", { Serialization::ControlLimitData{ "TX", -1.0f, 1.0f } } ).IsSuccess() );
     EXPECT_FALSE( model.SetLimits( "Hand_CTRL", { { "TX", 2.0f, 1.0f } } ).IsSuccess() ) << "Min above Max";
     EXPECT_FALSE( model.SetLimits( "Hand_CTRL", { { "TW", 0.0f, 1.0f } } ).IsSuccess() ) << "no such channel";
     EXPECT_FALSE( model.SetLimits( "Hand_CTRL", { { "TX", 0.0f, 1.0f }, { "TX", 0.0f, 2.0f } } ).IsSuccess() )
@@ -146,7 +147,8 @@ TEST( ControlRigDocumentTest, PositionsLimitsAndEventsSurviveSaveAndLoadAndUndo 
     ASSERT_TRUE( model.Save().IsSuccess() );
     auto reread = ControlRigDocumentModel::Open( path, history );
     ASSERT_TRUE( reread.IsSuccess() ) << reread.GetError();
-    EXPECT_EQ( reread.GetValue()->GetData(), authored ) << "positions / limits / events changed on the way to disk";
+    EXPECT_EQ( reread.GetValue()->GetData(), authored )
+         << "positions / limits / events changed on the way to disk";
     const auto* construction = Serialization::FindRigGraph( reread.GetValue()->GetData(), "Construction" );
     ASSERT_NE( construction, nullptr );
     EXPECT_FLOAT_EQ( construction->Nodes[0].Position.Y, 20.0f );

@@ -1256,7 +1256,8 @@ TEST( RigGraphTest, TheFormatRefusesEverythingTheWalkRefusesAndNamesTheRow )
     };
 
     // An empty graph: present-but-nothing is not a second spelling of absent.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes.clear(); } ).find( "no nodes" ),
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes.clear(); } )
+                    .find( "no nodes" ),
                std::string::npos );
 
     // No sink — the same sentence `RefuseDiscardedWork` produces for the walk, because it IS that function.
@@ -1265,25 +1266,28 @@ TEST( RigGraphTest, TheFormatRefusesEverythingTheWalkRefusesAndNamesTheRow )
                std::string::npos );
 
     // An unknown kind.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[0].Kind = "GetSocket"; } )
-                    .find( "does not know" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[0].Kind = "GetSocket"; } )
+              .find( "does not know" ),
+         std::string::npos );
 
     // A pin the kind does not have.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Inputs[0].Pin = "C"; } )
-                    .find( "does not have" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Inputs[0].Pin = "C"; } )
+              .find( "does not have" ),
+         std::string::npos );
 
     // Two payloads on one pin: a precedence rule would make the loser invisible.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Inputs[1].Float = 1.0f; } )
-                    .find( "payloads" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Inputs[1].Float = 1.0f; } )
+              .find( "payloads" ),
+         std::string::npos );
 
     // No payload at all.
-    EXPECT_NE(
-         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Inputs[1].Transform.reset(); } )
-              .find( "neither a link nor a value" ),
-         std::string::npos );
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
+                           { d.Graphs.front().Nodes[1].Inputs[1].Transform.reset(); } )
+                    .find( "neither a link nor a value" ),
+               std::string::npos );
 
     // A link to a node that comes later — the rule that makes a cycle unwritable.
     {
@@ -1307,14 +1311,16 @@ TEST( RigGraphTest, TheFormatRefusesEverythingTheWalkRefusesAndNamesTheRow )
                std::string::npos );
 
     // A control this rig does not define.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[2].Target = "Nose_CTRL"; } )
-                    .find( "does not define" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[2].Target = "Nose_CTRL"; } )
+              .find( "does not define" ),
+         std::string::npos );
 
     // Two nodes with one name.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Name = "elbowBone"; } )
-                    .find( "two graph nodes" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graphs.front().Nodes[1].Name = "elbowBone"; } )
+              .find( "two graph nodes" ),
+         std::string::npos );
 }
 
 TEST( RigGraphTest, ABoneNameTheSkeletonDoesNotHaveIsRefusedAtBuildAndNamesTheSignature )
@@ -1380,10 +1386,10 @@ TEST( RigGraphTest, EveryRigThisBuildShipsParsesAndAtLeastOneOfThemCarriesAGraph
 
 TEST( RigGraphTest, ConstructionRunsOnceAndBeforeTheFirstForwardsSolve )
 {
-    const Skeleton skeleton = MakeArmRig();
-    uint32_t       a        = ControlHierarchy::INVALID;
-    uint32_t       b        = ControlHierarchy::INVALID;
-    auto           stage    = TwoControlRig( skeleton, &a, &b );
+    const Skeleton      skeleton = MakeArmRig();
+    uint32_t            a        = ControlHierarchy::INVALID;
+    uint32_t            b        = ControlHierarchy::INVALID;
+    auto                stage    = TwoControlRig( skeleton, &a, &b );
     const BoneTransform original = stage->GetHierarchy().Get( a ).Pose;
     const BoneTransform moved    = Placed( { -70.0F, 33.0F, 8.0F }, -45.0F, { 1.0F, 1.0F, 0.0F } );
 
@@ -1399,7 +1405,8 @@ TEST( RigGraphTest, ConstructionRunsOnceAndBeforeTheFirstForwardsSolve )
     ASSERT_TRUE( stage->SetGraph( std::move( setup ), RigEvent::Construction ).IsSuccess() );
 
     std::vector<RigNode> forwards;
-    forwards.push_back( MakeNode( "moveA", RigNodeKind::SetControl, { Lit( moved ) }, a, RigControlSpace::Local ) );
+    forwards.push_back(
+         MakeNode( "moveA", RigNodeKind::SetControl, { Lit( moved ) }, a, RigControlSpace::Local ) );
     RigGraph solve;
     ASSERT_TRUE(
          solve.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), std::move( forwards ) ).IsSuccess() );
@@ -1418,17 +1425,17 @@ TEST( RigGraphTest, ConstructionRunsOnceAndBeforeTheFirstForwardsSolve )
 
 TEST( RigGraphTest, ALimitClampsWhatTheGraphWritesBecauseTheSetterApplysIt )
 {
-    const Skeleton skeleton = MakeArmRig();
-    auto           stage    = std::make_unique<ControlRigStage>();
+    const Skeleton     skeleton = MakeArmRig();
+    auto               stage    = std::make_unique<ControlRigStage>();
     const ControlSpace world{ ControlSpaceKind::Component, 0, 1.0F };
     ControlElement     limited = MakeControl( "L_CTRL", world, BoneTransform{}, BoneTransform{} );
     limited.Limits.push_back( ControlLimit{ ControlLimitChannel::TranslationX, -1.0F, 1.0F } );
     const uint32_t l = MustAdd( stage->GetHierarchy(), limited );
 
     std::vector<RigNode> nodes;
-    nodes.push_back( MakeNode( "push", RigNodeKind::SetControl, { Lit( Placed( { 5.0F, 7.0F, 0.0F }, 0.0F,
-                                                                                { 0.0F, 0.0F, 1.0F } ) ) },
-                               l, RigControlSpace::Local ) );
+    nodes.push_back( MakeNode( "push", RigNodeKind::SetControl,
+                               { Lit( Placed( { 5.0F, 7.0F, 0.0F }, 0.0F, { 0.0F, 0.0F, 1.0F } ) ) }, l,
+                               RigControlSpace::Local ) );
     RunGraph( *stage, skeleton, nodes );
 
     const BoneTransform& pose = stage->GetHierarchy().Get( l ).Pose;

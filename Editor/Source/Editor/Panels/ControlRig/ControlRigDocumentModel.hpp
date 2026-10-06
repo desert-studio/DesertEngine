@@ -95,8 +95,9 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr SetDrive( const std::string& control, const std::string& bone );
         /// The control's limited channels, whole (UE `FRigControlLimitEnabled` per axis): an unknown channel,
         /// a channel named twice, or Min > Max is refused before anything is recorded.
-        [[nodiscard]] Common::BoolResultStr SetLimits( const std::string&                                   control,
-                                                       const std::vector<Assets::Serialization::ControlLimitData>& limits );
+        [[nodiscard]] Common::BoolResultStr
+        SetLimits( const std::string&                                          control,
+                   const std::vector<Assets::Serialization::ControlLimitData>& limits );
 
         // ── Which solve event the graph edits address ──────────────────────────────────────────────
         [[nodiscard]] Animation::RigEvent GetEvent() const
@@ -119,8 +120,8 @@ namespace Desert::Editor
         AddNode( Animation::RigNodeKind kind, const std::string& target,
                  const Assets::Serialization::RigNodePositionData& position );
         /// Moves a node on the canvas — one undo record per drag (the view commits on release).
-        [[nodiscard]] Common::BoolResultStr MoveNode( const std::string&                                node,
-                                                      const Assets::Serialization::RigNodePositionData& position );
+        [[nodiscard]] Common::BoolResultStr          MoveNode( const std::string&                                node,
+                                                               const Assets::Serialization::RigNodePositionData& position );
         [[nodiscard]] Common::BoolResultStr          RemoveNode( const std::string& node );
         [[nodiscard]] Common::BoolResultStr SetNodeTarget( const std::string& node, const std::string& target );
         [[nodiscard]] Common::BoolResultStr SetNodeSpace( const std::string&         node,
