@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <functional>
@@ -196,7 +197,22 @@ namespace Desert::Editor
         if ( ImGui::Button( ICON_MDI_FIT_TO_PAGE_OUTLINE " Frame" ) )
             Graph::FrameAll( m_Canvas );
         ImGui::SameLine();
-        ImGui::TextDisabled( "Event: Forwards solve   Skeleton: %s",
+        ImGui::TextUnformatted( "Event:" );
+        for ( const Animation::RigEvent event :
+              { Animation::RigEvent::Construction, Animation::RigEvent::Forwards, Animation::RigEvent::Backwards } )
+        {
+            ImGui::SameLine();
+            if ( ImGui::RadioButton( std::string( Animation::ToString( event ) ).c_str(),
+                                     m_Model->GetEvent() == event ) &&
+                 m_Model->GetEvent() != event )
+            {
+                m_Model->SetEvent( event );
+                m_SelectedNode.clear();
+                m_LiteralDraft.reset();
+            }
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled( "  Skeleton: %s",
                              m_Model->GetData().TargetSkeleton.Path.empty()
                                   ? "(none)"
                                   : m_Model->GetData().TargetSkeleton.Path.c_str() );
@@ -228,11 +244,13 @@ namespace Desert::Editor
                     if ( ImGui::MenuItem( "Delete" ) )
                         Report( m_Model->RemoveControl( control.Name ) );
                     if ( ImGui::MenuItem( "Add Get Control node" ) )
-                        if ( auto added = m_Model->AddNode( Animation::RigNodeKind::GetControl, control.Name );
+                        if ( auto added = m_Model->AddNode( Animation::RigNodeKind::GetControl, control.Name,
+                                                            NextFreePosition() );
                              !added )
                             m_LastRefusal = added.GetError();
                     if ( ImGui::MenuItem( "Add Set Control node" ) )
-                        if ( auto added = m_Model->AddNode( Animation::RigNodeKind::SetControl, control.Name );
+                        if ( auto added = m_Model->AddNode( Animation::RigNodeKind::SetControl, control.Name,
+                                                            NextFreePosition() );
                              !added )
                             m_LastRefusal = added.GetError();
                     ImGui::EndPopup();
@@ -258,6 +276,15 @@ namespace Desert::Editor
         }
     }
 
+    RigNodePositionData ControlRigDocument::NextFreePosition() const
+    {
+        RigNodePositionData at{ 40.0f, 40.0f };
+        if ( const auto* graph = m_Model->GetGraph() )
+            for ( const auto& node : graph->Nodes )
+                at.Y = std::max( at.Y, node.Position.Y + 180.0f );
+        return at;
+    }
+
     void ControlRigDocument::DrawCanvas()
     {
         const auto& data = m_Model->GetData();
@@ -265,18 +292,22 @@ namespace Desert::Editor
         ed::Begin( "##rigGraph" );
         m_Pins.clear();
 
-        const auto& nodes = data.Graph ? data.Graph->Nodes : std::vector<RigGraphNodeData>{};
-        for ( size_t i = 0; i < nodes.size(); ++i )
+        // A COPY: an edit below (wire, cut, move, remove) installs a new value and frees the model's vector.
+        const auto*                         graph = m_Model->GetGraph();
+        const std::vector<RigGraphNodeData> nodes = graph ? graph->Nodes : std::vector<RigGraphNodeData>{};
+        // Positions are the FILE's (CRIG 4): taken whenever the model moved (open, undo, redo, event switch),
+        // left to the canvas between, so a drag in progress is not snapped back.
+        const bool place = m_PlacedRevision != m_Model->GetRevision();
+        m_PlacedRevision = m_Model->GetRevision();
+        for ( const auto& node : nodes )
         {
-            const auto& node = nodes[i];
-            const auto  kind = Animation::RigNodeKindFromText( node.Kind );
+            const auto kind = Animation::RigNodeKindFromText( node.Kind );
             if ( !kind )
                 continue;
             const auto&      desc = Animation::DescribeRigNode( *kind );
             const ed::NodeId id( IdOf( node.Name ) );
-            if ( m_Placed.insert( node.Name ).second )
-                ed::SetNodePosition( id,
-                                     ImVec2( 40.0f + 260.0f * float( i % 4 ), 40.0f + 180.0f * float( i / 4 ) ) );
+            if ( place )
+                ed::SetNodePosition( id, ImVec2( node.Position.X, node.Position.Y ) );
             ed::BeginNode( id );
             ImGui::TextUnformatted( node.Kind.c_str() );
             if ( !node.Target.empty() )
@@ -305,6 +336,16 @@ namespace Desert::Editor
                     ed::Link( ed::LinkId( IdOf( node.Name, "link", input.Pin ) ),
                               ed::PinId( IdOf( input.Link->Node, "out", input.Link->Pin ) ),
                               ed::PinId( IdOf( node.Name, "in", input.Pin ) ) );
+
+        // A drag ends on release: each node the canvas moved off its authored position is one MoveNode
+        // record (undoable, dirties the document), like UE's graph model committing on drop.
+        if ( !place && !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+            for ( const auto& node : nodes )
+            {
+                const ImVec2 at = ed::GetNodePosition( ed::NodeId( IdOf( node.Name ) ) );
+                if ( std::abs( at.x - node.Position.X ) > 0.5f || std::abs( at.y - node.Position.Y ) > 0.5f )
+                    Report( m_Model->MoveNode( node.Name, RigNodePositionData{ at.x, at.y } ) );
+            }
 
         if ( ed::BeginCreate() )
         {
@@ -364,9 +405,13 @@ namespace Desert::Editor
                     }
         }
 
+        const ImVec2 mouseOnCanvas = ImGui::GetMousePos(); // canvas space while the editor is not suspended
         ed::Suspend();
         if ( ed::ShowBackgroundContextMenu() )
+        {
+            m_DropPoint = glm::vec2( mouseOnCanvas.x, mouseOnCanvas.y );
             ImGui::OpenPopup( "##addRigNode" );
+        }
         if ( ImGui::BeginPopup( "##addRigNode" ) )
         {
             const std::string control =
@@ -383,7 +428,9 @@ namespace Desert::Editor
                     target = control;
                 else if ( desc.Target == Animation::RigNodeTargetKind::Bone )
                     target = bones.empty() ? std::string() : bones.front();
-                if ( auto added = m_Model->AddNode( desc.Kind, target ); added )
+                if ( auto added =
+                          m_Model->AddNode( desc.Kind, target, RigNodePositionData{ m_DropPoint.x, m_DropPoint.y } );
+                     added )
                 {
                     m_SelectedNode = added.GetValue();
                     m_SelectedControl.clear();
@@ -523,6 +570,42 @@ namespace Desert::Editor
             commit = true;
         }
 
+        ImGui::Separator();
+        ImGui::TextDisabled( "%s", "Limits (rotations in degrees)" );
+        for ( size_t channel = 0; channel < 9; ++channel )
+        {
+            const std::string spelled(
+                 Animation::ToString( static_cast<Animation::ControlLimitChannel>( channel ) ) );
+            auto limit = std::ranges::find( c.Limits, spelled, &ControlLimitData::Channel );
+            bool on    = limit != c.Limits.end();
+            ImGui::PushID( spelled.c_str() );
+            if ( ImGui::Checkbox( spelled.c_str(), &on ) )
+            {
+                if ( on )
+                {
+                    // A fresh range: a full turn for rotation, a metre either side for translation, 0..10 for scale.
+                    const float extent = channel >= 6 ? 10.0f : ( channel >= 3 ? 180.0f : 100.0f );
+                    c.Limits.push_back( ControlLimitData{ spelled, channel >= 6 ? 0.0f : -extent, extent } );
+                }
+                else
+                    c.Limits.erase( limit );
+                commit = true;
+                limit  = std::ranges::find( c.Limits, spelled, &ControlLimitData::Channel );
+            }
+            if ( limit != c.Limits.end() )
+            {
+                ImGui::SameLine();
+                float range[2] = { limit->Min, limit->Max };
+                if ( ImGui::DragFloat2( "Min / Max", range, 0.1f ) )
+                {
+                    limit->Min = range[0];
+                    limit->Max = range[1];
+                }
+                release |= ImGui::IsItemDeactivatedAfterEdit();
+            }
+            ImGui::PopID();
+        }
+
         if ( commit || release )
         {
             Report( m_Model->SetControl( name, c ) );
@@ -548,14 +631,15 @@ namespace Desert::Editor
 
     void ControlRigDocument::DrawNodeInspector( const std::string& name )
     {
-        const auto& data = m_Model->GetData();
-        if ( !data.Graph )
+        const auto& data  = m_Model->GetData();
+        const auto* graph = m_Model->GetGraph();
+        if ( !graph )
         {
             m_SelectedNode.clear();
             return;
         }
-        const auto found = std::ranges::find( data.Graph->Nodes, name, &RigGraphNodeData::Name );
-        if ( found == data.Graph->Nodes.end() )
+        const auto found = std::ranges::find( graph->Nodes, name, &RigGraphNodeData::Name );
+        if ( found == graph->Nodes.end() )
         {
             m_SelectedNode.clear();
             return;
@@ -666,7 +750,9 @@ namespace Desert::Editor
         {
             m_StatusRevision   = m_Model->GetRevision();
             const auto&  data  = m_Model->GetData();
-            const size_t nodes = data.Graph ? data.Graph->Nodes.size() : 0;
+            const auto*  graph = m_Model->GetGraph();
+            const size_t nodes = graph ? graph->Nodes.size() : 0;
+            const auto   event = Animation::ToString( m_Model->GetEvent() );
             const auto   valid = m_Model->Validate();
             m_StatusError      = !valid;
             if ( !valid )
@@ -676,14 +762,14 @@ namespace Desert::Editor
                 Animation::ControlRigStage stage;
                 const auto                 built = BuildControlRig( data, *m_Skeleton->GetSkeleton(), stage );
                 m_StatusError                    = !built;
-                m_Status = built ? std::format( "Forwards solve: {} node(s), {} control(s), binds to the "
+                m_Status = built ? std::format( "{} solve: {} node(s), {} control(s), binds to the "
                                                 "skeleton",
-                                                nodes, data.Controls.size() )
+                                                event, nodes, data.Controls.size() )
                                  : std::format( "Does not bind to its skeleton: {}", built.GetError() );
             }
             else
-                m_Status = std::format( "Forwards solve: {} node(s), {} control(s); skeleton not loaded", nodes,
-                                        data.Controls.size() );
+                m_Status = std::format( "{} solve: {} node(s), {} control(s); skeleton not loaded", event,
+                                        nodes, data.Controls.size() );
         }
         Graph::DrawStatusLine( m_Status, m_StatusError );
         if ( !m_LastRefusal.empty() )

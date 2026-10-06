@@ -57,12 +57,37 @@ namespace Desert::Editor
             return it == data.Controls.end() ? nullptr : &*it;
         }
 
-        RigGraphNodeData* FindNode( ControlRigData& data, const std::string& name )
+        /// What `Add` would refuse, said at the edit: an unknown channel, a channel named twice, Min > Max.
+        Common::BoolResultStr CheckLimits( const std::string& control, const std::vector<ControlLimitData>& limits )
         {
-            if ( !data.Graph )
+            std::unordered_set<std::string> seen;
+            for ( const auto& limit : limits )
+            {
+                if ( !Animation::ControlLimitChannelFromText( limit.Channel ) )
+                    return Common::MakeFormattedError<bool>( "control '{}': '{}' is not a limit channel", control,
+                                                             limit.Channel );
+                if ( !seen.insert( limit.Channel ).second )
+                    return Common::MakeFormattedError<bool>( "control '{}': channel {} is limited twice", control,
+                                                             limit.Channel );
+                if ( limit.Min > limit.Max )
+                    return Common::MakeFormattedError<bool>( "control '{}': {} limit has Min {} above Max {}",
+                                                             control, limit.Channel, limit.Min, limit.Max );
+            }
+            return BOOLSUCCESS;
+        }
+
+        RigGraphData* FindGraph( ControlRigData& data, Animation::RigEvent event )
+        {
+            return FindRigGraph( data, Animation::ToString( event ) );
+        }
+
+        RigGraphNodeData* FindNode( ControlRigData& data, Animation::RigEvent event, const std::string& name )
+        {
+            RigGraphData* graph = FindGraph( data, event );
+            if ( !graph )
                 return nullptr;
-            const auto it = std::ranges::find( data.Graph->Nodes, name, &RigGraphNodeData::Name );
-            return it == data.Graph->Nodes.end() ? nullptr : &*it;
+            const auto it = std::ranges::find( graph->Nodes, name, &RigGraphNodeData::Name );
+            return it == graph->Nodes.end() ? nullptr : &*it;
         }
 
         const Animation::RigPin* FindPin( std::span<const Animation::RigPin> pins, const std::string& name )
@@ -125,19 +150,21 @@ namespace Desert::Editor
             }
         }
 
-        void EraseNodes( ControlRigData& data, const std::function<bool( const RigGraphNodeData& )>& drop )
+        void EraseNodes( RigGraphData& graph, const std::function<bool( const RigGraphNodeData& )>& drop )
         {
-            if ( !data.Graph )
-                return;
             std::vector<std::string> gone;
-            for ( const auto& node : data.Graph->Nodes )
+            for ( const auto& node : graph.Nodes )
                 if ( drop( node ) )
                     gone.push_back( node.Name );
-            std::erase_if( data.Graph->Nodes, drop );
+            std::erase_if( graph.Nodes, drop );
             for ( const auto& name : gone )
-                UnlinkFrom( *data.Graph, name );
-            if ( data.Graph->Nodes.empty() )
-                data.Graph.reset(); // the file spells "no forwards solve" by leaving Graph out
+                UnlinkFrom( graph, name );
+        }
+
+        /// The file spells "no solve for this event" by leaving the event out (Validate refuses an empty one).
+        void DropEmptyGraphs( ControlRigData& data )
+        {
+            std::erase_if( data.Graphs, []( const RigGraphData& graph ) { return graph.Nodes.empty(); } );
         }
     } // namespace
 
@@ -239,15 +266,17 @@ namespace Desert::Editor
             std::erase_if( control.Parents,
                            [&]( const ControlSpaceData& s ) { return s.Kind == "Control" && s.Target == name; } );
         std::erase_if( next.Drives, [&]( const ControlDriveData& d ) { return d.Control == name; } );
-        EraseNodes( next,
-                    [&]( const RigGraphNodeData& n )
-                    {
-                        Animation::RigNodeKind kind{};
-                        return KindOf( n, kind ) &&
-                               Animation::DescribeRigNode( kind ).Target ==
-                                    Animation::RigNodeTargetKind::Control &&
-                               n.Target == name;
-                    } );
+        for ( auto& graph : next.Graphs )
+            EraseNodes( graph,
+                        [&]( const RigGraphNodeData& n )
+                        {
+                            Animation::RigNodeKind kind{};
+                            return KindOf( n, kind ) &&
+                                   Animation::DescribeRigNode( kind ).Target ==
+                                        Animation::RigNodeTargetKind::Control &&
+                                   n.Target == name;
+                        } );
+        DropEmptyGraphs( next );
         return Commit( std::format( "Remove control '{}'", name ), std::move( next ) );
     }
 
@@ -262,6 +291,8 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "control '{}' cannot be renamed to nothing", name );
         if ( value.Name != name && FindControl( next, value.Name ) )
             return Common::MakeFormattedError<bool>( "the rig already has a control named '{}'", value.Name );
+        if ( auto checked = CheckLimits( value.Name, value.Limits ); !checked )
+            return checked;
         *control = value;
         if ( value.Name != name )
         {
@@ -272,8 +303,8 @@ namespace Desert::Editor
             for ( auto& drive : next.Drives )
                 if ( drive.Control == name )
                     drive.Control = value.Name;
-            if ( next.Graph )
-                for ( auto& node : next.Graph->Nodes )
+            for ( auto& graph : next.Graphs )
+                for ( auto& node : graph.Nodes )
                 {
                     Animation::RigNodeKind kind{};
                     if ( KindOf( node, kind ) &&
@@ -298,10 +329,29 @@ namespace Desert::Editor
                        std::move( next ) );
     }
 
+    Common::BoolResultStr ControlRigDocumentModel::SetLimits( const std::string&                   control,
+                                                              const std::vector<ControlLimitData>& limits )
+    {
+        Data  next  = m_Data;
+        auto* found = FindControl( next, control );
+        if ( !found )
+            return Common::MakeFormattedError<bool>( "the rig has no control named '{}'", control );
+        if ( auto checked = CheckLimits( control, limits ); !checked )
+            return checked;
+        found->Limits = limits;
+        return Commit( std::format( "Limits of '{}'", control ), std::move( next ) );
+    }
+
+    const RigGraphData* ControlRigDocumentModel::GetGraph() const
+    {
+        return FindRigGraph( m_Data, Animation::ToString( m_Event ) );
+    }
+
     // ── Graph ──────────────────────────────────────────────────────────────────────────────────────────
 
-    Common::ResultStr<std::string> ControlRigDocumentModel::AddNode( Animation::RigNodeKind kind,
-                                                                     const std::string&     target )
+    Common::ResultStr<std::string> ControlRigDocumentModel::AddNode( Animation::RigNodeKind     kind,
+                                                                     const std::string&         target,
+                                                                     const RigNodePositionData& position )
     {
         const auto& desc = Animation::DescribeRigNode( kind );
         if ( desc.Target == Animation::RigNodeTargetKind::None && !target.empty() )
@@ -314,25 +364,25 @@ namespace Desert::Editor
         Data next = m_Data;
         if ( desc.Target == Animation::RigNodeTargetKind::Control && !FindControl( next, target ) )
             return Common::MakeFormattedError<std::string>( "the rig has no control named '{}'", target );
-        if ( !next.Graph )
-            next.Graph.emplace();
+        RigGraphData& graph = EnsureRigGraph( next, Animation::ToString( m_Event ) );
 
         std::string name;
         for ( uint32_t i = 1;; ++i )
         {
             name = std::format( "{}_{}", desc.Name, i );
-            if ( !FindNode( next, name ) )
+            if ( std::ranges::find( graph.Nodes, name, &RigGraphNodeData::Name ) == graph.Nodes.end() )
                 break;
         }
         RigGraphNodeData node;
         node.Name   = name;
         node.Kind   = std::string( desc.Name );
-        node.Target = target;
+        node.Target   = target;
+        node.Position = position;
         if ( desc.UsesSpace )
             node.Space = std::string( Animation::ToString( Animation::RigControlSpace::Global ) );
         for ( const auto& pin : desc.Inputs )
             node.Inputs.push_back( DefaultRigInput( pin.Name, pin.Type ) );
-        next.Graph->Nodes.push_back( std::move( node ) );
+        graph.Nodes.push_back( std::move( node ) );
         if ( auto committed = Commit( std::format( "Add {}", name ), std::move( next ) ); !committed )
             return Common::MakeFormattedError<std::string>( "{}", committed.GetError() );
         return Common::MakeSuccess( name );
@@ -341,17 +391,29 @@ namespace Desert::Editor
     Common::BoolResultStr ControlRigDocumentModel::RemoveNode( const std::string& node )
     {
         Data next = m_Data;
-        if ( !FindNode( next, node ) )
+        if ( !FindNode( next, m_Event, node ) )
             return Common::MakeFormattedError<bool>( "the graph has no node named '{}'", node );
-        EraseNodes( next, [&]( const RigGraphNodeData& n ) { return n.Name == node; } );
+        EraseNodes( *FindGraph( next, m_Event ), [&]( const RigGraphNodeData& n ) { return n.Name == node; } );
+        DropEmptyGraphs( next );
         return Commit( std::format( "Remove {}", node ), std::move( next ) );
+    }
+
+    Common::BoolResultStr ControlRigDocumentModel::MoveNode( const std::string&         node,
+                                                             const RigNodePositionData& position )
+    {
+        Data  next  = m_Data;
+        auto* found = FindNode( next, m_Event, node );
+        if ( !found )
+            return Common::MakeFormattedError<bool>( "the graph has no node named '{}'", node );
+        found->Position = position;
+        return Commit( std::format( "Move {}", node ), std::move( next ) );
     }
 
     Common::BoolResultStr ControlRigDocumentModel::SetNodeTarget( const std::string& node,
                                                                   const std::string& target )
     {
         Data  next  = m_Data;
-        auto* found = FindNode( next, node );
+        auto* found = FindNode( next, m_Event, node );
         if ( !found )
             return Common::MakeFormattedError<bool>( "the graph has no node named '{}'", node );
         Animation::RigNodeKind kind{};
@@ -370,7 +432,7 @@ namespace Desert::Editor
                                                                  Animation::RigControlSpace space )
     {
         Data  next  = m_Data;
-        auto* found = FindNode( next, node );
+        auto* found = FindNode( next, m_Event, node );
         if ( !found )
             return Common::MakeFormattedError<bool>( "the graph has no node named '{}'", node );
         Animation::RigNodeKind kind{};
@@ -387,8 +449,8 @@ namespace Desert::Editor
                                                             const std::string& toPin )
     {
         Data  next = m_Data;
-        auto* from = FindNode( next, fromNode );
-        auto* to   = FindNode( next, toNode );
+        auto* from = FindNode( next, m_Event, fromNode );
+        auto* to   = FindNode( next, m_Event, toNode );
         if ( !from || !to )
             return Common::MakeFormattedError<bool>( "the graph has no node named '{}'",
                                                      from ? toNode : fromNode );
@@ -408,9 +470,8 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "{}.{} is a {} and {}.{} takes a {}", fromNode, fromPin,
                                                      Animation::ToString( out->Type ), toNode, toPin,
                                                      Animation::ToString( in->Type ) );
-        if ( ClosesCycle( *next.Graph, fromNode, toNode ) )
-            return Common::MakeFormattedError<bool>( "wiring {} into {} closes a loop; the forwards solve is one "
-                                                     "pass in order",
+        if ( ClosesCycle( *FindGraph( next, m_Event ), fromNode, toNode ) )
+            return Common::MakeFormattedError<bool>( "wiring {} into {} closes a loop; a solve is one pass in order",
                                                      fromNode, toNode );
         RigGraphInputData wired;
         wired.Pin       = toPin;
@@ -427,7 +488,7 @@ namespace Desert::Editor
                                                                const std::string& toPin )
     {
         Data  next = m_Data;
-        auto* to   = FindNode( next, toNode );
+        auto* to   = FindNode( next, m_Event, toNode );
         if ( !to )
             return Common::MakeFormattedError<bool>( "the graph has no node named '{}'", toNode );
         Animation::RigNodeKind kind{};
@@ -445,7 +506,7 @@ namespace Desert::Editor
                                                                const RigGraphInputData& literal )
     {
         Data  next  = m_Data;
-        auto* found = FindNode( next, node );
+        auto* found = FindNode( next, m_Event, node );
         if ( !found )
             return Common::MakeFormattedError<bool>( "the graph has no node named '{}'", node );
         const int payloads = int( literal.Link.has_value() ) + int( literal.Float.has_value() ) +
@@ -460,6 +521,19 @@ namespace Desert::Editor
         if ( slot->Link )
             return Common::MakeFormattedError<bool>( "{}.{} is wired; cut the wire before typing a value", node,
                                                      literal.Pin );
+        Animation::RigNodeKind kind{};
+        if ( auto known = KindOf( *found, kind ); !known )
+            return known;
+        const auto* pin = FindPin( Animation::DescribeRigNode( kind ).Inputs, literal.Pin );
+        if ( !pin )
+            return Common::MakeFormattedError<bool>( "{} has no input '{}'", node, literal.Pin );
+        const bool typed = ( pin->Type == Animation::RigValueKind::Float && literal.Float ) ||
+                           ( pin->Type == Animation::RigValueKind::Vec3 && literal.Vec3 ) ||
+                           ( pin->Type == Animation::RigValueKind::Quat && literal.Quat ) ||
+                           ( pin->Type == Animation::RigValueKind::Transform && literal.Transform );
+        if ( !typed )
+            return Common::MakeFormattedError<bool>( "{}.{} takes a {}; the literal carries another type", node,
+                                                     literal.Pin, Animation::ToString( pin->Type ) );
         *slot = literal;
         return Commit( std::format( "Set {}.{}", node, literal.Pin ), std::move( next ) );
     }

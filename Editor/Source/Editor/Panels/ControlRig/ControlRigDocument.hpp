@@ -80,6 +80,8 @@ namespace Desert::Editor
         void                                   Report( const Common::BoolResultStr& result );
         void                                   LoadSkeleton();
         [[nodiscard]] std::vector<std::string> BoneNames() const;
+        /// Below the selected event's lowest node: where a node added from the element list lands.
+        [[nodiscard]] Assets::Serialization::RigNodePositionData NextFreePosition() const;
 
         Assets::AssetManager*                    m_Assets = nullptr;
         std::unique_ptr<ControlRigDocumentModel> m_Model;
@@ -89,7 +91,10 @@ namespace Desert::Editor
         std::vector<std::string>                 m_ShapeNames;
 
         ax::NodeEditor::EditorContext*        m_Canvas = nullptr;
-        std::unordered_set<std::string>       m_Placed;
+        /// The model revision the canvas last took node positions from: undo/redo/event switch re-place.
+        uint64_t                              m_PlacedRevision = UINT64_MAX;
+        /// Canvas point the background menu was opened at — where its new node lands.
+        glm::vec2                             m_DropPoint{ 0.0f };
         std::unordered_map<uintptr_t, PinRef> m_Pins;
 
         std::string m_SelectedControl;

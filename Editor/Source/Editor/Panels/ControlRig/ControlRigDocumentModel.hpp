@@ -38,6 +38,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Desert::Editor
 {
@@ -92,11 +93,34 @@ namespace Desert::Editor
                                                         const Assets::Serialization::ControlElementData& value );
         /// The control's bone drive: empty @p bone removes it.
         [[nodiscard]] Common::BoolResultStr SetDrive( const std::string& control, const std::string& bone );
+        /// The control's limited channels, whole (UE `FRigControlLimitEnabled` per axis): an unknown channel,
+        /// a channel named twice, or Min > Max is refused before anything is recorded.
+        [[nodiscard]] Common::BoolResultStr SetLimits( const std::string&                                   control,
+                                                       const std::vector<Assets::Serialization::ControlLimitData>& limits );
 
-        // ── Graph (the Forwards solve) ─────────────────────────────────────────────────────────────
-        /// Adds a node of @p kind; every input starts as its type's identity literal. Answers its name.
-        [[nodiscard]] Common::ResultStr<std::string> AddNode( Animation::RigNodeKind kind,
-                                                              const std::string&     target );
+        // ── Which solve event the graph edits address ──────────────────────────────────────────────
+        [[nodiscard]] Animation::RigEvent GetEvent() const
+        {
+            return m_Event;
+        }
+        /// A view choice (UE's event tabs), not an edit: no undo record and the document stays clean.
+        void SetEvent( Animation::RigEvent event )
+        {
+            m_Event = event;
+            ++m_Revision;
+        }
+        /// The selected event's graph, or null while the rig defines none for it.
+        [[nodiscard]] const Assets::Serialization::RigGraphData* GetGraph() const;
+
+        // ── Graph of the selected event ────────────────────────────────────────────────────────────
+        /// Adds a node of @p kind at canvas @p position; every input starts as its type's identity literal.
+        /// The event's graph is created by its first node. Answers the node's name.
+        [[nodiscard]] Common::ResultStr<std::string>
+        AddNode( Animation::RigNodeKind kind, const std::string& target,
+                 const Assets::Serialization::RigNodePositionData& position );
+        /// Moves a node on the canvas — one undo record per drag (the view commits on release).
+        [[nodiscard]] Common::BoolResultStr MoveNode( const std::string&                                node,
+                                                      const Assets::Serialization::RigNodePositionData& position );
         [[nodiscard]] Common::BoolResultStr          RemoveNode( const std::string& node );
         [[nodiscard]] Common::BoolResultStr SetNodeTarget( const std::string& node, const std::string& target );
         [[nodiscard]] Common::BoolResultStr SetNodeSpace( const std::string&         node,
@@ -106,7 +130,8 @@ namespace Desert::Editor
                                                      const std::string& toNode, const std::string& toPin );
         /// Cuts the wire into @p toNode.@p toPin; the pin goes back to its type's identity literal.
         [[nodiscard]] Common::BoolResultStr Disconnect( const std::string& toNode, const std::string& toPin );
-        /// The literal of an unwired input (exactly one of the value fields of @p literal set).
+        /// The literal of an unwired input (exactly one of the value fields of @p literal set, and it is the
+        /// field of the pin's type — a Vec3 typed into a Float pin is refused here, not at Save).
         [[nodiscard]] Common::BoolResultStr SetLiteral( const std::string&                              node,
                                                         const Assets::Serialization::RigGraphInputData& literal );
 
@@ -122,6 +147,7 @@ namespace Desert::Editor
         Data                  m_Saved;
         CommandHistory&       m_History;
         uint64_t              m_Revision = 0;
+        Animation::RigEvent   m_Event    = Animation::RigEvent::Forwards;
     };
 
     /// The identity literal of an input pin of @p type (0, zero vector, identity rotation/transform).

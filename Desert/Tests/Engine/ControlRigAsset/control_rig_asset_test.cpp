@@ -328,6 +328,91 @@ TEST( ControlRigAssetTest, ARigWrittenAndReadBackIsTheSameRigByValue )
     EXPECT_EQ( reread.GetValue().Drives[0].Bone, "Hand" );
 }
 
+namespace
+{
+    RigFile::RigGraphNodeData RigNodeData( std::string name, std::string kind, std::string target, std::string space,
+                                           float x, float y )
+    {
+        RigFile::RigGraphNodeData node;
+        node.Name     = std::move( name );
+        node.Kind     = std::move( kind );
+        node.Target   = std::move( target );
+        node.Space    = std::move( space );
+        node.Position = RigFile::RigNodePositionData{ x, y };
+        return node;
+    }
+
+    /// ArmRigFile at CRIG 4's full reach: a limited control, nodes off the origin, and a graph in each of
+    /// Construction and Backwards (the fixture has no Forwards graph; each event stands alone).
+    RigFile::ControlRigData ArmRigFileWithEvents()
+    {
+        RigFile::ControlRigData data = ArmRigFile();
+        data.Controls[1].Limits.push_back( RigFile::ControlLimitData{ "TX", -1.0F, 1.0F } );
+        data.Controls[1].Limits.push_back( RigFile::ControlLimitData{ "RZ", -30.0F, 30.0F } );
+
+        RigFile::RigGraphNodeData copy = RigNodeData( "setTail", "SetControl", "Tail_CTRL", "Local", 300.0F, 60.0F );
+        RigFile::RigGraphInputData from;
+        from.Pin  = "Transform";
+        from.Link = RigFile::RigLinkData{ "readHand", "Transform" };
+        copy.Inputs.push_back( from );
+        data.Graphs.push_back( RigFile::RigGraphData{
+             "Construction",
+             { RigNodeData( "readHand", "GetControl", "Hand_CTRL", "Local", 40.0F, 60.0F ), copy } } );
+
+        RigFile::RigGraphNodeData pose = RigNodeData( "poseWrist", "SetControl", "Wrist_CTRL", "Global", 320.0F, 0.0F );
+        RigFile::RigGraphInputData bone;
+        bone.Pin  = "Transform";
+        bone.Link = RigFile::RigLinkData{ "readHandBone", "Transform" };
+        pose.Inputs.push_back( bone );
+        data.Graphs.push_back( RigFile::RigGraphData{
+             "Backwards", { RigNodeData( "readHandBone", "GetBone", "Hand", "", -120.0F, 0.0F ), pose } } );
+        return data;
+    }
+} // namespace
+
+TEST( ControlRigAssetTest, LimitsPositionsAndEventGraphsSurviveTheFileAndTheLimitClampsThePose )
+{
+    const RigFile::ControlRigData original = ArmRigFileWithEvents();
+    ASSERT_TRUE( RigFile::ValidateControlRigData( original ).IsSuccess() )
+         << RigFile::ValidateControlRigData( original ).GetError();
+
+    auto reread = RigFile::ParseControlRig( RigFile::WriteControlRig( original ) );
+    ASSERT_TRUE( reread.IsSuccess() ) << reread.GetError();
+    RigFile::ControlRigData expected = original;
+    expected.Header                  = reread.GetValue().Header;
+    EXPECT_EQ( reread.GetValue(), expected ) << "a limit, a position or an event graph was lost on the way";
+    const auto* construction = RigFile::FindRigGraph( reread.GetValue(), "Construction" );
+    ASSERT_NE( construction, nullptr );
+    EXPECT_FLOAT_EQ( construction->Nodes[1].Position.X, 300.0F );
+
+    // THE SETTER CLAMPS: Hand_CTRL is authored at x = 45 under TX [-1, 1], so the built control holds 1.
+    const Skeleton  skeleton = MakeArmRig();
+    ControlRigStage stage;
+    const auto      built = RigFile::BuildControlRig( reread.GetValue(), skeleton, stage );
+    ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
+    const Animation::ControlHierarchy& rig  = stage.GetHierarchy();
+    const auto&                        hand = rig.Get( rig.Find( "Hand_CTRL" ) );
+    EXPECT_FLOAT_EQ( hand.Pose.Translation.x, 1.0F );
+    EXPECT_FLOAT_EQ( hand.Pose.Translation.y, -18.0F ) << "an unlimited channel was clamped";
+    EXPECT_TRUE( stage.HasGraph( Animation::RigEvent::Construction ) );
+    EXPECT_TRUE( stage.HasGraph( Animation::RigEvent::Backwards ) );
+
+    // Backwards poses the wrist from the bone; the authored pose is gone after it.
+    auto bind = Animation::LocalPose::FromBindPose( skeleton );
+    ASSERT_TRUE( bind.IsSuccess() ) << bind.GetError();
+    Animation::LocalPose     local = bind.GetValue();
+    Animation::ComponentPose component( skeleton, local );
+    const BoneTransform      before = rig.Get( rig.Find( "Wrist_CTRL" ) ).Pose;
+    const auto               solved = stage.SolveBackwards( skeleton, component );
+    ASSERT_TRUE( solved.IsSuccess() ) << solved.GetError();
+    EXPECT_NE( rig.Get( rig.Find( "Wrist_CTRL" ) ).Pose.Translation, before.Translation );
+
+    ControlRigStage noBackwards;
+    ASSERT_TRUE( RigFile::BuildControlRig( ArmRigFile(), skeleton, noBackwards ).IsSuccess() );
+    EXPECT_FALSE( noBackwards.SolveBackwards( skeleton, component ).IsSuccess() )
+         << "a bake with no Backwards graph has nothing to run";
+}
+
 TEST( ControlRigAssetTest, ARigThatHasBeenThroughTheRuntimeFormIsStillTheSameRig )
 {
     const Skeleton                skeleton = MakeArmRig();
@@ -429,16 +514,17 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
     // must load, and its controls must draw exactly as they always did. That equivalence is the whole
     // argument for leaving kControlRigVersion where it is, so it is asserted rather than reasoned about.
     const std::string legacy = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 4 }, "Dependencies": [] },
       "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Legacy",
       "Controls": [
         { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
           "Offset": { "Translation": [1.0, 2.0, 3.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
           "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
-          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] }
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ], "Limits": [] }
       ],
-      "Drives": [ { "Control": "Hand_CTRL", "Bone": "Hand" } ]
+      "Drives": [ { "Control": "Hand_CTRL", "Bone": "Hand" } ],
+      "Graphs": []
     })";
 
     auto parsedLegacy = RigFile::ParseControlRig( legacy );
@@ -455,7 +541,7 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
 
     // A FILE THAT NAMES A SIZE gets that size, to the float, on the control it names and on no other.
     const std::string sizedText = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 4 }, "Dependencies": [] },
       "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Sized",
       "Controls": [
@@ -463,13 +549,14 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
           "ShapeTransform": { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [18.0, 18.0, 18.0] },
           "Offset": { "Translation": [1.0, 2.0, 3.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
           "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
-          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] },
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ], "Limits": [] },
         { "Name": "Tail_CTRL", "ShapeName": "CircleXY",
           "Offset": { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
           "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
-          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] }
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ], "Limits": [] }
       ],
-      "Drives": [ { "Control": "Hand_CTRL", "Bone": "Hand" }, { "Control": "Tail_CTRL", "Bone": "Tail" } ]
+      "Drives": [ { "Control": "Hand_CTRL", "Bone": "Hand" }, { "Control": "Tail_CTRL", "Bone": "Tail" } ],
+      "Graphs": []
     })";
 
     auto parsedSized = RigFile::ParseControlRig( sizedText );
@@ -517,20 +604,21 @@ TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTh
 {
     const Skeleton    skeleton = MakeArmRig();
     const std::string text     = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 4 }, "Dependencies": [] },
       "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Painted",
       "Controls": [
         { "Name": "Hand_L_CTRL", "ShapeName": "CircleXY",
           "Offset": { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
           "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
-          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] },
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ], "Limits": [] },
         { "Name": "Tail_CTRL", "ShapeName": "CircleXY", "Color": [0.0, 1.0, 0.0],
           "Offset": { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
           "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
-          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] }
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ], "Limits": [] }
       ],
-      "Drives": [ { "Control": "Hand_L_CTRL", "Bone": "Hand" }, { "Control": "Tail_CTRL", "Bone": "Tail" } ]
+      "Drives": [ { "Control": "Hand_L_CTRL", "Bone": "Hand" }, { "Control": "Tail_CTRL", "Bone": "Tail" } ],
+      "Graphs": []
     })";
     auto              parsed   = RigFile::ParseControlRig( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
