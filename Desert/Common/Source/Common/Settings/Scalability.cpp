@@ -592,7 +592,7 @@ namespace Common::Scalability
 
         if ( !errors.Empty() )
             return Common::MakeError<ScalabilityTable>( errors.Text() );
-        return Common::ResultStr<ScalabilityTable>( std::move( table ) );
+        return Common::MakeSuccess( std::move( table ) );
     }
 
     ParameterValue ScalabilityTable::ValueAt( Parameter parameter, Level level ) const
