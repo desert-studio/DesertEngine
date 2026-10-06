@@ -53,6 +53,7 @@ namespace CrashReporter
         std::string faultFrame;
 
         // [build]
+        std::string config; // "Debug" / "Release" / "Shipping"; empty when the report was cut off before it
         std::string version;
         std::string sha;
         std::string branch;
@@ -76,6 +77,37 @@ namespace CrashReporter
         // and the window says it is truncated rather than pretending it is whole.
         bool complete = false;
     };
+
+    // WHO THE WINDOW IS FOR (CR2b). Chosen by the report's own `config` key, never by how the reporter
+    // was built: the writer already left the developer-only fields out of a Shipping report, and the
+    // player view is the reporter not asking for them. Anything but "Shipping" — including a report
+    // cut off before [build] — is the developer view, which can only show what the file holds.
+    enum class Audience
+    {
+        Developer,
+        Player
+    };
+
+    // One row of the Summary card, in the order drawn.
+    struct SummaryLine
+    {
+        std::string label;
+        std::string value;
+        bool        mono = false; // drawn in the monospace font
+    };
+
+    // Everything the window draws from the report, decided here so the census of rows is testable
+    // without a window. Main.cpp draws this and nothing else from the report's fields.
+    struct ReportView
+    {
+        Audience                 audience = Audience::Developer;
+        std::vector<SummaryLine> summary;
+        bool                     showLog  = true; // the "Log tail" tab
+        bool                     showPath = true; // the report's directory in the footer
+    };
+
+    Audience   AudienceOf( const Report& inReport );
+    ReportView ComposeView( const Report& inReport );
 
     // Parses the text of a crash.txt. `inSourcePath` is only carried into the result for messages.
     Report ParseCrashText( const std::string& inText, const std::string& inSourcePath );

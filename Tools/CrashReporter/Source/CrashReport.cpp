@@ -148,7 +148,9 @@ namespace CrashReporter
             }
             else if ( section == "build" )
             {
-                if ( key == "version" )
+                if ( key == "config" )
+                    report.config = value;
+                else if ( key == "version" )
                     report.version = value;
                 else if ( key == "sha" )
                     report.sha = value;
@@ -287,5 +289,52 @@ namespace CrashReporter
             return inReport.crashEpoch;
         }
         return std::string( text ) + " local";
+    }
+
+    Audience AudienceOf( const Report& inReport )
+    {
+        return inReport.config == "Shipping" ? Audience::Player : Audience::Developer;
+    }
+
+    ReportView ComposeView( const Report& inReport )
+    {
+        ReportView view;
+        view.audience = AudienceOf( inReport );
+        const std::string gpu =
+             inReport.gpuDriver.empty()
+                  ? inReport.gpu
+                  : inReport.gpu + "  -  driver " + inReport.gpuDriver + "  -  Vulkan " + inReport.gpuApi;
+
+        if ( view.audience == Audience::Player )
+        {
+            // What a player can read and act on: which game, what went wrong, which version, when,
+            // on what system. No repository state, no machine name, no path, no log.
+            view.showLog  = false;
+            view.showPath = false;
+            view.summary  = {
+                 { "Game", inReport.game, false },
+                 { "Error", inReport.codename, false },
+                 { "Version", inReport.version, true },
+                 { "Time", FormatCrashTime( inReport ), false },
+                 { "System", inReport.os, false },
+                 { "GPU", gpu, false },
+            };
+            return view;
+        }
+
+        view.summary = {
+             { "Kind", inReport.codename + "  [" + inReport.kind + "]", false },
+             { "Code", inReport.code + " at " + inReport.address, true },
+             { "Module", inReport.module + " + " + inReport.moduleOffset, true },
+             { "Version",
+               inReport.version + "  sha " + inReport.sha + "  branch " + inReport.branch +
+                    ( inReport.dirty == "1" ? "  (dirty tree)" : "" ),
+               true },
+             { "Time", FormatCrashTime( inReport ) + "  (started " + inReport.started + ")", false },
+             { "Machine", inReport.machine + "  -  " + inReport.os, false },
+             { "GPU", gpu, false },
+             { "Scene", inReport.scene, false },
+        };
+        return view;
     }
 } // namespace CrashReporter
