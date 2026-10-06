@@ -10,6 +10,8 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Panels/Foliage/FoliagePalette.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.hpp>
+#include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Panels/Collections/CollectionFoliageTypes.hpp>
@@ -985,6 +987,149 @@ namespace Desert::Editor::Tools
             return BOOLSUCCESS;
         }
     } // namespace
+
+    Common::ResultStr<ProceduralFoliageResimulated>
+    FoliagePaintTool::ResimulateProcedural( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                            const Common::UUID& volumeId )
+    {
+        using Result     = ProceduralFoliageResimulated;
+        const auto found = scene.FindEntityByID( volumeId );
+        if ( !found || !found->get().HasComponent<ECS::ProceduralFoliageComponent>() )
+            return Common::MakeFormattedError<Result>( "procedural foliage: entity {} is not a volume",
+                                                       static_cast<uint64_t>( volumeId ) );
+        // Copies: creating a field may move the registry's storage under a reference.
+        const ECS::ProceduralFoliageData volume = found->get().GetComponent<ECS::ProceduralFoliageComponent>().Data;
+        const glm::vec3 center = found->get().GetComponent<ECS::TransformComponent>().Translation;
+
+        std::vector<Assets::Asset<Assets::FoliageTypeAsset>>  assets;
+        std::vector<Assets::Serialization::FoliageTypeData>   types;
+        std::vector<std::vector<std::string>>                 layerNames;
+        for ( const auto& handle : volume.FoliageTypes )
+        {
+            auto type = ResolveType( manager, handle );
+            if ( !type )
+                return Common::MakeFormattedError<Result>(
+                     "procedural foliage: type {} of the volume does not load (the log says why)",
+                     static_cast<uint64_t>( handle ) );
+            auto layers = LayerNamesOf( type->GetData() );
+            if ( !layers )
+                return Common::MakeFormattedError<Result>( "procedural foliage: type '{}': {}",
+                                                           type->GetDisplayName(), layers.GetError() );
+            if ( const auto mesh = type->GetMeshHandle() )
+                if ( auto asset = manager.FindByHandle<Assets::MeshAsset>( mesh ) )
+                    Runtime::EnsureMeshRegistered( asset, manager );
+            types.push_back( type->GetData() );
+            layerNames.push_back( layers.ExtractValue() );
+            assets.push_back( std::move( type ) );
+        }
+
+        const LandscapeTileIndex tiles( scene );
+        const auto               landscapeSet = scene.GatherRaycastLandscape();
+        ProceduralFoliageHost    host;
+        host.CellSize = FoliageCellSize( scene );
+        host.Trace    = [&]( const glm::vec3& start, const glm::vec3& end,
+                          const FoliageSurfaceFilter& filter ) -> std::optional<FoliageTraceHit>
+        {
+            // As the brush: realized foliage and refused surfaces are traced through (UE
+            // FFoliagePaintingGeometryFilter); the volume's own fields are instances, not geometry.
+            const auto accept = [&]( const Common::UUID& id )
+            {
+                if ( IsRealizedFoliage( scene, id ) )
+                    return false;
+                return filter.Allows( tiles.OfEntity( id ) != nullptr ? FoliageSurface::Landscape
+                                                                      : FoliageSurface::StaticMesh );
+            };
+            const glm::vec3 d   = end - start;
+            const float     len = glm::length( d );
+            if ( len <= 0.0f )
+                return std::nullopt;
+            ::Desert::Core::RaycastHit hit;
+            if ( !scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept, landscapeSet ) ||
+                 hit.Distance > len )
+                return std::nullopt;
+            FoliageTraceHit out;
+            out.Point   = hit.Point;
+            out.Normal  = hit.Normal;
+            out.Surface = tiles.OfEntity( hit.Entity ) != nullptr ? FoliageSurface::Landscape
+                                                                  : FoliageSurface::StaticMesh;
+            return out;
+        };
+        host.LayerWeightAt = [&]( uint32_t typeIndex, const glm::vec3& p ) -> std::optional<float>
+        {
+            const auto* tile = tiles.At( p.x, p.z );
+            if ( !tile )
+                return std::nullopt;
+            return MaxLayerWeight( *tile->Tile, tile->Frame, layerNames[typeIndex], p.x, p.z );
+        };
+
+        // Every foliage field, by UUID: the plan names them by index into this list.
+        std::vector<Common::UUID> fieldIds;
+        for ( const auto& entity : scene.GetAllEntities() )
+        {
+            if ( !IsFoliageField( entity ) )
+                continue;
+            World::Foliage::Procedural::ProceduralFoliageExistingField field;
+            if ( entity.HasComponent<ECS::ProceduralFoliageFieldComponent>() )
+                field.Owner = entity.GetComponent<ECS::ProceduralFoliageFieldComponent>().Owner;
+            const auto& type = entity.GetComponent<ECS::FoliageComponent>().FoliageType;
+            const auto  it   = std::find( volume.FoliageTypes.begin(), volume.FoliageTypes.end(), type );
+            if ( it != volume.FoliageTypes.end() )
+                field.TypeIndex = static_cast<uint32_t>( it - volume.FoliageTypes.begin() );
+            if ( host.CellSize.has_value() )
+                field.Cell = CellOfField( entity, *host.CellSize );
+            host.Existing.push_back( field );
+            fieldIds.push_back( entity.GetComponent<ECS::UUIDComponent>().UUID );
+        }
+
+        const auto fieldAt = [&]( size_t existing ) -> std::optional<ECS::Entity>
+        {
+            const auto ref = scene.FindEntityByID( fieldIds[existing] );
+            if ( !ref || !IsFoliageField( ref->get() ) )
+                return std::nullopt;
+            return ref->get();
+        };
+        host.Rewrite = [&]( size_t existing, std::vector<glm::mat4> instances )
+        {
+            if ( auto field = fieldAt( existing ) )
+            {
+                field->GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms = std::move( instances );
+                Core::FoliagePaint::Selection().erase( fieldIds[existing] );
+            }
+        };
+        host.Remove = [&]( size_t existing )
+        {
+            if ( auto field = fieldAt( existing ) )
+            {
+                if ( Core::FoliagePaint::IsActive( fieldIds[existing] ) )
+                    Core::FoliagePaint::ToggleActive( fieldIds[existing] );
+                if ( Core::FoliagePaint::EditingType() == fieldIds[existing] )
+                    Core::FoliagePaint::ClearEditingType();
+                Core::FoliagePaint::Selection().erase( fieldIds[existing] );
+                scene.DestroyEntity( *field );
+            }
+        };
+        host.Create = [&]( const World::Foliage::Procedural::ProceduralFoliageTypeField& fresh ) -> Common::BoolResultStr
+        {
+            const auto& type = assets[fresh.TypeIndex];
+            std::string tag  = "ProceduralFoliage_" + type->GetDisplayName();
+            if ( host.CellSize.has_value() )
+                tag += "_" + std::to_string( fresh.Cell.X ) + "_" + std::to_string( fresh.Cell.Z );
+            auto& field = scene.CreateNewEntity( tag );
+            // FO-6: a cell field stands at its cell's centre; a world that is not partitioned keeps the field
+            // where a painted one stands, at the origin (instances are world transforms either way).
+            if ( host.CellSize.has_value() )
+                field.GetComponent<ECS::TransformComponent>().Translation =
+                     World::Foliage::FoliageCellAnchor( fresh.Cell, *host.CellSize );
+            field.AddComponent<ECS::FoliageComponent>().FoliageType = type->GetMetadata().Handle;
+            auto& ism              = field.AddComponent<ECS::InstancedStaticMeshComponent>();
+            ism.MeshHandle         = type->GetMeshHandle();
+            ism.InstanceTransforms = fresh.Instances;
+            field.AddComponent<ECS::ProceduralFoliageFieldComponent>().Owner = volumeId;
+            return BOOLSUCCESS;
+        };
+
+        return ResimulateProceduralFoliage( volume, center, volumeId, types, host );
+    }
 
     std::vector<glm::mat4> FoliagePaintTool::RowInstances( ::Desert::Core::Scene& scene, const Common::UUID& row,
                                                            const std::optional<glm::vec3>& around, float radius )

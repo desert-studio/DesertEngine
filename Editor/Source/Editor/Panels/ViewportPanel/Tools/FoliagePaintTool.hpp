@@ -4,6 +4,7 @@
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Common/Core/Math/Ray.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.hpp>
 #include <Editor/Core/Selection/FoliagePaint.hpp>
 
 #include <glm/glm.hpp>
@@ -144,6 +145,12 @@ namespace Desert::Editor::Tools
         // partitioned InstancedFoliageActor per grid cell), ONE undo step. For a world just partitioned or whose
         // grid changed; the brush and the instance edits file as they go. Not partitioned: one field per type.
         static Common::BoolResultStr RepartitionFoliage( ::Desert::Core::Scene& scene );
+        // S1: the Resimulate button of a procedural foliage volume (UE ResimulateProceduralContent): the volume
+        // entity @p volume's simulation, traced onto this scene and filed into its own fields
+        // (ProceduralFoliageFieldComponent); painted fields and other volumes' fields are not touched. The Scene
+        // host of ResimulateProceduralFoliage.
+        static Common::ResultStr<ProceduralFoliageResimulated>
+        ResimulateProcedural( ::Desert::Core::Scene& scene, Assets::AssetManager& manager, const Common::UUID& volume );
 
         // The footprint preview on the viewport overlay: the brush ring at Core::FoliagePaint::HoverPoint and
         // how many instances one dab would add (Foliage::PreviewFoliageFootprint over the checked types). Drawn
