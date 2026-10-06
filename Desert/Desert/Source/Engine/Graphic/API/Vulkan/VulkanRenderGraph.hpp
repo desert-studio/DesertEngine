@@ -386,6 +386,8 @@ namespace Desert::Graphic::API::Vulkan
         void                  EndPass( const RDG::CompiledPass& pass ) override;
         Common::BoolResultStr EndGraph( std::span<const RDG::Barrier> finalBarriers ) override;
         void                  AbandonGraph() override;
+        // vkCmdUpdateBuffer in chunks of 64 KiB (its per-call limit), outside any render pass.
+        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override;
 
         // The compatibility key of the render pass this backend has open on its command buffer, empty between
         // passes. Pipelines bound by an exec lambda are resolved against it

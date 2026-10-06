@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -192,6 +193,13 @@ namespace Desert::Graphic::RDG
         virtual Common::BoolResultStr EndGraph( std::span<const Barrier> finalBarriers ) = 0;
         // A pass failed: close whatever is open without recording further work.
         virtual void AbandonGraph() = 0;
+
+        // RDG-FAULT1 C3b (UE: FRDGBuilder::QueueBufferUpload). Records a copy of @p bytes into the start of buffer
+        // @p resource on the current pass's command buffer. Called only from the exec of the upload pass
+        // Builder::QueueBufferUpload adds, after the graph's barrier put the buffer in CopyDst; the builder has
+        // already refused an empty payload, one larger than the buffer, and a size that is not a multiple of 4.
+        // The bytes are consumed before the call returns (the backend keeps no pointer into them).
+        virtual Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) = 0;
 
         // Physical resource of a used resource, valid between BeginGraph and EndGraph / AbandonGraph.
         [[nodiscard]] virtual std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const = 0;

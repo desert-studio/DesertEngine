@@ -5,6 +5,9 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <span>
+#include <vector>
+#include <memory>
 #include <format>
 
 namespace Desert::Graphic::RDG
@@ -136,6 +139,42 @@ namespace Desert::Graphic::RDG
         record.Buffer = desc;
         m_Resources.push_back( std::move( record ) );
         return BufferRef{ static_cast<uint32_t>( m_Resources.size() - 1 ) };
+    }
+
+    void Builder::QueueBufferUpload( BufferRef buffer, std::span<const std::byte> bytes )
+    {
+        const ResourceRecord* record = FindResource( buffer.Index, ResourceKind::Buffer );
+        const std::string     name   = record != nullptr ? record->Name : fmt::format( "#{}", buffer.Index );
+        std::string           error;
+        if ( record == nullptr )
+            error = fmt::format( "graph '{}': upload into invalid buffer handle {}", m_Name, buffer.Index );
+        else if ( bytes.empty() )
+            error = fmt::format( "graph '{}': upload into buffer '{}' carries no bytes", m_Name, name );
+        else if ( bytes.size() > record->Buffer.Bytes )
+            error = fmt::format( "graph '{}': upload of {} bytes into buffer '{}' of {} bytes", m_Name,
+                                 bytes.size(), name, record->Buffer.Bytes );
+        else if ( bytes.size() % 4 != 0 )
+            error = fmt::format( "graph '{}': upload of {} bytes into buffer '{}' is not a multiple of 4 bytes",
+                                 m_Name, bytes.size(), name );
+
+        // Copied at the call: the exec runs after the caller's storage is gone.
+        auto payload = std::make_shared<const std::vector<std::byte>>( bytes.begin(), bytes.end() );
+        AddPass(
+             "Upload: " + name, PassFlags::Copy,
+             [&]( PassBuilder& pass )
+             {
+                 if ( error.empty() )
+                     pass.Write( buffer, Access::CopyDst );
+             },
+             [buffer, payload]( PassContext& context ) -> Common::BoolResultStr
+             {
+                 const Common::ResultStr<BufferBinding> target = context.GetBuffer( buffer, Access::CopyDst );
+                 if ( !target )
+                     return Common::MakeFormattedError( "{}", target.GetError() );
+                 return context.GetBackend().UploadBuffer( target.GetValue().Resource, *payload );
+             } );
+        if ( !error.empty() )
+            RecordPassError( static_cast<uint32_t>( m_Passes.size() - 1 ), std::move( error ) );
     }
 
     TextureRef Builder::RegisterExternal( ExternalTexture& texture, std::string_view name )

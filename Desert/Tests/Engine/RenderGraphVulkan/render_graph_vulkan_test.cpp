@@ -806,6 +806,10 @@ void main()
         {
             m_Inner.AbandonGraph();
         }
+        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override
+        {
+            return m_Inner.UploadBuffer( resource, bytes );
+        }
         [[nodiscard]] std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override
         {
             return m_Inner.GetPhysicalTexture( resource );

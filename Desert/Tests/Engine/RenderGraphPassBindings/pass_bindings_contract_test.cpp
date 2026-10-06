@@ -129,6 +129,10 @@ namespace
         void AbandonGraph() override
         {
         }
+        Common::BoolResultStr UploadBuffer( uint32_t, std::span<const std::byte> ) override
+        {
+            return Common::MakeSuccess( true );
+        }
         std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
         {
             return nullptr;

@@ -195,6 +195,12 @@ namespace
         {
             Calls.push_back( "AbandonGraph" );
         }
+        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override
+        {
+            Calls.push_back( std::format( "UploadBuffer {} {} first {}", resource, bytes.size(),
+                                          bytes.empty() ? -1 : static_cast<int>( bytes.front() ) ) );
+            return Common::MakeSuccess( true );
+        }
         [[nodiscard]] std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
         {
             return nullptr;
@@ -828,6 +834,121 @@ TEST( RenderGraphCompile, ABufferProducerIsKeptByALiveBufferReader )
     EXPECT_TRUE( HasEdge( result, 0, 2, DependencyKind::ReadAfterWrite ) );
     EXPECT_EQ( result.FindAllocation( unread.Index ), nullptr );
     EXPECT_NE( result.FindAllocation( counts.Index ), nullptr );
+}
+
+// RDG-FAULT1 C3b (UE: QueueBufferUpload). CPU bytes reach a graph buffer through an upload the BUILDER owns: the
+// bytes are copied at the call (the caller's vector is overwritten right after), the upload is a Copy pass that
+// writes the buffer, and the reader added after it gets a read-after-write edge on it and runs after it.
+TEST( RenderGraphCompile, AQueuedBufferUploadIsOrderedBeforeItsReaderAndCopiesTheBytes )
+{
+    ExternalTexture        backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder                graph( "upload" );
+    const BufferRef        lights = graph.CreateBuffer( BufferDesc{ 64 }, "Lights" );
+    const TextureRef       back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    std::vector<std::byte> bytes( 16, std::byte{ 7 } );
+    graph.QueueBufferUpload( lights, bytes );
+    std::fill( bytes.begin(), bytes.end(), std::byte{ 0 } ); // the graph holds its own copy
+    graph.AddPass(
+         "Composite", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( lights, Access::StorageRead );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    ASSERT_NE( result.FindPass( "Upload: Lights" ), nullptr );
+    EXPECT_TRUE( HasEdge( result, 0, 1, DependencyKind::ReadAfterWrite ) );
+    EXPECT_FALSE( BarriersOn( result.FindPass( "Composite" ), lights.Index ).empty() )
+         << "the reader gets the CopyDst -> StorageRead barrier";
+
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    const auto at = [&]( const std::string& call )
+    { return std::find( backend.Calls.begin(), backend.Calls.end(), call ) - backend.Calls.begin(); };
+    const auto upload = at( std::format( "UploadBuffer {} 16 first 7", lights.Index ) );
+    ASSERT_LT( upload, static_cast<std::ptrdiff_t>( backend.Calls.size() ) ) << "the copied bytes were uploaded";
+    EXPECT_LT( upload, at( std::format( kBeginPassFormat, "Composite" ) ) );
+}
+
+// A graph buffer nothing uploaded or produced is refused BY NAME in the reader (here the upload comes after the
+// reader, which is the same mistake: the graph orders by AddPass, so the reader saw no writer).
+TEST( RenderGraphCompile, ABufferReadWithNoUploadOrProducerIsRefusedByName )
+{
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "noupload" );
+    const BufferRef  lights = graph.CreateBuffer( BufferDesc{ 64 }, "Lights" );
+    const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Composite", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( lights, Access::StorageRead );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+    const std::vector<std::byte> bytes( 16, std::byte{ 1 } );
+    graph.QueueBufferUpload( lights, bytes );
+
+    const std::string fault = OnlyDeclarationFault( graph );
+    EXPECT_EQ( fault.rfind( "Composite: ", 0 ), 0u ) << fault;
+    EXPECT_NE( fault.find( "Lights" ), std::string::npos ) << fault;
+    EXPECT_NE( fault.find( "before any pass writes it" ), std::string::npos ) << fault;
+}
+
+// An upload that does not fit is refused by name, as a fault of the upload; its reader goes with it (Dependency),
+// never reading a half-written buffer. A size off the 4-byte transfer granularity is refused the same way.
+TEST( RenderGraphCompile, ABufferUploadLargerThanItsBufferIsRefusedByName )
+{
+    const auto build = []( size_t size, ExternalTexture& backbuffer )
+    {
+        auto                         graph  = std::make_unique<Builder>( "oversize" );
+        const BufferRef              lights = graph->CreateBuffer( BufferDesc{ 16 }, "Lights" );
+        const TextureRef             back   = graph->RegisterExternal( backbuffer, "Backbuffer" );
+        const std::vector<std::byte> bytes( size, std::byte{ 1 } );
+        graph->QueueBufferUpload( lights, bytes );
+        graph->AddPass(
+             "Composite", PassFlags::Raster,
+             [&]( PassBuilder& pass )
+             {
+                 pass.Read( lights, Access::StorageRead );
+                 pass.ColorTarget( 0, back, LoadOp::DontCare() );
+             },
+             Ok );
+        return graph;
+    };
+    const auto faultOf = []( const CompileResult& result, std::string_view pass ) -> const PassFault*
+    {
+        const auto it = std::find_if( result.Faults.begin(), result.Faults.end(),
+                                      [&]( const PassFault& fault ) { return fault.PassName == pass; } );
+        return it == result.Faults.end() ? nullptr : &*it;
+    };
+
+    ExternalTexture backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    {
+        const CompileResult result = CompileOrFail( *build( 32, backbuffer ) );
+        const PassFault*    upload = faultOf( result, "Upload: Lights" );
+        ASSERT_NE( upload, nullptr );
+        EXPECT_EQ( upload->Stage, PassFaultStage::Declaration );
+        EXPECT_NE( upload->Reason.find( "upload of 32 bytes into buffer 'Lights' of 16 bytes" ),
+                   std::string::npos )
+             << upload->Reason;
+        const PassFault* reader = faultOf( result, "Composite" );
+        ASSERT_NE( reader, nullptr );
+        EXPECT_EQ( reader->Stage, PassFaultStage::Dependency );
+    }
+    {
+        const CompileResult result = CompileOrFail( *build( 6, backbuffer ) );
+        const PassFault*    upload = faultOf( result, "Upload: Lights" );
+        ASSERT_NE( upload, nullptr );
+        EXPECT_NE( upload->Reason.find( "not a multiple of 4 bytes" ), std::string::npos ) << upload->Reason;
+    }
+    {
+        const CompileResult result = CompileOrFail( *build( 16, backbuffer ) );
+        EXPECT_TRUE( result.Faults.empty() ) << "an exact fit is accepted";
+    }
 }
 
 // A culled pass records nothing and gets no barrier: the backend never sees it, and no barrier anywhere in the

@@ -207,6 +207,17 @@ namespace Desert::Graphic::RDG
         void Extract( TextureRef texture, ExternalTexture& into, Access final );
         void Extract( BufferRef buffer, ExternalBuffer& into, Access final );
 
+        // RDG-FAULT1 C3b (UE: FRDGBuilder::QueueBufferUpload). CPU data for a buffer of this graph, the only way
+        // a graph buffer gets contents from the host. @p bytes are COPIED now (the caller's storage may die
+        // right after the call), and a Copy pass "Upload: <buffer name>" is added HERE that writes them
+        // (Access::CopyDst), so every pass added after this call that reads the buffer is ordered after the
+        // upload by the graph, with its barrier; a reader added before it reads a buffer nothing wrote and is
+        // refused ("... before any pass writes it"). The upload is culled with its buffer when nobody reads it.
+        // Refused by name - a Declaration fault of the upload pass, whose readers then fault as its dependants -
+        // for a handle that is not a buffer of this graph, an empty payload, a payload larger than the buffer,
+        // or a size that is not a multiple of 4 bytes (the transfer granularity every GPU API shares).
+        void QueueBufferUpload( BufferRef buffer, std::span<const std::byte> bytes );
+
         template <class Setup, class Exec>
         void AddPass( std::string_view name, PassFlags flags, Setup&& setup, Exec&& exec )
         {

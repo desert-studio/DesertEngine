@@ -1417,6 +1417,26 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr VulkanRdgBackend::UploadBuffer( uint32_t resource, std::span<const std::byte> bytes )
+    {
+        if ( m_CommandBuffer == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "graph '{}': buffer upload outside a recording pass", m_GraphName );
+        if ( m_OpenRenderPass.has_value() )
+            return Common::MakeFormattedError( "graph '{}': buffer upload inside a render pass", m_GraphName );
+        const std::shared_ptr<VulkanRdgBuffer>& target =
+             resource < m_Buffers.size() ? m_Buffers[resource] : std::shared_ptr<VulkanRdgBuffer>{};
+        if ( target == nullptr )
+            return Common::MakeFormattedError(
+                 "graph '{}': buffer upload into resource {}, which has no Vulkan buffer", m_GraphName, resource );
+        constexpr size_t kUpdateLimit = 65536; // vkCmdUpdateBuffer: dataSize <= 65536, a multiple of 4
+        for ( size_t offset = 0; offset < bytes.size(); offset += kUpdateLimit )
+        {
+            const size_t size = std::min( kUpdateLimit, bytes.size() - offset );
+            vkCmdUpdateBuffer( m_CommandBuffer, target->GetBuffer(), offset, size, bytes.data() + offset );
+        }
+        return Common::MakeSuccess( true );
+    }
+
     void VulkanRdgBackend::EndRenderPass()
     {
         vkCmdEndRenderPass( m_CommandBuffer );
