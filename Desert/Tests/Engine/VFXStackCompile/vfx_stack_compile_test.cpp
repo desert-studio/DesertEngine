@@ -470,7 +470,7 @@ TEST( VFXStackCompile, EveryModuleCallHasItsOwnRandomKey )
     S::VFXSystemData  system;
     S::VFXEmitterData emitter;
     emitter.Name = "Two spheres";
-    const auto sphere = Use( "engine:ShapeSphere", { ValueInput( "Radius", S::VFXValueType::Float, glm::vec4( 10.0f ) ),
+    const auto sphere = Use( "engine:ShapeSphere", { ValueInput( "Radius", S::VFXValueType::Float, glm::vec4( 10.0f, 0, 0, 0 ) ),
                                                      ValueInput( "Offset", S::VFXValueType::Vec3, glm::vec4( 0.0f ) ) } );
     emitter.Stack.ParticleSpawn  = { sphere, sphere };
     emitter.Stack.ParticleUpdate = { sphere };
