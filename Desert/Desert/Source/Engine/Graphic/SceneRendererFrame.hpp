@@ -291,6 +291,22 @@ namespace Desert::Graphic
             }
             images.push_back( ref );
         }
+        // The engine images the binding blocks name, after the ImageUses, through the same one import per image.
+        for ( const RenderPassDeclaration::BlockEntry* entry : BlockImageEntries( declared ) )
+        {
+            const std::string name =
+                 entry->ImportName.empty() ? std::format( "{}.{}", node, entry->ShaderName ) : entry->ImportName;
+            const RDG::TextureRef ref = textures.Import( entry->Image, name );
+            if ( !ref.IsValid() )
+            {
+                LOG_ERROR(
+                     "[SceneRenderer] '{}' is not recorded: the frame graph cannot import the image '{}' its "
+                     "binding '{}' names",
+                     node, name, entry->ShaderName );
+                return false;
+            }
+            images.push_back( ref );
+        }
         if ( const char* invalid = InvalidDeclaredRef( declared ) )
         {
             LOG_ERROR( "[SceneRenderer] '{}' is not recorded: it declares {}", node, invalid );
@@ -299,7 +315,8 @@ namespace Desert::Graphic
         return true;
     }
 
-    // Every entry of @p declared on @p pass; @p images are ResolveDeclared's graph textures of its images.
+    // Every entry of @p declared on @p pass; @p images are ResolveDeclared's graph textures of its images (the
+    // ImageUses first, then the binding blocks' engine images).
     inline void DeclareOn( RDG::PassBuilder& pass, const std::vector<RDG::TextureRef>& images,
                            const RenderPassDeclaration& declared )
     {
@@ -311,7 +328,7 @@ namespace Desert::Graphic
             else
                 pass.Read( images[i], uses[i].Access );
         }
-        DeclareRefsOn( pass, declared );
+        DeclareRefsOn( pass, declared, std::span<const RDG::TextureRef>( images ).subspan( uses.size() ) );
     }
 
     // A system's compute work of this frame, one Compute node per entry in the order given, each declaring exactly

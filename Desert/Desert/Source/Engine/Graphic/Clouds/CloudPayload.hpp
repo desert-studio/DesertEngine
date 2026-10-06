@@ -291,16 +291,11 @@ namespace Desert::Graphic
      */
     inline constexpr uint32_t kCloudNoiseBindings[kCloudSpeciesSlots] = { kCloudNoiseBinding, 10, 11, 12 };
 
-    // The TEMPORAL RESOLVE pass (Programs/Clouds/CloudTemporalResolve.shader). Same rule as above: these
-    // numbers are handed to SetInput / SetOutput / SetStorageBuffer verbatim and must equal the ones
-    // written in the shader.
-    // Bindings 0 and 1 (u_CloudTrace, u_CloudTraceGuide: this frame's quarter-res pair) are frame-graph
-    // transients bound by name through RDG::PassBindings, so they have no number here.
-    inline constexpr uint32_t kCloudResolveHistoryBinding      = 2; // half-res scatter, previous frame
-    inline constexpr uint32_t kCloudResolveHistoryGuideBinding = 3; // half-res guide, previous frame
-    inline constexpr uint32_t kCloudResolveOutputBinding       = 4; // half-res reconstructed scatter
-    inline constexpr uint32_t kCloudResolveGuideOutputBinding  = 5; // half-res reconstructed guide
-    inline constexpr uint32_t kCloudResolveParamsBinding       = 6; // CloudResolveParams
+    // The TEMPORAL RESOLVE pass (Programs/Clouds/CloudTemporalResolve.shader). Same rule as above: the number
+    // is handed to SetStorageBuffer verbatim and must equal the one written in the shader. Every image of the
+    // pass (trace pair, history read and write slots) is a binding-block entry named by shader name
+    // (RenderPassDeclaration::BlockDeclaration), so none has a number here.
+    inline constexpr uint32_t kCloudResolveParamsBinding = 6; // CloudResolveParams
 
     /**
      * Per-dispatch data: everything that changes with the CAMERA rather than with the cloud settings.

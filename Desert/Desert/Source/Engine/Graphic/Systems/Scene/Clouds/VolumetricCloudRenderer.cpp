@@ -1159,10 +1159,9 @@ namespace Desert::Graphic::System
         ComputeNodeDeclaration shadow;
         shadow.Name = "Clouds: ShadowMap";
         DeclareVolumeReads( shadow.Access );
-        shadow.Access.Write( m_ShadowMapImage, RDG::Access::StorageWrite, "Clouds.ShadowMap" );
-        // SETUP: every resource of this dispatch is the renderer's own (imported), bound by the pipeline's
-        // setters here, so the node's block is complete when it is declared; the exec only records.
-        m_ShadowMapPipeline->SetOutput( kCloudShadowOutputBinding, m_ShadowMapImage.get(), 0 );
+        // SETUP: the shadow map it writes is a block entry (the graph imports, orders and barriers it); the
+        // volumes and buffers it samples are the renderer's own, bound by the pipeline's setters here, so the
+        // node's block is complete when it is declared; the exec only records.
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowParamsBinding, m_ShadowParamsBuffer.get() );
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
             m_ShadowMapPipeline->SetInput( kCloudShadowNoiseBindings[slot], m_NoiseVolume[slot].get(),
@@ -1179,7 +1178,8 @@ namespace Desert::Graphic::System
              RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         BindMedium( m_ShadowMapPipeline.get(), m_ShadowMediumParamsBuffer.get() );
         DeclareComputeBlock( shadow.Access, *m_ShadowMapPipeline,
-                             static_cast<uint32_t>( sizeof( CloudShadowPush ) ) );
+                             static_cast<uint32_t>( sizeof( CloudShadowPush ) ) )
+             .Storage( "u_CloudShadowMap", m_ShadowMapImage, RDG::Access::StorageWrite, "Clouds.ShadowMap" );
         shadow.Record = [this, push, resolution]( RDG::PassContext& context,
                                                   const FrameGraphRefs& ) -> Common::BoolResultStr
         {
@@ -1869,9 +1869,8 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration occlusion;
             occlusion.Name = "Clouds: SkyOcclusion";
             DeclareVolumeReads( occlusion.Access );
-            occlusion.Access.Write( m_SkyOcclusionVolume, RDG::Access::StorageWrite, "Clouds.SkyOcclusion" );
-            // SETUP: the pipeline route (the renderer's own volumes and buffers) and the node's block over it.
-            m_SkyOcclusionPipeline->SetOutput( kCloudSkyOcclusionOutputBinding, m_SkyOcclusionVolume.get(), 0 );
+            // SETUP: the pipeline route (the renderer's own sampled volumes and buffers) and the node's block over
+            // it; the volume it writes is the block's entry.
             m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionParamsBinding, m_ParamsBuffer.get() );
             for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
                 m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionNoiseBindings[slot], m_NoiseVolume[slot].get(),
@@ -1890,7 +1889,9 @@ namespace Desert::Graphic::System
                       ? m_AuthoredAtlas.get()
                       : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            DeclareComputeBlock( occlusion.Access, *m_SkyOcclusionPipeline, 0 );
+            DeclareComputeBlock( occlusion.Access, *m_SkyOcclusionPipeline, 0 )
+                 .Storage( "u_CloudSkyOcclusion", m_SkyOcclusionVolume, RDG::Access::StorageWrite,
+                           "Clouds.SkyOcclusion" );
             occlusion.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Clouds: SkyOcclusion" );
@@ -1957,16 +1958,11 @@ namespace Desert::Graphic::System
         const RDG::TextureRef  traceGuide = graph.CreateTexture( traceDesc, "Clouds.TraceGuide" );
         ComputeNodeDeclaration march;
         march.Name = "Clouds: March";
-        march.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
         DeclareVolumeReads( march.Access );
-        if ( skyOcclusionReady )
-            march.Access.Read( m_SkyOcclusionVolume, RDG::Access::SampledCompute, "Clouds.SkyOcclusion" );
         m_SceneRenderer->DeclareAtmosphereReads( march.Access, RDG::Access::SampledCompute );
         // SETUP: everything but the graph's two transients is the renderer's own (or the sky's), bound by the
         // pipeline's setters here; the two transients are the block's entries, each the declaration of its write.
         m_MarchPipeline->SetStorageBuffer( kCloudParamsBinding, m_ParamsBuffer.get() );
-        m_MarchPipeline->SetInput( kCloudSceneDepthBinding, depth.get(), RDG::Access::SampledCompute,
-                                   RDG::SubresourceRange::All() );
         // ALL FOUR, always, whatever the layer needs — an unbound sampler is an invalid descriptor set and
         // this backend answers one by skipping the dispatch. Slots past the distinct count repeat slot 0's
         // image, which is what ResolveCloudNoiseVolumes filled them with.
@@ -2010,16 +2006,6 @@ namespace Desert::Graphic::System
                   : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
              RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
-        // The sky-light occlusion volume, on the same always-bound terms as the two samplers above and for
-        // the same reason. When the layer does not want it the image does not exist at all, so the
-        // fallback is what the descriptor points at and push.Frame.x is 0.
-        m_MarchPipeline->SetInput(
-             kCloudSkyOcclusionBinding,
-             skyOcclusionReady
-                  ? m_SkyOcclusionVolume.get()
-                  : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
-             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-
         // The atmosphere's transmittance LUT, again always bound and for the fourth time for the same
         // reason. The handle is the sky's — a scene on the artistic gradient, or one whose LUTs have not
         // been baked, publishes null and gets the fallback, which is exactly the case push.Frame.y is 0 in.
@@ -2029,9 +2015,21 @@ namespace Desert::Graphic::System
                   ? atmosphere.TransmittanceLut
                   : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
              RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        // The block's entries: the two transients it writes, the scene depth (texelFetch: point) and the
+        // sky-light occlusion volume, on the same always-bound terms as the samplers above -- when the layer does
+        // not want it the image does not exist at all, so the fallback is the entry and push.Frame.x is 0.
+        const std::shared_ptr<Image> skyOcclusion =
+             skyOcclusionReady
+                  ? std::shared_ptr<Image>( m_SkyOcclusionVolume )
+                  : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
         DeclareComputeBlock( march.Access, *m_MarchPipeline, static_cast<uint32_t>( sizeof( CloudPush ) ) )
              .Storage( "u_CloudScatter", trace, RDG::Access::StorageWrite )
-             .Storage( "u_CloudGuide", traceGuide, RDG::Access::StorageWrite );
+             .Storage( "u_CloudGuide", traceGuide, RDG::Access::StorageWrite )
+             .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, RDG::SamplerDesc::PointClamp(),
+                       "SceneDepth.Compute" )
+             .Sampled( "u_CloudSkyOcclusionVolume", skyOcclusion, RDG::Access::SampledCompute,
+                       RDG::SamplerDesc::LinearClamp(),
+                       skyOcclusionReady ? "Clouds.SkyOcclusion" : "Clouds.SkyOcclusionFallback" );
         march.Record = [this, push, traceWidth, traceHeight]( RDG::PassContext& context,
                                                               const FrameGraphRefs& ) -> Common::BoolResultStr
         {
@@ -2079,21 +2077,9 @@ namespace Desert::Graphic::System
         // frame's history slot, which the composite (CloudComposite, a Transparency raster node) samples.
         ComputeNodeDeclaration temporal;
         temporal.Name = "Clouds: TemporalResolve";
-        if ( m_HistoryValid )
-        {
-            temporal.Access.Read( m_HistoryImage[readIndex], RDG::Access::SampledCompute,
-                                  std::format( "Clouds.History{}", readIndex ) );
-            temporal.Access.Read( m_HistoryGuideImage[readIndex], RDG::Access::SampledCompute,
-                                  std::format( "Clouds.HistoryGuide{}", readIndex ) );
-        }
-        temporal.Access.Write( m_HistoryImage[writeIndex], RDG::Access::StorageWrite,
-                               std::format( "Clouds.History{}", writeIndex ) );
-        temporal.Access.Write( m_HistoryGuideImage[writeIndex], RDG::Access::StorageWrite,
-                               std::format( "Clouds.HistoryGuide{}", writeIndex ) );
-        // SETUP: this frame's history slot, the parameters and last frame's history (or the fallback) are the
-        // renderer's own, bound by the pipeline's setters here; this frame's trace pair is the block's entries.
-        m_ResolvePipeline->SetOutput( kCloudResolveOutputBinding, m_HistoryImage[writeIndex].get(), 0 );
-        m_ResolvePipeline->SetOutput( kCloudResolveGuideOutputBinding, m_HistoryGuideImage[writeIndex].get(), 0 );
+        // SETUP: the parameters are the renderer's own buffer, bound by the pipeline's setter here; this frame's
+        // trace pair, last frame's history (or the fallback) and this frame's history slot are the block's
+        // entries.
         m_ResolvePipeline->SetStorageBuffer( kCloudResolveParamsBinding, m_ResolveParamsBuffer.get() );
         // THE HISTORY, OR SOMETHING REAL IN ITS PLACE. Before the first reconstruction the read slot has
         // never been written, so its device memory is uninitialised AND its tracked layout is the one it
@@ -2102,22 +2088,31 @@ namespace Desert::Graphic::System
         // fallback texture is bound instead and CloudResolveParams::HistoryValid tells the shader to
         // ignore it. RGBA8F because FallbackTextures only provides RGBA8F and RGBA32F, and the sampler
         // reads floats either way.
-        Image2D* historyScatter = m_HistoryValid ? m_HistoryImage[readIndex].get() : nullptr;
-        Image2D* historyGuide   = m_HistoryValid ? m_HistoryGuideImage[readIndex].get() : nullptr;
-        Image2D* fallback =
-             FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get();
-
-        m_ResolvePipeline->SetInput( kCloudResolveHistoryBinding, historyScatter ? historyScatter : fallback,
-                                     RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        m_ResolvePipeline->SetInput( kCloudResolveHistoryGuideBinding, historyGuide ? historyGuide : fallback,
-                                     RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        const std::shared_ptr<Image> fallback =
+             FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
+        const std::shared_ptr<Image> historyScatter =
+             m_HistoryValid ? std::shared_ptr<Image>( m_HistoryImage[readIndex] ) : fallback;
+        const std::shared_ptr<Image> historyGuide =
+             m_HistoryValid ? std::shared_ptr<Image>( m_HistoryGuideImage[readIndex] ) : fallback;
+        const std::string historyName =
+             m_HistoryValid ? std::format( "Clouds.History{}", readIndex ) : "Clouds.HistoryFallback";
+        const std::string historyGuideName =
+             m_HistoryValid ? std::format( "Clouds.HistoryGuide{}", readIndex ) : "Clouds.HistoryFallback";
         // This frame's trace pair, by shader name. Linear + clamp: the reconstruction texelFetches the texel it
         // owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
         DeclareComputeBlock( temporal.Access, *m_ResolvePipeline, 0 )
              .Sampled( "u_CloudTrace", trace, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_CloudTraceGuide", traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() );
+                       RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_CloudHistory", historyScatter, RDG::Access::SampledCompute,
+                       RDG::SamplerDesc::LinearClamp(), historyName )
+             .Sampled( "u_CloudHistoryGuide", historyGuide, RDG::Access::SampledCompute,
+                       RDG::SamplerDesc::LinearClamp(), historyGuideName )
+             .Storage( "u_ReconstructedScatter", m_HistoryImage[writeIndex], RDG::Access::StorageWrite,
+                       std::format( "Clouds.History{}", writeIndex ) )
+             .Storage( "u_ReconstructedGuide", m_HistoryGuideImage[writeIndex], RDG::Access::StorageWrite,
+                       std::format( "Clouds.HistoryGuide{}", writeIndex ) );
         temporal.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: TemporalResolve" );

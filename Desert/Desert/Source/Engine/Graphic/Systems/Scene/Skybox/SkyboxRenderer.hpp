@@ -172,19 +172,12 @@ namespace Desert::Graphic::System
         bool EnsureAerialPerspectiveResources();
         // Same arrangement for the one-texel distant sky light.
         bool EnsureDistantLightResources();
-        // Binds one LUT pipeline to this renderer's own images and payload buffer ONCE, when its output image is
-        // created (they live as long as the renderer): the pipeline route of the node's block is complete when the
-        // node's setup declares it, and the exec only records. @p samplesMultiScatter adds the multi-scattering
-        // LUT input; every pipeline but the transmittance one samples the transmittance LUT.
-        void BindLutPipeline( ComputePipeline& pipeline, uint32_t outputBinding, Image& output,
-                              bool samplesTransmittance, bool samplesMultiScatter );
-
         // The cached pair, in dependency order (the multi-scattering march samples the transmittance).
         // Recorded by the SkyAtmosphereLuts graph nodes only: the graph places every barrier and records the
         // layout each LUT is left in. Nothing dispatches them outside the frame graph. Each records into
         // @p context through Renderer::DispatchCompute; every LUT is this renderer's own (imported, cached
-        // across frames), so the pipeline's setters bind them (BindLutPipeline, at creation) and each node's
-        // setup declares block 0 over that pipeline route; the exec opens it and adds only the push constants.
+        // across frames), named as block entries of each node's block 0 (DeclareAtmosphereLutNodes: the graph
+        // imports, orders and barriers them); the exec opens the block and adds only the push constants.
         [[nodiscard]] Common::BoolResultStr DispatchTransmittanceLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchMultiScatterLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchSkyViewLut( const RDG::PassContext& context );

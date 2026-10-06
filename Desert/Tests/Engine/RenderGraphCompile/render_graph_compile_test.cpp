@@ -630,6 +630,54 @@ TEST( RenderGraphCompile, TheBuilderHandsBackTheDescriptionATextureWasCreatedOrR
     EXPECT_FALSE( graph.GetTextureDesc( TextureRef{ buffer.Index } ).IsSuccess() );
 }
 
+// RDG-FAULT1 C3b: a binding-block entry may name an engine image its system owns across frames (an atmosphere
+// LUT, the cloud history) instead of a ref of this graph. It is not a ref until SceneRenderer imports it
+// (ResolveDeclared), so InvalidDeclaredRef does not refuse it; DeclareRefsOn declares it on the ref the import
+// gave, as a storage write / sampled read the graph orders: the reader runs after the writer, a writer of an
+// image nobody reads is culled.
+TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAndOrdered )
+{
+    // Never dereferenced: the declaration only carries the image to the import (aliasing, non-owning).
+    int                                           lutToken = 0;
+    const std::shared_ptr<Desert::Graphic::Image> lut( std::shared_ptr<void>(),
+                                                       reinterpret_cast<Desert::Graphic::Image*>( &lutToken ) );
+
+    ExternalTexture  lutImport( Tex2D( 64, 32, ImageFormat::RGBA16F ), Access::None );
+    ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "block images" );
+    const TextureRef lutRef = graph.RegisterExternal( lutImport, "Sky.TransmittanceLut" );
+    const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    Desert::Graphic::RenderPassDeclaration writer;
+    writer.Bindings( ShaderBindingLayout{}, {} )
+         .Storage( "u_TransmittanceLut", lut, Access::StorageWrite, "Sky.TransmittanceLut" );
+    Desert::Graphic::RenderPassDeclaration reader;
+    reader.Bindings( ShaderBindingLayout{}, {} )
+         .Sampled( "u_TransmittanceLut", lut, Access::SampledGraphics, SamplerDesc::LinearClamp(),
+                   "Sky.TransmittanceLut" );
+    ASSERT_EQ( Desert::Graphic::BlockImageEntries( writer ).size(), 1u );
+    EXPECT_EQ( Desert::Graphic::BlockImageEntries( writer ).front()->ImportName, "Sky.TransmittanceLut" );
+    EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( writer ), nullptr );
+    EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( reader ), nullptr );
+
+    const std::vector<TextureRef> imported{ lutRef };
+    graph.AddPass(
+         "Sky: TransmittanceLut", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { Desert::Graphic::DeclareRefsOn( pass, writer, imported ); }, Ok );
+    graph.AddPass(
+         "Sky", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             Desert::Graphic::DeclareRefsOn( pass, reader, imported );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.CulledPassNames.empty() );
+    EXPECT_TRUE( HasEdge( result, 0, 1, DependencyKind::ReadAfterWrite ) );
+}
+
 TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
 {
     Builder          graph( "refused" );
@@ -2758,18 +2806,21 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     const Declares declares[] = {
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
            "SkyboxRenderer::DeclareAtmosphereLutNodes(",
-           { "Write(m_TransmittanceLut,RDG::Access::StorageWrite",
-             "Write(m_MultiScatterLut,RDG::Access::StorageWrite", "Write(m_SkyViewLut,RDG::Access::StorageWrite",
-             "Write(m_AerialPerspectiveLut,RDG::Access::StorageWrite",
-             "Write(m_DistantLight,RDG::Access::StorageWrite",
-             "Read(m_TransmittanceLut,RDG::Access::SampledCompute",
-             // Each LUT node's one block over the pipeline route BindLutPipeline set at the LUT's creation.
-             "declareBlock(transmittance.Access,*m_TransmittanceLutPipeline,0);",
-             "declareBlock(distant.Access,*m_DistantLightPipeline,0);" } },
+           // Each LUT node's block 0 names every LUT as an entry (the renderer's own image, imported by the
+           // graph): the entry IS the declaration of the write / the sampled read; no pipeline-level image
+           // binding.
+           { "Storage(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::StorageWrite",
+             "Storage(\"u_MultiScatterLut\",m_MultiScatterLut,RDG::Access::StorageWrite",
+             "Storage(\"u_SkyViewLut\",m_SkyViewLut,RDG::Access::StorageWrite",
+             "Storage(\"u_AerialPerspectiveLut\",m_AerialPerspectiveLut,RDG::Access::StorageWrite",
+             "Storage(\"u_DistantSkyLight\",m_DistantLight,RDG::Access::StorageWrite",
+             "Sampled(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::SampledCompute",
+             "declareBlock(transmittance.Access,*m_TransmittanceLutPipeline,0)",
+             "sampledLuts(declareBlock(distant.Access,*m_DistantLightPipeline,0))" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
-           { "DeclareVolumeReads(shadow.Access)", "Write(m_ShadowMapImage,RDG::Access::StorageWrite",
-             "DeclareComputeBlock(shadow.Access,*m_ShadowMapPipeline," } },
+           { "DeclareVolumeReads(shadow.Access)", "DeclareComputeBlock(shadow.Access,*m_ShadowMapPipeline,",
+             "Storage(\"u_CloudShadowMap\",m_ShadowMapImage,RDG::Access::StorageWrite,\"Clouds.ShadowMap\")" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
            { "Read(depth,RDG::Access::SampledCompute",
