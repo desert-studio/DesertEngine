@@ -178,3 +178,9 @@ TEST( VFXSystemFormat, ACategoryAddedToTheRegisterFileIsAcceptedWithoutARebuild 
     EXPECT_TRUE( parsed ) << parsed.GetError();
     fs::remove_all( dir );
 }
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
