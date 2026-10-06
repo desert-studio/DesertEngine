@@ -11,7 +11,7 @@ project "Runtime"
     -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
     -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.
     debugdir "%{_MAIN_SCRIPT_DIR}/Editor"
-    debugargs { "--project Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
+    debugargs { "--project ../Projects/Desert/Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
 
     -- DesertHeaderTool over the player's sources: a misspelt, non-public or out-of-tree routed-event
     -- handler fails the build at file:line, as it does for the engine and the editor.

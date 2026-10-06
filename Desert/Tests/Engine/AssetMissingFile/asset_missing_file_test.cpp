@@ -43,6 +43,7 @@
 #include <string>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace fs = std::filesystem;
 
@@ -318,7 +319,7 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
     using Desert::Assets::SyncLoadLedger;
 
     const fs::path repo   = Desert::TestSupport::RepositoryRoot();
-    const fs::path source = repo / "Editor/Resources/Assets/Clouds/Types/Cirrus.decloudtype";
+    const fs::path source = repo / "Projects/Desert/Content/Clouds/Types/Cirrus.decloudtype";
     ASSERT_TRUE( fs::exists( source ) );
 
     // A SNAPSHOT, not a reference: the root is changed below and put back from this copy.
@@ -381,6 +382,7 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
@@ -396,7 +398,7 @@ TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGu
     using Common::Content::ContentKind;
 
     const fs::path repo   = Desert::TestSupport::RepositoryRoot();
-    const fs::path source = repo / "Editor/Resources/Assets/Clouds/Layouts/PTP_Channels_Green.dclayout";
+    const fs::path source = repo / "Projects/Desert/Content/Clouds/Layouts/PTP_Channels_Green.dclayout";
     ASSERT_TRUE( fs::exists( source ) );
 
     // A SNAPSHOT, not a reference: the root is changed below and put back from this copy.

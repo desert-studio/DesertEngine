@@ -323,7 +323,7 @@ TEST( TextureBinaryFormat, APngSurvivesTheContainerByteForByte )
 {
     // The png lives INSIDE T_Checker.detex since AF7 (the loose file left the tree); its Source section is
     // the untouched image bytes, so they are read from there rather than from a copy kept beside it.
-    const auto detex = RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Textures" / "T_Checker.detex";
+    const auto detex = RepositoryRoot() / "Projects" / "Desert" / "Content" / "Textures" / "T_Checker.detex";
     const auto asset = Desert::Assets::ReadTextureSourceAssetFile( detex );
     ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
     const std::string png = detex.string();

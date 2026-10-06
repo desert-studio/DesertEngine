@@ -13,7 +13,7 @@
 namespace Desert::TestSupport
 {
     inline constexpr std::array<std::string_view, 2> kCommittedProjects = {
-         "Editor/Desert.deproj",                 // the Sandbox the editor opens
+         "Projects/Desert/Desert.deproj",        // the Sandbox the editor opens
          "Desert/Tests/Data/DesertTests.deproj", // the suites' own project
     };
 } // namespace Desert::TestSupport

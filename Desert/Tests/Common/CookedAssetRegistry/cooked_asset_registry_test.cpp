@@ -38,6 +38,7 @@
 #include <utility>
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 using Common::Utils::AssetRegistry;
 using Common::Utils::AssetRegistryEntry;
@@ -526,6 +527,7 @@ TEST( CookedAssetRegistry, AKindOrASizeThatDisagreesIsReportedAndTheRowIsStillFo
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
@@ -729,7 +731,7 @@ TEST( CookedAssetRegistry, APrefabRowCarriesTheBoxItsFileStates )
 {
     namespace fs          = std::filesystem;
     const fs::path corpus =
-         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
+         Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content/Prefabs/UI_Card.deprefab";
     ASSERT_TRUE( fs::exists( corpus ) ) << corpus.string();
 
     const auto plain = Common::Content::RegistryRowFor(

@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -139,8 +140,8 @@ TEST( ExternalEntities, SplitThenJoinIsTheIdentityOverTheCorpus )
     std::size_t           scenes   = 0;
     std::size_t           entities = 0;
     std::set<std::string> walked;
-    for ( const auto& entry :
-          std::filesystem::recursive_directory_iterator( root + "Editor/Resources/Assets/Scenes" ) )
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator(
+               std::format( "{}Projects/Desert/Content/Scenes", root ) ) )
     {
         if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
             continue;

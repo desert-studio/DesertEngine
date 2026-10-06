@@ -32,9 +32,9 @@ namespace Desert::Editor::CookPaths
         return source.parent_path() / ( source.stem().string() + suffix );
     }
 
-    // A MESH'S IDENTITY, WITH ITS DIRECTORY IN IT: the source path relative to Resources/Assets/Meshes,
+    // A MESH'S IDENTITY, WITH ITS DIRECTORY IN IT: the source path relative to <project>/Content/Meshes,
     // extension dropped — "Props/base" for Assets/Meshes/Props/base.fbx. A source ANYWHERE ELSE under
-    // content (e.g. a character pack in Resources/Assets/Collections/<pack>/) is taken relative to Assets/
+    // content (e.g. a character pack in Content/Collections/<pack>/) is taken relative to Assets/
     // (then Resources/) instead, so two packs never share an identity through a shared "../".
     //
     // The importer used to identify a source by `stem()` alone, i.e. by "base", with the directory thrown
@@ -86,7 +86,7 @@ namespace Desert::Editor::CookPaths
     }
 
     // Where an imported mesh's materials live as editable content:
-    // Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat.
+    // Content/Materials/<meshRelativeId>/<materialName>.demat.
     //
     // A FILE A SKINNED IMPORT WRITES (SkinnedAsset's three suffixes): `.skmesh`, `.skeleton`, `.anim`. Each is its
     // own cooked form (a picture of it is filed under the file itself), unlike a static mesh, whose `.stmesh` is

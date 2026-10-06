@@ -44,7 +44,7 @@ namespace
         fs::path prefix = ".";
         for ( int up = 0; up < 8; ++up )
         {
-            if ( fs::exists( prefix / "Editor" / "Desert.deproj" ) )
+            if ( fs::exists( prefix / "Projects" / "Desert" / "Desert.deproj" ) )
                 return fs::absolute( prefix ).lexically_normal();
             prefix /= "..";
         }
@@ -69,8 +69,9 @@ namespace
             const fs::path editorDir = repoRoot / "Editor";
             Common::Constants::Path::SetEngineDir( editorDir );
 
-            const fs::path deproj = projectFile.empty() ? editorDir / "Desert.deproj" : projectFile;
-            const auto     json   = Common::Utils::FileSystem::ReadFileContent( deproj.string() );
+            const fs::path deproj =
+                 projectFile.empty() ? repoRoot / "Projects" / "Desert" / "Desert.deproj" : projectFile;
+            const auto json = Common::Utils::FileSystem::ReadFileContent( deproj.string() );
             if ( !json )
                 return;
 
@@ -202,7 +203,8 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
     // Editor/Resources, and the fixtures only tests read (rigs, anim graphs, retargets) are the suite data
     // project Desert/Tests/Data (ENG-ROOT). Each is opened as what it is — its own project over the one engine —
     // and a kind counts as exercised when either corpus tracks it AND that project's registry holds the row.
-    const fs::path corpora[] = { root / "Editor/Desert.deproj", root / "Desert/Tests/Data/DesertTests.deproj" };
+    const fs::path        corpora[] = { root / "Projects/Desert/Desert.deproj",
+                                        root / "Desert/Tests/Data/DesertTests.deproj" };
     std::set<std::string> kindsTracked;
     std::set<std::string> kindsRegistered;
     for ( const fs::path& deproj : corpora )

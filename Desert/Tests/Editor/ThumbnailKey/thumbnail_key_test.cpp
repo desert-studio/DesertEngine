@@ -70,7 +70,7 @@ namespace
 
         void TearDown() override
         {
-            Common::Constants::Path::ResetToSandbox();
+            Common::Constants::Path::ClearProject();
         }
 
         // The absolute spelling of a path under the project's assets root.

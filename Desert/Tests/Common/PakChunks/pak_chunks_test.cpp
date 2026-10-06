@@ -83,7 +83,7 @@ namespace
         fs::path prefix = ".";
         for ( int up = 0; up < 8; ++up )
         {
-            if ( fs::exists( prefix / "Editor" / "Desert.deproj" ) )
+            if ( fs::exists( prefix / "Projects" / "Desert" / "Desert.deproj" ) )
                 return fs::absolute( prefix ).lexically_normal();
             prefix /= "..";
         }
@@ -522,7 +522,7 @@ TEST( PakChunks, TheDesertProjectStatesItsDivisionInItsOwnFile )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "the repository root could not be found from the test's cwd";
     const SandboxProject project( root );
-    ASSERT_TRUE( project.Opened() ) << "Editor/Desert.deproj could not be read";
+    ASSERT_TRUE( project.Opened() ) << "Projects/Desert/Desert.deproj could not be read";
     const auto loaded = LoadChunkScheme( ChunkSchemePath() );
     ASSERT_TRUE( loaded ) << loaded.GetError();
     const auto gathered = GatherProjectRegistry();

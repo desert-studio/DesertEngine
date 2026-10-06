@@ -27,7 +27,7 @@ export VK_LAYER_PATH="${VK_LAYER_PATH:-$BREW_PREFIX/share/vulkan/explicit_layer.
 cd Editor
 
 if [ $# -eq 0 ]; then
-    set -- --project Desert.deproj
+    set -- --project ../Projects/Desert/Desert.deproj
 fi
 
 exec "../$RUNTIME" "$@"

@@ -17,6 +17,7 @@
 #include <set>
 #include <sstream>
 #include <unordered_set>
+#include "../../TestSupport/project_scope.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include <Common/Core/Constants.hpp>
 
@@ -109,27 +110,29 @@ TEST( TextureAsset, EveryProjectTextureIsAnAssetAndKeepsItsHandle )
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    const fs::path resources = repo / "Editor" / "Resources";
-    Common::Constants::Path::SetProjectRoot( resources.parent_path(), "Resources/Assets" );
-    // The 9 images + 2 HDR panoramas the migration produced, relative to Editor/Resources.
+    // The sample project's content, opened from its .deproj the way the editor opens it.
+    const Desert::TestSupport::ProjectScope project( Desert::TestSupport::kCommittedProjects[0] );
+    const auto&                             root    = Common::Constants::Path::CurrentProjectRoot();
+    const fs::path                          content = root.ProjectDir / root.AssetsRoot;
+    // The 9 images + 2 HDR panoramas the migration produced, relative to the project's content root.
     const std::set<std::string> migrated = {
-         "Assets/Meshes/shaded.detex",
-         "Assets/Meshes/texture_diffuse.detex",
-         "Assets/Meshes/texture_metallic.detex",
-         "Assets/Meshes/texture_normal.detex",
-         "Assets/Meshes/texture_pbr.detex",
-         "Assets/Meshes/texture_roughness.detex",
-         "Assets/Textures/1k_Dissolve_Noise_Texture.detex",
-         "Assets/Textures/HDR/PreviewCheck.detex",
-         "Assets/Textures/HDR/rural_asphalt_road_2k.detex",
-         "Assets/Textures/T_Checker.detex",
-         "Assets/Textures/T_NormalWitness.detex",
+         "Meshes/shaded.detex",
+         "Meshes/texture_diffuse.detex",
+         "Meshes/texture_metallic.detex",
+         "Meshes/texture_normal.detex",
+         "Meshes/texture_pbr.detex",
+         "Meshes/texture_roughness.detex",
+         "Textures/1k_Dissolve_Noise_Texture.detex",
+         "Textures/HDR/PreviewCheck.detex",
+         "Textures/HDR/rural_asphalt_road_2k.detex",
+         "Textures/T_Checker.detex",
+         "Textures/T_NormalWitness.detex",
     };
     std::set<std::string>        seen;
     std::unordered_set<uint64_t> handles;
-    for ( const char* sub : { "Assets/Textures", "Assets/Meshes" } )
+    for ( const char* sub : { "Textures", "Meshes" } )
     {
-        for ( const auto& e : fs::recursive_directory_iterator( resources / sub ) )
+        for ( const auto& e : fs::recursive_directory_iterator( content / sub ) )
         {
             std::string ext = e.path().extension().string();
             for ( const char* raw : { ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr", ".exr" } )
@@ -138,7 +141,7 @@ TEST( TextureAsset, EveryProjectTextureIsAnAssetAndKeepsItsHandle )
                 continue;
             const auto a = ReadTextureSourceAssetFile( e.path() );
             ASSERT_TRUE( a.IsSuccess() ) << a.GetError();
-            const std::string rel = e.path().lexically_relative( resources ).generic_string();
+            const std::string rel = e.path().lexically_relative( content ).generic_string();
             if ( migrated.contains( rel ) )
             {
                 seen.insert( rel );

@@ -56,13 +56,14 @@ namespace
     std::vector<fs::path> TextCorpus()
     {
         std::vector<fs::path> files;
-        const fs::path        root = RepoRoot() / "Editor";
-        for ( const auto& entry : fs::recursive_directory_iterator( root ) )
-        {
-            const std::string ext = entry.path().extension().string();
-            if ( entry.is_regular_file() && ( ext == ".desce" || ext == ".demat" || ext == ".deprefab" ) )
-                files.push_back( entry.path() );
-        }
+        // The engine's tree and every project's: the sample project's content left Editor/ (PRJ1).
+        for ( const char* tree : { "Editor", "Projects" } )
+            for ( const auto& entry : fs::recursive_directory_iterator( RepoRoot() / tree ) )
+            {
+                const std::string ext = entry.path().extension().string();
+                if ( entry.is_regular_file() && ( ext == ".desce" || ext == ".demat" || ext == ".deprefab" ) )
+                    files.push_back( entry.path() );
+            }
         return files;
     }
 
@@ -85,8 +86,8 @@ TEST( CanonicalText, EveryCorpusFileIsCanonicalAndRoundTripsThroughTheSingleLine
     // Pinned by name, not by a floor (SCN1 deleted the 68 scenes nothing named): one scene, one material and one
     // prefab the walk must reach, so a wrong root cannot pass over zero files.
     for ( const char* expected :
-          { "Editor/Resources/Assets/Scenes/Starter.desce", "Editor/Resources/Assets/Materials/CB_Glass.demat",
-            "Editor/Resources/Assets/Prefabs/UI_Card.deprefab" } )
+          { "Projects/Desert/Content/Scenes/Starter.desce", "Projects/Desert/Content/Materials/CB_Glass.demat",
+            "Projects/Desert/Content/Prefabs/UI_Card.deprefab" } )
         ASSERT_NE( std::find( corpus.begin(), corpus.end(), fs::path( RepoRoot() ) / expected ), corpus.end() )
              << expected << " is not in the walked corpus";
     for ( const fs::path& file : corpus )

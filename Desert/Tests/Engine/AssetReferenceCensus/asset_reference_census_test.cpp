@@ -342,15 +342,15 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
 {
     const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path materials = root / "Editor/Resources/Assets/Materials";
-    const fs::path content   = root / "Editor/Resources/Assets";
+    const fs::path materials = root / "Projects/Desert/Content/Materials";
+    const fs::path content   = root / "Projects/Desert/Content";
     ASSERT_TRUE( fs::exists( materials ) ) << materials.string() << " is missing";
 
     // The derivation reads the project root out of Constants::Path, so it has to be pointed at THIS
     // checkout — otherwise every path falls outside every root and hashes its absolute spelling, which is
     // the machine-dependent identity the whole scheme exists to avoid.
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Projects" / "Desert", "Content" );
 
     std::string parseError;
     const auto  references = ReferencesUnder( materials, &parseError );
@@ -414,13 +414,13 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
 {
     const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path content = root / "Editor/Resources/Assets";
+    const fs::path content = root / "Projects/Desert/Content";
     const fs::path scratch = fs::temp_directory_path() / "desert_materialassetreferences_dangling";
     fs::remove_all( scratch );
     fs::create_directories( scratch );
 
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Projects" / "Desert", "Content" );
 
     const auto derived = DerivedHandlesUnder( content );
 
@@ -558,7 +558,7 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
     size_t documents = 0;
     for ( const char* subdir : { "Scenes", "Prefabs" } )
     {
-        const fs::path dir = root / "Editor/Resources/Assets" / subdir;
+        const fs::path dir = root / "Projects/Desert/Content" / subdir;
         if ( !fs::exists( dir ) )
             continue;
         for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
@@ -574,7 +574,7 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
                 continue; // parsing is SceneVersionGate's subject, not this one
             ++documents;
             visit( Common::Json::Root( parsed.GetValue() ),
-                   fs::relative( entry.path(), root / "Editor/Resources/Assets" ).generic_string() );
+                   fs::relative( entry.path(), root / "Projects/Desert/Content" ).generic_string() );
         }
     }
 
@@ -681,7 +681,7 @@ TEST( AssetReferenceCensus, NoReferenceInShippedContentNamesItsAssetByPathAlone 
     size_t                       documents = 0;
     for ( const char* subdir : { "Scenes", "Prefabs" } )
     {
-        const fs::path dir = root / "Editor/Resources/Assets" / subdir;
+        const fs::path dir = root / "Projects/Desert/Content" / subdir;
         if ( !fs::exists( dir ) )
             continue;
         for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
@@ -694,7 +694,7 @@ TEST( AssetReferenceCensus, NoReferenceInShippedContentNamesItsAssetByPathAlone 
                 continue; // parsing is SceneVersionGate's subject, not this one
             ++documents;
             PathsWithoutGuid( Common::Json::Root( parsed.GetValue() ),
-                              fs::relative( entry.path(), root / "Editor/Resources/Assets" ).generic_string(),
+                              fs::relative( entry.path(), root / "Projects/Desert/Content" ).generic_string(),
                               guidNames, offences );
         }
     }
@@ -738,11 +738,11 @@ TEST( AssetReferenceCensus, NoTwoShippedContentFilesDeriveTheSameHandle )
 {
     const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path content = root / "Editor/Resources/Assets";
+    const fs::path content = root / "Projects/Desert/Content";
     ASSERT_TRUE( fs::exists( content ) ) << content.string() << " is missing";
 
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Projects" / "Desert", "Content" );
 
     std::map<uint64_t, std::string> claimed;
     size_t                          files = 0;

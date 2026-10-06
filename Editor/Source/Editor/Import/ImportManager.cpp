@@ -637,7 +637,7 @@ namespace Desert::Editor
                                                                  const std::filesystem::path& sourcePath )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
-        // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
+        // tree at Content/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
         // the asset browser, reusable), like UE.
         // Meaningful name, NO handle in it (stable identity lives in the file: its header GUID).
         // Unified .demat schema (legacy ".mat" cooker output is gone; SurfaceMaterialAsset::Load still READS old).

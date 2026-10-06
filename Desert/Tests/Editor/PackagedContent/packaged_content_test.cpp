@@ -166,8 +166,8 @@ namespace
             else
                 UnsetEnv( "HOME" );
             Common::Utils::VFS::Unmount();
-            // Back to the built-in sandbox mapping the process started with.
-            Common::Constants::Path::SetProjectRoot( "", "Resources/Assets" );
+            // Back to no project, the state the process started in.
+            Common::Constants::Path::ClearProject();
         }
     };
 } // namespace
@@ -190,6 +190,61 @@ TEST( PackagedContent, EveryScannedRootIsAPackagedTree )
         EXPECT_TRUE( packed( root ) ) << "font scan root not packaged: " << root->string();
     for ( const fs::path* root : Desert::Runtime::IconScanRoots() )
         EXPECT_TRUE( packed( root ) ) << "icon scan root not packaged: " << root->string();
+}
+
+// WHAT A PACKAGE IS BUILT FROM (PRJ1, UE: /Game + /Engine runtime content). The committed project lives in
+// Projects/Desert/, apart from the engine: every census tree the packager stages is EITHER the project's (its
+// Content/ and its Cooked/, both under the project folder) OR the engine's runtime resources (under the
+// engine directory's Resources/) — never a tree of the editor, and project content never inside the engine.
+// Mutation: add a census row for P::RESOURCE_PATH / "Branding" (editor-only) in PackagedContentTrees.hpp, or set
+// the .deproj AssetsRoot to "../../Editor/Resources/Assets" => red here.
+TEST( PackagedContent, APackageIsTheProjectContentPlusTheEngineRuntimeContentOnly )
+{
+    const EnvironmentGuard guard;
+
+    const fs::path repo       = Desert::TestSupport::RepositoryRoot();
+    const fs::path engineDir  = repo / "Editor";
+    const fs::path projectDir = repo / "Projects" / "Desert";
+    Common::Constants::Path::SetEngineDir( engineDir );
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( projectDir / "Desert.deproj" ).string() ) );
+
+    const auto under = []( const fs::path& path, const fs::path& root )
+    {
+        const fs::path rel = fs::weakly_canonical( path ).lexically_relative( fs::weakly_canonical( root ) );
+        return !rel.empty() && *rel.begin() != "..";
+    };
+
+    // The engine's runtime trees, by name: the editor's own (Branding, Splash of the editor) are not among them.
+    const std::set<std::string> runtimeEngineTrees = { "Shaders", "Engine", "Fonts", "Icons" };
+
+    std::size_t projectTrees = 0;
+    for ( const auto& tree : Desert::Editor::PackagedContentTrees() )
+    {
+        const fs::path& path = *tree.Tree;
+        if ( under( path, projectDir ) )
+        {
+            ++projectTrees;
+            EXPECT_FALSE( under( path, engineDir ) ) << path.string();
+            continue;
+        }
+        ASSERT_TRUE( under( path, engineDir / "Resources" ) )
+             << "a packaged tree is neither the project's nor the engine's runtime content: " << path.string();
+        const fs::path rel =
+             fs::weakly_canonical( path ).lexically_relative( fs::weakly_canonical( engineDir / "Resources" ) );
+        EXPECT_TRUE( runtimeEngineTrees.contains( rel.begin()->string() ) )
+             << "an editor resource tree is packaged: " << path.string();
+    }
+    EXPECT_EQ( projectTrees, 2u ) << "the project contributes its Content/ and its Cooked/, nothing else";
+    EXPECT_TRUE( under( Common::Constants::Path::ASSETS_PATH, projectDir / "Content" ) )
+         << Common::Constants::Path::ASSETS_PATH.string();
+
+    // The editor-only subtrees of the engine trees are excluded by the one predicate the stager reads.
+    EXPECT_TRUE( Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::SHADERDIR_PATH / "Editor" /
+                                                       "Grid.shader" ) );
+    EXPECT_TRUE(
+         Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::ICONS_PATH / "Gizmo" / "Light.svg" ) );
+    EXPECT_FALSE( Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::ASSETS_PATH / "Scenes" /
+                                                        "Starter.desce" ) );
 }
 
 TEST( PackagedContent, PakKeysAreTheRuntimeLookupKeysUnderThePackageRoot )
@@ -1868,7 +1923,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
 
     const fs::path repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
-    const fs::path shipped = repo / "Editor" / "Resources" / "Assets";
+    const fs::path shipped = repo / "Projects" / "Desert" / "Content";
 
     const fs::path base = fs::temp_directory_path() / "desert_pkg_textures";
     fs::remove_all( base );
@@ -2044,7 +2099,8 @@ TEST( PackagedContent, EveryTextureTheShippedContentNamesIsOneThePackageCooks )
     const fs::path repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
     Common::Constants::Path::SetEngineDir( repo / "Editor" );
-    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( repo / "Editor" / "Desert.deproj" ).string() ) );
+    ASSERT_TRUE(
+         Desert::Project::ProjectContext::Open( ( repo / "Projects" / "Desert" / "Desert.deproj" ).string() ) );
     const fs::path assets = Common::Constants::Path::ASSETS_PATH;
 
     // What the cook reaches, spelled the three ways content can name it.
@@ -2148,7 +2204,7 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
 
     const fs::path repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
-    const fs::path shipped = repo / "Editor" / "Resources" / "Assets";
+    const fs::path shipped = repo / "Projects" / "Desert" / "Content";
 
     const fs::path base = fs::temp_directory_path() / "desert_pkg_cooked_tree";
     fs::remove_all( base );

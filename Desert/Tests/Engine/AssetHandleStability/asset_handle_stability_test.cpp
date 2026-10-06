@@ -28,6 +28,7 @@
 
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 #include <random>
 
@@ -634,7 +635,7 @@ TEST( AssetHandleStability, OneAssetKeepsOneHandleUnderTwoUnrelatedProjectRoots 
     // THE guard of this task. Two developers, two checkouts that share no directory above the project,
     // and an assets folder that is not even called the same thing. Same asset, same handle, or a handle
     // is not a reference anyone can write down and send to another machine.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     const uint64_t fromAnnsMachine = HandleValue( "/ann/work/Game/Content/Clouds/Cumulus.dcnv" );
@@ -653,7 +654,7 @@ TEST( AssetHandleStability, TheHashedKeyCarriesNoPartOfTheProjectRoot )
     // The relation above stated positively, and the reason it holds: the string that reaches the hash is
     // the asset's place in the project and nothing else. Asserted on the key rather than on the number
     // because a failure here says WHAT leaked, where a mismatched uint64 only says that something did.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "/ann/work/Game/Content/Clouds/Cumulus.dcnv" ),
@@ -685,7 +686,7 @@ TEST( AssetHandleStability, TheHashedKeyCarriesNoPartOfTheProjectRoot )
 
 TEST( AssetHandleStability, EveryRootsKeyExpandsBackToThePathItCameFrom )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     const std::vector<std::filesystem::path> subjects = {
@@ -722,7 +723,7 @@ TEST( AssetHandleStability, AKeyExpandsAgainstTHISMachinesRootsAndNotTheOneThatW
     // The property the whole stored form exists for. Ann writes the key; the build agent, whose checkout
     // shares no directory with hers and whose assets folder is not even called the same thing, expands it
     // to ITS copy of the file. A stored raw path cannot do this, and that is the defect.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     const std::string written = Common::AssetHandle::StableKeyForPath( "/ann/work/Game/Content/Textures/T.tex" );
@@ -744,7 +745,7 @@ TEST( AssetHandleStability, AStringWithNoRootTagIsHandedBackUnchanged )
     // existed, an absolute path to a file genuinely outside the project (StableKeyForPath returns those
     // verbatim too, so the inverse has to as well), and a synthetic key that is an identity rather than
     // a location. Inventing a root for any of them would change which file the name means.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( "Materials/M.demat" ),
@@ -762,16 +763,15 @@ TEST( AssetHandleStability, AStringWithNoRootTagIsHandedBackUnchanged )
 TEST( AssetHandleStability, TwoRootsThatShareAPrefixDoNotSwapKeysOnExpansion )
 {
     // The companion: an inverse that ignored the tag and joined everything to one root would satisfy the
-    // round trip for whichever root it picked and quietly move every other asset. Under the DEFAULT
-    // sandbox this is not hypothetical — ASSETS_PATH (`Resources/Assets/`) is nested inside
-    // RESOURCE_PATH (`Resources/`), and the two tags must still land in different places.
-    ProjectRootGuard guard;
-    Common::Constants::Path::ResetToSandbox();
+    // round trip for whichever root it picked and quietly move every other asset. A project whose assets
+    // root lies inside the engine's resources makes this concrete — ASSETS_PATH (`Resources/Assets/`) is
+    // nested inside RESOURCE_PATH (`Resources/`), and the two tags must still land in different places.
+    const ProjectRootGuard      guard;
+    const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
+    Common::Constants::Path::SetProjectRoot( engineDir / "Resources", "Assets" );
 
     EXPECT_NE( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ),
                Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ) );
-    // The sandbox's roots hang off the engine directory (ENG-ROOT), so the expansions are absolute there.
-    const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ),
                ( engineDir / "Resources/Assets/Textures/T.png" ).lexically_normal() );
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ),
@@ -808,7 +808,7 @@ TEST( AssetHandleStability, TheEngineTwinOfAnAssetIsNotTheSameAsset )
     // `Content/Textures/T.tex` both reduce to `Textures/T.tex`, so an untagged relative key would hand one
     // handle to two files -- a collision that the old absolute-path hash could not produce and that a naive
     // fix introduces.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_NE( HandleValue( "/ann/work/Game/Content/Textures/T.tex" ),
@@ -821,7 +821,7 @@ TEST( AssetHandleStability, EngineResourcesAreKeyedOnTheirOwnRootAndDoNotMoveWit
     // Shaders live under RESOURCE_PATH, which is const and is never remapped, so their identity must not
     // change when a project is opened or swapped. This is the one asset family whose handle was already
     // portable before this change, and it has to stay that way.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     const Desert::TestSupport::EngineDirScope engineDir;
     const std::filesystem::path shader           = Common::Constants::Path::SHADERDIR_PATH / "Programs/PBR.shader";
@@ -836,15 +836,16 @@ TEST( AssetHandleStability, EngineResourcesAreKeyedOnTheirOwnRootAndDoNotMoveWit
     EXPECT_EQ( HandleValue( shader ), beforeAnyProject );
 }
 
-TEST( AssetHandleStability, TheDefaultSandboxNestsAssetsInsideResourcesAndAssetsStillWins )
+TEST( AssetHandleStability, AProjectNestedInsideResourcesStillKeysItsAssetsAsAssets )
 {
-    // With no project open ASSETS_PATH is `Resources/Assets/` -- INSIDE RESOURCE_PATH (`Resources/`).
+    // A project whose ASSETS_PATH is `<engine>/Resources/Assets/` -- INSIDE RESOURCE_PATH (`Resources/`).
     // Both roots contain the file, so the answer must not depend on which one the code happens to test
     // first. Longest match is what makes that true, and this is the case that proves it.
-    ProjectRootGuard guard;
-    Common::Constants::Path::ResetToSandbox();
+    const ProjectRootGuard      guard;
+    const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
+    Common::Constants::Path::SetProjectRoot( engineDir / "Resources", "Assets" );
 
-    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "Resources/Assets/Clouds/Cumulus.dcnv" ),
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( engineDir / "Resources/Assets/Clouds/Cumulus.dcnv" ),
                "assets:Clouds/Cumulus.dcnv" )
          << "a content asset was keyed as an engine resource because a shorter root matched first";
 }
@@ -855,7 +856,7 @@ TEST( AssetHandleStability, KeysThatAreNotFilesystemPathsAreLeftAlone )
     // They are identities already, not locations, and relativizing them would be meaningless -- worse,
     // absolutizing them would make them depend on the process's working directory, which is a
     // regression this change must not introduce.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     const uint64_t underOneProject = HandleValue( "procedural://humanoid/Walk" );
@@ -882,7 +883,7 @@ TEST( AssetHandleStability, ASyntheticKeyDoesNotFollowTheWorkingDirectory )
     // if the derivation resolved it against the working directory then the editor (which runs from
     // Editor/) and a packaged runtime (which does not) would register the same clip under two handles,
     // and the animation a scene names would resolve in one and vanish in the other.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     std::error_code             ec;
@@ -906,7 +907,7 @@ TEST( AssetHandleStability, AFileOutsideTheProjectKeepsItsOwnSpelling )
     // what ComponentRegistry does in the same situation and says so in the same words. The alternative
     // -- inventing a `../../..` key relative to the assets root -- would encode the distance between two
     // unrelated directories, which is machine-specific in exactly the way this change is removing.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "/elsewhere/scratch/Hand.dcnv" ),
@@ -920,7 +921,7 @@ TEST( AssetHandleStability, TwoAssetsUnderOneRootStillDiffer )
     // The companion every stability assertion needs: a derivation that ignored the relative part
     // entirely and hashed only the tag would satisfy every test above and collapse the whole library
     // onto three handles.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_NE( HandleValue( "/ann/work/Game/Content/Clouds/Cumulus.dcnv" ),
@@ -933,7 +934,7 @@ TEST( AssetHandleStability, EveryAssetTypeAgreesAcrossProjectRoots )
 {
     // The relation applied to the catalogue rather than to one call, because the point of deriving
     // identity in AssetBase is that no type gets to have its own answer.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     std::vector<uint64_t> first;
@@ -993,7 +994,7 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
         ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     }
 
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     Desert::Assets::TextureAsset underOneRoot{ Common::Filepath( scratch ) };
@@ -1034,7 +1035,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
                R"("Params":[],"Textures":[],"CloudAssets":[]})";
     }
 
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     Desert::Assets::SurfaceMaterialAsset underOneRoot{ Common::Filepath( scratch ) };
@@ -1062,8 +1063,8 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
 
 TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
 {
-    const ScratchDir scratchDir( "desert-handle-spelling" );
-    ProjectRootGuard guard;
+    const ScratchDir       scratchDir( "desert-handle-spelling" );
+    const ProjectRootGuard guard;
 
     const std::filesystem::path projectDir = scratchDir.Path() / "RegistryProbe";
     Common::Constants::Path::SetProjectRoot( projectDir, "Content" );
@@ -1093,7 +1094,7 @@ TEST( AssetHandleStability, TwoDifferentFilesStillRegisterSeparately )
     const ScratchDir scratchDir( "desert-handle-spelling" );
     // The companion: a dedup key that answered "yes" to everything would satisfy the test above and
     // collapse the whole library onto one record.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
@@ -1111,7 +1112,7 @@ TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
     // The handle derivation deliberately gives every type at one path the SAME number (asserted at the
     // top of this file), so the registry's key has to carry the type as well or the second type would be
     // deduplicated away as a duplicate of the first.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
@@ -1151,8 +1152,8 @@ TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
 
 TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 {
-    const ScratchDir scratchDir( "desert-handle-spelling" );
-    ProjectRootGuard guard;
+    const ScratchDir       scratchDir( "desert-handle-spelling" );
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
@@ -1189,8 +1190,8 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 
 TEST( AssetHandleStability, ATypedLookupRefusesAnotherClassUnderTheSameTypeId )
 {
-    const ScratchDir scratchDir( "desert-handle-spelling" );
-    ProjectRootGuard guard;
+    const ScratchDir       scratchDir( "desert-handle-spelling" );
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
@@ -1345,6 +1346,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     // The child branch. Deliberately before InitGoogleTest: this invocation is not a test run, it is one
     // half of the measurement the cross-process test makes.
     if ( argc >= 3 && std::strcmp( argv[1], kPrintHandlesFlag ) == 0 )

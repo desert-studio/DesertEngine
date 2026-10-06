@@ -347,7 +347,7 @@ TEST( AssimpLibraryPin, TheCommittedModelsImportToTheGeometryTheyCarry )
     // relation worth having: the cooked artifact and the source file agree, so the cook is faithful.
     {
         std::string  error;
-        const Counts counts = ImportCounts( root / "Editor/Resources/Assets/Meshes/base.fbx", error );
+        const Counts counts = ImportCounts( root / "Projects/Desert/Content/Meshes/base.fbx", error );
         ASSERT_TRUE( error.empty() ) << "base.fbx did not import: " << error;
         EXPECT_EQ( counts.Meshes, 1u );
         EXPECT_EQ( counts.Vertices, 105317u );
@@ -399,7 +399,7 @@ TEST( AssimpLibraryPin, TheCommittedModelsImportAtTheSizeTheirUnitStates )
     {
         std::string error;
         auto        source = Desert::Editor::ImportUnits::Source::AssumedCentimetres;
-        const auto  box = ImportInCentimetres( root / "Editor/Resources/Assets/Meshes/base.fbx", error, source );
+        const auto  box = ImportInCentimetres( root / "Projects/Desert/Content/Meshes/base.fbx", error, source );
         ASSERT_TRUE( error.empty() ) << "base.fbx did not import: " << error;
 
         EXPECT_EQ( source, Desert::Editor::ImportUnits::Source::StatedByFile )

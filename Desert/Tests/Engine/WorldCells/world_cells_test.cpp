@@ -53,6 +53,7 @@
 #include <vector>
 #include <optional>
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace
 {
@@ -505,9 +506,9 @@ TEST( WorldCells, NoSourceSpellsTheRetiredWp8Magic )
 {
     namespace fs  = std::filesystem;
     fs::path root = ".";
-    for ( int up = 0; up < 8 && !fs::exists( root / "Editor" / "Desert.deproj" ); ++up )
+    for ( int up = 0; up < 8 && !fs::exists( root / "Projects" / "Desert" / "Desert.deproj" ); ++up )
         root /= "..";
-    ASSERT_TRUE( fs::exists( root / "Editor" / "Desert.deproj" ) ) << "repository root not found";
+    ASSERT_TRUE( fs::exists( root / "Projects" / "Desert" / "Desert.deproj" ) ) << "repository root not found";
 
     std::vector<std::string> needles;
     for ( const std::string magic : { std::string( "DW" ) + "CL", std::string( "DW" ) + "IX" } )
@@ -759,7 +760,7 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
 TEST( WorldCells, TheCorpusPrefabStatesTheBoxItsBodyHas )
 {
     const std::filesystem::path file =
-         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
+         Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content/Prefabs/UI_Card.deprefab";
     ASSERT_TRUE( std::filesystem::exists( file ) ) << file.string();
     std::ifstream     in( file );
     const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
@@ -784,6 +785,7 @@ int main( int argc, char** argv )
     // The host step (as the editor takes it in Sandbox.hpp): every engine path read after it answers off
     // the checkout's engine directory, never off the working directory.
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

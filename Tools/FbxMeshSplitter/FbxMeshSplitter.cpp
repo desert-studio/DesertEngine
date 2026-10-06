@@ -310,7 +310,7 @@ namespace FbxSplit
             // success — and this tool PRODUCES the corpus other tasks measure on, which makes a silently
             // truncated mesh a wrong measurement with nothing pointing back at its cause.
             //
-            // WHAT THE BUFFER COSTS, measured rather than guessed: Editor/Resources/Assets/Meshes/base.fbx
+            // WHAT THE BUFFER COSTS, measured rather than guessed: Projects/Desert/Content/Meshes/base.fbx
             // produces a 36.0 MB .obj, so that is the peak this holds on the biggest mesh in the
             // repository. It is paid for uniformity — one place in this tool decides whether a write
             // happened — and it is small beside the Assimp scene already resident. If a mesh ever makes

@@ -72,7 +72,7 @@ namespace
         const size_t code = line.find_first_not_of( " \t" );
         if ( code != std::string::npos && line.compare( code, 2, "//" ) == 0 )
             return false;
-        static const std::string kRel = R"("(Editor|Desert|Tools|Runtime|scripts)/)";
+        static const std::string kRel = R"("(Editor|Projects|Desert|Tools|Runtime|scripts)/)";
         static const std::regex  kPathVar( R"(\bpath\s+\w+\s*(=\s*|\(\s*|\{\s*))" + kRel );
         static const std::regex  kPathTemp( R"(\bpath\s*[({]\s*)" + kRel );
         static const std::regex  kStream( R"(\b[io]?fstream(\s+\w+)?\s*[({]\s*)" + kRel );
@@ -91,7 +91,7 @@ namespace
     TEST( TestScratchCensus, TheReadRuleFlagsRepositoryRelativePaths )
     {
         EXPECT_TRUE( ReadsRepositoryRelative(
-             R"(    const fs::path corpus = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";)" ) );
+             R"(    const fs::path corpus = "Projects/Desert/Content/Prefabs/UI_Card.deprefab";)" ) );
         EXPECT_TRUE(
              ReadsRepositoryRelative( R"(std::ifstream in( "Desert/Desert/Source/Engine/Core/Scene.cpp" );)" ) );
         EXPECT_TRUE(

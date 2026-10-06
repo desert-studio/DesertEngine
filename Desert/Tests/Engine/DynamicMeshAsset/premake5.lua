@@ -3,7 +3,7 @@
 -- keeps the polygroups and the material slots across the file.
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
-local scenes_dir = path.getabsolute(_SCRIPT_DIR .. "/../../../../Editor/Resources/Assets/Scenes")
+local scenes_dir = path.getabsolute(_SCRIPT_DIR .. "/../../../../Projects/Desert/Content/Scenes")
 
 project(test_name)
     kind "ConsoleApp"

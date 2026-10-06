@@ -122,7 +122,7 @@ TEST( PickerRegistryRows, OnTheCorpusTheRowsAreTheListThePreloaderBuiltObjectsFr
     const ProjectRootGuard guard;
     const fs::path         root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+    Path::SetProjectRoot( root / "Projects" / "Desert", "Content" );
     ContentRegistry::ResetForTest();
 
     std::vector<std::string> refused;
@@ -161,7 +161,7 @@ TEST( PickerRegistryRows, OnTheCorpusNamesAndTheSkinnedSplitComeFromTheRegistryT
     const ProjectRootGuard guard;
     const fs::path         root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+    Path::SetProjectRoot( root / "Projects" / "Desert", "Content" );
     ContentRegistry::ResetForTest();
     ASSERT_TRUE( ContentRegistry::Gather() );
     const auto nameOf = []( ContentKind kind, std::string_view keySuffix ) -> std::string
@@ -211,7 +211,7 @@ TEST( PickerRegistryRows, AFileThatAppearsReachesTheRowsWithoutARescanAndLeavesW
     const ProjectRootGuard guard;
     const fs::path         repo = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    const fs::path source = repo / "Editor/Resources/Assets/UI/Themes/Desert_Light.detheme";
+    const fs::path source = repo / "Projects/Desert/Content/UI/Themes/Desert_Light.detheme";
     ASSERT_TRUE( fs::exists( source ) );
 
     const fs::path project = fs::temp_directory_path() / "al1_picker_rows_project";
@@ -259,7 +259,7 @@ TEST( PickerRegistryRows, AnInPlaceEditRedescribesTheRowThroughUpdate )
     // What hot reload does for a file it already watches: `Update` on the path it saw move.
     const ProjectRootGuard guard;
     const fs::path         repo    = RepoRoot();
-    const fs::path         source  = repo / "Editor/Resources/Assets/UI/Themes/Desert_Light.detheme";
+    const fs::path         source  = repo / "Projects/Desert/Content/UI/Themes/Desert_Light.detheme";
     const fs::path         project = fs::temp_directory_path() / "al1_picker_rows_update";
     fs::remove_all( project );
     Path::SetProjectRoot( project, "Assets" );

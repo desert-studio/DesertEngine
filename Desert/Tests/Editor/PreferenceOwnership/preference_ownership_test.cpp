@@ -1886,8 +1886,8 @@ int main( int argc, char** argv )
 // the assets root, and the splash prefetches exactly that folder's thumbnails.
 TEST( PreferenceOwnership, TheBrowsersLastFolderIsRememberedPerProjectAndReopened )
 {
-    const std::filesystem::path root   = "/proj/Editor/Resources/Assets";
-    const std::string           stress = "/proj/Editor/Resources/Assets/Materials/_Stress";
+    const std::filesystem::path root   = "/proj/Projects/Desert/Content";
+    const std::string           stress = "/proj/Projects/Desert/Content/Materials/_Stress";
     EditorPreferences           p;
 
     EXPECT_FALSE( EditorPreferences::BrowserFolderIn( p, "Desert", root ) ) << "never navigated";

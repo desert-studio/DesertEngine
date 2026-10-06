@@ -331,8 +331,6 @@ namespace Desert::Editor
             Editor::ToastManager::Push( "Crash recovery is OFF for this session — the lock file could "
                                         "not be written (see the log)",
                                         Editor::ToastLevel::Error );
-
-        // LoadScene( "Resources/Assets/Scene/HouseDemo.desce" );
     }
 
     EditorLayer::~EditorLayer() = default;

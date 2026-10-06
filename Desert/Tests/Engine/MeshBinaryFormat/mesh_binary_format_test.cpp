@@ -81,6 +81,7 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace Ser = Desert::Assets::Serialization;
 
@@ -729,10 +730,12 @@ namespace
         {
             const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot / "Editor" );
             Common::Constants::Path::SetEngineDir( editorDir );
-            const auto project = Common::Project::ReadProjectFile( ReadFile( editorDir / "Desert.deproj" ) );
+            const auto project = Common::Project::ReadProjectFile(
+                 ReadFile( repoRoot / "Projects" / "Desert" / "Desert.deproj" ) );
             if ( !project )
                 return;
-            Common::Constants::Path::SetProjectRoot( editorDir, project.GetValue().AssetsRoot );
+            Common::Constants::Path::SetProjectRoot( std::filesystem::absolute( repoRoot / "Projects" / "Desert" ),
+                                                     project.GetValue().AssetsRoot );
             m_Opened = true;
         }
         ~EditorProject()
@@ -887,6 +890,7 @@ TEST( MeshBinaryFormat, TheImporterWritesTheContainerAndNotJson )
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

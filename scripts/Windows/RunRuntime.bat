@@ -26,7 +26,7 @@ REM Engine resources (shaders/fonts) resolve relative to the working directory â
 cd Editor
 
 if "%~1"=="" (
-    "%RUNTIME%" --project Desert.deproj
+    "%RUNTIME%" --project ..\Projects\Desert\Desert.deproj
 ) else (
     "%RUNTIME%" %*
 )

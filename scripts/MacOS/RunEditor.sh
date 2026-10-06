@@ -41,9 +41,9 @@ export DESERT_ROOT="$PWD"
 cd Editor
 
 # The editor REQUIRES a project (--project <.deproj>); picking projects is the Project Hub's job.
-# With no extra args, fall back to the built-in sandbox project (the historical Resources/Assets tree).
+# With no extra args, open the sample project (Projects/Desert); there is no content without a project.
 if [ $# -eq 0 ]; then
-    set -- --project Desert.deproj
+    set -- --project ../Projects/Desert/Desert.deproj
 fi
 
 exec "../$EDITOR" "$@"

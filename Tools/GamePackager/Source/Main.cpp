@@ -16,7 +16,7 @@
 //     SDF rasterizer. The proof is not an argument, it is a suite that has been green on both
 //     platforms for weeks: Desert/Tests/Editor/PackagedContent calls PackageGame six times inside a
 //     gtest binary with no window. This tool's file list is that suite's, minus its test halves.
-//   * "an open project CI does not have" — `Editor/Desert.deproj` is TRACKED BY GIT, and opening it
+//   * "an open project CI does not have" — `Projects/Desert/Desert.deproj` is TRACKED BY GIT, and opening it
 //     is `ProjectContext::Open(path)`. CI checks it out on every run.
 //
 // SO THIS IS NOT A SECOND PACKAGING SYSTEM. It is a second ENTRY POINT to the only one: the whole

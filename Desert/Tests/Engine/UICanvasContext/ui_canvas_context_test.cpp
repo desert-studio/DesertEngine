@@ -623,7 +623,7 @@ TEST( UICanvasContext, AnUnresolvableCanvasBackgroundDrawsNothingRatherThanAWhit
 // stores the root-tagged stable key and logs every miss with the roots it searched), the third by
 // ReflectionSerializer's integral read path. Each has its own suite now: TextureSlotRoundTrip,
 // ReflectionSerializer and UIComponentRoundTrip, the last of which round-trips THIS component's Sprite
-// through JSON text on the very handle quoted above. `Editor/Resources/Assets/Scenes/UI_SpriteSlots.desce`
+// through JSON text on the very handle quoted above. `Projects/Desert/Content/Scenes/UI_SpriteSlots.desce`
 // carries an authored canvas background as `cooked:Textures/T_Checker.tex`, which is the same claim made
 // in the corpus rather than in a comment.
 TEST( UICanvasContext, AResolvableCanvasBackgroundCoversTheCanvasAndIsDrawnFirst )

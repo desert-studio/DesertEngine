@@ -164,7 +164,7 @@ TEST( MeshDerivedData, SecondLoadIsAHitAndAGameWithoutABuilderSaysWhy )
     if ( !miss.IsSuccess() )
         EXPECT_NE( miss.GetError().find( "StaticMesh" ), std::string::npos ) << miss.GetError();
 
-    Common::Constants::Path::ResetToSandbox();
+    Common::Constants::Path::ClearProject();
     fs::remove_all( project, ec );
 }
 

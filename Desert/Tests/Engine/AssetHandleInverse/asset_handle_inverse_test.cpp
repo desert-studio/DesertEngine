@@ -304,11 +304,11 @@ TEST( AssetHandleInverse, EveryContentFileIsNamedBackByItsOwnHandle )
 {
     const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path content = root / "Editor/Resources/Assets";
+    const fs::path content = root / "Projects/Desert/Content";
     ASSERT_TRUE( fs::exists( content ) ) << content.string() << " is missing";
 
     const ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Projects" / "Desert", "Content" );
 
     std::vector<std::string> offences;
     size_t                   files = 0;
@@ -358,11 +358,11 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
 {
     const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path scenes = root / "Editor/Resources/Assets/Scenes";
+    const fs::path scenes = root / "Projects/Desert/Content/Scenes";
     ASSERT_TRUE( fs::exists( scenes ) ) << scenes.string() << " is missing";
 
     const ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Projects" / "Desert", "Content" );
 
     std::vector<PathAndGuid> materials;
     std::string              parseError;

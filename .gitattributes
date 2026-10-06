@@ -79,5 +79,7 @@
 # EVERYTHING THE PACKAGER PACKS (CIW6). The pak walks the whole resource tree - scripts, glTF, SVG icons, the
 # licence texts beside them - and records a CRC per file, so a line-translated checkout packs different bytes
 # on Windows. The rules above name the content kinds; this one closes the tree they live in, and
-# PakChunks.EveryPackedTextFileIsCheckedOutVerbatim holds every text file the walk finds to one of them.
+# PakChunks.EveryPackedTextFileIsCheckedOutVerbatim holds every text file the walk finds to one of them. The
+# engine's tree and every project's (its .deproj, ContentChunks.json and Content/ - the project half of a pak).
 Editor/Resources/** -text
+Projects/** -text

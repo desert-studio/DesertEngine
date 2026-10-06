@@ -855,7 +855,7 @@ namespace
 {
     std::filesystem::path GraphsDirectory()
     {
-        return Desert::Tests::ShaderGraph::RepoRoot() / "Editor/Resources/Assets/ShaderGraphs";
+        return Desert::Tests::ShaderGraph::RepoRoot() / "Projects/Desert/Content/ShaderGraphs";
     }
 } // namespace
 
@@ -904,7 +904,9 @@ TEST( ShaderGraphCompiler, EveryGraphCommittedToTheProjectStillCompiles )
 // today — a stale one is a material drawn by the previous emitter. Only the asset header line is the file's own.
 TEST( ShaderGraphCompiler, EveryCommittedGraphShaderIsWhatItsGraphCompilesToNow )
 {
-    const std::filesystem::path shaders = GraphsDirectory().parent_path().parent_path() / "Shaders/Programs/Graph";
+    // The graphs are project content; the shaders they compile to are the engine's (Editor/Resources/Shaders).
+    const std::filesystem::path shaders =
+         Desert::Tests::ShaderGraph::RepoRoot() / "Editor/Resources/Shaders/Programs/Graph";
     int                         seen    = 0;
     for ( const auto& entry : std::filesystem::directory_iterator( GraphsDirectory() ) )
     {
@@ -932,7 +934,7 @@ TEST( ShaderGraphCompiler, EveryCommittedGraphShaderIsWhatItsGraphCompilesToNow 
 // down with it": a vec2 wired into the vec4 Albedo pin, legal in the file and refused by the canvas.
 // Г20 already moved the SHADER it produced out of the shipped tree into a test fixture, because it was
 // compiled at every editor start and put two errors into every clean log. The `.dgraph` half was left
-// behind in Editor/Resources/Assets/ShaderGraphs with no consumer anywhere — the only graph in that
+// behind in Projects/Desert/Content/ShaderGraphs with no consumer anywhere — the only graph in that
 // directory without a `.shader`, a `.demat` and a scene — where it was still offered to an artist by the
 // panel's Load popup and still counted as content the project ships. O1-J finishes that move: it lives
 // beside this suite, and what it demonstrates is asserted instead of shipped.
@@ -971,7 +973,7 @@ TEST( ShaderGraphFormat, TheRoundTripIsByteStableOverEveryCommittedGraph )
     // bytes, because that is what an editor Save does to a file nobody edited — and a Save that
     // reordered or re-spelled anything would make every open-and-close a diff in somebody's commit.
     const std::filesystem::path directory =
-         Desert::Tests::ShaderGraph::RepoRoot() / "Editor/Resources/Assets/ShaderGraphs";
+         Desert::Tests::ShaderGraph::RepoRoot() / "Projects/Desert/Content/ShaderGraphs";
     ASSERT_TRUE( std::filesystem::is_directory( directory ) ) << directory;
 
     int seen = 0;

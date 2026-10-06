@@ -2,7 +2,7 @@
 --
 -- WHY A TOOL EXISTS BESIDE THE PANEL. The panel is what the owner asked for — "load a texture" is a thing
 -- you do by dropping a file into a slot — and it is where an artist works. This is the other half: a
--- painting has to be reproducible from a command, or the shipped example in Resources/Assets/Clouds/Layouts
+-- painting has to be reproducible from a command, or the shipped example in Projects/Desert/Content/Clouds/Layouts
 -- is a binary nobody can regenerate, and the acceptance frame of this phase rests on a file whose
 -- provenance is "somebody clicked". The same division `.dcmv` already has between Tools/CloudVolumeBaker
 -- and the sculpting panel.
