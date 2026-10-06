@@ -580,8 +580,8 @@ namespace
     {
         std::filesystem::path self = Common::Utils::FileSystem::ExecutablePath();
         // Double quotes: cmd.exe does not treat single quotes as quoting, POSIX sh accepts both.
-        const std::string command = std::format( "\"{}\" --desert-child={} 2>&1", self.make_preferred().string(),
-                                                 kPrintKeysChild );
+        const std::string command =
+             std::format( "\"{}\" --desert-child={} 2>&1", self.make_preferred().string(), kPrintKeysChild );
 #ifdef _WIN32
         // cmd /c strips the outer pair of quotes when the line starts with one; a second pair survives it.
         FILE* pipe = _popen( ( "\"" + command + "\"" ).c_str(), "r" );
@@ -2508,8 +2508,6 @@ TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsMetadataIsTheSameAfterTheS
     std::cout << "[ShaderMap] round-tripped " << programs << " program(s)\n";
     EXPECT_GE( programs, 70u ) << "the shader walk found too few programs to be the shipped set";
 }
-
-
 
 namespace
 {

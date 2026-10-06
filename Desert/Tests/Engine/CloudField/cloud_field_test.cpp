@@ -2489,7 +2489,9 @@ namespace
         }
     };
 
-    const Desert::TestSupport::SuiteEnvironment kBakeCounts{ +[]() -> ::testing::Environment* {
-        return new BakeCountsEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
-    } };
+    const Desert::TestSupport::SuiteEnvironment kBakeCounts{
+         +[]() -> ::testing::Environment*
+         {
+             return new BakeCountsEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
 } // namespace

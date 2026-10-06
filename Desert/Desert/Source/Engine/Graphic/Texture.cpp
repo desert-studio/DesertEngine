@@ -81,8 +81,8 @@ namespace Desert::Graphic
         return Common::MakeSuccess( std::move( cooked ) );
     }
 
-    Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromCooked( CookedTexture2D cooked,
-                                                                              const TextureBackend& backend )
+    Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromCooked( CookedTexture2D       cooked,
+                                                                               const TextureBackend& backend )
     {
         auto texture      = std::make_shared<Texture2D>();
         texture->m_Width  = cooked.Width;
@@ -110,11 +110,9 @@ namespace Desert::Graphic
         return Common::MakeSuccess( texture );
     }
 
-    Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::Create( const std::string& tag, uint32_t width,
-                                                                     uint32_t                        height,
-                                                                     Core::Formats::ImageFormat      format,
-                                                                     Core::Formats::ImagePixelData&& data,
-                                                                     const TextureBackend&           backend )
+    Common::ResultStr<std::shared_ptr<Texture2D>>
+    Texture2D::Create( const std::string& tag, uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
+                       Core::Formats::ImagePixelData&& data, const TextureBackend& backend )
     {
         auto texture      = std::make_shared<Texture2D>();
         texture->m_Width  = width;

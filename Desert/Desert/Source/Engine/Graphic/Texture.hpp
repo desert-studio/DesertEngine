@@ -117,7 +117,8 @@ namespace Desert::Graphic
         /// level table that does not describe the file — because "the texture is missing" with no
         /// sentence attached is the most expensive kind of missing.
         static Common::ResultStr<std::shared_ptr<Texture2D>>
-        CreateFromAsset( const std::filesystem::path& asset, const TextureBackend& backend = TextureBackend::Device() );
+        CreateFromAsset( const std::filesystem::path& asset,
+                         const TextureBackend&        backend = TextureBackend::Device() );
 
         /// `CreateFromAsset` in its two halves (AM2), so the on-demand path can put them on different threads.
         /// `ReadCooked` is CPU only -- the DDC read, and the cook on a DDC miss, then the container decode -- and
@@ -128,11 +129,9 @@ namespace Desert::Graphic
 
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
         // BRDF LUT. `data` layout must match `format` (RGBA32F -> vector<float>, RGBA8F -> vector<uchar>).
-        static Common::ResultStr<std::shared_ptr<Texture2D>> Create( const std::string& tag, uint32_t width,
-                                                                     uint32_t                        height,
-                                                                     Core::Formats::ImageFormat      format,
-                                                                     Core::Formats::ImagePixelData&& data,
-                                                                     const TextureBackend& backend = TextureBackend::Device() );
+        static Common::ResultStr<std::shared_ptr<Texture2D>>
+        Create( const std::string& tag, uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
+                Core::Formats::ImagePixelData&& data, const TextureBackend& backend = TextureBackend::Device() );
 
     private:
         // Registers `image` in @p registry and records WHERE, so the destructor releases it from the same service.

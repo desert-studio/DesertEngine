@@ -484,7 +484,9 @@ namespace
         }
     };
 
-    const Desert::TestSupport::SuiteEnvironment kStructLinks{ +[]() -> ::testing::Environment* {
-        return new StructLinksEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
-    } };
+    const Desert::TestSupport::SuiteEnvironment kStructLinks{
+         +[]() -> ::testing::Environment*
+         {
+             return new StructLinksEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
 } // namespace

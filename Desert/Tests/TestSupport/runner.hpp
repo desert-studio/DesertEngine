@@ -86,7 +86,7 @@ namespace Desert::TestSupport
     };
 
     // Makes the environment when the suite runs; gtest owns what it returns.
-    using EnvironmentFactory = ::testing::Environment* ( * )();
+    using EnvironmentFactory = ::testing::Environment* (*)();
 
     // Registers `make` for the suite of the file this object is constructed in. Namespace scope only.
     class SuiteEnvironment

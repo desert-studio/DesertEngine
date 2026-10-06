@@ -1016,7 +1016,9 @@ namespace
         }
     };
 
-    const Desert::TestSupport::SuiteEnvironment kJoltAllocator{ +[]() -> ::testing::Environment* {
-        return new JoltAllocatorEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
-    } };
+    const Desert::TestSupport::SuiteEnvironment kJoltAllocator{
+         +[]() -> ::testing::Environment*
+         {
+             return new JoltAllocatorEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
 } // namespace

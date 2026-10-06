@@ -472,7 +472,9 @@ TEST( EngineHost, DrawProceduralDrawsEveryInstance )
 namespace
 {
     // The host's device is made by the first test that asks for it and shut down once, after the suite.
-    const Desert::TestSupport::SuiteEnvironment kHost{ +[]() -> ::testing::Environment* {
-        return new HostEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
-    } };
+    const Desert::TestSupport::SuiteEnvironment kHost{
+         +[]() -> ::testing::Environment*
+         {
+             return new HostEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
 } // namespace

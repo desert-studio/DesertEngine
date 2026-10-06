@@ -644,9 +644,9 @@ namespace Desert::UI
         // colour. `srcBorder` (L,T,R,B in SOURCE pixels) enables 9-slice — corners stay unstretched (x
         // scale), edges/centre stretch — so image panels/buttons resize without distorting their borders.
         // Mirrors the ImGui DrawBox so both render paths look identical.
-        void DrawBox( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const glm::vec2& mn, const glm::vec2& mx,
-                      const glm::vec4& color, const Assets::AssetHandle& sprite, const glm::vec4& srcBorder,
-                      float scale, float rounding )
+        void DrawBox( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const glm::vec2& mn,
+                      const glm::vec2& mx, const glm::vec4& color, const Assets::AssetHandle& sprite,
+                      const glm::vec4& srcBorder, float scale, float rounding )
         {
             // An animated sprite plays stretched to the box; static sprites / 9-slice keep the path below.
             if ( Graphic::Image2D* frame = ResolveAnimatedFrame( res, sprite ) )
@@ -873,15 +873,15 @@ namespace Desert::UI
 
         // @p tint is the caller's accumulated element tint (UICanvasContext::Tint), passed in rather than
         // read from a global so this helper stays a pure function of its arguments.
-        void DrawText2D( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t, const Rect& rect,
-                         float scale, const glm::vec4& tint )
+        void DrawText2D( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t,
+                         const Rect& rect, float scale, const glm::vec4& tint )
         {
             if ( t.Text.empty() )
                 return;
 
             // Font is an asset handle on the element (drag-drop / preloaded); unset falls back to the default.
-            const uint64_t fontHandle = static_cast<uint64_t>( t.Font ) != 0 ? static_cast<uint64_t>( t.Font )
-                                                                             : res.DefaultFontHandle();
+            const uint64_t fontHandle =
+                 static_cast<uint64_t>( t.Font ) != 0 ? static_cast<uint64_t>( t.Font ) : res.DefaultFontHandle();
             // Non-ASCII (Cyrillic, CJK, …) is only in the atlas if it was asked for: request this string's
             // codepoints first, so a re-bake — if any — happens before the font is resolved and the text
             // draws correctly on its very first frame instead of a frame late.
@@ -1519,8 +1519,9 @@ namespace Desert::UI
                         spr = b.PressedSprite;
                     else if ( hover && HandleSet( b.HoverSprite ) )
                         spr = b.HoverSprite;
-                    DrawBox( ctx.View.Resources(), dl, mn, mx, Tinted( ctx, glm::vec4( c, b.Disabled ? 0.6f : 1.0f ) ), spr,
-                             b.SpriteBorder, scale, 6.0f * scale );
+                    DrawBox( ctx.View.Resources(), dl, mn, mx,
+                             Tinted( ctx, glm::vec4( c, b.Disabled ? 0.6f : 1.0f ) ), spr, b.SpriteBorder, scale,
+                             6.0f * scale );
 
                     // Selected accent: a rounded bar hugging the left edge (the "you are here" marker).
                     if ( b.Selected && !b.Disabled )
@@ -1615,9 +1616,9 @@ namespace Desert::UI
 
                     // A streamed video fills the panel (its stable texture is updated outside the pass by the
                     // VideoService); it takes precedence over the sprite/gradient fill while a path is set.
-                    Graphic::Image2D* video = HandleSet( p.Video )
-                                                   ? ctx.View.Resources().VideoFrame( static_cast<uint64_t>( p.Video ) )
-                                                   : nullptr;
+                    Graphic::Image2D* video =
+                         HandleSet( p.Video ) ? ctx.View.Resources().VideoFrame( static_cast<uint64_t>( p.Video ) )
+                                              : nullptr;
                     // Frosted glass: the fill IS the blurred scene behind the panel, tinted by Color/Opacity.
                     // Checked before the sprite/video fills — a glass panel is defined by what is behind it,
                     // so an image on top of it would be a different element (draw one as a child).
@@ -1640,8 +1641,8 @@ namespace Desert::UI
                              mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ),
                              glm::vec4( st.Color( StyleSlot::PanelGradient, p.GradientColor ), op ) );
                     else
-                        DrawBox( ctx.View.Resources(), dl, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ), p.Sprite, p.SpriteBorder,
-                                 scale, rounding );
+                        DrawBox( ctx.View.Resources(), dl, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ),
+                                 p.Sprite, p.SpriteBorder, scale, rounding );
 
                     // Gradient ring hugging the edge (avatar / status / progress ring).
                     if ( p.RingWidth > 0.0f )
@@ -1767,7 +1768,8 @@ namespace Desert::UI
                     DrawText2D( ctx.View.Resources(), dl, td, rect, scale, ctx.View.Tint );
                     if ( isFocused )
                     {
-                        const float caretX = rect.X + 6.0f + MeasureTextPx( ctx.View.Resources(), f.Text, fieldSize * scale );
+                        const float caretX =
+                             rect.X + 6.0f + MeasureTextPx( ctx.View.Resources(), f.Text, fieldSize * scale );
                         dl.AddRectFilled( { caretX, rect.Y + rect.H * 0.2f },
                                           { caretX + std::max( 1.0f, scale ), rect.Y + rect.H * 0.8f },
                                           glm::vec4( fieldText, 1.0f ) );
@@ -2793,7 +2795,7 @@ namespace Desert::UI
                         const auto& ghostCanvasData = reg.get<ECS::UICanvasComponent>( ghostCanvas ).Data;
                         WalkCtx     ghostCtx{ view, view.CanvasState( ghostCanvas ),
                                           CanvasStyle( view.Resources().Theme( ghostCanvasData.Theme ),
-                                                       ghostCanvasData.FontScale, ghostCanvasData.HighContrast ) };
+                                                           ghostCanvasData.FontScale, ghostCanvasData.HighContrast ) };
                         ghostStyle = StyleFor( ghostCtx, reg, view.Drag.Source );
                     }
                 }

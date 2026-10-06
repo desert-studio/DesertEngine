@@ -393,8 +393,6 @@ TEST( StartupLayout, BothPackagersBuildTheLayoutTheDerivationsLookFor )
                                        "scripts\\Windows\\Package.bat" );
 }
 
-
-
 TEST( StartupLayout, ABinaryStartedWhereItWasBuiltWorksFromItsCheckoutsEditor )
 {
     // Visual Studio's F5 with per-user debugger settings that are not the generated ones: the working

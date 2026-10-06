@@ -48,13 +48,12 @@ namespace
     constexpr uint64_t kBackgroundHandle = 0xB00B5;
 
     // Never dereferenced. Taken as an address so it is a real, unique object rather than a made-up number.
-    int                       g_FakeImageStorage       = 0;
+    int                       g_FakeImageStorage = 0;
     Desert::Graphic::Image2D* FakeImage()
     {
         return reinterpret_cast<Desert::Graphic::Image2D*>( &g_FakeImageStorage );
     }
 } // namespace
-
 
 using Desert::UI::Rect;
 using Desert::UI::UICanvasContext;

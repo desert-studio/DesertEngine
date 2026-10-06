@@ -153,7 +153,9 @@ namespace
         }
     };
 
-    const Desert::TestSupport::SuiteEnvironment kFrameManager{ +[]() -> ::testing::Environment* {
-        return new FrameManagerEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
-    } };
+    const Desert::TestSupport::SuiteEnvironment kFrameManager{
+         +[]() -> ::testing::Environment*
+         {
+             return new FrameManagerEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
 } // namespace

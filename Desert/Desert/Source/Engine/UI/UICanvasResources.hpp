@@ -67,8 +67,8 @@ namespace Desert::UI
         [[nodiscard]] virtual Runtime::Font* Font( uint64_t font, float pixelHeight ) = 0;
 
         // An icon's layers in the shared SDF atlas, and that atlas; either null and the icon draws nothing.
-        [[nodiscard]] virtual Runtime::Icon*          Icon( uint64_t icon )  = 0;
-        [[nodiscard]] virtual const Graphic::Image2D* IconAtlas()            = 0;
+        [[nodiscard]] virtual Runtime::Icon*          Icon( uint64_t icon ) = 0;
+        [[nodiscard]] virtual const Graphic::Image2D* IconAtlas()           = 0;
     };
 
     // The engine's resources: ResourceRegistry's texture, image, animated-image, video, theme, font and icon
@@ -82,10 +82,9 @@ namespace Desert::UI
         [[nodiscard]] Graphic::Image2D*             VideoFrame( uint64_t video ) override;
         [[nodiscard]] const Assets::UIThemeRuntime* Theme( const Assets::AssetHandle& theme ) override;
         [[nodiscard]] uint64_t                      DefaultFontHandle() override;
-        void                                        RequestGlyphs( uint64_t                     font,
-                                                                   const std::vector<uint32_t>& codepoints ) override;
-        [[nodiscard]] Runtime::Font*                Font( uint64_t font, float pixelHeight ) override;
-        [[nodiscard]] Runtime::Icon*                Icon( uint64_t icon ) override;
-        [[nodiscard]] const Graphic::Image2D*       IconAtlas() override;
+        void RequestGlyphs( uint64_t font, const std::vector<uint32_t>& codepoints ) override;
+        [[nodiscard]] Runtime::Font*          Font( uint64_t font, float pixelHeight ) override;
+        [[nodiscard]] Runtime::Icon*          Icon( uint64_t icon ) override;
+        [[nodiscard]] const Graphic::Image2D* IconAtlas() override;
     };
 } // namespace Desert::UI

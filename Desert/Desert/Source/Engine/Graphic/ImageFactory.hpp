@@ -26,7 +26,7 @@ namespace Desert::Graphic
     {
     public:
         NO_DISCARD std::shared_ptr<Image2D>
-        CreateImage2D( const Core::Formats::Image2DSpecification& spec ) const override
+                   CreateImage2D( const Core::Formats::Image2DSpecification& spec ) const override
         {
             return Image2D::Create( spec );
         }

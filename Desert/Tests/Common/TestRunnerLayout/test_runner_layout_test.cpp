@@ -316,8 +316,8 @@ namespace
             const bool hasMain =
                  std::any_of( suite.sources.begin(), suite.sources.end(),
                               []( const fs::path& file ) { return DefinesMain( ReadFile( file ) ); } );
-            EXPECT_FALSE( suite.ownProject ) << Relative( suite.dir, root ) << " has its own premake5.lua: "
-                                             << kHowToConvert;
+            EXPECT_FALSE( suite.ownProject )
+                 << Relative( suite.dir, root ) << " has its own premake5.lua: " << kHowToConvert;
             ++runnerSuites;
             EXPECT_FALSE( hasMain ) << Relative( suite.dir, root ) << " is built into its layer's runner, whose "
                                     << "only main is TestSupport/RunnerMain.cpp: " << kHowToConvert;

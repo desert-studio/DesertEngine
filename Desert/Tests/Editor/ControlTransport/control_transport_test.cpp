@@ -542,7 +542,9 @@ namespace
         }
     };
 
-    const Desert::TestSupport::SuiteEnvironment kSocketLibrary{ +[]() -> ::testing::Environment* {
-        return new SocketLibraryEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
-    } };
+    const Desert::TestSupport::SuiteEnvironment kSocketLibrary{
+         +[]() -> ::testing::Environment*
+         {
+             return new SocketLibraryEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
 } // namespace

@@ -1676,7 +1676,9 @@ namespace
         }
     };
 
-    const Desert::TestSupport::SuiteEnvironment kSingleBodyAtlas{ +[]() -> ::testing::Environment* {
-        return new SingleBodyAtlasEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
-    } };
+    const Desert::TestSupport::SuiteEnvironment kSingleBodyAtlas{
+         +[]() -> ::testing::Environment*
+         {
+             return new SingleBodyAtlasEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
 } // namespace

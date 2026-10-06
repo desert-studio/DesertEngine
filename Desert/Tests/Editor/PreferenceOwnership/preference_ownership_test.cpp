@@ -1906,9 +1906,11 @@ namespace
         std::optional<std::string> m_PreviousHome;
     };
 
-    const Desert::TestSupport::SuiteEnvironment kPrivateHome{ +[]() -> ::testing::Environment* {
-        return new PrivateHomeEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
-    } };
+    const Desert::TestSupport::SuiteEnvironment kPrivateHome{
+         +[]() -> ::testing::Environment*
+         {
+             return new PrivateHomeEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
 } // namespace
 
 // THUMB3: the content browser reopens the folder it was left in (UE's last path), per project, relative to

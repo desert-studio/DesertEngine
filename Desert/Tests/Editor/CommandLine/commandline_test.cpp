@@ -379,8 +379,6 @@ TEST( CommandLine, AnOrdinaryInteractiveRunIsNotUnattended )
     }
 }
 
-
-
 TEST( CommandLine, ViewBudgetMiBIsReadAndANonNumberIsRefused )
 {
     auto given = ParseCommandLine( { "--view-budget-mib", "768" } );

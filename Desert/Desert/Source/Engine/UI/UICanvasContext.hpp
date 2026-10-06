@@ -267,7 +267,9 @@ namespace Desert::UI
         // A view cannot exist without the resources it draws with: a host keeps a RegistryUICanvasResources
         // beside its view (they die together), a test hands in a mock that answers what it is about. See
         // UICanvasResources.hpp for why this is a constructor argument and not a registry lookup in the walk.
-        explicit UIViewContext( IUICanvasResources& resources ) : m_Resources( &resources ) {}
+        explicit UIViewContext( IUICanvasResources& resources ) : m_Resources( &resources )
+        {
+        }
 
         // Where every sprite, frame, theme, font and icon of this view's walks comes from.
         [[nodiscard]] IUICanvasResources& Resources() const

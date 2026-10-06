@@ -48,7 +48,9 @@ namespace TestSupport
         {
             return 0;
         }
-        void RequestGlyphs( uint64_t, const std::vector<uint32_t>& ) override {}
+        void RequestGlyphs( uint64_t, const std::vector<uint32_t>& ) override
+        {
+        }
         [[nodiscard]] Desert::Runtime::Font* Font( uint64_t, float ) override
         {
             return nullptr;
