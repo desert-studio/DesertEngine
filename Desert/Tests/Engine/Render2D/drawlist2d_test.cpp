@@ -2,11 +2,13 @@
 // ECS — just verifies that primitives emit the expected vertices, indices and state batches.
 
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
+#include <Engine/Graphic/Render2D/UIMaterialFallback.hpp>
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cmath>
+#include <string>
 #include <vector>
 
 using Desert::Graphic::Render2D::DrawList2D;
@@ -909,4 +911,43 @@ TEST( DrawList2DMaterial, ANullMaterialRecordsNOTHINGRatherThanAWhiteRect )
 
     EXPECT_TRUE( dl.Empty() );
     EXPECT_TRUE( dl.GetCommands().empty() );
+}
+
+// RDG-FAULT1: a UI material whose shader reads the parameter row but has no row falls back to the default UI
+// material for ITS draws only - the others draw as authored, every draw still declares a block (the UI node is not
+// faulted), and the reason is reported once across frames, not per draw or per frame.
+TEST( UIMaterialFallback, OneBrokenMaterialFallsBackAloneAndIsReportedOnce )
+{
+    using R2D::UIMaterialFallback;
+    struct Draw
+    {
+        std::string Name;
+        bool        RowBlock;
+        std::size_t Slots;
+    };
+    const std::vector<Draw> canvas = { { "UIGradient", true, 2 },
+                                       { "UIBroken", true, 0 },
+                                       { "UIPlainTint", false, 0 },
+                                       { "UIBroken", true, 0 } };
+    UIMaterialFallback      fallback;
+    int                     reports = 0;
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        std::vector<std::string> declared;
+        for ( const Draw& draw : canvas )
+        {
+            const UIMaterialFallback::Verdict verdict = fallback.Admit( draw.Name, draw.RowBlock, draw.Slots );
+            if ( verdict == UIMaterialFallback::Verdict::DefaultFirstReport )
+                ++reports;
+            declared.push_back( verdict == UIMaterialFallback::Verdict::Draws ? draw.Name
+                                                                              : std::string( "default" ) );
+        }
+        ASSERT_EQ( declared.size(), canvas.size() ) << "every draw declares a block, the broken one included";
+        EXPECT_EQ( declared[0], "UIGradient" );
+        EXPECT_EQ( declared[1], "default" );
+        EXPECT_EQ( declared[2], "UIPlainTint" ) << "a material without a row block needs no row";
+        EXPECT_EQ( declared[3], "default" );
+    }
+    EXPECT_EQ( reports, 1 ) << "the broken material is logged once across frames";
+    EXPECT_EQ( fallback.ReportedCount(), 1u );
 }

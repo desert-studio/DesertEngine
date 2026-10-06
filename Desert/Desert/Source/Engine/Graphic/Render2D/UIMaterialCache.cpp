@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
@@ -242,6 +243,31 @@ namespace Desert::Graphic::Render2D
         built.LastUsedFrame = frame;
         auto [it, inserted] = m_Entries.emplace( handle, std::move( built ) );
         return &it->second;
+    }
+
+    const UIMaterialCache::Entry* UIMaterialCache::DrawableOrDefault( const Entry* entry )
+    {
+        if ( !entry || entry->Error || !entry->Material )
+            return entry;
+        const bool declaresRowBlock =
+             entry->Material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) != nullptr;
+        const std::string& name = entry->Material->GetShaderName();
+        switch ( m_Fallback.Admit( name, declaresRowBlock, entry->Material->GetParamRow().size() ) )
+        {
+            case UIMaterialFallback::Verdict::Draws:
+                return entry;
+            case UIMaterialFallback::Verdict::DefaultFirstReport:
+            {
+                LOG_ERROR(
+                     "[UIMaterial] '{}' reads the parameter row but has no row to write, so its draws use the "
+                     "default UI material '{}' instead of failing the whole UI pass",
+                     name, kErrorShaderName );
+                break;
+            }
+            case UIMaterialFallback::Verdict::Default:
+                break;
+        }
+        return ErrorEntry();
     }
 
     void UIMaterialCache::RetireUnused()

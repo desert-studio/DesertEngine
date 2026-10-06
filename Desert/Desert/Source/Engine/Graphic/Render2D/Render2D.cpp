@@ -238,8 +238,11 @@ namespace Desert::Graphic::Render2D
             // A UI-DOMAIN MATERIAL FILL. The batch carries the resolved entry the canvas walk got from
             // UIMaterialCache::Resolve - never null, and never null-and-meaning-fine: a handle the UI path cannot
             // execute resolved to the magenta error entry back there, with the reason logged.
-            const auto* entry = static_cast<const UIMaterialCache::Entry*>( cmd.Material );
-            if ( !entry->Pipeline || !entry->Material )
+            // An entry whose row would leave the row buffer unwritten binds the default UI material instead - a
+            // per-draw decision made here, so setup (DeclareInto) and Flush agree, never the whole node's fault.
+            const auto* entry =
+                 m_MaterialCache.DrawableOrDefault( static_cast<const UIMaterialCache::Entry*>( cmd.Material ) );
+            if ( !entry || !entry->Pipeline || !entry->Material )
                 return resolved;
             resolved.Kind     = CommandKind::Material;
             resolved.Pipeline = entry->Pipeline.get();

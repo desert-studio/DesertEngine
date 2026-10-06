@@ -3,6 +3,7 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Render2D/UIMaterialFallback.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
 
 #include <cstdint>
@@ -81,6 +82,14 @@ namespace Desert::Graphic::Render2D
             return Resolve( handle );
         }
 
+        // The entry a draw of @p entry actually binds (RDG-FAULT1, UE's default-material fallback). An entry whose
+        // shader reads the parameter row but whose row is empty would leave the row buffer unwritten, and the
+        // setup validation would fault the WHOLE UI / present node; that draw binds the error fill (the one
+        // default UI material) instead, logged once per material. Render2D::Resolve asks this for every material
+        // draw, so the setup and the exec bind the same entry. Null only when the error fill itself could not be
+        // built.
+        [[nodiscard]] const Entry* DrawableOrDefault( const Entry* entry );
+
         // Destroy the entries no frame still in flight can be reading. Called once per Flush, on the same
         // rule and with the same window as Render2D's texture executors — a UI material owns descriptor
         // sets exactly as they do.
@@ -106,5 +115,7 @@ namespace Desert::Graphic::Render2D
         // Handles already reported. A refusal at frame rate buries everything else in the log and gets
         // the whole message ignored; the picture is what says it is still wrong, every frame.
         std::unordered_map<Assets::AssetHandle, std::string> m_Reported;
+        // Draws that fell back to the default for an unwritten row, reported once per material.
+        UIMaterialFallback m_Fallback;
     };
 } // namespace Desert::Graphic::Render2D

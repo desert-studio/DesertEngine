@@ -4228,6 +4228,37 @@ TEST( RenderGraphCompile, TheNameTakingExecBindingApiStaysDeleted )
         EXPECT_EQ( body.find( gone ), std::string::npos ) << gone << " is back in RDGPassBindings.cpp";
 }
 
+// RDG-FAULT1: a UI material that would leave its parameter row unwritten binds the default UI material for its own
+// draws (UIMaterialFallback, pinned in the Render2D suite) instead of faulting the whole UI / present node. The
+// decision only holds if the one function setup and Flush share asks it, and the cache answers through the
+// fallback - a dropped call compiles fine, so this census is what goes red.
+TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string render2d =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
+    const std::string cache =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/UIMaterialCache.cpp" );
+    ASSERT_FALSE( render2d.empty() );
+    ASSERT_FALSE( cache.empty() );
+    const std::size_t resolve = render2d.find( "Render2D::ResolvedCommandRender2D::Resolve(" );
+    ASSERT_NE( resolve, std::string::npos ) << "Render2D::Resolve (shared by setup and Flush) moved";
+    const std::size_t nextFn = render2d.find( "Render2D::DeclareInto(", resolve );
+    const std::string body =
+         render2d.substr( resolve, nextFn == std::string::npos ? std::string::npos : nextFn - resolve );
+    EXPECT_NE( body.find( "m_MaterialCache.DrawableOrDefault(" ), std::string::npos )
+         << "Render2D::Resolve no longer routes a material draw through UIMaterialCache::DrawableOrDefault";
+    const std::size_t drawable = cache.find( "UIMaterialCache::DrawableOrDefault(" );
+    ASSERT_NE( drawable, std::string::npos );
+    const std::size_t admit = cache.find( "m_Fallback.Admit(", drawable );
+    const std::size_t after = cache.find( "UIMaterialCache::RetireUnused(", drawable );
+    EXPECT_TRUE( admit != std::string::npos && admit < after )
+         << "DrawableOrDefault no longer asks the UIMaterialFallback";
+    EXPECT_NE( cache.find( "returnErrorEntry();}voidUIMaterialCache::RetireUnused(" ), std::string::npos )
+         << "a refused draw no longer binds the error fill (the one default UI material)";
+}
+
 // RDG-FAULT1: every producer whose loss a surviving reader can absorb names the value the reader gets instead, at
 // the producer, right after the texture is created (before its pass is added): a lost SSAO term is "no occlusion"
 // (White - Black would black out the lit scene), a lost bloom / light shaft / SSR / GI / flare term "adds nothing"
