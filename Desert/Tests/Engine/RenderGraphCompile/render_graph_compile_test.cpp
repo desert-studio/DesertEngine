@@ -272,6 +272,15 @@ namespace
         return result ? result.GetValue() : CompileResult{};
     }
 
+    // RDG-FAULT1: the one Declaration fault a malformed pass leaves, as "<pass>: <reason>" (empty: none / more).
+    std::string OnlyDeclarationFault( const Builder& builder )
+    {
+        const CompileResult result = CompileOrFail( builder );
+        if ( result.Faults.size() != 1 || result.Faults[0].Stage != PassFaultStage::Declaration )
+            return {};
+        return result.Faults[0].PassName + ": " + result.Faults[0].Reason;
+    }
+
     std::vector<Barrier> BarriersOn( const CompiledPass* pass, uint32_t resource )
     {
         std::vector<Barrier> out;
@@ -1248,10 +1257,13 @@ TEST( RenderGraphCompile, PassContextRefusesAnUndeclaredResourceNamingPassAndRes
              return Common::MakeSuccess( true );
          } );
 
-    const Common::BoolResultStr executed = ExecuteRecorded( graph );
-    ASSERT_FALSE( executed.IsSuccess() );
-    EXPECT_NE( executed.GetError().find( "Tonemap" ), std::string::npos ) << executed.GetError();
-    EXPECT_NE( executed.GetError().find( "Sneaky" ), std::string::npos ) << executed.GetError();
+    // RDG-FAULT1: the refused GetTexture fails Tonemap's exec - a late fault of Tonemap, not of the frame.
+    ASSERT_TRUE( ExecuteRecorded( graph ).IsSuccess() );
+    const ExecuteReport& report = graph.GetExecuteReport();
+    ASSERT_EQ( report.Faults.size(), 1u );
+    EXPECT_EQ( report.Faults[0].PassName, "Tonemap" );
+    EXPECT_EQ( report.Faults[0].Stage, PassFaultStage::Execution );
+    EXPECT_NE( report.Faults[0].Reason.find( "Sneaky" ), std::string::npos ) << report.Faults[0].Reason;
     EXPECT_NE( wrongAccess.find( "StorageRead" ), std::string::npos ) << wrongAccess;
 #else
     // Shipping only (DESERT_CONFIG_SHIPPING): Debug and Release define DESERT_DEV_INSTRUMENTS 1 and run the test.
@@ -1259,7 +1271,7 @@ TEST( RenderGraphCompile, PassContextRefusesAnUndeclaredResourceNamingPassAndRes
 #endif
 }
 
-TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
+TEST( RenderGraphCompile, MalformedDeclarationsFaultTheirPassWithNames )
 {
     {
         ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
@@ -1274,10 +1286,10 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
                  pass.ColorTarget( 0, back, LoadOp::DontCare() );
              },
              Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
-        ASSERT_FALSE( result.IsSuccess() );
-        EXPECT_NE( result.GetError().find( "Reader" ), std::string::npos ) << result.GetError();
-        EXPECT_NE( result.GetError().find( "NeverWritten" ), std::string::npos ) << result.GetError();
+        const std::string fault = OnlyDeclarationFault( graph );
+        ASSERT_FALSE( fault.empty() );
+        EXPECT_NE( fault.find( "Reader" ), std::string::npos ) << fault;
+        EXPECT_NE( fault.find( "NeverWritten" ), std::string::npos ) << fault;
     }
     {
         Builder          graph( "conflict" );
@@ -1290,10 +1302,10 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
                  pass.Read( t, Access::SampledGraphics );
              },
              Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
-        ASSERT_FALSE( result.IsSuccess() );
-        EXPECT_NE( result.GetError().find( "Both" ), std::string::npos ) << result.GetError();
-        EXPECT_NE( result.GetError().find( "Target" ), std::string::npos ) << result.GetError();
+        const std::string fault = OnlyDeclarationFault( graph );
+        ASSERT_FALSE( fault.empty() );
+        EXPECT_NE( fault.find( "Both" ), std::string::npos ) << fault;
+        EXPECT_NE( fault.find( "Target" ), std::string::npos ) << fault;
     }
     {
         Builder          graph( "kinds" );
@@ -1301,9 +1313,9 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
         graph.AddPass(
              "ComputeWithAttachment", PassFlags::Compute,
              [&]( PassBuilder& pass ) { pass.ColorTarget( 0, t, LoadOp::DontCare() ); }, Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
-        ASSERT_FALSE( result.IsSuccess() );
-        EXPECT_NE( result.GetError().find( "ComputeWithAttachment" ), std::string::npos ) << result.GetError();
+        const std::string fault = OnlyDeclarationFault( graph );
+        ASSERT_FALSE( fault.empty() );
+        EXPECT_NE( fault.find( "ComputeWithAttachment" ), std::string::npos ) << fault;
     }
     {
         Builder          graph( "range" );
@@ -1311,9 +1323,9 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
         graph.AddPass(
              "OutOfRange", PassFlags::Compute,
              [&]( PassBuilder& pass ) { pass.Write( t, Access::StorageWrite, SubresourceRange::Mip( 3 ) ); }, Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
-        ASSERT_FALSE( result.IsSuccess() );
-        EXPECT_NE( result.GetError().find( "mip 3" ), std::string::npos ) << result.GetError();
+        const std::string fault = OnlyDeclarationFault( graph );
+        ASSERT_FALSE( fault.empty() );
+        EXPECT_NE( fault.find( "mip 3" ), std::string::npos ) << fault;
     }
 }
 
@@ -1386,9 +1398,10 @@ TEST( RenderGraphCompile, ExecuteDrivesTheBackendInPassOrder )
     EXPECT_EQ( out.SubresourceStates.front(), GetAccessState( Access::SampledGraphics ) );
 }
 
-// A failing pass stops the graph: the backend is told to abandon it, nothing after the pass is recorded
-// and the error names the graph and the pass.
-TEST( RenderGraphCompile, AFailingPassAbandonsTheGraph )
+// RDG-FAULT1: a failing exec is a late fault of its pass. The graph is not abandoned (AbandonGraph is for backend
+// failures only): the pass's render pass is ended, the frame goes on, and the fault is in the execute report
+// naming the pass and its error.
+TEST( RenderGraphCompile, AFailingPassIsALateFaultNotAnAbandonedGraph )
 {
     ExternalTexture  out( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
     RecordingBackend backend;
@@ -1397,16 +1410,14 @@ TEST( RenderGraphCompile, AFailingPassAbandonsTheGraph )
     graph.AddPass(
          "Broken", PassFlags::Raster, [&]( PassBuilder& pass ) { pass.ColorTarget( 0, o, LoadOp::DontCare() ); },
          []( PassContext& ) -> Common::BoolResultStr { return Common::MakeError( "pipeline missing" ); } );
-    const Common::BoolResultStr executed = graph.Execute( backend );
-    ASSERT_FALSE( executed.IsSuccess() );
-    EXPECT_NE( executed.GetError().find( "failing" ), std::string::npos ) << executed.GetError();
-    EXPECT_NE( executed.GetError().find( "Broken" ), std::string::npos ) << executed.GetError();
-    ASSERT_FALSE( backend.Calls.empty() );
-    EXPECT_EQ( backend.Calls.back(), "AbandonGraph" );
-    EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "EndRenderPass" ), 0 );
-    // The barrier recorded before the failing pass is in the command buffer, so the external holds the state it
-    // left (the record follows every barrier); the end-of-graph write-back did not run.
-    EXPECT_EQ( out.SubresourceStates.front().Layout, ImageLayout::ColorAttachment );
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "AbandonGraph" ), 0 );
+    EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "EndRenderPass" ), 1 );
+    const ExecuteReport& report = graph.GetExecuteReport();
+    ASSERT_EQ( report.Faults.size(), 1u );
+    EXPECT_EQ( report.Faults[0].PassName, "Broken" );
+    EXPECT_EQ( report.Faults[0].Stage, PassFaultStage::Execution );
+    EXPECT_NE( report.Faults[0].Reason.find( "pipeline missing" ), std::string::npos ) << report.Faults[0].Reason;
 }
 
 // The aliasing plan takes size, alignment and memory types from the provider, asked with the usage the
@@ -3171,6 +3182,34 @@ TEST( RenderGraphCompile, SharedDependantReadsTheProducersSystemDefault )
     EXPECT_EQ( substitution.Replacement, frame.system.Black.Index );
     EXPECT_EQ( substitution.Default, FaultDefault::Black );
     EXPECT_FALSE( substitution.AttachmentCleared );
+}
+
+TEST( RenderGraphCompile, FaultDefaultsOwnTheSystemSourcesAndTheClears )
+{
+    GlassFrame           frame( FaultDefault::Black, ExternalFaultPolicy::FrameFatal );
+    const FaultDefaults& defaults = frame.graph.GetFaultDefaults();
+    // RegisterSystemTextures is the one call that gives a graph its sources.
+    EXPECT_TRUE( defaults.HasSources() );
+    EXPECT_EQ( defaults.GetSource( FaultDefault::Black ), frame.system.Black.Index );
+    EXPECT_EQ( defaults.GetSource( FaultDefault::White ), frame.system.White.Index );
+    EXPECT_EQ( defaults.GetSource( FaultDefault::BlackCube ), frame.system.BlackCube.Index );
+    EXPECT_EQ( defaults.GetSource( FaultDefault::None ), kInvalidResource );
+    EXPECT_FALSE( Builder{ "bare" }.GetFaultDefaults().HasSources() );
+
+    const ClearValue black = FaultDefaults::GetClear( FaultDefault::Black );
+    const ClearValue white = FaultDefaults::GetClear( FaultDefault::White );
+    EXPECT_EQ( black.Color[0], 0.0f );
+    EXPECT_EQ( black.Color[3], 1.0f );
+    EXPECT_EQ( white.Color[0], 1.0f );
+    EXPECT_EQ( white.Color[3], 1.0f );
+
+    // A FaultDefault in a graph without system textures cannot be honoured: a malformed graph.
+    Builder          bare( "bare" );
+    const TextureRef lost = bare.CreateTexture( Tex2D( 8, 8, ImageFormat::RGBA16F ), "Lost" );
+    bare.SetFaultDefault( lost, FaultDefault::White );
+    const Common::ResultStr<CompileResult> refused = bare.Compile( kEstimate );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Lost" ), std::string::npos ) << refused.GetError();
 }
 
 TEST( RenderGraphCompile, FrameExecutesWithoutTheFaultedPassAndReportsOnce )
