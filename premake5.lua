@@ -35,6 +35,9 @@ include "Tools/DomeSheet/"
 -- must not link the engine at all (Tools/CrashReporter/premake5.lua says why). It needs only GLFW,
 -- which is a ThirdParty project already included above.
 include "Tools/CrashReporter/"
+-- Same reasoning: a dev-only UI sketchpad that compiles the editor's theme and Dear ImGui straight in and
+-- links nothing of the engine (Tools/UIMockup/premake5.lua).
+include "Tools/UIMockup/"
 group ""
 
 include "Desert/"
