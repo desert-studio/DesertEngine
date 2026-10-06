@@ -24,6 +24,10 @@
 namespace Desert::Graphic::RDG
 {
     class Builder;
+    // RDGPassBindings.hpp: the setup-time parameter block of one draw / dispatch (RDG-FAULT1).
+    class BindingBlockBuilder;
+    struct ShaderBindingLayout;
+    struct OtherRouteFill;
 
     struct TextureBinding
     {
@@ -122,8 +126,20 @@ namespace Desert::Graphic::RDG
         // every pixel, so the image's previous contents are not loaded.
         void ResolveTarget( uint32_t slot, TextureRef texture );
 
+        // RDG-FAULT1. Declares the parameter block of one draw / dispatch this pass records, against the shader it
+        // records with (UE: the pass parameter struct handed to AddPass, validated before the pass runs). Every
+        // entry of the block IS the declaration of its access - no separate Read / Write for it - so the binding
+        // and the barrier cannot disagree. Compile validates the block with ValidatePassBindings BEFORE anything
+        // of the graph is recorded: a name the shader does not declare, a kind other than the declared descriptor
+        // type, a slot neither the block nor @p other fills, or a push-constant size other than the shader's
+        // faults THIS pass (PassFaultStage::Validation) and the graph goes on without it. The exec builds
+        // PassBindings( context, block.GetRef() ) and names no shader slot itself. A pass recording several draws
+        // with different shaders declares one block per shader.
+        BindingBlockBuilder Bindings( ShaderBindingLayout layout, OtherRouteFill other );
+
     private:
         friend class Builder;
+        friend class BindingBlockBuilder;
         PassBuilder( Builder& builder, uint32_t pass ) : m_Builder( builder ), m_Pass( pass )
         {
         }
@@ -204,6 +220,15 @@ namespace Desert::Graphic::RDG
         //     or not loaded does not, so the pass that wrote it before is not kept alive by it.
         // A culled pass records nothing, gets no barrier and opens no lifetime; CompileResult::CulledPasses and
         // CulledPassNames list it.
+        //
+        // FAULT ISOLATION (RDG-FAULT1, RDGFault.hpp). Before culling, every pass is checked on its own: its
+        // declaration errors (a malformed Read / Write / attachment is recorded against ITS pass, not the graph)
+        // and every binding block it declared (ValidatePassBindings). A pass that fails either is a PassFault and
+        // is removed as if it had not been added; then, to a fixed point, a pass that consumes a subresource whose
+        // only producer was removed is substituted (a texture with a FaultDefault, DefaultSubstitution) or removed
+        // too (PassFaultStage::Dependency, RootPass = the pass the chain starts at). Culling and everything after
+        // it run on what is left. The returned error is reserved for a malformed GRAPH (a resource declared wrong
+        // outside any pass, a FaultDefault without SetFaultDefaultSources); a faulted pass is never an error.
         Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;
 
         // RDG-CONTRACTS B(2). The same compile, scheduled for @p pipes. Compile(memory) above is this overload
@@ -234,12 +259,42 @@ namespace Desert::Graphic::RDG
             return m_PassCulling;
         }
 
+        // RDG-FAULT1 (RDGFault.hpp). What a surviving reader reads when every pass that defined @p texture's
+        // contents was removed by a fault. Declared by the creator of the transient (only the producer knows what
+        // "nothing" is for its output); None, the default, culls the readers instead. Refused (a graph-level
+        // declaration error) for a handle that is not a transient texture of this graph.
+        void SetFaultDefault( TextureRef texture, FaultDefault value );
+        // What losing every writer of a registered external means: KeepsContents unless its owner says otherwise.
+        // The swapchain image and an editor viewport's presented image are FrameFatal; a history the next frame
+        // reads is InvalidateHistory. Refused for a handle that is not an external of this graph.
+        void SetFaultPolicy( TextureRef external, ExternalFaultPolicy policy );
+        void SetFaultPolicy( BufferRef external, ExternalFaultPolicy policy );
+        // The images FaultDefault names, as resources of this graph. Called by RegisterSystemTextures, so every
+        // graph that registers its system textures can honour a FaultDefault without a second call site.
+        void SetFaultDefaultSources( TextureRef black, TextureRef white, TextureRef blackCube );
+
         // Compiles against the backend's memory requirements, has the backend acquire physical resources,
         // then for every executed pass in order: label/timestamp, its one barrier batch, begin render pass
         // (raster with attachments), the exec lambda, end rendering. Finishes with the final barriers and
         // writes the final states (and an extracted transient's image) back into every external and
         // extraction target. Runs once per builder.
+        //
+        // RDG-FAULT1. A faulted pass does not fail the graph. Faults found by Compile are already out of the plan.
+        // A LATE fault - an exec lambda returning an error after its pass began recording - cannot be un-recorded:
+        // Execute closes the render pass the pass had open (a following pass compiled with ContinuesRenderPass
+        // opens its own instead; merged passes load every attachment, so the decisions stay valid), records the
+        // pass's EpilogueBarriers and EndPass, and goes on. Every later pass that reads what it wrote is then
+        // treated like a Compile-time dependant: a texture with a FaultDefault is read through PassContext as the
+        // system texture (system textures are permanently in a sampled state and always bound once a FaultDefault
+        // exists), anything else skips that pass's render pass and exec - its barrier batch is still recorded so
+        // the layout chain the plan computed stays true - and the skip propagates. After the last pass, the
+        // execute's faults go to backend.GetPassFaultReporter() (the only place they are logged) and are kept in
+        // GetExecuteReport(). The return is an error exactly when the frame has no defined picture (FrameFault):
+        // the caller clears FrameFault::Externals to black and presents; it never logs the error itself.
         Common::BoolResultStr Execute( IBackend& backend );
+
+        // The faults of the last Execute (empty before it); what an editor panel or a test asks.
+        const ExecuteReport& GetExecuteReport() const;
 
         const std::string& GetName() const
         {

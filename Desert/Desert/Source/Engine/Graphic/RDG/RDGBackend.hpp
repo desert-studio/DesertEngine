@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
@@ -152,6 +153,9 @@ namespace Desert::Graphic::RDG
         virtual PipeCapabilities GetPipeCapabilities() const = 0;
         // B(4): the once-per-backend announcement of demoted AsyncCompute passes.
         virtual AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() = 0;
+        // RDG-FAULT1: the one dedupe point for pass and frame faults (RDGFault.hpp). Valid for the backend's
+        // whole life, so what it already said survives the per-frame graphs. Builder::Execute is its only caller.
+        virtual PassFaultReporter& GetPassFaultReporter() = 0;
 
         // B(3): per-pipe recording. Execute walks CompileResult::Segments in order and brackets each with
         // BeginPipeSegment / EndPipeSegment; every BeginPass .. EndPass, RecordBarriers and render pass in

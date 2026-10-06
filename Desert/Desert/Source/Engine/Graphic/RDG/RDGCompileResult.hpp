@@ -1,10 +1,12 @@
 #pragma once
 
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -296,6 +298,20 @@ namespace Desert::Graphic::RDG
         // because Pipes.SeparateComputeFamily is false. Not an error: the decided fallback. Execute hands a
         // non-empty list to IBackend::GetAsyncComputeFallbackLog(), which logs it once per backend.
         std::vector<uint32_t> DemotedAsyncPasses;
+
+        // RDG-FAULT1 (RDGFault.hpp). Compile finds Declaration and Validation faults before anything is recorded.
+        // A faulted pass and every pass culled with it (Dependency) are in FaultCulledPasses - NOT in
+        // CulledPasses, which keeps meaning "nothing consumes it": the two are different news - and in nothing
+        // else: no CompiledPass, no barrier, no edge, no lifetime, no allocation. Culling runs on the graph
+        // WITHOUT them, so a producer that was alive only for a faulted consumer is culled the ordinary way. Every
+        // surviving reader of a lost transient is in Substitutions. Frame is set when the faults leave a
+        // FrameFatal external with no writer; Execute then records nothing and returns the FrameFault as its
+        // error.
+        std::vector<PassFault>           Faults;
+        std::vector<uint32_t>            FaultCulledPasses;
+        std::vector<DefaultSubstitution> Substitutions;
+        std::vector<uint32_t>            InvalidatedExternals;
+        std::optional<FrameFault>        Frame;
 
         [[nodiscard]] const CompiledPass* FindPass( std::string_view name ) const
         {
