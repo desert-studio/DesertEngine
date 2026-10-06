@@ -48,11 +48,12 @@ namespace Desert::ECS
         {
         }
 
-        // The EDITOR'S frame time, pushed by the Scene on the main thread before the systems run: the real
-        // frame delta while the world is in Edit, zero in Play and Paused (whose time is the gameplay
-        // timestep Update receives). Default no-op — only a system that previews in the editor world on the
-        // author's request reads it (AnimationECSSystem: AnimationComponent::UpdateAnimationInEditor). It is
-        // not the world clock: the preview is the author's per-component choice, not the viewport's Realtime.
+        // The EDITOR WORLD'S preview step, pushed by the Scene on the main thread before the systems run: the
+        // world clock's Delta while the world is in Edit (zero with the viewport's Realtime off, as every other
+        // preview), zero in Play and Paused (whose time is the gameplay timestep Update receives). Default
+        // no-op — only a system that previews in the editor world on the author's request reads it
+        // (AnimationECSSystem: AnimationComponent::UpdateAnimationInEditor). Whether a component previews is
+        // the author's per-component choice; whether the editor world moves at all is the viewport's Realtime.
         virtual void SetEditorTick( const Common::Timestep& /*editorTs*/ )
         {
         }

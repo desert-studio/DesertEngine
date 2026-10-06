@@ -497,14 +497,11 @@ namespace Desert::Core
         for ( auto& system : m_Systems )
             system->SetWorldTime( m_WorldTime );
 
-        // THE EDITOR WORLD'S CLOCK, separate from gameplay's: real time in Edit, nothing in Play/Paused.
-        // A system previews in the editor only on the author's request (UE bUpdateAnimationInEditor), so it
-        // needs to know which world this is — a zero gameplay timestep alone cannot tell Edit from Paused.
-        // Its step is the world clock's REAL delta (WorldTime: real time always moves), so the scene keeps one
-        // clock and the preview is not gated by the viewport's Realtime.
-        const Common::Timestep editorTs = m_State == SceneState::Edit
-                                               ? Common::Timestep( m_WorldTime.GetRealDeltaSeconds() )
-                                               : Common::Timestep( 0.0f );
+        // THE EDITOR WORLD'S PREVIEW STEP, separate from gameplay's (WorldTime::EditorPreviewSeconds). A system
+        // previews in the editor only on the author's request (UE bUpdateAnimationInEditor), so it needs to know
+        // which world this is — a zero gameplay timestep alone cannot tell Edit from Paused. With Realtime off
+        // the character holds still with the wind, the particles and the material Time.
+        const Common::Timestep editorTs( m_WorldTime.EditorPreviewSeconds( m_State == SceneState::Edit ) );
         for ( auto& system : m_Systems )
             system->SetEditorTick( editorTs );
 

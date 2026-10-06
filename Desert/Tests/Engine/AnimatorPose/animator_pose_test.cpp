@@ -7,6 +7,7 @@
 #include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Core/WorldTime.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -340,4 +341,41 @@ TEST( AnimatorPose, InTheEditorWorldAPoseHoldsStillUnlessUpdateAnimationInEditor
 
     // Paused (no gameplay time, not the editor world): nothing moves, whatever the flag says.
     EXPECT_FLOAT_EQ( AnimationAdvanceSeconds( 0.0f, 0.0f, true ), 0.0f );
+}
+
+// The editor preview runs on the WORLD'S clock (WorldTime::EditorPreviewSeconds, what Scene pushes through
+// SetEditorTick), so the viewport's Realtime gates it as in UE: the main scene with Realtime off holds a
+// previewing pose still, with Realtime on moves it — and a preview scene (the animation editor's), whose clock
+// is its own, keeps moving whatever the main scene's flag says. Each clock is ticked exactly as Scene::OnUpdate
+// ticks it in Edit (ClockModeFor(not playing, not paused, its Realtime)).
+TEST( AnimatorPose, TheEditorPreviewFollowsItsOwnScenesRealtime )
+{
+    using Desert::Animation::AnimationAdvanceSeconds;
+    using Desert::Core::WorldTime;
+    constexpr float kFrame = 0.1f;
+
+    const auto editTick = []( WorldTime& clock, const bool realtime )
+    {
+        clock.Tick( kFrame, WorldTime::ClockModeFor( false, false, realtime ) );
+        return AnimationAdvanceSeconds( 0.0f, clock.EditorPreviewSeconds( true ), true );
+    };
+
+    WorldTime main;
+    WorldTime preview;
+    const float mainFrozen      = editTick( main, false );
+    const float previewOwnClock = editTick( preview, true ); // the same frame: main's Realtime is off
+
+    const auto [frozenA, frozenB] = TwoTicks( mainFrozen );
+    EXPECT_TRUE( MatNear( frozenA, frozenB ) ) << "the main scene's Realtime is off, yet a pose previewing in the "
+                                                  "editor moved (UE: a non-realtime viewport ticks nothing)";
+
+    const auto [previewA, previewB] = TwoTicks( previewOwnClock );
+    EXPECT_FALSE( MatNear( previewA, previewB ) )
+         << "the preview scene's pose stopped with the MAIN scene's Realtime off — its clock is its own";
+
+    const auto [liveA, liveB] = TwoTicks( editTick( main, true ) );
+    EXPECT_FALSE( MatNear( liveA, liveB ) ) << "the main scene's Realtime is on, yet the editor preview held still";
+
+    // Play and Paused are not the editor world: no preview step, whatever Realtime says.
+    EXPECT_FLOAT_EQ( main.EditorPreviewSeconds( false ), 0.0f );
 }

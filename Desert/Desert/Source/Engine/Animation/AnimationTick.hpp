@@ -8,7 +8,8 @@ namespace Desert::Animation
      * A world that ticks gameplay (Play, or a paused world's one stepped frame) advances every component by
      * the gameplay time. A world that does not tick gameplay advances NOTHING, except in the editor's own
      * world (`editorSeconds` > 0 only there, pushed by Scene through System::SetEditorTick), where a
-     * component that asked for it with `UpdateAnimationInEditor` previews at the real frame time.
+     * component that asked for it with `UpdateAnimationInEditor` previews at the world's preview step (0 while
+     * the viewport's Realtime is off, as in UE).
      *
      * IT USED TO BE "the gameplay timestep, or a wall clock when that is zero" for EVERY component, read
      * inside AnimationECSSystem: every character in an edited level walked on the spot while the author
