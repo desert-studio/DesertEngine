@@ -1743,6 +1743,18 @@ TEST_F( ShaderRootFixture, BothParticleStagesIndexTheStateByTheStrideTheEngineAl
     EXPECT_EQ( simulate, billboard ) << "the two particle stages read one storage with two layouts";
 }
 
+TEST_F( ShaderRootFixture, TheParticleStepTableIsIndexedByTheStrideTheEngineUploads )
+{
+    // ParticleRenderer uploads the frame's VFX steps as an array of kParticleStepStride-byte elements
+    // and the simulation reads step N at N * (its own stride). A field added on one side alone gives
+    // every step after the first another step's id base, seed and budget.
+    const uint32_t steps = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
+                                               ShaderStage::Compute, shaderc_compute_shader, 1 );
+    EXPECT_EQ( steps, Desert::Graphic::System::kParticleStepStride )
+         << "ParticleSimulate indexes its step table by " << steps << " bytes and ParticleRenderer uploads "
+         << Desert::Graphic::System::kParticleStepStride;
+}
+
 TEST_F( ShaderRootFixture, TheParticleStructIsCompiledFromOneTextByBothStages )
 {
     // WHY THE EQUALITY ABOVE IS NOT ENOUGH. Two independent declarations that happen to be the same size

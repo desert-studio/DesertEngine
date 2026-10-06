@@ -505,6 +505,16 @@ namespace Desert::Core
             ExecuteSystems( gameplayTs );
         }
 
+        // THE EFFECTS CLOCK, once per scene update and never per view: every SceneRenderer of this scene
+        // reads the plan made here. Its time is the scene's — the editor's delta in Edit (effects preview
+        // while authoring, as Niagara does), the gameplay delta in Play, nothing while paused — and
+        // never the wall clock, so a `--play` run is the same frames every time.
+        {
+            DESERT_PROFILE_SCOPE( "VFX World" );
+            const Common::Timestep vfxTs = m_State == SceneState::Edit ? ts : gameplayTs;
+            m_VFXWorld.Tick( m_Registry, static_cast<double>( vfxTs.GetSeconds() ) );
+        }
+
         // Dir lights
         {
             DESERT_PROFILE_SCOPE( "Scene: DirLights" );
@@ -1000,6 +1010,7 @@ namespace Desert::Core
         m_PlayFromHere = false;
 
         m_Entities.Clear();
+        m_VFXWorld.Clear();
 
         SetupRegistryCallbacks();
         m_Subsystems.Begin();

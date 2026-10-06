@@ -27,4 +27,9 @@ namespace Desert::Graphic::System
     // particles stay at their zeroed state — dead, invisible, never respawned); too small and the
     // dispatch runs threads past the end, which the shader's own bound check discards.
     constexpr std::uint32_t kParticleLocalSize = 64;
+
+    // The size of one element of ParticleSimulate's step table (binding 1, `struct VFXStep`: four
+    // uints). ParticleRenderer uploads the frame's steps as an array of this stride and the shader
+    // indexes it by the step number in the push constant.
+    constexpr std::uint32_t kParticleStepStride = 16;
 } // namespace Desert::Graphic::System

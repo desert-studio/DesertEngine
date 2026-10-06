@@ -24,39 +24,35 @@ Shader "ParticleSimulate"
             Particle u_Particles[];
         };
 
-        Buffer(1) SpawnCounter
+        #include <Common/VFXRandom.glslh>
+
+        // One fixed step of the emitter, written by the CPU from the scene's VFXWorld once per frame
+        // (Graphic::System::kParticleStepStride bytes each). The frame runs u_Counts.y = 0..N-1 in order.
+        struct VFXStep
         {
-            uint u_SpawnCount; // atomically-consumed spawn budget this frame (CPU-zeroed each frame)
+            uint SpawnCount; // atomically consumed this step (CPU-zeroed)
+            uint IdBase;     // id of the first particle this step may spawn
+            uint Seed;       // the emitter instance's seed (system ⊕ entity ⊕ emitter)
+            uint Budget;     // how many particles this step spawns
+        };
+
+        Buffer(1) StepTable
+        {
+            VFXStep u_Steps[];
         };
 
         PushConstant PushConstants
         {
-            vec4  u_EmitterPos; // xyz = emitter world pos, w = dt
-            vec4  u_Gravity;    // xyz = gravity, w = time (RNG seed)
+            vec4  u_EmitterPos; // xyz = emitter world pos, w = the fixed step length (seconds)
+            vec4  u_Gravity;    // xyz = gravity, w = unused
             vec4  u_Direction;  // xyz = normalized emit dir, w = cone half-angle (radians)
             vec4  u_Params;     // x = startSpeed, y = speedVar, z = lifetime, w = lifetimeVar
             vec4  u_StartColor; // rgb + start alpha (w)
             vec4  u_EndColor;   // rgb + end alpha (w)
             vec4  u_Sizes;      // x = start size, y = end size, z = size-curve power, w = unused
-            uvec4 u_Counts;     // x = maxParticles, y = spawnBudget, z = enabled(0/1),
+            uvec4 u_Counts;     // x = maxParticles, y = this dispatch's step (index into u_Steps), z = unused,
                                 // w = local-space(0/1): particles ride the emitter instead of trailing it
         };
-
-        uint Hash( uint x )
-        {
-            x ^= x >> 16;
-            x *= 0x7feb352du;
-            x ^= x >> 15;
-            x *= 0x846ca68bu;
-            x ^= x >> 16;
-            return x;
-        }
-
-        float Rand( inout uint state )
-        {
-            state = Hash( state );
-            return float( state ) * ( 1.0 / 4294967296.0 );
-        }
 
         void main()
         {
@@ -91,13 +87,18 @@ Shader "ParticleSimulate"
             // Respawn dead particles from the emitter, within this frame's spawn budget.
             if ( p.VelLife.w <= 0.0 )
             {
-                uint slot = atomicAdd( u_SpawnCount, 1u );
-                if ( u_Counts.z == 1u && slot < u_Counts.y )
+                uint step = u_Counts.y;
+                uint slot = atomicAdd( u_Steps[step].SpawnCount, 1u );
+                if ( slot < u_Steps[step].Budget )
                 {
-                    uint  rng = Hash( i * 747796405u + uint( u_Gravity.w * 1000.0 ) );
-                    float u1  = Rand( rng );
-                    float u2  = Rand( rng );
-                    float u3  = Rand( rng );
+                    // Which buffer slot takes the particle depends on thread order; WHAT is spawned does
+                    // not: the particle's id is the step's id base plus its spawn ordinal, and every random
+                    // number below is a hash of (seed, id, call) — never of time.
+                    uint  id = u_Steps[step].IdBase + slot;
+                    vec4  r  = VFXRandomFloat4( uvec4( u_Steps[step].Seed, id, 0u, 0u ) );
+                    float u1 = r.x;
+                    float u2 = r.y;
+                    float u3 = r.z;
 
                     float cosT  = mix( 1.0, cos( u_Direction.w ), u1 );
                     float sinT  = sqrt( max( 0.0, 1.0 - cosT * cosT ) );
@@ -111,7 +112,7 @@ Shader "ParticleSimulate"
                     vec3 dir  = normalize( tang * local.x + bitn * local.y + axis * local.z );
 
                     float speed = u_Params.x * ( 1.0 - u_Params.y * u3 );
-                    float life  = u_Params.z * ( 1.0 - u_Params.w * Rand( rng ) );
+                    float life  = u_Params.z * ( 1.0 - u_Params.w * r.w );
 
                     p.PosSize = vec4( u_EmitterPos.xyz, u_Sizes.x );
                     p.VelLife = vec4( dir * speed, max( life, 0.01 ) );
