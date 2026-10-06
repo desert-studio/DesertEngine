@@ -129,10 +129,10 @@ namespace Desert::Physics
     {
         std::span<const std::span<const glm::vec3>> Parts; ///< Read during CreateCompoundBody only.
 
-        BodyType  Type        = BodyType::Dynamic;
-        float     Mass        = 1.0f; ///< Dynamic only; kilograms, inertia from the parts at this mass.
-        float     Friction    = 0.5f;
-        float     Restitution = 0.1f;
+        BodyType Type        = BodyType::Dynamic;
+        float    Mass        = 1.0f; ///< Dynamic only; kilograms, inertia from the parts at this mass.
+        float    Friction    = 0.5f;
+        float    Restitution = 0.1f;
 
         glm::vec3 Position        = { 0.0f, 0.0f, 0.0f };
         glm::quat Rotation        = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );

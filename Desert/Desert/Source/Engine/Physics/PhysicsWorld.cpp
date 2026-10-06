@@ -287,13 +287,14 @@ namespace Desert::Physics
             std::mutex                  Mutex;
             std::vector<ContactImpulse> Contacts;
 
-            void OnContactAdded( const JPH::Body& body1, const JPH::Body& body2, const JPH::ContactManifold& manifold,
-                                 JPH::ContactSettings& settings ) override
+            void OnContactAdded( const JPH::Body& body1, const JPH::Body& body2,
+                                 const JPH::ContactManifold& manifold, JPH::ContactSettings& settings ) override
             {
                 Record( body1, body2, manifold, settings );
             }
             void OnContactPersisted( const JPH::Body& body1, const JPH::Body& body2,
-                                     const JPH::ContactManifold& manifold, JPH::ContactSettings& settings ) override
+                                     const JPH::ContactManifold& manifold,
+                                     JPH::ContactSettings&       settings ) override
             {
                 Record( body1, body2, manifold, settings );
             }
@@ -307,16 +308,15 @@ namespace Desert::Physics
                     return;
 
                 JPH::CollisionEstimationResult estimate;
-                JPH::EstimateCollisionResponse( body1, body2, manifold, estimate, settings.mCombinedFriction,
-                                                settings.mCombinedRestitution,
-                                                System->GetPhysicsSettings().mMinVelocityForRestitution,
-                                                kImpulseEstimateIterations );
+                JPH::EstimateCollisionResponse(
+                     body1, body2, manifold, estimate, settings.mCombinedFriction, settings.mCombinedRestitution,
+                     System->GetPhysicsSettings().mMinVelocityForRestitution, kImpulseEstimateIterations );
 
                 ContactImpulse contact;
-                contact.Body1 = body1.GetID().GetIndexAndSequenceNumber();
-                contact.Body2 = body2.GetID().GetIndexAndSequenceNumber();
-                contact.Part1 = PartOf( body1, manifold.mSubShapeID1 );
-                contact.Part2 = PartOf( body2, manifold.mSubShapeID2 );
+                contact.Body1  = body1.GetID().GetIndexAndSequenceNumber();
+                contact.Body2  = body2.GetID().GetIndexAndSequenceNumber();
+                contact.Part1  = PartOf( body1, manifold.mSubShapeID1 );
+                contact.Part2  = PartOf( body2, manifold.mSubShapeID2 );
                 contact.Normal = glm::vec3( manifold.mWorldSpaceNormal.GetX(), manifold.mWorldSpaceNormal.GetY(),
                                             manifold.mWorldSpaceNormal.GetZ() );
                 glm::vec3 point( 0.0f );
@@ -354,8 +354,8 @@ namespace Desert::Physics
         // Character controllers (CharacterVirtual). Handle = index into this vector (nulled on remove).
         std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
 
-        ImpulseListener             Impulses;
-        std::vector<ContactImpulse> StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
+        ImpulseListener              Impulses;
+        std::vector<ContactImpulse>  StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
         std::function<void( float )> StepCallback;
     };
 
@@ -469,8 +469,8 @@ namespace Desert::Physics
             if ( points.empty() )
                 return Common::MakeError<BodyHandle>( std::format( "compound part {} has no points", i ) );
             BodyDesc part;
-            part.Shape        = ShapeType::ConvexHull;
-            part.MeshPoints   = points;
+            part.Shape         = ShapeType::ConvexHull;
+            part.MeshPoints    = points;
             const uint64_t key = CookKey( part );
             JPH::ShapeRefC shape;
             if ( const auto cached = m_Impl->CookedShapes.find( key ); cached != m_Impl->CookedShapes.end() )
@@ -492,10 +492,10 @@ namespace Desert::Physics
             return Common::MakeError<BodyHandle>( std::format( "Jolt refused the compound of {} parts: {}",
                                                                desc.Parts.size(), result.GetError() ) );
 
-        const auto motion = desc.Type == BodyType::Dynamic     ? JPH::EMotionType::Dynamic
-                            : desc.Type == BodyType::Kinematic ? JPH::EMotionType::Kinematic
-                                                               : JPH::EMotionType::Static;
-        const JPH::ObjectLayer layer = desc.Type == BodyType::Static ? Layers::NON_MOVING : Layers::MOVING;
+        const auto                motion = desc.Type == BodyType::Dynamic     ? JPH::EMotionType::Dynamic
+                                           : desc.Type == BodyType::Kinematic ? JPH::EMotionType::Kinematic
+                                                                              : JPH::EMotionType::Static;
+        const JPH::ObjectLayer    layer  = desc.Type == BodyType::Static ? Layers::NON_MOVING : Layers::MOVING;
         JPH::BodyCreationSettings settings( result.Get(),
                                             JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
                                             ToJolt( desc.Rotation ), motion, layer );
@@ -520,8 +520,9 @@ namespace Desert::Physics
              desc.Type == BodyType::Static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate;
         const JPH::BodyID id = m_Impl->Bodies->CreateAndAddBody( settings, activation );
         if ( id.IsInvalid() )
-            return Common::MakeError<BodyHandle>( std::format(
-                 "Jolt refused the compound body: {} bodies exist, the world's limit is reached", GetBodyCount() ) );
+            return Common::MakeError<BodyHandle>(
+                 std::format( "Jolt refused the compound body: {} bodies exist, the world's limit is reached",
+                              GetBodyCount() ) );
         return Common::MakeSuccess( static_cast<BodyHandle>( id.GetIndexAndSequenceNumber() ) );
     }
 
