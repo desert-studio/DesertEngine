@@ -2059,8 +2059,8 @@ namespace Desert::Core::Serialize
         // rewritten by its volume's Resimulate and never painted into by the brush.
         {
             ComponentSerializer s;
-            s.Key = "ProceduralFoliageField";
-            s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::ProceduralFoliageFieldComponent>(); };
+            s.Key       = "ProceduralFoliageField";
+            s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::ProceduralFoliageFieldComponent>(); };
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& ) -> Common::Json::Value
             {
                 Common::Json::ObjectBuilder out;

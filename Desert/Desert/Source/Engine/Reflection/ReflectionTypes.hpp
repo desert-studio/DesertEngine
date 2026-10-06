@@ -138,7 +138,7 @@ namespace Desert::Reflection
         // A std::vector of asset handles (codegen: ContainerHandles / AssignHandles in ReflectionSerializer.hpp).
         // Set, the serializer writes each element in the reference form of Meta.AssetType when it has a
         // resolver, exactly as a single handle field of that type; with no resolver the raw container above.
-        std::function<std::vector<std::uint64_t>( const void* /*field*/ )>          ContainerHandles;
+        std::function<std::vector<std::uint64_t>( const void* /*field*/ )>        ContainerHandles;
         std::function<void( void* /*field*/, const std::vector<std::uint64_t>& )> AssignHandles;
 
         const std::string& DisplayName() const

@@ -76,8 +76,9 @@ namespace Desert::Reflection
         return { std::move( array ) };
     }
 
-    // The handles of a std::vector of asset handles, and the vector rebuilt from handles (FieldInfo::ContainerHandles
-    // / AssignHandles): what lets the serializer write each element in its asset type's reference form.
+    // The handles of a std::vector of asset handles, and the vector rebuilt from handles
+    // (FieldInfo::ContainerHandles / AssignHandles): what lets the serializer write each element in its asset
+    // type's reference form.
     template <typename Vector>
     [[nodiscard]] std::vector<std::uint64_t> ContainerHandles( const void* field )
     {
