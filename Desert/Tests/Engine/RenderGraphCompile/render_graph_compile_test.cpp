@@ -3344,6 +3344,8 @@ TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
     files.push_back( "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" );
     files.push_back( "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
     files.push_back( "Runtime/Source/RuntimeLayer.cpp" );
+    files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp" );
+    files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp" );
     const std::regex get( R"(([Ll]ayout\.Get\())" );
     const std::regex key( R"(^[A-Za-z_][\w\[\]\.]*->GetSpecification\(\)\.Shader\))" );
     size_t           gets = 0;
@@ -4228,20 +4230,23 @@ TEST( RenderGraphCompile, TheNameTakingExecBindingApiStaysDeleted )
         EXPECT_EQ( body.find( gone ), std::string::npos ) << gone << " is back in RDGPassBindings.cpp";
 }
 
-// RDG-FAULT1: ShaderBindingLayoutCache.hpp is included by every renderer header that keeps a layout (UIMaterialCache.hpp,
-// Render2D.hpp, the post renderers, RuntimeLayer.hpp, the editor passes). It needs only a Shader forward declaration;
-// Get lives in its .cpp. Re-inlining Get re-adds Renderer.hpp to all of them, which compiles fine - so this is red.
+// RDG-FAULT1: ShaderBindingLayoutCache.hpp is included by every renderer header that keeps a layout
+// (UIMaterialCache.hpp, Render2D.hpp, the post renderers, RuntimeLayer.hpp, the editor passes). It needs only a
+// Shader forward declaration; Get lives in its .cpp. Re-inlining Get re-adds Renderer.hpp to all of them, which
+// compiles fine - so this is red.
 TEST( RenderGraphCompile, ShaderBindingLayoutCacheHeaderStaysLight )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
     const std::string header =
          SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/ShaderBindingLayoutCache.hpp" );
-    const std::string body = SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/ShaderBindingLayoutCache.cpp" );
+    const std::string body =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/ShaderBindingLayoutCache.cpp" );
     ASSERT_FALSE( header.empty() );
     ASSERT_FALSE( body.empty() );
     for ( const char* heavy : { "#include<Engine/Graphic/Renderer.hpp>", "#include<Engine/Graphic/Shader.hpp>" } )
-        EXPECT_EQ( header.find( heavy ), std::string::npos ) << heavy << " is back in ShaderBindingLayoutCache.hpp";
+        EXPECT_EQ( header.find( heavy ), std::string::npos )
+             << heavy << " is back in ShaderBindingLayoutCache.hpp";
     EXPECT_NE( header.find( "classShader;" ), std::string::npos );
     EXPECT_NE( body.find( "ShaderBindingLayoutCache::Get(" ), std::string::npos ) << "Get moved out of the .cpp";
 }

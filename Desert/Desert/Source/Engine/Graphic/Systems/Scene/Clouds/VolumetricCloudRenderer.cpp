@@ -2196,7 +2196,7 @@ namespace Desert::Graphic::System
             // them with (the image's own: linear, REPEAT). Each entry is the read's declaration.
             const MaterialExecutor& executor = *m_CompositeMaterial->GetMaterialExecutor();
             declared
-                 .Bindings( Renderer::GetInstance().GetBindingLayout( *executor.GetShader() ),
+                 .Bindings( m_CompositeLayout.Get( m_CompositePipeline->GetSpecification().Shader ),
                             executor.GetRouteFill() )
                  .Sampled( "u_CloudScatter", scatter, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearRepeat() )

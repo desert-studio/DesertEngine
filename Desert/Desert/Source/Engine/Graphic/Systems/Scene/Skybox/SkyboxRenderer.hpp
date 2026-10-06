@@ -10,6 +10,7 @@
 #include <Engine/Graphic/Materials/Skybox/MaterialProceduralSky.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
@@ -197,11 +198,13 @@ namespace Desert::Graphic::System
         bool                              m_BackdropVisible = true;
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<Shader>           m_Shader;
+        ShaderBindingLayoutCache          m_SkyLayout; // the Sky pass block, keyed on m_Pipeline's shader
 
         // Procedural sky (engine-generated atmosphere) — alternative to the HDR cubemap, same Sky pass.
         std::shared_ptr<GraphicsPipeline>      m_ProceduralPipeline;
         std::shared_ptr<Shader>                m_ProceduralShader;
         std::shared_ptr<MaterialProceduralSky> m_ProceduralMaterial;
+        ShaderBindingLayoutCache               m_ProceduralLayout; // keyed on m_ProceduralPipeline's shader
 
         // The sky parameter block, created NON-PERSISTENT so the backend keeps one copy per
         // (frame in flight x renderer slot). A persistent buffer would be shared by every live

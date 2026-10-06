@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <Engine/Assets/CloudProceduralVolume.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
@@ -503,6 +504,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_CompositePipeline;
 
         std::unique_ptr<MaterialCloudComposite> m_CompositeMaterial;
+        // The composite block's layout, keyed on m_CompositePipeline's shader (kept, not re-derived per frame).
+        ShaderBindingLayoutCache m_CompositeLayout;
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveParamsBuffer;

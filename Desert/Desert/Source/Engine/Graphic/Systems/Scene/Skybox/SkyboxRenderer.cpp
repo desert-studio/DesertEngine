@@ -906,7 +906,6 @@ namespace Desert::Graphic::System
         m_SkyDraw = {};
         if ( !m_BackdropVisible )
             return;
-        const Renderer& renderer = Renderer::GetInstance();
 
         // Engine-generated procedural atmosphere (no HDR asset needed). It samples the transmittance and sky-view
         // LUTs: last frame's, imported by SceneRenderer::ImportSceneViewTextures when SkyPassSamplesLuts, or
@@ -917,7 +916,9 @@ namespace Desert::Graphic::System
             m_ProceduralMaterial->Update( m_ActiveCamera, m_SkyParams );
             const MaterialExecutor* executor = m_ProceduralMaterial->GetMaterialExecutor();
             const RDG::TextureRef   white    = refs.System.White;
-            declared.Bindings( renderer.GetBindingLayout( *executor->GetShader() ), executor->GetRouteFill() )
+            declared
+                 .Bindings( m_ProceduralLayout.Get( m_ProceduralPipeline->GetSpecification().Shader ),
+                            executor->GetRouteFill() )
                  .Sampled(
                       "u_TransmittanceLut",
                       refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut : white,
@@ -941,7 +942,8 @@ namespace Desert::Graphic::System
             if ( m_ActiveCamera )
                 material->BindInputs( { m_ActiveCamera, m_SkyboxLook } );
             const MaterialExecutor* executor = material->GetMaterialExecutor();
-            declared.Bindings( renderer.GetBindingLayout( *executor->GetShader() ), executor->GetRouteFill() );
+            declared.Bindings( m_SkyLayout.Get( m_Pipeline->GetSpecification().Shader ),
+                               executor->GetRouteFill() );
             m_SkyDraw = { .Pipeline = m_Pipeline.get(), .Executor = executor };
         }
     }
