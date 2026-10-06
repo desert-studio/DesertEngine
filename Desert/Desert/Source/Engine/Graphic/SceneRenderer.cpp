@@ -658,7 +658,8 @@ namespace Desert::Graphic
             if ( const auto budget = ShadowReallocation( m_ViewProfile, quality ) )
             {
                 m_ViewProfile.Shadows = *budget;
-                if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RebudgetShadows( *budget ) )
+                if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+                           ->RebudgetShadows( *budget ) )
                     LOG_ERROR( "[Shadows] view '{}': the shadow pass could not be set up at {} cascades of {} px; "
                                "nothing casts a shadow in this view.",
                                m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
