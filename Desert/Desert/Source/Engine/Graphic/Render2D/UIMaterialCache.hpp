@@ -53,6 +53,9 @@ namespace Desert::Graphic::Render2D
             // compared by pointer at the call site so the backend cannot forget to ask.
             bool     Error         = false;
             uint64_t LastUsedFrame = 0;
+            // The material ASSET this entry was resolved from (MaterialService::AssetNameOf) - what a report
+            // names, since many materials share one shader. Empty on the error entry.
+            std::string AssetName;
             // The binding layout Render2D declares this entry's draws against (RDG-FAULT1), kept with the pipeline
             // whose shader keys it. Mutable: the draw list hands the entry out const.
             mutable ShaderBindingLayoutCache Layout;

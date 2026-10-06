@@ -255,6 +255,9 @@ namespace Desert::Graphic::Render2D
         }
 
         built.LastUsedFrame = frame;
+        built.AssetName     = materialService->AssetNameOf( handle );
+        if ( built.AssetName.empty() )
+            built.AssetName = std::format( "<material {}>", static_cast<uint64_t>( handle ) );
         auto [it, inserted] = m_Entries.emplace( handle, std::move( built ) );
         return &it->second;
     }
@@ -293,17 +296,16 @@ namespace Desert::Graphic::Render2D
             return nullptr;
         if ( !entry->Error && entry->Pipeline )
         {
-            const std::string  fault = PrepareDraw( *entry, projection );
-            const std::string& name  = entry->Material->GetShaderName();
-            switch ( m_Fallback.Admit( name, fault ) )
+            const std::string fault = PrepareDraw( *entry, projection );
+            switch ( m_Fallback.Admit( entry->AssetName, fault ) )
             {
                 case UIMaterialFallback::Verdict::Draws:
                     return entry;
                 case UIMaterialFallback::Verdict::DefaultFirstReport:
                 {
-                    LOG_ERROR( "[UIMaterial] '{}' cannot draw ({}), so its draws use the default UI material '{}' "
-                               "instead of failing the whole UI pass",
-                               name, fault, kErrorShaderName );
+                    LOG_ERROR( "{}",
+                               UIMaterialFallback::Report( entry->AssetName, entry->Material->GetShaderName(),
+                                                           fault, kErrorShaderName ) );
                     break;
                 }
                 case UIMaterialFallback::Verdict::Default:

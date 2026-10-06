@@ -968,4 +968,8 @@ TEST( UIMaterialFallback, OneBrokenMaterialFallsBackAloneAndIsReportedOnce )
          UIMaterialFallback::RowFault( true, gradient, Fields{ "TopColor", "Bottom" }, 2 ).find( "'BottomColor'" ),
          std::string::npos )
          << "the missing field is named";
+    // Many materials share a shader: the report names the material ASSET first, then the shader.
+    const std::string report = UIMaterialFallback::Report( "UI_Broken", "UIGradient", "short row", "UIMatError" );
+    EXPECT_NE( report.find( "material 'UI_Broken' (shader 'UIGradient')" ), std::string::npos ) << report;
+    EXPECT_NE( report.find( "'UIMatError'" ), std::string::npos ) << report;
 }

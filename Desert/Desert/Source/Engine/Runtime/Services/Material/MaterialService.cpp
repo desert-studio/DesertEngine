@@ -397,6 +397,14 @@ namespace Desert::Runtime
         return true;
     }
 
+    std::string MaterialService::AssetNameOf( const Assets::AssetHandle& handle ) const
+    {
+        const auto it = FindOrDiscover( handle );
+        if ( it == m_MaterialAssets.end() || !it->second )
+            return {};
+        return it->second->GetMetadata().Filepath.stem().string();
+    }
+
     std::string MaterialService::ShaderNameOf( const Assets::AssetHandle& handle ) const
     {
         // Same chain walk as ResolveOverrides — an instance names no program of its own, so the answer is

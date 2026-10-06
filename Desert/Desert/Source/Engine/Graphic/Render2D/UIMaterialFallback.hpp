@@ -55,6 +55,16 @@ namespace Desert::Graphic::Render2D
             return {};
         }
 
+        // The one log line for a material that falls back: names the material ASSET first (many materials share a
+        // shader), then its shader, the reason and the default it draws instead.
+        [[nodiscard]] static std::string Report( const std::string& materialName, const std::string& shaderName,
+                                                 const std::string& fault, const std::string& defaultName )
+        {
+            return std::format( "[UIMaterial] material '{}' (shader '{}') cannot draw ({}), so its draws use the "
+                                "default UI material '{}' instead of failing the whole UI pass",
+                                materialName, shaderName, fault, defaultName );
+        }
+
         // @p fault: empty when the draw's bindings are complete, else the reason (RowFault, then the pass setup's
         // own ValidatePassBindings). Reported once per @p materialName.
         [[nodiscard]] Verdict Admit( const std::string& materialName, const std::string& fault )

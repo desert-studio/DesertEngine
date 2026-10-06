@@ -4303,6 +4303,12 @@ TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
     EXPECT_TRUE( admit != std::string::npos && admit < after )
          << "DrawableOrDefault no longer asks the UIMaterialFallback";
     const std::string drawableBody = cache.substr( drawable, after - drawable );
+    EXPECT_NE( drawableBody.find( "m_Fallback.Admit(entry->AssetName,fault)" ), std::string::npos )
+         << "the fallback is no longer reported once per material ASSET";
+    EXPECT_NE( drawableBody.find( "UIMaterialFallback::Report(entry->AssetName," ), std::string::npos )
+         << "the fallback's log line no longer names the material asset";
+    EXPECT_NE( cache.find( "built.AssetName=materialService->AssetNameOf(handle);" ), std::string::npos )
+         << "an entry no longer keeps the asset name it was resolved from";
     EXPECT_NE( drawableBody.find( "PrepareDraw(*entry,projection)" ), std::string::npos )
          << "DrawableOrDefault no longer judges the entry by PrepareDraw";
     EXPECT_NE( drawableBody.find( "entry->Error?entry:ErrorEntry()" ), std::string::npos )
