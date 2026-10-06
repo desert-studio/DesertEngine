@@ -1233,7 +1233,9 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // ResolveRetainerMasks in UICanvasRenderer2D.cpp).
     // -> 52 with S1's ProceduralFoliageData (kProceduralFoliageRows: eight fields read by
     // ProceduralFoliageResimulate.cpp, FoliageTypes by FoliagePaintTool.cpp).
-    EXPECT_EQ( all.size(), 52u );
+    // -> 53 with DST-03b's DestructibleData (kDestructibleRows: every field copied by
+    // DestructibleLifetime.cpp's Sync into the DestructionWorld description).
+    EXPECT_EQ( all.size(), 53u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )
