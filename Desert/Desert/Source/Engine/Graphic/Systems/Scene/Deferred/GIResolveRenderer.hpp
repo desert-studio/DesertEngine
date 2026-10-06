@@ -133,10 +133,13 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr RecordGather( const RDG::PassContext& context,
                                                           const GIGatherInputs&   inputs,
                                                           const glm::mat4&        rsmViewProj,
-                                                          const glm::vec4& sunColorIntensity, float giIntensity )
+                                                          const glm::vec4& sunColorIntensity, float giIntensity,
+                                                          int samples )
         {
+            // @p samples: VPL gather taps per pixel (GlobalIllumination.Samples, Scalability), a uniform like
+            // every other cost knob so one pipeline serves every level.
             m_Material->BindInputs( rsmViewProj, sunColorIntensity, giIntensity,
-                                    static_cast<float>( m_FrameIndex % 1024u ) );
+                                    static_cast<float>( m_FrameIndex % 1024u ), samples );
             // The sampler the material route sampled these images with (the image's own: linear, REPEAT).
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             RDG::PassBindings          bindings( context );

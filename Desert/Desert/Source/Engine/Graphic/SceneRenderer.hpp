@@ -677,6 +677,13 @@ namespace Desert::Graphic
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
         // SceneSettings every frame, so this value only matters before the first Update.
         float m_SSRMaxDistance = Common::Units::Metres( 40.0f );
+        // Cost knobs taken from m_Quality each BeginScene (Scalability: Reflections.MaxSteps,
+        // GlobalIllumination.Samples, PostProcess.AmbientOcclusionSamples). They reach their shaders as uniform
+        // values, so one pipeline serves every level. The initialisers are the High column, only read before
+        // the first BeginScene.
+        int m_SSRMaxSteps = 32;
+        int m_GISamples   = 32;
+        int m_SSAOSamples = 16;
 
         // The RSM is a LOW-FREQUENCY input to a temporally-accumulated resolve, so it does not need to be
         // re-rendered every frame — refreshing it every 4th frame (and immediately when the sun moves) keeps

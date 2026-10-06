@@ -224,10 +224,11 @@ namespace Desert::Graphic
                  pass.Read( normal, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, ao, EngineClearColor() ); // AO is fully recomputed each frame
              },
-             [ssao, worldPos, normal, viewProj, cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [ssao, worldPos, normal, viewProj, cameraPos,
+              samples = m_SSAOSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  return ssao->Record( context, worldPos, normal, viewProj, cameraPos, kSSAORadius, kSSAOBias,
-                                      /*power*/ 1.5f, /*samples*/ 16 );
+                                      /*power*/ 1.5f, samples );
              } );
     }
 
@@ -270,6 +271,7 @@ namespace Desert::Graphic
                                              .RSMNormal       = rsm[1],
                                              .RSMWorldPos     = rsm[2] };
         const float                  giIntensity = m_GIIntensity;
+        const int                    giSamples   = m_GISamples;
         graph.AddPass(
              "Deferred: GIResolve", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -281,12 +283,12 @@ namespace Desert::Graphic
                  pass.Read( inputs.RSMWorldPos, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, gather, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [gi, inputs, meshRenderer, lightColor,
-              giIntensity]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [gi, inputs, meshRenderer, lightColor, giIntensity,
+              giSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  // Read when the node runs: the RSM node before it is what sets this frame's light matrix.
                  return gi->RecordGather( context, inputs, meshRenderer->GetRSMViewProj(), lightColor,
-                                          giIntensity );
+                                          giIntensity, giSamples );
              } );
         const RDG::TextureRef worldPos = gbuffer[2];
         graph.AddPass(
@@ -473,7 +475,7 @@ namespace Desert::Graphic
              {
                  constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
                  return ssr->RecordTrace( context, trace, tiles, inputs, sceneCopy, viewProj, cameraPos,
-                                          /*maxSteps*/ 32, m_SSRMaxDistance, m_SSRIntensity, kSSRThickness );
+                                          m_SSRMaxSteps, m_SSRMaxDistance, m_SSRIntensity, kSSRThickness );
              } );
         graph.AddPass(
              "Deferred: SSRResolve", RDG::PassFlags::Raster,

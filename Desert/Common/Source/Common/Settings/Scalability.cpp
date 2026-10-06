@@ -20,8 +20,10 @@ namespace Common::Scalability
         constexpr ParameterValue kRtMax = static_cast<ParameterValue>( RayTracingMode::RayTracingPipeline );
 
         // THE spec list (Scalability.hpp: one row per Parameter, in enum order - the census asserts it).
-        // The three shadow rows are the values that used to be the renderer constant kSceneShadowQuality
-        // (ShadowCascades.hpp); S2 moves the reader onto ResolvedQuality.
+        // The three shadow rows are the values of the renderer constant kSceneShadowQuality (ShadowCascades.hpp).
+        // They have no reader yet: MeshRenderer takes its shadow budget once, at Initialize, so a level change
+        // needs the cascade maps re-allocated at a frame boundary first. Until then they are placeholders
+        // (no Reader), which keeps them out of every selector.
         constexpr std::array<ParameterSpec, kParameterCount> kParameterSpecs{ {
              { P::AntiAliasingMethod, G::AntiAliasing, "AntiAliasing.Method", 0,
                static_cast<ParameterValue>( AntiAliasingMethod::DLAA ), CL::AntiAliasingMethods,
@@ -38,20 +40,17 @@ namespace Common::Scalability
                "sampler cache (RenderConfig push)" },
              { P::MeshLOD, G::ViewDistance, "ViewDistance.MeshLOD", 0, 1, CL::None, "mesh LOD selection" },
              { P::CloudQuality, G::Effects, "Effects.CloudQuality", 0, 2, CL::None, "Graphic::CloudQualityScale" },
-             { P::ShadowCascades, G::Shadows, "Shadows.Cascades", 1, 4, CL::None,
-               "MeshRenderer scene-view ShadowQuality::CascadeCount" },
-             { P::ShadowMapSize, G::Shadows, "Shadows.MapSize", 512, 4096, CL::None,
-               "MeshRenderer scene-view ShadowQuality::ShadowMapSize" },
-             { P::ShadowDistance, G::Shadows, "Shadows.Distance", 1000, 100000, CL::None,
-               "MeshRenderer scene-view ShadowQuality::MaxDistance (cm)" },
+             { P::ShadowCascades, G::Shadows, "Shadows.Cascades", 1, 4, CL::None, std::nullopt },
+             { P::ShadowMapSize, G::Shadows, "Shadows.MapSize", 512, 4096, CL::None, std::nullopt },
+             { P::ShadowDistance, G::Shadows, "Shadows.Distance", 1000, 100000, CL::None, std::nullopt },
              { P::ReflectionMaxSteps, G::Reflections, "Reflections.MaxSteps", 8, 64, CL::None,
                "SSRRenderer trace push constant maxSteps (SceneRenderer SSR pass)" },
              { P::GlobalIlluminationSamples, G::GlobalIllumination, "GlobalIllumination.Samples", 8, 64, CL::None,
-               "GIResolve.shader RSM gather SAMPLES (specialization constant)" },
+               "GIResolve.shader RSM gather taps (GIResolveUB Params.z)" },
              { P::AmbientOcclusionSamples, G::PostProcess, "PostProcess.AmbientOcclusionSamples", 4, 32, CL::None,
                "SSAORenderer kernel sampleCount (SSAO.shader MAX_SAMPLES = 32)" },
              { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
-               "BloomRenderer mip chain length (BloomRenderer::kMaxBloomMips = 6 caps it)" },
+               "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },
@@ -933,7 +932,8 @@ namespace Common::Scalability
     QualityState::ApplyReport QualityState::ApplyRecommended( const std::array<Level, kGroupCount>& levels )
     {
         // UE's benchmark sets the group levels and nothing else; overrides belong to a choice the player made,
-        // and the host calls this only when there is none (GpuBenchmark.hpp).
+        // and the host calls this on a first run with no saved choice (QualityBoot) or when the user asks for it
+        // (the editor Scalability panel's "Apply recommended").
         QualitySelection selection;
         selection.Levels = levels;
         return Apply( selection );

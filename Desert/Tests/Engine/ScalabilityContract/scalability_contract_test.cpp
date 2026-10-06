@@ -6,6 +6,7 @@
 // SHIPPED file itself, so a hand edit that breaks the loader's rules reddens here and not at the player's boot.
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <Common/Settings/DisplaySettings.hpp>
+#include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/GpuBenchmark.hpp>
@@ -575,6 +576,60 @@ TEST( ScalabilityContract, TheShippedTableParsesAndHighNeedsNoFallbackOnACapable
     for ( const Fallback& f : r.Fallbacks )
         ADD_FAILURE() << FormatFallback( f );
     EXPECT_EQ( r.Scale, ScaleMode::Native );
+}
+
+// HIGH IS TODAY'S FRAME. A machine that never chose a level starts on High, so every High value of the shipped
+// table must be the value the renderer used before the table existed - otherwise the switch to scalability
+// changes the default picture with nobody asking. Each constant is named after the place it lived:
+TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeTheTable )
+{
+    // MachineSettings before SCAL1 (c830e1a8c^): AAMethod = FXAA; MSAASamples = 4 was read only under MSAA, so
+    // FXAA ran at one sample; MeshLOD = true; TextureFilterMode = Trilinear; Anisotropy = 8 (read only under
+    // Anisotropic); CloudQualityTier = High.
+    constexpr ParameterValue kOldAntiAliasing = static_cast<ParameterValue>( AntiAliasingMethod::FXAA );
+    constexpr ParameterValue kOldSamples      = 1;
+    constexpr ParameterValue kOldMeshLOD      = 1;
+    constexpr ParameterValue kOldFilter       = static_cast<ParameterValue>( Common::Settings::TextureFilter::Trilinear );
+    constexpr ParameterValue kOldAnisotropy   = 8;
+    constexpr ParameterValue kOldCloudQuality = static_cast<ParameterValue>( Common::Settings::CloudQuality::High );
+    // Graphic::kSceneShadowQuality (ShadowCascades.hpp): 4 cascades of 2048 over 150 m.
+    constexpr ParameterValue kOldShadowCascades = 4;
+    constexpr ParameterValue kOldShadowMapSize  = 2048;
+    constexpr ParameterValue kOldShadowDistance = 15000; // cm
+    // SceneRendererFrameDeferred.cpp before S2: RecordTrace( ..., /*maxSteps*/ 32, ...), SSAO Record( ...,
+    // /*samples*/ 16 ); GIResolve.shader `const int SAMPLES = 32`; BloomRenderer::kMaxBloomMips = 6.
+    constexpr ParameterValue kOldSSRSteps   = 32;
+    constexpr ParameterValue kOldSSAOTaps   = 16;
+    constexpr ParameterValue kOldGITaps     = 32;
+    constexpr ParameterValue kOldBloomMips  = 6;
+    constexpr ParameterValue kOldScale      = 100;
+
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::ifstream in( std::filesystem::path( root ) / "Editor/Resources/Config/Scalability.json",
+                            std::ios::binary );
+    std::ostringstream  text;
+    text << in.rdbuf();
+    const auto parsed = ScalabilityTable::Parse( text.str() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const ScalabilityTable& table = parsed.GetValue();
+    const auto              high  = [&]( Parameter p ) { return table.ValueAt( p, Level::High ); };
+
+    EXPECT_EQ( high( Parameter::AntiAliasingMethod ), kOldAntiAliasing );
+    EXPECT_EQ( high( Parameter::AntiAliasingSamples ), kOldSamples );
+    EXPECT_EQ( high( Parameter::RenderScalePercent ), kOldScale );
+    EXPECT_EQ( high( Parameter::Upscaler ), static_cast<ParameterValue>( Upscaler::None ) );
+    EXPECT_EQ( high( Parameter::MeshLOD ), kOldMeshLOD );
+    EXPECT_EQ( high( Parameter::TextureFilter ), kOldFilter );
+    EXPECT_EQ( high( Parameter::Anisotropy ), kOldAnisotropy );
+    EXPECT_EQ( high( Parameter::CloudQuality ), kOldCloudQuality );
+    EXPECT_EQ( high( Parameter::ShadowCascades ), kOldShadowCascades );
+    EXPECT_EQ( high( Parameter::ShadowMapSize ), kOldShadowMapSize );
+    EXPECT_EQ( high( Parameter::ShadowDistance ), kOldShadowDistance );
+    EXPECT_EQ( high( Parameter::ReflectionMaxSteps ), kOldSSRSteps );
+    EXPECT_EQ( high( Parameter::AmbientOcclusionSamples ), kOldSSAOTaps );
+    EXPECT_EQ( high( Parameter::GlobalIlluminationSamples ), kOldGITaps );
+    EXPECT_EQ( high( Parameter::BloomMips ), kOldBloomMips );
 }
 
 // ---- Presets ---------------------------------------------------------------------------------------------

@@ -638,6 +638,9 @@ namespace Desert::Graphic
         m_EnableSSR      = post.EnableSSR;
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
+        m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
+        m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
+        m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in the Transparency phase.

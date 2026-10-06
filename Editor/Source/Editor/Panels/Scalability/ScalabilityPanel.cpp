@@ -2,14 +2,20 @@
 
 #include <Editor/Core/ImGuiUtilities.hpp>
 
+#include <Common/Settings/MachineSettings.hpp>
+#include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/GpuBenchmark.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 
 #include <rflcpp/rfl/enums.hpp>
 
 #include <algorithm>
+#include <array>
+#include <iterator>
 #include <format>
 #include <optional>
 #include <string>
@@ -56,6 +62,33 @@ namespace Desert::Editor
         std::string LevelLabel( std::size_t level )
         {
             return std::string( SC::LevelKey( static_cast<SC::Level>( level ) ) );
+        }
+
+        // "High" when every listed group is recommended one level, else "Shadows Medium, Textures High, ...".
+        std::string RecommendedLabel( const std::array<SC::Level, SC::kGroupCount>& levels )
+        {
+            std::optional<SC::Level> uniform;
+            bool                     isUniform = true;
+            for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+            {
+                if ( !SC::IsGroupListed( static_cast<SC::Group>( g ) ) )
+                    continue;
+                if ( uniform && *uniform != levels[g] )
+                    isUniform = false;
+                uniform = levels[g];
+            }
+            if ( isUniform && uniform )
+                return std::string( SC::LevelKey( *uniform ) );
+            std::string text;
+            for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+            {
+                const auto group = static_cast<SC::Group>( g );
+                if ( !SC::IsGroupListed( group ) )
+                    continue;
+                std::format_to( std::back_inserter( text ), "{}{} {}", text.empty() ? "" : ", ", SC::GroupKey( group ),
+                                SC::LevelKey( levels[g] ) );
+            }
+            return text;
         }
 
         // Requested -> effective for one parameter, from the resolution's own fallback list.
@@ -112,6 +145,22 @@ namespace Desert::Editor
                 if ( const auto level = ValueCombo( label.c_str(), static_cast<std::size_t>( selection.Levels[g] ),
                                                     SC::kLevelCount, LevelLabel ) )
                     SC::QualityState::SetGroupLevel( group, static_cast<SC::Level>( *level ) );
+            }
+
+            // THE BENCHMARK'S ANSWER for this device, shown only while it is still valid here (same device,
+            // driver and table version — CacheValid). A machine with no saved selection already started on it
+            // (QualityBoot, MachineSettings::StartFrom); one with a saved selection is offered it.
+            const auto& recommended = Common::Settings::MachineSettings::Get().Recommended;
+            const SC::BenchmarkCacheKey device = Engine::MakeBenchmarkCacheKey(
+                 EngineContext::GetInstance().GetCapabilities(), SC::QualityState::Table().Version );
+            if ( SC::CacheValid( recommended, device ) )
+            {
+                ImGui::TextUnformatted( std::format( "Recommended: {}", RecommendedLabel( recommended->Levels ) ).c_str() );
+                ImGui::SameLine();
+                if ( ImGui::Button( "Apply recommended" ) )
+                    SC::QualityState::ApplyRecommended( recommended->Levels );
+                Utils::ImGuiUtilities::Tooltip( "Sets every group to the level the GPU benchmark recommended for "
+                                                "this device and drops every override." );
             }
         }
 
