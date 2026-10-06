@@ -206,6 +206,9 @@ namespace Common::Settings
                             Scalability::LevelKey( Get().Quality.Levels[g] ) );
         LOG_INFO( "[Machine] {} — quality {}; {} override(s)", s_File.string(), levels,
                   Get().Quality.Overrides.size() );
+        if ( const auto& recommended = Get().Recommended )
+            LOG_INFO( "[Machine] {} holds a benchmark recommendation (perf index {:.1f}, {})", s_File.string(),
+                      recommended->GpuPerfIndex, recommended->Timed ? "timed" : "device-class estimate" );
 
         // The migration is written back NOW, not at the user's next change (contract §4: no legacy key
         // left in the file).
