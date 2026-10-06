@@ -3228,6 +3228,57 @@ TEST( RenderGraphCompile, DeferredCompositeUploadsItsLightsAndFillsItsMaterialIn
                std::string::npos );
 }
 
+// RDG-FAULT1 C3b, lead decision B on the post chain: a post node's material is filled in the node's SETUP, before
+// the block the setup validates against its route fill - never in a Record* exec, where the first frame's
+// validation would have read an unfilled material. Every Record* of every converted renderer is checked, so a
+// new Record that fills its material goes red here; a renderer joins the table when its nodes are converted.
+TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    struct Renderer
+    {
+        const char* File;
+        const char* Class;
+    };
+    const std::string dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
+    for ( const Renderer& renderer : { Renderer{ "TonemapRenderer.cpp", "TonemapRenderer" },
+                                       Renderer{ "FXAARenderer.cpp", "FXAARenderer" } } )
+    {
+        const std::string text    = SqueezedSource( root, ( dir + renderer.File ).c_str() );
+        const std::string record  = std::string( renderer.Class ) + "::Record";
+        size_t            records = 0;
+        for ( size_t at = text.find( record ); at != std::string::npos; at = text.find( record, at + 1 ) )
+        {
+            const std::string body = FunctionBody( text.substr( at ), record );
+            ASSERT_FALSE( body.empty() ) << renderer.Class << ": no balanced body after " << record;
+            ++records;
+            for ( const char* fill :
+                  { "BindValues(", "BindInputs(", "SetRawData(", "FillMaterial(", "->Set(", "->Set<" } )
+                EXPECT_EQ( body.find( fill ), std::string::npos )
+                     << body.substr( 0, body.find( '{' ) ) << " fills its material (" << fill << ") in the exec";
+        }
+        EXPECT_GT( records, 0u ) << renderer.File << " has no " << record;
+    }
+
+    const std::string tonemap = SqueezedSource( root, ( dir + "TonemapRenderer.cpp" ).c_str() );
+    EXPECT_NE(
+         FunctionBody( tonemap, "voidTonemapRenderer::FillMaterial(" ).find( "m_MaterialTonemap->BindValues(" ),
+         std::string::npos )
+         << "the tonemap's values are bound by FillMaterial";
+    const std::string postFx =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp" );
+    const std::string node = SqueezedBody( postFx, "voidSceneRenderer::AddFrameTonemap(", "voidSceneRenderer::" );
+    const size_t      fill = node.find( "tonemap->FillMaterial(graphInputs);" );
+    const size_t      declare = node.find( "tonemap->DeclareBindings(pass,graphInputs);" );
+    const size_t      exec    = node.find( "tonemap->Record(context)" );
+    ASSERT_NE( fill, std::string::npos );
+    ASSERT_NE( declare, std::string::npos );
+    ASSERT_NE( exec, std::string::npos );
+    EXPECT_LT( fill, declare ) << "the material is filled before its route fill is declared";
+    EXPECT_LT( declare, exec ) << "both in the setup, before the exec";
+}
+
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and
 // resolved within one frame and nothing reads it the next, so the renderer keeps no StorageBuffer for it: the
 // graph creates it (Builder::CreateBuffer from AutoExposureRenderer::GetHistogramDesc), Clear and Histogram

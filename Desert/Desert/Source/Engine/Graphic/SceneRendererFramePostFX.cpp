@@ -398,12 +398,13 @@ namespace Desert::Graphic
              "PostFX: Tonemap", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
+                 tonemap->FillMaterial( graphInputs );
                  tonemap->DeclareBindings( pass, graphInputs );
                  // A fullscreen triangle writes every pixel: the old contents are not loaded.
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
-             [tonemap, graphInputs]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return tonemap->Record( context, graphInputs ); } );
+             [tonemap]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return tonemap->Record( context ); } );
     }
 
     void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures )

@@ -72,15 +72,10 @@ namespace Desert::Graphic::System
                        RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() );
     }
 
-    Common::BoolResultStr TonemapRenderer::Record( const RDG::PassContext& context, const GraphInputs& inputs )
+    void TonemapRenderer::FillMaterial( const GraphInputs& inputs )
     {
-        if ( !m_Pipeline || !m_MaterialTonemap )
-            return Common::MakeError( "PostFX: Tonemap: the tonemap pipeline is not initialised" );
-        const auto& framebuffer =
-             m_TargetFramebuffer.lock(); // We call lock internally to avoid cyclic dependencies.
-        if ( !framebuffer )
-            return Common::MakeError( "TonemapRenderer: the source framebuffer was destroyed or wasn't set up" );
-
+        if ( !m_MaterialTonemap )
+            return;
         // An effect whose nodes did not run this frame reads System.Black and adds nothing.
         const float bloomIntensity      = inputs.BloomProduced ? m_BloomIntensity : 0.0f;
         const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
@@ -92,6 +87,16 @@ namespace Desert::Graphic::System
                                         m_LightShaftTint,  lensFlareIntensity, m_LensFlareTint };
 
         m_MaterialTonemap->BindValues( params );
+    }
+
+    Common::BoolResultStr TonemapRenderer::Record( const RDG::PassContext& context )
+    {
+        if ( !m_Pipeline || !m_MaterialTonemap )
+            return Common::MakeError( "PostFX: Tonemap: the tonemap pipeline is not initialised" );
+        const auto& framebuffer =
+             m_TargetFramebuffer.lock(); // We call lock internally to avoid cyclic dependencies.
+        if ( !framebuffer )
+            return Common::MakeError( "TonemapRenderer: the source framebuffer was destroyed or wasn't set up" );
 
         const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,

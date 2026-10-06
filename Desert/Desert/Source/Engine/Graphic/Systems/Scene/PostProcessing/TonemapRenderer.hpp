@@ -58,12 +58,15 @@ namespace Desert::Graphic::System
             RDG::TextureRef LensFlare;
             bool            LensFlareProduced = false;
         };
+        // SETUP of "PostFX: Tonemap", first: the material's values, from this frame's settings and @p inputs'
+        // effect flags (an effect that did not run draws with intensity 0). Filled before DeclareBindings so the
+        // setup validates the block against the route fill the draw will use.
+        void FillMaterial( const GraphInputs& inputs );
         // SETUP of "PostFX: Tonemap": the node's one block (block 0) - every input as a SampledGraphics entry.
         void DeclareBindings( RDG::PassBuilder& pass, const GraphInputs& inputs ) const;
         // Records the fullscreen tonemap inside the render pass the frame graph opens on GetOutputImage(), from
-        // block 0 that DeclareBindings declared; @p inputs gives the effect flags (an effect that did not run
-        // draws with intensity 0).
-        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, const GraphInputs& inputs );
+        // block 0 that DeclareBindings declared and the material FillMaterial filled.
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context );
 
         void Resize( uint32_t width, uint32_t height );
 
