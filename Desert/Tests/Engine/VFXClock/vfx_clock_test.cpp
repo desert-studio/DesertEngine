@@ -220,3 +220,9 @@ TEST( VFXClock, EmitterSeedsDifferByEntityAndByEmitterAndRepeat )
     EXPECT_NE( MakeEmitterSeed( 7u, 0x100000000ull, 0u ), MakeEmitterSeed( 7u, 0x0ull, 0u ) )
          << "the UUID's high word takes part";
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
