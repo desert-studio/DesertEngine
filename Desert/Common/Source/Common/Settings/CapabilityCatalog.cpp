@@ -11,58 +11,17 @@ namespace Common::Scalability
     {
         std::string_view Name( AntiAliasingMethod value )
         {
-            switch ( value )
-            {
-                case AntiAliasingMethod::None:
-                    return "None";
-                case AntiAliasingMethod::FXAA:
-                    return "FXAA";
-                case AntiAliasingMethod::SMAA:
-                    return "SMAA";
-                case AntiAliasingMethod::MSAA:
-                    return "MSAA";
-                case AntiAliasingMethod::TAA:
-                    return "TAA";
-                case AntiAliasingMethod::FSRNative:
-                    return "FSRNative";
-                case AntiAliasingMethod::DLAA:
-                    return "DLAA";
-            }
-            return "?";
+            return kAntiAliasingMethodNames[static_cast<std::size_t>( value )];
         }
 
         std::string_view Name( Upscaler value )
         {
-            switch ( value )
-            {
-                case Upscaler::None:
-                    return "None";
-                case Upscaler::TAAU:
-                    return "TAAU";
-                case Upscaler::FSR:
-                    return "FSR";
-                case Upscaler::DLSS:
-                    return "DLSS";
-                case Upscaler::XeSS:
-                    return "XeSS";
-                case Upscaler::MetalFX:
-                    return "MetalFX";
-            }
-            return "?";
+            return kUpscalerNames[static_cast<std::size_t>( value )];
         }
 
         std::string_view Name( RayTracingMode value )
         {
-            switch ( value )
-            {
-                case RayTracingMode::None:
-                    return "None";
-                case RayTracingMode::RayQuery:
-                    return "RayQuery";
-                case RayTracingMode::RayTracingPipeline:
-                    return "RayTracingPipeline";
-            }
-            return "?";
+            return kRayTracingModeNames[static_cast<std::size_t>( value )];
         }
 
         std::string_view Name( DisplayOutput value )

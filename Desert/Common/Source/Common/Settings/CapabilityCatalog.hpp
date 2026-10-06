@@ -1,8 +1,10 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // THE CAPABILITY CATALOG — WHAT THIS DEVICE OFFERS, PER SETTING, AS A LIST (SCAL1).
@@ -140,6 +142,18 @@ namespace Common::Scalability
 
         bool operator==( const RenderScaleRange& ) const = default;
     };
+
+    // The written names of the three enums a quality parameter stores, indexed by the enum's value: the
+    // Scalability.yaml loader reads them, the catalog log line and the editor's labels print them. One list per
+    // enum so a name can never differ between the data file and the log.
+    inline constexpr std::array<std::string_view, 7> kAntiAliasingMethodNames{ "None", "FXAA",      "SMAA", "MSAA",
+                                                                               "TAA",  "FSRNative", "DLAA" };
+    inline constexpr std::array<std::string_view, 6> kUpscalerNames{ "None", "TAAU", "FSR", "DLSS", "XeSS", "MetalFX" };
+    inline constexpr std::array<std::string_view, 3> kRayTracingModeNames{ "None", "RayQuery", "RayTracingPipeline" };
+    static_assert( static_cast<std::size_t>( AntiAliasingMethod::DLAA ) + 1 == kAntiAliasingMethodNames.size() );
+    static_assert( static_cast<std::size_t>( Upscaler::MetalFX ) + 1 == kUpscalerNames.size() );
+    static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
+                   kRayTracingModeNames.size() );
 
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order
