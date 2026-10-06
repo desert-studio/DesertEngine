@@ -39,8 +39,18 @@ namespace
     namespace S   = Desert::Assets::Serialization;
     namespace VFX = Desert::VFX;
 
+    // The row stores a vec4 whatever the type, and the compiler refuses a non-zero component the type does not use;
+    // every test value goes through this, so a scalar written as glm::vec4( x ) keeps only its x.
+    glm::vec4 FitToType( S::VFXValueType type, glm::vec4 value )
+    {
+        for ( uint32_t c = S::ComponentCount( type ); c < 4; ++c )
+            value[static_cast<glm::length_t>( c )] = 0.0f;
+        return value;
+    }
+
     S::VFXModuleInput ValueInput( std::string name, S::VFXValueType type, glm::vec4 value )
     {
+        value = FitToType( type, value );
         S::VFXModuleInput in;
         in.Name   = std::move( name );
         in.Type   = type;
@@ -65,7 +75,7 @@ namespace
         in.Name   = std::move( name );
         in.Type   = type;
         in.Source = S::VFXInputSource::Random;
-        in.Random = S::VFXRandomRange{ min, max };
+        in.Random = S::VFXRandomRange{ FitToType( type, min ), FitToType( type, max ) };
         return in;
     }
 
