@@ -98,4 +98,11 @@ namespace Desert::ShaderResources::ShaderLayout
         return range.has_value() ? range->Size : 0u;
     }
 
+    // THE engine's cap on a push block, in bytes. 128 is the push-constant size every Vulkan device must
+    // support (maxPushConstantsSize minimum), so a program within it runs on any device and no per-device
+    // check exists. Shader reflection refuses a stage that declares more (ShaderReflection::ReflectStage),
+    // which covers shipped, shader-graph and user shaders alike; the ShaderCacheKey census pins every
+    // shipped program under it.
+    inline constexpr uint32_t kMaxPushBlockBytes = 128u;
+
 } // namespace Desert::ShaderResources::ShaderLayout

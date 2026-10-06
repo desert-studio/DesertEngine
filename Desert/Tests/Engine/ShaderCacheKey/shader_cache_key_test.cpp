@@ -1970,6 +1970,56 @@ TEST_F( ShaderRootFixture, NoShippedShaderClaimsOneDescriptorSlotTwice )
     EXPECT_GE( passesChecked, (int)files.size() );
 }
 
+// ─── Every shipped program's push block fits the engine cap ───────────────────────────────────────
+//
+// The owner's guarantee: no program pushes more than ShaderLayout::kMaxPushBlockBytes (128, the size every
+// Vulkan device holds). Reflection refuses a larger stage; this pins the shipped tree under it by
+// compiling every pass and reading the merged range the pipeline layout is built from (PushBlockSize).
+TEST_F( ShaderRootFixture, EveryShippedProgramsPushBlockFitsTheEngineCap )
+{
+    const auto files = ShippedShaderFiles();
+    ASSERT_GE( files.size(), 60u ) << "found " << files.size() << " shipped shaders — nothing to examine";
+
+    int programsWithAPushBlock = 0;
+    for ( const auto& file : files )
+    {
+        const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( file ) );
+        ASSERT_TRUE( parsed.IsSuccess() ) << file.string() << ": " << parsed.GetError();
+
+        const auto checkPass =
+             [&]( const std::string& passName, const std::unordered_map<ShaderStage, std::string>& stages )
+        {
+            ShaderResource::ReflectionData data;
+            for ( const auto& [stage, source] : stages )
+            {
+                const auto spirv = CompileStage( source, file, KindOf( stage ) );
+                if ( spirv.empty() )
+                    continue; // CompileStage already reported it
+                const auto diagnostics = ShaderReflection::ReflectStage( spirv, stage, data );
+                EXPECT_TRUE( diagnostics.empty() )
+                     << file.string() << " [pass '" << passName
+                     << "']: " << ( diagnostics.empty() ? std::string{} : diagnostics.front() );
+            }
+            const uint32_t size = Desert::ShaderResources::ShaderLayout::PushBlockSize( data.PushConstantRanges );
+            EXPECT_LE( size, Desert::ShaderResources::ShaderLayout::kMaxPushBlockBytes )
+                 << file.string() << " [pass '" << passName << "'] pushes " << size << " bytes";
+            if ( size > 0 )
+            {
+                ++programsWithAPushBlock;
+            }
+        };
+
+        if ( parsed.GetValue().Passes.empty() )
+            checkPass( "", parsed.GetValue().Stages );
+        else
+            for ( const auto& pass : parsed.GetValue().Passes )
+                checkPass( pass.Name, pass.Stages );
+    }
+
+    // Non-vacuous: the shipped tree pushes (meshes, post, clouds); a walk that saw no block proved nothing.
+    EXPECT_GE( programsWithAPushBlock, 10 );
+}
+
 // ─── The broken-shader fixture is still broken ────────────────────────────────────────────────────
 //
 // Г20. The repository keeps ONE shader that is meant not to compile, because two engine refusals are
