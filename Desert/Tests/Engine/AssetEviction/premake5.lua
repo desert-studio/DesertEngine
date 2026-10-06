@@ -78,6 +78,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- ui_texture_ids_test: the header-only, Vulkan-free ImageTextureIds
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
