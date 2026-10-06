@@ -236,10 +236,20 @@ TEST( VFXStackCompile, EveryStructuralChangeMovesTheKey )
     std::swap( reordered.Emitters[0].Stack.ParticleUpdate[0], reordered.Emitters[0].Stack.ParticleUpdate[1] );
     moved( reordered, "module order" );
 
-    auto valueNotBinding = Sparks();
-    valueNotBinding.Emitters[0].Stack.ParticleUpdate[1].Inputs[0] =
-         ValueInput( "SpeedLimit", S::VFXValueType::Float, glm::vec4( 5000.0f, 0, 0, 0 ) );
-    moved( valueNotBinding, "input source" );
+    // A constant and a User.* parameter are both ONE parameter-buffer row read the same way: the program is
+    // rightly the same and only the slot's filler (CPU side) differs. A Particles.* binding reads the attribute
+    // instead, so that source change is structural.
+    auto valueNotUser                                         = Sparks();
+    valueNotUser.Emitters[0].Stack.ParticleUpdate[1].Inputs[0] = ValueInput( "SpeedLimit", S::VFXValueType::Float,
+                                                                             glm::vec4( 5000.0f, 0, 0, 0 ) );
+    const auto valueRow = Compile( valueNotUser );
+    EXPECT_EQ( valueRow.Key, base );
+    EXPECT_EQ( valueRow.Slots.back().SlotKind, VFX::VFXParamSlot::Kind::Value );
+
+    auto attributeNotUser                                         = Sparks();
+    attributeNotUser.Emitters[0].Stack.ParticleUpdate[1].Inputs[0] =
+         BindingInput( "SpeedLimit", S::VFXValueType::Float, "Particles.Age" );
+    moved( attributeNotUser, "input source: parameter row -> attribute" );
 
     auto rebound                                                 = Sparks();
     rebound.Emitters[0].Stack.ParticleSpawn[0].Inputs[1].Binding = "Particles.Velocity";
