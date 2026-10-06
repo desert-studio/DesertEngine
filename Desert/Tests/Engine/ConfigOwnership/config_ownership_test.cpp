@@ -1252,7 +1252,7 @@ TEST( ConfigOwnershipCorpus, LoweringTheQualityOnThisMachineChangesNoByteOfAnySc
     quality.Quality.emplace();
     quality.Quality->Levels.fill( Common::Scalability::Level::Low );
     quality.Quality->Overrides = { { "AntiAliasing.Method", 0 }, { "Filtering.Texture", 0 } };
-    quality.Display.VSync = true;
+    quality.Display.VSync      = true;
     ASSERT_TRUE( Common::Settings::MachineSettings::Save() );
     ASSERT_TRUE( std::filesystem::exists( store ) ) << "the quality was not written anywhere at all";
 
@@ -1279,7 +1279,7 @@ TEST( ConfigOwnership, TheSerializedSettingsBlockDoesNotMoveWhenTheMachineQualit
     quality.Quality.emplace();
     quality.Quality->Levels.fill( Common::Scalability::Level::Cinematic );
     quality.Quality->Overrides = { { "AntiAliasing.Method", 3 }, { "AntiAliasing.Samples", 8 } };
-    quality.Display.VSync = false;
+    quality.Display.VSync      = false;
 
     EXPECT_EQ( Common::Json::Write( Desert::Reflection::SerializeReflected( *type, &settings ) ), before );
 }
@@ -1403,7 +1403,8 @@ namespace
     // The one override the migration wrote, or none.
     void ExpectOnly( const Migrated& m, std::optional<Common::Scalability::ParameterOverride> expected )
     {
-        ASSERT_TRUE( m.Settings.Quality.has_value() ) << "a migrated file must hold the selection it migrated into";
+        ASSERT_TRUE( m.Settings.Quality.has_value() )
+             << "a migrated file must hold the selection it migrated into";
         EXPECT_EQ( m.Settings.Quality->Levels, Common::Settings::MachineSettings::HighSelection().Levels );
         EXPECT_TRUE( m.Settings.UnknownKeys.empty() ) << "a retired key was carried into the next save";
         if ( !expected )
@@ -1525,7 +1526,8 @@ TEST( ConfigOwnership, AMachineWithNoSavedQualityStartsOnAValidRecommendationAnd
     chosen.Quality.emplace();
     chosen.Quality->Levels.fill( Common::Scalability::Level::Low );
     const MachineSettings::StartingQuality saved{ *chosen.Quality, false };
-    EXPECT_EQ( MachineSettings::StartFrom( chosen, device ), saved ) << "the benchmark overwrote the player's choice";
+    EXPECT_EQ( MachineSettings::StartFrom( chosen, device ), saved )
+         << "the benchmark overwrote the player's choice";
 }
 
 // VSync is a machine.json value (Display section), default OFF, and OFF keeps the pre-SCAL1 editor walk.
@@ -1534,7 +1536,8 @@ TEST( ConfigOwnership, VSyncIsSavedInMachineJsonAndDefaultsToTheLowestLatencyMod
     using Common::Scalability::PresentMode;
     using Common::Settings::MachineSettings;
     std::error_code             ec;
-    const std::filesystem::path store = std::filesystem::temp_directory_path() / "desert_configownership_vsync.json";
+    const std::filesystem::path store =
+         std::filesystem::temp_directory_path() / "desert_configownership_vsync.json";
     std::filesystem::remove( store, ec );
     MachineSettings::Get() = {};
     MachineSettings::Load( store, ShippedTable() );

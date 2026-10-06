@@ -85,8 +85,8 @@ namespace Desert::Editor
                 const auto group = static_cast<SC::Group>( g );
                 if ( !SC::IsGroupListed( group ) )
                     continue;
-                std::format_to( std::back_inserter( text ), "{}{} {}", text.empty() ? "" : ", ", SC::GroupKey( group ),
-                                SC::LevelKey( levels[g] ) );
+                std::format_to( std::back_inserter( text ), "{}{} {}", text.empty() ? "" : ", ",
+                                SC::GroupKey( group ), SC::LevelKey( levels[g] ) );
             }
             return text;
         }
@@ -150,12 +150,13 @@ namespace Desert::Editor
             // THE BENCHMARK'S ANSWER for this device, shown only while it is still valid here (same device,
             // driver and table version — CacheValid). A machine with no saved selection already started on it
             // (QualityBoot, MachineSettings::StartFrom); one with a saved selection is offered it.
-            const auto& recommended = Common::Settings::MachineSettings::Get().Recommended;
-            const SC::BenchmarkCacheKey device = Engine::MakeBenchmarkCacheKey(
+            const auto&                 recommended = Common::Settings::MachineSettings::Get().Recommended;
+            const SC::BenchmarkCacheKey device      = Engine::MakeBenchmarkCacheKey(
                  EngineContext::GetInstance().GetCapabilities(), SC::QualityState::Table().Version );
             if ( SC::CacheValid( recommended, device ) )
             {
-                ImGui::TextUnformatted( std::format( "Recommended: {}", RecommendedLabel( recommended->Levels ) ).c_str() );
+                ImGui::TextUnformatted(
+                     std::format( "Recommended: {}", RecommendedLabel( recommended->Levels ) ).c_str() );
                 ImGui::SameLine();
                 if ( ImGui::Button( "Apply recommended" ) )
                     SC::QualityState::ApplyRecommended( recommended->Levels );

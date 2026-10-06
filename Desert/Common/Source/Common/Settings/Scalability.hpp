@@ -104,15 +104,15 @@ namespace Common::Scalability
         MeshLOD,                // mesh LOD selection. Values: 0/1
         CloudQuality,           // Graphic::CloudQualityScale. Values: CloudQuality 0..2
         // The three shadow rows are placeholders until MeshRenderer can re-budget its maps at runtime.
-        ShadowCascades,         // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
-        ShadowMapSize,          // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
-        ShadowDistance,         // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km
+        ShadowCascades, // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
+        ShadowMapSize,  // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
+        ShadowDistance, // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km
         // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
         ReflectionMaxSteps,        // SSR trace march steps (SSRRenderer push constant). 8..64
         GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
         AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
-        BloomMips,                 // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
+        BloomMips, // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB,      // Textures: resident texture budget

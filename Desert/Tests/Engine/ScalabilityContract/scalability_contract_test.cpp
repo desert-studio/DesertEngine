@@ -589,20 +589,22 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     constexpr ParameterValue kOldAntiAliasing = static_cast<ParameterValue>( AntiAliasingMethod::FXAA );
     constexpr ParameterValue kOldSamples      = 1;
     constexpr ParameterValue kOldMeshLOD      = 1;
-    constexpr ParameterValue kOldFilter       = static_cast<ParameterValue>( Common::Settings::TextureFilter::Trilinear );
-    constexpr ParameterValue kOldAnisotropy   = 8;
-    constexpr ParameterValue kOldCloudQuality = static_cast<ParameterValue>( Common::Settings::CloudQuality::High );
+    constexpr ParameterValue kOldFilter =
+         static_cast<ParameterValue>( Common::Settings::TextureFilter::Trilinear );
+    constexpr ParameterValue kOldAnisotropy = 8;
+    constexpr ParameterValue kOldCloudQuality =
+         static_cast<ParameterValue>( Common::Settings::CloudQuality::High );
     // Graphic::kSceneShadowQuality (ShadowCascades.hpp): 4 cascades of 2048 over 150 m.
     constexpr ParameterValue kOldShadowCascades = 4;
     constexpr ParameterValue kOldShadowMapSize  = 2048;
     constexpr ParameterValue kOldShadowDistance = 15000; // cm
     // SceneRendererFrameDeferred.cpp before S2: RecordTrace( ..., /*maxSteps*/ 32, ...), SSAO Record( ...,
     // /*samples*/ 16 ); GIResolve.shader `const int SAMPLES = 32`; BloomRenderer::kMaxBloomMips = 6.
-    constexpr ParameterValue kOldSSRSteps   = 32;
-    constexpr ParameterValue kOldSSAOTaps   = 16;
-    constexpr ParameterValue kOldGITaps     = 32;
-    constexpr ParameterValue kOldBloomMips  = 6;
-    constexpr ParameterValue kOldScale      = 100;
+    constexpr ParameterValue kOldSSRSteps  = 32;
+    constexpr ParameterValue kOldSSAOTaps  = 16;
+    constexpr ParameterValue kOldGITaps    = 32;
+    constexpr ParameterValue kOldBloomMips = 6;
+    constexpr ParameterValue kOldScale     = 100;
 
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );

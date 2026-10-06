@@ -130,11 +130,9 @@ namespace Desert::Graphic::System
 
         // Pass 1, inside the render pass the graph opens on the gather transient (cleared to 0): jittered VPL
         // gather. Every texture of @p inputs is bound by shader name through RDG::PassBindings.
-        [[nodiscard]] Common::BoolResultStr RecordGather( const RDG::PassContext& context,
-                                                          const GIGatherInputs&   inputs,
-                                                          const glm::mat4&        rsmViewProj,
-                                                          const glm::vec4& sunColorIntensity, float giIntensity,
-                                                          int samples )
+        [[nodiscard]] Common::BoolResultStr
+        RecordGather( const RDG::PassContext& context, const GIGatherInputs& inputs, const glm::mat4& rsmViewProj,
+                      const glm::vec4& sunColorIntensity, float giIntensity, int samples )
         {
             // @p samples: VPL gather taps per pixel (GlobalIllumination.Samples, Scalability), a uniform like
             // every other cost knob so one pipeline serves every level.

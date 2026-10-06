@@ -381,7 +381,8 @@ namespace Common::Settings
             const Scalability::Parameter parameter = *kRetiredKeys[k].Becomes;
             if ( *values[k] == table.ValueAt( parameter, Scalability::Level::High ) )
                 continue;
-            settings.Quality->Overrides.push_back( { std::string( Scalability::SpecOf( parameter ).Key ), *values[k] } );
+            settings.Quality->Overrides.push_back(
+                 { std::string( Scalability::SpecOf( parameter ).Key ), *values[k] } );
             ++result.Overrides;
         }
         return result;

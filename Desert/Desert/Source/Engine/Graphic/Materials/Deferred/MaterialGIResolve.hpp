@@ -31,7 +31,7 @@ namespace Desert::Graphic
             data.RSMViewProj = rsmViewProj;
             data.SunColor    = sunColorIntensity;
             const bool valid = giIntensity > 0.0f;
-            data.Params      = glm::vec4( giIntensity, valid ? 1.0f : 0.0f, static_cast<float>( samples ), jitterSeed );
+            data.Params = glm::vec4( giIntensity, valid ? 1.0f : 0.0f, static_cast<float>( samples ), jitterSeed );
 
             if ( auto* ub = Get<UniformBufferProperty>( "GIResolveUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

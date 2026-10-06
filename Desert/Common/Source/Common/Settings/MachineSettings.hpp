@@ -166,7 +166,7 @@ namespace Common::Settings
         struct StartingQuality
         {
             Scalability::QualitySelection Selection;
-            bool                          FromRecommended = false;
+            bool                          FromRecommended                            = false;
             bool                          operator==( const StartingQuality& ) const = default;
         };
         [[nodiscard]] static StartingQuality StartFrom( const MachineSettings&                settings,

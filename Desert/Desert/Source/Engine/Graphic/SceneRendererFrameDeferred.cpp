@@ -287,8 +287,8 @@ namespace Desert::Graphic
               giSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  // Read when the node runs: the RSM node before it is what sets this frame's light matrix.
-                 return gi->RecordGather( context, inputs, meshRenderer->GetRSMViewProj(), lightColor,
-                                          giIntensity, giSamples );
+                 return gi->RecordGather( context, inputs, meshRenderer->GetRSMViewProj(), lightColor, giIntensity,
+                                          giSamples );
              } );
         const RDG::TextureRef worldPos = gbuffer[2];
         graph.AddPass(

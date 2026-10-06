@@ -230,7 +230,7 @@ TEST( CloudProtocolScene, TheTierTheProtocolIsMeasuredAtIsTheMachineDefaultAndTh
     // Effects group at High with no override (whose table value ScalabilityContract pins to High).
     // A fresh machine with no benchmark recommendation starts on MachineSettings::StartFrom's answer.
     const Common::Settings::MachineSettings fresh;
-    const auto start = Common::Settings::MachineSettings::StartFrom( fresh, {} );
+    const auto                              start = Common::Settings::MachineSettings::StartFrom( fresh, {} );
     EXPECT_FALSE( start.FromRecommended );
     EXPECT_EQ( start.Selection.Levels[static_cast<std::size_t>( Common::Scalability::Group::Effects )],
                Common::Scalability::Level::High );

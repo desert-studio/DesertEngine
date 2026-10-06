@@ -113,12 +113,17 @@ namespace Desert::Graphic::API::Vulkan
                 swapchainPresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
                 break;
         }
+        // Braced: the LOG_* macros expand to more than one statement, so an unbraced if/else does not pair.
         if ( present.Reason.empty() )
+        {
             LOG_INFO( "[SwapChain] Present mode: {} (VSync {})", rfl::enum_to_string( present.Mode ),
                       m_Display.VSync ? "on" : "off" );
+        }
         else
+        {
             LOG_WARN( "[SwapChain] Present mode: {} (VSync {}): {}", rfl::enum_to_string( present.Mode ),
                       m_Display.VSync ? "on" : "off", present.Reason );
+        }
 
         VkSurfaceTransformFlagsKHR preTransform;
         if ( surfCaps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR )

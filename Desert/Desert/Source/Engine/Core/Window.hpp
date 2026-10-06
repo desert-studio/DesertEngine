@@ -34,7 +34,7 @@ namespace Desert
         bool        Fullscreen = false;
         // When Fullscreen (borderless): cover the whole monitor (over the taskbar) if true, else fit the
         // monitor work area (taskbar stays visible).
-        bool        FullscreenCoverTaskbar = false;
+        bool FullscreenCoverTaskbar = false;
         // FALSE = CREATED HIDDEN, and nothing but `Window::Show` puts it on screen. The editor asks for it:
         // a full-size window that is blank and not answering for the seconds its start takes is what its
         // own splash exists to replace (Editor/Splash/SplashScreen.hpp), and the swapchain renders into a

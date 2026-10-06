@@ -68,21 +68,21 @@ namespace Desert::Graphic::QualityBoot
         if ( const auto window = EngineContext::GetInstance().GetWindow() )
             window->SetDisplay( machine.Display );
 
-        const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
-        const MachineSettings::StartingQuality start = MachineSettings::StartFrom(
+        const auto&                            capabilities = EngineContext::GetInstance().GetCapabilities();
+        const MachineSettings::StartingQuality start        = MachineSettings::StartFrom(
              machine, Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version ) );
         // A first run with a valid recommendation starts on High and then APPLIES the recommendation, so the
         // Saver writes it: from then on machine.json holds a selection and the benchmark never overrides it.
-        Common::Scalability::QualityState::Initialize( table.ExtractValue(), capabilities.Catalog,
-                                                       start.FromRecommended ? MachineSettings::HighSelection()
-                                                                             : start.Selection,
-                                                       &SaveSelection );
+        Common::Scalability::QualityState::Initialize(
+             table.ExtractValue(), capabilities.Catalog,
+             start.FromRecommended ? MachineSettings::HighSelection() : start.Selection, &SaveSelection );
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
         if ( start.FromRecommended )
         {
-            LOG_INFO( "[Scalability] no quality chosen on this machine yet: applying the benchmark's recommendation "
-                      "(perf index {:.1f})",
-                      machine.Recommended->GpuPerfIndex );
+            LOG_INFO(
+                 "[Scalability] no quality chosen on this machine yet: applying the benchmark's recommendation "
+                 "(perf index {:.1f})",
+                 machine.Recommended->GpuPerfIndex );
             Common::Scalability::QualityState::ApplyRecommended( start.Selection.Levels );
         }
         PushSamplerState( Common::Scalability::QualityState::Resolved(), nullptr );
