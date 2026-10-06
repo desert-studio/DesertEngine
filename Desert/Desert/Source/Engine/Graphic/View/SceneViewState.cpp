@@ -56,13 +56,39 @@ namespace Desert::Graphic
             }
             return "<unknown TemporalMethod>";
         }
+
+        // HistoryTextureDesc's naming rule: every side of every history has its own non-empty graph name.
+        [[nodiscard]] Common::BoolResultStr CheckHistoryNames( const std::span<const HistoryTextureDesc> descs,
+                                                               const std::string_view upscalerName )
+        {
+            std::vector<std::string_view> seen;
+            seen.reserve( descs.size() * 2 );
+            for ( std::size_t i = 0; i < descs.size(); ++i )
+            {
+                for ( const char* side : { descs[i].Name, descs[i].PreviousName } )
+                {
+                    const std::string_view name = side != nullptr ? std::string_view( side ) : std::string_view();
+                    if ( name.empty() )
+                        return Common::MakeFormattedError<bool>(
+                             "SceneViewState::BeginFrame: upscaler '{}' declares history {} with an empty {}",
+                             upscalerName, i, side == descs[i].Name ? "Name" : "PreviousName" );
+                    if ( std::find( seen.begin(), seen.end(), name ) != seen.end() )
+                        return Common::MakeFormattedError<bool>( "SceneViewState::BeginFrame: upscaler '{}' declares "
+                                                           "the history name '{}' twice (history {})",
+                                                           upscalerName, name, i );
+                    seen.push_back( name );
+                }
+            }
+            return Common::MakeSuccess( true );
+        }
     } // namespace
 
     // ---- TemporalHistory ------------------------------------------------------------------------------------
 
     bool HistoryTextureDesc::operator==( const HistoryTextureDesc& other ) const
     {
-        return SameTextureDesc( Desc, other.Desc ) && std::string_view( Name ) == std::string_view( other.Name );
+        return SameTextureDesc( Desc, other.Desc ) && std::string_view( Name ) == std::string_view( other.Name ) &&
+               std::string_view( PreviousName ) == std::string_view( other.PreviousName );
     }
 
     bool TemporalHistory::Prepare( std::span<const HistoryTextureDesc> descs )
@@ -76,9 +102,8 @@ namespace Desert::Graphic
         for ( const HistoryTextureDesc& history : m_Descs )
             m_Pairs.push_back( { RDG::ExternalTexture( history.Desc, RDG::Access::None ),
                                  RDG::ExternalTexture( history.Desc, RDG::Access::None ) } );
-        // The physical images are NOT created here: this file is device-free (the TemporalViewContract suite
-        // links it with no backend). REMAINDER-TAA1-I1.md: the header needs the device step that fills
-        // ExternalTexture::Physical for both sides of each pair through the engine image factory.
+        // No physical image here: this file is device-free. AllocatePhysical (TemporalHistoryPhysical.cpp) fills
+        // both sides of each new pair.
         return true;
     }
 
@@ -89,10 +114,9 @@ namespace Desert::Graphic
         m_RegisteredCurrent.clear();
         for ( std::size_t i = 0; i < m_Pairs.size(); ++i )
         {
-            const std::string_view name = m_Descs[i].Name;
-            HistoryRefs            history;
-            history.Previous = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot ^ 1u], name );
-            history.Current  = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot], name );
+            HistoryRefs history;
+            history.Previous = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot ^ 1u], m_Descs[i].PreviousName );
+            history.Current  = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot], m_Descs[i].Name );
             graph.SetFaultPolicy( history.Current, kHistoryFaultPolicy );
             m_RegisteredCurrent.push_back( history.Current.Index );
             refs.push_back( history );
@@ -120,6 +144,7 @@ namespace Desert::Graphic
     {
         m_Descs.clear();
         m_Pairs.clear();
+        m_Images.clear();
         m_CurrentSlot = 0;
         m_RegisteredCurrent.clear();
     }
@@ -184,11 +209,20 @@ namespace Desert::Graphic
                      split.GetValue().RenderScalePercent );
         }
 
-        // A BeginFrame whose frame never reached EndFrame (FrameFault, no graph): it never happened. Its motion
-        // records cannot be told apart from this frame's, so they go (objects lose one frame of object motion).
-        const bool lastFrameUnended = m_HasCommitted && m_Pending.FrameIndex != m_Committed.FrameIndex;
-        if ( lastFrameUnended )
-            m_Motion.Clear();
+        const std::vector<HistoryTextureDesc> descs =
+             upscaler != nullptr ? upscaler->HistoryDescs( split.GetValue() ) : std::vector<HistoryTextureDesc>{};
+        if ( upscaler != nullptr )
+        {
+            const Common::BoolResultStr named = CheckHistoryNames( descs, upscaler->DebugName() );
+            if ( !named.IsSuccess() )
+                return Common::MakeError<ViewFrame>( named.GetError() );
+        }
+
+        // A BeginFrame whose frame never reached EndFrame (FrameFault, no graph): it never happened. Only ITS
+        // motion records go; the previous frame's stay, since they belong to the committed frame that this
+        // frame's Prev* matrices and history textures also belong to.
+        if ( m_FrameOpen )
+            m_Motion.DiscardCurrent();
 
         if ( inputs.SceneIdentity != m_SceneIdentity )
         {
@@ -196,23 +230,18 @@ namespace Desert::Graphic
             m_SceneIdentity = inputs.SceneIdentity;
         }
 
-        const std::vector<HistoryTextureDesc> descs =
-             upscaler != nullptr ? upscaler->HistoryDescs( split.GetValue() ) : std::vector<HistoryTextureDesc>{};
         const bool historyRecreated = m_History.Prepare( descs );
 
-        // The camera identity of the committed frame. Only written here when it differs, which makes this frame
-        // a reset; if this frame then never ends, the next one resets as a cut too (the committed identity is no
-        // longer known). REMAINDER-TAA1-I1.md: a pending identity member would make that exact.
-        const bool cameraUnknown  = lastFrameUnended && m_Pending.HistoryReset == HistoryResetReason::CameraCut;
-        const bool cameraChanged  = inputs.CameraIdentity != m_CommittedCameraIdentity;
-        m_CommittedCameraIdentity = inputs.CameraIdentity;
+        // Compared with the camera of the COMMITTED frame (the one the history and every Prev* belong to); this
+        // frame's camera is only pending until its EndFrame, so an unended frame changes nothing here.
+        const bool cameraChanged = inputs.CameraIdentity != m_CommittedCameraIdentity;
 
         HistoryResetReason reset = HistoryResetReason::None;
         if ( !m_HasCommitted )
             reset = HistoryResetReason::FirstFrame;
         else if ( m_PendingFaultReset )
             reset = HistoryResetReason::PassFault;
-        else if ( inputs.CameraCut || cameraChanged || cameraUnknown )
+        else if ( inputs.CameraCut || cameraChanged )
             reset = HistoryResetReason::CameraCut;
         else if ( !( split.GetValue() == m_Committed.Split ) )
             reset = HistoryResetReason::Resize;
@@ -272,7 +301,9 @@ namespace Desert::Graphic
 
         f.HistoryReset = reset;
 
-        m_Pending = f;
+        m_Pending               = f;
+        m_PendingCameraIdentity = inputs.CameraIdentity;
+        m_FrameOpen             = true;
         return Common::MakeSuccess( f );
     }
 
@@ -288,8 +319,10 @@ namespace Desert::Graphic
 
     void SceneViewState::EndFrame( const RDG::ExecuteReport& report )
     {
-        m_Committed         = m_Pending;
-        m_HasCommitted      = true;
+        m_Committed               = m_Pending;
+        m_CommittedCameraIdentity = m_PendingCameraIdentity;
+        m_HasCommitted            = true;
+        m_FrameOpen               = false;
         m_JitterIndex       = m_Committed.JitterSequenceLength == 0
                                    ? 0
                                    : ( m_Committed.JitterIndex + 1 ) % m_Committed.JitterSequenceLength;
@@ -306,6 +339,8 @@ namespace Desert::Graphic
         m_Pending                 = ViewFrame{};
         m_Committed               = ViewFrame{};
         m_CommittedCameraIdentity = 0;
+        m_PendingCameraIdentity   = 0;
+        m_FrameOpen               = false;
         m_PendingFaultReset       = false;
         m_JitterIndex             = 0;
     }

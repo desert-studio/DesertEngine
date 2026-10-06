@@ -20,6 +20,8 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/View/ViewFrame.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/View/SceneViewState.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/View/MotionHistory.cpp",
+        -- the device step, run against the suite's mock IImageFactory / IGraphImageImporter (no backend)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/View/TemporalHistoryPhysical.cpp",
         -- the graph the history registers into (no backend runs: Register / ExecuteReport only)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGBuilder.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGCompile.cpp",

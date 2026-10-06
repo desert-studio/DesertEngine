@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -19,6 +20,13 @@ namespace Desert::Graphic::RDG
 {
     class Builder;
 }
+
+namespace Desert::Graphic
+{
+    class Image2D;
+    class IImageFactory;       // Graphic/ImageFactory.hpp
+    class IGraphImageImporter; // Graphic/GraphImageImporter.hpp
+} // namespace Desert::Graphic
 
 // TAA1 — THE PERSISTENT PER-VIEW STATE (UE: FSceneViewState). Everything a view must remember from one of its
 // frames to the next: the previous matrices and time, the jitter position, whether the history may be read, the
@@ -119,6 +127,10 @@ namespace Desert::Graphic
         // This frame's records become "previous"; a key not recorded this frame is dropped (an object that was not
         // drawn must not reappear later with a stale transform: it reappears with no object motion).
         void EndFrame();
+        // The frame that recorded since the last EndFrame never ended (SceneViewState: "as if it never happened"):
+        // drops only its records. The previous frame's records stay, because they still belong to the last
+        // committed frame, which the next frame's Prev* matrices and history textures also belong to.
+        void DiscardCurrent();
         // Scene changed (ViewInputs::SceneIdentity) or the view was re-created.
         void Clear();
 
@@ -172,7 +184,13 @@ namespace Desert::Graphic
     struct HistoryTextureDesc
     {
         RDG::TextureDesc Desc;
-        const char*      Name = ""; // graph name, e.g. "TAA.History"
+        // Graph names of the two sides as registered each frame, e.g. "TAA.History" (written this frame) and
+        // "TAA.History.Previous" (read this frame). Both static strings (the graph keeps a view while building),
+        // non-empty and different from each other and from every other history's names — SceneViewState::BeginFrame
+        // refuses an upscaler whose descs break that, naming it: two externals under one name make every graph
+        // dump, fault report and capture ambiguous about which side a pass touched.
+        const char* Name         = "";
+        const char* PreviousName = "";
 
         bool operator==( const HistoryTextureDesc& other ) const;
     };
@@ -191,6 +209,20 @@ namespace Desert::Graphic
         // TemporalMethodChange. Empty @p descs releases them (TemporalMethod::None holds no history memory).
         [[nodiscard]] bool Prepare( std::span<const HistoryTextureDesc> descs );
 
+        // THE DEVICE STEP. Creates the GPU image of every pair side that has none — after Prepare recreated the
+        // pairs (first use, resize, method change), i.e. 2 images per history — through @p images, and imports
+        // each into its RDG::ExternalTexture through @p importer (the image's graph desc, its physical image, its
+        // recorded layout and the hook that writes the final layout back: Renderer::ImportImage). Images are
+        // 2D, Storage | Sample (the temporal pass writes Current from compute and samples Previous). Nothing
+        // to do -> success without a call. All or nothing: on any failure no side keeps a new image and the
+        // error names the history and side (a factory that made no image, an import error, an image whose
+        // graph desc is not the declared one). Prepare stays device-free; the owner of the view calls this
+        // after SceneViewState::BeginFrame and before Register. Implemented in TemporalHistoryPhysical.cpp
+        // (interfaces only: the device lives behind the two seams).
+        [[nodiscard]] Common::BoolResultStr AllocatePhysical( const IImageFactory&       images,
+                                                              const IGraphImageImporter& importer );
+        [[nodiscard]] bool                  HasPhysical() const; // every side has its image (true when no history)
+
         // Registers each pair into @p graph (Current with kHistoryFaultPolicy) and remembers the Current indices
         // for EndFrame. One call per frame, by the temporal pass's owner.
         [[nodiscard]] std::vector<HistoryRefs> Register( RDG::Builder& graph );
@@ -206,6 +238,8 @@ namespace Desert::Graphic
     private:
         std::vector<HistoryTextureDesc>                  m_Descs;
         std::vector<std::array<RDG::ExternalTexture, 2>> m_Pairs;
+        // The images behind m_Pairs, same indices; empty until AllocatePhysical, cleared by Prepare / Release.
+        std::vector<std::array<std::shared_ptr<Image2D>, 2>> m_Images;
         uint32_t                                         m_CurrentSlot = 0;
         std::vector<uint32_t>                            m_RegisteredCurrent; // RDG indices of this frame
     };
@@ -250,7 +284,9 @@ namespace Desert::Graphic
         bool            m_HasCommitted = false;
         ViewFrame       m_Pending;   // returned by the last BeginFrame, committed by EndFrame
         ViewFrame       m_Committed; // the previous frame
-        uint64_t        m_CommittedCameraIdentity = 0;
+        uint64_t        m_CommittedCameraIdentity = 0; // the camera of m_Committed (written by EndFrame only)
+        uint64_t        m_PendingCameraIdentity   = 0; // the camera of m_Pending (written by BeginFrame)
+        bool            m_FrameOpen               = false; // a BeginFrame succeeded and its EndFrame has not run
         uint64_t        m_SceneIdentity           = 0;
         bool            m_PendingFaultReset       = false;
         uint32_t        m_JitterIndex             = 0;

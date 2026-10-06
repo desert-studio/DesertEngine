@@ -172,6 +172,9 @@ namespace Desert::Graphic::RDG
         // what depends on its shape (mip count, extent, format) from the texture itself, never from a value
         // its producer publishes beside the ref. Refused for a handle that is not a texture of this graph.
         Common::ResultStr<TextureDesc> GetTextureDesc( TextureRef texture ) const;
+        // The name a created or registered texture was given (what dumps, fault reports and captures show).
+        // Valid while the builder lives. Refused for a handle that is not a texture of this graph.
+        Common::ResultStr<std::string_view> GetTextureName( TextureRef texture ) const;
 
         // The resource's current state is the one it carries (ExternalTexture::SubresourceStates); the
         // graph does not take a second copy of it as an argument.

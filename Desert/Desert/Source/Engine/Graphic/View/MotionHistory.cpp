@@ -37,6 +37,12 @@ namespace Desert::Graphic
         m_CurBones.clear();
     }
 
+    void MotionHistory::DiscardCurrent()
+    {
+        m_CurTransforms.clear();
+        m_CurBones.clear();
+    }
+
     void MotionHistory::Clear()
     {
         m_PrevTransforms.clear();
