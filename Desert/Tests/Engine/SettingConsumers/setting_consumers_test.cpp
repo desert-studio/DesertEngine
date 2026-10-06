@@ -784,6 +784,22 @@ namespace
          { "Tag", kPlayerStart },
     };
 
+    // A procedural foliage volume (S1): the Details button's resimulation reads every spawner and filter field
+    // (ProceduralFoliageResimulate.cpp); the type list is resolved by FoliagePaintTool::ResimulateProcedural.
+    constexpr const char* kFoliageResimulate =
+         "Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp";
+    constexpr Row kProceduralFoliageRows[] = {
+         { "Extent", kFoliageResimulate },
+         { "TileSize", kFoliageResimulate },
+         { "MinimumQuadTreeSize", kFoliageResimulate },
+         { "NumUniqueTiles", kFoliageResimulate },
+         { "RandomSeed", kFoliageResimulate },
+         { "TileOverlap", kFoliageResimulate },
+         { "AllowLandscape", kFoliageResimulate },
+         { "AllowStaticMesh", kFoliageResimulate },
+         { "FoliageTypes", "Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.cpp" },
+    };
+
     // What Play streams around (WP24): every field is read by Core::WorldStreamer::GatherSources.
     constexpr Row kStreamingSourceRows[] = {
          { "Enabled", kWorldStreamer },
@@ -994,6 +1010,7 @@ namespace
          { "RetargetData", "RetargetComponent", nullptr, CENSUS_ROWS( kRetargetRows ) },
          { "PlayerStartData", "PlayerStartComponent", nullptr, CENSUS_ROWS( kPlayerStartRows ) },
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
+         { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIPathData", "UIPathComponent", nullptr, CENSUS_ROWS( kPathRows ) },
          { "UIRetainerData", "UIRetainerComponent", nullptr, CENSUS_ROWS( kRetainerRows ) },

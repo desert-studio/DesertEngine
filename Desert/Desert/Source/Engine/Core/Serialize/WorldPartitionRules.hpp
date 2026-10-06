@@ -516,6 +516,9 @@ namespace Desert::Core::Rules
          { "CubeGridBlockout", ComponentLoading::Spatial }, // the voxels its own mesh was baked from
          { "Folder", ComponentLoading::Spatial },           // an outliner grouping: its children decide
          { "Foliage", ComponentLoading::Spatial },
+         // UE AProceduralFoliageVolume is an actor placed in a cell like any other: its box (translation +-
+         // Extent) is its footprint, and what it grows lands in its own foliage fields, placed by theirs.
+         { "ProceduralFoliage", ComponentLoading::Spatial },
          { "InstancedStaticMesh", ComponentLoading::Spatial }, // its instances are its footprint
          { "Lock", ComponentLoading::Spatial },
          { "Locomotion", ComponentLoading::Spatial },

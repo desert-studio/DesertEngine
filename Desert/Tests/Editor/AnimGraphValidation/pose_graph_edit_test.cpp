@@ -139,9 +139,10 @@ TEST( PoseGraphEdit, TheQuestionAnswersAsTheEditRefusesAndWritesNothing )
     // THE RELATION, not either function: the Wire actions are CanConnectPose's answers and the drop is
     // ConnectPose's, so the two must refuse the same wires with the same words -- and the question must
     // leave the graph as it found it.
-    G::AnimGraph      graph = G::MakeStateMachineGraph( "Fox" );
-    const std::string a     = Add( graph, G::PoseNodeKind::ApplyAdditive );
-    const std::string b     = Add( graph, G::PoseNodeKind::LayeredBlendPerBone );
+    G::AnimGraph graph   = G::MakeStateMachineGraph( "Fox" );
+    graph.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Fox.skeleton" };
+    const std::string a  = Add( graph, G::PoseNodeKind::ApplyAdditive );
+    const std::string b  = Add( graph, G::PoseNodeKind::LayeredBlendPerBone );
     ASSERT_TRUE( EG::ConnectPose( graph.Nodes, a, b, 0 ).IsSuccess() );
     auto saved = G::Deserialize( G::Serialize( graph ) );
     ASSERT_TRUE( saved.IsSuccess() ) << saved.GetError();
