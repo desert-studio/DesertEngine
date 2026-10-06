@@ -3082,8 +3082,12 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     EXPECT_NE( source( "SceneRendererFrameDeferred.cpp" )
                     .find( "conststd::vector<RDG::TextureRef>view=inputs.View.Refs();" ),
                std::string::npos );
+    // Declared on the composite's setup block against its layout (RDG-FAULT1 C3a); the exec overload that took
+    // an RDG::PassBindings and a Shader is gone (C3b) - a re-added one is red here.
     EXPECT_NE( source( "Systems/Scene/Deferred/DeferredLightingRenderer.hpp" )
-                    .find( "BindSceneViewInputs(bindings,inputs.View,*m_Shader);" ),
+                    .find( "BindSceneViewInputs(block,inputs.View,*layout);" ),
+               std::string::npos );
+    EXPECT_EQ( source( "FrameGraphRefs.hpp" ).find( "voidBindSceneViewInputs(RDG::PassBindings&" ),
                std::string::npos );
     const std::string deferredMaterial = source( "Materials/Deferred/MaterialDeferredLighting.hpp" );
     EXPECT_NE( deferredMaterial.find( "CloudShadowUpload(this,cloudShadow)" ), std::string::npos );

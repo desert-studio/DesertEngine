@@ -213,16 +213,4 @@ namespace Desert::Graphic
         SceneViewDetail::BindWhere( block, inputs, [&layout]( std::string_view name )
                                     { return SceneViewDetail::LayoutSamples( layout, name ); } );
     }
-
-    // EXEC (the name-taking route, until every node declares its block in setup): binds every input @p shader
-    // reflects. The node must have declared @p inputs.Refs() as SampledGraphics reads.
-    inline void BindSceneViewInputs( RDG::PassBindings& bindings, const SceneViewInputs& inputs,
-                                     const Shader& shader )
-    {
-        SceneViewDetail::BindWhere( bindings, inputs,
-                                    [&shader]( std::string_view name ) {
-                                        return SceneViewDetail::Reflects2D( shader, name ) ||
-                                               SceneViewDetail::ReflectsCube( shader, name );
-                                    } );
-    }
 } // namespace Desert::Graphic
