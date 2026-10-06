@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp>
@@ -155,38 +156,32 @@ namespace Desert::Graphic::System
             };
         }
 
-        // Pass 1, from the exec of the compute node that declares @p trace and @p tiles as storage writes:
-        // classify
-        // + half-resolution trace, one dispatch (one workgroup per tile). gbuffer = the camera G-buffer's graph
-        // textures (albedo/normal/worldpos at 0/1/2, declared as SampledCompute reads of the node, bound by
-        // name); sceneCopy = this frame's snapshot of the lit opaque scene
-        // (FrameTransients::SceneColorCopy, declared as a SampledCompute read of the node, bound by name);
-        // maxDistance and thickness are WORLD distances (a world unit is a centimetre - convert through
-        // Common::Units).
+        // Pass 1, the "Deferred: SSR" compute node: classify + half-resolution trace, one dispatch (one workgroup
+        // per tile), writing @p trace and @p tiles. gbuffer = the camera G-buffer's graph textures (albedo/normal/
+        // worldpos at 0/1/2); sceneCopy = this frame's snapshot of the lit opaque scene
+        // (FrameTransients::SceneColorCopy).
         // The G-buffer colours the three passes sample, as graph textures: albedo, normal, world position.
         using GBufferInputs = std::array<RDG::TextureRef, 3>;
 
-        [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context, RDG::TextureRef trace,
-                                                         RDG::TextureRef tiles, const GBufferInputs& gbuffer,
-                                                         RDG::TextureRef sceneCopy, const glm::mat4& viewProj,
-                                                         const glm::vec4& cameraPos, int maxSteps,
-                                                         float maxDistance, float intensity, float thickness )
+        // The trace dispatch's push-constant block.
+        struct TracePush
         {
-            // Each pass is timed on its own because EnableSSR's default is a budget decision
-            // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
-            DESERT_PROFILE_PASS( "SSR: Classify + Trace" );
-            struct TracePush
-            {
-                glm::mat4 ViewProj;
-                glm::vec4 CameraPos; // xyz = camera, w = per-frame seed (jitter + 2x2 rotation)
-                glm::vec4 Params;    // x = maxSteps, y = maxDistance, z = intensity, w = thickness
-            } push{ viewProj, glm::vec4( glm::vec3( cameraPos ), static_cast<float>( m_FrameIndex % 1024u ) ),
-                    glm::vec4( static_cast<float>( maxSteps ), maxDistance, intensity, thickness ) };
+            glm::mat4 ViewProj;
+            glm::vec4 CameraPos; // xyz = camera, w = per-frame seed (jitter + 2x2 rotation)
+            glm::vec4 Params;    // x = maxSteps, y = maxDistance, z = intensity, w = thickness
+        };
 
-            RDG::PassBindings bindings( context );
-            // The sampler the pipeline-setter route sampled the copy and the G-buffer with (the images' own:
-            // linear, REPEAT) - the deferred composite reads the same G-buffer with it.
-            bindings
+        // SETUP of the "Deferred: SSR" compute node: declares its one block (block 0) - the G-buffer and
+        // @p sceneCopy sampled with the sampler the pipeline-setter route sampled them with (the images' own:
+        // linear, REPEAT; the deferred composite reads the same G-buffer with it), @p trace / @p tiles as storage
+        // writes, the TracePush bytes; the pipeline's own setters are the other route. Not prepared: nothing.
+        void DeclareTraceBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef tiles,
+                                   const GBufferInputs& gbuffer, RDG::TextureRef sceneCopy ) const
+        {
+            if ( !m_TracePipeline )
+                return;
+            pass.Bindings( m_TraceLayout.Get( *m_TraceShader ),
+                           Renderer::GetInstance().GetPipelineRouteFill( *m_TracePipeline ) )
                  .Sampled( "u_GBufferAlbedo", gbuffer[0], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
@@ -197,7 +192,26 @@ namespace Desert::Graphic::System
                            RDG::SamplerDesc::LinearRepeat() )
                  .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
                  .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
-                 .PushConstants( &push, sizeof( push ) );
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
+        }
+
+        // EXEC of the same node: the block DeclareTraceBindings declared + this frame's push constants.
+        // maxDistance and thickness are WORLD distances (a world unit is a centimetre - convert through
+        // Common::Units).
+        [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context,
+                                                         const glm::mat4& viewProj, const glm::vec4& cameraPos,
+                                                         int maxSteps, float maxDistance, float intensity,
+                                                         float thickness )
+        {
+            // Each pass is timed on its own because EnableSSR's default is a budget decision
+            // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
+            DESERT_PROFILE_PASS( "SSR: Classify + Trace" );
+            const TracePush push{ viewProj,
+                                  glm::vec4( glm::vec3( cameraPos ), static_cast<float>( m_FrameIndex % 1024u ) ),
+                                  glm::vec4( static_cast<float>( maxSteps ), maxDistance, intensity, thickness ) };
+
+            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
             return Renderer::GetInstance().DispatchCompute( bindings, *m_TracePipeline, TileGrid( Width() ),
                                                             TileGrid( Height() ), 1 );
         }
@@ -205,14 +219,17 @@ namespace Desert::Graphic::System
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): spatial + temporal
         // resolve of @p trace (read bilinearly - the upscale) over @p history (GetHistoryImage(), imported),
         // drawn over the tiles @p tiles marks.
-        [[nodiscard]] Common::BoolResultStr RecordResolve( const RDG::PassContext& context, RDG::TextureRef trace,
-                                                           RDG::TextureRef tiles, RDG::TextureRef history,
-                                                           const GBufferInputs& gbuffer )
+        //
+        // SETUP of "Deferred: SSRResolve": its one block (block 0) - u_History / u_GBufferWorldPos linear REPEAT,
+        // u_Trace (the bilinear upscale) linear CLAMP, u_SSRTileMask point CLAMP, mip 0 of both - the samplers
+        // the exec bound before; the resolve material is the other route.
+        void DeclareResolveBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef tiles,
+                                     RDG::TextureRef history, const GBufferInputs& gbuffer ) const
         {
-            DESERT_PROFILE_PASS( "SSR: Resolve" );
-            m_ResolveMaterial->BindValues( m_PrevViewProj, Texel(), m_HistoryValid ? 0.88f : 0.0f );
-            RDG::PassBindings bindings( context );
-            bindings
+            if ( !m_ResolvePipeline || !m_ResolveMaterial )
+                return;
+            pass.Bindings( m_ResolveLayout.Get( *m_ResolveShader ),
+                           m_ResolveMaterial->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_GBufferWorldPos", gbuffer[2], RDG::Access::SampledGraphics,
@@ -221,28 +238,48 @@ namespace Desert::Graphic::System
                            RDG::SamplerDesc::LinearClamp() )
                  .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
                            RDG::SamplerDesc::PointClamp() );
+        }
+
+        // EXEC: draws the block DeclareResolveBindings declared.
+        [[nodiscard]] Common::BoolResultStr RecordResolve( const RDG::PassContext& context )
+        {
+            DESERT_PROFILE_PASS( "SSR: Resolve" );
+            m_ResolveMaterial->BindValues( m_PrevViewProj, Texel(), m_HistoryValid ? 0.88f : 0.0f );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawProcedural(
                  bindings, *m_ResolvePipeline, m_ResolveMaterial->GetMaterialExecutor(), TileVertices(), 1u );
         }
 
         // Pass 3, inside the render pass the graph opens on the scene target with LOAD: roughness-scaled blur
         // of the RESOLVED buffer @p resolved (GetAccumImage(), imported), blended over the scene, over the tiles
-        // @p tiles marks. Advances the ping-pong only when the draw was recorded.
-        [[nodiscard]] Common::BoolResultStr RecordComposite( const RDG::PassContext& context,
-                                                             RDG::TextureRef resolved, RDG::TextureRef tiles,
-                                                             const GBufferInputs& gbuffer,
-                                                             const glm::mat4&     viewProj )
+        // @p tiles marks.
+        //
+        // SETUP of "Deferred: SSRComposite": its one block (block 0) - u_SSR / u_GBufferNormal linear REPEAT,
+        // u_SSRTileMask mip 0 point CLAMP - the samplers the exec bound before; the composite material is the
+        // other route.
+        void DeclareCompositeBindings( RDG::PassBuilder& pass, RDG::TextureRef resolved, RDG::TextureRef tiles,
+                                       const GBufferInputs& gbuffer ) const
         {
-            DESERT_PROFILE_PASS( "SSR: Composite" );
-            m_CompositeMaterial->BindValues( Texel() );
-            RDG::PassBindings bindings( context );
-            bindings
+            if ( !m_CompositePipeline || !m_CompositeMaterial )
+                return;
+            pass.Bindings( m_CompositeLayout.Get( *m_CompositeShader ),
+                           m_CompositeMaterial->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_SSR", resolved, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
                            RDG::SamplerDesc::PointClamp() )
                  .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+        }
+
+        // EXEC: draws the block DeclareCompositeBindings declared. Advances the ping-pong only when the draw was
+        // recorded.
+        [[nodiscard]] Common::BoolResultStr RecordComposite( const RDG::PassContext& context,
+                                                             const glm::mat4&        viewProj )
+        {
+            DESERT_PROFILE_PASS( "SSR: Composite" );
+            m_CompositeMaterial->BindValues( Texel() );
+            const RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
             const Common::BoolResultStr drawn = Renderer::GetInstance().DrawProcedural(
                  bindings, *m_CompositePipeline, m_CompositeMaterial->GetMaterialExecutor(), TileVertices(), 1u );
             if ( !drawn.IsSuccess() )
@@ -307,6 +344,10 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>               m_TraceShader;
         std::shared_ptr<Shader>               m_ResolveShader;
         std::shared_ptr<Shader>               m_CompositeShader;
+        // The three block layouts, derived from each shader's reflection once per compile (not per frame).
+        mutable ShaderBindingLayoutCache      m_TraceLayout;
+        mutable ShaderBindingLayoutCache      m_ResolveLayout;
+        mutable ShaderBindingLayoutCache      m_CompositeLayout;
         std::shared_ptr<ComputePipeline>      m_TracePipeline;
         std::shared_ptr<GraphicsPipeline>     m_ResolvePipeline;
         std::shared_ptr<GraphicsPipeline>     m_CompositePipeline;

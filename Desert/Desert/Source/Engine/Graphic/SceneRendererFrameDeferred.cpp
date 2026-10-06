@@ -469,37 +469,39 @@ namespace Desert::Graphic
              "Deferred: SSR", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadAll( pass, gbuffer, RDG::Access::SampledCompute );
-                 pass.Read( sceneCopy, RDG::Access::SampledCompute );
-                 pass.Write( trace, RDG::Access::StorageWrite );
-                 pass.Write( tiles, RDG::Access::StorageWrite );
+                 ssr->DeclareTraceBindings( pass, trace, tiles, inputs, sceneCopy );
+                 // The G-buffer colours past the three the trace samples stay declared as before.
+                 ReadAll( pass, { gbuffer.begin() + 3, gbuffer.end() }, RDG::Access::SampledCompute );
              },
-             [this, ssr, trace, tiles, inputs, sceneCopy, viewProj,
-              cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [this, ssr, viewProj, cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
-                 return ssr->RecordTrace( context, trace, tiles, inputs, sceneCopy, viewProj, cameraPos,
-                                          /*maxSteps*/ 32, m_SSRMaxDistance, m_SSRIntensity, kSSRThickness );
+                 return ssr->RecordTrace( context, viewProj, cameraPos, /*maxSteps*/ 32, m_SSRMaxDistance,
+                                          m_SSRIntensity, kSSRThickness );
              } );
         graph.AddPass(
              "Deferred: SSRResolve", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadAll( pass, gbuffer, RDG::Access::SampledGraphics );
-                 ReadAll( pass, { trace, tiles, history }, RDG::Access::SampledGraphics );
+                 ssr->DeclareResolveBindings( pass, trace, tiles, history, inputs );
+                 // Every G-buffer colour but the world position the block samples stays declared as before.
+                 ReadAll( pass, { gbuffer[0], gbuffer[1] }, RDG::Access::SampledGraphics );
+                 ReadAll( pass, { gbuffer.begin() + 3, gbuffer.end() }, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [ssr, trace, tiles, history, inputs]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssr->RecordResolve( context, trace, tiles, history, inputs ); } );
+             [ssr]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordResolve( context ); } );
         graph.AddPass(
              "Deferred: SSRComposite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadAll( pass, gbuffer, RDG::Access::SampledGraphics );
-                 ReadAll( pass, { accum, tiles }, RDG::Access::SampledGraphics );
+                 ssr->DeclareCompositeBindings( pass, accum, tiles, inputs );
+                 // Every G-buffer colour but the normal the block samples stays declared as before.
+                 ReadAll( pass, { gbuffer[0], gbuffer[2] }, RDG::Access::SampledGraphics );
+                 ReadAll( pass, { gbuffer.begin() + 3, gbuffer.end() }, RDG::Access::SampledGraphics );
                  DeferredFrameNodes::LoadTarget( pass, target ); // blend over the scene
              },
-             [ssr, accum, tiles, inputs, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssr->RecordComposite( context, accum, tiles, inputs, viewProj ); } );
+             [ssr, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordComposite( context, viewProj ); } );
     }
 } // namespace Desert::Graphic
