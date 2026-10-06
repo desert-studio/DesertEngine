@@ -4210,7 +4210,13 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
 // block its pass's setup declared (PassBindings( context, context.GetBindingBlock( i ) )); there is no constructor
 // from the context alone and no public Sampled / Storage / Uniform taking a shader name at exec. Once no caller is
 // left the compiler cannot catch a re-added overload (nothing calls it), so this census does: red on re-add of the
-// declaration or the definition.
+// declaration or the definition. STRUCTURAL, not by spelling: any PassBindings constructor callable with a
+// PassContext alone (whatever the parameter is called, by reference or pointer, or with every later parameter
+// defaulted), and any PUBLIC PassBindings member whose first parameter is a name (string_view / std::string /
+// const char*). Mutations (each red): `explicit PassBindings( const PassContext& ctx );` in the header;
+// `PassBindings( const PassContext& c, BindingBlockRef b = {} );`; a public `PassBindings& Texture(
+// std::string_view slot, ... );`; `PassBindings::PassBindings( const PassContext& x )` defined in the .cpp;
+// `PassBindings::Uniform(` in the .cpp.
 TEST( RenderGraphCompile, TheNameTakingExecBindingApiStaysDeleted )
 {
     const fs::path root = RepoRoot();
@@ -4222,12 +4228,30 @@ TEST( RenderGraphCompile, TheNameTakingExecBindingApiStaysDeleted )
     ASSERT_FALSE( body.empty() );
     EXPECT_NE( header.find( "PassBindings(constPassContext&context,BindingBlockRefblock);" ), std::string::npos )
          << "the block constructor is the one way to open a PassBindings";
-    for ( const char* gone : { "PassBindings(constPassContext&context);", "PassBindings&Sampled(",
-                               "PassBindings&Storage(", "PassBindings&Uniform(" } )
-        EXPECT_EQ( header.find( gone ), std::string::npos ) << gone << " is back in RDGPassBindings.hpp";
-    for ( const char* gone : { "PassBindings::PassBindings(constPassContext&context):", "PassBindings::Sampled(",
-                               "PassBindings::Storage(", "PassBindings::Uniform(" } )
-        EXPECT_EQ( body.find( gone ), std::string::npos ) << gone << " is back in RDGPassBindings.cpp";
+    // A PassContext parameter of any name, then either the end of the list or only defaulted parameters.
+    const std::string context = R"(\((const)?(RDG::)?PassContext(&|\*)\w*(=[^,()]*)?(,[^,()]*=[^,()]*)*\))";
+    const std::regex  contextAloneDecl( "PassBindings" + context );
+    const std::regex  contextAloneDef( "PassBindings::PassBindings" + context );
+    EXPECT_FALSE( std::regex_search( header, contextAloneDecl ) )
+         << "a PassBindings constructor callable with the context alone is back in RDGPassBindings.hpp";
+    EXPECT_FALSE( std::regex_search( body, contextAloneDef ) )
+         << "a PassBindings constructor taking the context alone is defined in RDGPassBindings.cpp";
+
+    // The public part of class PassBindings: no member takes a shader name first.
+    const size_t open = header.find( "classPassBindings{" );
+    ASSERT_NE( open, std::string::npos ) << "class PassBindings moved";
+    const size_t close = header.find( "};", open );
+    ASSERT_NE( close, std::string::npos );
+    std::string       classBody  = header.substr( open, close - open );
+    const size_t      privateAt  = classBody.find( "private:" );
+    const std::string publicPart = classBody.substr( 0, privateAt );
+    const std::regex  nameFirst( R"(\w+\((std::)?(string_view|conststd::string&|std::string|constchar\*))" );
+    std::smatch       hit;
+    EXPECT_FALSE( std::regex_search( publicPart, hit, nameFirst ) )
+         << "PassBindings has a public member taking a shader name at exec again: " << hit.str();
+    const std::regex nameMemberDef( R"(PassBindings::(Sampled|Storage|Uniform|Texture|Buffer)\()" );
+    EXPECT_FALSE( std::regex_search( body, hit, nameMemberDef ) )
+         << hit.str() << " is defined in RDGPassBindings.cpp again";
 }
 
 // RDG-FAULT1: ShaderBindingLayoutCache.hpp is included by every renderer header that keeps a layout
