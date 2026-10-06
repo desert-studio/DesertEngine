@@ -2667,12 +2667,13 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
 
     // Each system names what its pass samples, in its own RegisterPasses.
     const std::pair<const char*, const char*> declared[] = {
+         // The procedural sky's LUTs are entries of the SkyboxPass's block (DeclareSkyDraw), each the read.
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           "declared.Read(refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,RDG::Access::"
-           "SampledGraphics" },
-         { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           "declared.Read(refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients.SkyTransmittanceLut:white,"
+           ".Sampled(\"u_SkyViewLut\",refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,"
            "RDG::Access::SampledGraphics" },
+         { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
+           ".Sampled(\"u_TransmittanceLut\",refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients."
+           "SkyTransmittanceLut:white,RDG::Access::SampledGraphics" },
          // The forward mesh node's scene/view inputs are bound per material block of the draw list its Declare
          // builds (MeshDrawList::Declare -> BindSceneViewInputs), so the graph sees each sampled input as a
          // block binding of that node rather than a blanket read.
@@ -2687,10 +2688,11 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "declared.Read(refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
+         // The cloud composite's pair: entries of its block (the material route + both halves), each the read.
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           "declared.Read(refs.Transients.CloudScatter,RDG::Access::SampledGraphics" },
+           ".Sampled(\"u_CloudScatter\",scatter,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           "declared.Read(refs.Transients.CloudGuide,RDG::Access::SampledGraphics" },
+           ".Sampled(\"u_CloudGuide\",guide,RDG::Access::SampledGraphics" },
          { "SceneRenderer.cpp", "declared.Read(mesh->GetCascadeShadowImage(c),RDG::Access::SampledGraphics" },
          { "SceneRenderer.cpp", "declared.Read(clouds->GetShadowMap(),RDG::Access::SampledGraphics" } };
     for ( const auto& [file, needle] : declared )
@@ -2760,10 +2762,14 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "Write(m_MultiScatterLut,RDG::Access::StorageWrite", "Write(m_SkyViewLut,RDG::Access::StorageWrite",
              "Write(m_AerialPerspectiveLut,RDG::Access::StorageWrite",
              "Write(m_DistantLight,RDG::Access::StorageWrite",
-             "Read(m_TransmittanceLut,RDG::Access::SampledCompute" } },
+             "Read(m_TransmittanceLut,RDG::Access::SampledCompute",
+             // Each LUT node's one block over the pipeline route BindLutPipeline set at the LUT's creation.
+             "declareBlock(transmittance.Access,*m_TransmittanceLutPipeline,0);",
+             "declareBlock(distant.Access,*m_DistantLightPipeline,0);" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
-           { "DeclareVolumeReads(shadow.Access)", "Write(m_ShadowMapImage,RDG::Access::StorageWrite" } },
+           { "DeclareVolumeReads(shadow.Access)", "Write(m_ShadowMapImage,RDG::Access::StorageWrite",
+             "DeclareComputeBlock(shadow.Access,*m_ShadowMapPipeline," } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
            { "Read(depth,RDG::Access::SampledCompute",
@@ -2773,7 +2779,9 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareFrameNodes(",
            { "Write(m_SkyOcclusionVolume,RDG::Access::StorageWrite", "Read(depth,RDG::Access::SampledCompute",
-             "Write(trace,RDG::Access::StorageWrite", "Read(trace,RDG::Access::SampledCompute",
+             // The trace pair: block entries of the march (written) and of the resolve (sampled).
+             ".Storage(\"u_CloudScatter\",trace,RDG::Access::StorageWrite)",
+             ".Sampled(\"u_CloudTrace\",trace,RDG::Access::SampledCompute",
              "graph.CreateTexture(traceDesc,\"Clouds.Trace\")",
              "Write(m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
     for ( const Declares& d : declares )

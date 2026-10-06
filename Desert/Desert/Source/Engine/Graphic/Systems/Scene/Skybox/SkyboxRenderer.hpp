@@ -125,7 +125,11 @@ namespace Desert::Graphic::System
         void RegisterPasses( RenderGraphBuilder& builder ) override;
 
     private:
-        [[nodiscard]] Common::BoolResultStr Render( const RDG::PassContext& context, const FrameGraphRefs& refs );
+        // The SkyboxPass's setup: picks the draw (procedural sky or the skybox material), feeds its material
+        // and declares its one binding block (block 0) - the procedural sky's LUTs are block entries. Records
+        // the choice in m_SkyDraw; Render records exactly that.
+        void DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs );
+        [[nodiscard]] Common::BoolResultStr Render( const RDG::PassContext& context ) const;
 
         // Writes the packed parameter block into the SSBO. One buffer serves the graphics pass and the
         // bake's compute dispatch, so both are guaranteed to describe the same sky.
@@ -168,12 +172,19 @@ namespace Desert::Graphic::System
         bool EnsureAerialPerspectiveResources();
         // Same arrangement for the one-texel distant sky light.
         bool EnsureDistantLightResources();
+        // Binds one LUT pipeline to this renderer's own images and payload buffer ONCE, when its output image is
+        // created (they live as long as the renderer): the pipeline route of the node's block is complete when the
+        // node's setup declares it, and the exec only records. @p samplesMultiScatter adds the multi-scattering
+        // LUT input; every pipeline but the transmittance one samples the transmittance LUT.
+        void BindLutPipeline( ComputePipeline& pipeline, uint32_t outputBinding, Image& output,
+                              bool samplesTransmittance, bool samplesMultiScatter );
 
         // The cached pair, in dependency order (the multi-scattering march samples the transmittance).
         // Recorded by the SkyAtmosphereLuts graph nodes only: the graph places every barrier and records the
         // layout each LUT is left in. Nothing dispatches them outside the frame graph. Each records into
         // @p context through Renderer::DispatchCompute; every LUT is this renderer's own (imported, cached
-        // across frames), so the pipeline's setters bind them and the returned error names the refused slot.
+        // across frames), so the pipeline's setters bind them (BindLutPipeline, at creation) and each node's
+        // setup declares block 0 over that pipeline route; the exec opens it and adds only the push constants.
         [[nodiscard]] Common::BoolResultStr DispatchTransmittanceLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchMultiScatterLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchSkyViewLut( const RDG::PassContext& context );
@@ -238,6 +249,16 @@ namespace Desert::Graphic::System
         bool m_SkyViewLutFilled = false;
         // DeclareAtmosphereLutNodes declared the SkyViewLut node this frame, until SettleAtmosphereLutNodes.
         bool m_SkyViewLutFillPending = false;
+        // What the SkyboxPass's setup (DeclareSkyDraw) chose this frame: the pipeline and material its block 0 was
+        // declared against, or a refusal the exec returns (a skybox material without its pipeline). Empty when
+        // nothing draws.
+        struct SkyDraw
+        {
+            const GraphicsPipeline* Pipeline = nullptr;
+            const MaterialExecutor* Executor = nullptr;
+            const char*             Fault    = nullptr;
+        };
+        SkyDraw m_SkyDraw;
         // The fingerprint DeclareAtmosphereLutNodes' transmittance/multi-scatter nodes bake, until settled.
         std::optional<AtmosphereLutFingerprint> m_LutBakePending;
         bool                             m_LutResourcesFailed               = false;

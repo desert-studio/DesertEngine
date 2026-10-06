@@ -1,6 +1,7 @@
 #include "SkyboxRenderer.hpp"
 
 #include <utility>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -228,16 +229,35 @@ namespace Desert::Graphic::System
                                                                Core::Formats::ImageFormat::RGBA16F ) +
                             Core::Formats::CalculateImageSize( kMultiScatterLutSize, kMultiScatterLutSize,
                                                                Core::Formats::ImageFormat::RGBA16F ) ) );
+        if ( m_TransmittanceLutPipeline )
+            BindLutPipeline( *m_TransmittanceLutPipeline, kSkyTransmittanceLutOutputBinding, *m_TransmittanceLut,
+                             false, false );
+        if ( m_MultiScatterLutPipeline )
+            BindLutPipeline( *m_MultiScatterLutPipeline, kSkyMultiScatterLutOutputBinding, *m_MultiScatterLut,
+                             true, false );
         return true;
+    }
+
+    void SkyboxRenderer::BindLutPipeline( ComputePipeline& pipeline, const uint32_t outputBinding, Image& output,
+                                          const bool samplesTransmittance, const bool samplesMultiScatter )
+    {
+        pipeline.SetOutput( outputBinding, &output, 0 );
+        if ( m_SkyParams )
+            pipeline.SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
+        if ( samplesTransmittance )
+            pipeline.SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(), RDG::Access::SampledCompute,
+                               RDG::SubresourceRange::All() );
+        if ( samplesMultiScatter )
+            pipeline.SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(), RDG::Access::SampledCompute,
+                               RDG::SubresourceRange::All() );
     }
 
     Common::BoolResultStr SkyboxRenderer::DispatchTransmittanceLut( const RDG::PassContext& context )
     {
         // Transmittance strictly first: the multi-scattering march samples it per step (the graph orders the
-        // two nodes by their declared write and read).
-        m_TransmittanceLutPipeline->SetOutput( kSkyTransmittanceLutOutputBinding, m_TransmittanceLut.get(), 0 );
-        m_TransmittanceLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        const RDG::PassBindings bindings( context );
+        // two nodes by their declared write and read). Through the block the node declared
+        // (DeclareAtmosphereLutNodes).
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_TransmittanceLutPipeline,
                                                         LutGroupCount( kTransmittanceLutWidth ),
                                                         LutGroupCount( kTransmittanceLutHeight ), 1 );
@@ -245,11 +265,7 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr SkyboxRenderer::DispatchMultiScatterLut( const RDG::PassContext& context )
     {
-        m_MultiScatterLutPipeline->SetOutput( kSkyMultiScatterLutOutputBinding, m_MultiScatterLut.get(), 0 );
-        m_MultiScatterLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        m_MultiScatterLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
-                                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        const RDG::PassBindings bindings( context );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_MultiScatterLutPipeline,
                                                         LutGroupCount( kMultiScatterLutSize ),
                                                         LutGroupCount( kMultiScatterLutSize ), 1 );
@@ -287,6 +303,9 @@ namespace Desert::Graphic::System
                   kSkyViewLutWidth, kSkyViewLutHeight,
                   LutBytesToMiB( Core::Formats::CalculateImageSize( kSkyViewLutWidth, kSkyViewLutHeight,
                                                                     Core::Formats::ImageFormat::RGBA16F ) ) );
+        // Created only after the LUT pair (DeclareAtmosphereLutNodes), so both inputs exist.
+        if ( m_SkyViewLutPipeline )
+            BindLutPipeline( *m_SkyViewLutPipeline, kSkyViewLutOutputBinding, *m_SkyViewLut, true, true );
         return true;
     }
 
@@ -296,14 +315,8 @@ namespace Desert::Graphic::System
 
         const SkyViewLutPush push{ .CameraPosWorld = glm::vec4( m_ActiveCamera->GetPosition(), 0.0f ) };
 
-        m_SkyViewLutPipeline->SetOutput( kSkyViewLutOutputBinding, m_SkyViewLut.get(), 0 );
-        m_SkyViewLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        m_SkyViewLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
-                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        m_SkyViewLutPipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(),
-                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        m_SkyViewLutPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-        const RDG::PassBindings bindings( context );
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
         return renderer.DispatchCompute( bindings, *m_SkyViewLutPipeline, LutGroupCount( kSkyViewLutWidth ),
                                          LutGroupCount( kSkyViewLutHeight ), 1 );
     }
@@ -340,6 +353,9 @@ namespace Desert::Graphic::System
                   LutBytesToMiB( Core::Formats::CalculateImageSize(
                        kAerialPerspectiveWidth, kAerialPerspectiveHeight, kAerialPerspectiveDepth,
                        Core::Formats::ImageFormat::RGBA16F ) ) );
+        if ( m_AerialPerspectivePipeline )
+            BindLutPipeline( *m_AerialPerspectivePipeline, kSkyAerialPerspectiveOutputBinding,
+                             *m_AerialPerspectiveLut, true, true );
         return true;
     }
 
@@ -354,18 +370,10 @@ namespace Desert::Graphic::System
         push.VolumeParams =
              glm::vec4( m_Sky.AerialPerspectiveDistanceKm, m_Sky.AerialPerspectiveStartDepthKm, 0.0f, 0.0f );
 
-        m_AerialPerspectivePipeline->SetOutput( kSkyAerialPerspectiveOutputBinding, m_AerialPerspectiveLut.get(),
-                                                0 );
-        m_AerialPerspectivePipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        m_AerialPerspectivePipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
-                                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        m_AerialPerspectivePipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(),
-                                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        m_AerialPerspectivePipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-
         // ONE INVOCATION PER FROXEL COLUMN — the z extent is walked inside the shader so consecutive
         // slices share one quadrature, so the dispatch is 2D over the volume's x/y and never over z.
-        const RDG::PassBindings bindings( context );
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
         return renderer.DispatchCompute( bindings, *m_AerialPerspectivePipeline,
                                          LutGroupCount( kAerialPerspectiveWidth ),
                                          LutGroupCount( kAerialPerspectiveHeight ), 1 );
@@ -407,6 +415,8 @@ namespace Desert::Graphic::System
         LOG_INFO( "[SkyAtmosphere] Distant sky light {}x1 RGBA32F allocated — {} directions marched at "
                   "{} km every frame, reduced to the full-sphere mean the fog reads.",
                   kDistantLightWidth, 64, 6 );
+        if ( m_DistantLightPipeline )
+            BindLutPipeline( *m_DistantLightPipeline, kSkyDistantLightOutputBinding, *m_DistantLight, true, true );
         return true;
     }
 
@@ -414,16 +424,9 @@ namespace Desert::Graphic::System
     {
         auto& renderer = Renderer::GetInstance();
 
-        m_DistantLightPipeline->SetOutput( kSkyDistantLightOutputBinding, m_DistantLight.get(), 0 );
-        m_DistantLightPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        m_DistantLightPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
-                                          RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        m_DistantLightPipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(),
-                                          RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-
         // ONE WORKGROUP, and it must stay one: the 64 directions are reduced in groupshared memory,
         // which no second group can see. The shader's LocalSize is 64 for the same reason.
-        const RDG::PassBindings bindings( context );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return renderer.DispatchCompute( bindings, *m_DistantLightPipeline, 1, 1, 1 );
     }
 
@@ -442,6 +445,17 @@ namespace Desert::Graphic::System
         if ( !EnsureAtmosphereLutResources() )
             return nodes;
 
+        // Each node's one binding block (block 0): the pipeline's shader layout, filled by the pipeline route
+        // BindLutPipeline set when the LUT was created, plus the push block its exec gives.
+        const auto declareBlock =
+             []( RenderPassDeclaration& declared, const ComputePipeline& pipeline, const uint32_t pushBytes )
+        {
+            const Renderer& renderer = Renderer::GetInstance();
+            declared
+                 .Bindings( renderer.GetBindingLayout( *pipeline.GetShader() ),
+                            renderer.GetPipelineRouteFill( pipeline ) )
+                 .PushConstantBytes( pushBytes );
+        };
         const auto sampledLuts = [this]( RenderPassDeclaration& declared )
         {
             declared.Read( m_TransmittanceLut, RDG::Access::SampledCompute, "Sky.TransmittanceLut" );
@@ -455,6 +469,7 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration transmittance;
             transmittance.Name = "Sky: TransmittanceLut";
             transmittance.Access.Write( m_TransmittanceLut, RDG::Access::StorageWrite, "Sky.TransmittanceLut" );
+            declareBlock( transmittance.Access, *m_TransmittanceLutPipeline, 0 );
             transmittance.Record = [this]( RDG::PassContext& context,
                                            const FrameGraphRefs& ) -> Common::BoolResultStr
             {
@@ -467,6 +482,7 @@ namespace Desert::Graphic::System
             multiScatter.Name = "Sky: MultiScatterLut";
             multiScatter.Access.Read( m_TransmittanceLut, RDG::Access::SampledCompute, "Sky.TransmittanceLut" );
             multiScatter.Access.Write( m_MultiScatterLut, RDG::Access::StorageWrite, "Sky.MultiScatterLut" );
+            declareBlock( multiScatter.Access, *m_MultiScatterLutPipeline, 0 );
             multiScatter.Record = [this]( RDG::PassContext& context,
                                           const FrameGraphRefs& ) -> Common::BoolResultStr
             { return DispatchMultiScatterLut( context ); };
@@ -491,6 +507,8 @@ namespace Desert::Graphic::System
             skyView.Name = "Sky: SkyViewLut";
             sampledLuts( skyView.Access );
             skyView.Access.Write( m_SkyViewLut, RDG::Access::StorageWrite, "Sky.SkyViewLut" );
+            declareBlock( skyView.Access, *m_SkyViewLutPipeline,
+                          static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) );
             skyView.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: SkyViewLut" );
@@ -508,6 +526,8 @@ namespace Desert::Graphic::System
             aerial.Name = "Sky: AerialPerspectiveLut";
             sampledLuts( aerial.Access );
             aerial.Access.Write( m_AerialPerspectiveLut, RDG::Access::StorageWrite, "Sky.AerialPerspectiveLut" );
+            declareBlock( aerial.Access, *m_AerialPerspectivePipeline,
+                          static_cast<uint32_t>( sizeof( SkyAerialPerspectivePush ) ) );
             aerial.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: AerialPerspectiveLut" );
@@ -526,6 +546,7 @@ namespace Desert::Graphic::System
             distant.Name = "Sky: DistantSkyLight";
             sampledLuts( distant.Access );
             distant.Access.Write( m_DistantLight, RDG::Access::StorageWrite, "Sky.DistantLight" );
+            declareBlock( distant.Access, *m_DistantLightPipeline, 0 );
             distant.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: DistantSkyLight" );
@@ -903,60 +924,67 @@ namespace Desert::Graphic::System
         builder
              .AddPass(
                   "SkyboxPass", RenderPhase::Sky,
-                  [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
-                  { return Render( context, refs ); },
+                  [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+                  { return Render( context ); },
                   m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb )
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
-        {
-            // The procedural sky samples the transmittance and sky-view LUTs (Render): last frame's, imported by
-            // SceneRenderer::ImportSceneViewTextures when SkyPassSamplesLuts, or System.White until an earlier
-            // frame's SkyAtmosphereLuts nodes have written them (the gradient branch never samples them).
-            if ( !m_BackdropVisible || !m_UseProceduralSky )
-                return;
-            const RDG::TextureRef white = refs.System.White;
-            declared.Read( refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut
-                                                                         : white,
-                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
-            declared.Read( refs.Transients.SkyViewLut.IsValid() ? refs.Transients.SkyViewLut : white,
-                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
-        };
+        { DeclareSkyDraw( declared, refs ); };
     }
 
-    Common::BoolResultStr SkyboxRenderer::Render( const RDG::PassContext& context, const FrameGraphRefs& refs )
+    void SkyboxRenderer::DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
     {
-        auto& renderer = Renderer::GetInstance();
+        m_SkyDraw = {};
         if ( !m_BackdropVisible )
-            return BOOLSUCCESS;
-        // The cubemap is the skybox material's own (Properties); the procedural sky's LUTs are pass parameters.
-        RDG::PassBindings bindings( context );
+            return;
+        const Renderer& renderer = Renderer::GetInstance();
 
-        // Engine-generated procedural atmosphere (no HDR asset needed). The LUTs are bound whenever the
-        // procedural sky draws: this frame's imports, or System.White before the physical model has written
-        // them (the gradient branch never samples them).
+        // Engine-generated procedural atmosphere (no HDR asset needed). It samples the transmittance and sky-view
+        // LUTs: last frame's, imported by SceneRenderer::ImportSceneViewTextures when SkyPassSamplesLuts, or
+        // System.White until an earlier frame's SkyAtmosphereLuts nodes have written them (the gradient branch
+        // never samples them). Both are entries of the pass's block, so each entry is the read's declaration.
         if ( m_UseProceduralSky && m_ProceduralPipeline && m_ProceduralMaterial && m_ActiveCamera )
         {
             m_ProceduralMaterial->Update( m_ActiveCamera, m_SkyParams );
-            const RDG::TextureRef white = refs.System.White;
-            bindings.Sampled(
-                 "u_TransmittanceLut",
-                 refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut : white,
-                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
-            bindings.Sampled(
-                 "u_SkyViewLut", refs.Transients.SkyViewLut.IsValid() ? refs.Transients.SkyViewLut : white,
-                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
-            return renderer.DrawFullscreen( bindings, *m_ProceduralPipeline,
-                                            m_ProceduralMaterial->GetMaterialExecutor() );
+            const MaterialExecutor* executor = m_ProceduralMaterial->GetMaterialExecutor();
+            const RDG::TextureRef   white    = refs.System.White;
+            declared.Bindings( renderer.GetBindingLayout( *executor->GetShader() ), executor->GetRouteFill() )
+                 .Sampled(
+                      "u_TransmittanceLut",
+                      refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut : white,
+                      RDG::Access::SampledGraphics, RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
+                 .Sampled( "u_SkyViewLut",
+                           refs.Transients.SkyViewLut.IsValid() ? refs.Transients.SkyViewLut : white,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearClamp() );
+            m_SkyDraw = { .Pipeline = m_ProceduralPipeline.get(), .Executor = executor };
+            return;
         }
 
-        if ( const auto& material = m_MaterialSkybox.lock() )
+        // The cubemap is the skybox material's own (Properties): the block is the material route alone.
+        if ( const auto material = m_MaterialSkybox.lock() )
         {
+            if ( !m_Pipeline )
+            {
+                m_SkyDraw.Fault = "SkyboxPass: a skybox material without its pipeline";
+                return;
+            }
             if ( m_ActiveCamera )
                 material->BindInputs( { m_ActiveCamera, m_SkyboxLook } );
-            if ( !m_Pipeline )
-                return Common::MakeError( "SkyboxPass: a skybox material without its pipeline" );
-            return renderer.DrawFullscreen( bindings, *m_Pipeline, material->GetMaterialExecutor() );
+            const MaterialExecutor* executor = material->GetMaterialExecutor();
+            declared.Bindings( renderer.GetBindingLayout( *executor->GetShader() ), executor->GetRouteFill() );
+            m_SkyDraw = { .Pipeline = m_Pipeline.get(), .Executor = executor };
         }
-        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SkyboxRenderer::Render( const RDG::PassContext& context ) const
+    {
+        if ( m_SkyDraw.Fault != nullptr )
+            return Common::MakeError( m_SkyDraw.Fault );
+        if ( m_SkyDraw.Pipeline == nullptr )
+            return BOOLSUCCESS;
+        // Through the block DeclareSkyDraw declared for the draw it chose.
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_SkyDraw.Pipeline, m_SkyDraw.Executor );
     }
 
 } // namespace Desert::Graphic::System
