@@ -103,7 +103,7 @@ namespace Common::Scalability
         Anisotropy,             // sampler cache. Values: CapabilityCatalog::AnisotropyLevels
         MeshLOD,                // mesh LOD selection. Values: 0/1
         CloudQuality,           // Graphic::CloudQualityScale. Values: CloudQuality 0..2
-        // The three shadow rows are placeholders until MeshRenderer can re-budget its maps at runtime.
+        // The three shadow rows: a level's viewport re-allocates its cascade maps when they change.
         ShadowCascades, // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
         ShadowMapSize,  // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
         ShadowDistance, // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km

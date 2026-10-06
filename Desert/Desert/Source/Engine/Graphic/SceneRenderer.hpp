@@ -121,7 +121,8 @@ namespace Desert::Graphic
         // Unregisters the view; its per-view copies defer their GPU release (ViewResources).
         ~SceneRenderer();
 
-        // This renderer's shadow budget. Read by its own MeshRenderer in Initialize and fixed thereafter.
+        // This renderer's shadow budget. Read by its own MeshRenderer in Initialize; a level's viewport moves it
+        // with the Shadows quality level (BeginScene -> MeshRenderer::RebudgetShadows).
         [[nodiscard]] const ShadowQuality& GetShadowQuality() const
         {
             return m_ViewProfile.Shadows;
@@ -684,6 +685,8 @@ namespace Desert::Graphic
         int m_SSRMaxSteps = 32;
         int m_GISamples   = 32;
         int m_SSAOSamples = 16;
+        // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
+        uint64_t m_ShadowBudgetGeneration = 0;
 
         // The RSM is a LOW-FREQUENCY input to a temporally-accumulated resolve, so it does not need to be
         // re-rendered every frame — refreshing it every 4th frame (and immediately when the sun moves) keeps

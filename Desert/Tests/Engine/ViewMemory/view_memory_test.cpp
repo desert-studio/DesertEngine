@@ -294,3 +294,51 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// ---- The shadow budget follows the Shadows quality level (SCAL1) -----------------------------------------
+
+namespace
+{
+    Common::Scalability::ResolvedQuality ShadowLevel( uint32_t cascades, uint32_t size, int32_t distanceCm,
+                                                      uint64_t generation )
+    {
+        using Common::Scalability::Parameter;
+        Common::Scalability::ResolvedQuality q;
+        q.Values[static_cast<std::size_t>( Parameter::ShadowCascades )] = static_cast<int32_t>( cascades );
+        q.Values[static_cast<std::size_t>( Parameter::ShadowMapSize )]  = static_cast<int32_t>( size );
+        q.Values[static_cast<std::size_t>( Parameter::ShadowDistance )] = distanceCm;
+        q.Generation                                                    = generation;
+        return q;
+    }
+} // namespace
+
+TEST( ShadowReallocation, ALevelViewportReallocatesOnlyWhenTheShadowsLevelChangesItsBudget )
+{
+    // High is the budget the viewport is built with: nothing to re-allocate.
+    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 4, 2048, 15000, 1 ) ), std::nullopt );
+
+    // Low: two cascades of 1024 over 60 m — exactly that budget, in centimetres.
+    const auto low = ShadowReallocation( kSceneViewProfile, ShadowLevel( 2, 1024, 6000, 2 ) );
+    ASSERT_TRUE( low.has_value() );
+    EXPECT_EQ( low->CascadeCount, 2u );
+    EXPECT_EQ( low->ShadowMapSize, 1024u );
+    EXPECT_FLOAT_EQ( low->MaxDistance, 6000.0f );
+
+    // Once the view holds Low, the same resolution asks for nothing more.
+    ViewProfile held = kSceneViewProfile;
+    held.Shadows     = *low;
+    EXPECT_EQ( ShadowReallocation( held, ShadowLevel( 2, 1024, 6000, 3 ) ), std::nullopt );
+}
+
+TEST( ShadowReallocation, APreviewAThumbnailAndAnUnpublishedQualityNeverReallocate )
+{
+    const auto low = ShadowLevel( 2, 1024, 6000, 2 );
+    EXPECT_EQ( ShadowReallocation( kPreviewViewProfile, low ), std::nullopt );
+    EXPECT_EQ( ShadowReallocation( kThumbnailViewProfile, low ), std::nullopt );
+    // Generation 0: QualityState never published (a tool or a test host) — the view keeps its own budget,
+    // not the all-zero values of an empty resolution.
+    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 0, 0, 0, 0 ) ), std::nullopt );
+    EXPECT_TRUE( kSceneViewProfile.ShadowsFollowQuality );
+    EXPECT_FALSE( kPreviewViewProfile.ShadowsFollowQuality );
+    EXPECT_FALSE( kThumbnailViewProfile.ShadowsFollowQuality );
+}

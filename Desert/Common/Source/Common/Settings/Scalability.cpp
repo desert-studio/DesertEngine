@@ -20,10 +20,9 @@ namespace Common::Scalability
         constexpr ParameterValue kRtMax = static_cast<ParameterValue>( RayTracingMode::RayTracingPipeline );
 
         // THE spec list (Scalability.hpp: one row per Parameter, in enum order - the census asserts it).
-        // The three shadow rows are the values of the renderer constant kSceneShadowQuality (ShadowCascades.hpp).
-        // They have no reader yet: MeshRenderer takes its shadow budget once, at Initialize, so a level change
-        // needs the cascade maps re-allocated at a frame boundary first. Until then they are placeholders
-        // (no Reader), which keeps them out of every selector.
+        // The three shadow rows' High values are the renderer constant kSceneShadowQuality (ShadowCascades.hpp).
+        // A level's viewport re-allocates its cascade maps when they change (SceneRenderer::BeginScene ->
+        // MeshRenderer::RebudgetShadows, on a generation change only).
         constexpr std::array<ParameterSpec, kParameterCount> kParameterSpecs{ {
              { P::AntiAliasingMethod, G::AntiAliasing, "AntiAliasing.Method", 0,
                static_cast<ParameterValue>( AntiAliasingMethod::DLAA ), CL::AntiAliasingMethods,
@@ -40,9 +39,9 @@ namespace Common::Scalability
                "sampler cache (RenderConfig push)" },
              { P::MeshLOD, G::ViewDistance, "ViewDistance.MeshLOD", 0, 1, CL::None, "mesh LOD selection" },
              { P::CloudQuality, G::Effects, "Effects.CloudQuality", 0, 2, CL::None, "Graphic::CloudQualityScale" },
-             { P::ShadowCascades, G::Shadows, "Shadows.Cascades", 1, 4, CL::None, std::nullopt },
-             { P::ShadowMapSize, G::Shadows, "Shadows.MapSize", 512, 4096, CL::None, std::nullopt },
-             { P::ShadowDistance, G::Shadows, "Shadows.Distance", 1000, 100000, CL::None, std::nullopt },
+             { P::ShadowCascades, G::Shadows, "Shadows.Cascades", 1, 4, CL::None, "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
+             { P::ShadowMapSize, G::Shadows, "Shadows.MapSize", 512, 4096, CL::None, "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
+             { P::ShadowDistance, G::Shadows, "Shadows.Distance", 1000, 100000, CL::None, "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
              { P::ReflectionMaxSteps, G::Reflections, "Reflections.MaxSteps", 8, 64, CL::None,
                "SSRRenderer trace push constant maxSteps (SceneRenderer SSR pass)" },
              { P::GlobalIlluminationSamples, G::GlobalIllumination, "GlobalIllumination.Samples", 8, 64, CL::None,

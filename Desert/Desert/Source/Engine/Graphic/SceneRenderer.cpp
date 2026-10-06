@@ -536,6 +536,12 @@ namespace Desert::Graphic
             LiveRenderers().push_back( this );
         }
 
+        // A level's viewport is BUILT at the machine's Shadows level, so a Low machine never allocates the High
+        // maps only to re-allocate them on the first frame. Later level changes: BeginScene.
+        if ( const auto budget = ShadowReallocation( m_ViewProfile, m_Quality ) )
+            m_ViewProfile.Shadows = *budget;
+        m_ShadowBudgetGeneration = m_Quality.Generation;
+
         // Logged on BOTH edges with the resulting count and bytes: a surface that never destroys its view
         // produces no error at all, only a budget that fills up some minutes later, so the numbers are
         // printed rather than left for a reader to derive. There is no ceiling on the count — each view
@@ -641,6 +647,23 @@ namespace Desert::Graphic
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
+
+        // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
+        // Asked only when the quality generation moved — a level change, never per frame — and the maps are
+        // re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is
+        // updated with them so the view's memory census keeps describing what is allocated.
+        if ( m_Quality.Generation != m_ShadowBudgetGeneration )
+        {
+            m_ShadowBudgetGeneration = m_Quality.Generation;
+            if ( const auto budget = ShadowReallocation( m_ViewProfile, quality ) )
+            {
+                m_ViewProfile.Shadows = *budget;
+                if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RebudgetShadows( *budget ) )
+                    LOG_ERROR( "[Shadows] view '{}': the shadow pass could not be set up at {} cascades of {} px; "
+                               "nothing casts a shadow in this view.",
+                               m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
+            }
+        }
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in the Transparency phase.

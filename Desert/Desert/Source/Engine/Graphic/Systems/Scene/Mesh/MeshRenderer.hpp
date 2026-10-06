@@ -170,7 +170,8 @@ namespace Desert::Graphic::System
         //
         // HOW MANY ARE ACTUALLY ALLOCATED IS NOT THIS, and the distinction is the whole of the preview
         // shadow budget: the count, the resolution and the distance come from the renderer's own
-        // ShadowQuality (SceneRenderer::GetShadowQuality), read once in Initialize. See ShadowCascades.hpp.
+        // ShadowQuality (SceneRenderer::GetShadowQuality), read in Initialize and again only by RebudgetShadows.
+        // See ShadowCascades.hpp.
         static constexpr uint32_t kMaxCascades = MaterialPBRBase::kMaxCascades;
         static_assert( kMaxCascades == kMaxShadowCascades,
                        "The ShadowUB block's cascade count and the fitter's array bound are the same "
@@ -361,6 +362,11 @@ namespace Desert::Graphic::System
         {
             return m_Shadow;
         }
+        // RE-ALLOCATE THE CASCADE MAPS TO A NEW BUDGET — the Shadows quality level changed (SceneRenderer, on a
+        // QualityState generation change, never per frame). Waits for the device to go idle, releases the
+        // cascade framebuffers, caster materials, caster pipelines and the attachment lease, then runs
+        // SetupShadowPass again on the new budget. False when the new shadow pass could not be set up (logged).
+        [[nodiscard]] bool RebudgetShadows( const ShadowQuality& budget );
 
         void SetShadows( bool enabled, float bias, int debugMode, float splitLambda )
         {
@@ -411,6 +417,8 @@ namespace Desert::Graphic::System
         bool SetupGlassPass();   // forward transparent: static-mesh glass pipeline (blend, composites over scene)
         bool SetupSkinnedGeometryPass();
         bool SetupSilhouettePass();
+        // Holds @p budget as m_Shadow, clamped to what the arrays can carry. Initialize and RebudgetShadows.
+        void TakeShadowBudget( const ShadowQuality& budget );
         bool SetupShadowPass();
         // The one place the shadow budget is said out loud. Called from both arms of SetupShadowPass —
         // the allocating one and the zero-budget one — because a renderer that spends nothing on the sun
