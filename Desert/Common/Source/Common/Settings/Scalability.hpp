@@ -53,7 +53,7 @@
 namespace Common::Scalability
 {
     // The groups — UE's sg.* set plus AntiAliasing and ResolutionScale, which UE keeps as sg.AntiAliasingQuality
-    // and sg.ResolutionQuality. Order is the UI order and the YAML order.
+    // and sg.ResolutionQuality. Order is the UI order and the JSON order.
     enum class Group : uint8_t
     {
         Textures = 0, // sg.TextureQuality — streaming pool, mip bias, cooked-size cap
@@ -85,11 +85,9 @@ namespace Common::Scalability
     inline constexpr std::size_t kLevelCount = static_cast<std::size_t>( Level::Count );
 
     // EVERY QUALITY VALUE A RENDERER READS. A row exists only when a reader exists (contract §1.3): the comment
-    // names it. Groups without a row yet (Textures, Shadows, GlobalIllumination, Reflections, PostProcess) get
-    // their rows in the implementation step from the parameters SCAL1 moves out of SceneSettings/RenderConfig
-    // constants (REMAINDER-SCAL1-C0.md lists the candidates); until a group has a row the table loader REFUSES a
-    // data file that gives it levels, and the UI does not show it — a group slider that moves nothing is a dead
-    // setting.
+    // names it. A group whose rows are all placeholders (Textures today) is HIDDEN: IsGroupListed() is false, so no
+    // UI or game API shows a slider for it, and a group with no row at all is refused by the loader when the data
+    // file gives it levels - a group slider that moves nothing is a dead setting.
     //
     // PLACEHOLDERS (owner, 2026-10-06). A row whose spec says `Reader = std::nullopt` reserves a parameter for a
     // feature the engine does not have yet (TAA quality, ray-traced shadows/reflections/GI, upscaler sharpening,
@@ -110,14 +108,18 @@ namespace Common::Scalability
         ShadowCascades,         // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
         ShadowMapSize,          // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
         ShadowDistance,         // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km
+        // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
+        // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
+        ReflectionMaxSteps,        // SSR trace march steps (SSRRenderer push constant). 8..64
+        GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
+        AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
+        BloomMips,                 // bloom down/up-sample chain length (BloomRenderer). 2..kMaxBloomMips
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB,      // Textures: resident texture budget
         ShadowRayTracing,             // Shadows: RayTracingMode
         GlobalIlluminationRayTracing, // GlobalIllumination: RayTracingMode
         ReflectionRayTracing,         // Reflections: RayTracingMode
-        AmbientOcclusionQuality,      // PostProcess: 0..3
-        BloomQuality,                 // PostProcess: 0..3
         TemporalAAQuality,            // AntiAliasing: 0..3
         UpscalerSharpness,            // ResolutionScale: percent
         Count
@@ -142,14 +144,14 @@ namespace Common::Scalability
         RayTracingModes,
     };
 
-    // ONE ROW PER PARAMETER, the single list every check is driven by: the YAML key, its group, its legal range
+    // ONE ROW PER PARAMETER, the single list every check is driven by: the JSON key, its group, its legal range
     // (before the device), and which catalog list narrows it. The census in ScalabilityContract asserts one row
     // per enum value, in enum order, with unique keys.
     struct ParameterSpec
     {
         Parameter        Id;
         Group            Owner;
-        std::string_view Key; // YAML / machine.json / console name, e.g. "AntiAliasing.Method"
+        std::string_view Key; // JSON / machine.json / console name, e.g. "AntiAliasing.Method"
         ParameterValue   Min;
         ParameterValue   Max;
         CatalogList      NarrowedBy;
@@ -176,23 +178,22 @@ namespace Common::Scalability
 
     // ---- The data file (UE BaseScalability.ini) ----------------------------------------------------------
     //
-    // `Editor/Resources/Config/Scalability.yaml`, shipped by the packager next to the shaders. Shape:
+    // `Editor/Resources/Config/Scalability.json`, shipped by the packager in its Config tree, read with the
+    // engine's own Common/Json (no third-party parser). Shape:
     //
-    //   Version: 1
-    //   Groups:
-    //     AntiAliasing:
-    //       Low:       { AntiAliasing.Method: FXAA, AntiAliasing.Samples: 2 }
-    //       ...
-    //       Cinematic: { AntiAliasing.Method: TAA,  AntiAliasing.Samples: 8 }
-    //   Recommend:
-    //     Thresholds:        # GPU perf-index boundaries, UE PerfIndexThresholds_<Group>
-    //       Shadows: [ 40, 110, 250 ]       # index >= t[i] -> level i+1 (Low..Epic); Cinematic never recommended
-    //     MinVideoMemoryMiB:  # per level; a level the machine's VRAM does not reach is never recommended
-    //       Textures: [ 0, 2048, 4096, 6144, 8192 ]
-    //     DeviceClass: { Unknown: 10, Integrated: 15, AppleUnified: 60, Discrete: 80 } # untimed stand-in index
+    //   { "Version": 1,
+    //     "Groups": {
+    //       "AntiAliasing": {
+    //         "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 1, ... },
+    //         ...
+    //         "Cinematic": { "AntiAliasing.Method": "MSAA", "AntiAliasing.Samples": 8, ... } }, ... },
+    //     "Recommend": {
+    //       "Thresholds": { "Shadows": [ 40, 110, 250 ] },   // index >= t[i] -> level i+1; never Cinematic
+    //       "MinVideoMemoryMiB": { "Textures": [ 0, 2048, 4096, 6144, 8192 ] }, // per level; VRAM gate
+    //       "DeviceClass": { "Unknown": 10, "Integrated": 15, "AppleUnified": 60, "Discrete": 80 } } }
     //
-    // Enum values are written by name. The table is DATA, not code: changing what "Medium shadows" means is a YAML
-    // edit, never a recompile.
+    // Enum values are written by name. Every error names its JSON path and all of them are reported together. The
+    // table is DATA, not code: changing what "Medium shadows" means is a data edit, never a recompile.
     struct ScalabilityTable
     {
         uint32_t Version = 0;
@@ -213,7 +214,7 @@ namespace Common::Scalability
         // parameters; a level missing one of its group's parameters; a value outside the spec range; an enum
         // name that is not a value; a group WITHOUT parameters given levels (dead group); thresholds not strictly
         // ascending; a DeviceClass entry missing. Every error found, not the first.
-        [[nodiscard]] static Common::ResultStr<ScalabilityTable> Parse( std::string_view yamlText );
+        [[nodiscard]] static Common::ResultStr<ScalabilityTable> Parse( std::string_view jsonText );
 
         [[nodiscard]] ParameterValue ValueAt( Parameter parameter, Level level ) const;
     };
@@ -340,7 +341,7 @@ namespace Common::Scalability
     {
     public:
         // Once, after the device exists (the catalog) and machine.json is loaded (the selection). The table is
-        // parsed by the host from Scalability.yaml; a parse failure stops the host — there is no built-in table to
+        // parsed by the host from Scalability.json; a parse failure stops the host — there is no built-in table to
         // fall back to (a second copy of the levels in code would be the two-sources defect).
         //
         // `save` persists a selection (the host's machine.json writer); Apply calls it after publishing. Injected

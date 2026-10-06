@@ -3,8 +3,9 @@
 // link until SCAL1's implementation step lands, and that step is done when this suite passes unchanged.
 //
 // Every device here is a CatalogProbe fixture (an RTX card, an AMD card, MoltenVK on Apple Silicon); no GPU runs.
-// The table is a YAML fixture in the shape of Editor/Resources/Config/Scalability.yaml.
+// The table is a JSON fixture in the shape of Editor/Resources/Config/Scalability.json.
 #include <Common/Settings/CapabilityCatalog.hpp>
+#include <Common/Settings/DisplaySettings.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
@@ -15,56 +16,107 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <vector>
 
 using namespace Common::Scalability;
 namespace Vk = Desert::Graphic::API::Vulkan;
 
 namespace
 {
-    // Five groups with parameters; the other five are absent, which is the only legal state for a group with none.
-    constexpr std::string_view kTable = R"(Version: 1
-Groups:
-  AntiAliasing:
-    Low:       { AntiAliasing.Method: FXAA, AntiAliasing.Samples: 2 }
-    Medium:    { AntiAliasing.Method: SMAA, AntiAliasing.Samples: 2 }
-    High:      { AntiAliasing.Method: TAA,  AntiAliasing.Samples: 4 }
-    Epic:      { AntiAliasing.Method: TAA,  AntiAliasing.Samples: 8 }
-    Cinematic: { AntiAliasing.Method: DLAA, AntiAliasing.Samples: 8 }
-  ResolutionScale:
-    Low:       { Resolution.Percent: 50,  Resolution.Upscaler: DLSS }
-    Medium:    { Resolution.Percent: 67,  Resolution.Upscaler: TAAU }
-    High:      { Resolution.Percent: 100, Resolution.Upscaler: None }
-    Epic:      { Resolution.Percent: 100, Resolution.Upscaler: None }
-    Cinematic: { Resolution.Percent: 200, Resolution.Upscaler: None }
-  Filtering:
-    Low:       { Filtering.Texture: 1, Filtering.Anisotropy: 1 }
-    Medium:    { Filtering.Texture: 2, Filtering.Anisotropy: 4 }
-    High:      { Filtering.Texture: 3, Filtering.Anisotropy: 8 }
-    Epic:      { Filtering.Texture: 3, Filtering.Anisotropy: 16 }
-    Cinematic: { Filtering.Texture: 3, Filtering.Anisotropy: 16 }
-  ViewDistance:
-    Low:       { ViewDistance.MeshLOD: 1 }
-    Medium:    { ViewDistance.MeshLOD: 1 }
-    High:      { ViewDistance.MeshLOD: 1 }
-    Epic:      { ViewDistance.MeshLOD: 1 }
-    Cinematic: { ViewDistance.MeshLOD: 0 }
-  Effects:
-    Low:       { Effects.CloudQuality: 0 }
-    Medium:    { Effects.CloudQuality: 1 }
-    High:      { Effects.CloudQuality: 2 }
-    Epic:      { Effects.CloudQuality: 2 }
-    Cinematic: { Effects.CloudQuality: 2 }
-Recommend:
-  Thresholds:
-    AntiAliasing:    [ 20, 60, 120 ]
-    ResolutionScale: [ 30, 80, 150 ]
-    Filtering:       [ 10, 30, 60 ]
-    ViewDistance:    [ 20, 50, 100 ]
-    Effects:         [ 25, 70, 140 ]
-  MinVideoMemoryMiB:
-    Effects: [ 0, 0, 2048, 4096, 8192 ]
-  DeviceClass: { Unknown: 10, Integrated: 15, AppleUnified: 60, Discrete: 80 }
-)";
+    // Every group has parameters (real or placeholder), so every group is given all five levels.
+    constexpr std::string_view kTable = R"({
+  "Version": 1,
+  "Groups": {
+    "AntiAliasing": {
+      "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 2, "AntiAliasing.TemporalQuality": 0 },
+      "Medium":    { "AntiAliasing.Method": "SMAA", "AntiAliasing.Samples": 2, "AntiAliasing.TemporalQuality": 1 },
+      "High":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 4, "AntiAliasing.TemporalQuality": 2 },
+      "Epic":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 8, "AntiAliasing.TemporalQuality": 3 },
+      "Cinematic": { "AntiAliasing.Method": "DLAA", "AntiAliasing.Samples": 8, "AntiAliasing.TemporalQuality": 3 }
+    },
+    "ResolutionScale": {
+      "Low":       { "Resolution.Percent": 50,  "Resolution.Upscaler": "DLSS", "Resolution.Sharpness": 20 },
+      "Medium":    { "Resolution.Percent": 67,  "Resolution.Upscaler": "TAAU", "Resolution.Sharpness": 20 },
+      "High":      { "Resolution.Percent": 100, "Resolution.Upscaler": "None", "Resolution.Sharpness": 0 },
+      "Epic":      { "Resolution.Percent": 100, "Resolution.Upscaler": "None", "Resolution.Sharpness": 0 },
+      "Cinematic": { "Resolution.Percent": 200, "Resolution.Upscaler": "None", "Resolution.Sharpness": 0 }
+    },
+    "Filtering": {
+      "Low":       { "Filtering.Texture": 1, "Filtering.Anisotropy": 1 },
+      "Medium":    { "Filtering.Texture": 2, "Filtering.Anisotropy": 4 },
+      "High":      { "Filtering.Texture": 3, "Filtering.Anisotropy": 8 },
+      "Epic":      { "Filtering.Texture": 3, "Filtering.Anisotropy": 16 },
+      "Cinematic": { "Filtering.Texture": 3, "Filtering.Anisotropy": 16 }
+    },
+    "ViewDistance": {
+      "Low":       { "ViewDistance.MeshLOD": 1 },
+      "Medium":    { "ViewDistance.MeshLOD": 1 },
+      "High":      { "ViewDistance.MeshLOD": 1 },
+      "Epic":      { "ViewDistance.MeshLOD": 1 },
+      "Cinematic": { "ViewDistance.MeshLOD": 0 }
+    },
+    "Effects": {
+      "Low":       { "Effects.CloudQuality": 0 },
+      "Medium":    { "Effects.CloudQuality": 1 },
+      "High":      { "Effects.CloudQuality": 2 },
+      "Epic":      { "Effects.CloudQuality": 2 },
+      "Cinematic": { "Effects.CloudQuality": 2 }
+    },
+    "Textures": {
+      "Low":       { "Textures.MipBias": 100, "Textures.StreamingPoolMiB": 512 },
+      "Medium":    { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 1024 },
+      "High":      { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 2048 },
+      "Epic":      { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 4096 },
+      "Cinematic": { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 8192 }
+    },
+    "Shadows": {
+      "Low":       { "Shadows.Cascades": 2, "Shadows.MapSize": 1024, "Shadows.Distance": 8000,  "Shadows.RayTracing": "None" },
+      "Medium":    { "Shadows.Cascades": 3, "Shadows.MapSize": 1024, "Shadows.Distance": 10000, "Shadows.RayTracing": "None" },
+      "High":      { "Shadows.Cascades": 4, "Shadows.MapSize": 2048, "Shadows.Distance": 15000, "Shadows.RayTracing": "None" },
+      "Epic":      { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 20000, "Shadows.RayTracing": "None" },
+      "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.RayTracing": "None" }
+    },
+    "GlobalIllumination": {
+      "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.RayTracing": "None" },
+      "Medium":    { "GlobalIllumination.Samples": 16, "GlobalIllumination.RayTracing": "None" },
+      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.RayTracing": "None" },
+      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.RayTracing": "None" },
+      "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.RayTracing": "None" }
+    },
+    "Reflections": {
+      "Low":       { "Reflections.MaxSteps": 12, "Reflections.RayTracing": "None" },
+      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.RayTracing": "None" },
+      "High":      { "Reflections.MaxSteps": 32, "Reflections.RayTracing": "None" },
+      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.RayTracing": "None" },
+      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.RayTracing": "None" }
+    },
+    "PostProcess": {
+      "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3 },
+      "Medium":    { "PostProcess.AmbientOcclusionSamples": 8,  "PostProcess.BloomMips": 4 },
+      "High":      { "PostProcess.AmbientOcclusionSamples": 16, "PostProcess.BloomMips": 6 },
+      "Epic":      { "PostProcess.AmbientOcclusionSamples": 24, "PostProcess.BloomMips": 6 },
+      "Cinematic": { "PostProcess.AmbientOcclusionSamples": 32, "PostProcess.BloomMips": 6 }
+    }
+  },
+  "Recommend": {
+    "Thresholds": {
+      "AntiAliasing":       [ 20, 60, 120 ],
+      "ResolutionScale":    [ 30, 80, 150 ],
+      "Filtering":          [ 10, 30, 60 ],
+      "ViewDistance":       [ 20, 50, 100 ],
+      "Effects":            [ 25, 70, 140 ],
+      "Textures":           [ 15, 40, 90 ],
+      "Shadows":            [ 25, 70, 140 ],
+      "GlobalIllumination": [ 30, 80, 160 ],
+      "Reflections":        [ 30, 80, 160 ],
+      "PostProcess":        [ 15, 50, 110 ]
+    },
+    "MinVideoMemoryMiB": {
+      "Effects": [ 0, 0, 2048, 4096, 8192 ]
+    },
+    "DeviceClass": { "Unknown": 10, "Integrated": 15, "AppleUnified": 60, "Discrete": 80 }
+  }
+})";
 
     ScalabilityTable Table()
     {
@@ -189,26 +241,129 @@ TEST( ScalabilityContract, TheTableParsesAndAnswersPerLevel )
 TEST( ScalabilityContract, TheTableRefusesEveryErrorNotTheFirst )
 {
     std::string bad( kTable );
-    bad.replace( bad.find( "Filtering.Anisotropy: 4" ), 23, "Filtering.Anisotrophy: 4" ); // unknown key
-    bad.replace( bad.find( "Effects.CloudQuality: 1" ), 23, "Effects.CloudQuality: 9" );  // out of range
+    bad.replace( bad.find( "\"Filtering.Anisotropy\": 4" ), 25, "\"Filtering.Anisotrophy\": 4" ); // unknown key
+    bad.replace( bad.find( "\"Effects.CloudQuality\": 1" ), 25, "\"Effects.CloudQuality\": 9" );  // out of range
     const auto parsed = ScalabilityTable::Parse( bad );
     ASSERT_FALSE( parsed.IsSuccess() );
     EXPECT_NE( parsed.GetError().find( "Filtering.Anisotrophy" ), std::string::npos );
     EXPECT_NE( parsed.GetError().find( "Effects.CloudQuality" ), std::string::npos );
+    // Each error names where it sits in the file.
+    EXPECT_NE( parsed.GetError().find( "Groups.Effects.Medium" ), std::string::npos ) << parsed.GetError();
 }
 
 TEST( ScalabilityContract, AParameterUnderAGroupThatDoesNotOwnItIsRefused )
 {
     std::string bad( kTable );
-    bad.replace( bad.find( "ViewDistance.MeshLOD: 0" ), 23, "Effects.CloudQuality: 0" );
+    bad.replace( bad.find( "\"ViewDistance.MeshLOD\": 0" ), 25, "\"Effects.CloudQuality\": 0" );
     EXPECT_FALSE( ScalabilityTable::Parse( bad ).IsSuccess() );
 }
 
-TEST( ScalabilityContract, AGroupWithoutParametersCannotBeGivenLevels )
+TEST( ScalabilityContract, AGroupMissingItsLevelsIsRefused )
+{
+    std::string  bad( kTable );
+    const size_t from = bad.find( "    \"Shadows\": {" );
+    const size_t to   = bad.find( "    \"GlobalIllumination\": {" );
+    ASSERT_NE( from, std::string::npos );
+    bad.erase( from, to - from );
+    const auto parsed = ScalabilityTable::Parse( bad );
+    ASSERT_FALSE( parsed.IsSuccess() );
+    EXPECT_NE( parsed.GetError().find( "Shadows" ), std::string::npos ) << parsed.GetError();
+}
+
+TEST( ScalabilityContract, AnEnumValueIsWrittenByNameNotByNumber )
 {
     std::string bad( kTable );
-    bad.replace( bad.find( "Recommend:" ), 0, "  Shadows:\n    Low: {}\n" );
-    EXPECT_FALSE( ScalabilityTable::Parse( bad ).IsSuccess() );
+    bad.replace( bad.find( "\"Resolution.Upscaler\": \"TAAU\"" ), 29, "\"Resolution.Upscaler\": 1     " );
+    const auto parsed = ScalabilityTable::Parse( bad );
+    ASSERT_FALSE( parsed.IsSuccess() );
+    EXPECT_NE( parsed.GetError().find( "Resolution.Upscaler" ), std::string::npos ) << parsed.GetError();
+}
+
+// ---- Placeholders: reserved rows nobody may see or set ---------------------------------------------------
+
+TEST( ScalabilityContract, EveryPlaceholderIsHiddenAndEveryListedRowNamesAReader )
+{
+    const std::vector<Parameter> listed = ListedParameters();
+    for ( const ParameterSpec& spec : ParameterSpecs() )
+    {
+        const bool isListed = std::find( listed.begin(), listed.end(), spec.Id ) != listed.end();
+        if ( IsPlaceholder( spec ) )
+            EXPECT_FALSE( isListed ) << spec.Key << " is a placeholder and must not be listed";
+        else
+        {
+            EXPECT_TRUE( isListed ) << spec.Key;
+            ASSERT_TRUE( spec.Reader.has_value() );
+            EXPECT_FALSE( spec.Reader->empty() ) << spec.Key << " names no reader";
+        }
+    }
+    // Textures has only placeholders today: no slider for it. Every other group has a real row.
+    EXPECT_FALSE( IsGroupListed( Group::Textures ) );
+    for ( Group g : { Group::AntiAliasing, Group::ResolutionScale, Group::Filtering, Group::ViewDistance,
+                      Group::Effects, Group::Shadows, Group::GlobalIllumination, Group::Reflections,
+                      Group::PostProcess } )
+        EXPECT_TRUE( IsGroupListed( g ) ) << GroupKey( g );
+}
+
+namespace
+{
+    int              g_SaveCalls = 0;
+    QualitySelection g_LastSaved;
+
+    Common::BoolResultStr MockSave( const QualitySelection& selection )
+    {
+        ++g_SaveCalls;
+        g_LastSaved = selection;
+        return Common::MakeSuccess( true );
+    }
+
+    void InitializeQualityState()
+    {
+        g_SaveCalls = 0;
+        g_LastSaved = {};
+        QualityState::Initialize( Table(), Vk::BuildCapabilityCatalog( RtxProbe() ), AllAt( Level::High ), &MockSave );
+    }
+} // namespace
+
+TEST( ScalabilityContract, SetOverrideRefusesAPlaceholderAndSavesNothing )
+{
+    InitializeQualityState();
+    const QualitySelection before = QualityState::Selection();
+    const auto             report = QualityState::SetOverride( Parameter::ShadowRayTracing, 1 );
+    EXPECT_FALSE( report.Refused.empty() );
+    EXPECT_FALSE( report.Saved );
+    EXPECT_EQ( g_SaveCalls, 0 );
+    EXPECT_EQ( QualityState::Selection(), before );
+}
+
+TEST( ScalabilityContract, ApplySavesTheSelectionThroughTheSaver )
+{
+    InitializeQualityState();
+    const auto report = QualityState::SetGroupLevel( Group::Shadows, Level::Low );
+    EXPECT_TRUE( report.Refused.empty() );
+    EXPECT_TRUE( report.Saved );
+    EXPECT_EQ( g_SaveCalls, 1 );
+    EXPECT_EQ( g_LastSaved.Levels[static_cast<std::size_t>( Group::Shadows )], Level::Low );
+    EXPECT_EQ( QualityState::Resolved().As<int32_t>( Parameter::ShadowCascades ), 2 );
+}
+
+// ---- Display: VSync is not a quality group ----------------------------------------------------------------
+
+TEST( ScalabilityContract, VSyncOnIsFifoAndOffTakesTheLowestLatencyModeOffered )
+{
+    const CapabilityCatalog rtx = Vk::BuildCapabilityCatalog( RtxProbe() );
+    EXPECT_EQ( ResolvePresentMode( { .VSync = true }, rtx ).Mode, PresentMode::Fifo );
+    EXPECT_EQ( ResolvePresentMode( { .VSync = false }, rtx ).Mode, PresentMode::Immediate );
+    EXPECT_TRUE( ResolvePresentMode( { .VSync = false }, rtx ).Reason.empty() );
+
+    Vk::CatalogProbe mailboxOnly = RtxProbe();
+    mailboxOnly.PresentModes     = { VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_MAILBOX_KHR };
+    EXPECT_EQ( ResolvePresentMode( { .VSync = false }, Vk::BuildCapabilityCatalog( mailboxOnly ) ).Mode, PresentMode::Mailbox );
+
+    Vk::CatalogProbe fifoOnly = RtxProbe();
+    fifoOnly.PresentModes     = { VK_PRESENT_MODE_FIFO_KHR };
+    const auto forced         = ResolvePresentMode( { .VSync = false }, Vk::BuildCapabilityCatalog( fifoOnly ) );
+    EXPECT_EQ( forced.Mode, PresentMode::Fifo );
+    EXPECT_FALSE( forced.Reason.empty() );
 }
 
 // ---- The catalog, per device -----------------------------------------------------------------------------

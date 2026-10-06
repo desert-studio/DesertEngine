@@ -2,11 +2,13 @@
 
 #include <Common/Core/Logger.hpp>
 
-#include <yaml-cpp/yaml.h>
+#include <Common/Json/Document.hpp>
 
 #include <algorithm>
 #include <format>
 #include <iterator>
+#include <limits>
+#include <type_traits>
 
 namespace Common::Scalability
 {
@@ -42,6 +44,14 @@ namespace Common::Scalability
                "MeshRenderer scene-view ShadowQuality::ShadowMapSize" },
              { P::ShadowDistance, G::Shadows, "Shadows.Distance", 1000, 100000, CL::None,
                "MeshRenderer scene-view ShadowQuality::MaxDistance (cm)" },
+             { P::ReflectionMaxSteps, G::Reflections, "Reflections.MaxSteps", 8, 64, CL::None,
+               "SSRRenderer trace push constant maxSteps (SceneRenderer SSR pass)" },
+             { P::GlobalIlluminationSamples, G::GlobalIllumination, "GlobalIllumination.Samples", 8, 64, CL::None,
+               "GIResolve.shader RSM gather SAMPLES (specialization constant)" },
+             { P::AmbientOcclusionSamples, G::PostProcess, "PostProcess.AmbientOcclusionSamples", 4, 32, CL::None,
+               "SSAORenderer kernel sampleCount (SSAO.shader MAX_SAMPLES = 32)" },
+             { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
+               "BloomRenderer mip chain length (BloomRenderer::kMaxBloomMips = 6 caps it)" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },
@@ -50,9 +60,6 @@ namespace Common::Scalability
                CL::RayTracingModes, std::nullopt },
              { P::ReflectionRayTracing, G::Reflections, "Reflections.RayTracing", 0, kRtMax, CL::RayTracingModes,
                std::nullopt },
-             { P::AmbientOcclusionQuality, G::PostProcess, "PostProcess.AmbientOcclusion", 0, 3, CL::None,
-               std::nullopt },
-             { P::BloomQuality, G::PostProcess, "PostProcess.Bloom", 0, 3, CL::None, std::nullopt },
              { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 3, CL::None, std::nullopt },
              { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None, std::nullopt },
         } };
@@ -60,7 +67,7 @@ namespace Common::Scalability
 
     namespace
     {
-        // Enum-valued parameters are written by NAME in Scalability.yaml; this is the one place a parameter is
+        // Enum-valued parameters are written by NAME in Scalability.json; this is the one place a parameter is
         // tied to its name list (CapabilityCatalog.hpp owns the lists).
         std::span<const std::string_view> ValueNames( Parameter parameter )
         {
@@ -111,15 +118,15 @@ namespace Common::Scalability
             return std::nullopt;
         }
 
-        // Every loader error names the line and the key, and all of them are reported together.
+        // Every loader error names the JSON path of the value and the key, and all of them are reported together.
         class Errors
         {
         public:
             template <typename... Args>
-            void Add( const YAML::Node& at, std::format_string<Args...> format, Args&&... args )
+            void Add( const Json::Node& at, std::format_string<Args...> format, Args&&... args )
             {
-                std::format_to( std::back_inserter( m_Text ), "{}line {}: ", m_Text.empty() ? "" : "\n",
-                                at.Mark().line + 1 );
+                std::format_to( std::back_inserter( m_Text ), "{}{}: ", m_Text.empty() ? "" : "\n",
+                                at.Where().ToString() );
                 std::format_to( std::back_inserter( m_Text ), format, std::forward<Args>( args )... );
             }
             [[nodiscard]] bool Empty() const
@@ -135,30 +142,54 @@ namespace Common::Scalability
             std::string m_Text;
         };
 
-        std::optional<ParameterValue> ParseValue( const ParameterSpec& spec, const YAML::Node& node,
+        // A number of the table into T: an integral T takes only an integer inside its range, a float any number.
+        template <typename T>
+        [[nodiscard]] bool ReadNumber( const Json::Node& node, T& out )
+        {
+            if constexpr ( std::is_integral_v<T> )
+            {
+                const auto v = node.AsInteger();
+                if ( !v || v.GetValue() < static_cast<std::int64_t>( std::numeric_limits<T>::min() ) ||
+                     v.GetValue() > static_cast<std::int64_t>( std::numeric_limits<T>::max() ) )
+                    return false;
+                out = static_cast<T>( v.GetValue() );
+            }
+            else
+            {
+                const auto v = node.AsNumber();
+                if ( !v )
+                    return false;
+                out = static_cast<T>( v.GetValue() );
+            }
+            return true;
+        }
+
+        std::optional<ParameterValue> ParseValue( const ParameterSpec& spec, const Json::Node& node,
                                                   Errors& errors )
         {
-            if ( !node.IsScalar() )
-            {
-                errors.Add( node, "{}: expected a value", spec.Key );
-                return std::nullopt;
-            }
-            const std::string                       text  = node.Scalar();
             const std::span<const std::string_view> names = ValueNames( spec.Id );
             ParameterValue                          value = 0;
             if ( !names.empty() )
             {
-                const auto it = std::find( names.begin(), names.end(), text );
+                const auto text = node.AsString();
+                if ( !text )
+                {
+                    errors.Add( node, "{}: expected the name of a value, found {}", spec.Key,
+                                Json::Detail::DescribeFound( node.Raw() ) );
+                    return std::nullopt;
+                }
+                const auto it = std::find( names.begin(), names.end(), text.GetValue() );
                 if ( it == names.end() )
                 {
-                    errors.Add( node, "{}: '{}' is not a value of this parameter", spec.Key, text );
+                    errors.Add( node, "{}: '{}' is not a value of this parameter", spec.Key, text.GetValue() );
                     return std::nullopt;
                 }
                 value = static_cast<ParameterValue>( it - names.begin() );
             }
-            else if ( !YAML::convert<ParameterValue>::decode( node, value ) )
+            else if ( !ReadNumber( node, value ) )
             {
-                errors.Add( node, "{}: '{}' is not an integer", spec.Key, text );
+                errors.Add( node, "{}: expected an integer, found {}", spec.Key,
+                            Json::Detail::DescribeFound( node.Raw() ) );
                 return std::nullopt;
             }
             if ( value < spec.Min || value > spec.Max )
@@ -169,69 +200,77 @@ namespace Common::Scalability
             return value;
         }
 
-        void ParseGroups( const YAML::Node& groups, ScalabilityTable& table, Errors& errors )
+        // True for an object; otherwise an error naming what the file holds instead.
+        [[nodiscard]] bool ExpectObject( const Json::Node& node, std::string_view what, Errors& errors )
         {
+            if ( node.GetKind() == Json::Kind::Object )
+                return true;
+            errors.Add( node, "{}: expected an object, found {}", what, Json::Detail::DescribeFound( node.Raw() ) );
+            return false;
+        }
+
+        void ParseGroups( const Json::Node& groups, ScalabilityTable& table, Errors& errors )
+        {
+            if ( !ExpectObject( groups, "Groups", errors ) )
+                return;
             std::array<bool, kGroupCount> seen{};
-            for ( const auto& groupEntry : groups )
-            {
-                const std::string          groupKey = groupEntry.first.Scalar();
-                const std::optional<Group> group    = FindGroup( groupKey );
+            groups.ForEachMember( [&]( std::string_view groupKey, const Json::Node& groupNode ) {
+                const std::optional<Group> group = FindGroup( groupKey );
                 if ( !group )
                 {
-                    errors.Add( groupEntry.first, "unknown group '{}'", groupKey );
-                    continue;
+                    errors.Add( groupNode, "unknown group '{}'", groupKey );
+                    return;
                 }
                 const std::size_t g = static_cast<std::size_t>( *group );
                 seen[g]             = true;
                 if ( !GroupHasParameters( *group ) )
                 {
-                    errors.Add( groupEntry.first, "group '{}' has no parameters; levels for it would move nothing",
+                    errors.Add( groupNode, "group '{}' has no parameters; levels for it would move nothing",
                                 groupKey );
-                    continue;
+                    return;
                 }
+                if ( !ExpectObject( groupNode, groupKey, errors ) )
+                    return;
                 std::array<bool, kLevelCount> levelSeen{};
-                for ( const auto& levelEntry : groupEntry.second )
-                {
-                    const std::string          levelKey = levelEntry.first.Scalar();
-                    const std::optional<Level> level    = FindLevel( levelKey );
+                groupNode.ForEachMember( [&]( std::string_view levelKey, const Json::Node& levelNode ) {
+                    const std::optional<Level> level = FindLevel( levelKey );
                     if ( !level )
                     {
-                        errors.Add( levelEntry.first, "{}: unknown level '{}'", groupKey, levelKey );
-                        continue;
+                        errors.Add( levelNode, "{}: unknown level '{}'", groupKey, levelKey );
+                        return;
                     }
                     const std::size_t l = static_cast<std::size_t>( *level );
                     levelSeen[l]        = true;
+                    if ( !ExpectObject( levelNode, levelKey, errors ) )
+                        return;
                     std::array<bool, kParameterCount> set{};
-                    for ( const auto& valueEntry : levelEntry.second )
-                    {
-                        const std::string    key  = valueEntry.first.Scalar();
+                    levelNode.ForEachMember( [&]( std::string_view key, const Json::Node& valueNode ) {
                         const ParameterSpec* spec = FindSpec( key );
                         if ( !spec )
                         {
-                            errors.Add( valueEntry.first, "{}.{}: unknown parameter '{}'", groupKey, levelKey,
-                                        key );
-                            continue;
+                            errors.Add( valueNode, "{}.{}: unknown parameter '{}'", groupKey, levelKey, key );
+                            return;
                         }
                         if ( spec->Owner != *group )
                         {
-                            errors.Add( valueEntry.first, "{}.{}: '{}' belongs to group '{}'", groupKey, levelKey,
-                                        key, GroupKey( spec->Owner ) );
-                            continue;
+                            errors.Add( valueNode, "{}.{}: '{}' belongs to group '{}'", groupKey, levelKey, key,
+                                        GroupKey( spec->Owner ) );
+                            return;
                         }
                         const std::size_t p = static_cast<std::size_t>( spec->Id );
                         set[p]              = true;
-                        if ( const auto value = ParseValue( *spec, valueEntry.second, errors ) )
+                        if ( const auto value = ParseValue( *spec, valueNode, errors ) )
                             table.Values[g][l][p] = *value;
-                    }
+                    } );
                     for ( const ParameterSpec& spec : ParameterSpecs() )
                         if ( spec.Owner == *group && !set[static_cast<std::size_t>( spec.Id )] )
-                            errors.Add( levelEntry.first, "{}.{}: '{}' is not set", groupKey, levelKey, spec.Key );
-                }
+                            errors.Add( levelNode, "{}.{}: '{}' is not set", groupKey, levelKey, spec.Key );
+                } );
                 for ( std::size_t l = 0; l < kLevelCount; ++l )
                     if ( !levelSeen[l] )
-                        errors.Add( groupEntry.first, "{}: level '{}' is missing", groupKey,
+                        errors.Add( groupNode, "{}: level '{}' is missing", groupKey,
                                     LevelKey( static_cast<Level>( l ) ) );
-            }
+            } );
             for ( std::size_t g = 0; g < kGroupCount; ++g )
                 if ( !seen[g] && GroupHasParameters( static_cast<Group>( g ) ) )
                     errors.Add( groups, "group '{}' has parameters but no levels",
@@ -241,63 +280,66 @@ namespace Common::Scalability
         // A per-group list under Recommend (Thresholds / MinVideoMemoryMiB): known groups that have parameters,
         // exactly N numbers each.
         template <typename T, std::size_t N>
-        void ParsePerGroupList( const YAML::Node& node, std::string_view section,
+        void ParsePerGroupList( const Json::Node& node, std::string_view section,
                                 std::array<std::array<T, N>, kGroupCount>& out,
                                 std::array<bool, kGroupCount>& seen, Errors& errors )
         {
-            for ( const auto& entry : node )
-            {
-                const std::string          key   = entry.first.Scalar();
+            if ( !ExpectObject( node, section, errors ) )
+                return;
+            node.ForEachMember( [&]( std::string_view key, const Json::Node& list ) {
                 const std::optional<Group> group = FindGroup( key );
                 if ( !group || !GroupHasParameters( *group ) )
                 {
-                    errors.Add( entry.first, "Recommend.{}: '{}' is not a group with parameters", section, key );
-                    continue;
+                    errors.Add( list, "Recommend.{}: '{}' is not a group with parameters", section, key );
+                    return;
                 }
                 const std::size_t g = static_cast<std::size_t>( *group );
                 seen[g]             = true;
-                if ( !entry.second.IsSequence() || entry.second.size() != N )
-                {
-                    errors.Add( entry.second, "Recommend.{}.{}: expected {} numbers", section, key, N );
-                    continue;
-                }
-                for ( std::size_t i = 0; i < N; ++i )
-                    if ( !YAML::convert<T>::decode( entry.second[i], out[g][i] ) )
-                        errors.Add( entry.second[i], "Recommend.{}.{}[{}]: not a number", section, key, i );
-            }
+                std::size_t count   = 0;
+                list.ForEachElement( [&]( std::size_t i, const Json::Node& element ) {
+                    ++count;
+                    if ( i < N && !ReadNumber( element, out[g][i] ) )
+                        errors.Add( element, "Recommend.{}.{}[{}]: not a number in range", section, key, i );
+                } );
+                if ( list.GetKind() != Json::Kind::Array || count != N )
+                    errors.Add( list, "Recommend.{}.{}: expected an array of {} numbers", section, key, N );
+            } );
         }
 
-        void ParseRecommend( const YAML::Node& recommend, ScalabilityTable& table, Errors& errors )
+        void ParseRecommend( const Json::Node& recommend, ScalabilityTable& table, Errors& errors )
         {
+            if ( !ExpectObject( recommend, "Recommend", errors ) )
+                return;
             std::array<bool, kGroupCount> thresholdsSeen{};
             std::array<bool, kGroupCount> memorySeen{};
             bool                          deviceClassSeen = false;
-            for ( const auto& entry : recommend )
-            {
-                const std::string key = entry.first.Scalar();
+            recommend.ForEachMember( [&]( std::string_view key, const Json::Node& entry ) {
                 if ( key == "Thresholds" )
-                    ParsePerGroupList( entry.second, key, table.RecommendThresholds, thresholdsSeen, errors );
+                    ParsePerGroupList( entry, key, table.RecommendThresholds, thresholdsSeen, errors );
                 else if ( key == "MinVideoMemoryMiB" )
-                    ParsePerGroupList( entry.second, key, table.MinVideoMemoryMiB, memorySeen, errors );
+                    ParsePerGroupList( entry, key, table.MinVideoMemoryMiB, memorySeen, errors );
                 else if ( key == "DeviceClass" )
                 {
                     deviceClassSeen = true;
+                    if ( !ExpectObject( entry, "Recommend.DeviceClass", errors ) )
+                        return;
                     constexpr std::array<std::string_view, 4> kClasses{ "Unknown", "Integrated", "AppleUnified",
                                                                         "Discrete" };
                     for ( std::size_t c = 0; c < kClasses.size(); ++c )
                     {
-                        const YAML::Node value = entry.second[std::string( kClasses[c] )];
-                        if ( !value || !YAML::convert<float>::decode( value, table.DeviceClassPerfIndex[c] ) )
-                            errors.Add( entry.second, "Recommend.DeviceClass: '{}' is missing or not a number",
+                        const std::optional<Json::Node> value = entry.Find( kClasses[c] );
+                        if ( !value || !ReadNumber( *value, table.DeviceClassPerfIndex[c] ) )
+                            errors.Add( entry, "Recommend.DeviceClass: '{}' is missing or not a number",
                                         kClasses[c] );
                     }
-                    if ( entry.second.size() != kClasses.size() )
-                        errors.Add( entry.second, "Recommend.DeviceClass: expected exactly {} entries",
-                                    kClasses.size() );
+                    entry.ForEachMember( [&]( std::string_view name, const Json::Node& member ) {
+                        if ( std::find( kClasses.begin(), kClasses.end(), name ) == kClasses.end() )
+                            errors.Add( member, "Recommend.DeviceClass: unknown device class '{}'", name );
+                    } );
                 }
                 else
-                    errors.Add( entry.first, "Recommend: unknown key '{}'", key );
-            }
+                    errors.Add( entry, "Recommend: unknown key '{}'", key );
+            } );
             if ( !deviceClassSeen )
                 errors.Add( recommend, "Recommend.DeviceClass is missing" );
             for ( std::size_t g = 0; g < kGroupCount; ++g )
@@ -502,18 +544,13 @@ namespace Common::Scalability
 
     // ---- Table -------------------------------------------------------------------------------------------
 
-    Common::ResultStr<ScalabilityTable> ScalabilityTable::Parse( std::string_view yamlText )
+    Common::ResultStr<ScalabilityTable> ScalabilityTable::Parse( std::string_view jsonText )
     {
-        YAML::Node root;
-        try
-        {
-            root = YAML::Load( std::string( yamlText ) );
-        }
-        catch ( const YAML::Exception& e )
-        {
+        const auto parsed = Json::Parse( jsonText );
+        if ( !parsed )
             return Common::MakeError<ScalabilityTable>(
-                 std::format( "Scalability.yaml is not YAML: {}", e.what() ) );
-        }
+                 std::format( "Scalability.json is not JSON: {}", parsed.GetError() ) );
+        const Json::Node root = Json::Root( parsed.GetValue() );
 
         ScalabilityTable table;
         // Slots a group does not own keep the spec Min (never read: Resolve takes a parameter from its own group).
@@ -523,31 +560,29 @@ namespace Common::Scalability
                     level[static_cast<std::size_t>( spec.Id )] = spec.Min;
 
         Errors errors;
-        if ( !root.IsMap() )
-            return Common::MakeError<ScalabilityTable>( "Scalability.yaml: the document is not a map" );
+        if ( root.GetKind() != Json::Kind::Object )
+            return Common::MakeError<ScalabilityTable>( "Scalability.json: the document is not an object" );
         bool versionSeen = false, groupsSeen = false, recommendSeen = false;
-        for ( const auto& entry : root )
-        {
-            const std::string key = entry.first.Scalar();
+        root.ForEachMember( [&]( std::string_view key, const Json::Node& entry ) {
             if ( key == "Version" )
             {
                 versionSeen = true;
-                if ( !YAML::convert<uint32_t>::decode( entry.second, table.Version ) || table.Version == 0 )
-                    errors.Add( entry.second, "Version: expected a positive integer" );
+                if ( !ReadNumber( entry, table.Version ) || table.Version == 0 )
+                    errors.Add( entry, "Version: expected a positive integer" );
             }
             else if ( key == "Groups" )
             {
                 groupsSeen = true;
-                ParseGroups( entry.second, table, errors );
+                ParseGroups( entry, table, errors );
             }
             else if ( key == "Recommend" )
             {
                 recommendSeen = true;
-                ParseRecommend( entry.second, table, errors );
+                ParseRecommend( entry, table, errors );
             }
             else
-                errors.Add( entry.first, "unknown top-level key '{}'", key );
-        }
+                errors.Add( entry, "unknown top-level key '{}'", key );
+        } );
         if ( !versionSeen )
             errors.Add( root, "Version is missing" );
         if ( !groupsSeen )

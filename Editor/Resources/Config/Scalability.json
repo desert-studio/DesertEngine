@@ -1,0 +1,311 @@
+{
+  "Version": 1,
+  "Groups": {
+    "AntiAliasing": {
+      "Low": {
+        "AntiAliasing.Method": "FXAA",
+        "AntiAliasing.Samples": 1,
+        "AntiAliasing.TemporalQuality": 0
+      },
+      "Medium": {
+        "AntiAliasing.Method": "FXAA",
+        "AntiAliasing.Samples": 1,
+        "AntiAliasing.TemporalQuality": 1
+      },
+      "High": {
+        "AntiAliasing.Method": "FXAA",
+        "AntiAliasing.Samples": 4,
+        "AntiAliasing.TemporalQuality": 2
+      },
+      "Epic": {
+        "AntiAliasing.Method": "MSAA",
+        "AntiAliasing.Samples": 4,
+        "AntiAliasing.TemporalQuality": 3
+      },
+      "Cinematic": {
+        "AntiAliasing.Method": "MSAA",
+        "AntiAliasing.Samples": 8,
+        "AntiAliasing.TemporalQuality": 3
+      }
+    },
+    "ResolutionScale": {
+      "Low": {
+        "Resolution.Percent": 100,
+        "Resolution.Upscaler": "None",
+        "Resolution.Sharpness": 0
+      },
+      "Medium": {
+        "Resolution.Percent": 100,
+        "Resolution.Upscaler": "None",
+        "Resolution.Sharpness": 0
+      },
+      "High": {
+        "Resolution.Percent": 100,
+        "Resolution.Upscaler": "None",
+        "Resolution.Sharpness": 0
+      },
+      "Epic": {
+        "Resolution.Percent": 100,
+        "Resolution.Upscaler": "None",
+        "Resolution.Sharpness": 0
+      },
+      "Cinematic": {
+        "Resolution.Percent": 100,
+        "Resolution.Upscaler": "None",
+        "Resolution.Sharpness": 0
+      }
+    },
+    "Filtering": {
+      "Low": {
+        "Filtering.Texture": 1,
+        "Filtering.Anisotropy": 2
+      },
+      "Medium": {
+        "Filtering.Texture": 2,
+        "Filtering.Anisotropy": 4
+      },
+      "High": {
+        "Filtering.Texture": 2,
+        "Filtering.Anisotropy": 8
+      },
+      "Epic": {
+        "Filtering.Texture": 3,
+        "Filtering.Anisotropy": 16
+      },
+      "Cinematic": {
+        "Filtering.Texture": 3,
+        "Filtering.Anisotropy": 16
+      }
+    },
+    "ViewDistance": {
+      "Low": {
+        "ViewDistance.MeshLOD": 1
+      },
+      "Medium": {
+        "ViewDistance.MeshLOD": 1
+      },
+      "High": {
+        "ViewDistance.MeshLOD": 1
+      },
+      "Epic": {
+        "ViewDistance.MeshLOD": 1
+      },
+      "Cinematic": {
+        "ViewDistance.MeshLOD": 0
+      }
+    },
+    "Effects": {
+      "Low": {
+        "Effects.CloudQuality": 0
+      },
+      "Medium": {
+        "Effects.CloudQuality": 1
+      },
+      "High": {
+        "Effects.CloudQuality": 2
+      },
+      "Epic": {
+        "Effects.CloudQuality": 2
+      },
+      "Cinematic": {
+        "Effects.CloudQuality": 2
+      }
+    },
+    "Textures": {
+      "Low": {
+        "Textures.MipBias": 100,
+        "Textures.StreamingPoolMiB": 512
+      },
+      "Medium": {
+        "Textures.MipBias": 0,
+        "Textures.StreamingPoolMiB": 1024
+      },
+      "High": {
+        "Textures.MipBias": 0,
+        "Textures.StreamingPoolMiB": 2048
+      },
+      "Epic": {
+        "Textures.MipBias": 0,
+        "Textures.StreamingPoolMiB": 4096
+      },
+      "Cinematic": {
+        "Textures.MipBias": 0,
+        "Textures.StreamingPoolMiB": 8192
+      }
+    },
+    "Shadows": {
+      "Low": {
+        "Shadows.Cascades": 2,
+        "Shadows.MapSize": 1024,
+        "Shadows.Distance": 8000,
+        "Shadows.RayTracing": "None"
+      },
+      "Medium": {
+        "Shadows.Cascades": 3,
+        "Shadows.MapSize": 1024,
+        "Shadows.Distance": 10000,
+        "Shadows.RayTracing": "None"
+      },
+      "High": {
+        "Shadows.Cascades": 4,
+        "Shadows.MapSize": 2048,
+        "Shadows.Distance": 15000,
+        "Shadows.RayTracing": "None"
+      },
+      "Epic": {
+        "Shadows.Cascades": 4,
+        "Shadows.MapSize": 4096,
+        "Shadows.Distance": 20000,
+        "Shadows.RayTracing": "None"
+      },
+      "Cinematic": {
+        "Shadows.Cascades": 4,
+        "Shadows.MapSize": 4096,
+        "Shadows.Distance": 30000,
+        "Shadows.RayTracing": "None"
+      }
+    },
+    "GlobalIllumination": {
+      "Low": {
+        "GlobalIllumination.Samples": 8,
+        "GlobalIllumination.RayTracing": "None"
+      },
+      "Medium": {
+        "GlobalIllumination.Samples": 16,
+        "GlobalIllumination.RayTracing": "None"
+      },
+      "High": {
+        "GlobalIllumination.Samples": 32,
+        "GlobalIllumination.RayTracing": "None"
+      },
+      "Epic": {
+        "GlobalIllumination.Samples": 48,
+        "GlobalIllumination.RayTracing": "None"
+      },
+      "Cinematic": {
+        "GlobalIllumination.Samples": 64,
+        "GlobalIllumination.RayTracing": "None"
+      }
+    },
+    "Reflections": {
+      "Low": {
+        "Reflections.MaxSteps": 12,
+        "Reflections.RayTracing": "None"
+      },
+      "Medium": {
+        "Reflections.MaxSteps": 20,
+        "Reflections.RayTracing": "None"
+      },
+      "High": {
+        "Reflections.MaxSteps": 32,
+        "Reflections.RayTracing": "None"
+      },
+      "Epic": {
+        "Reflections.MaxSteps": 48,
+        "Reflections.RayTracing": "None"
+      },
+      "Cinematic": {
+        "Reflections.MaxSteps": 64,
+        "Reflections.RayTracing": "None"
+      }
+    },
+    "PostProcess": {
+      "Low": {
+        "PostProcess.AmbientOcclusionSamples": 4,
+        "PostProcess.BloomMips": 3
+      },
+      "Medium": {
+        "PostProcess.AmbientOcclusionSamples": 8,
+        "PostProcess.BloomMips": 4
+      },
+      "High": {
+        "PostProcess.AmbientOcclusionSamples": 16,
+        "PostProcess.BloomMips": 6
+      },
+      "Epic": {
+        "PostProcess.AmbientOcclusionSamples": 24,
+        "PostProcess.BloomMips": 6
+      },
+      "Cinematic": {
+        "PostProcess.AmbientOcclusionSamples": 32,
+        "PostProcess.BloomMips": 6
+      }
+    }
+  },
+  "Recommend": {
+    "Thresholds": {
+      "AntiAliasing": [
+        20,
+        60,
+        120
+      ],
+      "ResolutionScale": [
+        30,
+        80,
+        150
+      ],
+      "Filtering": [
+        10,
+        30,
+        60
+      ],
+      "ViewDistance": [
+        20,
+        50,
+        100
+      ],
+      "Effects": [
+        25,
+        70,
+        140
+      ],
+      "Textures": [
+        15,
+        40,
+        90
+      ],
+      "Shadows": [
+        25,
+        70,
+        140
+      ],
+      "GlobalIllumination": [
+        30,
+        80,
+        160
+      ],
+      "Reflections": [
+        30,
+        80,
+        160
+      ],
+      "PostProcess": [
+        15,
+        50,
+        110
+      ]
+    },
+    "MinVideoMemoryMiB": {
+      "Textures": [
+        0,
+        1024,
+        2048,
+        4096,
+        8192
+      ],
+      "Shadows": [
+        0,
+        0,
+        1024,
+        2048,
+        4096
+      ]
+    },
+    "DeviceClass": {
+      "Unknown": 10,
+      "Integrated": 15,
+      "AppleUnified": 60,
+      "Discrete": 80
+    }
+  }
+}
