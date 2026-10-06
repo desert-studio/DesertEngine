@@ -2,9 +2,8 @@
   The second half of the MSVC compiler cache wiring; the first half, and why it lives in MSBuild
   rather than premake, is in Ccache.props. INERT unless DESERT_MSVC_CCACHE is set.
 
-  /Zi AND /ZI ARE UNCACHEABLE, /Z7 IS NOT. /Zi (Release: premake writes no DebugInformationFormat
-  there, so MSBuild's default applies) and /ZI (Debug: premake's `symbols "On"` becomes
-  EditAndContinue) both have every compiler of a project write into ONE shared vc143.pdb through
+  /Zi IS UNCACHEABLE, /Z7 IS NOT. /Zi (Release: premake writes no DebugInformationFormat there, so
+  MSBuild's default applies; Debug: `symbols "On"` with `editandcontinue "Off"`, BUILD1 P3) has every compiler of a project write into ONE shared vc143.pdb through
   mspdbsrv: state outside the object file, which no cache can replay, and ccache counts such a
   compile as "unsupported compiler option" and passes it through. /Z7 keeps the same debug information
   inside the .obj, and the linker still produces the executable's .pdb from it; nothing a developer

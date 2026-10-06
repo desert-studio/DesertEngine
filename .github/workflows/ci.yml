@@ -908,8 +908,9 @@ jobs:
       #   1. the SAME (source, flags) compiled again by another suite -- 505 of 1940 compiles, 30.8 %
       #      of compile CPU, measured on macOS by B2 over the same premake scripts;
       #   2. no parallelism INSIDE a project (no /MP, see BuildScripts/Workspace.lua).
-      # The MultiToolTask that ccache needs anyway (one source per cl.exe) is also the answer to 2 --
-      # see BuildScripts/MSBuild/Ccache.props for each property and Ccache.targets for /Zi -> /Z7.
+      # 2 is answered in every generated project now (UseMultiToolTask + EnforceProcessCountAcrossBuilds,
+      # BuildScripts/MSBuildProperties.lua), and that one-source-per-cl.exe is also what ccache needs --
+      # see BuildScripts/MSBuild/Ccache.props for the cache's own properties and Ccache.targets for /Zi -> /Z7.
       # Both are imported by NAME on the msbuild line below, never as Directory.Build.* from the root,
       # but at the SAME two points Directory.Build.* would be (CustomBeforeMicrosoftCommonProps /
       # CustomAfterMicrosoftCommonTargets) -- see the gate after the build step for why that matters.
@@ -983,7 +984,7 @@ jobs:
           $row = $stats | Select-String '^multiple_source_files\s+(\d+)$'
           if (-not $row) { $stats; throw "ccache --print-stats has no multiple_source_files row; the gate cannot read it" }
           $n = [int]$row.Matches[0].Groups[1].Value
-          if ($n -ne 0) { throw "ccache saw $n compiles with more than one source: UseMultiToolTask is not in effect, see BuildScripts/MSBuild/Ccache.props" }
+          if ($n -ne 0) { throw "ccache saw $n compiles with more than one source: UseMultiToolTask is not in effect, see BuildScripts/MSBuildProperties.lua and BuildScripts/MSBuild/Ccache.props" }
           "multiple_source_files = 0"
 
       # Every outcome prints: a cache that saw nothing must not look like a build that needed nothing.
