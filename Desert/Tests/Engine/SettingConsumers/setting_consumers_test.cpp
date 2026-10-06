@@ -800,6 +800,22 @@ namespace
          { "FoliageTypes", "Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.cpp" },
     };
 
+    // A destructible object (DST-03b): every field is read by ECS::DestructibleLifetime::Sync into the
+    // DestructibleDesc the scene's DestructionWorld is given.
+    constexpr const char* kDestructibleSync = "Desert/Desert/Source/Engine/ECS/System/DestructibleLifetime.cpp";
+    constexpr Row kDestructibleRows[] = {
+         { "Fracture", kDestructibleSync },
+         { "DamageThreshold", kDestructibleSync },
+         { "AnchoredNodes", kDestructibleSync },
+         { "DensityKgPerCm3", kDestructibleSync },
+         { "Friction", kDestructibleSync },
+         { "Restitution", kDestructibleSync },
+         { "RemoveOnSleep", kDestructibleSync },
+         { "MaxSleepTime", kDestructibleSync },
+         { "SlowMovingAsSleeping", kDestructibleSync },
+         { "SlowMovingVelocityThreshold", kDestructibleSync },
+    };
+
     // What Play streams around (WP24): every field is read by Core::WorldStreamer::GatherSources.
     constexpr Row kStreamingSourceRows[] = {
          { "Enabled", kWorldStreamer },
@@ -1011,6 +1027,7 @@ namespace
          { "PlayerStartData", "PlayerStartComponent", nullptr, CENSUS_ROWS( kPlayerStartRows ) },
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
+         { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIPathData", "UIPathComponent", nullptr, CENSUS_ROWS( kPathRows ) },
          { "UIRetainerData", "UIRetainerComponent", nullptr, CENSUS_ROWS( kRetainerRows ) },
