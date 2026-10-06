@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChainOutput.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -54,7 +55,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         const Semaphores& slot = m_FrameSemaphores[EngineContext::GetInstance().GetCurrentFrameIndex()];
         return VulkanFrameOutput{ .ImageAcquired  = slot.PresentComplete,
-                                  .ImageFirstUse  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                  .ImageFirstUse  = RdgVulkanStages( RDG::kPresentAcquiredState.Stages ),
                                   .RenderComplete = slot.RenderComplete };
     }
 
