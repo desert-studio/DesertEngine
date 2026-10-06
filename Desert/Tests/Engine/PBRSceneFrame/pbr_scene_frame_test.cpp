@@ -24,8 +24,11 @@
 // None of it needs a device: the shaders are compiled with shaderc and reflected with the engine's own
 // reflection, exactly as Tests/Engine/ShaderCacheKey does.
 
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
+#include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
@@ -65,22 +68,19 @@ using namespace Desert::Graphic::API::Vulkan;
 
 namespace
 {
-    // The engine resolves `#include <...>` against Common::Constants::Path::SHADERDIR_PATH, which is
-    // relative ("Resources/Shaders/"). The editor runs with its own directory as the working one; the
-    // test does the same so the include walk resolves the same files the runtime would.
+    // The engine resolves `#include <...>` against Common::Constants::Path::ShaderDir(), derived from the engine
+    // directory the host sets. The suite is that host: it sets the checkout's Editor/ and reads every shader
+    // path off ShaderDir(), never off the working directory.
     struct ShaderRootFixture : ::testing::Test
     {
         static void SetUpTestSuite()
         {
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
 
             ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+                 << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
-            std::filesystem::current_path( here / "Editor" );
+            Common::Constants::Path::SetEngineDir( here / "Editor" );
         }
     };
 
@@ -94,7 +94,7 @@ namespace
 
     std::filesystem::path ShaderPath( const char* relative )
     {
-        return std::filesystem::path( "Resources/Shaders/Programs" ) / relative;
+        return ( Common::Constants::Path::ShaderDir() / "Programs" ) / relative;
     }
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser.
@@ -122,48 +122,12 @@ namespace
         return it == stages->end() ? std::string{} : it->second;
     }
 
-    // Resolves `#include <...>` exactly as ShaderIncluder does, so the SPIR-V under test is the SPIR-V
-    // the engine compiles.
-    class Includer final : public shaderc::CompileOptions::IncluderInterface
-    {
-    public:
-        shaderc_include_result* GetInclude( const char* requested, shaderc_include_type type,
-                                            const char* requesting, size_t ) override
-        {
-            const std::filesystem::path full =
-                 type == shaderc_include_type_relative
-                      ? ( std::filesystem::path( requesting ).parent_path() / requested ).lexically_normal()
-                      : ( Common::Constants::Path::SHADERDIR_PATH / requested ).lexically_normal();
-
-            auto* name = new std::string( full.string() );
-            auto* body =
-                 new std::string( Desert::Core::Preprocess::DShaderParser::TranslateSugar( ReadFile( full ) ) );
-
-            auto* result               = new shaderc_include_result;
-            result->source_name        = name->c_str();
-            result->source_name_length = name->size();
-            result->content            = body->c_str();
-            result->content_length     = body->size();
-            result->user_data          = new std::pair<std::string*, std::string*>( name, body );
-            return result;
-        }
-
-        void ReleaseInclude( shaderc_include_result* data ) override
-        {
-            auto* pair = static_cast<std::pair<std::string*, std::string*>*>( data->user_data );
-            delete pair->first;
-            delete pair->second;
-            delete pair;
-            delete data;
-        }
-    };
-
     std::vector<uint32_t> CompileStage( const std::string& source, const std::filesystem::path& path,
                                         shaderc_shader_kind kind )
     {
         shaderc::Compiler       compiler;
         shaderc::CompileOptions options;
-        options.SetIncluder( std::make_unique<Includer>() );
+        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
         options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
 
         const auto result = compiler.CompileGlslToSpv( source, kind, path.string().c_str(), options );
@@ -452,7 +416,8 @@ namespace
     std::vector<std::filesystem::path> ShadersCompiling( const char* header )
     {
         std::vector<std::filesystem::path> consumers;
-        for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders/Programs" ) )
+        for ( const auto& entry :
+              std::filesystem::recursive_directory_iterator( Common::Constants::Path::ShaderDir() / "Programs" ) )
         {
             if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
                 continue;
@@ -617,6 +582,7 @@ TEST( SceneFrameCapability, EverySceneResourceTheMockDeclaresHasAWriter )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

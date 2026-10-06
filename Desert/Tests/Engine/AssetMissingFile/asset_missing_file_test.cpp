@@ -41,6 +41,8 @@
 #include <fstream>
 #include <limits>
 #include <string>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 
@@ -315,14 +317,7 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
     using Desert::Assets::AsyncAssetLoader;
     using Desert::Assets::SyncLoadLedger;
 
-    fs::path repo;
-    for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
-        if ( fs::is_directory( fs::path( prefix ) / "Editor/Resources/Assets/Clouds/Types" ) )
-        {
-            repo = fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) );
-            break;
-        }
-    ASSERT_FALSE( repo.empty() ) << "could not locate the repository root from the working directory";
+    const fs::path repo   = Desert::TestSupport::RepositoryRoot();
     const fs::path source = repo / "Editor/Resources/Assets/Clouds/Types/Cirrus.decloudtype";
     ASSERT_TRUE( fs::exists( source ) );
 
@@ -385,6 +380,7 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
@@ -399,14 +395,7 @@ TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGu
     namespace ContentRegistry = Desert::Assets::ContentRegistry;
     using Common::Content::ContentKind;
 
-    fs::path repo;
-    for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
-        if ( fs::is_directory( fs::path( prefix ) / "Editor/Resources/Assets/Clouds/Layouts" ) )
-        {
-            repo = fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) );
-            break;
-        }
-    ASSERT_FALSE( repo.empty() ) << "could not locate the repository root from the working directory";
+    const fs::path repo   = Desert::TestSupport::RepositoryRoot();
     const fs::path source = repo / "Editor/Resources/Assets/Clouds/Layouts/PTP_Channels_Green.dclayout";
     ASSERT_TRUE( fs::exists( source ) );
 

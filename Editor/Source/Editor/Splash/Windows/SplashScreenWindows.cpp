@@ -200,11 +200,11 @@ namespace Desert::Editor::Splash
                  // come back from.
                  CreateWindowExW( WS_EX_APPWINDOW | WS_EX_LAYERED, kClassName, L"Desert Engine",
                                   WS_POPUP | WS_MINIMIZEBOX, x, y, w, h, nullptr, nullptr, instance, nullptr );
-            const std::wstring iconFont = UI::kIconFontFile.wstring();
+            const std::wstring iconFont = UI::IconFontFile().wstring();
             m_IconFontLoaded            = AddFontResourceExW( iconFont.c_str(), FR_PRIVATE, nullptr ) > 0;
             if ( !m_IconFontLoaded )
                 LOG_WARN( "[Splash] icon font '{}' could not be loaded; the window buttons draw system characters",
-                          UI::kIconFontFile.string() );
+                          UI::IconFontFile().string() );
             if ( window )
             {
                 SetWindowLongPtrW( window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>( this ) );

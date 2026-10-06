@@ -2373,11 +2373,6 @@ namespace Desert::Editor
             return;
         }
 
-        // THE CURVE VIEW'S DRAG IS ITS OWN INTERACTION, and `m_CurveDragKey` already IS its boundary: it
-        // goes from -1 to a key when the mouse grabs one and back to -1 when it lets go. Read here,
-        // before any of the grab tests below can move it, so the rising edge is visible further down.
-        const int curveDragBefore = m_CurveDragKey;
-
         // WITH NOTHING SELECTED IT SHOWS THE FIRST CHANNEL THAT HAS KEYS, rather than an instruction to go
         // and select something. A curve view whose empty state is "select a key in the other view" makes the
         // animator do the tool's work, and it also makes the panel unreachable from the control channel,
@@ -2443,8 +2438,6 @@ namespace Desert::Editor
 
         const Animation::TrackChannel channel =
              ( viewChannel == 0 ) ? Animation::TrackChannel::Position : Animation::TrackChannel::Scale;
-        const Animation::FrameRate tickRate    = sequence.TickRate;
-        const Animation::FrameRate displayRate = sequence.DisplayRate;
 
         // ONE SECTION'S CHANNEL IS ONE SET OF CURVES (UE's curve editor shows a section's channels): the
         // selected section when it is on this track, else the section holding the selected key, else the
@@ -2469,6 +2462,62 @@ namespace Desert::Editor
             }
         }
 
+        CurvePlot plot;
+        plot.Sequence        = &sequence;
+        plot.Shown           = shown;
+        plot.Channel         = channel;
+        plot.FitTrack        = viewTrack;
+        plot.FitChannel      = viewChannel;
+        plot.Label           = bone;
+        plot.ContentX0       = contentX0;
+        plot.Gutter          = gutter;
+        plot.LaneW           = laneW;
+        plot.DurationSeconds = duration;
+        plot.DurationTicks   = animator->GetDurationTicks();
+        plot.PlayheadSeconds = static_cast<double>( animator->GetCurrentTime() );
+        if ( keyHere )
+        {
+            plot.SelectedTick = m_SelKeyTick;
+        }
+        plot.Select = [this, viewTrack, viewChannel, &sequence]( Animation::FrameNumber tick )
+        { SelectKey( viewTrack, viewChannel, tick, sequence ); };
+        plot.BeginEdit = [this, clip, animator]
+        {
+            if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
+            {
+                LOG_ERROR( "[Sequencer] curve edit not undoable: {}", began.GetError() );
+            }
+        };
+        plot.EndEdit = [this]
+        {
+            if ( !m_ClipEdit.OpenExplicitly() )
+            {
+                return;
+            }
+            if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
+            {
+                LOG_ERROR( "[Sequencer] curve edit not undoable: {}", ended.GetError() );
+            }
+        };
+        plot.Retime = [&sequence, &bone, channel]( Animation::FrameNumber from, Animation::FrameNumber to )
+        { return Animation::MoveBoneKey( sequence, bone, channel, from, to ).IsSuccess(); };
+        plot.AfterEdit = [animator] { animator->SetTime( animator->GetCurrentTime() ); };
+        DrawTransformCurve( plot );
+    }
+
+    void SequencerPanel::DrawTransformCurve( const CurvePlot& plot )
+    {
+        TL::Sequence&                 sequence    = *plot.Sequence;
+        TL::TransformChannel* const   shown       = plot.Shown;
+        const Animation::TrackChannel channel     = plot.Channel;
+        const Animation::FrameRate    tickRate    = sequence.TickRate;
+        const Animation::FrameRate    displayRate = sequence.DisplayRate;
+
+        // THE CURVE VIEW'S DRAG IS ITS OWN INTERACTION, and `m_CurveDragKey` already IS its boundary: it
+        // goes from -1 to a key when the mouse grabs one and back to -1 when it lets go. Read here,
+        // before any of the grab tests below can move it, so the rising edge is visible further down.
+        const int curveDragBefore = m_CurveDragKey;
+
         // THE SAME SCALARS THE TANGENT RULES USE — see TrackEditing::LiftChannel. A view that built its own
         // would be a second statement of what a channel is.
         std::vector<Animation::ScalarKey> lifted[3];
@@ -2485,7 +2534,7 @@ namespace Desert::Editor
 
         // The value window is refitted when the SELECTION changes, not every frame: a box that rescales
         // itself while a key is dragged moves the key out from under the mouse.
-        if ( m_CurveFitPending || m_CurveFitTrack != viewTrack || m_CurveFitChannel != viewChannel )
+        if ( m_CurveFitPending || m_CurveFitTrack != plot.FitTrack || m_CurveFitChannel != plot.FitChannel )
         {
             glm::vec2 range( 0.0f, 0.0f );
             bool      first = true;
@@ -2497,15 +2546,15 @@ namespace Desert::Editor
             }
             m_CurveRange      = range;
             m_CurveFitPending = false;
-            m_CurveFitTrack   = viewTrack;
-            m_CurveFitChannel = viewChannel;
+            m_CurveFitTrack   = plot.FitTrack;
+            m_CurveFitChannel = plot.FitChannel;
         }
 
         const float  plotH  = 220.0f;
-        const float  laneX0 = contentX0 + gutter;
+        const float  laneX0 = plot.ContentX0 + plot.Gutter;
         const ImVec2 origin = ImGui::GetCursorScreenPos();
 
-        Sequencer::CurveViewport vp = TimeAxis( laneX0, laneW, duration );
+        Sequencer::CurveViewport vp = TimeAxis( laneX0, plot.LaneW, plot.DurationSeconds );
         vp.Y0                       = origin.y;
         vp.Y1                       = origin.y + plotH;
         vp.ValueMin                 = m_CurveRange.x;
@@ -2515,7 +2564,7 @@ namespace Desert::Editor
         dl->AddRectFilled( ImVec2( laneX0, vp.Y0 ), ImVec2( vp.X1, vp.Y1 ), IM_COL32( 22, 22, 26, 255 ) );
 
         // The SAME grid the ruler above draws, from the SAME function.
-        DrawFrameGrid( dl, vp, vp.Y0, vp.Y1, animator->GetDurationTicks(), tickRate, displayRate, false,
+        DrawFrameGrid( dl, vp, vp.Y0, vp.Y1, plot.DurationTicks, tickRate, displayRate, false,
                        IM_COL32( 255, 255, 255, 18 ) );
 
         // Zero line and the two range labels, so a curve is readable as numbers and not only as a shape.
@@ -2526,11 +2575,11 @@ namespace Desert::Editor
         }
         char label[32];
         std::snprintf( label, sizeof( label ), "%.2f", m_CurveRange.y );
-        dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y0 + 2.0f ), IM_COL32( 170, 170, 180, 200 ), label );
+        dl->AddText( ImVec2( plot.ContentX0 + 6.0f, vp.Y0 + 2.0f ), IM_COL32( 170, 170, 180, 200 ), label );
         std::snprintf( label, sizeof( label ), "%.2f", m_CurveRange.x );
-        dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y1 - 16.0f ), IM_COL32( 170, 170, 180, 200 ), label );
-        dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y0 + plotH * 0.5f - 8.0f ), IM_COL32( 200, 200, 210, 220 ),
-                     bone.c_str() );
+        dl->AddText( ImVec2( plot.ContentX0 + 6.0f, vp.Y1 - 16.0f ), IM_COL32( 170, 170, 180, 200 ), label );
+        dl->AddText( ImVec2( plot.ContentX0 + 6.0f, vp.Y0 + plotH * 0.5f - 8.0f ), IM_COL32( 200, 200, 210, 220 ),
+                     plot.Label.c_str() );
 
         // ---- the three component curves, sampled through the evaluator playback calls -------------------
         const ImU32   compCol[3] = { IM_COL32( 235, 110, 110, 255 ), IM_COL32( 130, 225, 130, 255 ),
@@ -2544,7 +2593,8 @@ namespace Desert::Editor
         ImVec2 previous[3] = {};
         for ( int sample = 0; sample <= kSamples; ++sample )
         {
-            const double seconds = static_cast<double>( duration ) * static_cast<double>( sample ) / kSamples;
+            const double seconds =
+                 static_cast<double>( plot.DurationSeconds ) * static_cast<double>( sample ) / kSamples;
             const Animation::FrameTime at    = Animation::SecondsToFrameTime( seconds, tickRate );
             const Animation::BoneTransform pose = TL::Evaluate( *shown, at, tickRate );
             const glm::vec3                value =
@@ -2575,7 +2625,7 @@ namespace Desert::Editor
         const ImVec2    mouse         = ImGui::GetIO().MousePos;
 
         ImGui::SetCursorScreenPos( ImVec2( laneX0, vp.Y0 ) );
-        ImGui::InvisibleButton( "##curvePlot", ImVec2( std::max( 1.0f, laneW ), plotH ) );
+        ImGui::InvisibleButton( "##curvePlot", ImVec2( std::max( 1.0f, plot.LaneW ), plotH ) );
         const bool hovered = ImGui::IsItemHovered();
         const bool active  = ImGui::IsItemActive();
 
@@ -2589,7 +2639,7 @@ namespace Desert::Editor
             for ( int k = 0; k < static_cast<int>( keys.size() ); ++k )
             {
                 const ImVec2 p        = keyAt( keys[k] );
-                const bool   selected = keyHere && keys[k].Tick == m_SelKeyTick;
+                const bool   selected = plot.SelectedTick && keys[k].Tick == *plot.SelectedTick;
                 dl->AddCircleFilled( p, selected ? 4.5f : 3.0f,
                                      selected ? IM_COL32( 255, 235, 160, 255 ) : compCol[component] );
 
@@ -2633,7 +2683,7 @@ namespace Desert::Editor
                     const ImVec2 p = keyAt( lifted[component][k] );
                     if ( std::abs( mouse.x - p.x ) < kGrab && std::abs( mouse.y - p.y ) < kGrab )
                     {
-                        SelectKey( viewTrack, viewChannel, lifted[component][k].Tick, sequence );
+                        plot.Select( lifted[component][k].Tick );
                         m_CurveDragKey       = k;
                         m_CurveDragComponent = component;
                         m_CurveDragHandle    = 0;
@@ -2646,10 +2696,7 @@ namespace Desert::Editor
         // edit below is the first thing that touches the track — so the transaction opens between them.
         if ( curveDragBefore < 0 && m_CurveDragKey >= 0 )
         {
-            if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
-            {
-                LOG_ERROR( "[Sequencer] curve edit not undoable: {}", began.GetError() );
-            }
+            plot.BeginEdit();
         }
 
         if ( m_CurveDragKey >= 0 && active )
@@ -2707,14 +2754,11 @@ namespace Desert::Editor
 
         if ( !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
         {
-            if ( m_CurveDragKey >= 0 && m_ClipEdit.OpenExplicitly() )
+            // The last frame that edited anything was the previous one (`active` is false now), so the
+            // track already holds the finished curve and this closes over all of it.
+            if ( m_CurveDragKey >= 0 )
             {
-                // The last frame that edited anything was the previous one (`active` is false now), so the
-                // track already holds the finished curve and this closes over all of it.
-                if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
-                {
-                    LOG_ERROR( "[Sequencer] curve edit not undoable: {}", ended.GetError() );
-                }
+                plot.EndEdit();
             }
             m_CurveDragKey       = -1;
             m_CurveDragComponent = -1;
@@ -2733,7 +2777,7 @@ namespace Desert::Editor
                 if ( retimeKey >= 0 && lifted[component][static_cast<size_t>( retimeKey )].Tick != retimeTo )
                 {
                     const Animation::FrameNumber from = lifted[component][static_cast<size_t>( retimeKey )].Tick;
-                    if ( Animation::MoveBoneKey( sequence, bone, channel, from, retimeTo ).IsSuccess() )
+                    if ( plot.Retime( from, retimeTo ) )
                     {
                         const auto after = Animation::LiftChannel( *shown, channel, component );
                         for ( size_t i = 0; i < after.size(); ++i )
@@ -2744,17 +2788,20 @@ namespace Desert::Editor
                                 break;
                             }
                         }
-                        SelectKey( viewTrack, viewChannel, retimeTo, sequence );
+                        plot.Select( retimeTo );
                     }
                 }
-                animator->SetTime( animator->GetCurrentTime() );
+                if ( plot.AfterEdit )
+                {
+                    plot.AfterEdit();
+                }
             }
         }
 
         // The playhead, over everything.
-        Sequencer::DrawPlayhead( dl, vp, static_cast<double>( animator->GetCurrentTime() ), vp.Y0, vp.Y1, vp.Y0 );
+        Sequencer::DrawPlayhead( dl, vp, plot.PlayheadSeconds, vp.Y0, vp.Y1, vp.Y0 );
 
-        ImGui::SetCursorScreenPos( ImVec2( contentX0, vp.Y1 + 6.0f ) );
+        ImGui::SetCursorScreenPos( ImVec2( plot.ContentX0, vp.Y1 + 6.0f ) );
         ImGui::TextDisabled( "Drag a key to retime (snapped to the display grid) and revalue it; drag a "
                              "handle on a User/Break key to set its tangent." );
     }

@@ -185,10 +185,12 @@ namespace Desert::Editor::Tools
         // One undo entry per drag: when the drag STARTS this frame, capture the pre-drag TRS of every
         // selected top-level root NOW — before any of this frame's deltas are written below.
         const bool usingNow = ImGuizmo::IsUsing();
+        Core::GizmoState::SetEntityInteraction( usingNow );
         if ( usingNow && !m_DragActive )
         {
             m_DragActive = true;
             m_DragEntity = *selected;
+            Core::GizmoState::SetEntityGestureEntry( std::nullopt );
             m_DragSnapshots.clear();
             for ( const auto& id : Core::SelectionManager::GetSelection() )
             {
@@ -256,8 +258,10 @@ namespace Desert::Editor::Tools
         if ( !usingNow && m_DragActive )
         {
             m_DragActive = false;
-            if ( m_DragEntity == *selected )
-                Commands::RecordTransformEdits( m_DragSnapshots );
+            // The revision of the move's entry is what the level sequence's Auto Key joins its key to.
+            const bool recorded = m_DragEntity == *selected && Commands::RecordTransformEdits( m_DragSnapshots );
+            Core::GizmoState::SetEntityGestureEntry(
+                 recorded ? std::optional<uint64_t>( CommandHistory::Get().Revision() ) : std::nullopt );
             m_DragSnapshots.clear();
         }
     }
@@ -266,6 +270,7 @@ namespace Desert::Editor::Tools
     {
         m_Hovered = false;
         Core::GizmoState::SetPoseInteraction( false );
+        Core::GizmoState::SetEntityInteraction( false );
     }
 
     void GizmoController::RenderBone( ::Desert::Core::Scene&                         scene,

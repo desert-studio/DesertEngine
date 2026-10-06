@@ -53,6 +53,7 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/cooked_static_mesh.hpp"
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -79,6 +80,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace Ser = Desert::Assets::Serialization;
 
@@ -86,14 +88,7 @@ namespace
 {
     std::filesystem::path RepoRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 6; ++up )
-        {
-            if ( std::filesystem::exists( here / ".gitignore" ) && std::filesystem::exists( here / "Desert" ) )
-                return here;
-            here = here.parent_path();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadFile( const std::filesystem::path& path )
@@ -688,14 +683,15 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
 TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
 {
     // THE CORPUS IS THE AUTHORED SKINNED-MESH FOLDER (AF8b). The committed meshes are authored assets under
-    // the assets root, beside their rigs and clips; `Cooked/` is derived and ignored whole, so nothing there
+    // the assets root of the TEST project (Desert/Tests/Data, ENG-ROOT: probes are test data, not the editor's
+    // content), beside their rigs and clips; `Cooked/` is derived and ignored whole, so nothing there
     // is this suite's business. The folder is enumerated rather than listed here: a typed list is one a new
     // mesh can fall out of in silence (A27).
     const std::filesystem::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not find the repository root from the working directory";
 
     const std::filesystem::path skinned =
-         std::filesystem::path( "Editor" ) / "Resources" / "Assets" / "Meshes" / "Skinned";
+         std::filesystem::path( "Desert" ) / "Tests" / "Data" / "Resources" / "Assets" / "Meshes" / "Skinned";
     std::vector<std::string> corpus;
     std::error_code          ec;
     for ( const auto& entry : std::filesystem::directory_iterator( root / skinned, ec ) )
@@ -722,17 +718,17 @@ TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
 
 namespace
 {
-    // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots resolve
-    // against it) and the project root set from Desert.deproj. Restored on scope exit.
+    // The editor's project, opened the way the editor opens it: engine dir = Editor/ (engine resource roots
+    // hang off it) and the project root set from Desert.deproj. Restored on scope exit.
     class EditorProject
     {
     public:
         explicit EditorProject( const std::filesystem::path& repoRoot )
              : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
-               m_SavedCwd( std::filesystem::current_path() )
+               m_SavedEngineDir( Common::Constants::Path::EngineDir() )
         {
             const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot / "Editor" );
-            std::filesystem::current_path( editorDir );
+            Common::Constants::Path::SetEngineDir( editorDir );
             const auto project = Common::Project::ReadProjectFile( ReadFile( editorDir / "Desert.deproj" ) );
             if ( !project )
                 return;
@@ -742,8 +738,7 @@ namespace
         ~EditorProject()
         {
             Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
-            std::error_code ec;
-            std::filesystem::current_path( m_SavedCwd, ec );
+            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
         EditorProject( const EditorProject& )            = delete;
         EditorProject& operator=( const EditorProject& ) = delete;
@@ -754,7 +749,7 @@ namespace
 
     private:
         Common::Constants::Path::ProjectRootState m_SavedRoot;
-        std::filesystem::path                     m_SavedCwd;
+        std::filesystem::path                     m_SavedEngineDir;
         bool                                      m_Opened = false;
     };
 } // namespace
@@ -891,6 +886,7 @@ TEST( MeshBinaryFormat, TheImporterWritesTheContainerAndNotJson )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

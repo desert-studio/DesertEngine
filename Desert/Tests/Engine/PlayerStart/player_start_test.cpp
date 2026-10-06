@@ -360,7 +360,8 @@ TEST( PawnIsAStreamingSource, NoCameraDrivesResidencyInPlay )
 // WP24: both the editor and the game start streaming only after BeginPlay spawned the pawn it streams around.
 TEST( PawnIsAStreamingSource, StreamingBeginsAfterThePawnIsSpawned )
 {
-    for ( const char* file : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
+    for ( const char* file :
+          { "Editor/Source/Editor/LevelEditor/PlaySession.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
     {
         const std::string src   = ReadSource( file );
         std::size_t       at    = 0;

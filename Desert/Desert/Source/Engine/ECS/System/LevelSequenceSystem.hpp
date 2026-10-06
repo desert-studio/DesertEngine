@@ -8,6 +8,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>
 #include <Engine/ECS/System/System.hpp>
+#include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -35,6 +36,56 @@ namespace Desert::ECS
                 return nullptr;
             return &asset->GetClip();
         };
+    }
+
+    /**
+     * @brief The material slots a Material Parameter track writes (UE: MovieSceneComponentMaterialTrack's
+     * dynamic instance on the component): slot @p parameter.Slot's runtime material instance of the entity's
+     * Static or Skinned mesh — the instance the PBR / slot draws bind, which MeshECSSystem builds per entity from
+     * the slot's asset, so the asset itself is never written. A mesh with no authored slot (it draws the shared
+     * engine default instance), a slot past the authored ones, or a slot whose instance is not built yet is not
+     * the actor's to write: Set is false and the host refuses the track by name. Shared by the play-time system
+     * and the Sequencer's preview, like the clip source above.
+     */
+    [[nodiscard]] inline LevelSequenceMaterialSlots LevelSequenceMaterialSlotOverrides()
+    {
+        const auto instanceOf = []( entt::registry& registry, const entt::entity entity,
+                                    const uint32_t slot ) -> Graphic::MaterialInstance*
+        {
+            const auto pick = [slot]( const auto& mesh ) -> Graphic::MaterialInstance*
+            {
+                if ( slot >= mesh.MaterialSlots.size() || slot >= mesh.RuntimeMaterialInstances.size() )
+                    return nullptr;
+                return mesh.RuntimeMaterialInstances[slot].get();
+            };
+            if ( !registry.valid( entity ) )
+                return nullptr;
+            if ( const auto* mesh = registry.try_get<StaticMeshComponent>( entity ) )
+                return pick( *mesh );
+            if ( const auto* mesh = registry.try_get<SkinnedMeshComponent>( entity ) )
+                return pick( *mesh );
+            return nullptr;
+        };
+        LevelSequenceMaterialSlots slots;
+        slots.Get = [instanceOf]( entt::registry& registry, const entt::entity entity,
+                                  const LevelSequenceMaterialParameter& parameter ) -> std::optional<glm::vec4>
+        {
+            const auto* instance = instanceOf( registry, entity, parameter.Slot );
+            return instance != nullptr ? instance->GetOverrideAsVec4( parameter.Name ) : std::nullopt;
+        };
+        slots.Set = [instanceOf]( entt::registry& registry, const entt::entity entity,
+                                  const LevelSequenceMaterialParameter& parameter,
+                                  const std::optional<glm::vec4>&       value ) -> bool
+        {
+            auto* instance = instanceOf( registry, entity, parameter.Slot );
+            if ( instance == nullptr )
+                return false;
+            if ( value )
+                return instance->SetParamFromVec4( parameter.Name, *value );
+            instance->ClearOverride( parameter.Name );
+            return true;
+        };
+        return slots;
     }
 
     /**
@@ -73,7 +124,8 @@ namespace Desert::ECS
 
                 const Animation::Timeline::TimeStep step = actor->Playback->Player.Advance( ts.GetSeconds() );
                 const LevelSequenceStep result = StepLevelSequence( registry, component, *actor->Playback, step,
-                                                                    LevelSequenceClips( *m_AssetManager ) );
+                                                                    LevelSequenceClips( *m_AssetManager ),
+                                                                    LevelSequenceMaterialSlotOverrides() );
                 for ( const auto& error : TakeNewLevelSequenceErrors( actor->State, result ) )
                     LOG_ERROR( "[LevelSequence] '{}': {}", actor->Name, error );
                 for ( const auto& name : result.FiredEvents )

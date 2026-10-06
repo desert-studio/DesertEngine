@@ -2,6 +2,7 @@
 // the shared bind pose). The buffer is ADDITIVE: it never touches LocalBindTransform, and normal clip
 // playback ignores it — only ApplyLocalPose() renders it.
 
+#include <Engine/Animation/AnimationTick.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
@@ -274,4 +275,69 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ANIM-FIX1 — UE's bUpdateAnimationInEditor. The RELATION, not the rule alone: two editor-world ticks of a
+// MOVING clip, each advanced by exactly what AnimationECSSystem advances it by (AnimationAdvanceSeconds with
+// gameplay time 0, the editor frame time 0.1 s), leave the pose where it was with the flag off and move it
+// with the flag on; a gameplay tick moves it either way.
+namespace
+{
+    /// One second on the project grid, "child" rising from y=0 to y=10: a pose that differs at any two times.
+    AnimationClip ChildRisingClip()
+    {
+        const FrameNumber end{ PROJECT_TICK_RATE.Numerator };
+        AnimationClip     clip = ClipFixture::Clip( "rise", end );
+        const FrameNumber at   = clip.Sequence.Start;
+
+        Desert::Animation::Timeline::TransformChannel channel;
+        channel.Translation.X.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Translation.Y.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Translation.Y.Keys.push_back( ClipFixture::Key( end, 10.0F ) );
+        channel.Translation.Z.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Rotation.X.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Rotation.Y.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Rotation.Z.Keys.push_back( ClipFixture::Key( at, 0.0F ) );
+        channel.Rotation.W.Keys.push_back( ClipFixture::Key( at, 1.0F ) );
+        channel.Scale.X.Keys.push_back( ClipFixture::Key( at, 1.0F ) );
+        channel.Scale.Y.Keys.push_back( ClipFixture::Key( at, 1.0F ) );
+        channel.Scale.Z.Keys.push_back( ClipFixture::Key( at, 1.0F ) );
+        ClipFixture::AddBoneChannel( clip, "child", std::move( channel ) );
+        return clip;
+    }
+
+    /// The child's pose after two ticks of @p seconds each, starting 0.2 s into the clip.
+    std::pair<glm::mat4, glm::mat4> TwoTicks( float seconds )
+    {
+        static const Skeleton      skel = MakeChain();
+        static const AnimationClip clip = ChildRisingClip();
+        Animator                   anim( skel );
+        anim.Play( clip );
+        anim.SetTime( 0.2f );
+        anim.Update( Common::Timestep( seconds ) );
+        const glm::mat4 first = anim.GetPose().Matrices[1];
+        anim.Update( Common::Timestep( seconds ) );
+        return { first, anim.GetPose().Matrices[1] };
+    }
+} // namespace
+
+TEST( AnimatorPose, InTheEditorWorldAPoseHoldsStillUnlessUpdateAnimationInEditorIsOn )
+{
+    using Desert::Animation::AnimationAdvanceSeconds;
+    constexpr float kEditorFrame = 0.1f;
+
+    const auto [offA, offB] = TwoTicks( AnimationAdvanceSeconds( 0.0f, kEditorFrame, false ) );
+    EXPECT_TRUE( MatNear( offA, offB ) ) << "UpdateAnimationInEditor off, yet the pose moved between two Edit "
+                                            "ticks — the edited level is animating (UE holds it still)";
+
+    const auto [onA, onB] = TwoTicks( AnimationAdvanceSeconds( 0.0f, kEditorFrame, true ) );
+    EXPECT_FALSE( MatNear( onA, onB ) ) << "UpdateAnimationInEditor on, yet the pose did not move in Edit";
+
+    // Play: the gameplay time advances every component, the flag notwithstanding.
+    const auto [playA, playB] = TwoTicks( AnimationAdvanceSeconds( 1.0f / 60.0f, 0.0f, false ) );
+    EXPECT_FALSE( MatNear( playA, playB ) ) << "a gameplay tick did not advance a component whose editor "
+                                               "flag is off — the flag must gate the EDITOR world only";
+
+    // Paused (no gameplay time, not the editor world): nothing moves, whatever the flag says.
+    EXPECT_FLOAT_EQ( AnimationAdvanceSeconds( 0.0f, 0.0f, true ), 0.0f );
 }

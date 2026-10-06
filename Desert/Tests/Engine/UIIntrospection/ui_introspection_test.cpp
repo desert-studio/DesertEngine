@@ -109,9 +109,10 @@ namespace Desert::Runtime
     {
         return static_cast<uint64_t>( handle ) == kBackgroundHandle ? FakeImage() : nullptr;
     }
-    Graphic::Image2D* VideoService::Resolve( uint64_t )
+    Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
     {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
+        ADD_FAILURE() << "VideoService::Resolve reached with no video service (instance "
+                      << static_cast<const void*>( this ) << ")";
         return nullptr;
     }
     const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
@@ -215,7 +216,7 @@ namespace
     bool Walk( Scene& scene, R2D::DrawList2D& dl, UIViewContext& ctx )
     {
         dl.Reset();
-        UI::BeginUIFrame( ctx, scene.Registry, kViewport );
+        UI::BeginUIFrame( ctx, scene.Registry, kViewport, /*frameDtSeconds=*/0.0f );
         const bool drawn = UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl ).IsSuccess();
         UI::EndUIFrame( ctx, scene.Registry, dl, /*input=*/nullptr );
         return drawn;

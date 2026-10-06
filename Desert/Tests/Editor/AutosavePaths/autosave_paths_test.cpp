@@ -15,6 +15,7 @@
 #include <string>
 #include <iterator>
 #include <algorithm>
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace fs   = std::filesystem;
 namespace Path = Common::Constants::Path;
@@ -216,6 +217,7 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

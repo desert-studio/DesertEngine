@@ -36,7 +36,7 @@ Shader "TerrainGBuffer"
         Out(3) vec4 oGBufferEmissive; // Emissive.rgb
 
         #include <Programs/Terrain/TerrainSurface.glslh>
-        #include <ShadingModels/ShadingModels.generated.glslh>
+        #include <Generated/ShadingModels.glslh>
 
         void main()
         {

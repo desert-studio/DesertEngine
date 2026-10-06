@@ -1,5 +1,8 @@
 #include "ClipSkeletonMatch.hpp"
 
+#include <format>
+#include <iterator>
+
 namespace Desert::Animation
 {
     namespace
@@ -46,8 +49,15 @@ namespace Desert::Animation
             return Common::MakeFormattedError<size_t>( "clip '{}' does not play on this mesh: {}", clipName,
                                                        refusal );
 
+        // A wrong name is fixed by the RIGHT name: the clips this rig plays are listed, so the message itself
+        // says that 'Fox_Survey' was asked of a rig whose clip is called 'Survey'.
+        const std::vector<size_t> playable = SelectClipsForMesh( clips, mesh );
+        std::string               names;
+        for ( const size_t i : playable )
+            std::format_to( std::back_inserter( names ), "{}'{}'", names.empty() ? ": " : ", ",
+                            clips[i].ClipName );
         return Common::MakeFormattedError<size_t>(
-             "no clip named '{}' is registered ({} clip(s) known, {} of them play on skeleton '{}').", clipName,
-             clips.size(), SelectClipsForMesh( clips, mesh ).size(), mesh.Skeleton.Name );
+             "no clip named '{}' is registered ({} clip(s) known, {} of them play on skeleton '{}'{}).", clipName,
+             clips.size(), playable.size(), mesh.Skeleton.Name, names );
     }
 } // namespace Desert::Animation

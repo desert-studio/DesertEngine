@@ -17,6 +17,7 @@
 #include <format>
 #include <fstream>
 #include <string>
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace
 {
@@ -192,6 +193,9 @@ TEST( ThumbnailOrbitKinds, TheSkinnedImportFilesAreTheirOwnCookedForm )
 
 int main( int argc, char** argv )
 {
+    // The host step (as the editor takes it in Sandbox.hpp): every engine path read after it answers off
+    // the checkout's engine directory, never off the working directory.
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

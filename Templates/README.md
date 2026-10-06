@@ -36,5 +36,10 @@ project's name lives in exactly one generated file, the `.deproj`.
 A **First Person** template — a floor, a light and a player entity with a camera driven by a Lua
 controller — has to be AUTHORED in the Editor and dropped into `Templates/FirstPerson/Payload/`.
 That is content work with its own verification (play it, and shoot it from three elevations), not
-launcher work, and it is tracked separately. The two templates here ship only what can honestly be
-produced without the Editor: folders, and a text file.
+launcher work, and it is tracked separately.
+
+**Starter** is that kind of content: a test playground (sky and sun, ground, PBR calibration rows,
+glass, an emissive probe, shadow casters, fill lights, a camera) whose `Assets/Scenes/Main.desce` and
+16 materials were authored by the Editor and are shipped as files. The Editor no longer builds any
+scene in code; with nothing to open it opens the engine's Basic level template
+(`Editor/Resources/Engine/Maps/Templates/Basic.desce`) as an untitled scene.

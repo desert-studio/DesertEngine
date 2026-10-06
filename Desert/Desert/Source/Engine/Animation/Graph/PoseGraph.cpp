@@ -6,6 +6,7 @@
 #include <format>
 #include <functional>
 #include <optional>
+#include <tuple>
 #include <utility>
 
 // The pose graph's structure: node kinds and their pins, lookups, and the evaluation plan. Kept apart from
@@ -131,7 +132,23 @@ namespace Desert::Animation::Graph
         machine.Machine = StateMachine{};
         graph.Nodes.push_back( std::move( machine ) );
         graph.OutputPose = std::string( kDefaultStateMachineNode );
+        std::tie( graph.OutputPoseX, graph.OutputPoseY ) =
+             DefaultOutputPosePosition( graph.Nodes, graph.OutputPose );
         return graph;
+    }
+
+    std::pair<float, float> DefaultOutputPosePosition( const std::vector<PoseNode>& nodes,
+                                                       std::string_view             outputPose )
+    {
+        float rightmost = 0.0f;
+        float level     = 0.0f;
+        for ( const PoseNode& node : nodes )
+        {
+            rightmost = std::max( rightmost, node.X );
+            if ( node.Name == outputPose )
+                level = node.Y;
+        }
+        return { nodes.empty() ? 0.0f : rightmost + kOutputPoseSpacingX, level };
     }
 
     namespace
@@ -410,7 +427,9 @@ namespace Desert::Animation::Graph
         graph.Name       = std::format( "{} / {}.{}", owner.Name, layer.Interface, layer.Layer );
         graph.Parameters = owner.Parameters;
         graph.Nodes      = layer.Nodes;
-        graph.OutputPose = layer.OutputPose;
+        graph.OutputPose  = layer.OutputPose;
+        graph.OutputPoseX = layer.OutputPoseX;
+        graph.OutputPoseY = layer.OutputPoseY;
         if ( owner.Layers && !owner.Layers->Interfaces.empty() )
             graph.Layers = AnimGraphLayers{ owner.Layers->Interfaces, {} };
         return graph;

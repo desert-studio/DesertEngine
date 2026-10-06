@@ -173,6 +173,12 @@ namespace Desert::Core
             scene.SetPlayFromHere( false );
             return Common::MakeError( view.GetError() );
         }
+        // THE GAME'S UI CLIPS START FROM THEIR FIRST FRAME. A clip's player is runtime state on the component
+        // (UIAnimData::Playback) and an authored level may hold one — scrubbed by the Sequencer, or left
+        // wherever editing put it. UE constructs fresh widgets for a PIE world; here the players are dropped,
+        // and the first game frame re-creates them at Start and honours AutoPlay (UIAnimationPlayback.hpp).
+        for ( const auto e : scene.GetRegistry().view<ECS::UIAnimComponent>() )
+            scene.GetRegistry().get<ECS::UIAnimComponent>( e ).Data.Playback.reset();
         scene.SetState( Scene::SceneState::Play );
         return BOOLSUCCESS;
     }

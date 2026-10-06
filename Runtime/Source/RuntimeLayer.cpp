@@ -4,6 +4,11 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include "RuntimeShot.hpp"
+#include <Engine/Audio/AudioEngine.hpp>
+#include <Engine/Media/MediaAudioOutput.hpp>
+#include <Engine/Media/MediaTexture.hpp>
+#include <Engine/Media/StartupMoviePlayer.hpp>
+#include <Engine/Project/GameSettings.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -49,10 +54,8 @@
 #include <Engine/ECS/System/AudioECSSystem.hpp>
 
 // STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); declare only.
-// Only the capture writes a PNG from this host, so a shipping build does not need the declaration either.
-#if DESERT_DEV_INSTRUMENTS
+// Unconditional: --render-movie writes its frames with it in every configuration, Shipping included.
 #include <stb_image/stb_image_write.h>
-#endif
 
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
@@ -128,9 +131,9 @@ namespace
 namespace Desert::Player
 {
     RuntimeLayer::RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play,
-                                Engine::Application* application )
+                                std::optional<MovieRenderRequest> movie, Engine::Application* application )
          : Common::Layer( "RuntimeLayer" ), m_ScenePathOverride( std::move( scenePathOverride ) ),
-           m_PlayRequest( std::move( play ) ), m_Application( application )
+           m_PlayRequest( std::move( play ) ), m_Application( application ), m_Movie( std::move( movie ) )
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
         // Filled by the "Indexing animation clips" stage of the boot, the same call the editor makes. This
@@ -142,7 +145,7 @@ namespace Desert::Player
         const auto window = EngineContext::GetInstance().GetWindow();
         m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(
              Graphic::ViewExtent{ window->GetWidth(), window->GetHeight() } );
-        m_Scene            = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get() );
+        m_Scene = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get() );
     }
 
     RuntimeLayer::~RuntimeLayer() = default;
@@ -326,7 +329,185 @@ namespace Desert::Player
         // same count reached with directory walks and reached without them are two different boots, and
         // nothing else in the process can tell them apart (§T2.4).
         LOG_INFO( "[ContentScan] boot finished — {}", Common::Utils::ContentScanLedger::Report() );
+        if ( m_Movie.has_value() )
+            return InitMovieTarget(); // rendering a movie is not launching the game: no startup movies
+        BeginStartupMovies();
         return BOOLSUCCESS;
+    }
+
+    void RuntimeLayer::BeginStartupMovies()
+    {
+        const Project::GameSettings& game = Project::CurrentGameSettings();
+        if ( game.StartupMovies.empty() )
+            return;
+        Media::StartupMovieSettings settings;
+        settings.Skippable         = game.MoviesAreSkippable;
+        settings.WaitForCompletion = game.WaitForMoviesToComplete;
+        const std::filesystem::path project( Project::ProjectContext::Directory() );
+        for ( const std::string& movie : game.StartupMovies )
+            settings.Movies.push_back( project / movie );
+
+        if ( Audio::AudioEngine::Get().GetNativeEngine() != nullptr )
+            m_StartupSound = std::make_unique<Media::MediaAudioOutput>();
+        else
+            LOG_WARN( "[StartupMovies] no audio device on this machine: the movies play their picture only" );
+        m_StartupMovies =
+             std::make_unique<Media::StartupMoviePlayer>( std::move( settings ), m_StartupSound.get() );
+        m_StartupPicture               = std::make_unique<Media::MediaTexture>();
+        m_StartupMovies->OnMovieFailed = []( const std::filesystem::path& movie, const std::string& error )
+        {
+            LOG_ERROR( "[StartupMovies] '{}' is listed in Config/Game.json and does not play: {}", movie.string(),
+                       error );
+        };
+        m_StartupMovies->OnMovieShown = []( const std::filesystem::path& movie, std::size_t index,
+                                            std::size_t count ) {
+            LOG_INFO( "[StartupMovies] '{}' is on screen ({} of {})", movie.filename().string(), index + 1,
+                      count );
+        };
+        // NOT started here: the sound is the movie's clock, and the first frames of a debug boot take seconds
+        // (pipelines), so a movie started now would have played out before it was ever on screen. It starts
+        // on the tick after the first presented frame; until then the cover is black.
+    }
+
+    void RuntimeLayer::TickStartupMovies( double deltaSeconds )
+    {
+        if ( !m_StartupMovies )
+            return;
+        if ( !m_StartupMoviesStarted )
+        {
+            if ( m_PresentedFrames == 0 )
+                return;
+            m_StartupMoviesStarted = true;
+            // A press made before the movie was on screen is not a skip of it: the boot's frames take input
+            // too, and a stray edge there ended a three-second movie after one frame (MEDIA-5).
+            m_SkipStartupMovie = false;
+            m_StartupMovies->Start();
+            deltaSeconds = 0.0;
+        }
+        if ( m_SkipStartupMovie && m_StartupMovies->Skip() )
+            LOG_INFO( "[StartupMovies] skipped by the player's press after {} presented frame(s)",
+                      m_PresentedFrames );
+        m_SkipStartupMovie = false;
+        // Capped like VideoService's catch-up: a stalled frame must not jump the movie when it runs on the
+        // tick clock (no audio device); with sound the clock is the samples played and this is moot.
+        m_StartupMovies->Tick( std::clamp( deltaSeconds, 0.0, 0.25 ) );
+        if ( !m_StartupMovies->Finished() )
+        {
+            const std::string error = m_StartupPicture->Update( m_StartupMovies->Player() );
+            if ( !error.empty() )
+                LOG_ERROR( "[StartupMovies] a decoded frame did not reach the GPU and will be retried: {}",
+                           error );
+            // Drawn this frame ⇒ on screen at OnFramePresented, where the movie's clock may start.
+            m_StartupPictureCurrent = error.empty() && m_StartupPicture->GetImage() != nullptr;
+            return;
+        }
+        m_StartupPictureCurrent = false;
+        LOG_INFO( "[StartupMovies] over after {} presented frame(s); the world is {}", m_PresentedFrames,
+                  m_Content.Loading() ? "still loading" : "complete" );
+        m_StartupMovies.reset(); // the player first: it holds the sound's pointer
+        m_StartupSound.reset();
+        if ( m_SplashAfterMovies )
+        {
+            m_SplashAfterMovies = false;
+            TriggerSplash();
+        }
+    }
+
+    bool RuntimeLayer::StartupMoviesPlaying() const
+    {
+        return m_StartupMovies != nullptr && !m_StartupMovies->Finished();
+    }
+
+    void RuntimeLayer::DrawStartupMovie( Graphic::Render2D::DrawList2D& dl, float w, float h )
+    {
+        // Opaque black first: the letterbox bars, and the whole screen before the first picture converts.
+        dl.AddRectFilled( { 0.0f, 0.0f }, { w, h }, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) );
+        if ( auto* picture = m_StartupPicture->GetImage();
+             picture != nullptr && picture->GetWidth() > 0 && picture->GetHeight() > 0 )
+            DrawFittedSprite( dl, *picture, w, h, 1.0f );
+    }
+
+    void RuntimeLayer::DiscardHeldInput()
+    {
+        m_PrevMouseDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left );
+        m_ScrollAccum   = 0.0f;
+        m_TypedText.clear();
+        m_Backspace     = false;
+        m_TabPressed    = false;
+        m_SubmitPressed = false;
+        m_EscapePressed = false;
+        m_Navigate      = 0;
+    }
+
+    Common::BoolResultStr RuntimeLayer::InitMovieTarget()
+    {
+        if ( !m_Movie.has_value() )
+            return Common::MakeFormattedError<bool>( "--render-movie: no movie request to make a target for" );
+        const MovieRenderRequest&         movie = *m_Movie;
+        Graphic::FramebufferSpecification spec;
+        spec.Width       = movie.Width;
+        spec.Height      = movie.Height;
+        spec.Attachments = { Core::Formats::ImageFormat::RGBA8F };
+        spec.DebugName   = "MovieRenderTarget";
+        spec.NoResizeble = true;
+        m_MovieTarget    = Graphic::Framebuffer::Create( spec );
+        if ( !m_MovieTarget )
+            return Common::MakeFormattedError<bool>( "--render-movie: could not create the {}x{} target",
+                                                     movie.Width, movie.Height );
+        // Create only constructs; the first Resize makes the image, the VkRenderPass and the VkFramebuffer.
+        if ( const auto made = m_MovieTarget->Resize( movie.Width, movie.Height ); !made )
+            return Common::MakeFormattedError<bool>( "--render-movie: could not allocate the {}x{} target: {}",
+                                                     movie.Width, movie.Height, made.GetError() );
+        Graphic::RenderPassSpecification passSpec;
+        passSpec.TargetFramebuffer = m_MovieTarget;
+        passSpec.DebugName         = "MovieRenderPass";
+        passSpec.ClearColor.Color  = { 0.0f, 0.0f, 0.0f, 1.0f };
+        m_MoviePass                = std::make_shared<Graphic::RenderPass>( passSpec );
+
+        // The UI view needs nothing here: under --render-movie the application's frame step IS the movie's
+        // (Main.cpp SetFixedDeltaTime), and the UI is handed that step like the world (BeginUIFrame below).
+
+        std::error_code ec;
+        std::filesystem::create_directories( movie.OutDir, ec );
+        if ( ec && !std::filesystem::is_directory( movie.OutDir ) )
+            return Common::MakeFormattedError<bool>( "--movie-out '{}' cannot be created: {}", movie.OutDir,
+                                                     ec.message() );
+        LOG_INFO( "[Movie] rendering '{}' -> {} at {}x{}, {} fps, {} frame(s)", movie.Map, movie.OutDir,
+                  movie.Width, movie.Height, movie.Fps, movie.FrameCount() );
+        return BOOLSUCCESS;
+    }
+
+    // THE FRAME IS READ AFTER ITS PRESENT, from the offscreen target — not the swapchain — and synchronously:
+    // an offline render has nobody waiting on its frame rate, and a blocking read is what keeps frame N+1's
+    // draws off the image until frame N is on disk.
+    void RuntimeLayer::CollectMovieFrame()
+    {
+        if ( !m_MovieFrameDrawn || !m_Movie.has_value() )
+            return;
+        m_MovieFrameDrawn               = false;
+        const MovieRenderRequest& movie = *m_Movie;
+
+        auto pixels = m_MovieTarget->GetColorAttachmentImage( 0 )->ReadPixelsRGBA8();
+        if ( !pixels )
+        {
+            LOG_ERROR( "[Movie] frame {} could not be read back: {}", m_MovieFrame, pixels.GetError() );
+            m_Application->Close( 1 );
+            return;
+        }
+        const std::string file = movie.FramePath( m_MovieFrame ).string();
+        const int         w    = static_cast<int>( movie.Width );
+        const int         h    = static_cast<int>( movie.Height );
+        if ( stbi_write_png( file.c_str(), w, h, 4, pixels.GetValue().data(), w * 4 ) == 0 )
+        {
+            LOG_ERROR( "[Movie] could not write '{}'", file );
+            m_Application->Close( 1 );
+            return;
+        }
+        if ( ++m_MovieFrame == movie.FrameCount() )
+        {
+            LOG_INFO( "[Movie] wrote {} frame(s) to {}", m_MovieFrame, movie.OutDir );
+            m_Application->Close( 0 );
+        }
     }
 
     void RuntimeLayer::BuildGameplaySystems()
@@ -348,6 +529,9 @@ namespace Desert::Player
 
     Common::BoolResultStr RuntimeLayer::OnDetach()
     {
+        m_StartupMovies.reset(); // before the sound: the player holds its pointer
+        m_StartupSound.reset();
+        m_StartupPicture.reset(); // a GPU image: released while the device is alive
         // Release the present GPU resources while the device is still alive (before engine teardown).
         m_Render2D.reset();
         m_UIRenderTextures.reset(); // destroying the captures is what returns their renderer slots
@@ -502,6 +686,13 @@ namespace Desert::Player
     void RuntimeLayer::OnFramePresented()
     {
         ++m_PresentedFrames;
+        if ( m_StartupMovies && m_StartupPictureCurrent )
+            m_StartupMovies->NotifyFramePresented(); // the first shown frame of a movie starts its clock
+        if ( m_Movie.has_value() )
+        {
+            CollectMovieFrame();
+            return;
+        }
 
 #if !DESERT_DEV_INSTRUMENTS
         // A shipping player counts its presented frames and does nothing else here: the capture that used
@@ -580,7 +771,14 @@ namespace Desert::Player
         // THE AUTHORED SPLASH STARTS HERE, over a world that exists. Armed at the top of the boot (where
         // it used to be) its duration was spent on top of frames the player was not going to see anyway,
         // so a two-second splash was two seconds of nothing in particular.
-        TriggerSplash();
+        // A STARTUP MOVIE STILL UP is told the game is ready (it ends now unless the project waits for the
+        // movies), and the splash waits for the movies' end rather than running out under them.
+        if ( m_StartupMovies )
+            m_StartupMovies->NotifyContentReady();
+        if ( StartupMoviesPlaying() )
+            m_SplashAfterMovies = true;
+        else
+            TriggerSplash();
     }
 
     void RuntimeLayer::DrawLoadingScreen( Graphic::Render2D::DrawList2D& dl, float w, float h )
@@ -624,10 +822,31 @@ namespace Desert::Player
         // The marker this replaced said the same thing to the LOG and to nothing else. A log line is not
         // a state: nothing could branch on it, so the frames it described were presented anyway.
         {
+            // Not while a startup movie owns the frame: no scene is rendered then, so nothing is ordered,
+            // and a gate ticked over frames that asked for nothing would open on a world nobody has read.
             const auto work = Assets::ContentWorkNow();
-            if ( m_Content.Tick( work.Outstanding, work.Started ) )
+            if ( !StartupMoviesPlaying() && m_Content.Tick( work.Outstanding, work.Started ) )
                 OnContentReady();
         }
+
+        // A press (any mouse button, edge) skips a startup movie; keys arrive through OnKeyPressed.
+        {
+            const bool anyDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left ) ||
+                                 Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Right ) ||
+                                 Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Middle );
+            if ( anyDown && !m_PrevAnyMouseDown && StartupMoviesPlaying() )
+                m_SkipStartupMovie = true;
+            m_PrevAnyMouseDown = anyDown;
+        }
+        TickStartupMovies( static_cast<double>( ts.GetMilliseconds() ) * 0.001 );
+
+        // WHILE A STARTUP MOVIE PLAYS THE FRAME IS THE MOVIE AND NOTHING ELSE (UE FDefaultGameMoviePlayer: the
+        // game viewport is not drawn). The scene's update renders the world, and on a Debug build that frame
+        // costs hundreds of milliseconds -- every one of them a movie frame held while its sound clock runs.
+        // The asset loader keeps reading on its workers (pumped above); the world's own render-driven requests
+        // and the content gate resume on the first frame after the last movie.
+        if ( StartupMoviesPlaying() )
+            return BOOLSUCCESS;
 
         if ( m_SplashTimer > 0.0f )
             m_SplashTimer -= ts.GetMilliseconds() * 0.001f;
@@ -696,9 +915,12 @@ namespace Desert::Player
 
         // Time also stops while streaming waits for the cell under a streaming source (WP12): the loader keeps
         // reading on its workers and Tick above keeps collecting, but no script or physics step runs over a hole.
+        // And while a startup movie covers the screen: the level begins when the player can first see it.
         const bool streamingWaits = m_WorldStreamer && m_WorldStreamer->BlocksPlay();
-        if ( const auto frame =
-                  m_Scene->OnUpdate( m_Content.Loading() || streamingWaits ? Common::Timestep( 0.0f ) : ts );
+        m_UIFrameDtSeconds        = ts.GetSeconds();
+        const bool moviePlaying   = StartupMoviesPlaying();
+        if ( const auto frame = m_Scene->OnUpdate(
+                  m_Content.Loading() || streamingWaits || moviePlaying ? Common::Timestep( 0.0f ) : ts );
              !frame )
             return Common::MakeError( frame.GetError() );
 
@@ -716,12 +938,12 @@ namespace Desert::Player
 
         // Fullscreen blit pipeline (vertexless: the VS synthesizes the quad), opaque, into the swapchain.
         Graphic::GraphicsPipelineSpecification spec;
-        spec.DebugName         = "SwapchainBlitPipeline";
-        spec.Shader            = blitShader;
-        spec.Framebuffer       = swapFb;
-        spec.DepthTestEnabled  = false;
-        spec.DepthWriteEnabled = false;
-        spec.CullMode          = Graphic::CullMode::None;
+        spec.DebugName          = "SwapchainBlitPipeline";
+        spec.Shader             = blitShader;
+        spec.Framebuffer        = swapFb;
+        spec.DepthTestEnabled   = false;
+        spec.DepthWriteEnabled  = false;
+        spec.CullMode           = Graphic::CullMode::None;
         const auto blitPipeline = Graphic::GraphicsPipeline::Create( spec );
         if ( !blitPipeline )
             return Common::MakeError( "InitPresent: " + blitPipeline.GetError() );
@@ -729,7 +951,7 @@ namespace Desert::Player
         m_BlitExecutor = Graphic::MaterialExecutor::Create( "SwapchainBlit", blitShader );
 
         m_UIRenderTextures = std::make_unique<Graphic::Render2D::UIRenderTextureCache>();
-        m_Render2D = std::make_unique<Graphic::Render2D::Render2D>();
+        m_Render2D         = std::make_unique<Graphic::Render2D::Render2D>();
         if ( const auto r = m_Render2D->Init( swapFb ); !r )
             return r;
 
@@ -743,10 +965,14 @@ namespace Desert::Player
     Common::BoolResultStr RuntimeLayer::OnUIRender()
     {
         auto& renderer = Graphic::Renderer::GetInstance();
-        renderer.BeginSwapChainRenderPass();
 
+        // THE UI IS BUILT BEFORE THE FRAME'S PASS OPENS, in the game and in a movie alike (UE Retainer Box):
+        // a retained layer renders into its own target, which no open pass may enclose, so the walk, the
+        // retained layers, and only then the one pass that presents the scene and composes the UI.
         std::string clicked;
-        if ( const auto swapFb = renderer.GetCompositeFramebuffer() )
+        bool        uiBuilt      = false;
+        bool        presentScene = false;
+        if ( const auto swapFb = m_Movie.has_value() ? m_MovieTarget : renderer.GetCompositeFramebuffer() )
         {
             if ( !m_PresentReady )
                 if ( const auto r = InitPresent( swapFb ); !r )
@@ -773,23 +999,25 @@ namespace Desert::Player
                 // is deliberate: a cover is only as opaque as whoever edits it next leaves it, and this way
                 // the undercooked image is not in the swapchain to begin with.
                 const bool loading = m_Content.Loading();
+                // Frame 0 of a movie is the first frame of a complete world; loading frames are not written.
+                m_MovieFrameDrawn = m_Movie.has_value() && !loading;
+                // A startup movie covers the frame like the loading screen does, and the world keeps being
+                // rendered (and so keeps loading) underneath it.
+                const bool startupMovie = StartupMoviesPlaying();
 
-                // 1) Present the scene: blit its final (tonemapped) image over the whole swapchain.
-                if ( !loading )
-                {
-                    if ( const auto image = m_Scene->GetFinalImage() )
-                    {
-                        if ( auto tp = m_BlitExecutor->GetTexture2DProperty( "u_Texture" ) )
-                            tp->SetImage( image.get() );
-                        renderer.SubmitFullscreenQuad( m_BlitPipeline.get(), m_BlitExecutor.get() );
-                    }
-                }
+                // The scene's final (tonemapped) image is blitted over the whole target once the pass opens.
+                presentScene = !loading && !startupMovie;
 
-                // 2) UI + splash via Render2D, on top.
+                // UI + splash via Render2D, composed on top of it.
                 m_Render2D->BeginFrame( { 0.0f, 0.0f, w, h } );
                 auto& dl = m_Render2D->GetDrawList();
 
-                if ( loading )
+                if ( startupMovie )
+                {
+                    DrawStartupMovie( dl, w, h );
+                    DiscardHeldInput(); // the press that skips a movie is not the game's either
+                }
+                else if ( loading )
                 {
                     ++m_LoadingFramesPresented;
                     DrawLoadingScreen( dl, w, h );
@@ -798,13 +1026,7 @@ namespace Desert::Player
                     // accumulators keep filling while the cover is up and empty themselves into the first
                     // frame the player can see -- a character that starts the level already walking, from
                     // a key held down during the wait.
-                    m_PrevMouseDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left );
-                    m_ScrollAccum   = 0.0f;
-                    m_TypedText.clear();
-                    m_Backspace     = false;
-                    m_TabPressed    = false;
-                    m_SubmitPressed = false;
-                    m_EscapePressed = false;
+                    DiscardHeldInput();
                 }
                 else
                 {
@@ -833,6 +1055,7 @@ namespace Desert::Player
                     input.Backspace      = m_Backspace;
                     input.Tab            = m_TabPressed;
                     input.Submit         = m_SubmitPressed;
+                    input.Navigate       = m_Navigate;
                     m_PrevMouseDown      = down;
                     m_ScrollAccum        = 0.0f;
                     m_TypedText.clear();
@@ -840,6 +1063,7 @@ namespace Desert::Player
                     m_TabPressed    = false;
                     m_SubmitPressed = false;
                     m_EscapePressed = false;
+                    m_Navigate      = 0;
 
                     // Pointer events / drops can fire several times in one frame, so they come back in their
                     // own list; a button action still arrives through `clicked`.
@@ -854,7 +1078,10 @@ namespace Desert::Player
                     // game without UI is legitimate, and it was only ever a refusal because of the limit.
                     m_UIView.Materials      = &m_Render2D->Materials();
                     m_UIView.RenderTextures = m_UIRenderTextures.get();
-                    UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
+                    // The view's first frame spends no time: frame N of a --render-movie is then at exactly
+                    // N steps of the UI clock, where the movie's sound puts it (MovieRender.hpp).
+                    UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h },
+                                      m_UIView.FrameIndex == 0 ? 0.0f : m_UIFrameDtSeconds );
                     for ( const entt::entity canvas : UI::CanvasesInDrawOrder( m_Scene->GetRegistry() ) )
                         if ( const auto drawn = UI::RenderCanvas2D( m_UIView, m_Scene->GetRegistry(), canvas, dl,
                                                                     vpPtr, &input, &clicked, &m_FocusedUI );
@@ -888,16 +1115,58 @@ namespace Desert::Player
 
                 // WORLD STREAMING WAITS FOR THE CELL UNDER THE CAMERA (WP12, decision O2): over the game's UI, so
                 // the player reads "loading" rather than a frozen HUD. Only while the level itself is shown.
-                if ( !loading )
+                if ( !loading && !startupMovie )
                     if ( const auto* wait = m_Scene->GetRegistry().try_ctx<Core::WorldStreamingWait>();
                          wait != nullptr && wait->Assessment.Blocks() )
                         UI::DrawStreamingWaitOverlay( dl, w, h, wait->FramesWaiting );
 
-                m_Render2D->Flush();
+                uiBuilt = true;
             }
         }
 
+        // Retained UI layers render into their own pooled targets now, with no pass open (and an unused
+        // target is retired here even on a frame without layers).
+        if ( uiBuilt )
+            m_Render2D->RenderRetained();
+
+        // A movie composes into its own offscreen target of the requested size; the game into the swapchain.
+        if ( m_Movie.has_value() )
+        {
+            if ( const auto begun = Graphic::Renderer::BeginRenderPass( m_MoviePass.get(), true ); !begun )
+            {
+                // A refused pass records nothing: drawing on would land outside every pass. The movie fails
+                // (exit 1), no frame is read back, and the acquired swapchain image still gets its empty pass.
+                LOG_ERROR( "[Movie] frame {}: the movie pass was refused: {}", m_MovieFrame, begun.GetError() );
+                m_MovieFrameDrawn = false;
+                m_Application->Close( 1 );
+                renderer.BeginSwapChainRenderPass();
+                renderer.EndRenderPass();
+                return Common::MakeFormattedError<bool>(
+                     "--render-movie: frame {}: the movie pass was refused: {}", m_MovieFrame, begun.GetError() );
+            }
+        }
+        else
+            renderer.BeginSwapChainRenderPass();
+
+        if ( presentScene )
+            if ( const auto image = m_Scene->GetFinalImage() )
+            {
+                if ( auto tp = m_BlitExecutor->GetTexture2DProperty( "u_Texture" ) )
+                    tp->SetImage( image.get() );
+                renderer.SubmitFullscreenQuad( m_BlitPipeline.get(), m_BlitExecutor.get() );
+            }
+        if ( uiBuilt )
+            m_Render2D->Flush();
+
         renderer.EndRenderPass();
+
+        // The swapchain image acquired for this frame still has to be rendered to before it is presented;
+        // during a movie it carries an empty pass and the picture lives in the offscreen target only.
+        if ( m_Movie.has_value() )
+        {
+            renderer.BeginSwapChainRenderPass();
+            renderer.EndRenderPass();
+        }
 
         // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and it has to be: a swapchain
         // image may only be touched between its acquire and its present, and reading it back afterwards
@@ -990,6 +1259,12 @@ namespace Desert::Player
 
     bool RuntimeLayer::OnKeyPressed( Common::KeyPressedEvent& key )
     {
+        // Any key during a startup movie is the skip, and only the skip (UE's movie player takes the input).
+        if ( StartupMoviesPlaying() )
+        {
+            m_SkipStartupMovie = true;
+            return true;
+        }
         switch ( key.GetKeyCode() )
         {
             case Common::KeyCode::Backspace:
@@ -1000,6 +1275,14 @@ namespace Desert::Player
                 break;
             case Common::KeyCode::Enter:
                 m_SubmitPressed = true;
+                break;
+            case Common::KeyCode::Down:
+            case Common::KeyCode::S:
+                m_Navigate = 1;
+                break;
+            case Common::KeyCode::Up:
+            case Common::KeyCode::W:
+                m_Navigate = -1;
                 break;
             case Common::KeyCode::Escape:
                 m_EscapePressed = true;

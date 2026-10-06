@@ -111,6 +111,7 @@ namespace Desert::Editor::Render
                 input.ScrollDelta   = pv.Scroll;
                 input.Tab           = pv.Tab;
                 input.Submit        = pv.Submit;
+                input.Navigate       = pv.Navigate;
                 input.Backspace     = pv.Backspace;
                 input.TypedText     = pv.TypedText;
             }
@@ -142,8 +143,14 @@ namespace Desert::Editor::Render
             // what the author is previewing.
             m_UIView.AuthoringPreview = !feed;
 
+            // AN AUTHORED LEVEL IS NOT A GAME. Edit shows each UI clip at its playhead (the Sequencer moves
+            // it); Play / Paused is the game, where AutoPlay clips start — at t = 0, because entering Play
+            // dropped their players (Core::BeginPlay). Auto-playing in Edit ran a three-second clip out while
+            // the level was being looked at, and Play then inherited the finished playhead: a black viewport.
+            m_UIView.GameWorld = scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+
             const std::vector<entt::entity> canvases = UI::CanvasesInDrawOrder( scene->GetRegistry() );
-            UI::BeginUIFrame( m_UIView, scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
+            UI::BeginUIFrame( m_UIView, scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h }, m_FrameDtSeconds );
             for ( const entt::entity canvas : canvases )
                 if ( const auto drawn = UI::RenderCanvas2D(
                           m_UIView, scene->GetRegistry(), canvas, m_Render2D.GetDrawList(), vpPtr,

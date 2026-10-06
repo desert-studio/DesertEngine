@@ -94,9 +94,10 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "R
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
 // runs, and they were invisible. See MakeCharacterControllerEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AudioSourceComponent, Data, "AudioSourceData", "Audio Source" )
-// UE's APlayerStart: where Play puts the pawn (Core::ChoosePlayerStart); a tag and nothing else.
+// UE's APlayerStart: where Play puts the pawn (::Desert::Core::ChoosePlayerStart); a tag and nothing else.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, "PlayerStartData", "Player Start" )
-// UE's World Partition Streaming Source: the world loads around this entity in Play (Core::WorldStreamer).
+// UE's World Partition Streaming Source: the world loads around this entity in Play
+// (::Desert::Core::WorldStreamer).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::StreamingSourceComponent, Data, "StreamingSourceData",
                                      "Streaming Source" )
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
@@ -143,6 +144,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UILayoutGroupComponent, Data
                                      "UI Layout Group" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIProgressBarComponent, Data, "UIProgressBarData",
                                      "UI Progress Bar" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIPathComponent, Data, "UIPathData", "UI Path" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIRetainerComponent, Data, "UIRetainerData", "UI Retainer" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIToggleComponent, Data, "UIToggleData", "UI Toggle" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UISliderComponent, Data, "UISliderData", "UI Slider" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIScrollViewComponent, Data, "UIScrollViewData",

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../IPanel.hpp"
+#include "LevelMaterialProperties.hpp"
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
@@ -17,7 +18,9 @@
 
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Animation/TimeModel.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Animation/TrackEditing.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -36,7 +39,7 @@ namespace Desert::Assets
     class AssetManager;
     class LevelSequenceAsset;
     class AnimationAsset;
-}
+} // namespace Desert::Assets
 namespace Desert::Animation
 {
     class AnimationLibrary;
@@ -156,6 +159,12 @@ namespace Desert::Editor
         // lanes are not bone channels and there is no curve view over them.
         [[nodiscard]] std::vector<DocumentAction> Actions() override;
 
+        /// Level timeline: one property "<actor>.<slot>.<parameter>" per Material Parameter track, valued at the
+        /// playhead (LevelMaterialProperties.hpp). A `set` keys it there — the row field's setter, one undo step.
+        [[nodiscard]] std::vector<EditableProperty> EditableProperties() const override;
+        [[nodiscard]] Common::BoolResultStr         SetEditableProperty( const std::string&        name,
+                                                                         const std::vector<float>& value ) override;
+
         // A TIMELINE COSTS NO RENDERER SLOT. Everything it draws is ImGui geometry over components the
         // scene already holds; there is no Scene of its own, no SceneRenderer and no offscreen target, so
         // it is not pending demand for one of the six and closing it would free nothing. Answering the
@@ -207,6 +216,47 @@ namespace Desert::Editor
         /// Keys @p binding's entity's live Transform at the playhead (UE: "Key Transform" on the track row).
         void KeyLevelTransform( const Animation::Timeline::BindingGuid& binding );
         void AddLevelCameraCut( const Animation::Timeline::BindingGuid& camera );
+        /// "+ Track ▸ Visibility" on any actor: the Bool "Visible" track, keyed at the range start with the
+        /// actor's current visibility (ECS::AddVisibilityTrack), one undo step.
+        void AddLevelVisibilityTrack( const Animation::Timeline::BindingGuid& binding );
+        /// A Visibility key @p visible at the playhead on @p binding's track, one undo step.
+        void KeyLevelVisibility( const Animation::Timeline::BindingGuid& binding, bool visible );
+        /// One parameter "+ Track ▸ Material Parameter ▸ <slot>" offers: a Float / Float3 / Float4 of the slot
+        /// shader's schema (UE: the scalar and vector parameters of the component's material), with what the
+        /// actor's slot instance holds for it now (its own override, else its parent's, else the schema default).
+        struct LevelMaterialParameterChoice
+        {
+            ECS::LevelSequenceMaterialParameter Parameter;
+            Animation::Timeline::TrackKind      Kind = Animation::Timeline::TrackKind::Float;
+            std::string                         Label;
+            glm::vec4                           Current{ 0.0F };
+            bool                                Color = false;
+            std::optional<float>                Min;
+            std::optional<float>                Max;
+        };
+        /// One material slot of the actor's mesh with the parameters its shader declares.
+        struct LevelMaterialSlotChoice
+        {
+            uint32_t                                  Slot = 0;
+            std::string                               Label;
+            std::vector<LevelMaterialParameterChoice> Parameters;
+        };
+        /// The slots of @p binding's entity's Static / Skinned mesh that have their own runtime instance (the
+        /// ones a Material Parameter track can drive). Empty when the binding names no such entity.
+        [[nodiscard]] std::vector<LevelMaterialSlotChoice>
+        LevelMaterialSlots( const Animation::Timeline::BindingGuid& binding ) const;
+        /// "+ Track ▸ Material Parameter ▸ <slot> ▸ <parameter>": the track keyed at the range start with the
+        /// actor's current value (ECS::AddMaterialParameterTrack), one undo step.
+        void AddLevelMaterialParameterTrack( const Animation::Timeline::BindingGuid&    binding,
+                                             const ECS::LevelSequenceMaterialParameter& parameter );
+        /// A Material Parameter key @p value at the playhead on @p binding's track, one undo step.
+        /// THE one setter of a Material Parameter value: the row's field, the palette's "Key Material Parameter"
+        /// and the control channel's `set` (SetEditableProperty) all key through it (LevelMaterialEdit::Key).
+        [[nodiscard]] Common::BoolResultStr
+        KeyLevelMaterialParameter( const Animation::Timeline::BindingGuid&    binding,
+                                   const ECS::LevelSequenceMaterialParameter& parameter, const glm::vec4& value );
+        /// What the actors' slot shaders declare for every parameter the menu offers (label, clamp, colour).
+        [[nodiscard]] std::vector<LevelMaterialEdit::Schema> LevelMaterialSchema() const;
         /// The clips that play on @p binding's entity (SkinnedMesh + Animation): the AnimationLibrary's clips
         /// for the mesh's skeleton (UE: "+ Track → Animation" lists the assets compatible with the skeleton).
         /// Empty when the binding names no such entity.
@@ -221,11 +271,81 @@ namespace Desert::Editor
         /// Poses the scene at m_LevelTick when the tick or the sequence's Revision moved since the last pose.
         void PreviewLevelIfChanged( const Animation::Timeline::Sequence& sequence );
 
+        // ── Level Sequence: transport, keys, Auto Key, curves (ANIM-FIX2) ──
+        /// The transport row: play/pause, stop, to start / to end, Loop. The playhead is the PLAYER's, and
+        /// `m_LevelTick` is read off it every frame — the one clock the preview poses the scene at.
+        void DrawLevelTransport( const Animation::Timeline::Sequence& sequence );
+        /// The player, (re)built when the sequence's range is not the one it was built for.
+        Animation::Timeline::Player& LevelPlayer( const Animation::Timeline::Sequence& sequence );
+        void                         JumpLevel( const Animation::Timeline::Sequence& sequence, int32_t tick );
+        /// The pose-key lane of one binding: click selects (Shift adds), a drag on the empty lane draws a
+        /// marquee, a drag on a selected key retimes the selection on the display grid — one undo step on
+        /// release (`ECS::MoveEntityTransformKeys`).
+        void DrawLevelKeyLane( Animation::Timeline::Sequence&          sequence,
+                               const Animation::Timeline::BindingGuid& binding, float laneX0, float laneW,
+                               float rowY, float rowH );
+        /// Delete: every selected key, one undo step (`ECS::RemoveEntityTransformKeys`).
+        void DeleteSelectedLevelKeys();
+        /// "+ Track ▸ Event" on an actor or on the sequence (`ECS::LevelSequenceMasterBinding`), one undo step.
+        void AddLevelEventTrack( const Animation::Timeline::BindingGuid& binding );
+        /// An event named "Event" at the playhead on @p binding's Event track, selected for renaming; one undo
+        /// step.
+        void AddLevelEventKey( const Animation::Timeline::BindingGuid& binding );
+        /// The Event track row of @p binding (UE: the Event Track): "+ Key" at the playhead, each key a marker
+        /// with its name; click selects, a drag retimes it on the display grid (one undo step on release), the
+        /// selected key's name is edited in the row (one undo step per committed edit), Delete removes it.
+        void DrawLevelEventRow( Animation::Timeline::Sequence&          sequence,
+                                const Animation::Timeline::BindingGuid& binding, const char* label,
+                                float contentX0, float laneX0, float laneW );
+        /// Delete: the selected event key, one undo step (`ECS::RemoveEventKey`).
+        void DeleteSelectedLevelEvent();
+        void SetLevelRecord( bool on );
+        /// Per frame: the gizmo bit into `m_LevelAutoKey`; the release writes its keys inside one undo step.
+        void UpdateLevelAutoKey( Animation::Timeline::Sequence& sequence );
+        /// The curve view of a Transform track — the selected key's binding, else the first keyed one.
+        void DrawLevelCurve( Animation::Timeline::Sequence& sequence, float contentX0, float gutter, float laneW );
+
+        struct LevelKeyRef
+        {
+            Animation::Timeline::BindingGuid Binding;
+            Animation::FrameNumber           Tick;
+        };
+        std::vector<LevelKeyRef> m_LevelSelKeys;
+        /// The selected event key: (binding, index in `ECS::EventKeys`). Events share ticks, so a tick names none.
+        struct LevelEventRef
+        {
+            Animation::Timeline::BindingGuid Binding;
+            size_t                           Index = 0;
+        };
+        std::optional<LevelEventRef> m_LevelSelEvent;
+        bool                         m_LevelEventDrag      = false;
+        float                        m_LevelEventDragX0    = 0.0f;
+        int32_t                      m_LevelEventDragDelta = 0;  ///< ticks, on the display grid
+        char                         m_LevelEventName[128] = {}; ///< the row's name field for the selected event
+        bool                         m_LevelEventNameEditing =
+             false; ///< the field holds a typed, uncommitted name (else it mirrors the key)
+        std::optional<Animation::Timeline::Player> m_LevelPlayer;
+        Animation::Timeline::LoopMode              m_LevelLoop = Animation::Timeline::LoopMode::Loop;
+        Animation::FrameNumber                     m_LevelPlayerStart{ INT32_MIN };
+        Animation::FrameNumber                     m_LevelPlayerEnd{ INT32_MIN };
+        bool                                       m_LevelKeyDrag   = false; ///< a selected key is held
+        float                                      m_LevelDragX0    = 0.0f;
+        int32_t                                    m_LevelDragDelta = 0; ///< ticks, on the display grid
+        bool                                       m_LevelMarquee   = false;
+        glm::vec2                                  m_LevelMarqueeFrom{ 0.0f };
+        bool                                       m_LevelRecord    = false;
+        bool                                       m_LevelCurveView = false;
+        int                                        m_LevelCurvePart = 0; ///< 0 Location, 2 Scale
+        ECS::LevelSequenceAutoKey                  m_LevelAutoKey;
+
         ECS::LevelSequencePreview m_LevelPreview;
         Animation::FrameNumber    m_LevelTick;
-        int32_t                   m_LevelTickShown     = INT32_MIN;
-        uint32_t                  m_LevelRevisionShown = UINT32_MAX;
-        SequenceEditTransaction   m_LevelEdit;
+        int32_t                   m_LevelTickShown = INT32_MIN;
+        /// The value a Material Parameter row's field shows while it is being dragged (row id → value): keyed
+        /// once, on release, so a drag is one key and one undo step (UE: one transaction per committed edit).
+        std::optional<std::pair<std::string, glm::vec4>> m_LevelMaterialDraft;
+        uint32_t                                         m_LevelRevisionShown = UINT32_MAX;
+        SequenceEditTransaction                          m_LevelEdit;
 
         // Creates a NEW empty clip for the given skeleton (a track per bone, no keys yet), registers it as an
         // in-memory AnimationAsset so it shows in the picker, and returns its name (empty on failure).
@@ -258,6 +378,34 @@ namespace Desert::Editor
         // would be a format change rather than a view.
         void DrawCurveView( Animation::AnimationClip* clip, Animation::Animator* animator, float contentX0,
                             float gutter, float laneW, float duration );
+
+        // ONE CURVE EDITOR FOR EVERY TIMELINE THAT OWNS TRANSFORM KEYS (UE's Sequencer has one curve editor for
+        // a rig and a level sequence alike). `CurvePlot` is everything that differs between the owners — which
+        // channel is shown, what the playhead is, how a key is selected, retimed and taken back — and
+        // `DrawTransformCurve` is the one drawing and the one drag that both the skeletal `DrawCurveView` and
+        // the level sequence's `DrawLevelCurve` hand theirs to.
+        struct CurvePlot
+        {
+            Animation::Timeline::Sequence*                Sequence = nullptr;
+            Animation::Timeline::TransformChannel*        Shown    = nullptr;
+            Animation::TrackChannel                       Channel  = Animation::TrackChannel::Position;
+            int                                           FitTrack = -1; ///< what a value-range refit is keyed on
+            int                                           FitChannel = -1;
+            std::string                                   Label;
+            float                                         ContentX0       = 0.0f;
+            float                                         Gutter          = 0.0f;
+            float                                         LaneW           = 1.0f;
+            float                                         DurationSeconds = 1.0f;
+            Animation::FrameNumber                        DurationTicks;
+            double                                        PlayheadSeconds = 0.0;
+            std::optional<Animation::FrameNumber>         SelectedTick;
+            std::function<void( Animation::FrameNumber )> Select;
+            std::function<void()>                         BeginEdit;
+            std::function<void()>                         EndEdit;
+            std::function<bool( Animation::FrameNumber, Animation::FrameNumber )> Retime;
+            std::function<void()>                                                 AfterEdit;
+        };
+        void DrawTransformCurve( const CurvePlot& plot );
 
         // ── SECTIONS (A32) ────────────────────────────────────────────────────────────────────────
         //
@@ -431,12 +579,12 @@ namespace Desert::Editor
         glm::mat4 m_RecordLast = glm::mat4( 1.0f );
 
         // Keyframe-editor selection (m_SelChannel: 0 = Position, 1 = Rotation, 2 = Scale).
-        int   m_SelTrack   = -1;
-        int   m_SelChannel = -1;
-        int   m_SelKey     = -1;
+        int m_SelTrack   = -1;
+        int m_SelChannel = -1;
+        int m_SelKey     = -1;
         Animation::FrameNumber
-              m_SelKeyTick;        ///< the selected key's tick; m_SelKey is its index in the part's ticks
-        float m_DragTime   = 0.0f; // time being written while dragging a key (for re-selection after re-sort)
+              m_SelKeyTick;      ///< the selected key's tick; m_SelKey is its index in the part's ticks
+        float m_DragTime = 0.0f; // time being written while dragging a key (for re-selection after re-sort)
 
         // UI-clip editing state (which lane/key is selected in UI mode).
         int m_UITrack = -1;

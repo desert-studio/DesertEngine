@@ -2,6 +2,7 @@
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Animation/AlphaBlend.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 #include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
@@ -10,6 +11,7 @@
 
 #include <string>
 #include <string_view>
+#include <utility>
 #include <unordered_map>
 #include <vector>
 
@@ -77,6 +79,12 @@ namespace Desert::Animation::Graph
         bool                   HasExitTime = false;
         float                  ExitTime    = 1.0f; // require the source clip to reach this fraction [0,1] first
         std::vector<Condition> Conditions;         // ALL must hold (logical AND); empty + exit-time = auto-advance
+        /// The shape of the cross-fade's weight over `Blend` seconds (UE: BlendMode / EAlphaBlendOption).
+        int BlendCurve = static_cast<int>( AlphaBlendOption::Linear );
+        /// While this transition is still blending, may a transition out of its target fire and be stacked
+        /// on top of it (UE: the state machine's ActiveTransitionArray)? false = the machine waits until
+        /// this fade has finished before it evaluates any transition again.
+        bool CanInterrupt = true;
     };
 
     struct State
@@ -193,6 +201,8 @@ namespace Desert::Animation::Graph
         std::string           Layer;
         std::vector<PoseNode> Nodes;
         std::string           OutputPose;
+        float                 OutputPoseX = 0.0f; // the Output Pose node's canvas position (as PoseNode X/Y)
+        float                 OutputPoseY = 0.0f;
     };
 
     /// The linked-layer half of a graph: the interfaces it declares (to call or to implement) and the layer
@@ -220,6 +230,10 @@ namespace Desert::Animation::Graph
         /// The node wired into the Output Pose sink. Every graph has one: a graph with nothing at its
         /// output is refused by `PlanPoseGraph`, which is what the loader runs.
         std::string OutputPose;
+        /// The Output Pose node's canvas position (UE: the Root node's NodePosX/Y; ANGR 3) - a node of the
+        /// canvas like any other, dragged and framed with them; persisted, unused at runtime.
+        float OutputPoseX = 0.0f;
+        float OutputPoseY = 0.0f;
         /// Declared layer interfaces and implemented layer graphs; absent = the graph neither calls nor
         /// implements a linked layer (the files written before ANIM-I14 are exactly that).
         std::optional<AnimGraphLayers> Layers;
@@ -256,6 +270,14 @@ namespace Desert::Animation::Graph
     /// A graph of ONE state machine node wired to Output Pose, with no states yet: the shape a new graph
     /// starts from and the shape the ANGR 1 files were migrated to.
     [[nodiscard]] AnimGraph MakeStateMachineGraph( std::string name = "AnimGraph" );
+
+    /// Horizontal spacing between a pose node and the Output Pose node placed after it.
+    inline constexpr float kOutputPoseSpacingX = 260.0f;
+
+    /// Where an Output Pose node nobody placed sits (a new graph, ANGR 2 files raised to 3): one column right
+    /// of the rightmost node, level with the node wired into it (UE places the Root right of the graph).
+    [[nodiscard]] std::pair<float, float> DefaultOutputPosePosition( const std::vector<PoseNode>& nodes,
+                                                                     std::string_view             outputPose );
 
     /// The node called `name`, or nullptr.
     [[nodiscard]] const PoseNode* FindNode( const AnimGraph& graph, std::string_view name );
@@ -368,6 +390,14 @@ namespace Desert::Animation::Graph
             const State* Current = nullptr; // current state after this tick (null only if the graph has no states)
             bool         Changed = false;   // a transition fired this tick
             float        Blend   = 0.0f;    // cross-fade seconds for the change (valid when Changed)
+            AlphaBlendOption Curve = AlphaBlendOption::Linear; // the change's fade curve (valid when Changed)
+        };
+
+        /// One layer of the output machine's blend: a state and the weight its pose has right now.
+        struct StateWeight
+        {
+            const State* Of     = nullptr; ///< the state this layer plays
+            float        Weight = 0.0f;
         };
 
         /**
@@ -381,6 +411,38 @@ namespace Desert::Animation::Graph
          * @return What the state machine wired into Output Pose did this tick.
          */
         Result Update( float normalizedTime );
+
+        /**
+         * @brief Advances every state machine's ACTIVE TRANSITIONS by `seconds` of blend time and retires
+         *        the ones whose fade has finished (UE: FAnimNode_StateMachine's ActiveTransitionArray).
+         *
+         * A transition that fires while another is still blending does not cut it: it is stacked on top,
+         * blending from everything below it to its own target, and each fade runs on its own clock and
+         * curve. When a fade reaches its end every layer below it has weight 0, so it and those layers are
+         * retired. SEPARATE FROM `Update` because the blend clock is the one the pose is blended by: the
+         * caller passes the exact step its Animator just advanced its own fades by, so the two stacks
+         * retire on the same frame.
+         */
+        void AdvanceTransitions( float seconds );
+
+        /// The output machine's blend right now: the state under every active transition first, then each
+        /// active transition's target, oldest to newest, with weights summing to 1 (a lone current state at
+        /// weight 1 when nothing is blending; empty when the machine has no states).
+        [[nodiscard]] std::vector<StateWeight> ActiveStateWeights() const;
+
+        /// The transition fading the output machine INTO its running state, while it is still fading.
+        struct EnteringFade
+        {
+            float            Duration = 0.0f;
+            float            Elapsed  = 0.0f; ///< of blend time, on the clock AdvanceTransitions is given
+            AlphaBlendOption Curve    = AlphaBlendOption::Linear;
+        };
+        /// The newest active transition of the machine wired into Output Pose when its target is the running
+        /// state; nullopt when nothing is fading into it. The Animator's fade IS this transition: a caller
+        /// whose clip became playable only after the transition fired joins it at `Elapsed` instead of
+        /// cutting, so the pose blends along the machine's own clock (`Result::Changed` is true on one tick
+        /// only, and a clip still being read on that tick would otherwise lose the blend for good).
+        [[nodiscard]] std::optional<EnteringFade> EnteringTransition() const;
 
         [[nodiscard]] const AnimGraph& Graph() const
         {
@@ -397,8 +459,26 @@ namespace Desert::Animation::Graph
 
     private:
         /// A state machine node's running state: indices into its machine's States.
+        /// A transition that fired and is still blending (UE: FAnimationActiveTransitionEntry).
+        struct ActiveTransition
+        {
+            int              From         = -1; ///< the state it left (the base, for the oldest)
+            int              To           = -1;
+            float            Duration     = 0.0f;
+            float            Elapsed      = 0.0f;
+            AlphaBlendOption Curve        = AlphaBlendOption::Linear;
+            bool             CanInterrupt = true;
+
+            /// The weight of `To` over everything below it: Elapsed / Duration through the curve.
+            [[nodiscard]] float Alpha() const
+            {
+                return AlphaBlendCurve( Curve, Duration > 0.0f ? Elapsed / Duration : 1.0f );
+            }
+        };
+
         struct MachineRun
         {
+            std::vector<ActiveTransition> Active; ///< oldest first; the last one's target is Current
             int Current = -1;
             int Previous = -1; ///< см. PreviousState(): пишется там же, где срабатывает переход
         };

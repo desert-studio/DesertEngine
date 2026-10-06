@@ -30,6 +30,9 @@ project(test_name)
         --     developer's own ~/.desertengine.
         -- Everything it touches is Common, which is what keeps this suite device-free.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
+        -- The writer of <project>/Config/Game.json (the Project Settings panel saves through it); its
+        -- round trip and its cache are asserted here, on a temp project, beside the .deproj's own.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/GameSettings.cpp",
     }
 
     includedirs {

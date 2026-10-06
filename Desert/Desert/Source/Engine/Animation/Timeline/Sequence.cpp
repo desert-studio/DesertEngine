@@ -23,6 +23,25 @@ namespace Desert::Animation::Timeline
         return "Unknown";
     }
 
+    std::size_t RenameBoneLocators( Sequence& sequence, const std::span<const BoneRename> renames )
+    {
+        std::size_t moved = 0;
+        for ( Binding& binding : sequence.Bindings )
+        {
+            if ( binding.Kind != BindingKind::Bone )
+                continue;
+            const auto rename = std::find_if( renames.begin(), renames.end(),
+                                              [&]( const BoneRename& r ) { return r.From == binding.Locator; } );
+            if ( rename == renames.end() || rename->From == rename->To )
+                continue;
+            if ( binding.Label == binding.Locator )
+                binding.Label = rename->To;
+            binding.Locator = rename->To;
+            ++moved;
+        }
+        return moved;
+    }
+
     const Binding* FindBinding( const Sequence& sequence, const BindingGuid& guid )
     {
         const auto found = std::find_if( sequence.Bindings.begin(), sequence.Bindings.end(),
@@ -247,8 +266,9 @@ namespace Desert::Animation::Timeline
                     {
                         return track == TrackKind::CameraCut || track == TrackKind::Event;
                     }
-                    return binding == BindingKind::Entity && track != TrackKind::CameraCut &&
-                           track != TrackKind::Event;
+                    // An actor holds every value kind, Animation, and Event (UE: an Event track on an actor
+                    // binding fires with that actor); only the Camera Cut is the sequence's alone.
+                    return binding == BindingKind::Entity && track != TrackKind::CameraCut;
             }
             return false;
         }

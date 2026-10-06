@@ -401,6 +401,14 @@ namespace Desert::ECS
 
         float PlaybackSpeed = 1.0f;
 
+        /**
+         * @brief UE's `bUpdateAnimationInEditor`: whether this component advances in the EDITOR world (Edit
+         *        mode). Off by default, as in UE — an edited level holds still while it is being laid out;
+         *        Play always advances. AUTHORED (scene + prefab block); read by AnimationECSSystem through
+         *        Animation::AnimationAdvanceSeconds. Scrubbing Time in Details poses the character either way.
+         */
+        bool UpdateAnimationInEditor = false;
+
         // NO ROOT-MOTION FLAG. `bool EnableRootMotion` sat here, was written to every scene and prefab and
         // drawn as a checkbox in Details, and NOTHING in the engine ever read it: there was no root-delta
         // extraction in Animator, in AnimationECSSystem or in LocomotionSystem. A knob that cannot move a
@@ -1133,6 +1141,136 @@ namespace Desert::ECS
         UIProgressBarData Data;
     };
 
+    // How UIPath joins its control points.
+    enum class UIPathCurve
+    {
+        Linear, // straight segments: a polyline through the points
+        Smooth  // centripetal Catmull-Rom THROUGH every point (no cusps on unevenly spaced points)
+    };
+
+    // A stroked line drawn as UI — the pen line of a logo, an underline that draws itself, a dune contour.
+    // An element of the canvas like a panel: it lives in its UILayout rect, and its points are FRACTIONS of
+    // that rect ((0,0) top-left, (1,1) bottom-right), so it follows anchors and resolution like everything
+    // else; stretch the element over the canvas and the points are fractions of the canvas.
+    //
+    // Reveal draws the line by ARC LENGTH (0 = nothing, 0.5 = the first half of its length, 1 = all of it),
+    // from P0 towards the last point — the "drawn by hand" reveal; a UI animation drives it with the
+    // "Reveal" property. The stroke is antialiased by geometry (Feather px of fringe), its ends are round
+    // half-discs, and Glow is the same stroke widened by Glow Radius and fading to nothing.
+    //
+    // WHY EIGHT FIXED POINTS rather than a list: reflection has no array field (FieldType has no sequence),
+    // so a list would be invisible to Details, to the timeline and to the serializer alike. Point Count
+    // says how many of P0..P7 the path uses.
+    struct UIPathData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Curve" ), Category( "UI Path" ) )
+        UIPathCurve Curve = UIPathCurve::Smooth;
+
+        PROPERTY( DisplayName( "Point Count" ), Category( "UI Path" ), Range( 2.0f, 8.0f ) )
+        int PointCount = 3;
+
+        PROPERTY( DisplayName( "Reveal" ), Category( "UI Path" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "Fraction of the line's LENGTH drawn, from the first point on. Animate as 'Reveal'." ) )
+        float Reveal = 1.0f;
+
+        PROPERTY( DisplayName( "Thickness" ), Category( "UI Path" ), Range( 0.5f, 64.0f ), Units( "px" ) )
+        float Thickness = 4.0f; // design px, scaled by the canvas scale
+
+        PROPERTY( DisplayName( "Color" ), Category( "UI Path" ), Color )
+        glm::vec3 Color = glm::vec3( 0.95f, 0.78f, 0.45f );
+
+        PROPERTY( DisplayName( "Opacity" ), Category( "UI Path" ), Range( 0.0f, 1.0f ) )
+        float Opacity = 1.0f;
+
+        PROPERTY( DisplayName( "Round Caps" ), Category( "UI Path" ) )
+        bool RoundCaps = true;
+
+        PROPERTY( DisplayName( "Antialias Width" ), Category( "UI Path" ), Range( 0.0f, 4.0f ), Units( "px" ),
+                  Tooltip( "Soft fringe on each side of the stroke, in screen px. 0 = hard edge." ) )
+        float Feather = 1.0f;
+
+        PROPERTY( DisplayName( "Point 0" ), Category( "UI Path Points" ) )
+        glm::vec2 P0 = glm::vec2( 0.1f, 0.5f );
+        PROPERTY( DisplayName( "Point 1" ), Category( "UI Path Points" ) )
+        glm::vec2 P1 = glm::vec2( 0.5f, 0.3f );
+        PROPERTY( DisplayName( "Point 2" ), Category( "UI Path Points" ) )
+        glm::vec2 P2 = glm::vec2( 0.9f, 0.5f );
+        PROPERTY( DisplayName( "Point 3" ), Category( "UI Path Points" ) )
+        glm::vec2 P3 = glm::vec2( 1.0f, 0.5f );
+        PROPERTY( DisplayName( "Point 4" ), Category( "UI Path Points" ) )
+        glm::vec2 P4 = glm::vec2( 1.0f, 0.5f );
+        PROPERTY( DisplayName( "Point 5" ), Category( "UI Path Points" ) )
+        glm::vec2 P5 = glm::vec2( 1.0f, 0.5f );
+        PROPERTY( DisplayName( "Point 6" ), Category( "UI Path Points" ) )
+        glm::vec2 P6 = glm::vec2( 1.0f, 0.5f );
+        PROPERTY( DisplayName( "Point 7" ), Category( "UI Path Points" ) )
+        glm::vec2 P7 = glm::vec2( 1.0f, 0.5f );
+
+        PROPERTY( DisplayName( "Glow" ), Category( "Effects" ) )
+        bool Glow = false;
+        PROPERTY( DisplayName( "Glow Color" ), Category( "Effects" ), Color, EditCondition( "Glow" ) )
+        glm::vec3 GlowColor = glm::vec3( 1.0f, 0.70f, 0.35f );
+        PROPERTY( DisplayName( "Glow Radius" ), Category( "Effects" ), Range( 0.0f, 64.0f ), Units( "px" ),
+                  EditCondition( "Glow" ) )
+        float GlowRadius = 12.0f; // design px past the stroke's edge over which the glow fades out
+        PROPERTY( DisplayName( "Glow Strength" ), Category( "Effects" ), Range( 0.0f, 1.0f ),
+                  EditCondition( "Glow" ) )
+        float GlowStrength = 0.6f; // glow opacity at the stroke's edge
+    };
+    struct UIPathComponent
+    {
+        UIPathData Data;
+    };
+
+    // UE Retainer Box: the element and its whole subtree are drawn into their own offscreen RGBA target
+    // (sized to what the subtree covers on screen, so DPI and canvas scale are already in it), and that
+    // picture is composited back through ONE effect pass. Every effect of the layer goes through that pass
+    // — a mask by another element's shape, a heat haze — rather than each being a special case of one
+    // primitive. Render2D::RenderRetained renders the targets; Engine/Graphic/Render2D/RetainerEffect.hpp
+    // is the effect's math, mirrored by UIRetainer.shader.
+    struct UIRetainerData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Opacity" ), Category( "UI Retainer" ), Range( 0.0f, 1.0f ) )
+        float Opacity = 1.0f;
+
+        PROPERTY( DisplayName( "Mask" ), Category( "UI Retainer Mask" ),
+                  Tooltip( "Show the layer only where the Mask Element covers it (its alpha, its shape)." ) )
+        bool Mask = false;
+
+        PROPERTY( DisplayName( "Mask Element" ), Category( "UI Retainer Mask" ), EditCondition( "Mask" ),
+                  Tooltip( "Name of the element on this canvas whose drawn subtree is the mask. It is "
+                           "captured even when hidden, so a hidden element is a pure mask." ) )
+        std::string MaskElement;
+
+        PROPERTY( DisplayName( "Invert Mask" ), Category( "UI Retainer Mask" ), EditCondition( "Mask" ),
+                  Tooltip( "Show the layer where the mask is NOT — a sun hidden behind a dune." ) )
+        bool InvertMask = false;
+
+        PROPERTY( DisplayName( "Heat Haze" ), Category( "UI Retainer Haze" ) )
+        bool Haze = false;
+
+        PROPERTY( DisplayName( "Haze Amplitude" ), Category( "UI Retainer Haze" ), Range( 0.0f, 64.0f ),
+                  Units( "px" ), EditCondition( "Haze" ),
+                  Tooltip( "Largest UV displacement. Animate as 'HazeAmplitude'." ) )
+        float HazeAmplitude = 3.0f; // design px, scaled by the canvas scale
+
+        PROPERTY( DisplayName( "Haze Scale" ), Category( "UI Retainer Haze" ), Range( 1.0f, 512.0f ),
+                  Units( "px" ), EditCondition( "Haze" ), Tooltip( "Size of one shimmer cell." ) )
+        float HazeScale = 24.0f; // design px
+
+        PROPERTY( DisplayName( "Haze Speed" ), Category( "UI Retainer Haze" ), Range( 0.0f, 16.0f ),
+                  EditCondition( "Haze" ), Tooltip( "Cells per second the shimmer rises, on the view's clock." ) )
+        float HazeSpeed = 1.5f;
+    };
+    struct UIRetainerComponent
+    {
+        UIRetainerData Data;
+    };
+
     // A checkbox: a box that fills with the check colour when on. A click (runtime) flips Value.
     struct UIToggleData
     {
@@ -1726,10 +1864,17 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Material" ), Category( "UI Material" ), Asset<MaterialAsset> )
         Assets::AssetHandle Material;
 
+        // WebM (AV1 + Opus) .webm streamed into this panel (loops, tinted by Color*Opacity). Drag a .webm from
+        // the Content Browser. Overrides the sprite/gradient fill while set. Unset = no video. (Handle<->path
+        // owned by the VideoService.) The clip's Opus track plays through the panel's own audio output — the
+        // MediaSoundComponent of UE's Media Framework — at Video Volume; Video Muted is the explicit "picture
+        // only" switch (the sound path still exists and is torn down, not skipped by a missing sink).
         PROPERTY( DisplayName( "Video" ), Category( "UI Panel" ), Asset<VideoAsset> )
-        Assets::AssetHandle Video; // MPEG1 .mpg/.mpeg streamed into this panel (loops, tinted by Color*Opacity).
-                                   // Drag a .mpg from the Content Browser. Overrides the sprite/gradient fill
-                                   // while set. Unset = no video. (Handle<->path owned by the VideoService.)
+        Assets::AssetHandle Video;
+        PROPERTY( DisplayName( "Video Volume" ), Category( "UI Panel" ), Range( 0.0f, 1.0f ) )
+        float VideoVolume = 1.0f;
+        PROPERTY( DisplayName( "Video Muted" ), Category( "UI Panel" ) )
+        bool VideoMuted = false;
 
         // --- Shape (Phase C) ------------------------------------------------------------------------------
         PROPERTY( DisplayName( "Circle" ), Category( "UI Panel" ) )
@@ -2351,6 +2496,18 @@ namespace Desert::ECS
         bool Outline = false;
         PROPERTY( DisplayName( "Outline Color" ), Category( "Effects" ), Color )
         glm::vec3 OutlineColor = glm::vec3( 0.0f );
+        // A soft halo around the glyphs (logo titles over a dark sky): rings of the glyphs pushed out to
+        // Glow Radius, fainter with distance, drawn beneath the text.
+        PROPERTY( DisplayName( "Glow" ), Category( "Effects" ) )
+        bool Glow = false;
+        PROPERTY( DisplayName( "Glow Color" ), Category( "Effects" ), Color, EditCondition( "Glow" ) )
+        glm::vec3 GlowColor = glm::vec3( 1.0f, 0.70f, 0.35f );
+        PROPERTY( DisplayName( "Glow Radius" ), Category( "Effects" ), Range( 0.0f, 32.0f ), Units( "px" ),
+                  EditCondition( "Glow" ) )
+        float GlowRadius = 6.0f; // design px
+        PROPERTY( DisplayName( "Glow Strength" ), Category( "Effects" ), Range( 0.0f, 1.0f ),
+                  EditCondition( "Glow" ) )
+        float GlowStrength = 0.5f;
     };
     struct UITextComponent2D
     {

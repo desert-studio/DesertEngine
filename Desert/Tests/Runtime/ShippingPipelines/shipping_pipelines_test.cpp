@@ -515,6 +515,10 @@ namespace
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Render2D/UIMaterialCache.cpp", "\"UIMat_\" + shaderName",
                Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp", "\"UIRetainerPipeline\"",
+               Verdict::Shipped, "a Retainer Box layer composited into its parent (the startup movies use it)" },
+             { "Desert/Desert/Source/Engine/Media/MediaTexture.cpp", "\"MediaYuvToRgb\"", Verdict::Shipped,
+               "the startup movies' decoded frames, YUV to RGB" },
              { "Runtime/Source/RuntimeLayer.cpp", "\"SwapchainBlitPipeline\"", Verdict::Shipped,
                "the present blit — the one pipeline without which nothing reaches the screen" },
         };

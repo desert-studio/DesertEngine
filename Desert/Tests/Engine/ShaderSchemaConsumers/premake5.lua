@@ -17,8 +17,14 @@ project(test_name)
     targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
+    -- The one piece of engine code compiled here: the shading-model generator. `Generated/ShadingModels.glslh`
+    -- is a VIRTUAL include (no file on disk) the shader includer answers with GenerateGlsl(); the census follows
+    -- it through the same generator rather than reporting it unresolvable.
     files {
         test_files,
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp",
     }
 
     includedirs {

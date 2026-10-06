@@ -2,6 +2,7 @@
 
 #include "PakFile.hpp"
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -26,15 +27,13 @@ namespace Common::Utils
         // One absolute, symlink-resolved spelling for an incoming path. weakly_canonical, not
         // lexically_normal alone, because two spellings of ONE directory must compare equal: on macOS
         // the temp tree is reached both as /var/... (a symlink) and /private/var/... (what getcwd
-        // returns), and comparing an as-spelled mount root against a resolved current_path made every
+        // returns), and comparing an as-spelled mount root against a resolved directory made every
         // relative lookup under a symlinked prefix miss the pak. The tail may not exist anywhere but
         // the archive — weakly_canonical resolves the existing prefix and keeps the rest lexical.
         std::filesystem::path CanonicalAbs( const std::filesystem::path& path )
         {
-            std::error_code             ec;
-            const std::filesystem::path raw =
-                 path.is_absolute() ? path.lexically_normal()
-                                    : ( std::filesystem::current_path( ec ) / path ).lexically_normal();
+            // A relative path is project content: read off ProjectDir(), not the working directory.
+            const std::filesystem::path raw = Constants::Path::FullPath( path );
 
             std::error_code             canonEc;
             const std::filesystem::path canon = std::filesystem::weakly_canonical( raw, canonEc );

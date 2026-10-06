@@ -428,7 +428,8 @@ namespace Desert::Core::Serialize
                               comp.TileX, comp.TileZ );
                     return;
                 }
-                auto loaded = World::Landscape::ReadLandscapeTileFile( comp.HeightFile );
+                auto loaded = World::Landscape::ReadLandscapeTileFile(
+                     Common::Constants::Path::FullPath( comp.HeightFile ) );
                 if ( !loaded )
                 {
                     LOG_ERROR( "[Landscape] tile ({0}, {1}) has no terrain: {2}", comp.TileX, comp.TileZ,
@@ -1723,6 +1724,7 @@ namespace Desert::Core::Serialize
                 ser.Playing       = ac.Playing;
                 ser.Loop          = ac.Loop;
                 ser.PlaybackSpeed = ac.PlaybackSpeed;
+                ser.UpdateAnimationInEditor = ac.UpdateAnimationInEditor;
 
                 // THE HANDLE, NOT THE GRAPH. `Animation::Graph::Serialize(*ac.Graph)` stood here and put
                 // the whole state machine inside the entity; the file is the graph's identity now and the
@@ -1765,6 +1767,7 @@ namespace Desert::Core::Serialize
                 ac.Playing     = d.Playing;
                 ac.Loop        = d.Loop;
                 ac.PlaybackSpeed = d.PlaybackSpeed;
+                ac.UpdateAnimationInEditor = d.UpdateAnimationInEditor;
 
                 // ONLY THE HANDLE IS SET HERE. The graph OBJECT is AnimationECSSystem's to hand over
                 // (SyncAnimGraph), from the asset, so that every entity naming one file ends up pointing

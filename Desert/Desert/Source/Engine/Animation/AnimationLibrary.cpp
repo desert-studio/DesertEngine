@@ -82,7 +82,7 @@ namespace Desert::Animation
             if ( resident && resident->IsReadyForUse() && !m_Requests.contains( row.Handle ) )
                 self->Register( resident );
             else
-                m_Unread.push_back( { row.Handle, row.DisplayName } );
+                m_Unread.push_back( { row.Handle, row.DisplayName, row.Skeleton } );
         }
     }
 
@@ -128,7 +128,7 @@ namespace Desert::Animation
                 LOG_ERROR( "[AnimationLibrary] clip file '{}' states no Name; only a lookup naming no clip "
                            "reads it.",
                            row.Path.string() );
-            m_Unread.push_back( { row.Handle, row.DisplayName } );
+            m_Unread.push_back( { row.Handle, row.DisplayName, row.Skeleton } );
             ++indexed;
         }
         return indexed;
@@ -231,7 +231,16 @@ namespace Desert::Animation
 
         const auto index = FindClipForMesh( m_Clips, mesh, clipName );
         if ( !index )
-            return Common::MakeError<Assets::Asset<Assets::AnimationAsset>>( index.GetError() );
+        {
+            // The read records alone would say "0 clip(s) known" of a project whose clips are indexed and
+            // merely unread: the refusal is judged again over EVERY indexed clip, so a wrong name reads as a
+            // wrong name and lists the clips the rig can play.
+            const auto indexed = FindClipForMesh( Indexed(), mesh, clipName );
+            if ( indexed )
+                return Common::MakeFormattedError<Assets::Asset<Assets::AnimationAsset>>(
+                     "clip '{}' is indexed for this mesh and is still being read.", clipName );
+            return Common::MakeError<Assets::Asset<Assets::AnimationAsset>>( indexed.GetError() );
+        }
 
         auto asset = Resolve( m_Clips[index.GetValue()].Handle );
         if ( !asset )
@@ -242,6 +251,19 @@ namespace Desert::Animation
                  "clip '{}' plays on this mesh but its asset could not be resolved or reloaded.", clipName );
         }
         return Common::MakeSuccess( std::move( asset ) );
+    }
+
+    std::vector<ClipRigIdentity> AnimationLibrary::Indexed() const
+    {
+        std::vector<ClipRigIdentity> all = m_Clips;
+        for ( const UnreadRow& row : m_Unread )
+        {
+            const bool read = std::any_of( m_Clips.begin(), m_Clips.end(),
+                                           [&]( const ClipRigIdentity& c ) { return c.Handle == row.Handle; } );
+            if ( !read )
+                all.push_back( { row.Handle, row.ClipName, SkeletonRefOf( row.Skeleton ) } );
+        }
+        return all;
     }
 
     void AnimationLibrary::Clear()

@@ -10,6 +10,7 @@
 #include <set>
 #include <sstream>
 #include <tuple>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Index;
 using Desert::Submesh;
@@ -423,11 +424,7 @@ TEST( MeshLOD, TheBoundsTakingAndSubmeshTakingSelectorsAreOnePolicy )
 TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
 {
     namespace fs  = std::filesystem;
-    fs::path root = fs::current_path();
-    for ( int i = 0; i < 8 && !( fs::exists( root / "Desert" / "Common" ) && fs::exists( root / "Editor" ) ); ++i )
-    {
-        root = root.parent_path();
-    }
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) );
 
     const std::ifstream in( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /

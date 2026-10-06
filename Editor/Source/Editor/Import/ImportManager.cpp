@@ -90,7 +90,8 @@ namespace Desert::Editor
         bool SkinnedImportIsFresh( const std::filesystem::path& source )
         {
             std::error_code ec;
-            if ( !std::filesystem::exists( CookPaths::SkinnedAsset( source, ".skmesh" ), ec ) )
+            if ( !std::filesystem::exists(
+                      Common::Constants::Path::FullPath( CookPaths::SkinnedAsset( source, ".skmesh" ) ), ec ) )
                 return false;
             const auto record = Assets::Serialization::ReadImportRecord( source );
             if ( !record )
@@ -122,7 +123,8 @@ namespace Desert::Editor
         {
             using Result = std::optional<Common::Content::AssetGuid>;
             std::error_code ec;
-            if ( !chosenSkeleton && std::filesystem::exists( ownSkeleton, ec ) )
+            if ( !chosenSkeleton &&
+                 std::filesystem::exists( Common::Constants::Path::FullPath( ownSkeleton ), ec ) )
                 return Common::MakeSuccess( Result{} );
 
             std::vector<Animation::SkeletonCandidate>             candidates;
@@ -650,7 +652,7 @@ namespace Desert::Editor
         // behaviour — re-import updates geometry, keeps the material asset). Delete the .demat to regenerate.
         // The kept file's GUID was already adopted into `material` and the submeshes (MaterialAdoption).
         std::error_code ec;
-        if ( std::filesystem::exists( path, ec ) )
+        if ( std::filesystem::exists( Common::Constants::Path::FullPath( path ), ec ) )
             return BOOLSUCCESS; // deliberately kept, not a failure to write
         // THE TEMPLATE CHOOSES ITSELF (MAT1b): every shipped shader with an Import block is a candidate, the
         // core picks the one whose Requires the source satisfies most, and that template's rows say which

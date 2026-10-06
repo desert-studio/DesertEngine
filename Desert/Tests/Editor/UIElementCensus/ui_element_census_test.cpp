@@ -100,6 +100,8 @@ namespace
                                "resolves through, and whether it consults the theme at all. An element "
                                "without one already uses the theme's Default style, which is the whole "
                                "point: theming must not require an edit of every entity" },
+         { "UIRetainerComponent", "modifier — retains an existing element and its subtree into an offscreen "
+                                  "layer composited through one effect (UE Retainer Box); added in Details" },
     };
 
     // The repository root, found by walking up from wherever the test binary was started — the same approach

@@ -274,6 +274,48 @@ TEST( UIComponentRoundTrip, EveryListViewFieldComesBack )
     EXPECT_EQ( read.ScrollbarColor, written.ScrollbarColor );
 }
 
+TEST( UIComponentRoundTrip, EveryPathFieldComesBack )
+{
+    ECS::UIPathData written;
+    written.Curve        = ECS::UIPathCurve::Linear;
+    written.PointCount   = 5;
+    written.Reveal       = 0.37f;
+    written.Thickness    = 7.5f;
+    written.Color        = glm::vec3( 0.11f, 0.12f, 0.13f );
+    written.Opacity      = 0.81f;
+    written.RoundCaps    = false;
+    written.Feather      = 2.25f;
+    written.P0           = glm::vec2( 0.01f, 0.02f );
+    written.P4           = glm::vec2( 0.41f, 0.42f );
+    written.P7           = glm::vec2( 0.71f, 0.72f );
+    written.Glow         = true;
+    written.GlowColor    = glm::vec3( 0.31f, 0.32f, 0.33f );
+    written.GlowRadius   = 21.0f;
+    written.GlowStrength = 0.44f;
+
+    const AssetResolver resolver = KeyResolver();
+    const auto          object   = SerializeReflected( Type( "UIPathData" ), &written, &resolver );
+
+    ECS::UIPathData read;
+    ReadReflectedValue( Type( "UIPathData" ), &read, ThroughJsonText( object ), &resolver );
+
+    EXPECT_EQ( read.Curve, written.Curve );
+    EXPECT_EQ( read.PointCount, written.PointCount );
+    EXPECT_FLOAT_EQ( read.Reveal, written.Reveal );
+    EXPECT_FLOAT_EQ( read.Thickness, written.Thickness );
+    EXPECT_EQ( read.Color, written.Color );
+    EXPECT_FLOAT_EQ( read.Opacity, written.Opacity );
+    EXPECT_EQ( read.RoundCaps, written.RoundCaps );
+    EXPECT_FLOAT_EQ( read.Feather, written.Feather );
+    EXPECT_EQ( read.P0, written.P0 );
+    EXPECT_EQ( read.P4, written.P4 );
+    EXPECT_EQ( read.P7, written.P7 );
+    EXPECT_EQ( read.Glow, written.Glow );
+    EXPECT_EQ( read.GlowColor, written.GlowColor );
+    EXPECT_FLOAT_EQ( read.GlowRadius, written.GlowRadius );
+    EXPECT_FLOAT_EQ( read.GlowStrength, written.GlowStrength );
+}
+
 // --- (3) The other two UI slots that carry an asset ----------------------------------------------
 //
 // UIImage's Sprite and UIPanel's Sprite go down the same branch. Asserting them here is not repetition:
@@ -476,4 +518,32 @@ int main( int argc, char** argv )
     ReflectionRegistry::Get().ResolveStructLinks();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( UIComponentRoundTrip, EveryRetainerFieldComesBack )
+{
+    ECS::UIRetainerData written;
+    written.Opacity       = 0.61f;
+    written.Mask          = true;
+    written.MaskElement   = "Dune";
+    written.InvertMask    = true;
+    written.Haze          = true;
+    written.HazeAmplitude = 5.5f;
+    written.HazeScale     = 33.0f;
+    written.HazeSpeed     = 2.25f;
+
+    const AssetResolver resolver = KeyResolver();
+    const auto          object   = SerializeReflected( Type( "UIRetainerData" ), &written, &resolver );
+
+    ECS::UIRetainerData read;
+    ReadReflectedValue( Type( "UIRetainerData" ), &read, ThroughJsonText( object ), &resolver );
+
+    EXPECT_FLOAT_EQ( read.Opacity, written.Opacity );
+    EXPECT_EQ( read.Mask, written.Mask );
+    EXPECT_EQ( read.MaskElement, written.MaskElement );
+    EXPECT_EQ( read.InvertMask, written.InvertMask );
+    EXPECT_EQ( read.Haze, written.Haze );
+    EXPECT_FLOAT_EQ( read.HazeAmplitude, written.HazeAmplitude );
+    EXPECT_FLOAT_EQ( read.HazeScale, written.HazeScale );
+    EXPECT_FLOAT_EQ( read.HazeSpeed, written.HazeSpeed );
 }

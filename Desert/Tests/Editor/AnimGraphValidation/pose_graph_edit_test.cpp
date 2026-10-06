@@ -208,13 +208,55 @@ TEST( PoseGraphEdit, TheCanvasPlansOneNodePerPoseNodeAndTheOutputSinkLast )
     ASSERT_TRUE( EG::ConnectOutput( graph.Nodes, graph.OutputPose, blend ).IsSuccess() );
 
     EG::ElementIdMap          ids;
-    const EG::PoseGraphCanvas canvas = EG::PlanPoseCanvas( graph.Nodes, graph.OutputPose, ids );
+    graph.OutputPoseX = 900.0f;
+    graph.OutputPoseY = -75.0f;
+    const EG::PoseGraphCanvas canvas =
+         EG::PlanPoseCanvas( graph.Nodes, graph.OutputPose, { graph.OutputPoseX, graph.OutputPoseY }, ids );
     ASSERT_EQ( canvas.Plan.Nodes.size(), graph.Nodes.size() + 1 );
     EXPECT_EQ( EG::PoseNodeOf( canvas, canvas.Plan.Nodes.back().Id ), EG::kOutputSink );
+    EXPECT_FLOAT_EQ( canvas.Plan.Nodes.back().X, 900.0f ) << "the Output Pose node sits where the file says";
+    EXPECT_FLOAT_EQ( canvas.Plan.Nodes.back().Y, -75.0f );
     ASSERT_EQ( canvas.Plan.Links.size(), 2u );
     const EG::PosePinRef in = EG::PinOf( canvas, canvas.Plan.Links.front().ToPin );
     EXPECT_EQ( graph.Nodes[static_cast<size_t>( in.Node )].Name, blend );
     EXPECT_EQ( in.Pin, 1 );
+}
+
+TEST( PoseGraphEdit, ANewNodeIsNeverPlacedOnTheOutputPoseNode )
+{
+    // A new graph: the machine at (0, 0), Output Pose one column right of it - the cell the grid would hand out
+    // next, were the Output Pose node not a node of the canvas.
+    const G::AnimGraph            graph = G::MakeStateMachineGraph( "Fox" );
+    const std::pair<float, float> next =
+         EG::NextPoseNodePosition( graph.Nodes, { graph.OutputPoseX, graph.OutputPoseY } );
+    EXPECT_FALSE( next.first == graph.OutputPoseX && next.second == graph.OutputPoseY )
+         << "a Sequence Player added to a new graph covers its Output Pose";
+    EXPECT_FALSE( next.first == 0.0f && next.second == 0.0f );
+}
+
+TEST( PoseGraphEdit, ANewNodeLandsLeftOfOutputPoseSoItsWireRunsForward )
+{
+    G::AnimGraph graph = G::MakeStateMachineGraph( "Fox" );
+    for ( int added = 0; added < 6; ++added )
+    {
+        const std::pair<float, float> next =
+             EG::NextPoseNodePosition( graph.Nodes, { graph.OutputPoseX, graph.OutputPoseY } );
+        EXPECT_LT( next.first, graph.OutputPoseX ) << "node " << added << " sits right of Output Pose";
+        G::PoseNode node;
+        node.Name = std::format( "Probe{}", added );
+        node.X    = next.first;
+        node.Y    = next.second;
+        graph.Nodes.push_back( node );
+    }
+}
+
+TEST( PoseGraphEdit, TheOutputPoseNodeIsDraggedIntoTheFile )
+{
+    const std::string source = ReadSource( "Editor/Source/Editor/Panels/Animation/AnimGraphPanelPoseGraph.cpp" );
+    ASSERT_FALSE( source.empty() );
+    EXPECT_NE( source.find( "Graph::PullNodePosition( sink, target.OutputX, target.OutputY )" ),
+               std::string::npos )
+         << "a drag of the Output Pose node does not reach OutputPoseX/Y";
 }
 
 TEST( PoseGraphEdit, ThePanelEditsThePoseGraphThroughTheUnit )

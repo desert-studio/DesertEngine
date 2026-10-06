@@ -37,7 +37,8 @@ namespace
     constexpr const char* kGateHeader    = "Desert/Desert/Source/Engine/Assets/ContentGate.hpp";
     constexpr const char* kRuntimeLayer  = "Runtime/Source/RuntimeLayer.cpp";
     constexpr const char* kRuntimeHeader = "Runtime/Source/RuntimeLayer.hpp";
-    constexpr const char* kEditorLayer   = "Editor/Source/EditorLayer.cpp";
+    // The editor's ContentGate lives in its startup (EDL-7 moved it out of EditorLayer.cpp).
+    constexpr const char* kEditorHost = "Editor/Source/Editor/LevelEditor/EditorStartup.cpp";
 
     std::string RepoRoot()
     {
@@ -190,10 +191,16 @@ TEST( RuntimeLoadingState, TheSceneBlitSitsInsideTheBranchOnTheGate )
          << " no longer asks the gate for the frame's verdict. The gate is then a state nothing reads, "
             "which is what the log marker it replaced already was.";
 
-    const std::string guarded = BlockAfter( runtime, "if ( !loading )" );
-    ASSERT_FALSE( guarded.empty() ) << kRuntimeLayer << " has no `if ( !loading )` block at all";
+    // The verdict is carried from the gate to the blit by ONE flag (a startup movie also withholds the scene).
+    ASSERT_TRUE( std::regex_search( runtime, std::regex( R"(presentScene\s*=\s*!loading\s*&&)" ) ) )
+         << kRuntimeLayer
+         << " no longer derives `presentScene` from `!loading`; the gate's verdict then "
+            "does not reach the blit.";
+
+    const std::string guarded = BlockAfter( runtime, "if ( presentScene )" );
+    ASSERT_FALSE( guarded.empty() ) << kRuntimeLayer << " has no `if ( presentScene )` block at all";
     EXPECT_NE( guarded.find( "SubmitFullscreenQuad" ), std::string::npos )
-         << "the scene blit is no longer inside the `if ( !loading )` block of " << kRuntimeLayer
+         << "the scene blit is no longer inside the `if ( presentScene )` block of " << kRuntimeLayer
          << ". That single branch is the whole mechanism: with it removed, frame 1 of Clouds_HeroTrio is "
             "a cloudless procedural sky presented to the player, and nothing anywhere says so.";
 }
@@ -229,7 +236,7 @@ TEST( RuntimeLoadingState, BothHostsTickTheGateWithBothCounters )
     const std::regex tick( R"(m_Content\.Tick\(\s*work\.Outstanding\s*,\s*work\.Started\s*\))" );
     const std::regex gathered( R"(work\s*=\s*Assets::ContentWorkNow\(\))" );
 
-    for ( const char* layer : { kEditorLayer, kRuntimeLayer } )
+    for ( const char* layer : { kEditorHost, kRuntimeLayer } )
     {
         const std::string source = WithoutComments( ReadFile( root + layer ) );
         ASSERT_FALSE( source.empty() ) << layer << " could not be read";
@@ -255,7 +262,7 @@ TEST( RuntimeLoadingState, NeitherHostKeepsItsOwnCopyOfTheRule )
     // OnUpdate. Both spellings of the first condition are forbidden in a host: the rule has one home.
     const std::regex reimplemented( R"(Outstanding\(\)\s*==\s*0)" );
 
-    for ( const char* layer : { kEditorLayer, kRuntimeLayer } )
+    for ( const char* layer : { kEditorHost, kRuntimeLayer } )
     {
         const std::string source = WithoutComments( ReadFile( root + layer ) );
         ASSERT_FALSE( source.empty() ) << layer << " could not be read";

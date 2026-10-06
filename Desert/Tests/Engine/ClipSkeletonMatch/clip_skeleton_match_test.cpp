@@ -145,6 +145,18 @@ TEST( ClipSkeletonMatch, RefusalNamesTheClipAndBothSkeletons )
     EXPECT_NE( unknown.GetError().find( "no clip named 'Swim'" ), std::string::npos ) << unknown.GetError();
 }
 
+// ANIM-FIX6a: a graph asked the fox for 'Fox_Survey' (the FILE stem) while the clip is named 'Survey' (the glTF
+// animation's name). The miss must hand over the right name: it lists the clips the rig plays, and only those.
+TEST( ClipSkeletonMatch, AMissListsTheClipsTheRigPlays )
+{
+    const auto miss = FindClipForMesh( Library(), MeshSkeletonIdentity{ kFox, {} }, "Fox_Survey" );
+    ASSERT_FALSE( miss.IsSuccess() );
+    EXPECT_NE( miss.GetError().find( "no clip named 'Fox_Survey'" ), std::string::npos ) << miss.GetError();
+    EXPECT_NE( miss.GetError().find( "'Survey'" ), std::string::npos ) << miss.GetError();
+    EXPECT_EQ( miss.GetError().find( "'Walk'" ), std::string::npos )
+         << "a clip the fox cannot play was offered as the right name: " << miss.GetError();
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

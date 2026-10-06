@@ -40,6 +40,194 @@ namespace
     }
 } // namespace
 
+namespace
+{
+    // A --(GoB)--> B --(GoC)--> C, each a 1-second fade: the shortest graph in which a transition can fire
+    // while another is still blending.
+    AnimGraph ChainGraph( bool abCanInterrupt = true, int abCurve = 0 )
+    {
+        AnimGraph g               = ::Desert::Animation::Graph::MakeStateMachineGraph();
+        g.Name                    = "Chain";
+        OutputMachine( g )->Entry = "A";
+        g.Parameters.push_back( { "GoB", static_cast<int>( ParamType::Bool ), 0.0f } );
+        g.Parameters.push_back( { "GoC", static_cast<int>( ParamType::Bool ), 0.0f } );
+
+        State      a{ .Name = "A", .Clip = "a", .Transitions = {} };
+        Transition ab{
+             .To = "B", .Blend = 1.0f, .Conditions = { { "GoB", static_cast<int>( CompareOp::IsTrue ), 0.0f } } };
+        ab.BlendCurve   = abCurve;
+        ab.CanInterrupt = abCanInterrupt;
+        a.Transitions.push_back( ab );
+        State b{ .Name = "B", .Clip = "b", .Transitions = {} };
+        b.Transitions.push_back( { .To         = "C",
+                                   .Blend      = 1.0f,
+                                   .Conditions = { { "GoC", static_cast<int>( CompareOp::IsTrue ), 0.0f } } } );
+        const State c{ .Name = "C", .Clip = "c", .Transitions = {} };
+        OutputMachine( g )->States = { a, b, c };
+        return g;
+    }
+} // namespace
+
+TEST( AnimGraph, AnInterruptingTransitionStacksOnTheOneStillBlending )
+{
+    Evaluator eval( ChainGraph() );
+    ASSERT_TRUE( eval.SetBool( "GoB", true ) );
+    ASSERT_TRUE( eval.Update( 0.0f ).Changed );
+    eval.AdvanceTransitions( 0.5f );
+
+    ASSERT_TRUE( eval.SetBool( "GoC", true ) );
+    const auto fired = eval.Update( 0.0f );
+    ASSERT_TRUE( fired.Changed ) << "a transition out of the target was refused while the first one blended";
+    EXPECT_EQ( fired.Current->Name, "C" );
+
+    eval.AdvanceTransitions( 0.25f ); // A->B at 0.75, B->C at 0.25
+    const auto layers = eval.ActiveStateWeights();
+    ASSERT_EQ( layers.size(), 3U ) << "the interrupted transition was cut instead of stacked";
+    EXPECT_EQ( layers[0].Of->Name, "A" );
+    EXPECT_EQ( layers[1].Of->Name, "B" );
+    EXPECT_EQ( layers[2].Of->Name, "C" );
+    EXPECT_NEAR( layers[0].Weight, 0.25f * 0.75f, 1e-5f ) << "the oldest pose is not fading out under both";
+    EXPECT_NEAR( layers[1].Weight, 0.75f * 0.75f, 1e-5f );
+    EXPECT_NEAR( layers[2].Weight, 0.25f, 1e-5f );
+    EXPECT_NEAR( layers[0].Weight + layers[1].Weight + layers[2].Weight, 1.0f, 1e-5f );
+
+    eval.AdvanceTransitions( 0.25f ); // A->B finishes: A is gone, B fades out under C
+    const auto later = eval.ActiveStateWeights();
+    ASSERT_EQ( later.size(), 2U );
+    EXPECT_EQ( later[0].Of->Name, "B" );
+    EXPECT_NEAR( later[0].Weight, 0.5f, 1e-5f );
+    EXPECT_NEAR( later[1].Weight, 0.5f, 1e-5f );
+
+    eval.AdvanceTransitions( 0.5f );
+    const auto settled = eval.ActiveStateWeights();
+    ASSERT_EQ( settled.size(), 1U );
+    EXPECT_EQ( settled[0].Of->Name, "C" );
+    EXPECT_EQ( settled[0].Weight, 1.0f );
+}
+
+TEST( AnimGraph, ATransitionThatCannotBeInterruptedHoldsTheMachineUntilItEnds )
+{
+    Evaluator eval( ChainGraph( /*abCanInterrupt=*/false ) );
+    ASSERT_TRUE( eval.SetBool( "GoB", true ) );
+    ASSERT_TRUE( eval.SetBool( "GoC", true ) );
+    ASSERT_TRUE( eval.Update( 0.0f ).Changed ); // A -> B
+
+    eval.AdvanceTransitions( 0.5f );
+    const auto held = eval.Update( 0.0f );
+    EXPECT_FALSE( held.Changed ) << "B -> C fired over a transition marked CanInterrupt = false";
+    EXPECT_EQ( held.Current->Name, "B" );
+
+    eval.AdvanceTransitions( 0.5f ); // A -> B ends
+    const auto freed = eval.Update( 0.0f );
+    ASSERT_TRUE( freed.Changed ) << "the machine stayed held after the uninterruptible fade ended";
+    EXPECT_EQ( freed.Current->Name, "C" );
+}
+
+TEST( AnimGraph, ABlendCurveShapesTheTransitionsWeight )
+{
+    // CubicInOut is symmetric (0.5 at the midpoint), so the curve is told apart from Linear at a quarter.
+    Evaluator eval( ChainGraph( true, static_cast<int>( Desert::Animation::AlphaBlendOption::CubicInOut ) ) );
+    ASSERT_TRUE( eval.SetBool( "GoB", true ) );
+    const auto fired = eval.Update( 0.0f );
+    ASSERT_TRUE( fired.Changed );
+    EXPECT_EQ( fired.Curve, Desert::Animation::AlphaBlendOption::CubicInOut )
+         << "the consumer is not told the curve";
+
+    eval.AdvanceTransitions( 0.25f );
+    auto layers = eval.ActiveStateWeights();
+    ASSERT_EQ( layers.size(), 2U );
+    EXPECT_NEAR( layers[1].Weight, 4.0f * 0.25f * 0.25f * 0.25f, 1e-5f ) << "the fade ignored its curve";
+    EXPECT_NEAR( layers[0].Weight + layers[1].Weight, 1.0f, 1e-5f );
+
+    eval.AdvanceTransitions( 0.25f );
+    layers = eval.ActiveStateWeights();
+    ASSERT_EQ( layers.size(), 2U );
+    EXPECT_NEAR( layers[1].Weight, 0.5f, 1e-5f );
+}
+
+namespace
+{
+    // The live Fox graph's first hop: Survey --(Speed > 0.1, Blend 0.5 s)--> Walk.
+    AnimGraph SurveyWalkGraph()
+    {
+        AnimGraph g               = ::Desert::Animation::Graph::MakeStateMachineGraph();
+        g.Name                    = "FoxLocomotion";
+        OutputMachine( g )->Entry = "Survey";
+        g.Parameters.push_back( { "Speed", static_cast<int>( ParamType::Float ), 0.0f } );
+        State survey{ .Name = "Survey", .Clip = "Survey", .Transitions = {} };
+        survey.Transitions.push_back(
+             { .To         = "Walk",
+               .Blend      = 0.5f,
+               .Conditions = { { "Speed", static_cast<int>( CompareOp::Greater ), 0.1f } } } );
+        const State walk{ .Name = "Walk", .Clip = "Walk", .Transitions = {} };
+        OutputMachine( g )->States = { survey, walk };
+        return g;
+    }
+} // namespace
+
+// ANIM-FIX6a-BLEND. The caller's loop at a fixed 1/60 s (AnimationECSSystem under --play): Update, then
+// AdvanceTransitions by the same step. The transition must begin on the tick its condition first holds, and
+// the target's weight must climb on every one of the 30 ticks a 0.5 s blend spans, never jump to 1.
+TEST( AnimGraph, AHalfSecondBlendClimbsOverThirtyTicksFromTheTickItsConditionHolds )
+{
+    constexpr float kStep  = 1.0f / 60.0f;
+    constexpr int   kSetOn = 5;
+    Evaluator       eval( SurveyWalkGraph() );
+
+    float lastWeight = 0.0f;
+    int   firedOn    = -1;
+    for ( int tick = 1; tick <= kSetOn + 28; ++tick ) // the blend's first 29 ticks
+    {
+        if ( tick == kSetOn )
+            ASSERT_TRUE( eval.SetFloat( "Speed", 0.3f ) );
+        const auto res = eval.Update( 0.0f );
+        if ( res.Changed )
+        {
+            ASSERT_EQ( firedOn, -1 ) << "the transition fired twice";
+            firedOn = tick;
+        }
+        if ( tick < kSetOn )
+        {
+            EXPECT_EQ( res.Current->Name, "Survey" ) << "tick " << tick;
+            EXPECT_FALSE( eval.EnteringTransition().has_value() );
+            eval.AdvanceTransitions( kStep );
+            continue;
+        }
+        EXPECT_EQ( res.Current->Name, "Walk" ) << "the state changed late, tick " << tick;
+
+        // What a clip arriving on this tick joins: the transition at its own elapsed time.
+        const auto entering = eval.EnteringTransition();
+        if ( !entering.has_value() )
+        {
+            FAIL() << "nothing is fading into Walk on tick " << tick;
+        }
+        EXPECT_FLOAT_EQ( entering->Duration, 0.5f );
+        EXPECT_NEAR( entering->Elapsed, static_cast<float>( tick - kSetOn ) * kStep, 1e-5f ) << "tick " << tick;
+
+        eval.AdvanceTransitions( kStep );
+        const auto layers = eval.ActiveStateWeights();
+        ASSERT_EQ( layers.size(), 2U ) << "the blend ended early, tick " << tick;
+        EXPECT_EQ( layers[0].Of->Name, "Survey" );
+        EXPECT_EQ( layers[1].Of->Name, "Walk" );
+        EXPECT_GT( layers[1].Weight, lastWeight ) << "the weight did not climb on tick " << tick;
+        EXPECT_LT( layers[1].Weight, 1.0f ) << "the blend jumped to its target on tick " << tick;
+        EXPECT_NEAR( layers[1].Weight, static_cast<float>( tick - kSetOn + 1 ) * kStep / 0.5f, 1e-4f );
+        lastWeight = layers[1].Weight;
+    }
+    EXPECT_EQ( firedOn, kSetOn ) << "the transition did not begin on the tick its condition first held";
+
+    // Tick 30 of the blend (or 31: the float sum of thirty 1/60 s may fall a hair short of 0.5) retires it.
+    for ( int extra = 0; extra < 2 && eval.EnteringTransition().has_value(); ++extra )
+    {
+        static_cast<void>( eval.Update( 0.0f ) );
+        eval.AdvanceTransitions( kStep );
+    }
+    EXPECT_FALSE( eval.EnteringTransition().has_value() ) << "the 0.5 s blend outlived 31 ticks of 1/60 s";
+    const auto settled = eval.ActiveStateWeights();
+    ASSERT_EQ( settled.size(), 1U );
+    EXPECT_EQ( settled[0].Of->Name, "Walk" );
+}
+
 TEST( AnimGraph, StartsAtEntryState )
 {
     Evaluator eval( LocomotionGraph() );

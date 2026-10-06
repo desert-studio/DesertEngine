@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -20,6 +21,7 @@ namespace Desert::Graphic
     class VertexBuffer;
     class IndexBuffer;
     class MaterialExecutor;
+    class RenderPass;
 } // namespace Desert::Graphic
 
 namespace Desert::Graphic::Render2D
@@ -71,6 +73,22 @@ namespace Desert::Graphic::Render2D
         // Upload the recorded geometry and draw it into the current render pass. No-op when nothing was recorded.
         void Flush();
 
+        // Draw @p list (not the own one) into the current render pass. A retained layer's renderer draws
+        // the walk's layer list through this, so the list is never copied.
+        void FlushList( const DrawList2D& list );
+
+        // RETAINED LAYERS (UE Retainer Box). Renders every layer the recorded list composites — each into
+        // a pooled offscreen RGBA target — so that Flush can sample them. MUST run after the walk and
+        // OUTSIDE every render pass, before the pass Flush records into: Vulkan has no nested render pass.
+        // A Flush whose list composites a layer this did not render refuses that composite with a log line.
+        void RenderRetained();
+
+        // How many pooled layer targets are alive (for the host that reports it, and for a test).
+        [[nodiscard]] uint32_t RetainedTargetCount() const
+        {
+            return static_cast<uint32_t>( m_RetainedPool.size() );
+        }
+
         // This backend's UI-material cache. The canvas walk resolves an element's `.demat` through it and
         // hands the resolved entry to DrawList2D::AddMaterialRect; Flush then draws with that entry's own
         // pipeline. It lives HERE and not behind a service because a pipeline belongs to one framebuffer's
@@ -96,6 +114,46 @@ namespace Desert::Graphic::Render2D
         }
 
     private:
+        // One pooled layer target: an RGBA8 framebuffer, its clearing pass, and the Render2D whose pipelines
+        // are built against it. Sizes are rounded up to kRetainedQuantum so a layer that grows by a pixel
+        // keeps its target; a target no frame in flight can still read is destroyed (MayRetireExecutor).
+        struct RetainedTarget
+        {
+            std::shared_ptr<Framebuffer> Target;
+            std::shared_ptr<RenderPass>  Pass;
+            std::unique_ptr<Render2D>    Renderer;
+            Image2D*                     Image         = nullptr;
+            uint32_t                     Width         = 0;
+            uint32_t                     Height        = 0;
+            uint64_t                     LastUsedFrame = 0;
+        };
+
+        // What RenderRetained left for one composite command.
+        struct RetainedPicture
+        {
+            Image2D*  Content = nullptr;
+            Image2D*  Mask    = nullptr;           // null = no mask bound (white)
+            glm::vec4 Uv      = glm::vec4( 0.0f ); // xy = layer extent in target UV, zw = 1 / target size
+        };
+
+        // One layer to draw into one target: a retainer's content, or its mask (MaskOf = the content job).
+        struct RetainedJob
+        {
+            Render2D*          Owner  = nullptr; // whose m_Retained receives the picture
+            const DrawCommand* Cmd    = nullptr;
+            RetainedTarget*    Target = nullptr;
+            const DrawList2D*  Layer  = nullptr;
+            uint32_t           Width  = 0;
+            uint32_t           Height = 0;
+            size_t             MaskOf = SIZE_MAX; // SIZE_MAX = this job is content
+            Image2D*           Mask   = nullptr;  // the mask job's image, set before this content job runs
+        };
+
+        void            RenderRetainedOf( const DrawList2D& root );
+        RetainedTarget* AcquireRetainedTarget( uint32_t width, uint32_t height, uint64_t frame );
+        static void     OpenTarget( RetainedTarget& target, const glm::vec4& rect );
+        static bool     DrawJob( const RetainedJob& job );
+
         // Grow the dynamic buffers to hold at least the given counts (reused across frames otherwise).
         void EnsureCapacity( uint32_t vertexCount, uint32_t indexCount );
 
@@ -141,6 +199,14 @@ namespace Desert::Graphic::Render2D
         ExecutorCache m_Executors;      // UI2D, keyed by bound Image2D* (null => white)
         ExecutorCache m_TextExecutors;  // UIText, keyed by font atlas Image2D*
         ExecutorCache m_GlassExecutors; // UIGlass, keyed by the backdrop Image2D*
+        ExecutorCache m_RetainerExecutors; // UIRetainer, keyed by the layer's Image2D*
+
+        std::shared_ptr<Shader>                                 m_RetainerShader;
+        std::shared_ptr<GraphicsPipeline>                       m_RetainerPipeline;
+        std::vector<std::unique_ptr<RetainedTarget>>            m_RetainedPool;
+        std::unordered_map<const DrawCommand*, RetainedPicture> m_Retained; // this frame's, by command
+        glm::vec2 m_TargetOrigin      = glm::vec2( 0.0f );                  // layer px origin
+        bool      m_RefusedUnrendered = false;
 
         Image2D* m_Backdrop       = nullptr; // blurred scene snapshot (not owned)
         uint32_t m_BackdropMaxLod = 0;

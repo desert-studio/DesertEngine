@@ -121,6 +121,18 @@ namespace Desert::Engine
         static constexpr int kExitDeviceLost = 3;
 
     public:
+        // OFFLINE TIME (UE: FApp::SetUseFixedTimeStep / SetFixedDeltaTime, what Movie Render Queue drives).
+        // Set, every frame's Timestep is exactly @p seconds however long the frame took, so frame N of a
+        // capture sits at N * seconds of world time on every machine and every run. Unset = wall clock.
+        void SetFixedDeltaTime( std::optional<float> seconds )
+        {
+            m_FixedDeltaTime = seconds;
+        }
+        NO_DISCARD std::optional<float> GetFixedDeltaTime() const
+        {
+            return m_FixedDeltaTime;
+        }
+
         // Ends the run loop after the current frame. Used by the editor's screenshot mode, which renders a
         // fixed number of frames and leaves.
         //
@@ -189,6 +201,7 @@ namespace Desert::Engine
         bool m_IsRunningApplication = true;
         Core::WindowCloseGate m_CloseGate;
         int  m_ExitCode             = 0;
+        std::optional<float>  m_FixedDeltaTime; // SetFixedDeltaTime: offline (movie) time, unset = wall clock
         std::string m_StartupRefusal;
 
         // Failures already reported by ReportLayerFailure, keyed on stage + layer + message. Not a

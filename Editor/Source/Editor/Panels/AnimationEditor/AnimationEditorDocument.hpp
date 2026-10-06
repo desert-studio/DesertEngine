@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Core/Commands/SkeletonBindEdit.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationEditorIdentity.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
@@ -128,11 +129,18 @@ namespace Desert::Editor
         void                                 OpenMode( Core::PersonaMode mode );
         void                                 DrawMeshDetails();
         void                                 DrawSkeletonDetails();
+        // Writes the `.skeleton` (references and Reference Pose) and reloads it, so every reader by GUID - a scene
+        // Animator rebuilds on the rig's content signature - stands in what the file now says.
+        Common::BoolResultStr SaveSkeleton();
+        // Skeleton mode: the bone's Reference Pose rows and gizmo write the rest pose.
+        void                                 DrawBindGizmo( const glm::vec2& origin, const glm::vec2& size );
         void                                 DrawOverlay( const glm::vec2& origin ) const;
         void                                 BuildLayout( unsigned int dockId ) const;
         void                                 DrawViewportPanel();
         void                                 DrawSkeletonTree();
         void                                 DrawBoneDetails();
+        void                                 BeginRename( uint32_t bone );
+        void                                 CommitRename( uint32_t bone, const std::string& name );
         void                                 DrawBoneGizmo( const glm::vec2& origin, const glm::vec2& size );
         [[nodiscard]] Animation::FrameNumber KeyTick() const;
         Animation::Animator*                 BeginPosing();
@@ -204,6 +212,18 @@ namespace Desert::Editor
         // Compatible Skeletons, the Asset Details of Skeleton mode).
         Common::Content::AssetGuid                m_Skeleton;
         std::shared_ptr<Assets::SkeletonAsset>    m_SkeletonAsset;
+        // SKELETON MODE AUTHORS THE REFERENCE POSE (SkeletonBindEdit.hpp): the file's rest pose as read on open or
+        // last written (the "Save*" rule and "Don't Save"), the bind revision the preview's Animator last stood
+        // in, and the gizmo drag on the rest pose (one undo record per drag).
+        std::optional<ReferencePoseOnDisk> m_BindOnDisk;
+        // Rename Bone in the Skeleton Tree (F2 / context menu): the row being renamed, its text, and the last
+        // refusal (empty name, another bone's name) shown under the tree until the next rename.
+        std::optional<uint32_t>                   m_RenamingBone;
+        std::array<char, 128>                     m_RenameBuffer{};
+        bool                                      m_RenameFocus = false;
+        std::string                               m_RenameStatus;
+        uint64_t                                  m_BindRevisionShown = 0;
+        BindPoseGesture                           m_BindGesture;
         std::shared_ptr<Assets::SkinnedMeshAsset> m_Mesh;
         // The Mesh mode's skinning audit, cached against (mesh handle, bone count): a vertex scan per frame is
         // waste.

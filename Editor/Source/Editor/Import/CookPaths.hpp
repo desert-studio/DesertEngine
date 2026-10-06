@@ -59,17 +59,22 @@ namespace Desert::Editor::CookPaths
     {
         namespace fs = std::filesystem;
         std::error_code ec;
+        // Both sides of fs::relative in one spelling: a project-relative source against an absolute content
+        // root goes through the project (never the cwd); a root spelled relative is compared as given.
+        const fs::path full = source.is_absolute() || !Common::Constants::Path::MESH_PATH.is_absolute()
+                                   ? source
+                                   : Common::Constants::Path::FullPath( source );
 
-        fs::path   rel       = fs::relative( source, Common::Constants::Path::MESH_PATH, ec );
+        fs::path   rel       = fs::relative( full, Common::Constants::Path::MESH_PATH, ec );
         const bool underMesh = !rel.empty() && rel.begin()->string() != "..";
         if ( !underMesh )
         {
-            const fs::path relAssets = fs::relative( source, Common::Constants::Path::ASSETS_PATH, ec );
+            const fs::path relAssets = fs::relative( full, Common::Constants::Path::ASSETS_PATH, ec );
             if ( !relAssets.empty() && relAssets.begin()->string() != ".." )
                 rel = relAssets;
             else
             {
-                const fs::path relRes = fs::relative( source, Common::Constants::Path::RESOURCE_PATH, ec );
+                const fs::path relRes = fs::relative( full, Common::Constants::Path::RESOURCE_PATH, ec );
                 if ( !relRes.empty() && relRes.begin()->string() != ".." )
                     rel = relRes;
             }

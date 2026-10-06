@@ -18,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 using Common::Content::CanonicalJsonText;
@@ -27,16 +28,8 @@ namespace
 {
     fs::path RepoRoot()
     {
-        fs::path prefix = ".";
-        for ( int up = 0; up < 8; ++up )
-        {
-            if ( fs::exists( prefix / "Editor" / "Desert.deproj" ) )
-                return fs::absolute( prefix ).lexically_normal();
-            prefix /= "..";
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
-
     std::string ReadAll( const fs::path& file )
     {
         std::ifstream      in( file, std::ios::binary );
@@ -111,7 +104,8 @@ TEST( CanonicalText, EveryCorpusFileIsCanonicalAndRoundTripsThroughTheSingleLine
 // One field of one entity changed -> exactly one line of the file changed; the rest of the scene is untouched.
 TEST( CanonicalText, ChangingOneFieldOfOneEntityChangesOnlyItsLine )
 {
-    const std::string text = ReadAll( RepoRoot() / "Editor/Resources/Assets/Scenes/ANIM_ClipProbe.desce" );
+    const std::string text =
+         ReadAll( Desert::TestSupport::TestDataDir() / "Resources/Assets/Scenes/ANIM_ClipProbe.desce" );
     ASSERT_FALSE( text.empty() );
     yyjson_doc*     doc      = yyjson_read( text.data(), text.size(), YYJSON_READ_NOFLAG );
     yyjson_mut_doc* mutable_ = yyjson_doc_mut_copy( doc, nullptr );
@@ -281,10 +275,6 @@ namespace
          CanonicalAtSource{
               "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/PrefabComponentWidget.cpp",
               "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
-         // Since WP16b the editor's scene saves go through ExternalEntities::WriteSceneText, and every file that
-         // writes (the scene, its header, each entity piece) is laid out by Common::Json::WriteCanonical, which
-         // hands the text to CanonicalJsonText.
-         CanonicalAtSource{ "Editor/Source/EditorLayer.cpp", "Desert/Common/Source/Common/Json/Carry.cpp" },
     };
 
     // Files that serialize and write, but what they write is not an authored text asset: machine and editor

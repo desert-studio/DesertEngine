@@ -26,6 +26,9 @@
 #include <Engine/Desert.hpp>
 #include <Engine/EntryPoint.hpp>
 #include <Engine/Project/ProjectContext.hpp>
+#include <Engine/Project/StartupLayout.hpp>
+
+#include <Common/Core/Constants.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
 
@@ -36,11 +39,13 @@
 #include <Common/Core/Version.hpp>
 
 #include <filesystem>
+#include <format>
 #include <optional>
 
 #include "PackagedContent.hpp"
 #include "RuntimeCrashTest.hpp"
 #include <Engine/Graphic/PipelineCacheFile.hpp>
+#include "MovieRender.hpp"
 #include "RuntimeLayer.hpp"
 #include "RuntimeShot.hpp"
 
@@ -53,6 +58,8 @@ namespace Desert::Player
 {
     static std::string       s_SceneOverride;
     static Core::PlayRequest s_PlayRequest;
+    static std::optional<MovieRenderRequest>
+         s_Movie; // --render-movie: offline render of a level (MovieRender.hpp)
 
     class RuntimeApp : public Engine::Application
     {
@@ -63,7 +70,10 @@ namespace Desert::Player
 
         void OnCreate() override
         {
-            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, this ) );
+            // A movie is rendered on fixed time: frame N is at N / fps of world time on every run.
+            if ( s_Movie.has_value() )
+                SetFixedDeltaTime( s_Movie->FrameStep() );
+            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, s_Movie, this ) );
         }
 
         void OnDestroy() override
@@ -134,6 +144,18 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     }
 #endif
 
+    // THE MOVIE RENDER (UE Movie Render Queue): the level it names replaces --scene, and a malformed request is
+    // fatal for the same reason --shot's is — an unattended render that silently did not start never ends.
+    {
+        const std::vector<std::string> movieArgs( argv + ( argc > 0 ? 1 : 0 ), argv + argc );
+        auto                           movie = Desert::Player::ParseMovieRender( movieArgs );
+        if ( !movie )
+            FailStartup( movie.GetError(), 2 );
+        Desert::Player::s_Movie = movie.ExtractValue();
+        if ( Desert::Player::s_Movie.has_value() )
+            Desert::Player::s_SceneOverride = Desert::Player::s_Movie->Map;
+    }
+
     // THE CRASH HANDLER, BEFORE ANYTHING THAT CAN FAULT (PKG1c; UE installs its handler before the
     // project loads). Mounting the archive and parsing the .deproj are exactly that, and the game's Name —
     // which names its per-user directory — is known only after them. So the handler starts under the
@@ -165,6 +187,16 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     }
 #endif
 
+    // THE ONE ANCHOR: THE EXECUTABLE'S OWN DIRECTORY (UE: FPlatformProcess::BaseDir). Never the working
+    // directory — Finder starts a double-clicked game in `/`, an IDE in the solution root — so a player that
+    // cannot say where it is refuses instead of looking wherever it happens to stand.
+    const fs::path exeDir = Common::Utils::FileSystem::BaseDir();
+    if ( exeDir.empty() )
+        FailStartup( "The game could not determine the folder its own executable is in, so it cannot find "
+                     "its content.",
+                     1 );
+    const std::string exeStem = Common::Utils::FileSystem::ExecutablePath().stem().string();
+
     // DEV: an explicit --project opens the loose on-disk descriptor (overrides packaged discovery).
     if ( !projectArg.empty() && !Desert::Project::ProjectContext::Open( projectArg ) )
     {
@@ -174,11 +206,30 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                      1 );
     }
 
-    // Content directory: the project's folder (dev) or the executable's own folder (packaged).
-    const fs::path exePath = Common::Utils::FileSystem::ExecutablePath();
+    // THE ENGINE DIRECTORY (Common::Constants::Path::SetEngineDir), set before anything reads a path.
+    //   Packaged: the packaged content directory (FileSystem::PackagedContentDir). The engine's resources travel
+    //   inside the base archive
+    //   (`Resources/Shaders/...`), which is mounted at that directory, so every engine path is a virtual
+    //   path under the mount — there is no second tree to find and no `--engine-dir` to pass.
+    //   Dev (--project): the checkout this binary was built in, derived from the same executable position
+    //   (Desert::Project::ResolveEngineDir, the editor's rule) — the loose shaders live in its Editor/.
+    if ( Desert::Project::ProjectContext::HasProject() )
+    {
+        const Desert::Project::EngineDirLookup engine = Desert::Project::ResolveEngineDir( exeDir, {} );
+        if ( !engine.Explanation.empty() )
+            FailStartup( std::format( "[Engine] {}", engine.Explanation ), 1 );
+        Common::Constants::Path::SetEngineDir( engine.Dir );
+    }
+    else
+    {
+        Common::Constants::Path::SetEngineDir( Common::Utils::FileSystem::PackagedContentDir( exeDir ) );
+    }
+
+    // Content directory: the project's folder (dev) or the packaged content directory — the executable's
+    // own folder, or Contents/Resources inside a .app (FileSystem::PackagedContentDir, the packager's rule).
     const fs::path baseDir = Desert::Project::ProjectContext::HasProject()
                                   ? fs::path( Desert::Project::ProjectContext::Directory() )
-                                  : ( exePath.empty() ? fs::current_path() : exePath.parent_path() );
+                                  : Common::Utils::FileSystem::PackagedContentDir( exeDir );
 
     // Mount the base archive (skipped in dev if there is none — reads stay plain disk reads), then any
     // Patch*.dpak ON TOP in name order (later overrides earlier), so shipping a fix = dropping one pak.
@@ -201,7 +252,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // The decision itself lives in PackagedContent.cpp, where a test can drive it with a real damaged
     // archive; this site owns only the policy — print, and exit with a code that says which of the two
     // it was.
-    const auto content = Desert::Player::MountPackagedContent( baseDir, exePath.stem().string() );
+    const auto content = Desert::Player::MountPackagedContent( baseDir, exeStem );
     if ( content.ExitCode != Desert::Player::kContentOk )
         FailStartup( content.Message, content.ExitCode );
 
@@ -239,7 +290,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                   "  Packaged: put '{}.dpak' (or 'Content.dpak') containing a '{}' "
                                   "next to the executable.\n"
                                   "  Dev:      pass --project <path/to/.deproj> [--scene <path/to/.desce>].",
-                                  exePath.stem().string(), Desert::Project::kPackagedDescriptorName ),
+                                  exeStem, Desert::Project::kPackagedDescriptorName ),
                      1 );
     }
 
@@ -253,6 +304,10 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         FailStartup( "Crash handler: " + moved.GetError(), 1 );
     }
     Common::Crash::SetGameName( Desert::Project::ProjectContext::Current().Name );
+    // The log follows the game too, beside its crash reports (UE shipping: the user's Saved/Logs) — not into
+    // the working directory, not into the install folder, which a player cannot write.
+    Common::Logger::RelocateLogFile(
+         Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "Logs" );
 
 #if DESERT_DEV_INSTRUMENTS
     if ( crashTest.has_value() && crashTest->Stage == Desert::Player::CrashTestStage::Mounted )
@@ -285,6 +340,13 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     appInfo.Title = Desert::Project::ProjectContext::Current().Name;
     appInfo.VSync = true; // a game default: tear-free presentation
     // Width/Height left as std::nullopt -> fullscreen at the monitor's native resolution.
+    // A movie renders into its own offscreen target; the window is only the host of the device, so it is a
+    // small window rather than a fullscreen one covering the desktop for the length of the render.
+    if ( Desert::Player::s_Movie.has_value() )
+    {
+        appInfo.Width  = 640u;
+        appInfo.Height = 360u;
+    }
 
     return std::make_unique<Desert::Player::RuntimeApp>( appInfo );
 }

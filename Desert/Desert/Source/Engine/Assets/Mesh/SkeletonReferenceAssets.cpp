@@ -5,8 +5,12 @@
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/RetargetAsset.hpp>
+#include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
+#include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include <Common/Content/CanonicalText.hpp>
@@ -16,6 +20,7 @@
 #include <Common/Core/Core.hpp> // BOOLSUCCESS
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <algorithm>
 #include <unordered_set>
 
 namespace Desert::Assets
@@ -54,15 +59,137 @@ namespace Desert::Assets
                 required.push_back( Animation::RequiredBone{ binding.Locator, std::nullopt } );
         return required;
     }
+
+    SkeletonReferrers ReferrersOfSkeleton( const Common::Content::AssetGuid& skeleton, AssetManager* loaded )
+    {
+        SkeletonReferrers referrers;
+        referrers.Loaded = loaded;
+        for ( const ContentRegistry::PickerRow& row :
+              ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
+            if ( row.Skeleton == skeleton )
+                referrers.ClipFiles.push_back( row.Path );
+        // A retarget states its source rig in its body (SourceSkeleton), not in a registry tag: every one is
+        // listed and RenameBonesInSkeletonAssets keeps the ones whose file names this skeleton.
+        for ( const ContentRegistry::PickerRow& row :
+              ContentRegistry::Rows( Common::Content::ContentKind::Retarget ) )
+            referrers.RetargetFiles.push_back( row.Path );
+        return referrers;
+    }
+
+    namespace
+    {
+        /// The one rename rule every name holder shares: @p name takes the `To` of the rename whose `From` it is.
+        bool RenameBoneName( std::string& name, const std::span<const Animation::Timeline::BoneRename> renames )
+        {
+            const auto rename =
+                 std::find_if( renames.begin(), renames.end(), [&]( const auto& r ) { return r.From == name; } );
+            if ( rename == renames.end() || rename->From == rename->To )
+                return false;
+            name = rename->To;
+            return true;
+        }
+
+        Common::BoolResultStr RenameBonesInRetargetFiles( const Common::Content::AssetGuid& skeleton,
+                                                          std::span<const Animation::Timeline::BoneRename> renames,
+                                                          const SkeletonReferrers& referrers )
+        {
+            for ( const std::filesystem::path& retargetFile : referrers.RetargetFiles )
+            {
+                const std::filesystem::path file = ContentRegistry::FileToOpen( retargetFile );
+                auto                        data = Serialization::LoadRetargetFile( file );
+                if ( !data )
+                    return Common::MakeFormattedError<bool>( "bone rename: retarget '{}' was not read: {}",
+                                                             file.string(), data.GetError() );
+                Serialization::RetargetAssetData renamed = data.ExtractValue();
+                const auto source = Common::Content::AssetGuidFromText( renamed.SourceSkeleton.Guid );
+                if ( !source || source.GetValue() != skeleton ||
+                     Serialization::RenameSourceBonesInRetarget( renamed, renames ) == 0 )
+                    continue;
+                if ( const auto written = Serialization::SaveRetargetFile( file, renamed ); !written )
+                    return Common::MakeFormattedError<bool>( "bone rename: retarget '{}' was not written: {}",
+                                                             file.string(), written.GetError() );
+                // A RESIDENT RETARGET RE-READS ITS FILE: the Load bumps its Revision, which is what the ECS system
+                // rebuilds an entity's Retargeter on.
+                if ( referrers.Loaded == nullptr )
+                    continue;
+                for ( const auto& [handle, asset] : referrers.Loaded->FindAllByType<RetargetAsset>() )
+                {
+                    if ( !asset || ContentRegistry::FileToOpen( asset->GetMetadata().Filepath ) != file )
+                        continue;
+                    if ( const auto reloaded = asset->Load(); !reloaded )
+                        return Common::MakeFormattedError<bool>( "bone rename: retarget '{}' was written, its "
+                                                                 "resident asset did not re-read it: {}",
+                                                                 file.string(), reloaded.GetError() );
+                    asset->ResolveDependencies( *referrers.Loaded );
+                }
+            }
+            return BOOLSUCCESS;
+        }
+    } // namespace
+
+    Common::BoolResultStr
+    RenameBonesInSkeletonAssets( const Common::Content::AssetGuid&                      skeleton,
+                                 const std::span<const Animation::Timeline::BoneRename> renames,
+                                 const SkeletonReferrers&                               referrers )
+    {
+        if ( renames.empty() )
+            return BOOLSUCCESS;
+        for ( const std::filesystem::path& clipFile : referrers.ClipFiles )
+        {
+            // The FILE is renamed from the file, never from a resident clip: an open clip editor's unsaved edits
+            // are its own Save's, and this writes the rename alone.
+            const std::filesystem::path file = ContentRegistry::FileToOpen( clipFile );
+            auto                        raw  = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( !raw )
+                return Common::MakeFormattedError<bool>( "bone rename: clip '{}' was not read: {}", file.string(),
+                                                         raw.GetError() );
+            auto data = Serialization::ReadAnimationJson( raw.GetValue() );
+            if ( !data )
+                return Common::MakeFormattedError<bool>( "bone rename: clip '{}': {}", file.string(),
+                                                         data.GetError() );
+            auto clip = Serialization::BuildClipFromAssetData( data.GetValue() );
+            if ( !clip )
+                return Common::MakeFormattedError<bool>( "bone rename: clip '{}': {}", file.string(),
+                                                         clip.GetError() );
+            Animation::AnimationClip renamed = clip.ExtractValue();
+            if ( renamed.Skeleton != skeleton ||
+                 Animation::Timeline::RenameBoneLocators( renamed.Sequence, renames ) == 0 )
+                continue;
+            if ( const auto written = Serialization::SaveClipToFile( file, renamed ); !written )
+                return Common::MakeFormattedError<bool>( "bone rename: clip '{}' was not written: {}",
+                                                         file.string(), written.GetError() );
+        }
+        if ( referrers.Loaded != nullptr )
+            for ( const auto& [handle, clip] : referrers.Loaded->FindAllByType<AnimationAsset>() )
+                if ( clip && clip->GetSkeleton() == skeleton )
+                    (void)clip->RenameBones( renames );
+        return RenameBonesInRetargetFiles( skeleton, renames, referrers );
+    }
 } // namespace Desert::Assets
 
 namespace Desert::Assets::Serialization
 {
-
-    Common::BoolResultStr SaveSkeletonAsset( const SkeletonAsset& skeleton )
+    std::size_t RenameSourceBonesInRetarget( RetargetAssetData&                                     data,
+                                             const std::span<const Animation::Timeline::BoneRename> renames )
     {
-        // THE FILE IS THE BASE, NOT THE ASSET: bones, GUID and signature are rewritten exactly as the file states
-        // them, so a save from the Skeleton Editor can never drop the import record or re-mint the identity.
+        std::size_t moved = RenameBoneName( data.SourcePelvisBone, renames ) ? 1U : 0U;
+        for ( RetargetBoneOffsetData& offset : data.SourceRetargetPose.BoneOffsets )
+            moved += RenameBoneName( offset.Bone, renames ) ? 1U : 0U;
+        for ( RetargetChainData& chain : data.Chains )
+        {
+            moved += RenameBoneName( chain.SourceStartBone, renames ) ? 1U : 0U;
+            moved += RenameBoneName( chain.SourceEndBone, renames ) ? 1U : 0U;
+        }
+        for ( RetargetBoneRenameData& pair : data.BoneRenames )
+            moved += RenameBoneName( pair.SourceBone, renames ) ? 1U : 0U;
+        return moved;
+    }
+
+    Common::BoolResultStr SaveSkeletonAsset( const SkeletonAsset& skeleton, const SkeletonReferrers& referrers )
+    {
+        // THE FILE IS THE BASE, NOT THE ASSET: bone structure, GUID and signature are rewritten exactly as the
+        // file states them, so a save from the Skeleton Editor can never drop the import record or re-mint the
+        // identity.
         const std::filesystem::path file = ContentRegistry::FileToOpen( skeleton.GetMetadata().Filepath );
         auto                        raw  = Common::Utils::FileSystem::ReadFileContent( file );
         if ( !raw )
@@ -73,7 +200,33 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "skeleton '{}' was not saved: {}", file.string(),
                                                      read.GetError() );
 
-        SkeletonAssetData data = read.ExtractValue();
+        SkeletonAssetData                            data = read.ExtractValue();
+        std::vector<Animation::Timeline::BoneRename> renames;
+        // THE REFERENCE POSE AND THE BONE NAMES ARE AUTHORED (Skeleton Editor, UE's Skeleton Tree): every bone's
+        // LocalBindTransform and Name come from the rig in memory, index for index. The parent links are the
+        // file's, so a file of another bone count (another rig written over it) is refused rather than
+        // half-merged; a name that differs at the same index is a Rename Bone, carried into the referrers. The
+        // OffsetMatrix stays the file's: it is the mesh's inverse bind the skin was cooked against, and the edit
+        // is what moves the skin away from it (GizmoController's rest-pose edit does the same in memory).
+        if ( const Animation::Skeleton* rig = skeleton.GetSkeleton() )
+        {
+            const auto& bones = rig->GetBones();
+            if ( bones.size() != data.Bones.size() )
+                return Common::MakeFormattedError<bool>(
+                     "skeleton '{}' was not saved: the file has {} bones, the rig in memory {}", file.string(),
+                     data.Bones.size(), bones.size() );
+            for ( size_t i = 0; i < bones.size(); ++i )
+            {
+                if ( bones[i].Name != data.Bones[i].Name )
+                {
+                    renames.push_back( { data.Bones[i].Name, bones[i].Name } );
+                    data.Bones[i].Name = bones[i].Name;
+                }
+                data.Bones[i].LocalBindTransform = bones[i].LocalBindTransform;
+            }
+            if ( !renames.empty() )
+                data.Signature = Animation::Skeleton::ComputeSignature( data.Bones );
+        }
         data.PreviewMesh.reset();
         if ( const auto preview = skeleton.GetPreviewMesh(); !preview.IsNull() )
             data.PreviewMesh = ContentRegistry::ReferenceTo( preview );
@@ -94,6 +247,16 @@ namespace Desert::Assets::Serialization
              !written )
             return Common::MakeFormattedError<bool>( "skeleton '{}' was not saved: {}", file.string(),
                                                      written.GetError() );
+        if ( renames.empty() )
+            return BOOLSUCCESS;
+        const auto guid = Common::Content::AssetGuidFromText( data.Header ? data.Header->Guid : std::string() );
+        if ( !guid )
+            return Common::MakeFormattedError<bool>( "skeleton '{}' was saved, its renamed bones were not carried "
+                                                     "into its assets: the header GUID: {}",
+                                                     file.string(), guid.GetError() );
+        if ( auto carried = RenameBonesInSkeletonAssets( guid.GetValue(), renames, referrers ); !carried )
+            return Common::MakeFormattedError<bool>( "skeleton '{}' was saved; {}", file.string(),
+                                                     carried.GetError() );
         return BOOLSUCCESS;
     }
 

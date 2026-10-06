@@ -42,7 +42,7 @@
 // which is what makes committing on every control affordable.
 //
 // TWO KINDS OF ASSERTION FOLLOW, and neither covers the other. Sections 1-4 link the real store and ask
-// it questions. Section 5 READS EditorLayer::DrawPreferencesWindow's source text, because the half of
+// it questions. Section 5 READS PreferencesWindow::Draw's source text, because the half of
 // the statement that says "exactly when the user let go" lives in a function this suite cannot link (it
 // needs ImGui, the renderer and the whole editor) and is not observable from the store at all — a store
 // cannot tell whether the call that reached it came from a control's release or from a button. Reading
@@ -65,7 +65,7 @@
 
 // The shared source reader (Д33): comments and literals blanked, length and line breaks preserved. §5
 // needs it for the same reason DeviceLostCensus does — a census that counted the calls named in comments
-// would certify prose, and DrawPreferencesWindow is now mostly prose.
+// would certify prose, and PreferencesWindow::Draw is now mostly prose.
 #include "../../Engine/SettingConsumers/setting_consumers_reader.hpp"
 
 #include <rflcpp/rfl/Generic.hpp>
@@ -248,7 +248,7 @@ TEST( PreferenceOwnership, CtrlInvertsThePersistentToggleWhicheverWayItIsSet )
 
 // The user's own sentence: set a snap step, then do something unrelated in another panel, and the step
 // is still what you set. The unrelated action is the View menu's Perf HUD item, copied verbatim from
-// EditorLayer::DrawViewMenu — one bool and a Save() — because that is the cheapest real trigger and
+// MainMenu::DrawViewMenu — one bool and a Save() — because that is the cheapest real trigger and
 // nothing about it mentions the gizmo.
 TEST( PreferenceOwnership, AnUnrelatedSaveChangesNoFieldTheUserDidNotTouch )
 {
@@ -562,7 +562,7 @@ TEST( PreferenceOwnership, TheMigrationIsAPureFunctionAndNamesWhatItRaised )
 //
 // "Exactly when the user let go of the mouse" is a statement about CALL SITES, and no amount of asking
 // the store can answer it: the store sees a Save() and cannot tell a control's release from a button.
-// So this section reads EditorLayer::DrawPreferencesWindow and asserts three things about its text —
+// So this section reads PreferencesWindow::Draw and asserts three things about its text —
 // that every control in it commits, that nothing in it saves outside a commit (which is how the "Save"
 // button is kept dead), and that every control really is bound to a field of the preference struct.
 //
@@ -625,7 +625,7 @@ namespace
         return {};
     }
 
-    // The window's source, with the line it starts on, so that a failure can say `EditorLayer.cpp:4592`
+    // The window's source, with the line it starts on, so that a failure can say `PreferencesWindow.cpp:40`
     // instead of a byte offset into a substring nobody can navigate to. The reader preserves every
     // newline and the file's length, which is what makes the arithmetic exact.
     struct WindowSource
@@ -644,12 +644,12 @@ namespace
         const std::string root = RepoRoot();
         EXPECT_FALSE( root.empty() ) << "could not find the repository root from the working directory";
 
-        const std::string src =
-             Text::StripCommentsAndLiterals( ReadWholeFile( root + "Editor/Source/EditorLayer.cpp" ) );
+        const std::string src = Text::StripCommentsAndLiterals( ReadWholeFile(
+             std::filesystem::path( root ) / "Editor/Source/Editor/LevelEditor/PreferencesWindow.cpp" ) );
 
         std::size_t  at = 0;
         WindowSource out;
-        out.Body = BodyOf( src, "EditorLayer::DrawPreferencesWindow", at );
+        out.Body = BodyOf( src, "PreferencesWindow::Draw", at );
         if ( !out.Body.empty() )
             out.FirstLine = 1 + static_cast<std::size_t>( std::count( src.begin(), src.begin() + at, '\n' ) );
         return out;
@@ -763,7 +763,7 @@ namespace
 TEST( PreferenceOwnershipWindow, EveryCallInThePreferencesWindowIsClassified )
 {
     const WindowSource window = PreferencesWindow();
-    ASSERT_FALSE( window.Body.empty() ) << "EditorLayer::DrawPreferencesWindow was not found in EditorLayer.cpp";
+    ASSERT_FALSE( window.Body.empty() ) << "PreferencesWindow::Draw was not found in PreferencesWindow.cpp";
     const std::string& body = window.Body;
 
     for ( const std::string& name : EveryImGuiCall( body ) )
@@ -771,7 +771,7 @@ TEST( PreferenceOwnershipWindow, EveryCallInThePreferencesWindowIsClassified )
              << "ImGui::" << name
              << " is called in the Preferences window and this census does not know whether it can edit a "
                 "preference. Add it to ControlCalls() (and give it a commit) or to InertCalls(). If it is "
-                "ImGui::Button, read the comment above DrawPreferencesWindow first: К8 removed the one "
+                "ImGui::Button, read the comment above PreferencesWindow::Draw first: К8 removed the one "
                 "this window used to have.";
 }
 
@@ -779,7 +779,7 @@ TEST( PreferenceOwnershipWindow, EveryCallInThePreferencesWindowIsClassified )
 TEST( PreferenceOwnershipWindow, EveryControlCommitsWhenTheUserLetsGoOfIt )
 {
     const WindowSource window = PreferencesWindow();
-    ASSERT_FALSE( window.Body.empty() ) << "EditorLayer::DrawPreferencesWindow was not found in EditorLayer.cpp";
+    ASSERT_FALSE( window.Body.empty() ) << "PreferencesWindow::Draw was not found in PreferencesWindow.cpp";
     const std::string& body = window.Body;
 
     const std::vector<std::size_t> controls = CallPositions( body, ControlCalls() );
@@ -797,7 +797,7 @@ TEST( PreferenceOwnershipWindow, EveryControlCommitsWhenTheUserLetsGoOfIt )
             committed = committed || ( commit > from && commit < to );
 
         EXPECT_TRUE( committed )
-             << "EditorLayer.cpp:" << window.LineOf( from ) << " — ImGui::" << Text::IdentAt( body, from )
+             << "PreferencesWindow.cpp:" << window.LineOf( from ) << " — ImGui::" << Text::IdentAt( body, from )
              << " in the Preferences window is not followed by an ImGui::IsItemDeactivatedAfterEdit() "
                 "commit before the next control. An edit made with it is live but never written, which is "
                 "exactly the state К8 removed.";
@@ -810,7 +810,7 @@ TEST( PreferenceOwnershipWindow, EveryControlCommitsWhenTheUserLetsGoOfIt )
 TEST( PreferenceOwnershipWindow, NothingInThePreferencesWindowSavesOutsideACommit )
 {
     const WindowSource window = PreferencesWindow();
-    ASSERT_FALSE( window.Body.empty() ) << "EditorLayer::DrawPreferencesWindow was not found in EditorLayer.cpp";
+    ASSERT_FALSE( window.Body.empty() ) << "PreferencesWindow::Draw was not found in PreferencesWindow.cpp";
     const std::string& body = window.Body;
 
     const std::vector<std::size_t> commits = Text::WordPositions( body, "IsItemDeactivatedAfterEdit" );
@@ -822,7 +822,7 @@ TEST( PreferenceOwnershipWindow, NothingInThePreferencesWindowSavesOutsideACommi
             "decision — the shape К8 exists to remove.";
 
     for ( std::size_t i = 0; i < saves.size(); ++i )
-        EXPECT_LT( commits[i], saves[i] ) << "EditorLayer.cpp:" << window.LineOf( saves[i] )
+        EXPECT_LT( commits[i], saves[i] ) << "PreferencesWindow.cpp:" << window.LineOf( saves[i] )
                                           << " — this Save() does not sit behind a commit of its own.";
 }
 
@@ -833,7 +833,7 @@ TEST( PreferenceOwnershipWindow, NothingInThePreferencesWindowSavesOutsideACommi
 TEST( PreferenceOwnershipWindow, EveryControlIsBoundToARealPreferenceField )
 {
     const WindowSource window = PreferencesWindow();
-    ASSERT_FALSE( window.Body.empty() ) << "EditorLayer::DrawPreferencesWindow was not found in EditorLayer.cpp";
+    ASSERT_FALSE( window.Body.empty() ) << "PreferencesWindow::Draw was not found in PreferencesWindow.cpp";
     const std::string& body = window.Body;
 
     // The name the window binds the store to, derived rather than spelled: renaming the local is an
@@ -861,10 +861,10 @@ TEST( PreferenceOwnershipWindow, EveryControlIsBoundToARealPreferenceField )
                 continue;
             ++bound;
             EXPECT_TRUE( Contains( fields, field ) )
-                 << "EditorLayer.cpp:" << window.LineOf( at ) << " — the Preferences window edits " << store << "."
-                 << field << ", which is not a field of EditorPreferences";
+                 << "PreferencesWindow.cpp:" << window.LineOf( at ) << " — the Preferences window edits " << store
+                 << "." << field << ", which is not a field of EditorPreferences";
         }
-        EXPECT_GT( bound, 0 ) << "EditorLayer.cpp:" << window.LineOf( at )
+        EXPECT_GT( bound, 0 ) << "PreferencesWindow.cpp:" << window.LineOf( at )
                               << " — ImGui::" << Text::IdentAt( body, at )
                               << " edits nothing in the preference store";
     }
@@ -1243,7 +1243,7 @@ TEST( PreferenceOwnershipUnknownKeys, LoadingWritesTheFileBackWithoutTheRetiredK
 // FIVE ASSERTIONS, and they cover different halves. The first three link the real seam and the real store
 // and ask them the user's question. The last two read source text, because "nobody stashes a preference
 // in a panel" and "no save is fenced" are statements about code that no store can be asked about — the
-// same reason §6 reads DrawPreferencesWindow, and the reader is the shared one Д33 rebuilt.
+// same reason §6 reads PreferencesWindow::Draw, and the reader is the shared one Д33 rebuilt.
 
 namespace
 {
@@ -1345,7 +1345,7 @@ TEST( PreferenceOwnership, AViewportModeOnlyEverSubtractsFromTheUsersAnswer )
 // grid is on, a viewport enters 2D UI mode, somebody does something unrelated that saves, the editor is
 // closed without leaving 2D mode and started again — and the grid is still on.
 //
-// The unrelated action is the View menu's Perf HUD item, copied verbatim from EditorLayer::DrawViewMenu
+// The unrelated action is the View menu's Perf HUD item, copied verbatim from MainMenu::DrawViewMenu
 // for the same reason §2 uses it: it is the cheapest real trigger and nothing about it mentions the
 // viewport. On the tree that shipped the defect this fails at the last line, because entering 2D mode had
 // already written `false` into the field the save then carried to disk.

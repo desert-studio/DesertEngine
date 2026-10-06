@@ -57,10 +57,11 @@ namespace Desert::Editor
         if ( m_LayerGraph )
         {
             if ( G::AnimLayerGraph* layer = FindLayerGraph( graph, m_LayerGraph->first, m_LayerGraph->second ) )
-                return { layer->Nodes, layer->OutputPose, G::GraphScope::Layer };
+                return { layer->Nodes, layer->OutputPose, layer->OutputPoseX, layer->OutputPoseY,
+                         G::GraphScope::Layer };
             ShowPoseGraph( std::nullopt ); // the layer is gone (renamed, undone): back to the AnimGraph
         }
-        return { graph.Nodes, graph.OutputPose, G::GraphScope::Host };
+        return { graph.Nodes, graph.OutputPose, graph.OutputPoseX, graph.OutputPoseY, G::GraphScope::Host };
     }
 
     G::StateMachine* AnimGraphPanel::ResolveMachine( G::AnimGraph& graph )
@@ -114,7 +115,8 @@ namespace Desert::Editor
         G::AnimGraph&                  graph  = *anim->Graph;
         const PoseGraphTarget          target = ResolvePoseTarget( graph );
         const std::vector<std::string> clips  = ResolveClipNames( *anim );
-        const std::pair<float, float>  cell   = Graph::NextPoseNodePosition( target.Nodes );
+        const std::pair<float, float>  cell =
+             Graph::NextPoseNodePosition( target.Nodes, { target.OutputX, target.OutputY } );
         const glm::vec2                at     = where.value_or( glm::vec2( cell.first, cell.second ) );
         // The shown graph's scope decides: a Linked Input Pose is added on a layer graph's canvas only, and the
         // unit refuses it on the AnimGraph with the reason.
@@ -220,7 +222,7 @@ namespace Desert::Editor
         std::string&              poseOutput = target.Output;
         bool                      dirty      = false;
 
-        m_PoseCanvas = Graph::PlanPoseCanvas( nodes, poseOutput, m_PoseIds );
+        m_PoseCanvas = Graph::PlanPoseCanvas( nodes, poseOutput, { target.OutputX, target.OutputY }, m_PoseIds );
 
         const ImVec2 canvasSize( width, height );
         ed::SetCurrentEditor( m_PoseContext );
@@ -265,7 +267,7 @@ namespace Desert::Editor
             dirty |= Graph::PullNodePosition( planned, node.X, node.Y );
         }
 
-        // Output Pose, the sink: its place is the canvas's, not the file's.
+        // Output Pose: a node of the canvas like any other (UE's Root) - dragged, framed, its place in the file.
         {
             const Graph::PlannedNode& sink = m_PoseCanvas.Plan.Nodes.back();
             Graph::PushNodePosition( sink );
@@ -275,6 +277,7 @@ namespace Desert::Editor
             ImGui::TextUnformatted( ICON_MDI_ARROW_RIGHT " Result" );
             ed::EndPin();
             ed::EndNode();
+            dirty |= Graph::PullNodePosition( sink, target.OutputX, target.OutputY );
         }
 
         for ( const Graph::PlannedLink& link : m_PoseCanvas.Plan.Links )

@@ -228,6 +228,8 @@ namespace Desert::Editor
         {
             std::vector<Animation::Graph::PoseNode>& Nodes;
             std::string&                             Output;
+            float&                                   OutputX; // the Output Pose node's canvas position
+            float&                                   OutputY;
             Animation::Graph::GraphScope             Scope = Animation::Graph::GraphScope::Host;
         };
         [[nodiscard]] PoseGraphTarget ResolvePoseTarget( Animation::Graph::AnimGraph& graph );

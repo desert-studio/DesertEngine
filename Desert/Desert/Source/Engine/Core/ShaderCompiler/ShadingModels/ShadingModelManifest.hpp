@@ -73,8 +73,9 @@ namespace Desert::Core::ShadingModels
     // Relative to the shader root (Editor/Resources/Shaders), which is also the #include root.
     inline constexpr std::string_view kShadingModelDirectory = "ShadingModels";
     inline constexpr std::string_view kContractInclude       = "ShadingModels/ShadingModelContract.glslh";
-    // Written by the registry beside the models, never committed, never hand-edited.
-    inline constexpr std::string_view kGeneratedInclude = "ShadingModels/ShadingModels.generated.glslh";
+    // VIRTUAL (UE /Engine/Generated/): an include path the shader includer answers with the loaded set's
+    // GenerateGlsl() text. No file exists at this path — the engine resource tree is source, never an output.
+    inline constexpr std::string_view kGeneratedInclude = "Generated/ShadingModels.glslh";
 
     // The index is four bits of the shading word: at most 16 models, Unlit always 0.
     inline constexpr std::size_t kMaxShadingModels = 16;

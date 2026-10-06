@@ -29,6 +29,8 @@
 #include <format>
 #include <memory>
 #include <thread>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert;
 using Assets::AsyncAssetLoader;
@@ -315,20 +317,8 @@ TEST( SceneClosure, TheDepsColumnIsWalkedTransitivelyOnceEachAndRootsKeepTheirKi
 TEST_F( MeshServiceResidency, ASkinnedMeshFailedForItsMissingRigIsDrawnOnceTheRigIsWritten )
 {
     namespace fs   = std::filesystem;
-    namespace Path = Common::Constants::Path;
-    fs::path repo;
-    for ( fs::path here = fs::current_path(); !here.empty(); here = here.parent_path() )
-    {
-        if ( fs::exists( here / ".gitignore" ) && fs::exists( here / "Editor" ) )
-        {
-            repo = here;
-            break;
-        }
-        if ( here == here.parent_path() )
-            break;
-    }
-    ASSERT_FALSE( repo.empty() );
-    const fs::path shipped = repo / "Editor/Resources/Assets/Meshes/Skinned";
+    namespace Path         = Common::Constants::Path;
+    const fs::path shipped = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned";
 
     // A snapshot, not a reference: SetProjectRoot below rewrites the state CurrentProjectRoot() refers to, and the
     // test restores the root it found from this copy.
@@ -379,6 +369,7 @@ TEST_F( MeshServiceResidency, ASkinnedMeshFailedForItsMissingRigIsDrawnOnceTheRi
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

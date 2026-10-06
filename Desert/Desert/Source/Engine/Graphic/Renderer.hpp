@@ -30,7 +30,10 @@ namespace Desert::Graphic
 
         [[nodiscard]] Common::BoolResultStr BeginFrame();
         [[nodiscard]] Common::BoolResultStr EndFrame();
-        void BeginRenderPass( const RenderPass* renderPass, bool clearFrame = true );
+        // A refused pass (not recording, or a target with no VkFramebuffer) is the RESULT, not a log line
+        // swallowed here: a caller that records draws and an EndRenderPass after a refusal records them
+        // outside every pass (VIDEO-2e: the retained UI layer did exactly that on MoltenVK).
+        static Common::BoolResultStr BeginRenderPass( const RenderPass* renderPass, bool clearFrame = true );
         void BeginSwapChainRenderPass();
         void EndRenderPass();
 
