@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Json/Json.hpp>
+
 #include <glm/glm.hpp>
 
 namespace Desert::Graphic
@@ -102,5 +104,12 @@ namespace Desert::Graphic
 
         ShadowDebugMode   ShadowDebug   = ShadowDebugMode::Off;
         DeferredDebugMode DeferredDebug = DeferredDebugMode::Off;
+
+        // Keys of editor.json's DebugView block that this build does not declare — a flag a newer build
+        // added. Several builds share one editor.json, and Json::Read refuses an undeclared key, so without
+        // this member one new flag would make every older build reject the whole file, fall back to
+        // defaults and overwrite the owner's settings on its next save. Carried, never read; the renderer
+        // ignores it. Always the LAST member, so positional initialisation of the flags is unaffected.
+        Common::Json::CarriedKeys UnknownKeys;
     };
 } // namespace Desert::Graphic

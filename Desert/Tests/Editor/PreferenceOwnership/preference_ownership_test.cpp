@@ -1211,6 +1211,108 @@ TEST( PreferenceOwnershipUnknownKeys, LoadingWritesTheFileBackWithoutTheRetiredK
 }
 
 // ---------------------------------------------------------------------------------------------------
+// 7c. EVERY LEVEL CARRIES — a newer build's field INSIDE a nested block
+// ---------------------------------------------------------------------------------------------------
+//
+// Json::Read refuses an undeclared key at ANY depth. Before the nested carriers, one flag a newer build
+// added to DebugView made every older build read the whole of editor.json as corrupt, fall back to
+// defaults and write those defaults over the owner's settings on its next save. Each nested struct of
+// EditorPreferences therefore carries its own unknown keys, and the save-time re-read adopts them too.
+//
+// RED ON MUTATION: shorten EditorPreferences.cpp CarriersOf() to the top-level row and the save-time
+// re-read stops adopting nested keys (the second test goes red); a nested struct without its carrier
+// member makes the load refuse the file — CameraSpeed comes back 1, not 3.
+
+namespace
+{
+    struct NestedBlock
+    {
+        const char*                                           Name;
+        Common::Json::CarriedKeys& ( *KeysOf )( EditorPreferences& );
+    };
+
+    const NestedBlock kNestedBlocks[] = {
+         { "DebugView", []( EditorPreferences& p ) -> Common::Json::CarriedKeys& { return p.DebugView.UnknownKeys; } },
+         { "PreviewScene",
+           []( EditorPreferences& p ) -> Common::Json::CarriedKeys& { return p.PreviewScene.UnknownKeys; } },
+    };
+
+    // editor.json as a newer build writes it: CameraSpeed 3 (so a refused file is visible as 1) and one
+    // key this build does not declare inside `block`.
+    std::string NewerBuildsFileWithNestedKey( const NestedBlock& block )
+    {
+        EditorPreferences theirs;
+        theirs.CameraSpeed = 3.0f;
+        block.KeysOf( theirs ).insert( std::string( "FromNewerBuild" ), Common::Json::Value( 1 ) );
+        return Common::Json::Write( theirs );
+    }
+} // namespace
+
+TEST( PreferenceOwnershipUnknownKeys, ANestedKeyThisBuildDoesNotKnowSurvivesLoadAndSave )
+{
+    for ( const NestedBlock& block : kNestedBlocks )
+    {
+        SCOPED_TRACE( block.Name );
+
+        FreshInstall();
+        WriteWholeFile( PrefsPath(), NewerBuildsFileWithNestedKey( block ) );
+
+        EditorPreferences::Get() = EditorPreferences{};
+        EditorPreferences::Load();
+
+        EXPECT_FLOAT_EQ( EditorPreferences::Get().CameraSpeed, 3.0f )
+             << "the load refused a file whose only novelty is one key inside " << block.Name
+             << " — every older build sharing editor.json would reset the owner's settings";
+        EXPECT_TRUE( block.KeysOf( EditorPreferences::Get() ).get( "FromNewerBuild" ).has_value() );
+
+        EditorPreferences::Get().ShowPerfHud = !EditorPreferences::Get().ShowPerfHud;
+        ASSERT_TRUE( EditorPreferences::Save() );
+
+        EXPECT_EQ( ValueOf( ValueOf( ReadWholeFile( PrefsPath() ), block.Name ), "FromNewerBuild" ), "1" )
+             << "a save deleted a key another build put inside " << block.Name;
+    }
+}
+
+// The nested half of ASaveKeepsAKeyThatAppearedAfterThisEditorLoadedTheFile: the re-read at the moment
+// of writing has to adopt nested keys too, or a key that appeared after Load() is deleted by the save.
+TEST( PreferenceOwnershipUnknownKeys, ASaveKeepsANestedKeyThatAppearedAfterThisEditorLoadedTheFile )
+{
+    for ( const NestedBlock& block : kNestedBlocks )
+    {
+        SCOPED_TRACE( block.Name );
+
+        FreshInstall();
+        EditorPreferences::Get() = EditorPreferences{};
+        EditorPreferences::Get().CameraSpeed = 2.0f;
+        ASSERT_TRUE( EditorPreferences::Save() );
+        ASSERT_TRUE( block.KeysOf( EditorPreferences::Get() ).empty() );
+
+        WriteWholeFile( PrefsPath(), NewerBuildsFileWithNestedKey( block ) );
+
+        EditorPreferences::Get().ShowPerfHud = !EditorPreferences::Get().ShowPerfHud;
+        ASSERT_TRUE( EditorPreferences::Save() );
+
+        const std::string after = ReadWholeFile( PrefsPath() );
+        EXPECT_EQ( ValueOf( ValueOf( after, block.Name ), "FromNewerBuild" ), "1" )
+             << "the save-time re-read adopted only top-level keys and deleted one inside " << block.Name;
+        EXPECT_EQ( ValueOf( after, "CameraSpeed" ), "2.0" ) << "the re-read adopted a VALUE, not only keys";
+    }
+}
+
+// PreviewEnvironment::Settings compares its settings by hand (rfl::ExtraFields has no operator==), so a
+// field added to it must also be added to operator== — this pin goes red first.
+TEST( PreferenceOwnershipUnknownKeys, PreviewSettingsEqualityNamesEveryFieldButTheCarrier )
+{
+    EXPECT_EQ( rfl::fields<Desert::Editor::PreviewEnvironment::Settings>().size(), 6u )
+         << "PreviewEnvironment::Settings gained or lost a member: update its operator== to match";
+
+    Desert::Editor::PreviewEnvironment::Settings a;
+    Desert::Editor::PreviewEnvironment::Settings b;
+    b.UnknownKeys.insert( std::string( "FromNewerBuild" ), Common::Json::Value( 1 ) );
+    EXPECT_TRUE( a == b ) << "another build's carried key made two identical previews compare different";
+}
+
+// ---------------------------------------------------------------------------------------------------
 // 8. К10 — A VIEWPORT MODE IS NOT A PREFERENCE
 // ---------------------------------------------------------------------------------------------------
 //

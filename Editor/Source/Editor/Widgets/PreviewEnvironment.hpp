@@ -15,6 +15,7 @@
 // Pure (no Vulkan, no asset manager): the registry lookup is passed in, so the suite
 // Desert/Tests/Editor/PreviewEnvironment exercises every rule here on its own.
 
+#include <Common/Json/Json.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 
 #include <cmath>
@@ -40,7 +41,18 @@ namespace Desert::Editor::PreviewEnvironment
         bool ShowEnvironment = true;
         bool ShowFloor       = true;
 
-        bool operator==( const Settings& ) const = default;
+        // Keys of editor.json's PreviewScene block that this build does not declare (another build's
+        // newer field), written back unchanged — see Graphic::DebugViewState::UnknownKeys for why.
+        Common::Json::CarriedKeys UnknownKeys;
+
+        // Equal when every SETTING is: the carried keys are another build's, not part of what this
+        // preview shows (and rfl::ExtraFields has no operator==).
+        bool operator==( const Settings& other ) const
+        {
+            return Skybox == other.Skybox && RotationDegrees == other.RotationDegrees &&
+                   ExposureEV == other.ExposureEV && ShowEnvironment == other.ShowEnvironment &&
+                   ShowFloor == other.ShowFloor;
+        }
     };
 
     [[nodiscard]] inline float WrapDegrees( float degrees )
