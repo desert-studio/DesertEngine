@@ -3242,8 +3242,9 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
         const char* Class;
     };
     const std::string dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
-    for ( const Renderer& renderer : { Renderer{ "TonemapRenderer.cpp", "TonemapRenderer" },
-                                       Renderer{ "FXAARenderer.cpp", "FXAARenderer" } } )
+    for ( const Renderer& renderer :
+          { Renderer{ "TonemapRenderer.cpp", "TonemapRenderer" }, Renderer{ "FXAARenderer.cpp", "FXAARenderer" },
+            Renderer{ "AutoExposureRenderer.cpp", "AutoExposureRenderer" } } )
     {
         const std::string text    = SqueezedSource( root, ( dir + renderer.File ).c_str() );
         const std::string record  = std::string( renderer.Class ) + "::Record";
@@ -3257,6 +3258,8 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
                   { "BindValues(", "BindInputs(", "SetRawData(", "FillMaterial(", "->Set(", "->Set<" } )
                 EXPECT_EQ( body.find( fill ), std::string::npos )
                      << body.substr( 0, body.find( '{' ) ) << " fills its material (" << fill << ") in the exec";
+            EXPECT_EQ( body.find( "PassBindingsbindings(context);" ), std::string::npos )
+                 << body.substr( 0, body.find( '{' ) ) << " binds by name in the exec: its block is the setup's";
         }
         EXPECT_GT( records, 0u ) << renderer.File << " has no " << record;
     }
@@ -3297,12 +3300,11 @@ TEST( RenderGraphCompile, AutoExposureHistogramIsATransientBufferOfTheFrameGraph
                           "\"AutoExposure.Histogram\")" ),
                std::string::npos );
     EXPECT_EQ( body.find( "ImportHistogram" ), std::string::npos ) << "the histogram is not an import any more";
-    size_t writes = 0;
-    for ( size_t at = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)" ); at != std::string::npos;
-          at        = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)", at + 1 ) )
-        ++writes;
-    EXPECT_EQ( writes, 2u ) << "Clear and Histogram both write the histogram";
-    EXPECT_NE( body.find( "pass.Read(histogram,RDG::Access::StorageRead)" ), std::string::npos );
+    // The accesses are the setup-declared blocks' entries (RDG-FAULT1 C3b): each node's setup declares its block.
+    EXPECT_NE( body.find( "autoExp->DeclareClearBindings(pass,histogram);" ), std::string::npos );
+    EXPECT_NE( body.find( "autoExp->DeclareHistogramBindings(pass,scene,histogram);" ), std::string::npos );
+    EXPECT_NE( body.find( "autoExp->DeclareAverageBindings(pass,histogram,previous,adapted);" ),
+               std::string::npos );
     EXPECT_EQ( body.find( "NeverCull" ), std::string::npos );
 
     const std::string renderer = SqueezedSource(

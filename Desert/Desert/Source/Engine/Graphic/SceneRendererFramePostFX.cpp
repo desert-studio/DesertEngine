@@ -154,28 +154,19 @@ namespace Desert::Graphic
         // barriers, and Average's write of the adapted image keeps all three alive.
         graph.AddPass(
              "PostFX: AutoExposureClear", RDG::PassFlags::Compute,
-             [histogram]( RDG::PassBuilder& pass ) { pass.Write( histogram, RDG::Access::StorageWrite ); },
-             [autoExp, histogram]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return autoExp->RecordClear( context, histogram ); } );
+             [&]( RDG::PassBuilder& pass ) { autoExp->DeclareClearBindings( pass, histogram ); },
+             [autoExp]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return autoExp->RecordClear( context ); } );
         graph.AddPass(
              "PostFX: AutoExposureHistogram", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.Read( scene, RDG::Access::SampledCompute );
-                 pass.Write( histogram, RDG::Access::StorageWrite );
-             },
-             [autoExp, scene, histogram, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return autoExp->RecordHistogram( context, scene, histogram, width, height ); } );
+             [&]( RDG::PassBuilder& pass ) { autoExp->DeclareHistogramBindings( pass, scene, histogram ); },
+             [autoExp, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return autoExp->RecordHistogram( context, width, height ); } );
         graph.AddPass(
-             "PostFX: AutoExposureAverage", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.Read( histogram, RDG::Access::StorageRead );
-                 pass.Read( previous, RDG::Access::SampledCompute );
-                 pass.Write( adapted, RDG::Access::StorageWrite );
-             },
-             [autoExp, histogram, previous, adapted]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return autoExp->RecordAverage( context, histogram, previous, adapted ); } );
+             "PostFX: AutoExposureAverage", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
+             { autoExp->DeclareAverageBindings( pass, histogram, previous, adapted ); },
+             [autoExp]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return autoExp->RecordAverage( context ); } );
     }
 
     void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
