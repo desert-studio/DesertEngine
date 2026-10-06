@@ -103,6 +103,24 @@ namespace Desert::Player
     std::exit( exitCode );
 }
 
+#if !DESERT_DEV_INSTRUMENTS
+// THE DEVELOPMENT FLAGS A SHIPPING BUILD DOES NOT HAVE ARE REFUSED, NOT IGNORED. Their code is not compiled
+// (RuntimeShot.hpp, MovieRender.hpp), and a flag that was silently dropped is a silent fallback: a script
+// that asked for a capture or a movie would start the game in a window and wait for files that never come.
+// One list, one refusal, one text — a new development flag is a new row here, not a second copy.
+static void RefuseDevelopmentFlags( int argc, char** argv )
+{
+    static constexpr const char* kDevelopmentFlags[] = { "--shot", "--shot-frames", "--render-movie" };
+    for ( int i = 1; i < argc; ++i )
+        for ( const char* flag : kDevelopmentFlags )
+            if ( std::strcmp( argv[i], flag ) == 0 )
+                FailStartup( std::format( "{} is a development tool and is not in a Shipping build; "
+                                          "run a Debug or Release Runtime",
+                                          flag ),
+                             2 );
+}
+#endif
+
 std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char** argv )
 {
     using namespace Desert::Engine;
@@ -139,8 +157,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // FATAL rather than a warning, since an unattended capture that silently did not happen leaves a
     // windowed game running with nobody watching it. See RuntimeShot.hpp.
     //
-    // NOT IN A SHIPPING BUILD. `--shot` is then not an unrecognised flag that is politely ignored — it is
-    // a flag that does not exist, because the code that would read it was not compiled.
+    // NOT IN A SHIPPING BUILD: the code that would read `--shot` is not compiled, and the flag is REFUSED
+    // at startup rather than politely ignored (RefuseDevelopmentFlags, with --render-movie below).
 #if DESERT_DEV_INSTRUMENTS
     const std::vector<std::string> shotArgs( argv + ( argc > 0 ? 1 : 0 ), argv + argc );
     if ( const auto parsed = Desert::Player::ParseRuntimeShot( shotArgs, Desert::Player::RuntimeShot::Get() );
@@ -153,9 +171,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // THE MOVIE RENDER (UE Movie Render Queue): the level it names replaces --scene, and a malformed request is
     // fatal for the same reason --shot's is — an unattended render that silently did not start never ends.
     //
-    // NOT IN A SHIPPING BUILD, like --shot (MovieRender.hpp). There the flag is REFUSED rather than ignored:
-    // a render script pointed at a shipping binary would otherwise start the game in a window and wait
-    // forever for frames that are never written.
+    // NOT IN A SHIPPING BUILD, like --shot (MovieRender.hpp): there both are refused by one function.
 #if DESERT_DEV_INSTRUMENTS
     {
         const std::vector<std::string> movieArgs( argv + ( argc > 0 ? 1 : 0 ), argv + argc );
@@ -167,11 +183,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             Desert::Player::s_SceneOverride = Desert::Player::s_Movie->Map;
     }
 #else
-    for ( int i = 1; i < argc; ++i )
-        if ( std::strcmp( argv[i], "--render-movie" ) == 0 )
-            FailStartup( "--render-movie is a development tool and is not in a Shipping build; "
-                         "render the movie with a Debug or Release Runtime",
-                         2 );
+    RefuseDevelopmentFlags( argc, argv );
 #endif
 
     // THE CRASH HANDLER, BEFORE ANYTHING THAT CAN FAULT (PKG1c; UE installs its handler before the
