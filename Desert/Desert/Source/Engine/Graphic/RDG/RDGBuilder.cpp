@@ -294,6 +294,13 @@ namespace Desert::Graphic::RDG
         return resource < m_Resources.size() ? m_Resources[resource].ExternalTex : nullptr;
     }
 
+    std::optional<Access> Builder::FindFinalAccess( uint32_t resource ) const
+    {
+        if ( resource >= m_Resources.size() || !m_Resources[resource].HasFinalAccess )
+            return std::nullopt;
+        return m_Resources[resource].FinalAccess;
+    }
+
     const Builder::ResourceRecord* Builder::FindResource( uint32_t index, ResourceKind kind ) const
     {
         if ( index >= m_Resources.size() || m_Resources[index].Kind != kind )

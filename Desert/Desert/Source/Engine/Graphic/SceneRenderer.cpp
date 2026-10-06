@@ -968,10 +968,14 @@ namespace Desert::Graphic
              !extracted )
             LOG_ERROR( "SceneRenderer: frame graph '{}' cannot hand over its final image: {}", graph.GetName(),
                        extracted.GetError() );
+        else
+            // What the viewport / runtime blit shows: without its writer this frame has no picture (black).
+            graph.SetFaultPolicy( textures.Import( GetFinalImage(), "final image" ),
+                                  RDG::ExternalFaultPolicy::FrameFatal );
 
-        if ( const auto executed = Renderer::GetInstance().ExecuteGraph( graph ); !executed )
-            LOG_ERROR( "SceneRenderer: frame graph '{}' did not execute: {}", graph.GetName(),
-                       executed.GetError() );
+        // Its faults are logged by the graph backend and its own failures by ExecuteGraph; a FrameFault leaves
+        // the final image black for this frame.
+        (void)Renderer::GetInstance().ExecuteGraph( graph );
     }
 
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()

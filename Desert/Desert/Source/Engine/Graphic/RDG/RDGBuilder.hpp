@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -303,6 +304,10 @@ namespace Desert::Graphic::RDG
         // RDG-FAULT1. The external texture registered as resource @p resource (null for a transient, a buffer or
         // an index out of range): how the caller reaches the images of FrameFault::Externals to clear them.
         ExternalTexture* FindExternalTexture( uint32_t resource ) const;
+        // RDG-FAULT1. The access an Extract asked resource @p resource to end the graph in (nullopt: not
+        // extracted): the state the caller leaves a FrameFault external in after clearing it (Present for the
+        // swapchain image), so the frame continues as if the graph had written it.
+        std::optional<Access> FindFinalAccess( uint32_t resource ) const;
 
         const std::string& GetName() const
         {

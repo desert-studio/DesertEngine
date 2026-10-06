@@ -901,6 +901,8 @@ namespace Desert::Player
         if ( const auto imported = renderer.ImportBackBuffer( backBuffer ); !imported )
             return Common::MakeError( "[Runtime] present: " + imported.GetError() );
         const Graphic::RDG::TextureRef target = graph.RegisterExternal( backBuffer, "BackBuffer" );
+        // The acquired image has no picture of its own: without its writer the frame has none (cleared to black).
+        graph.SetFaultPolicy( target, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
         Graphic::RDG::ExternalTexture  sceneImage;
         Graphic::RDG::TextureRef       sceneRef;
         if ( presented )
@@ -936,7 +938,10 @@ namespace Desert::Player
                  return BOOLSUCCESS;
              } );
         graph.Extract( target, backBuffer, Graphic::RDG::Access::Present );
-        if ( const auto executed = renderer.ExecuteGraph( graph ); !executed )
+        // A FrameFault (logged by the graph backend) is a frame: ExecuteGraph cleared the back buffer to black
+        // and the frame presents it. Only a failure of ExecuteGraph itself (logged there) ends the frame here.
+        if ( const auto executed = renderer.ExecuteGraph( graph );
+             !executed && !graph.GetExecuteReport().Frame )
             return Common::MakeError( "[Runtime] present graph: " + executed.GetError() );
 
             // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and it has to be: a swapchain

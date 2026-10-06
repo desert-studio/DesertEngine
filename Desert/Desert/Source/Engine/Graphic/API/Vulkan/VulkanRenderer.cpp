@@ -832,19 +832,108 @@ namespace Desert::Graphic::API::Vulkan
              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT );
     }
 
+    namespace
+    {
+        // RDG-FAULT1 FrameFault: the frame-fatal externals the graph left without a picture are cleared to opaque
+        // black on @p commandBuffer (recorded after the graph's segments), then put in the state the graph would
+        // have left them in (an Extract's final access: Present for the swapchain image) with their records
+        // updated, so acquire -> present and the next frame's import stay intact and the window shows black.
+        Common::BoolResultStr ClearFrameFaultExternals( VkCommandBuffer commandBuffer, RDG::Builder& graph,
+                                                        const RDG::FrameFault& fault )
+        {
+            const auto stages = []( RDG::PipelineStageFlags flags )
+            {
+                const VkPipelineStageFlags vk = RdgVulkanStages( flags );
+                return vk != 0 ? vk : VkPipelineStageFlags( VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT );
+            };
+            for ( const uint32_t resource : fault.Externals )
+            {
+                RDG::ExternalTexture* external = graph.FindExternalTexture( resource );
+                if ( !external )
+                    return Common::MakeError(
+                         std::format( "frame fault: resource {} is not an external texture", resource ) );
+                auto* texture = dynamic_cast<VulkanRdgTexture*>( external->Physical.get() );
+                if ( !texture )
+                    return Common::MakeError( "frame fault: an external texture without a Vulkan image" );
+                if ( texture->GetAspect() != VK_IMAGE_ASPECT_COLOR_BIT )
+                    return Common::MakeError( "frame fault: a FrameFatal external that is not a colour image" );
+
+                const RDG::TextureDesc&          desc        = external->Desc;
+                const RDG::AccessState           dst         = RDG::GetAccessState( RDG::Access::CopyDst );
+                const std::optional<RDG::Access> finalAccess = graph.FindFinalAccess( resource );
+                const RDG::AccessState           after = finalAccess ? RDG::GetAccessState( *finalAccess ) : dst;
+
+                std::vector<VkImageSubresourceRange> ranges;
+                for ( uint32_t layer = 0; layer < desc.Layers; ++layer )
+                {
+                    for ( uint32_t mip = 0; mip < desc.Mips; ++mip )
+                    {
+                        const RDG::AccessState& before =
+                             external->SubresourceStates[desc.SubresourceIndex( mip, layer )];
+                        const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, mip, 1, layer, 1 };
+                        VkImageMemoryBarrier          barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+                        barrier.srcAccessMask       = RdgVulkanAccess( before.Memory );
+                        barrier.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+                        barrier.oldLayout           = RdgVulkanLayout( before.Layout );
+                        barrier.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                        barrier.image               = texture->GetImage();
+                        barrier.subresourceRange    = range;
+                        vkCmdPipelineBarrier( commandBuffer, stages( before.Stages ), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                              0, 0, nullptr, 0, nullptr, 1, &barrier );
+                        ranges.push_back( range );
+                    }
+                }
+                const VkClearColorValue black{ { 0.0f, 0.0f, 0.0f, 1.0f } };
+                vkCmdClearColorImage( commandBuffer, texture->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                      &black, static_cast<uint32_t>( ranges.size() ), ranges.data() );
+                if ( after != dst )
+                {
+                    VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+                    barrier.srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+                    barrier.dstAccessMask       = RdgVulkanAccess( after.Memory );
+                    barrier.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                    barrier.newLayout           = RdgVulkanLayout( after.Layout );
+                    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    barrier.image               = texture->GetImage();
+                    barrier.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, desc.Mips, 0, desc.Layers };
+                    vkCmdPipelineBarrier( commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, stages( after.Stages ), 0,
+                                          0, nullptr, 0, nullptr, 1, &barrier );
+                }
+                external->SubresourceStates.assign( external->SubresourceStates.size(), after );
+                if ( external->RecordStates )
+                {
+                    if ( const auto recorded = external->RecordStates( external->SubresourceStates, true );
+                         !recorded )
+                        return Common::MakeError( recorded.GetError() );
+                }
+            }
+            return Common::MakeSuccess( true );
+        }
+    } // namespace
+
     Common::BoolResultStr VulkanRendererAPI::ExecuteGraph( RDG::Builder& graph )
     {
+        // The failures of this function itself are logged here; the graph's own faults (and a FrameFault) are
+        // logged once per fault by the backend's PassFaultReporter. A caller never logs the result.
+        const auto fail = []( std::string message ) -> Common::BoolResultStr
+        {
+            LOG_ERROR( "[Renderer] ExecuteGraph: {}", message );
+            return Common::MakeError( std::move( message ) );
+        };
         if ( !IsRecording() )
-            return Common::MakeError( "No active command buffer" );
+            return fail( "No active command buffer" );
 
         if ( !m_RdgBackend )
-            return Common::MakeError( "the render graph frame objects were not begun (BeginFrame)" );
+            return fail( "the render graph frame objects were not begun (BeginFrame)" );
         // The second writer of m_CurrentCommandBuffer after BeginFrame: it ends the frame's command buffer and
         // re-arms a fresh one after the graph, so it asks the device-lost gate like BeginFrame does.
         if ( !Graphic::DeviceLost::AllowWork() )
         {
             m_CurrentCommandBuffer = nullptr;
-            return Common::MakeError( "the device is lost; the graph is not recorded" );
+            return fail( "the device is lost; the graph is not recorded" );
         }
             // The sink the profiler holds now: GPU timing can be switched on and off between frames.
 #if DESERT_DEV_INSTRUMENTS
@@ -857,8 +946,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_CurrentCommandBuffer = nullptr;
             (void)NoteIfDeviceLost( ended, "vkEndCommandBuffer", __FILE__, __LINE__ );
-            return Common::MakeFormattedError<bool>( "vkEndCommandBuffer before a graph failed: {}",
-                                                     VkResultToString( ended ) );
+            return fail( std::format( "vkEndCommandBuffer before a graph failed: {}", VkResultToString( ended ) ) );
         }
         m_FrameSubmissions.push_back(
              { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
@@ -874,16 +962,23 @@ namespace Desert::Graphic::API::Vulkan
         if ( !Graphic::DeviceLost::AllowWork() )
         {
             m_CurrentCommandBuffer = nullptr;
-            return Common::MakeError( "the device was lost while the graph recorded" );
+            return fail( "the device was lost while the graph recorded" );
         }
         Common::ResultStr<VkCommandBuffer> next =
              m_FrameLoop->GetQueueObjects().BeginCommandBuffer( RDG::Pipe::Graphics );
         if ( !next )
         {
             m_CurrentCommandBuffer = nullptr;
-            return Common::MakeError( next.GetError() );
+            return fail( next.GetError() );
         }
         m_CurrentCommandBuffer = next.GetValue();
+        // A FrameFault: the graph's output has no picture, so its frame-fatal externals are cleared to black on
+        // the re-armed buffer and the frame presents that.
+        if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
+        {
+            if ( const auto cleared = ClearFrameFaultExternals( m_CurrentCommandBuffer, graph, *frame ); !cleared )
+                return fail( std::format( "graph '{}': {}", graph.GetName(), cleared.GetError() ) );
+        }
         return executed;
     }
 
