@@ -1933,31 +1933,10 @@ namespace Desert::Graphic::System
         const RDG::TextureRef  traceGuide = graph.CreateTexture( traceDesc, "Clouds.TraceGuide" );
         ComputeNodeDeclaration march;
         march.Name = "Clouds: March";
-        m_SceneRenderer->DeclareAtmosphereReads( march.Access, RDG::Access::SampledCompute );
         // SETUP: everything but the graph's two transients is the renderer's own (or the sky's), bound by the
         // pipeline's setters here; the two transients are the block's entries, each the declaration of its write.
         m_MarchPipeline->SetStorageBuffer( kCloudParamsBinding, m_ParamsBuffer.get() );
         // The noise, modelling and atlas volumes are the block's entries (SampledVolumes).
-
-        // ALWAYS bound, even when the payload's gate says it will not be read: a declared sampler with no
-        // image is an invalid descriptor set, not an unused one, and this backend answers an invalid set
-        // by skipping the whole dispatch — the clouds would vanish with nothing in the log.
-        m_MarchPipeline->SetInput(
-             kCloudDistantSkyLightBinding,
-             atmosphere.DistantSkyLight
-                  ? atmosphere.DistantSkyLight
-                  : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
-             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-
-        // The aerial-perspective volume, on the same terms: always bound, read only when the payload's
-        // gate says the volume is real. It is what makes a cloud at the horizon the colour of the sky
-        // instead of an opaque white wall.
-        m_MarchPipeline->SetInput(
-             kCloudAerialPerspectiveBinding,
-             atmosphere.AerialPerspectiveVolume
-                  ? atmosphere.AerialPerspectiveVolume
-                  : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
-             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
         // Slot A's instance list and the atlas of sculpted bodies it addresses. The image is ALWAYS bound,
         // even when the count is zero and nothing will read it, on exactly the terms the two samplers above
@@ -1967,15 +1946,22 @@ namespace Desert::Graphic::System
         m_MarchPipeline->SetStorageBuffer( kCloudAuthoredBinding, m_AuthoredBuffer.get() );
         BindMedium( m_MarchPipeline.get(), m_MediumParamsBuffer.get() );
 
-        // The atmosphere's transmittance LUT, again always bound and for the fourth time for the same
-        // reason. The handle is the sky's — a scene on the artistic gradient, or one whose LUTs have not
-        // been baked, publishes null and gets the fallback, which is exactly the case push.Frame.y is 0 in.
-        m_MarchPipeline->SetInput(
-             kCloudSunTransmittanceLutBinding,
-             atmosphere.TransmittanceLut
-                  ? atmosphere.TransmittanceLut
-                  : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
-             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        // The sky's three images, entries of the block on the same always-bound terms: a declared sampler with
+        // no image is an invalid descriptor set, so a null handle (the artistic gradient, LUTs not baked, a
+        // sky switched off) is the engine fallback, and the payload's gates (Ambient.w, Aerial.z,
+        // push.Frame.y) say it is never read. The distant sky light is what lights a cloud from the physical
+        // sky; the aerial-perspective volume is what makes a cloud at the horizon the colour of the sky
+        // instead of an opaque white wall; the transmittance LUT re-evaluates the sun at each sample.
+        const std::shared_ptr<Image> fallback2D =
+             FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
+        const std::shared_ptr<Image> distantSkyLight =
+             atmosphere.DistantSkyLight ? std::shared_ptr<Image>( atmosphere.DistantSkyLight ) : fallback2D;
+        const std::shared_ptr<Image> aerialPerspective =
+             atmosphere.AerialPerspectiveVolume
+                  ? std::shared_ptr<Image>( atmosphere.AerialPerspectiveVolume )
+                  : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
+        const std::shared_ptr<Image> sunTransmittanceLut =
+             atmosphere.TransmittanceLut ? std::shared_ptr<Image>( atmosphere.TransmittanceLut ) : fallback2D;
         // The block's entries: the two transients it writes, the scene depth and the sky-light occlusion volume,
         // on the same always-bound terms as the samplers above -- when the layer does not want it the image does
         // not exist at all, so the fallback is the entry and push.Frame.x is 0. Each is read with the sampler the
@@ -1991,7 +1977,17 @@ namespace Desert::Graphic::System
              .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
                        "SceneDepth.Compute" )
              .Sampled( "u_CloudSkyOcclusionVolume", skyOcclusion, RDG::Access::SampledCompute, VolumeSampler(),
-                       skyOcclusionReady ? "Clouds.SkyOcclusion" : "Clouds.SkyOcclusionFallback" );
+                       skyOcclusionReady ? "Clouds.SkyOcclusion" : "Clouds.SkyOcclusionFallback" )
+             .Sampled( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
+                       GlobalTextureFilterSampler(),
+                       atmosphere.DistantSkyLight ? "Sky.DistantLight" : "Clouds.DistantSkyLightFallback" )
+             .Sampled( "u_CloudAerialPerspective", aerialPerspective, RDG::Access::SampledCompute, VolumeSampler(),
+                       atmosphere.AerialPerspectiveVolume ? "Sky.AerialPerspectiveLut"
+                                                          : "Clouds.AerialPerspectiveFallback" )
+             .Sampled( "u_CloudSunTransmittanceLut", sunTransmittanceLut, RDG::Access::SampledCompute,
+                       GlobalTextureFilterSampler(),
+                       atmosphere.TransmittanceLut ? "Sky.TransmittanceLut"
+                                                   : "Clouds.SunTransmittanceLutFallback" );
         march.Record = [this, push, traceWidth, traceHeight]( RDG::PassContext& context,
                                                               const FrameGraphRefs& ) -> Common::BoolResultStr
         {

@@ -225,7 +225,7 @@ namespace Desert::Graphic::System
             m_FogPipeline->SetInput(
                  kFogAerialPerspectiveBinding,
                  apActive
-                      ? atmosphere.AerialPerspectiveVolume
+                      ? atmosphere.AerialPerspectiveVolume.get()
                       : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             // The distant sky light, on exactly the same terms as the volume above — always bound, read only
@@ -234,7 +234,7 @@ namespace Desert::Graphic::System
             m_FogPipeline->SetInput(
                  kFogDistantSkyLightBinding,
                  atmosphere.DistantSkyLight
-                      ? atmosphere.DistantSkyLight
+                      ? atmosphere.DistantSkyLight.get()
                       : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_FogPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );

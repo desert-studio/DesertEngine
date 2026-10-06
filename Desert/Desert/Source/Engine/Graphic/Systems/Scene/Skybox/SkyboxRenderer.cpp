@@ -479,7 +479,7 @@ namespace Desert::Graphic::System
         // BUILD TIME: the LUT handles feed the atmosphere the later nodes of this graph declare and bind.
         if ( m_LutsValid || m_LutBakePending )
         {
-            m_Atmosphere.TransmittanceLut               = m_TransmittanceLut.get();
+            m_Atmosphere.TransmittanceLut               = m_TransmittanceLut;
             m_Atmosphere.TransmittanceLutBottomRadiusKm = AtmosphereBottomRadiusKm( m_Sky );
             m_Atmosphere.TransmittanceLutTopRadiusKm    = AtmosphereTopRadiusKm( m_Sky );
         }
@@ -517,7 +517,7 @@ namespace Desert::Graphic::System
             };
             nodes.push_back( std::move( aerial ) );
 
-            m_Atmosphere.AerialPerspectiveVolume            = m_AerialPerspectiveLut.get();
+            m_Atmosphere.AerialPerspectiveVolume            = m_AerialPerspectiveLut;
             m_Atmosphere.AerialPerspectiveDepthKm           = m_Sky.AerialPerspectiveDistanceKm;
             m_Atmosphere.AerialPerspectiveViewDistanceScale = m_Sky.AerialPerspectiveViewDistanceScale;
         }
@@ -535,7 +535,7 @@ namespace Desert::Graphic::System
             };
             nodes.push_back( std::move( distant ) );
 
-            m_Atmosphere.DistantSkyLight = m_DistantLight.get();
+            m_Atmosphere.DistantSkyLight = m_DistantLight;
         }
         return nodes;
     }
@@ -820,7 +820,7 @@ namespace Desert::Graphic::System
         cloudBinding.Modelling          = clouds.Modelling;
         cloudBinding.AuthoredAtlas      = clouds.AuthoredAtlas;
         cloudBinding.SkyOcclusionVolume = clouds.SkyOcclusionVolume;
-        cloudBinding.DistantSkyLight    = m_Atmosphere.DistantSkyLight;
+        cloudBinding.DistantSkyLight    = m_Atmosphere.DistantSkyLight.get();
 
         // THE AUTHORED MEDIUM'S OWN VALUES AND IMAGES. Uploaded onto this renderer's buffer for the reason
         // the two blocks above are, and bound ONLY when there are values: the medium's program declares
