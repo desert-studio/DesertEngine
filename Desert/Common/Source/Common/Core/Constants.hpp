@@ -540,10 +540,11 @@ namespace Common::Constants
                 return ( anchor.root_name() / path ).lexically_normal();
             }
             if ( !HasProject() )
-                throw std::logic_error( std::format( "Path::FullPath: '{}' is a relative content path and no project "
-                                                     "is open, so there is no content to resolve it against (read "
-                                                     "at {}:{}); open a .deproj first",
-                                                     path.generic_string(), reader.file_name(), reader.line() ) );
+                throw std::logic_error(
+                     std::format( "Path::FullPath: '{}' is a relative content path and no project "
+                                  "is open, so there is no content to resolve it against (read "
+                                  "at {}:{}); open a .deproj first",
+                                  path.generic_string(), reader.file_name(), reader.line() ) );
             if ( !ProjectDir( reader ).is_absolute() )
                 throw std::logic_error( std::format( "Path::FullPath: '{}' is relative and the project directory "
                                                      "'{}' is not absolute (read at {}:{})",
@@ -566,30 +567,31 @@ namespace Common::Constants
         // move one of these is to move the project root they are all derived from. Taking the ADDRESS of
         // a view is supported and survives remaps — AssetHandle's root table, the runtime scan roots and
         // the packager's tree census all do exactly that.
-        inline const std::filesystem::path& ASSETS_PATH         = Detail::Slot( ContentDir::Assets );
-        inline const std::filesystem::path& MESH_PATH           = Detail::Slot( ContentDir::Mesh );
-        inline const std::filesystem::path& MATERIAL_PATH       = Detail::Slot( ContentDir::Material );
-        inline const std::filesystem::path& TEXTUREDIR_PATH     = Detail::Slot( ContentDir::Texture );
-        inline const std::filesystem::path& SKYBOX_PATH         = Detail::Slot( ContentDir::Skybox );
-        inline const std::filesystem::path& SCENE_PATH          = Detail::Slot( ContentDir::Scene );
-        inline const std::filesystem::path& PREFAB_PATH         = Detail::Slot( ContentDir::Prefab );
-        inline const std::filesystem::path& SCRIPT_PATH         = Detail::Slot( ContentDir::Script );
-        inline const std::filesystem::path& COLLECTIONS_PATH    = Detail::Slot( ContentDir::Collections );
-        inline const std::filesystem::path& LOCALIZATION_PATH   = Detail::Slot( ContentDir::Localization );
-        inline const std::filesystem::path& CLOUD_NOISE_PATH    = Detail::Slot( ContentDir::CloudNoise );
-        inline const std::filesystem::path& CLOUD_TYPE_PATH     = Detail::Slot( ContentDir::CloudType );
-        inline const std::filesystem::path& CLOUD_VOLUME_PATH   = Detail::Slot( ContentDir::CloudVolume );
-        inline const std::filesystem::path& CLOUD_LAYOUT_PATH   = Detail::Slot( ContentDir::CloudLayout );
-        inline const std::filesystem::path& UI_THEME_PATH       = Detail::Slot( ContentDir::UITheme );
-        inline const std::filesystem::path& CONTROL_RIG_PATH    = Detail::Slot( ContentDir::ControlRig );
-        inline const std::filesystem::path& SHADER_GRAPH_PATH   = Detail::Slot( ContentDir::ShaderGraph );
-        inline const std::filesystem::path& ANIM_GRAPH_PATH     = Detail::Slot( ContentDir::AnimGraph );
-        inline const std::filesystem::path& RETARGET_PATH       = Detail::Slot( ContentDir::Retarget );
-        inline const std::filesystem::path& FOLIAGE_TYPE_PATH         = Detail::Slot( ContentDir::FoliageType );
-        inline const std::filesystem::path& LANDSCAPE_LAYER_INFO_PATH = Detail::Slot( ContentDir::LandscapeLayerInfo );
-        inline const std::filesystem::path& ANIMATION_PATH            = Detail::Slot( ContentDir::Animation );
-        inline const std::filesystem::path& LEVEL_SEQUENCE_PATH       = Detail::Slot( ContentDir::LevelSequence );
-        inline const std::filesystem::path& COOKED_PATH               = Detail::Slot( ContentDir::Cooked );
+        inline const std::filesystem::path& ASSETS_PATH       = Detail::Slot( ContentDir::Assets );
+        inline const std::filesystem::path& MESH_PATH         = Detail::Slot( ContentDir::Mesh );
+        inline const std::filesystem::path& MATERIAL_PATH     = Detail::Slot( ContentDir::Material );
+        inline const std::filesystem::path& TEXTUREDIR_PATH   = Detail::Slot( ContentDir::Texture );
+        inline const std::filesystem::path& SKYBOX_PATH       = Detail::Slot( ContentDir::Skybox );
+        inline const std::filesystem::path& SCENE_PATH        = Detail::Slot( ContentDir::Scene );
+        inline const std::filesystem::path& PREFAB_PATH       = Detail::Slot( ContentDir::Prefab );
+        inline const std::filesystem::path& SCRIPT_PATH       = Detail::Slot( ContentDir::Script );
+        inline const std::filesystem::path& COLLECTIONS_PATH  = Detail::Slot( ContentDir::Collections );
+        inline const std::filesystem::path& LOCALIZATION_PATH = Detail::Slot( ContentDir::Localization );
+        inline const std::filesystem::path& CLOUD_NOISE_PATH  = Detail::Slot( ContentDir::CloudNoise );
+        inline const std::filesystem::path& CLOUD_TYPE_PATH   = Detail::Slot( ContentDir::CloudType );
+        inline const std::filesystem::path& CLOUD_VOLUME_PATH = Detail::Slot( ContentDir::CloudVolume );
+        inline const std::filesystem::path& CLOUD_LAYOUT_PATH = Detail::Slot( ContentDir::CloudLayout );
+        inline const std::filesystem::path& UI_THEME_PATH     = Detail::Slot( ContentDir::UITheme );
+        inline const std::filesystem::path& CONTROL_RIG_PATH  = Detail::Slot( ContentDir::ControlRig );
+        inline const std::filesystem::path& SHADER_GRAPH_PATH = Detail::Slot( ContentDir::ShaderGraph );
+        inline const std::filesystem::path& ANIM_GRAPH_PATH   = Detail::Slot( ContentDir::AnimGraph );
+        inline const std::filesystem::path& RETARGET_PATH     = Detail::Slot( ContentDir::Retarget );
+        inline const std::filesystem::path& FOLIAGE_TYPE_PATH = Detail::Slot( ContentDir::FoliageType );
+        inline const std::filesystem::path& LANDSCAPE_LAYER_INFO_PATH =
+             Detail::Slot( ContentDir::LandscapeLayerInfo );
+        inline const std::filesystem::path& ANIMATION_PATH      = Detail::Slot( ContentDir::Animation );
+        inline const std::filesystem::path& LEVEL_SEQUENCE_PATH = Detail::Slot( ContentDir::LevelSequence );
+        inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
     } // namespace Path
 
     namespace Extensions

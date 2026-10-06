@@ -24,8 +24,8 @@ namespace Desert::Migration
     //
     // THE DEFECT THIS IS. The v11 -> v12 raise creates a `.demat` beside the scene and writes its
     // assets-root-relative name into the scene. The write site used to resolve that name against
-    // `Constants::Path::ASSETS_PATH`, which with no project open was then the relative `Resources/Assets/` of the since-removed sandbox —
-    // i.e. it resolved against the CURRENT DIRECTORY. Run from the repository root over
+    // `Constants::Path::ASSETS_PATH`, which with no project open was then the relative `Resources/Assets/` of the
+    // since-removed sandbox — i.e. it resolved against the CURRENT DIRECTORY. Run from the repository root over
     // `Projects/Desert/Content/Scenes/Autosave/X.desce`, it created a brand-new `Resources/Assets/`
     // tree AT THE REPOSITORY ROOT and put the material there, while the scene named it relative to the
     // root it actually lives under. Two DIFFERING files, one name, one relative path, two roots — and
