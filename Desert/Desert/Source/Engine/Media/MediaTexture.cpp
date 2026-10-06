@@ -174,9 +174,12 @@ namespace Desert::Media
                                  lumaOnly ? 1.0f : 0.0f };
 
         Graphic::Image2D* y = m_Planes[0].get();
-        m_Pipeline->SetInput( 0, y );
-        m_Pipeline->SetInput( 1, lumaOnly ? y : m_Planes[1].get() );
-        m_Pipeline->SetInput( 2, lumaOnly ? y : m_Planes[2].get() );
+        // Outside the frame graph (its own batch): the pipeline records each plane's transition to the
+        // declared access itself.
+        constexpr auto kPlaneRead = Graphic::RDG::Access::SampledCompute;
+        m_Pipeline->SetInput( 0, y, kPlaneRead, Graphic::RDG::SubresourceRange::All() );
+        m_Pipeline->SetInput( 1, lumaOnly ? y : m_Planes[1].get(), kPlaneRead, Graphic::RDG::SubresourceRange::All() );
+        m_Pipeline->SetInput( 2, lumaOnly ? y : m_Planes[2].get(), kPlaneRead, Graphic::RDG::SubresourceRange::All() );
         m_Pipeline->SetOutput( 3, m_Output.get(), 0 );
         m_Pipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
         m_Pipeline->Record( *batch, ( m_Width + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize,
