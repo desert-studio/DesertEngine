@@ -360,13 +360,11 @@ namespace Desert::Graphic::System
         // level than the object the camera sees casts a silhouette that does not match the
         // object it belongs to. The per-object caster loop below has always asked it this
         // way (ComputeLOD reads the main camera); the batched paths simply did not ask.
-        const auto*     lodCamera = m_SceneRenderer->GetMainCamera();
-        const glm::vec3 lodViewPosition =
-             lodCamera != nullptr ? lodCamera->GetPosition() : glm::vec3( 0.0f );
+        const auto*     lodCamera       = m_SceneRenderer->GetMainCamera();
+        const glm::vec3 lodViewPosition = lodCamera != nullptr ? lodCamera->GetPosition() : glm::vec3( 0.0f );
 
         std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
-        const auto bucketFor =
-             [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&
+        const auto bucketFor = [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&
         {
             for ( auto& [m, v] : byMesh )
                 if ( m == mesh )
@@ -403,8 +401,7 @@ namespace Desert::Graphic::System
                 levels.reserve( bucket.size() );
                 for ( const auto* rd : bucket )
                     levels.push_back(
-                         std::min( ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ),
-                                   maxLevel ) );
+                         std::min( ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ), maxLevel ) );
 
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                 {
@@ -442,25 +439,22 @@ namespace Desert::Graphic::System
                 // engine whose shadow could not be turned off: the static and skinned
                 // components both carry CastShadows and this pass read both, while the ISM
                 // branch had no condition at all.
-                if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms ||
-                     ism.Transforms->empty() )
+                if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                     continue;
 
                 // Per-instance, against this cascade. A cascade covers a slice of the view,
                 // so a forest spread over the map has most of its instances outside every
                 // one of the four — and the batch is a single draw whose cost is entirely
                 // its instance count.
-                const Common::Math::AABB localBounds =
-                     Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-                const uint32_t maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
+                const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+                const uint32_t           maxLevel    = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
 
                 // The cull distance from the MAIN camera, as the geometry pass measures it:
                 // an instance faded out of the view casts no shadow either.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
-                CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance,
-                                     ism.Wind, lodViewPosition, lodViewPosition, maxLevel, visible,
-                                     levels );
+                CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance, ism.Wind,
+                                     lodViewPosition, lodViewPosition, maxLevel, visible, levels );
                 if ( visible.empty() )
                     continue;
 
@@ -470,9 +464,9 @@ namespace Desert::Graphic::System
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
                             instTransforms.push_back( visible[i] );
-                    batches.push_back( ShadowBatch{
-                         ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first,
-                         level, PackInstanceWind( ism.Wind ) } );
+                    batches.push_back( ShadowBatch{ ism.Mesh,
+                                                    static_cast<uint32_t>( instTransforms.size() ) - first, first,
+                                                    level, PackInstanceWind( ism.Wind ) } );
                 }
             }
         }
@@ -546,11 +540,12 @@ namespace Desert::Graphic::System
                 skinMat->UploadBones( skinBones );
                 for ( const auto& [sd, boneOffset] : casters )
                 {
-                    list.Add( { .Pipeline  = m_ShadowSkinnedPipeline.get(),
-                                .Mesh      = sd->Mesh,
-                                .Transform = sd->Transform,
-                                .Material  = skinMat->GetMaterialExecutor(),
-                                .BindState = [skinMat, offset = boneOffset] { skinMat->SetBoneOffset( offset ); } } );
+                    list.Add(
+                         { .Pipeline  = m_ShadowSkinnedPipeline.get(),
+                           .Mesh      = sd->Mesh,
+                           .Transform = sd->Transform,
+                           .Material  = skinMat->GetMaterialExecutor(),
+                           .BindState = [skinMat, offset = boneOffset] { skinMat->SetBoneOffset( offset ); } } );
                 }
             }
         }
@@ -561,8 +556,8 @@ namespace Desert::Graphic::System
             auto* instMat = m_ShadowInstancedMaterial[c].get();
             instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c] );
             if ( auto* sb = instMat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
-                sb->SetRawData( instTransforms.data(), static_cast<uint32_t>( instTransforms.size() *
-                                                                              sizeof( glm::mat4 ) ) );
+                sb->SetRawData( instTransforms.data(),
+                                static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
             for ( const auto& b : batches )
             {
                 // The same wind the surface pass pushed for these instances, so the shadow
