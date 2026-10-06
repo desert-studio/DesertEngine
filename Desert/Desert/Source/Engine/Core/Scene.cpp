@@ -732,6 +732,7 @@ namespace Desert::Core
         // pool exists before the first parallel group, not which system happens to be serial this week.
         r.prepare<ECS::ColliderComponent>();
         r.prepare<ECS::RigidBodyComponent>();
+        r.prepare<ECS::DestructibleComponent>();
         r.prepare<ECS::CharacterControllerComponent>();
         r.prepare<ECS::PlayerStartComponent>();
         r.prepare<ECS::StreamingSourceComponent>();

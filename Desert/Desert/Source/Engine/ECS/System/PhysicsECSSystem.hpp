@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
+#include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -73,6 +74,7 @@ namespace Desert::ECS
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
                     m_RefusedColliders.clear();
                     m_Landscape.reset();
+                    m_Destructibles.reset();
                     m_Destruction.reset();
                     m_World->Shutdown();
                     m_World.reset();
@@ -90,6 +92,7 @@ namespace Desert::ECS
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Destruction = std::make_unique<Destruction::DestructionWorld>( *m_World );
+                m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
             {
@@ -104,6 +107,9 @@ namespace Desert::ECS
             // see PhysicsBodyLifetime.hpp. Re-armed each frame because a reloaded scene may be a new registry.
             m_Lifetime->Attach( registry );
             m_Landscape->Attach( registry );
+            m_Destructibles->Attach( registry );
+            m_Destructibles->Sync( registry, []( const Assets::AssetHandle& fracture )
+                                   { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); } );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
             m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
 
@@ -373,6 +379,8 @@ namespace Desert::ECS
         std::unique_ptr<LandscapeCollision> m_Landscape;
         // Same rule: the scene's destructibles are bodies in m_World, advanced by its fixed step.
         std::unique_ptr<Destruction::DestructionWorld> m_Destruction;
+        // Same rule, one level down: the destructible entities' objects live in m_Destruction.
+        std::unique_ptr<DestructibleLifetime> m_Destructibles;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.

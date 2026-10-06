@@ -60,6 +60,7 @@ namespace Desert::Scripting
              MakeEntry<ECS::LandscapeMaterialComponent>( "LandscapeMaterial", "LandscapeMaterialData" ),
              MakeEntry<ECS::ColliderComponent>( "Collider", "ColliderData" ),
              MakeEntry<ECS::RigidBodyComponent>( "RigidBody", "RigidBodyData" ),
+             MakeEntry<ECS::DestructibleComponent>( "Destructible", "DestructibleData" ),
              MakeEntry<ECS::CharacterControllerComponent>( "CharacterController", "CharacterControllerData" ),
              MakeEntry<ECS::SkyAtmosphereComponent>( "SkyAtmosphere", "SkyAtmosphereData" ),
              MakeEntry<ECS::ExponentialHeightFogComponent>( "ExponentialHeightFog", "ExponentialHeightFogData" ),

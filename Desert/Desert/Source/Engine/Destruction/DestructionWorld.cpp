@@ -131,7 +131,9 @@ namespace Desert::Destruction
         for ( int32_t i = count - 1; i >= 0; --i )
         {
             NodeState& node     = object.Nodes[i];
-            node.InternalStrain = nodes[i].DamageThreshold;
+            const uint32_t level    = nodes[i].Level;
+            node.InternalStrain =
+                 level < desc.DamageThreshold.size() ? desc.DamageThreshold[level] : nodes[i].DamageThreshold;
             if ( node.Children.empty() )
             {
                 if ( nodes[i].HullVertices.empty() )

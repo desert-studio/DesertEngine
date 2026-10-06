@@ -62,6 +62,9 @@ namespace Desert::Destruction
         glm::vec3            Position = { 0.0f, 0.0f, 0.0f }; ///< Where the fracture's origin is placed
         glm::quat            Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
         std::vector<int32_t> AnchoredNodes; ///< Each node, and every leaf below it, never moves
+        /// UE component DamageThreshold: entry L replaces the bake's threshold of every level-L node; the
+        /// levels past the list keep the bake's (UE ApplyAssetDefaults: the asset is the default)
+        std::vector<float>   DamageThreshold;
         DestructionSettings  Settings;
     };
 

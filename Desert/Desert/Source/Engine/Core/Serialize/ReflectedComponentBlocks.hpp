@@ -125,6 +125,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<VolumetricCloudComponent, VolumetricCloudData>{ "VolumetricCloud", "VolumetricCloudData", &VolumetricCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<HeroCloudComponent, HeroCloudData>{ "HeroCloud", "HeroCloudData", &HeroCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<ProceduralFoliageComponent, ProceduralFoliageData>{ "ProceduralFoliage", "ProceduralFoliageData", &ProceduralFoliageComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<DestructibleComponent, DestructibleData>{ "Destructible", "DestructibleData", &DestructibleComponent::Data, R::SkyAndAtmosphere } );
         // clang-format on
     }
 } // namespace Desert::Core::Serialize
