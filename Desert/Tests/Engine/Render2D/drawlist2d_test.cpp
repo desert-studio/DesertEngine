@@ -1020,3 +1020,77 @@ TEST( PreparedDraws, EveryDrawIsPreparedOnceAndTheExecRecordsThePreparedList )
     EXPECT_FALSE( prepared.Ready() ) << "the next frame's list is not the last frame's";
     EXPECT_TRUE( prepared.Draws().empty() );
 }
+
+// RDG-FAULT1 C3b gap 4: one broken material among several, through the path Render2D takes - PreparedDraws in the
+// setup, UIMaterialFallback::Choose per draw (UIMaterialCache::DrawableOrDefault is Choose over the real entries,
+// census RenderGraphCompile.UIMaterialDrawsFallBackPerDrawNotPerNode). Every draw declares a block, the broken one
+// binds the default UI material (UIMatError), the healthy ones their own, and the log names the broken MATERIAL in
+// one line across frames.
+TEST( UIMaterialFallback, OneBrokenMaterialAmongSeveralThroughThePreparedPath )
+{
+    using R2D::UIMaterialFallback;
+    using Fields = std::vector<std::string>;
+    struct Entry
+    {
+        bool        Error = false;
+        std::string AssetName;
+        std::string Shader;
+        Fields      Row; // the fields of the schema the row was built from
+    };
+    const auto layoutOf = []( const std::string& shader ) -> Fields
+    {
+        if ( shader == "UIGradient" )
+        {
+            return { "TopColor", "BottomColor" };
+        }
+        if ( shader == "UITint" )
+        {
+            return { "Tint" };
+        }
+        return {}; // UIMatError reads no row
+    };
+    const Entry                     gradient{ false, "UI_Gradient", "UIGradient", { "TopColor", "BottomColor" } };
+    const Entry                     broken{ false, "UI_Broken", "UIGradient", { "TopColor" } }; // short row
+    const Entry                     tint{ false, "UI_Tint", "UITint", { "Tint" } };
+    const Entry                     error{ true, "", "UIMatError", {} };
+    const std::vector<const Entry*> commands = { &gradient, &broken, &tint, &broken };
+
+    UIMaterialFallback       fallback;
+    std::vector<std::string> logs;
+    int                      prepares = 0;
+    const auto               prepare  = [&]( const Entry& entry )
+    {
+        ++prepares;
+        const Fields layout = layoutOf( entry.Shader );
+        return UIMaterialFallback::RowFault( !layout.empty(), layout, entry.Row, entry.Row.size() );
+    };
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        R2D::PreparedDraws<const Entry*> prepared;
+        prepared.Prepare( commands,
+                          [&]( const Entry* entry ) -> std::optional<const Entry*>
+                          {
+                              const Entry* chosen = fallback.Choose(
+                                   *entry, [&]() { return &error; }, prepare,
+                                   []( const Entry& e ) { return e.Shader; },
+                                   [&]( const std::string& line ) { logs.push_back( line ); }, "UIMatError" );
+                              if ( !chosen )
+                              {
+                                  return std::nullopt;
+                              }
+                              return chosen;
+                          } );
+        ASSERT_EQ( prepared.Draws().size(), commands.size() )
+             << "every draw declares a block (frame " << frame << ")";
+        EXPECT_EQ( prepared.Draws()[0].Value, &gradient );
+        EXPECT_EQ( prepared.Draws()[1].Value, &error ) << "the broken material binds UIMatError";
+        EXPECT_EQ( prepared.Draws()[2].Value, &tint ) << "a healthy material after the broken one draws itself";
+        EXPECT_EQ( prepared.Draws()[3].Value, &error );
+    }
+    EXPECT_EQ( prepares, 12 ) << "per frame: one preparation per draw, plus the default's for each broken draw";
+    ASSERT_EQ( logs.size(), 1u ) << "the broken material is reported once across frames";
+    EXPECT_NE( logs[0].find( "material 'UI_Broken' (shader 'UIGradient')" ), std::string::npos ) << logs[0];
+    EXPECT_EQ( logs[0].find( "UI_Broken" ), logs[0].rfind( "UI_Broken" ) ) << "named once: " << logs[0];
+    EXPECT_NE( logs[0].find( "'UIMatError'" ), std::string::npos ) << logs[0];
+    EXPECT_EQ( logs[0].find( "UI_Gradient" ), std::string::npos ) << "only the broken material is reported";
+}

@@ -4304,21 +4304,24 @@ TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
          << "Render2D::Resolve no longer routes a material draw through UIMaterialCache::DrawableOrDefault";
     const std::size_t drawable = cache.find( "UIMaterialCache::DrawableOrDefault(" );
     ASSERT_NE( drawable, std::string::npos );
-    const std::size_t admit = cache.find( "m_Fallback.Admit(", drawable );
+    const std::size_t admit = cache.find( "m_Fallback.Choose(", drawable );
     const std::size_t after = cache.find( "UIMaterialCache::RetireUnused(", drawable );
     EXPECT_TRUE( admit != std::string::npos && admit < after )
          << "DrawableOrDefault no longer asks the UIMaterialFallback";
+    // The decision itself (report once per material ASSET, the default in its place) is
+    // UIMaterialFallback::Choose, driven with fake entries by drawlist2d
+    // UIMaterialFallback.OneBrokenMaterialAmongSeveralThroughThePreparedPath; here: DrawableOrDefault is exactly
+    // that decision over the real entries.
     const std::string drawableBody = cache.substr( drawable, after - drawable );
-    EXPECT_NE( drawableBody.find( "m_Fallback.Admit(entry->AssetName,fault)" ), std::string::npos )
-         << "the fallback is no longer reported once per material ASSET";
-    EXPECT_NE( drawableBody.find( "UIMaterialFallback::Report(entry->AssetName," ), std::string::npos )
-         << "the fallback's log line no longer names the material asset";
+    EXPECT_NE( drawableBody.find( "returnm_Fallback.Choose(*entry,[this](){returnErrorEntry();}," ),
+               std::string::npos )
+         << "DrawableOrDefault no longer is UIMaterialFallback::Choose with the error fill as the default";
+    EXPECT_NE( drawableBody.find( "{returnPrepareDraw(candidate,projection);}" ), std::string::npos )
+         << "DrawableOrDefault no longer judges a candidate by PrepareDraw";
+    EXPECT_NE( drawableBody.find( "LOG_ERROR(\"{}\",line);}" ), std::string::npos )
+         << "the fallback's one report no longer reaches the log";
     EXPECT_NE( cache.find( "built.AssetName=materialService->AssetNameOf(handle);" ), std::string::npos )
          << "an entry no longer keeps the asset name it was resolved from";
-    EXPECT_NE( drawableBody.find( "PrepareDraw(*entry,projection)" ), std::string::npos )
-         << "DrawableOrDefault no longer judges the entry by PrepareDraw";
-    EXPECT_NE( drawableBody.find( "entry->Error?entry:ErrorEntry()" ), std::string::npos )
-         << "a refused draw no longer binds the error fill (the one default UI material)";
     // The fallback and the setup refusal cannot disagree: PrepareDraw judges by the row's fit AND the very
     // ValidatePassBindings the setup runs, and the row is written nowhere else.
     const std::size_t prepare = cache.find( "std::stringUIMaterialCache::PrepareDraw(" );

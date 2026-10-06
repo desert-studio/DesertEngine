@@ -264,6 +264,10 @@ namespace Desert::Graphic::Render2D
 
     std::string UIMaterialCache::PrepareDraw( const Entry& entry, const glm::mat4& projection )
     {
+        if ( !entry.Material || !entry.Pipeline )
+        {
+            return "the material has no pipeline against the UI target";
+        }
         DataDrivenMaterial&            material = *entry.Material;
         const std::shared_ptr<Shader>& shader   = entry.Pipeline->GetSpecification().Shader;
         if ( !shader )
@@ -293,38 +297,16 @@ namespace Desert::Graphic::Render2D
                                                                       const glm::mat4& projection )
     {
         if ( !entry || !entry->Material )
-            return nullptr;
-        if ( !entry->Error && entry->Pipeline )
         {
-            const std::string fault = PrepareDraw( *entry, projection );
-            switch ( m_Fallback.Admit( entry->AssetName, fault ) )
-            {
-                case UIMaterialFallback::Verdict::Draws:
-                    return entry;
-                case UIMaterialFallback::Verdict::DefaultFirstReport:
-                {
-                    LOG_ERROR( "{}",
-                               UIMaterialFallback::Report( entry->AssetName, entry->Material->GetShaderName(),
-                                                           fault, kErrorShaderName ) );
-                    break;
-                }
-                case UIMaterialFallback::Verdict::Default:
-                    break;
-            }
-        }
-        const Entry* fallback = entry->Error ? entry : ErrorEntry();
-        if ( !fallback || !fallback->Material || !fallback->Pipeline )
             return nullptr;
-        const std::string fault = PrepareDraw( *fallback, projection );
-        if ( fault.empty() )
-            return fallback;
-        if ( m_Fallback.Admit( kErrorShaderName, fault ) == UIMaterialFallback::Verdict::DefaultFirstReport )
-        {
-            LOG_ERROR(
-                 "[UIMaterial] the default UI material '{}' cannot draw either ({}); those draws are skipped",
-                 kErrorShaderName, fault );
         }
-        return nullptr;
+        // UIMaterialFallback::Choose is the decision (the suite drives it with fake entries); this binds it to the
+        // real entries: PrepareDraw judges each candidate, the error fill is the default, the log is the engine's.
+        return m_Fallback.Choose(
+             *entry, [this]() { return ErrorEntry(); },
+             [this, &projection]( const Entry& candidate ) { return PrepareDraw( candidate, projection ); },
+             []( const Entry& candidate ) { return candidate.Material->GetShaderName(); },
+             []( const std::string& line ) { LOG_ERROR( "{}", line ); }, kErrorShaderName );
     }
 
     void UIMaterialCache::RetireUnused()

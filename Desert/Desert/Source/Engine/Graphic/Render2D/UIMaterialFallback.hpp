@@ -74,6 +74,53 @@ namespace Desert::Graphic::Render2D
             return m_Reported.insert( materialName ).second ? Verdict::DefaultFirstReport : Verdict::Default;
         }
 
+        // THE DECISION FOR ONE MATERIAL DRAW - UIMaterialCache::DrawableOrDefault is this over the real entries,
+        // called by Render2D::Resolve once per draw in the setup (PreparedDraws). @p entry: the entry the command
+        // resolved to (`.Error`, `.AssetName`). @p errorEntry(): the default UI material's entry, null when it
+        // cannot be built. @p prepare( const Entry& ) -> std::string: prepares the draw (UIMaterialCache::
+        // PrepareDraw: row, push, validation) and returns why it cannot record, empty when it can. @p shaderOf(
+        // const Entry& ) -> std::string names its shader for the report; @p log( const std::string& ) takes the
+        // ONE report per material. Returns the entry the draw binds: @p entry, the default in its place, or null
+        // when even the default cannot draw (the draw is then skipped in setup and exec alike).
+        template <class Entry, class ErrorEntry, class Prepare, class ShaderOf, class Log>
+        [[nodiscard]] const Entry* Choose( const Entry& entry, ErrorEntry&& errorEntry, Prepare&& prepare,
+                                           ShaderOf&& shaderOf, Log&& log, const std::string& defaultName )
+        {
+            if ( !entry.Error )
+            {
+                const std::string fault = prepare( entry );
+                switch ( Admit( entry.AssetName, fault ) )
+                {
+                    case Verdict::Draws:
+                        return &entry;
+                    case Verdict::DefaultFirstReport:
+                    {
+                        log( Report( entry.AssetName, shaderOf( entry ), fault, defaultName ) );
+                        break;
+                    }
+                    case Verdict::Default:
+                        break;
+                }
+            }
+            const Entry* fallback = entry.Error ? &entry : errorEntry();
+            if ( !fallback )
+            {
+                return nullptr;
+            }
+            const std::string fault = prepare( *fallback );
+            if ( fault.empty() )
+            {
+                return fallback;
+            }
+            if ( Admit( defaultName, fault ) == Verdict::DefaultFirstReport )
+            {
+                log( std::format( "[UIMaterial] the default UI material '{}' cannot draw either ({}); those draws "
+                                  "are skipped",
+                                  defaultName, fault ) );
+            }
+            return nullptr;
+        }
+
         [[nodiscard]] std::size_t ReportedCount() const
         {
             return m_Reported.size();
