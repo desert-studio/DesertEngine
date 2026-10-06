@@ -1134,4 +1134,3 @@ TEST( PakChunks, EveryPackedTextFileIsCheckedOutVerbatim )
                                         "`-text` rule to .gitattributes:"
                                      << listed;
 }
-

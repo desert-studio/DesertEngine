@@ -234,4 +234,3 @@ TEST( BuildVersion, FullCarriesTheParts )
              << "Without a build number Full() must have no build-number field at all: " << full;
     }
 }
-

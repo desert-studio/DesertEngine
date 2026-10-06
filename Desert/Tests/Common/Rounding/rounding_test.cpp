@@ -113,4 +113,3 @@ TEST( Rounding, TheQuantiserIsMonotonic )
     }
     EXPECT_EQ( previous, 255 );
 }
-

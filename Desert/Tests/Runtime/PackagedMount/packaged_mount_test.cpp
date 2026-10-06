@@ -439,4 +439,3 @@ TEST( PackagedMount, AnArchiveThatNamesNoChunksIsAGameThatWasNeverDivided )
     DESERT_EXPECT_RESULT_EQ( Common::Utils::FileSystem::ReadFileContent( dir / "Assets/menu.desce" ),
                              "the whole game" );
 }
-

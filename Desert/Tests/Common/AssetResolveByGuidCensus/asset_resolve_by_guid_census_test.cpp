@@ -447,4 +447,3 @@ TEST( AssetResolveByGuidCensus, RegisterRowsAreUniqueAndCarryAReason )
             EXPECT_NE( kPathOnly[i].Kind, kPathOnly[j].Kind ) << "row " << i << " and row " << j;
     }
 }
-

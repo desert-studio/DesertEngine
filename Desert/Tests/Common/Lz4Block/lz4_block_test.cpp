@@ -186,4 +186,3 @@ TEST( Lz4Block, CompressionRefusesWhenTheOutputWouldNotFit )
     std::vector<char> tiny( 1 );
     EXPECT_EQ( Lz4BlockCompress( fixture.data(), fixture.size(), tiny.data(), tiny.size() ), 0u );
 }
-

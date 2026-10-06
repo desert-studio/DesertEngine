@@ -520,4 +520,3 @@ TEST( BuildScriptContract, GluedTextGateSeparatesGlueFromFormat )
     fs::remove_all( dir );
 }
 #endif
-

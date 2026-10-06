@@ -228,4 +228,3 @@ TEST( JsonFacade, FileFunctionsNameTheFile )
 
     std::filesystem::remove_all( dir );
 }
-

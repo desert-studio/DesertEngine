@@ -203,4 +203,3 @@ namespace
                  << "exception row matches nothing any more, remove it: " << row.File;
     }
 } // namespace
-

@@ -175,4 +175,3 @@ TEST( TidyRegister, TheRegisterIsNotEmptyAndStillNamesTheRowsItWasBuiltFor )
                 " classes was found at; dropping its row retires the class silently.";
     }
 }
-

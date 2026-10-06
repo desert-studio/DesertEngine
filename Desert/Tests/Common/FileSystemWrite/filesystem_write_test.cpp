@@ -302,4 +302,3 @@ TEST( FileSystemWrite, TheBannedIdiomReportsSuccessUnderTheVerySameFailure )
          << "the bytes actually landed, so nothing failed and neither test above means what it says";
 }
 #endif
-

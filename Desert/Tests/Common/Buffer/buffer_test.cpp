@@ -69,4 +69,3 @@ TEST( Buffer, WriteThenReadBack )
 
     buffer.Release();
 }
-

@@ -97,6 +97,9 @@ local kRunners = {
             -- BuildScriptContract holds the editor's asset-reference scan to the build scripts.
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
+            -- Desert.lib registers the reflected types from an object nothing here references; this
+            -- reference links it (see the file). Before BUILD1 the suites compiled Reflection.gen.cpp.
+            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/TestSupport/EngineReflectionLink.cpp",
         }
         includedirs {
             "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",

@@ -306,4 +306,3 @@ TEST( FoliageTypeMigration, LayerReferencesAreHeaderDependenciesAfterTheMesh )
     data.LandscapeLayers.push_back( data.LandscapeLayers[0] );
     EXPECT_FALSE( Assets::Serialization::ValidateFoliageTypeData( data ) );
 }
-

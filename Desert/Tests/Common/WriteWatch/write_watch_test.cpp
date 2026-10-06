@@ -144,4 +144,3 @@ TEST( WriteWatch, ForgetMakesTheNextSightingABaseline )
     watch.Clear();
     EXPECT_EQ( watch.Observe( "a", file ), Seen::First );
 }
-

@@ -1198,4 +1198,3 @@ TEST( Pak, TheMountStackCanBeAskedWhichArchiveServesAKey )
 
     Common::Utils::VFS::Unmount();
 }
-

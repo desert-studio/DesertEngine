@@ -340,4 +340,3 @@ TEST( PostProcessVolume, TheSceneSchemaIsPastThisStep )
     EXPECT_EQ( Migration::kSceneVersionSceneSettingsHomes, 36 );
     EXPECT_LT( Migration::kSceneVersionSceneSettingsHomes, Core::kSceneVersion );
 }
-

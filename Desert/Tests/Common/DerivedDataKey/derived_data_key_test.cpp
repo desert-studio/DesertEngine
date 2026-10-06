@@ -473,4 +473,3 @@ TEST( DerivedDataKey, PackageCookDerivesItsShippedBucketsFromTheRegisterNotALite
                  << "\" as a literal - it should name only Assets::ShippedDDCBuckets() and let the "
                     "register be the one place that string is written.";
 }
-

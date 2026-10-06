@@ -539,4 +539,3 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
                                 "true while the New Project template attaches one - the scan is broken, "
                                 "not the tree";
 }
-

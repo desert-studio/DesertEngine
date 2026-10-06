@@ -424,4 +424,3 @@ TEST( CanonicalText, AFailedWriterRefusesTheSaveAndLeavesTheFileAsItWas )
     EXPECT_NE( after.str().find( "false" ), std::string::npos );
     fs::remove_all( dir );
 }
-

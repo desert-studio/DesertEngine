@@ -158,4 +158,3 @@ TEST( CrashReportParse, NotAReportIsRefusedWithThePath )
     EXPECT_FALSE( future.valid );
     EXPECT_NE( future.error.find( "version 2" ), std::string::npos ) << future.error;
 }
-

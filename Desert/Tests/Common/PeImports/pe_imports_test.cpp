@@ -195,4 +195,3 @@ TEST( AppLocalRuntime, AnEmptyOrMissingRedistDirectoryIsRefused )
     EXPECT_FALSE( AppLocalRuntimeClosure( exe, dir.Crt() ) );
     EXPECT_FALSE( AppLocalRuntimeClosure( exe, dir.Crt() / "absent" ) );
 }
-

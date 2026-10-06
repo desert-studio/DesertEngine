@@ -447,4 +447,3 @@ TEST( AssetGuidHandle, EachHalfReachesTheHandle )
     EXPECT_NE( Common::Content::HandleForGuid( base ),
                Common::Content::HandleForGuid( Common::Content::AssetGuid{ 2, 1 } ) );
 }
-

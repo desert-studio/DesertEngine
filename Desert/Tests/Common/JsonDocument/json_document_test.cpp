@@ -439,4 +439,3 @@ TEST( JsonDocument, FromStructWritesTheSameBytesAsTheStructWriter )
     carrier.Other[std::string( "Foreign" )] = Json::Value( std::string( "kept" ) );
     EXPECT_EQ( Json::Write( Json::FromStruct( carrier ) ), Json::Write( carrier ) );
 }
-

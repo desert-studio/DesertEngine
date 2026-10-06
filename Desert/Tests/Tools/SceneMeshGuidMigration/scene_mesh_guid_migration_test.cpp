@@ -267,4 +267,3 @@ TEST( ScenePathOnlyMeshGuidMigration, AnEnvelopeOfAnotherKindRefuses )
     ASSERT_FALSE( report.Refused.empty() );
     EXPECT_NE( report.Refused.find( "is not a mesh" ), std::string::npos ) << report.Refused;
 }
-

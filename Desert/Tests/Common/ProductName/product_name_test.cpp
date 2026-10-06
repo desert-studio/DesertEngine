@@ -81,4 +81,3 @@ TEST( ProductName, TheDefaultIsItselfAValidName )
     EXPECT_EQ( Common::Settings::SanitizeProductName( Common::Settings::kDefaultProductDirectoryName ),
                Common::Settings::kDefaultProductDirectoryName );
 }
-

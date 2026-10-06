@@ -255,4 +255,3 @@ TEST( JsonCensus, EveryFormatNameHasOneType )
     for ( const auto& [format, types] : byFormat )
         EXPECT_EQ( types.size(), 1u ) << "format \"" << format << "\" is claimed by " << types.size() << " types";
 }
-

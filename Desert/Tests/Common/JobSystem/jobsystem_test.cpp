@@ -196,4 +196,3 @@ TEST( JobSystem, WorkerCountIsPositive )
 {
     EXPECT_GE( Common::JobSystem::Get().WorkerCount(), static_cast<size_t>( 1 ) );
 }
-

@@ -1004,4 +1004,3 @@ TEST( ShippingBoundary, ThePackagerDefaultsToAConfigurationTheWorkspaceDeclares 
          << "the packager offers a configuration the workspace does not declare — packaging it can only "
             "ever fail with 'Runtime binary not found'.";
 }
-

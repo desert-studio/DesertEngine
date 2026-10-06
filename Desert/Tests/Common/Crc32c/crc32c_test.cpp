@@ -101,4 +101,3 @@ TEST( Crc32c, EveryBurstUpToThirtyTwoBitsIsDetected )
         }
     }
 }
-
