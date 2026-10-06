@@ -3258,6 +3258,22 @@ TEST( RenderGraphCompile, KeepsContentsExternalWithoutWriterIsNotAFrameFault )
     EXPECT_TRUE( result.Passes.empty() );
 }
 
+TEST( RenderGraphCompile, HistoryExternalWithoutWriterIsListedForItsOwnerToReset )
+{
+    RecordingBackend backend;
+    GlassFrame       frame( FaultDefault::None, ExternalFaultPolicy::InvalidateHistory );
+    frame.graph.Extract( frame.back, frame.backbuffer, Access::SampledGraphics );
+    // The state a FrameFault's caller leaves a cleared external in is the Extract's; a transient has none.
+    EXPECT_EQ( frame.graph.FindFinalAccess( frame.back.Index ), std::optional<Access>( Access::SampledGraphics ) );
+    EXPECT_EQ( frame.graph.FindFinalAccess( frame.lit.Index ), std::nullopt );
+
+    EXPECT_TRUE( frame.graph.Execute( backend ).IsSuccess() );
+    const ExecuteReport& report = frame.graph.GetExecuteReport();
+    EXPECT_FALSE( report.Frame.has_value() );
+    // The index is the external's TextureRef::Index: the owner matches it against the ref it registered.
+    EXPECT_EQ( report.InvalidatedExternals, std::vector<uint32_t>{ frame.back.Index } );
+}
+
 TEST( RenderGraphCompile, LateExecutionFaultKeepsTheFrameAndSkipsOnlyItsDependants )
 {
     ExternalTexture          backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );

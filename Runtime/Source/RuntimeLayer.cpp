@@ -940,8 +940,7 @@ namespace Desert::Player
         graph.Extract( target, backBuffer, Graphic::RDG::Access::Present );
         // A FrameFault (logged by the graph backend) is a frame: ExecuteGraph cleared the back buffer to black
         // and the frame presents it. Only a failure of ExecuteGraph itself (logged there) ends the frame here.
-        if ( const auto executed = renderer.ExecuteGraph( graph );
-             !executed && !graph.GetExecuteReport().Frame )
+        if ( const auto executed = renderer.ExecuteGraph( graph ); !executed && !graph.GetExecuteReport().Frame )
             return Common::MakeError( "[Runtime] present graph: " + executed.GetError() );
 
             // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and it has to be: a swapchain

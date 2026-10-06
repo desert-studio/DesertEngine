@@ -880,8 +880,9 @@ namespace Desert::Graphic::API::Vulkan
                         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                         barrier.image               = texture->GetImage();
                         barrier.subresourceRange    = range;
-                        vkCmdPipelineBarrier( commandBuffer, stages( before.Stages ), VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                              0, 0, nullptr, 0, nullptr, 1, &barrier );
+                        vkCmdPipelineBarrier( commandBuffer, stages( before.Stages ),
+                                              VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                                              &barrier );
                         ranges.push_back( range );
                     }
                 }
@@ -946,7 +947,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_CurrentCommandBuffer = nullptr;
             (void)NoteIfDeviceLost( ended, "vkEndCommandBuffer", __FILE__, __LINE__ );
-            return fail( std::format( "vkEndCommandBuffer before a graph failed: {}", VkResultToString( ended ) ) );
+            return fail(
+                 std::format( "vkEndCommandBuffer before a graph failed: {}", VkResultToString( ended ) ) );
         }
         m_FrameSubmissions.push_back(
              { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
