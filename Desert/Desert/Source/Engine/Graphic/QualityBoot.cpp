@@ -7,6 +7,8 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/GpuBenchmark.hpp>
+#include <Engine/Core/Window.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
@@ -57,12 +59,32 @@ namespace Desert::Graphic::QualityBoot
             return Common::MakeError<bool>( std::format( "{} is not a valid level table", tableFile.string() ) );
         }
 
-        Common::Settings::MachineSettings::Load( machineJson, table.GetValue() );
-        Common::Scalability::QualityState::Initialize( table.ExtractValue(),
-                                                       EngineContext::GetInstance().GetCapabilities().Catalog,
-                                                       Common::Settings::MachineSettings::Get().Quality,
+        using Common::Settings::MachineSettings;
+        MachineSettings::Load( machineJson, table.GetValue() );
+        const MachineSettings& machine = MachineSettings::Get();
+
+        // The present pacing lives in machine.json beside the quality (DisplaySettings.hpp); the window rebuilds
+        // its swapchain only when the stored value differs from the one it was created with.
+        if ( const auto window = EngineContext::GetInstance().GetWindow() )
+            window->SetDisplay( machine.Display );
+
+        const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
+        const MachineSettings::StartingQuality start = MachineSettings::StartFrom(
+             machine, Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version ) );
+        // A first run with a valid recommendation starts on High and then APPLIES the recommendation, so the
+        // Saver writes it: from then on machine.json holds a selection and the benchmark never overrides it.
+        Common::Scalability::QualityState::Initialize( table.ExtractValue(), capabilities.Catalog,
+                                                       start.FromRecommended ? MachineSettings::HighSelection()
+                                                                             : start.Selection,
                                                        &SaveSelection );
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
+        if ( start.FromRecommended )
+        {
+            LOG_INFO( "[Scalability] no quality chosen on this machine yet: applying the benchmark's recommendation "
+                      "(perf index {:.1f})",
+                      machine.Recommended->GpuPerfIndex );
+            Common::Scalability::QualityState::ApplyRecommended( start.Selection.Levels );
+        }
         PushSamplerState( Common::Scalability::QualityState::Resolved(), nullptr );
         return Common::MakeSuccess( true );
     }

@@ -401,9 +401,11 @@ namespace
          // handed to QualityState, the one apply point every renderer's ResolvedQuality comes from. Each
          // still passes the mis-authored/rendered-worse test on the "rendered worse" side.
          { "Quality", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },
-         // The benchmark's stored recommendation for this device (SCAL1). Read by the machine store's own
-         // load report today; the benchmark runner that compares its cache key is owed (REMAINDER-SCAL1-S1).
+         // The benchmark's stored recommendation for this device (SCAL1). Read by MachineSettings::StartFrom:
+         // a machine with no saved selection starts on it when its cache key is this device's.
          { "Recommended", Owner::Machine, kMachineSettingsImpl },
+         // VSync (DisplaySettings): how frames reach this machine's monitor. QualityBoot hands it to the window.
+         { "Display", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },
          // AF5: which disk holds the rebuildable cache is a machine's answer, never the project's.
          { "DerivedDataCachePath", Owner::Machine, "Desert/Common/Source/Common/Content/DerivedDataCache.cpp" },
     };
@@ -1247,8 +1249,10 @@ TEST( ConfigOwnershipCorpus, LoweringTheQualityOnThisMachineChangesNoByteOfAnySc
     Common::Settings::MachineSettings::Load( store, ShippedTable() );
 
     auto& quality = Common::Settings::MachineSettings::Get();
-    quality.Quality.Levels.fill( Common::Scalability::Level::Low );
-    quality.Quality.Overrides = { { "AntiAliasing.Method", 0 }, { "Filtering.Texture", 0 } };
+    quality.Quality.emplace();
+    quality.Quality->Levels.fill( Common::Scalability::Level::Low );
+    quality.Quality->Overrides = { { "AntiAliasing.Method", 0 }, { "Filtering.Texture", 0 } };
+    quality.Display.VSync = true;
     ASSERT_TRUE( Common::Settings::MachineSettings::Save() );
     ASSERT_TRUE( std::filesystem::exists( store ) ) << "the quality was not written anywhere at all";
 
@@ -1272,8 +1276,10 @@ TEST( ConfigOwnership, TheSerializedSettingsBlockDoesNotMoveWhenTheMachineQualit
     const std::string before = Common::Json::Write( Desert::Reflection::SerializeReflected( *type, &settings ) );
 
     auto& quality = Common::Settings::MachineSettings::Get();
-    quality.Quality.Levels.fill( Common::Scalability::Level::Cinematic );
-    quality.Quality.Overrides = { { "AntiAliasing.Method", 3 }, { "AntiAliasing.Samples", 8 } };
+    quality.Quality.emplace();
+    quality.Quality->Levels.fill( Common::Scalability::Level::Cinematic );
+    quality.Quality->Overrides = { { "AntiAliasing.Method", 3 }, { "AntiAliasing.Samples", 8 } };
+    quality.Display.VSync = false;
 
     EXPECT_EQ( Common::Json::Write( Desert::Reflection::SerializeReflected( *type, &settings ) ), before );
 }
@@ -1390,23 +1396,24 @@ namespace
     bool HasOverride( const Migrated& m, Parameter parameter, int value )
     {
         const Common::Scalability::ParameterOverride wanted{ KeyOf( parameter ), value };
-        const auto&                                  overrides = m.Settings.Quality.Overrides;
+        const auto&                                  overrides = m.Settings.Quality->Overrides;
         return std::find( overrides.begin(), overrides.end(), wanted ) != overrides.end();
     }
 
     // The one override the migration wrote, or none.
     void ExpectOnly( const Migrated& m, std::optional<Common::Scalability::ParameterOverride> expected )
     {
-        EXPECT_EQ( m.Settings.Quality.Levels, Common::Settings::MachineSettings::HighSelection().Levels );
+        ASSERT_TRUE( m.Settings.Quality.has_value() ) << "a migrated file must hold the selection it migrated into";
+        EXPECT_EQ( m.Settings.Quality->Levels, Common::Settings::MachineSettings::HighSelection().Levels );
         EXPECT_TRUE( m.Settings.UnknownKeys.empty() ) << "a retired key was carried into the next save";
         if ( !expected )
         {
-            EXPECT_TRUE( m.Settings.Quality.Overrides.empty() );
+            EXPECT_TRUE( m.Settings.Quality->Overrides.empty() );
             EXPECT_EQ( m.Report.Overrides, 0 );
             return;
         }
-        ASSERT_EQ( m.Settings.Quality.Overrides.size(), 1u );
-        EXPECT_EQ( m.Settings.Quality.Overrides[0], *expected );
+        ASSERT_EQ( m.Settings.Quality->Overrides.size(), 1u );
+        EXPECT_EQ( m.Settings.Quality->Overrides[0], *expected );
         EXPECT_EQ( m.Report.Overrides, 1 );
     }
 
@@ -1489,10 +1496,71 @@ TEST( ConfigOwnership, RetiredPostAAStandsInForAAMethodOnlyWhenAAMethodIsAbsent 
     EXPECT_TRUE( HasOverride( Migrate( R"({"AA":"None","MSAASamples":4})" ), Parameter::AntiAliasingMethod, 3 ) );
 }
 
+// FIRST RUN (UE auto-detect): no saved selection -> the benchmark's recommendation when its cache key is this
+// device's, else all High; a saved selection always wins over a recommendation.
+TEST( ConfigOwnership, AMachineWithNoSavedQualityStartsOnAValidRecommendationAndASavedOneWins )
+{
+    using Common::Settings::MachineSettings;
+    const Common::Scalability::BenchmarkCacheKey device{ 0x10DE, 0x2684, 42, "Test GPU", 1 };
+    Common::Scalability::RecommendedQuality      recommended;
+    recommended.Key = device;
+    recommended.Levels.fill( Common::Scalability::Level::Medium );
+    const MachineSettings::StartingQuality allHigh{ MachineSettings::HighSelection(), false };
+
+    MachineSettings fresh;
+    EXPECT_EQ( MachineSettings::StartFrom( fresh, device ), allHigh );
+
+    fresh.Recommended = recommended;
+    const auto start  = MachineSettings::StartFrom( fresh, device );
+    EXPECT_TRUE( start.FromRecommended );
+    EXPECT_EQ( start.Selection.Levels, recommended.Levels );
+    EXPECT_TRUE( start.Selection.Overrides.empty() );
+
+    auto otherDriver          = device;
+    otherDriver.DriverVersion = 43;
+    EXPECT_EQ( MachineSettings::StartFrom( fresh, otherDriver ), allHigh )
+         << "a recommendation measured on another driver must not be applied";
+
+    MachineSettings chosen = fresh;
+    chosen.Quality.emplace();
+    chosen.Quality->Levels.fill( Common::Scalability::Level::Low );
+    const MachineSettings::StartingQuality saved{ *chosen.Quality, false };
+    EXPECT_EQ( MachineSettings::StartFrom( chosen, device ), saved ) << "the benchmark overwrote the player's choice";
+}
+
+// VSync is a machine.json value (Display section), default OFF, and OFF keeps the pre-SCAL1 editor walk.
+TEST( ConfigOwnership, VSyncIsSavedInMachineJsonAndDefaultsToTheLowestLatencyMode )
+{
+    using Common::Scalability::PresentMode;
+    using Common::Settings::MachineSettings;
+    std::error_code             ec;
+    const std::filesystem::path store = std::filesystem::temp_directory_path() / "desert_configownership_vsync.json";
+    std::filesystem::remove( store, ec );
+    MachineSettings::Get() = {};
+    MachineSettings::Load( store, ShippedTable() );
+    EXPECT_FALSE( MachineSettings::Get().Display.VSync ) << "VSync must default off (UE r.VSync=0)";
+
+    Common::Scalability::CapabilityCatalog catalog;
+    catalog.PresentModes = { PresentMode::Fifo, PresentMode::Mailbox, PresentMode::Immediate };
+    EXPECT_EQ( Common::Scalability::ResolvePresentMode( MachineSettings::Get().Display, catalog ).Mode,
+               PresentMode::Immediate );
+
+    MachineSettings::Get().Display.VSync = true;
+    ASSERT_TRUE( MachineSettings::Save() );
+    MachineSettings::Get() = {};
+    MachineSettings::Load( store, ShippedTable() );
+    EXPECT_TRUE( MachineSettings::Get().Display.VSync ) << "VSync did not survive machine.json";
+    EXPECT_EQ( Common::Scalability::ResolvePresentMode( MachineSettings::Get().Display, catalog ).Mode,
+               PresentMode::Fifo );
+    MachineSettings::Get() = {};
+    std::filesystem::remove( store, ec );
+}
+
 TEST( ConfigOwnership, AFileThatAlreadyHasQualityOnlyDropsTheRetiredKeys )
 {
     Common::Settings::MachineSettings written;
-    written.Quality.Levels.fill( Common::Scalability::Level::Low );
+    written.Quality.emplace();
+    written.Quality->Levels.fill( Common::Scalability::Level::Low );
     std::string raw = Common::Json::Write( written );
     ASSERT_EQ( raw.back(), '}' );
     raw.pop_back();

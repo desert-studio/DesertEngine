@@ -199,16 +199,19 @@ namespace Common::Settings
 
         // NAMED, not numbered: this line is what a support ticket's engine_log.txt has to answer "what was this
         // machine asking for" with. What it actually RUNS is QualityState's to say (it knows the device).
-        std::string levels;
-        for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
-            std::format_to( std::back_inserter( levels ), "{}{} {}", g == 0 ? "" : ", ",
-                            Scalability::GroupKey( static_cast<Scalability::Group>( g ) ),
-                            Scalability::LevelKey( Get().Quality.Levels[g] ) );
-        LOG_INFO( "[Machine] {} — quality {}; {} override(s)", s_File.string(), levels,
-                  Get().Quality.Overrides.size() );
-        if ( const auto& recommended = Get().Recommended )
-            LOG_INFO( "[Machine] {} holds a benchmark recommendation (perf index {:.1f}, {})", s_File.string(),
-                      recommended->GpuPerfIndex, recommended->Timed ? "timed" : "device-class estimate" );
+        if ( const auto& quality = Get().Quality )
+        {
+            std::string levels;
+            for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
+                std::format_to( std::back_inserter( levels ), "{}{} {}", g == 0 ? "" : ", ",
+                                Scalability::GroupKey( static_cast<Scalability::Group>( g ) ),
+                                Scalability::LevelKey( quality->Levels[g] ) );
+            LOG_INFO( "[Machine] {} — quality {}; {} override(s); VSync {}", s_File.string(), levels,
+                      quality->Overrides.size(), Get().Display.VSync ? "on" : "off" );
+        }
+        else
+            LOG_INFO( "[Machine] {} — no quality chosen yet; VSync {}", s_File.string(),
+                      Get().Display.VSync ? "on" : "off" );
 
         // The migration is written back NOW, not at the user's next change (contract §4: no legacy key
         // left in the file).
@@ -233,6 +236,20 @@ namespace Common::Settings
                       "build and are preserved on save, not dropped.",
                       s_File.string(), Get().UnknownKeys.size(), names );
         }
+    }
+
+    MachineSettings::StartingQuality MachineSettings::StartFrom( const MachineSettings&                settings,
+                                                                 const Scalability::BenchmarkCacheKey& device )
+    {
+        if ( settings.Quality )
+            return { *settings.Quality, false };
+        if ( Scalability::CacheValid( settings.Recommended, device ) )
+        {
+            Scalability::QualitySelection recommended;
+            recommended.Levels = settings.Recommended->Levels;
+            return { std::move( recommended ), true };
+        }
+        return { HighSelection(), false };
     }
 
     Scalability::QualitySelection MachineSettings::HighSelection()
@@ -364,7 +381,7 @@ namespace Common::Settings
             const Scalability::Parameter parameter = *kRetiredKeys[k].Becomes;
             if ( *values[k] == table.ValueAt( parameter, Scalability::Level::High ) )
                 continue;
-            settings.Quality.Overrides.push_back( { std::string( Scalability::SpecOf( parameter ).Key ), *values[k] } );
+            settings.Quality->Overrides.push_back( { std::string( Scalability::SpecOf( parameter ).Key ), *values[k] } );
             ++result.Overrides;
         }
         return result;

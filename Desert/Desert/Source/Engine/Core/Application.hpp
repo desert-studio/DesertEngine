@@ -42,7 +42,6 @@ namespace Desert::Engine
         // so the system bar above it was a second title bar over the same window); the packaged Runtime
         // leaves it true, because a game has no menu bar to put there and would lose the close button.
         bool Decorated = true;
-        bool VSync     = true;
         // false = the window is created hidden and the application shows it itself (Window::Show). The
         // editor does, from behind its splash; see WindowSpecification::Visible.
         bool Visible = true;

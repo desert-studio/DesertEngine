@@ -275,7 +275,6 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
 
     ApplicationInfo appInfo;
     appInfo.Title = Desert::Project::ProjectContext::Current().Name;
-    appInfo.VSync = true; // a game default: tear-free presentation
     // Width/Height left as std::nullopt -> fullscreen at the monitor's native resolution.
 
     return std::make_unique<Desert::Player::RuntimeApp>( appInfo );

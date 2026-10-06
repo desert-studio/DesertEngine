@@ -16,8 +16,9 @@ namespace Common::Scalability
     struct DisplaySettings
     {
         // Wait for the display's vertical blank before presenting (no tearing, frame rate capped at the
-        // refresh rate). Off = the lowest-latency mode the surface offers.
-        bool VSync = true;
+        // refresh rate). Off = the lowest-latency mode the surface offers. Default OFF, as UE's r.VSync=0: the
+        // editor's pacing before SCAL1 (IMMEDIATE, else MAILBOX, else FIFO) stays what a fresh machine gets.
+        bool VSync = false;
 
         bool operator==( const DisplaySettings& ) const = default;
     };

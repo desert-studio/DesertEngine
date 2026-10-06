@@ -95,7 +95,7 @@ namespace Desert::Graphic::API::Vulkan
         // (VSync on -> FIFO; off -> IMMEDIATE, else MAILBOX, else FIFO with a reason). The swapchain no longer
         // walks the surface's modes itself, so the settings UI, the resolver and the swapchain cannot disagree.
         const Common::Scalability::ResolvedPresentMode present =
-             Common::Scalability::ResolvePresentMode( Common::Scalability::DisplaySettings{ .VSync = m_VSync },
+             Common::Scalability::ResolvePresentMode( m_Display,
                                                       EngineContext::GetInstance().GetCapabilities().Catalog );
         VkPresentModeKHR swapchainPresentMode = VK_PRESENT_MODE_FIFO_KHR;
         switch ( present.Mode )
@@ -115,10 +115,10 @@ namespace Desert::Graphic::API::Vulkan
         }
         if ( present.Reason.empty() )
             LOG_INFO( "[SwapChain] Present mode: {} (VSync {})", rfl::enum_to_string( present.Mode ),
-                      m_VSync ? "on" : "off" );
+                      m_Display.VSync ? "on" : "off" );
         else
             LOG_WARN( "[SwapChain] Present mode: {} (VSync {}): {}", rfl::enum_to_string( present.Mode ),
-                      m_VSync ? "on" : "off", present.Reason );
+                      m_Display.VSync ? "on" : "off", present.Reason );
 
         VkSurfaceTransformFlagsKHR preTransform;
         if ( surfCaps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR )

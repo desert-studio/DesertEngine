@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Settings/DisplaySettings.hpp>
+
 #include <Engine/Core/Glfw.hpp>
 
 #include <Engine/Core/Device.hpp>
@@ -53,23 +55,22 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::ResultStr<std::vector<uint8_t>>
         TakeCapturedFrameRGBA8( uint32_t& outWidth, uint32_t& outHeight ) = 0;
 
-        // Present pacing. ON = sync to the display (no tearing, frame rate capped at the refresh rate of
-        // the monitor the window is on); OFF = present as fast as the GPU finishes, which is what an
-        // uncapped FPS reading needs. Takes effect the next time the swapchain is (re)created — callers
-        // that toggle it at runtime must trigger a recreate, which OnResize already does.
-        void SetVSync( bool enabled )
+        // Present pacing (Scalability::DisplaySettings; machine.json's Display, handed over by QualityBoot through
+        // Window::SetDisplay). Takes effect the next time the swapchain is (re)created — Window::SetDisplay
+        // triggers the recreate. Until QualityBoot runs it is the DisplaySettings default.
+        void SetDisplay( const Common::Scalability::DisplaySettings& display )
         {
-            m_VSync = enabled;
+            m_Display = display;
         }
-        bool IsVSyncEnabled() const
+        [[nodiscard]] const Common::Scalability::DisplaySettings& Display() const
         {
-            return m_VSync;
+            return m_Display;
         }
 
         static std::shared_ptr<SwapChain> Create( const GLFWwindow* window );
 
     protected:
         const GLFWwindow* m_Window;
-        bool              m_VSync = true;
+        Common::Scalability::DisplaySettings m_Display;
     };
 } // namespace Desert::Graphic

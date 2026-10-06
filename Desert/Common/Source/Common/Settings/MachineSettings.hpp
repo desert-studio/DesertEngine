@@ -9,6 +9,7 @@
 
 // The unknown-key carrier below is a FIELD of the struct, so its type has to be visible here.
 #include <Common/Json/Json.hpp>
+#include <Common/Settings/DisplaySettings.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -91,10 +92,17 @@ namespace Common::Settings
         // through Scalability::QualityState (its Saver lands here); every renderer reads the RESOLVED values
         // (QualityState::Resolved()), never this. Replaces the six retired knobs AAMethod, MSAASamples,
         // TextureFilterMode, Anisotropy, MeshLOD and CloudQualityTier (see MigrateRetiredKeys).
-        Scalability::QualitySelection Quality = HighSelection();
+        // ABSENT = this machine never chose: QualityBoot starts on StartingQuality's answer (the benchmark's
+        // recommendation when it is valid for this device, UE's auto-detect on first run; else all High), and
+        // the key appears in the file the first time a selection is applied.
+        std::optional<Scalability::QualitySelection> Quality;
         // The benchmark's answer, cached with the device / driver / table identity it was measured on
-        // (Scalability::CacheValid). Absent until the first benchmark run on this machine.
+        // (Scalability::CacheValid). Absent until the first benchmark run on this machine. Read by
+        // StartingQuality (first run) and shown by the editor's Scalability panel.
         std::optional<Scalability::RecommendedQuality> Recommended;
+        // How frames reach the screen (VSync), outside the quality groups (DisplaySettings.hpp). Read by
+        // QualityBoot, which hands it to the window's swapchain; the only source of the present mode.
+        Scalability::DisplaySettings Display;
 
         // Where this machine keeps the DerivedDataCache (Common/Content/DerivedDataCache.hpp; UE's
         // [DerivedDataBackendGraph] Path). Empty = <projectDir>/DerivedDataCache; relative = against the
@@ -144,8 +152,25 @@ namespace Common::Settings
         // with no path is not a store, and guessing one would be the silent fallback §1.4 forbids.
         static bool Save();
 
-        // Every level High, no override: the selection of a machine that never chose anything.
+        // Every level High, no override: the selection of a machine that never chose anything and has no valid
+        // benchmark recommendation.
         [[nodiscard]] static Scalability::QualitySelection HighSelection();
+
+        // What QualityBoot starts QualityState on (UE: a saved choice wins; with none, the hardware benchmark's
+        // answer is applied once and saved). PURE.
+        //   saved Quality                                  -> that selection, FromRecommended false;
+        //   no Quality, Recommended valid for `device`     -> the recommended levels, FromRecommended true
+        //                                                     (the host applies them through
+        //                                                     QualityState::ApplyRecommended, which saves);
+        //   no Quality, Recommended absent or stale        -> HighSelection(), FromRecommended false.
+        struct StartingQuality
+        {
+            Scalability::QualitySelection Selection;
+            bool                          FromRecommended = false;
+            bool                          operator==( const StartingQuality& ) const = default;
+        };
+        [[nodiscard]] static StartingQuality StartFrom( const MachineSettings&                settings,
+                                                        const Scalability::BenchmarkCacheKey& device );
 
         // What one migration did, for the log line and the tests.
         struct RetiredKeyMigration

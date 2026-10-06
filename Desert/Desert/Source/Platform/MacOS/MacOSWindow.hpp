@@ -48,14 +48,12 @@ namespace Desert::Platform::MacOS
         // Mirrors WindowsWindow: the swapchain picks its present mode at creation, so the new pacing only
         // applies once it is rebuilt. MoltenVK exposes FIFO + IMMEDIATE, so switching VSync off works here
         // too — storing the flag alone (which is all this used to do) left the setting inert.
-        virtual void SetVSync( bool enabled ) override
+        virtual void SetDisplay( const Common::Scalability::DisplaySettings& display ) override
         {
-            m_Data.Specification.VSync = enabled;
-            if ( m_SwapChain )
-            {
-                m_SwapChain->SetVSync( enabled );
-                m_SwapChain->OnResize( m_Data.Specification.Width, m_Data.Specification.Height );
-            }
+            if ( !m_SwapChain || m_SwapChain->Display() == display )
+                return;
+            m_SwapChain->SetDisplay( display );
+            m_SwapChain->OnResize( m_Data.Specification.Width, m_Data.Specification.Height );
         }
         [[nodiscard]] virtual const void* GetNativeWindow() const override;
 
