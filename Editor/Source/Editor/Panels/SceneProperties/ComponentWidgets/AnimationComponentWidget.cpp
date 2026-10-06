@@ -8,6 +8,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
@@ -451,7 +452,22 @@ namespace Desert::Editor
             return;
         }
 
-        G::AnimGraph graph = G::MakeStateMachineGraph();
+        // THE TARGET SKELETON IS PICKED AT CREATION (UE: UAnimBlueprint::TargetSkeleton): the graph animates
+        // the skeleton of the mesh it is created for. A mesh that names none gets no graph, by name.
+        const Assets::AssetHandle meshHandle = entity.HasComponent<ECS::SkinnedMeshComponent>()
+                                                    ? entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle
+                                                    : Assets::AssetHandle{};
+        const Common::Content::AssetGuid skeleton =
+             m_AnimationLibrary->IdentifyMeshHandle( meshHandle ).Skeleton.Guid;
+        if ( skeleton.IsNull() )
+        {
+            LOG_ERROR( "[Animation] a new anim graph needs the skeleton it animates, and this entity's mesh names "
+                       "none — assign the mesh a skeleton first." );
+            return;
+        }
+
+        G::AnimGraph graph   = G::MakeStateMachineGraph();
+        graph.TargetSkeleton = Assets::ContentRegistry::ReferenceTo( skeleton );
         // NAMED AFTER THE ENTITY, because the FILE is named after the graph (the migration does the same)
         // and a file called "AnimGraph.danimgraph" would be claimed by the first character and then
         // silently shared by every one after it — sharing is the feature, but it has to be CHOSEN.

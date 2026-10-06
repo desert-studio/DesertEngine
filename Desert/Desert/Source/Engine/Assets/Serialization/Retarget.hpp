@@ -260,6 +260,12 @@ namespace Desert::Assets::Serialization
         /// what a reader and every warning name. See the file note for why this is not a signature.
         AssetGuidRef SourceSkeleton;
 
+        /// The `.skeleton` of the entity being posed - the TARGET half of the pair (UE: the retargeter's
+        /// target IK Rig; RTGT 4). Every Target* bone name is a bone of it, and a Rename Bone of it finds this
+        /// file by this GUID (SkeletonReferrers). Not a header Dependency: the target rig is the entity's own,
+        /// resolved by its mesh, never loaded through the retarget. Required.
+        AssetGuidRef TargetSkeleton;
+
         std::string SourcePelvisBone;
         std::string TargetPelvisBone;
 
@@ -341,5 +347,6 @@ namespace Desert::Assets::Serialization
     /// assumption.
     NO_DISCARD RetargetAssetData BuildDataFromRetargetSetup( const std::string&  name,
                                                              const AssetGuidRef& sourceSkeleton,
+                                                             const AssetGuidRef& targetSkeleton,
                                                              const Animation::Retarget::RetargetSetup& setup );
 } // namespace Desert::Assets::Serialization

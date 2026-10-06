@@ -199,6 +199,7 @@ namespace
     {
         RigFile::ControlRigData data;
         data.Name = "ArmRig";
+        data.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/ArmRig.skeleton" };
 
         RigFile::ControlElementData wrist;
         wrist.Name      = "Wrist_CTRL";
@@ -336,7 +337,7 @@ TEST( ControlRigAssetTest, ARigThatHasBeenThroughTheRuntimeFormIsStillTheSameRig
     const auto      built = RigFile::BuildControlRig( original, skeleton, stage );
     ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
 
-    auto back = RigFile::BuildDataFromControlRig( original.Name, stage, skeleton );
+    auto back = RigFile::BuildDataFromControlRig( original.Name, original.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
 
     // THIS IS THE TRIP A RIG ACTUALLY TAKES, and the one where a name could quietly become an index: the
@@ -428,7 +429,8 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
     // must load, and its controls must draw exactly as they always did. That equivalence is the whole
     // argument for leaving kControlRigVersion where it is, so it is asserted rather than reasoned about.
     const std::string legacy = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Legacy",
       "Controls": [
         { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
@@ -453,7 +455,8 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
 
     // A FILE THAT NAMES A SIZE gets that size, to the float, on the control it names and on no other.
     const std::string sizedText = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Sized",
       "Controls": [
         { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
@@ -492,13 +495,13 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
 
     // THE WRITER PICKS ONE SPELLING. A rig whose controls are all identity comes back without the field,
     // so a generation-1 file round-trips through the runtime unchanged instead of gaining ones.
-    auto legacyBack = RigFile::BuildDataFromControlRig( "Legacy", legacyStage, skeleton );
+    auto legacyBack = RigFile::BuildDataFromControlRig( "Legacy", ArmRigFile().TargetSkeleton, legacyStage, skeleton );
     ASSERT_TRUE( legacyBack.IsSuccess() ) << legacyBack.GetError();
     EXPECT_FALSE( legacyBack.GetValue().Controls[0].ShapeTransform.has_value() );
     EXPECT_EQ( RigFile::WriteControlRig( legacyBack.GetValue() ).find( "ShapeTransform" ), std::string::npos )
          << "the absent spelling must not be written out as an identity block";
 
-    auto sizedBack = RigFile::BuildDataFromControlRig( "Sized", sizedStage, skeleton );
+    auto sizedBack = RigFile::BuildDataFromControlRig( "Sized", ArmRigFile().TargetSkeleton, sizedStage, skeleton );
     ASSERT_TRUE( sizedBack.IsSuccess() ) << sizedBack.GetError();
     const auto hand = std::find_if( sizedBack.GetValue().Controls.begin(), sizedBack.GetValue().Controls.end(),
                                     []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
@@ -512,7 +515,8 @@ TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTh
 {
     const Skeleton    skeleton = MakeArmRig();
     const std::string text     = R"({
-      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 3 }, "Dependencies": [] },
+      "TargetSkeleton": { "Guid": "fedcba9876543210fedcba9876543210", "Path": "Meshes/ArmRig.skeleton" },
       "Name": "Painted",
       "Controls": [
         { "Name": "Hand_L_CTRL", "ShapeName": "CircleXY",
@@ -534,7 +538,7 @@ TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTh
     EXPECT_EQ( rig.Get( rig.Find( "Hand_L_CTRL" ) ).Color, Animation::ControlSideColor( "Hand_L_CTRL" ) );
     EXPECT_EQ( rig.Get( rig.Find( "Tail_CTRL" ) ).Color, glm::vec3( 0.0F, 1.0F, 0.0F ) );
 
-    auto back = RigFile::BuildDataFromControlRig( "Painted", stage, skeleton );
+    auto back = RigFile::BuildDataFromControlRig( "Painted", ArmRigFile().TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     for ( const RigFile::ControlElementData& c : back.GetValue().Controls )
     {
@@ -860,4 +864,18 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// A rig that names no skeleton, or the null GUID, is refused by name: the binding is part of the asset (ANIM-SKELREF).
+TEST( ControlRigAssetTest, ARigWithoutATargetSkeletonGuidIsRefusedByName )
+{
+    RigFile::ControlRigData missing = ArmRigFile();
+    missing.TargetSkeleton          = {};
+    const auto refused              = RigFile::ValidateControlRigData( missing );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "TargetSkeleton" ), std::string::npos ) << refused.GetError();
+
+    RigFile::ControlRigData null = ArmRigFile();
+    null.TargetSkeleton.Guid     = "00000000000000000000000000000000";
+    EXPECT_FALSE( RigFile::ValidateControlRigData( null ).IsSuccess() );
 }

@@ -1100,6 +1100,7 @@ namespace
     {
         Serialization::ControlRigData data;
         data.Name          = "Graphed Arm";
+        data.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/ArmRig.skeleton" };
 
         Serialization::ControlElementData hand;
         hand.Name      = "Hand_CTRL";
@@ -1168,7 +1169,7 @@ TEST( RigGraphTest, ARigWithAGraphRoundTripsByValueThroughTextAndThroughTheRunti
     ASSERT_TRUE( stage.HasGraph() );
     EXPECT_EQ( stage.GetGraph().GetNodes().size(), 3U );
 
-    const auto back = Serialization::BuildDataFromControlRig( source.Name, stage, skeleton );
+    const auto back = Serialization::BuildDataFromControlRig( source.Name, source.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_TRUE( back.GetValue() == source ) << "the runtime round trip changed the rig";
 }
@@ -1220,7 +1221,7 @@ TEST( RigGraphTest, ARigWithoutAGraphDoesNotGainTheFieldAndStillLoadsAsTheIdenti
     // `kControlRigVersion` staying at 1: a generation-1 file has no Graph, and no Graph means what it has
     // always meant.
     EXPECT_EQ( text.find( "\"Graph\"" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( R"("CRIG":2)" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( "\"CRIG\":" + std::to_string( Serialization::kControlRigVersion ) ), std::string::npos ) << text;
 
     const auto parsed = Serialization::ParseControlRig( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
@@ -1230,7 +1231,7 @@ TEST( RigGraphTest, ARigWithoutAGraphDoesNotGainTheFieldAndStillLoadsAsTheIdenti
     ASSERT_TRUE( Serialization::BuildControlRig( plain, skeleton, stage ).IsSuccess() );
     EXPECT_FALSE( stage.HasGraph() );
 
-    const auto back = Serialization::BuildDataFromControlRig( plain.Name, stage, skeleton );
+    const auto back = Serialization::BuildDataFromControlRig( plain.Name, plain.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_FALSE( back.GetValue().Graph.has_value() ) << "a rig without a graph grew one on the way out";
 }

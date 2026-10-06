@@ -3,11 +3,15 @@
         "Kind": "AnimGraph",
         "Guid": "5533f20f4432c76df2f0d7515450000b",
         "Versions": {
-            "ANGR": 3
+            "ANGR": 4
         },
         "Dependencies": []
     },
     "Name": "OneBoneBlend",
+    "TargetSkeleton": {
+        "Guid": "acf475090f8a76b0eac6ee0c3e5d32fd",
+        "Path": "Meshes/Skinned/SkinProbe.skeleton"
+    },
     "Parameters": [],
     "Nodes": [
         {

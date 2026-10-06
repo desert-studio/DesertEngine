@@ -3,11 +3,15 @@
         "Kind": "AnimGraph",
         "Guid": "003085b663f8dac28c0a750a38cf6db8",
         "Versions": {
-            "ANGR": 3
+            "ANGR": 4
         },
         "Dependencies": []
     },
     "Name": "ScriptDriven",
+    "TargetSkeleton": {
+        "Guid": "14df187f6fede36fad0b96f4420f4c5b",
+        "Path": "Meshes/Skinned/TwoBoneProbe.skeleton"
+    },
     "Parameters": [
         {
             "Name": "Go",

@@ -1,6 +1,8 @@
 #include "SkeletonReferenceAssets.hpp"
 
+#include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Serialization/ControlRig.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
@@ -60,7 +62,18 @@ namespace Desert::Assets
         return required;
     }
 
-    SkeletonReferrers ReferrersOfSkeleton( const Common::Content::AssetGuid& skeleton, AssetManager* loaded )
+    namespace
+    {
+        /// Whether @p ref states @p skeleton; a malformed GUID states none (the parsers already refused it).
+        bool StatesSkeleton( const AssetGuidRef& ref, const Common::Content::AssetGuid& skeleton )
+        {
+            const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
+            return guid && guid.GetValue() == skeleton;
+        }
+    } // namespace
+
+    Common::ResultStr<SkeletonReferrers> ReferrersOfSkeleton( const Common::Content::AssetGuid& skeleton,
+                                                              AssetManager*                     loaded )
     {
         SkeletonReferrers referrers;
         referrers.Loaded = loaded;
@@ -68,12 +81,43 @@ namespace Desert::Assets
               ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
             if ( row.Skeleton == skeleton )
                 referrers.ClipFiles.push_back( row.Path );
-        // A retarget states its source rig in its body (SourceSkeleton), not in a registry tag: every one is
-        // listed and RenameBonesInSkeletonAssets keeps the ones whose file names this skeleton.
+        // A retarget, anim graph and control rig state their skeletons in their bodies (Source/TargetSkeleton),
+        // not in a registry tag: each is read and kept when one of its references is this skeleton's GUID.
         for ( const ContentRegistry::PickerRow& row :
               ContentRegistry::Rows( Common::Content::ContentKind::Retarget ) )
-            referrers.RetargetFiles.push_back( row.Path );
-        return referrers;
+        {
+            const auto data = Serialization::LoadRetargetFile( ContentRegistry::FileToOpen( row.Path ) );
+            if ( !data )
+                return Common::MakeError<SkeletonReferrers>( data.GetError() );
+            if ( StatesSkeleton( data.GetValue().SourceSkeleton, skeleton ) ||
+                 StatesSkeleton( data.GetValue().TargetSkeleton, skeleton ) )
+                referrers.RetargetFiles.push_back( row.Path );
+        }
+        for ( const ContentRegistry::PickerRow& row :
+              ContentRegistry::Rows( Common::Content::ContentKind::AnimGraph ) )
+        {
+            const std::filesystem::path file = ContentRegistry::FileToOpen( row.Path );
+            const auto                  text = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( !text )
+                return Common::MakeFormattedError<SkeletonReferrers>( "anim graph '{}' was not read: {}",
+                                                                      file.string(), text.GetError() );
+            const auto graph = Animation::Graph::Deserialize( text.GetValue() );
+            if ( !graph )
+                return Common::MakeFormattedError<SkeletonReferrers>( "anim graph '{}': {}", file.string(),
+                                                                      graph.GetError() );
+            if ( StatesSkeleton( graph.GetValue().TargetSkeleton, skeleton ) )
+                referrers.AnimGraphFiles.push_back( row.Path );
+        }
+        for ( const ContentRegistry::PickerRow& row :
+              ContentRegistry::Rows( Common::Content::ContentKind::ControlRig ) )
+        {
+            const auto rig = Serialization::LoadControlRigFile( ContentRegistry::FileToOpen( row.Path ) );
+            if ( !rig )
+                return Common::MakeError<SkeletonReferrers>( rig.GetError() );
+            if ( StatesSkeleton( rig.GetValue().TargetSkeleton, skeleton ) )
+                referrers.ControlRigFiles.push_back( row.Path );
+        }
+        return Common::MakeSuccess( std::move( referrers ) );
     }
 
     namespace

@@ -1,6 +1,11 @@
 #pragma once
 
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/ResultStr.hpp>
+
+#include <format>
 #include <string>
+#include <string_view>
 
 namespace Desert::Assets
 {
@@ -25,4 +30,31 @@ namespace Desert::Assets
 
         [[nodiscard]] bool operator==( const AssetGuidRef& ) const = default;
     };
+
+    /**
+     * @brief THE TARGET SKELETON A FORMAT STATES (UE: UAnimBlueprint::TargetSkeleton, UControlRig's preview
+     * skeleton, the target IK Rig of a retargeter): the `.skeleton` whose bones the file names. Required -
+     * a file that names bones but not their skeleton cannot be found by a Rename Bone (SkeletonReferrers looks
+     * the skeleton up by this GUID). Refused: a GUID that is not well-formed or is null, an empty path, a
+     * rooted path (leading separator or drive letter, on every platform) or one escaping the assets root.
+     * @p what names the file in the message.
+     */
+    [[nodiscard]] inline Common::BoolResultStr CheckTargetSkeletonRef( const AssetGuidRef& ref,
+                                                                       std::string_view    what )
+    {
+        if ( const auto guid = Common::Content::AssetGuidFromText( ref.Guid ); !guid || guid.GetValue().IsNull() )
+            return Common::MakeError<bool>(
+                 std::format( "{} states no well-formed TargetSkeleton GUID ('{}'); run "
+                              "Tools/SceneMigrator",
+                              what, ref.Guid ) );
+        const std::string& p        = ref.Path;
+        const bool         rooted   = !p.empty() && ( p.front() == '/' || p.front() == '\\' );
+        const bool         lettered = p.size() >= 2 && p[1] == ':';
+        if ( p.empty() || rooted || lettered || p.starts_with( ".." ) )
+            return Common::MakeError<bool>(
+                 std::format( "{}: TargetSkeleton path '{}' must be relative to the assets "
+                              "root and must not escape it",
+                              what, p ) );
+        return Common::MakeSuccess( true );
+    }
 } // namespace Desert::Assets

@@ -35,6 +35,7 @@ namespace
     {
         AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
         g.Name = "Locomotion";
+        g.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Locomotion.skeleton" };
         State idle;
         idle.Name = "Idle";
         idle.Clip = "Anim_Idle";
@@ -361,6 +362,7 @@ TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
 {
     namespace PG       = Desert::Animation::Graph;
     AnimGraph    graph = PG::MakeStateMachineGraph( "Rifle" );
+    graph.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Locomotion.skeleton" };
     PG::PoseNode input;
     input.Name   = "In";
     input.Kind   = static_cast<int>( PG::PoseNodeKind::LinkedInputPose );
@@ -378,7 +380,17 @@ TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
     EXPECT_EQ( layers->Interfaces[0].Layers, std::vector<std::string>{ "UpperBody" } );
     EXPECT_EQ( layers->Implemented[0].Nodes[0].Kind, input.Kind );
 
-    const auto plain = PG::Deserialize( PG::Serialize( PG::MakeStateMachineGraph( "Plain" ) ) );
+    AnimGraph plainGraph      = PG::MakeStateMachineGraph( "Plain" );
+    plainGraph.TargetSkeleton = graph.TargetSkeleton;
+    const auto plain          = PG::Deserialize( PG::Serialize( plainGraph ) );
     ASSERT_TRUE( plain.IsSuccess() ) << plain.GetError();
     EXPECT_FALSE( plain.GetValue().Layers.has_value() );
+}
+
+// A graph that names no skeleton is refused on read: the binding is part of the asset (ANIM-SKELREF).
+TEST( AnimGraphAsset, GraphWithoutTargetSkeletonIsRefused )
+{
+    namespace PG    = Desert::Animation::Graph;
+    const auto read = PG::Deserialize( PG::Serialize( PG::MakeStateMachineGraph( "NoSkeleton" ) ) );
+    EXPECT_FALSE( read.IsSuccess() );
 }

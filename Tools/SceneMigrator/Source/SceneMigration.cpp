@@ -16,6 +16,8 @@
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Assets/Serialization/ControlRig.hpp>
+#include <Engine/Assets/Serialization/Retarget.hpp>
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -967,7 +969,7 @@ namespace Desert::Migration
 
         G::AnimGraph graph;
         graph.Header                   = old.Header;
-        graph.Header->Versions["ANGR"] = Assets::kAnimGraphSchemaVersion;
+        graph.Header->Versions["ANGR"] = 3u;
         graph.Name                     = old.Name;
         graph.Parameters               = old.Parameters;
         graph.Nodes                    = old.Nodes;
@@ -992,12 +994,26 @@ namespace Desert::Migration
             graph.Layers = std::move( layers );
         }
 
-        std::string written = G::Serialize( graph );
-        // What the step writes, the engine's reader must read.
-        if ( auto back = G::Deserialize( written ); !back )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as ANGR {}: {}",
-                                                            Assets::kAnimGraphSchemaVersion, back.GetError() );
-        return Common::MakeSuccess( std::move( written ) );
+        // ANGR 3 IS NOT THE CURRENT GENERATION (ANGR 4 added TargetSkeleton): the engine's writer stamps the
+        // current one and an empty TargetSkeleton, so the text is put back to ANGR 3's shape; the next run's
+        // StateTargetSkeleton raises it on and re-reads it with the engine's reader.
+        auto raised = rfl::json::read<rfl::Generic::Object>( G::Serialize( graph ) );
+        if ( !raised )
+            return Common::MakeFormattedError<std::string>( "the raised graph does not re-read: {}",
+                                                            raised.error().what() );
+        rfl::Generic::Object v3;
+        for ( const auto& [key, field] : raised.value() )
+            if ( key != "TargetSkeleton" )
+                v3[key] = field;
+        auto header   = v3.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        auto versions = header ? header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object()
+                               : rfl::Result<rfl::Generic::Object>( rfl::Error( "no header" ) );
+        if ( !header || !versions )
+            return Common::MakeFormattedError<std::string>( "the raised graph states no header versions" );
+        versions.value()["ANGR"]   = rfl::Generic( 3 );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        v3["Header"]               = rfl::Generic( std::move( header.value() ) );
+        return Common::Content::CanonicalJsonText( rfl::json::write( v3 ) );
     }
 
     Common::ResultStr<Animation::SkeletonCandidate> ReadSkeletonCandidate( const std::filesystem::path& path,
@@ -1024,6 +1040,161 @@ namespace Desert::Migration
         }
         return Common::MakeSuccess(
              Animation::SkeletonCandidate{ guid.GetValue(), data.Signature, stated.generic_string() } );
+    }
+
+    Common::ResultStr<TargetSkeletonRig> ReadTargetSkeletonRig( const std::filesystem::path& path,
+                                                                const std::string&           text )
+    {
+        const auto candidate = ReadSkeletonCandidate( path, text );
+        if ( !candidate )
+            return Common::MakeError<TargetSkeletonRig>( candidate.GetError() );
+        TargetSkeletonRig rig{
+             Common::Content::AssetGuidToText( candidate.GetValue().Guid ), candidate.GetValue().Path, {} };
+        const auto skeleton = ReadAnySkeleton( text );
+        if ( !skeleton )
+            return Common::MakeError<TargetSkeletonRig>( skeleton.GetError() );
+        for ( const auto& bone : skeleton.GetValue().Data.Bones )
+            rig.Bones.insert( bone.Name );
+        return Common::MakeSuccess( std::move( rig ) );
+    }
+
+    namespace TargetSkeletonStep
+    {
+        struct Evidence
+        {
+            std::unordered_set<std::string> Bones;
+            std::unordered_set<std::string> Clips;
+        };
+
+        void Collect( const rfl::Generic& node, Evidence& out )
+        {
+            if ( const auto array = node.to_array(); array.has_value() )
+            {
+                for ( const auto& item : array.value() )
+                    Collect( item, out );
+                return;
+            }
+            const auto object = node.to_object();
+            if ( !object.has_value() )
+                return;
+            bool boneSpace = false;
+            if ( const auto kind = object.value().get( "Kind" ); kind.has_value() )
+                boneSpace = kind.value().to_string().value_or( "" ) == "Bone";
+            for ( const auto& [key, field] : object.value() )
+            {
+                if ( key.starts_with( "Source" ) || key == "Header" )
+                    continue;
+                if ( const auto value = field.to_string(); value.has_value() )
+                {
+                    const bool bone = key == "Bone" || key == "BoneName" || key.ends_with( "Bone" ) ||
+                                      ( boneSpace && key == "Target" );
+                    if ( bone && !value.value().empty() )
+                        out.Bones.insert( value.value() );
+                    else if ( key == "Clip" && !value.value().empty() )
+                        out.Clips.insert( value.value() );
+                    continue;
+                }
+                Collect( field, out );
+            }
+        }
+
+        // The engine's reader and writer of the kind: what the step writes, the engine must read.
+        Common::ResultStr<std::string> Canonical( const std::string& tag, const std::string& text )
+        {
+            namespace S = Assets::Serialization;
+            if ( tag == "ANGR" )
+            {
+                const auto read = Animation::Graph::Deserialize( text );
+                return read ? Common::MakeSuccess( Animation::Graph::Serialize( read.GetValue() ) )
+                            : Common::MakeError<std::string>( read.GetError() );
+            }
+            if ( tag == "CRIG" )
+            {
+                const auto read = S::ParseControlRig( text );
+                return read ? Common::MakeSuccess( S::WriteControlRig( read.GetValue() ) )
+                            : Common::MakeError<std::string>( read.GetError() );
+            }
+            const auto read = S::ParseRetarget( text );
+            return read ? Common::MakeSuccess( S::WriteRetarget( read.GetValue() ) )
+                        : Common::MakeError<std::string>( read.GetError() );
+        }
+    } // namespace TargetSkeletonStep
+
+    Common::ResultStr<std::string>
+    StateTargetSkeleton( const std::string& text, const std::string& tag,
+                         const std::vector<TargetSkeletonRig>&               rigs,
+                         const std::unordered_map<std::string, std::string>& clipRigs )
+    {
+        const uint32_t from = tag == "ANGR" ? 3u : tag == "CRIG" ? 2u : 3u;
+        const uint32_t to   = tag == "ANGR"   ? Assets::kAnimGraphSchemaVersion
+                              : tag == "CRIG" ? Assets::kControlRigSchemaVersion
+                                              : Assets::kRetargetSchemaVersion;
+        auto           read = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<std::string>( "{} {} body does not read: {}", tag, from,
+                                                            read.error().what() );
+        rfl::Generic::Object document = std::move( read.value() );
+        auto                 header   = document.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        if ( !header.has_value() )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        auto versions = header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object();
+        if ( !versions.has_value() ||
+             versions.value().get( tag ).value_or( rfl::Generic() ).to_int().value_or( -1 ) !=
+                  static_cast<int>( from ) )
+            return Common::MakeFormattedError<std::string>(
+                 "the header does not state {} {}, and this step raises "
+                 "{} {} only",
+                 tag, from, tag, from );
+
+        TargetSkeletonStep::Evidence evidence;
+        TargetSkeletonStep::Collect( rfl::Generic( document ), evidence );
+        std::unordered_set<std::string> clipSkeletons;
+        for ( const std::string& clip : evidence.Clips )
+        {
+            const auto rig = clipRigs.find( clip );
+            if ( rig == clipRigs.end() )
+                return Common::MakeFormattedError<std::string>( "plays clip '{}', which no .anim of the corpus is "
+                                                                "named; its skeleton cannot be stated",
+                                                                clip );
+            clipSkeletons.insert( rig->second );
+        }
+        if ( evidence.Bones.empty() && clipSkeletons.empty() )
+            return Common::MakeFormattedError<std::string>( "names no bone and plays no clip: nothing states its "
+                                                            "skeleton; author TargetSkeleton by hand" );
+        std::vector<const TargetSkeletonRig*> fits;
+        for ( const TargetSkeletonRig& rig : rigs )
+        {
+            bool fit =
+                 clipSkeletons.empty() || ( clipSkeletons.size() == 1 && clipSkeletons.contains( rig.Guid ) );
+            for ( const std::string& bone : evidence.Bones )
+                fit = fit && rig.Bones.contains( bone );
+            if ( fit )
+                fits.push_back( &rig );
+        }
+        if ( fits.size() != 1 )
+        {
+            std::string named;
+            for ( const TargetSkeletonRig* rig : fits )
+                named += ( named.empty() ? "" : ", " ) + rig->Path;
+            return Common::MakeFormattedError<std::string>(
+                 "{} skeletons fit its {} bone name(s) and {} clip rig(s) ({}); exactly one must - author "
+                 "TargetSkeleton by hand",
+                 fits.size(), evidence.Bones.size(), clipSkeletons.size(), named.empty() ? "none" : named );
+        }
+
+        versions.value()[tag]      = rfl::Generic( static_cast<int>( to ) );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        document["Header"]         = rfl::Generic( std::move( header.value() ) );
+        rfl::Generic::Object target;
+        target["Guid"]             = rfl::Generic( fits.front()->Guid );
+        target["Path"]             = rfl::Generic( fits.front()->Path );
+        document["TargetSkeleton"] = rfl::Generic( std::move( target ) );
+
+        const auto written = TargetSkeletonStep::Canonical( tag, rfl::json::write( document ) );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as {} {}: {}", tag, to,
+                                                            written.GetError() );
+        return written;
     }
 
     Common::ResultStr<std::string>

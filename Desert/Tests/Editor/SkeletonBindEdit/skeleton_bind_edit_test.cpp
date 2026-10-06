@@ -241,6 +241,7 @@ TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheRetargetsOfItsSkeleton )
         Assets::Serialization::RetargetAssetData data;
         data.Name                           = name;
         data.SourceSkeleton                 = { Common::Content::AssetGuidToText( source ), "bind.skeleton" };
+        data.TargetSkeleton                 = { "fedcba9876543210fedcba9876543210", "target.skeleton" };
         data.SourcePelvisBone               = "Root";
         data.TargetPelvisBone               = "Root";
         data.SourceRetargetPose.BoneOffsets = { { "Child", glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } };

@@ -1,4 +1,6 @@
 #pragma once
+#include <unordered_map>
+#include <unordered_set>
 
 // THIS IS TOOL CODE, AND THAT IS THE POINT OF IT BEING HERE.
 //
@@ -338,6 +340,29 @@ namespace Desert::Migration
     // one column right of the rightmost node, level with the node wired into it). A file that does not state
     // ANGR 2, or whose body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text );
+
+    // ANIM-SKELREF: one .skeleton as the TargetSkeleton step matches it - header GUID, path relative to its
+    // `Assets` root (ReadSkeletonCandidate's form) and every bone name.
+    struct TargetSkeletonRig
+    {
+        std::string                     Guid;
+        std::string                     Path;
+        std::unordered_set<std::string> Bones;
+    };
+    Common::ResultStr<TargetSkeletonRig> ReadTargetSkeletonRig( const std::filesystem::path& path,
+                                                                const std::string&           text );
+
+    // ANGR 3 -> 4, CRIG 2 -> 3, RTGT 3 -> 4 (ANIM-SKELREF): the file gains TargetSkeleton {Guid, Path} - the one
+    // rig of @p rigs the file's own statements fit: every bone name it states of its target (keys "Bone",
+    // "BoneName",
+    // "*Bone", a Kind "Bone" space's "Target"; never under a "Source*" key) is a bone of the rig, and every clip
+    // it plays ("Clip", matched by name in @p clipRigs: clip Name -> its Skeleton GUID) is authored on it. No
+    // evidence, or not exactly one fitting rig, is an error naming the candidates. The result is re-read and
+    // re-written by the engine's own reader/writer of the kind. @p tag is "ANGR", "CRIG" or "RTGT". PURE.
+    Common::ResultStr<std::string>
+    StateTargetSkeleton( const std::string& text, const std::string& tag,
+                         const std::vector<TargetSkeletonRig>&               rigs,
+                         const std::unordered_map<std::string, std::string>& clipRigs );
 
     // SKEL-TREE (Engine/Animation/SkeletonReference.hpp): what the two raises below resolve a legacy bone hash
     // against - one .skeleton's header GUID, Signature and path (relative to its `Assets` root, the form an

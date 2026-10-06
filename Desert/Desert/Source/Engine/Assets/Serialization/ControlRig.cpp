@@ -571,6 +571,12 @@ namespace Desert::Assets::Serialization
 
     Common::BoolResultStr ValidateControlRigData( const ControlRigData& data )
     {
+        if ( auto target = CheckTargetSkeletonRef( data.TargetSkeleton, std::format( "rig '{}'", data.Name ) );
+             !target )
+        {
+            return Common::MakeFormattedError<bool>( "{}", target.GetError() );
+        }
+
         if ( data.Controls.empty() )
         {
             return Common::MakeFormattedError<bool>( "rig '{}' defines no controls", data.Name );
@@ -1044,13 +1050,15 @@ namespace Desert::Assets::Serialization
     }
 
     Common::ResultStr<ControlRigData> BuildDataFromControlRig( const std::string&                name,
+                                                               const AssetGuidRef&               targetSkeleton,
                                                                const Animation::ControlRigStage& rig,
                                                                const Animation::Skeleton&        skeleton )
     {
         const Animation::ControlHierarchy& hierarchy = rig.GetHierarchy();
 
         ControlRigData data;
-        data.Name = name;
+        data.Name           = name;
+        data.TargetSkeleton = targetSkeleton;
         data.Controls.reserve( hierarchy.Size() );
 
         const auto boneName = [&skeleton]( uint32_t index ) -> Common::ResultStr<std::string>
