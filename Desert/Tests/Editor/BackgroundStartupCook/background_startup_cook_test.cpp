@@ -7,6 +7,7 @@
 #include <functional>
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 // AL1-11 / owner decision V2: the startup cook never blocks the reveal. Since AF4h a static mesh's cook is a DDC
 // entry keyed by the source's bytes, so fresh loads now and stale == missing == Pending until the worker's
@@ -35,13 +36,13 @@ namespace
     {
         // The scene names a static mesh by its PATH's handle, not by the envelope the cook mints, so the asset
         // that was Pending before the cook and the one that resolves after it are the same handle.
-        const std::filesystem::path cooked = "Resources/Assets/Meshes/base.stmesh";
+        const std::filesystem::path cooked = "Meshes/base.stmesh";
         const auto                  before = Common::AssetHandle::FromCookedPath( cooked );
         const auto                  after  = Common::AssetHandle::FromCookedPath( cooked );
         EXPECT_EQ( static_cast<uint64_t>( before ), static_cast<uint64_t>( after ) );
         EXPECT_NE( static_cast<uint64_t>( before ), 0u );
         EXPECT_NE( static_cast<uint64_t>( before ), static_cast<uint64_t>( Common::AssetHandle::FromCookedPath(
-                                                         "Resources/Assets/Meshes/base_basic_pbr.stmesh" ) ) );
+                                                         "Meshes/base_basic_pbr.stmesh" ) ) );
     }
 
     TEST( BackgroundStartupCook, TheQueueRunsNothingOnTheCallerAndCountsWhatIsOutstanding )
@@ -78,6 +79,7 @@ namespace
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

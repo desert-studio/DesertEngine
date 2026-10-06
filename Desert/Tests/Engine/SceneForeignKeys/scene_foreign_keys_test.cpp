@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -151,8 +152,8 @@ namespace
         if ( root.empty() )
             return scenes;
         std::error_code ec;
-        for ( const auto& entry :
-              std::filesystem::recursive_directory_iterator( root + "Projects/Desert/Content/Scenes", ec ) )
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator(
+                   std::format( "{}Projects/Desert/Content/Scenes", root ), ec ) )
         {
             if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
                 continue;

@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <memory>
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 using namespace Desert;
 using namespace Desert::Editor;
@@ -215,6 +216,7 @@ TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

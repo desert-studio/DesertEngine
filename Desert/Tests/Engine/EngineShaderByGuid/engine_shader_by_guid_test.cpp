@@ -30,6 +30,7 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace
 {
@@ -321,6 +322,7 @@ TEST( EngineShaderByGuid, DefaultAndRolesAreDeclaredExactlyOnce )
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

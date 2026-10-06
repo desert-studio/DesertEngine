@@ -25,6 +25,7 @@
 #include <optional>
 #include <string>
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace Path = Common::Constants::Path;
 namespace fs   = std::filesystem;
@@ -107,8 +108,8 @@ TEST( PathCensus, NoRowSurvivesARemapPointingAtThePreviousProject )
 
 TEST( PathCensus, TheProjectLayoutIsPinned )
 {
-    const ProjectRootGuard                    guard;
-    const fs::path                            project = "/ann/work/Game";
+    const ProjectRootGuard guard;
+    const fs::path         project = "/ann/work/Game";
     Path::SetProjectRoot( project, "Content" );
 
     // Byte-for-byte the spellings below a project's assets root. Every asset registry, cooked file and
@@ -165,8 +166,6 @@ TEST( PathCensus, WithoutAProjectThereIsNoContent )
     EXPECT_DEATH( (void)Path::Dir( Path::ContentDir::Scene ), "no project is open" );
     EXPECT_DEATH( (void)Path::ProjectDir(), "no project is open" );
 }
-
-
 
 TEST( PathCensus, ANamedViewIsTheCensusRowItNames )
 {
@@ -265,8 +264,7 @@ TEST( PathCensus, TheInverseResolvesAgainstTheNearestFolderOfThatName )
     const fs::path nested = "/home/me/Scenes/proj/Projects/Desert/Content/Scenes/Levels/x.desce";
     const auto     root   = Path::RootForContentPath( Path::ContentDir::Scene, nested );
 
-    ASSERT_TRUE( root.has_value() );
-    EXPECT_EQ( *root, fs::path( "/home/me/Scenes/proj/Projects/Desert/Content" ) );
+    EXPECT_EQ( root, std::optional<fs::path>( "/home/me/Scenes/proj/Projects/Desert/Content" ) );
 }
 
 // The two answers that are not paths. A file under no such folder gets nothing back — the caller has to
@@ -426,6 +424,7 @@ TEST( PathCensus, NoAuthoredDocumentReferencesAFileUnderACookedFolder )
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

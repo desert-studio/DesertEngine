@@ -229,7 +229,8 @@ TEST( PackagedContent, APackageIsTheProjectContentPlusTheEngineRuntimeContentOnl
         }
         ASSERT_TRUE( under( path, engineDir / "Resources" ) )
              << "a packaged tree is neither the project's nor the engine's runtime content: " << path.string();
-        const fs::path rel = fs::weakly_canonical( path ).lexically_relative( fs::weakly_canonical( engineDir / "Resources" ) );
+        const fs::path rel =
+             fs::weakly_canonical( path ).lexically_relative( fs::weakly_canonical( engineDir / "Resources" ) );
         EXPECT_TRUE( runtimeEngineTrees.contains( rel.begin()->string() ) )
              << "an editor resource tree is packaged: " << path.string();
     }
@@ -238,9 +239,12 @@ TEST( PackagedContent, APackageIsTheProjectContentPlusTheEngineRuntimeContentOnl
          << Common::Constants::Path::ASSETS_PATH.string();
 
     // The editor-only subtrees of the engine trees are excluded by the one predicate the stager reads.
-    EXPECT_TRUE( Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::SHADERDIR_PATH / "Editor" / "Grid.shader" ) );
-    EXPECT_TRUE( Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::ICONS_PATH / "Gizmo" / "Light.svg" ) );
-    EXPECT_FALSE( Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::ASSETS_PATH / "Scenes" / "Starter.desce" ) );
+    EXPECT_TRUE( Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::SHADERDIR_PATH / "Editor" /
+                                                       "Grid.shader" ) );
+    EXPECT_TRUE(
+         Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::ICONS_PATH / "Gizmo" / "Light.svg" ) );
+    EXPECT_FALSE( Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::ASSETS_PATH / "Scenes" /
+                                                        "Starter.desce" ) );
 }
 
 TEST( PackagedContent, PakKeysAreTheRuntimeLookupKeysUnderThePackageRoot )
@@ -2095,7 +2099,8 @@ TEST( PackagedContent, EveryTextureTheShippedContentNamesIsOneThePackageCooks )
     const fs::path repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
     Common::Constants::Path::SetEngineDir( repo / "Editor" );
-    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( repo / "Projects" / "Desert" / "Desert.deproj" ).string() ) );
+    ASSERT_TRUE(
+         Desert::Project::ProjectContext::Open( ( repo / "Projects" / "Desert" / "Desert.deproj" ).string() ) );
     const fs::path assets = Common::Constants::Path::ASSETS_PATH;
 
     // What the cook reaches, spelled the three ways content can name it.

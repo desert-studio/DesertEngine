@@ -57,6 +57,7 @@
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 using Desert::Assets::AssetManager;
 using Desert::Assets::StaticMeshAsset;
@@ -378,6 +379,7 @@ TEST( StaticMeshCooked, TheShippedProbeKeepsTheIdentityTheSceneNamesItBy )
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     testing::InitGoogleTest( &argc, argv );
     // The editor's builder derives a cooked mesh's render form on a DDC miss, as it does in the editor.
     Desert::Assets::SetMeshPlatformDataBuilder( Desert::Editor::BuildMeshPlatformData );

@@ -35,6 +35,7 @@
 #include <Engine/Assets/MaterialParamDiff.hpp>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -204,7 +205,8 @@ TEST( MaterialRequestAgreement, EveryShippedDemoMaterialStillSaysWhatItsAuthorAs
 
     for ( const auto& demo : CornellDemoMaterials() )
     {
-        const std::string path = root + "Projects/Desert/Content/Materials/" + std::string( demo.Name ) + ".demat";
+        const std::string path =
+             std::format( "{}Projects/Desert/Content/Materials/{}", root, std )::string( demo.Name ) + ".demat";
         ASSERT_TRUE( std::filesystem::exists( path ) )
              << path << " is in the demo material table but not in the repository";
 

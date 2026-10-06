@@ -31,6 +31,7 @@
 #include <thread>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 using namespace Desert;
 using Assets::AsyncAssetLoader;
@@ -370,6 +371,7 @@ TEST_F( MeshServiceResidency, ASkinnedMeshFailedForItsMissingRigIsDrawnOnceTheRi
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

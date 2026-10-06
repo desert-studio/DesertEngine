@@ -53,6 +53,7 @@
 #include <vector>
 #include <optional>
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace
 {
@@ -784,6 +785,7 @@ int main( int argc, char** argv )
     // The host step (as the editor takes it in Sandbox.hpp): every engine path read after it answers off
     // the checkout's engine directory, never off the working directory.
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

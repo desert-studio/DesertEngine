@@ -56,13 +56,14 @@ namespace
     std::vector<fs::path> TextCorpus()
     {
         std::vector<fs::path> files;
-        const fs::path        root = RepoRoot() / "Editor";
-        for ( const auto& entry : fs::recursive_directory_iterator( root ) )
-        {
-            const std::string ext = entry.path().extension().string();
-            if ( entry.is_regular_file() && ( ext == ".desce" || ext == ".demat" || ext == ".deprefab" ) )
-                files.push_back( entry.path() );
-        }
+        // The engine's tree and every project's: the sample project's content left Editor/ (PRJ1).
+        for ( const char* tree : { "Editor", "Projects" } )
+            for ( const auto& entry : fs::recursive_directory_iterator( RepoRoot() / tree ) )
+            {
+                const std::string ext = entry.path().extension().string();
+                if ( entry.is_regular_file() && ( ext == ".desce" || ext == ".demat" || ext == ".deprefab" ) )
+                    files.push_back( entry.path() );
+            }
         return files;
     }
 

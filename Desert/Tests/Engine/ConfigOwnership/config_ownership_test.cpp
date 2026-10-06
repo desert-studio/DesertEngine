@@ -164,6 +164,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -1071,8 +1072,8 @@ TEST( ConfigOwnershipCorpus, NoSceneOnDiskStatesASettingOfAnotherFilesKind )
 
     std::vector<std::filesystem::path> scenes;
     std::error_code                    ec;
-    for ( const auto& entry :
-          std::filesystem::recursive_directory_iterator( root + "Projects/Desert/Content/Scenes", ec ) )
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator(
+               std::format( "{}Projects/Desert/Content/Scenes", root ), ec ) )
         if ( entry.is_regular_file() && entry.path().extension() == ".desce" )
             scenes.push_back( entry.path() );
 
@@ -1113,7 +1114,7 @@ TEST( ConfigOwnershipCorpus, TheTrackedProjectDescriptorStatesNoMachineSpecificK
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string text = ReadAll( root + "Projects/Desert/Desert.deproj" );
+    const std::string text = ReadAll( std::format( "{}Projects/Desert/Desert.deproj", root ) );
     ASSERT_FALSE( text.empty() ) << "Projects/Desert/Desert.deproj is missing or empty";
 
     const auto parsed = Common::Json::Parse( text );
@@ -1159,8 +1160,8 @@ TEST( ConfigOwnershipCorpus, LoweringTheQualityOnThisMachineChangesNoByteOfAnySc
 
     std::vector<std::filesystem::path> scenes;
     std::error_code                    ec;
-    for ( const auto& entry :
-          std::filesystem::recursive_directory_iterator( root + "Projects/Desert/Content/Scenes", ec ) )
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator(
+               std::format( "{}Projects/Desert/Content/Scenes", root ), ec ) )
         if ( entry.is_regular_file() && entry.path().extension() == ".desce" )
             scenes.push_back( entry.path() );
     ASSERT_GE( scenes.size(), 40u ) << "the scene corpus was not found";

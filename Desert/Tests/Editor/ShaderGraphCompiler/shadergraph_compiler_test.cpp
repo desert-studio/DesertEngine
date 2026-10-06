@@ -904,7 +904,9 @@ TEST( ShaderGraphCompiler, EveryGraphCommittedToTheProjectStillCompiles )
 // today — a stale one is a material drawn by the previous emitter. Only the asset header line is the file's own.
 TEST( ShaderGraphCompiler, EveryCommittedGraphShaderIsWhatItsGraphCompilesToNow )
 {
-    const std::filesystem::path shaders = GraphsDirectory().parent_path().parent_path() / "Shaders/Programs/Graph";
+    // The graphs are project content; the shaders they compile to are the engine's (Editor/Resources/Shaders).
+    const std::filesystem::path shaders =
+         Desert::Tests::ShaderGraph::RepoRoot() / "Editor/Resources/Shaders/Programs/Graph";
     int                         seen    = 0;
     for ( const auto& entry : std::filesystem::directory_iterator( GraphsDirectory() ) )
     {

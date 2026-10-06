@@ -203,7 +203,8 @@ namespace
     {
         std::vector<std::filesystem::path> scenes;
         std::error_code                    ec;
-        const std::filesystem::path        root = Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content/Scenes";
+        const std::filesystem::path        root =
+             Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content/Scenes";
         for ( auto it = std::filesystem::recursive_directory_iterator( root, ec );
               it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
         {

@@ -525,7 +525,8 @@ namespace Desert::WorldGen
             if ( listError || descriptors.size() != 1 )
             {
                 err << "WorldGen: --project '" << projectRoot << "' must hold exactly one .deproj (found "
-                    << descriptors.size() << ( listError ? ", " + listError.message() : std::string() ) << ").\n";
+                    << descriptors.size()
+                    << ( listError ? std::format( ", {}", listError.message() ) : std::string() ) << ").\n";
                 return 2;
             }
             const auto json = Common::Utils::FileSystem::ReadFileContent( descriptors.front().string() );

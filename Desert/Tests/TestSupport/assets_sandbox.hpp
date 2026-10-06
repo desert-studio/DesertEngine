@@ -30,8 +30,8 @@ namespace Desert::TestSupport
     {
     public:
         AssetsSandbox( std::string_view suite, std::initializer_list<const char*> headerlessFiles )
-             : m_Previous( Common::Constants::Path::EngineDir() )
-             , m_PreviousProject( Common::Constants::Path::CurrentProjectRoot() )
+             : m_Previous( Common::Constants::Path::EngineDir() ),
+               m_PreviousProject( Common::Constants::Path::CurrentProjectRoot() )
         {
             static std::atomic<int> sequence = 0;
             m_Root                           = std::filesystem::temp_directory_path() /
@@ -66,7 +66,7 @@ namespace Desert::TestSupport
 
     private:
         std::filesystem::path m_Root;
-        std::filesystem::path                             m_Previous;
-        Common::Constants::Path::ProjectRootState         m_PreviousProject;
+        std::filesystem::path                     m_Previous;
+        Common::Constants::Path::ProjectRootState m_PreviousProject;
     };
 } // namespace Desert::TestSupport

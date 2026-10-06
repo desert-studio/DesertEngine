@@ -27,6 +27,7 @@
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace fs = std::filesystem;
 
@@ -131,6 +132,7 @@ TEST( DerivedDataKey, RootComesFromTheSettingAndDefaultsIntoTheProject )
 #endif
 
     // The live root follows the machine setting — read, not cached.
+    const Desert::TestSupport::ProjectScope opened( project, "Assets" );
     auto&             machine    = Common::Settings::MachineSettings::Get();
     const std::string previous   = machine.DerivedDataCachePath;
     machine.DerivedDataCachePath = "ElsewhereDDC";
@@ -143,7 +145,7 @@ TEST( DerivedDataKey, PutThenGetAndAPackagedGameLooksUnderCooked )
     const fs::path  project = fs::temp_directory_path() / "desert_ddc_roundtrip";
     std::error_code ec;
     fs::remove_all( project, ec );
-    Common::Constants::Path::SetProjectRoot( project, "Assets" );
+    const Desert::TestSupport::ProjectScope opened( project, "Assets" );
 
     EXPECT_FALSE( Common::DDC::Get( kTestDeriver, 42 ).has_value() ) << "an empty DDC is a miss, not an error";
     ASSERT_TRUE( Common::DDC::Put( kTestDeriver, 42, "derived bytes" ) );
@@ -162,7 +164,6 @@ TEST( DerivedDataKey, PutThenGetAndAPackagedGameLooksUnderCooked )
 
     EXPECT_EQ( Common::DDC::PlatformCookedDir(),
                ( project / "Saved" / "Cooked" / Common::DDC::CookPlatformName() ).lexically_normal() );
-    Common::Constants::Path::ClearProject();
     fs::remove_all( project, ec );
 }
 
@@ -174,7 +175,7 @@ TEST( DerivedDataKey, ParallelPutsOfOneKeyBothSucceedAndLeaveOneWholeEntry )
     const fs::path  project = fs::temp_directory_path() / "desert_ddc_parallel_put";
     std::error_code ec;
     fs::remove_all( project, ec );
-    Common::Constants::Path::SetProjectRoot( project, "Assets" );
+    const Desert::TestSupport::ProjectScope opened( project, "Assets" );
 
     const std::string payload( 4 << 20, 'x' ); // large enough that the two writes overlap in time
     for ( int round = 0; round < 8; ++round )
@@ -200,7 +201,6 @@ TEST( DerivedDataKey, ParallelPutsOfOneKeyBothSucceedAndLeaveOneWholeEntry )
     for ( const auto& e : fs::directory_iterator( Common::DDC::PathFor( kTestDeriver, 77 ).parent_path(), ec ) )
         EXPECT_NE( e.path().extension(), ".tmp" ) << "a working file survived: " << e.path();
 
-    Common::Constants::Path::ClearProject();
     fs::remove_all( project, ec );
 }
 
@@ -211,7 +211,7 @@ TEST( DerivedDataKey, ConcurrentMissesOfOneKeyBuildOnce )
     const fs::path  project = fs::temp_directory_path() / "desert_ddc_single_flight";
     std::error_code ec;
     fs::remove_all( project, ec );
-    Common::Constants::Path::SetProjectRoot( project, "Assets" );
+    const Desert::TestSupport::ProjectScope opened( project, "Assets" );
 
     std::atomic<int>         builds{ 0 };
     std::atomic<int>         ready{ 0 };
@@ -250,7 +250,6 @@ TEST( DerivedDataKey, ConcurrentMissesOfOneKeyBuildOnce )
     EXPECT_FALSE( failed.IsSuccess() );
     EXPECT_FALSE( Common::DDC::Get( kTestDeriver, 92 ).has_value() );
 
-    Common::Constants::Path::ClearProject();
     fs::remove_all( project, ec );
 }
 
@@ -580,6 +579,7 @@ TEST( DerivedDataKey, PackageCookDerivesItsShippedBucketsFromTheRegisterNotALite
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

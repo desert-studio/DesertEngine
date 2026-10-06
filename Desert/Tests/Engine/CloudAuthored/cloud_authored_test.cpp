@@ -37,6 +37,7 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 using namespace Desert::Tests::CloudAuthoredRef;
 
@@ -1663,6 +1664,7 @@ TEST( CloudSeam, TheSculptedBodyIsErodedByTheFirstSpeciesVolume )
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
 
     // THE ATLAS IS BOUND BEFORE ANY TEST RUNS, and it is the same rule the renderer works by: a sampler
