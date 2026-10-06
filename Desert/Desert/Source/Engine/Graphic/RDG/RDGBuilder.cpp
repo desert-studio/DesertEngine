@@ -792,9 +792,9 @@ namespace Desert::Graphic::RDG
                      skipRoot )
                     continue;
                 const ResourceRecord& record = m_Resources[edge.Resource];
-                const uint32_t        source = record.Kind == ResourceKind::Texture && !record.IsExternal()
-                                                    ? m_FaultDefaults.GetSource( record.Default )
-                                                    : kInvalidResource;
+                const uint32_t        source     = record.Kind == ResourceKind::Texture && !record.IsExternal()
+                                                        ? m_FaultDefaults.GetSource( record.Default )
+                                                        : kInvalidResource;
                 bool attachment = false, sampled = false, other = false;
                 for ( const ResourceUse& use : m_Passes[p].Uses )
                 {

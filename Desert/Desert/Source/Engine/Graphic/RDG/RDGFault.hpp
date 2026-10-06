@@ -71,9 +71,9 @@ namespace Desert::Graphic::RDG
         BlackCube, // SystemTextures::BlackCube
     };
 
-    // RDG-FAULT1. The single owner of what a FaultDefault IS in one graph: which resource of the graph a value names
-    // (its source, the system texture registered by RegisterSystemTextures) and which clear an attachment LOADED
-    // from a lost transient gets instead (DefaultSubstitution::AttachmentCleared). Held by the Builder
+    // RDG-FAULT1. The single owner of what a FaultDefault IS in one graph: which resource of the graph a value
+    // names (its source, the system texture registered by RegisterSystemTextures) and which clear an attachment
+    // LOADED from a lost transient gets instead (DefaultSubstitution::AttachmentCleared). Held by the Builder
     // (Builder::GetFaultDefaults); Compile and Execute ask it, nothing else knows the images or the colours.
     class FaultDefaults
     {

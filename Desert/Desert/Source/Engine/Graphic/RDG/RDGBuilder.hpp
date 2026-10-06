@@ -230,7 +230,8 @@ namespace Desert::Graphic::RDG
         // only producer was removed is substituted (a texture with a FaultDefault, DefaultSubstitution) or removed
         // too (PassFaultStage::Dependency, RootPass = the pass the chain starts at). Culling and everything after
         // it run on what is left. The returned error is reserved for a malformed GRAPH (a resource declared wrong
-        // outside any pass, a FaultDefault in a graph whose FaultDefaults have no sources); a faulted pass is never an error.
+        // outside any pass, a FaultDefault in a graph whose FaultDefaults have no sources); a faulted pass is
+        // never an error.
         Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;
 
         // RDG-CONTRACTS B(2). The same compile, scheduled for @p pipes. Compile(memory) above is this overload

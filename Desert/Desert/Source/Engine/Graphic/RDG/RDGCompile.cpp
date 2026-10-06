@@ -346,11 +346,11 @@ namespace Desert::Graphic::RDG
                                  existing.State.Layout != state.Layout )
                             {
                                 if ( conflict.empty() )
-                                    conflict = fmt::format( "graph '{}' pass '{}' declares {} as both {} and {}; one "
-                                                            "pass may hold a subresource in one state only",
-                                                            m_Name, pass.Name, describeSub( sub ),
-                                                            GetAccessName( existing.FirstAccess ),
-                                                            GetAccessName( use.Usage ) );
+                                    conflict = fmt::format(
+                                         "graph '{}' pass '{}' declares {} as both {} and {}; one "
+                                         "pass may hold a subresource in one state only",
+                                         m_Name, pass.Name, describeSub( sub ),
+                                         GetAccessName( existing.FirstAccess ), GetAccessName( use.Usage ) );
                                 continue;
                             }
                             existing.State = MergeReadStates( existing.State, state );
@@ -466,13 +466,15 @@ namespace Desert::Graphic::RDG
                 }
                 for ( const auto& [resource, value] : substitute )
                 {
-                    const auto lost = std::find_if( uses.begin(), uses.end(), [resource = resource]( const RdgSubUse& use )
-                                                    { return use.Resource == resource; } );
+                    const auto lost =
+                         std::find_if( uses.begin(), uses.end(), [resource = resource]( const RdgSubUse& use )
+                                       { return use.Resource == resource; } );
                     if ( lost == uses.end() )
                         continue; // already substituted (several lost subresources of one resource)
                     const RdgSubUse read   = *lost;
                     const uint32_t  source = m_FaultDefaults.GetSource( value );
-                    std::erase_if( uses, [resource = resource]( const RdgSubUse& use ) { return use.Resource == resource; } );
+                    std::erase_if( uses, [resource = resource]( const RdgSubUse& use )
+                                   { return use.Resource == resource; } );
                     for ( uint32_t sub = subBase[source]; sub < subBase[source + 1]; ++sub )
                     {
                         const auto existing = std::find_if( uses.begin(), uses.end(), [sub]( const RdgSubUse& use )
@@ -483,7 +485,8 @@ namespace Desert::Graphic::RDG
                             existing->AccessMask |= read.AccessMask;
                             continue;
                         }
-                        uses.push_back( { sub, source, read.State, read.FirstAccess, read.AccessMask, false, true } );
+                        uses.push_back(
+                             { sub, source, read.State, read.FirstAccess, read.AccessMask, false, true } );
                     }
                     result.Substitutions.push_back( { p, resource, source, value, false } );
                 }
@@ -529,9 +532,9 @@ namespace Desert::Graphic::RDG
                     externals += fmt::format( "{}'{}'", externals.empty() ? "" : ", ", m_Resources[r].Name );
                 for ( const uint32_t p : fatalRoots )
                     roots += fmt::format( "{}'{}'", roots.empty() ? "" : ", ", m_Passes[p].Name );
-                result.Frame = FrameFault{
-                     fmt::format( "graph '{}': {} lost every writer to the fault of {}", m_Name, externals, roots ),
-                     fatal, fatalRoots };
+                result.Frame = FrameFault{ fmt::format( "graph '{}': {} lost every writer to the fault of {}",
+                                                        m_Name, externals, roots ),
+                                           fatal, fatalRoots };
             }
         }
 
