@@ -381,6 +381,11 @@ namespace Desert::Migration
     // access.
     Common::ResultStr<std::string> MigrateFoliageTypeV5ToV6( const std::string& text );
 
+    // The v7 text of a v6 `.defoliage`: every v6 value kept, Procedural at UE UFoliageType's defaults (FOLT 6
+    // had no procedural simulation), the header's GUID kept. A file that does not state FOLT 6 is an error naming
+    // what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV6ToV7( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport

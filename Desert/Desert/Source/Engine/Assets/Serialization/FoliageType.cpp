@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Desert::Assets::Serialization
@@ -109,6 +110,8 @@ namespace Desert::Assets::Serialization
                                                      data.CullDistance.Min );
         if ( auto wind = ValidateFoliageWind( data.Wind ); !wind )
             return wind;
+        if ( auto procedural = ValidateFoliageProcedural( data.Procedural ); !procedural )
+            return procedural;
         for ( size_t i = 0; i < data.LandscapeLayers.size(); ++i )
         {
             const auto& layer = data.LandscapeLayers[i];
@@ -149,6 +152,54 @@ namespace Desert::Assets::Serialization
                  "IncludeInHLOD {}: {}",
                  data.CullDistance.Min, data.CullDistance.Max, data.Wind.Strength, data.IncludeInHLOD,
                  kFoliagePrefabMeshOnlyReason );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr ValidateFoliageProcedural( const FoliageProcedural& p )
+    {
+        const auto nonNegative = []( const char* name, float value ) -> Common::BoolResultStr
+        {
+            if ( !std::isfinite( value ) || value < 0.0f )
+                return Common::MakeFormattedError<bool>( "Procedural.{} {} must be a non-negative number", name,
+                                                         value );
+            return BOOLSUCCESS;
+        };
+        for ( const auto& [name, value] : { std::pair{ "CollisionRadius", p.CollisionRadius },
+                                            std::pair{ "ShadeRadius", p.ShadeRadius },
+                                            std::pair{ "InitialSeedDensity", p.InitialSeedDensity },
+                                            std::pair{ "AverageSpreadDistance", p.AverageSpreadDistance },
+                                            std::pair{ "SpreadVariance", p.SpreadVariance },
+                                            std::pair{ "MaxInitialSeedOffset", p.MaxInitialSeedOffset },
+                                            std::pair{ "MaxInitialAge", p.MaxInitialAge },
+                                            std::pair{ "MaxAge", p.MaxAge } } )
+            if ( auto ok = nonNegative( name, value ); !ok )
+                return ok;
+        if ( !std::isfinite( p.OverlapPriority ) )
+            return Common::MakeFormattedError<bool>( "Procedural.OverlapPriority {} must be finite",
+                                                     p.OverlapPriority );
+        if ( p.NumSteps < 0 || p.SeedsPerStep < 0 )
+            return Common::MakeFormattedError<bool>(
+                 "Procedural.NumSteps {} and Procedural.SeedsPerStep {} must not be negative", p.NumSteps,
+                 p.SeedsPerStep );
+        if ( auto ok = CheckInterval( "Procedural.ProceduralScale", p.ProceduralScale ); !ok )
+            return ok;
+        if ( p.ProceduralScale.Min <= 0.0f )
+            return Common::MakeFormattedError<bool>( "Procedural.ProceduralScale.Min {} must be above zero (a zero "
+                                                     "scale is an invisible instance)",
+                                                     p.ProceduralScale.Min );
+        if ( p.ScaleCurve.empty() )
+            return Common::MakeFormattedError<bool>( "Procedural.ScaleCurve must hold at least one key" );
+        for ( size_t i = 0; i < p.ScaleCurve.size(); ++i )
+        {
+            const auto& key = p.ScaleCurve[i];
+            if ( !std::isfinite( key.Time ) || !std::isfinite( key.Value ) )
+                return Common::MakeFormattedError<bool>( "Procedural.ScaleCurve[{}] ({}, {}) must be finite", i,
+                                                         key.Time, key.Value );
+            if ( i > 0 && !( key.Time > p.ScaleCurve[i - 1].Time ) )
+                return Common::MakeFormattedError<bool>(
+                     "Procedural.ScaleCurve[{}].Time {} must lie after key {}'s {}", i, key.Time, i - 1,
+                     p.ScaleCurve[i - 1].Time );
+        }
         return BOOLSUCCESS;
     }
 
