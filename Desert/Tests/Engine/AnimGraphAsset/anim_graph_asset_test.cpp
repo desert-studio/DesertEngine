@@ -399,8 +399,8 @@ TEST( AnimGraphAsset, GraphWithoutTargetSkeletonIsRefused )
 // space bones and Alpha included.
 TEST( AnimGraphAsset, TwoBoneIKAndLookAtNodesRoundTrip )
 {
-    namespace PG    = Desert::Animation::Graph;
-    AnimGraph graph = PG::MakeStateMachineGraph( "Reach" );
+    namespace PG         = Desert::Animation::Graph;
+    AnimGraph graph      = PG::MakeStateMachineGraph( "Reach" );
     graph.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Locomotion.skeleton" };
 
     PG::PoseNode ik;
