@@ -38,6 +38,10 @@ namespace Desert::Graphic::API::Vulkan
                     return VK_FORMAT_R16_UNORM;
                 case Core::Formats::ImageFormat::R32F:
                     return VK_FORMAT_R32_SFLOAT;
+                // Velocity (TAA1 kVelocityFormat). Sampled, colour attachment and blend are mandatory for it in
+                // the core format tables; as a storage image it needs shaderStorageImageExtendedFormats.
+                case Core::Formats::ImageFormat::RG16F:
+                    return VK_FORMAT_R16G16_SFLOAT;
                 case Core::Formats::ImageFormat::DEPTH24STENCIL8:
                     return deviceDepthFormat;
                 // The four block formats. `textureCompressionBC` is read off the physical device and

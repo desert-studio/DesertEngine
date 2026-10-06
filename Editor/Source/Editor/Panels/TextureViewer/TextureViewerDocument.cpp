@@ -58,6 +58,8 @@ namespace Desert::Editor
                     return "R16";
                 case F::R32F:
                     return "R32F";
+                case F::RG16F:
+                    return "RG16F";
                 case F::Count:
                     return "Count (not a format)";
             }

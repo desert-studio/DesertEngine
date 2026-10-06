@@ -235,6 +235,8 @@ namespace Desert::Graphic
                     return "RGBA32F";
                 case ImageFormat::R32F:
                     return "R32F";
+                case ImageFormat::RG16F:
+                    return "RG16F";
                 case ImageFormat::DEPTH24STENCIL8:
                     return "D24S8";
                 case ImageFormat::DEPTH32F:

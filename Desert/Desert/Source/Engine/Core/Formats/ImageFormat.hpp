@@ -190,6 +190,8 @@ namespace Desert::Core::Formats
                 return { 1, 1, 2 }; // one channel, 16 bits
             case ImageFormat::R32F:
                 return { 1, 1, 4 }; // one channel, 32-bit float
+            case ImageFormat::RG16F:
+                return { 1, 1, 4 }; // 2 channels, 16 bits each
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
             // number is a column of this table and not a constant beside it. The comment here used to
             // say "both BC formats in this engine are the same shape"; BC4 made that sentence false,
@@ -253,6 +255,8 @@ namespace Desert::Core::Formats
                 return 3; // radiance; the format has no alpha at all
             case ImageFormat::BC5_UNORM:
                 return 2; // X and Y of a tangent normal; Z is reconstructed by the shader
+            case ImageFormat::RG16F:
+                return 2; // velocity: NDC x and y
             case ImageFormat::BC4_UNORM:
                 return 1;
             case ImageFormat::Count:
@@ -326,6 +330,7 @@ namespace Desert::Core::Formats
             case ImageFormat::BGRA8F:
             case ImageFormat::R16_UNORM:
             case ImageFormat::R32F:
+            case ImageFormat::RG16F:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:
             case ImageFormat::BC4_UNORM:
