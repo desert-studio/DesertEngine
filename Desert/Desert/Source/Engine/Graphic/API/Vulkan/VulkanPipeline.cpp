@@ -272,8 +272,8 @@ namespace Desert::Graphic::API::Vulkan
              .pushConstantRangeCount = pushConstant.first,
              .pPushConstantRanges    = pushConstant.first > 0 ? &pushConstant.second : nullptr };
 
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                              ->GetVulkanLogicalDevice();
+        VkDevice device =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
         VK_CHECK_RESULT( vkCreatePipelineLayout( device, &layoutInfo, nullptr, &m_PipelineLayout ) );
         m_PushConstantRange = pushConstant.first > 0 ? std::optional( pushConstant.second ) : std::nullopt;
         // Named like the pipeline, so a validation message about a layout (push ranges, set layouts) names the

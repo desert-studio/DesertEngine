@@ -92,11 +92,11 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_PipelineLayout;
         }
-        // The push range m_PipelineLayout was built with, and so the one a push into this pipeline must name (stages,
-        // size). The shader's reflection is not that: the shader object outlives a recompile that re-reflects it,
-        // while this pipeline keeps the layout it was built with until it is rebuilt, and a push that named the
-        // shader's current stages named a stage this layout lacks (VUID-vkCmdPushConstants-offset-01795).
-        // Empty when the layout declares no push range.
+        // The push range m_PipelineLayout was built with, and so the one a push into this pipeline must name
+        // (stages, size). The shader's reflection is not that: the shader object outlives a recompile that
+        // re-reflects it, while this pipeline keeps the layout it was built with until it is rebuilt, and a push
+        // that named the shader's current stages named a stage this layout lacks
+        // (VUID-vkCmdPushConstants-offset-01795). Empty when the layout declares no push range.
         const std::optional<VkPushConstantRange>& GetPushConstantRange() const
         {
             return m_PushConstantRange;

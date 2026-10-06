@@ -372,23 +372,23 @@ namespace Desert::Graphic::API::Vulkan
 
     namespace
     {
-        // A pipeline holds the push range its layout was built with; its shader is re-reflected by every recompile.
-        // When the two name different stages the pipeline was built from an earlier compile of that shader and has
-        // not been rebuilt since: pushes keep to the layout (that is what the GPU validates against), and this says
-        // which pipeline is stale, once per layout, with both stage sets.
-        void ReportPushStagesApart( const VulkanPipeline& pipeline, std::string_view shaderName,
-                                    const std::optional<ShaderResources::ShaderLayout::PushConstantRange>& reflected )
+        // A pipeline holds the push range its layout was built with; its shader is re-reflected by every
+        // recompile. When the two name different stages the pipeline was built from an earlier compile of that
+        // shader and has not been rebuilt since: pushes keep to the layout (that is what the GPU validates
+        // against), and this says which pipeline is stale, once per layout, with both stage sets.
+        void
+        ReportPushStagesApart( const VulkanPipeline& pipeline, std::string_view shaderName,
+                               const std::optional<ShaderResources::ShaderLayout::PushConstantRange>& reflected )
         {
-            const auto&              range         = pipeline.GetPushConstantRange();
-            const VkShaderStageFlags layoutStages  = range.has_value() ? range->stageFlags : 0;
-            const VkShaderStageFlags shaderStages  = reflected.has_value()
-                                                          ? static_cast<VkShaderStageFlags>( reflected->ShaderStage )
-                                                          : 0;
+            const auto&              range        = pipeline.GetPushConstantRange();
+            const VkShaderStageFlags layoutStages = range.has_value() ? range->stageFlags : 0;
+            const VkShaderStageFlags shaderStages =
+                 reflected.has_value() ? static_cast<VkShaderStageFlags>( reflected->ShaderStage ) : 0;
             if ( layoutStages == shaderStages )
                 return;
-            static std::mutex                              mutex;
-            static std::unordered_set<VkPipelineLayout>    reported;
-            const std::scoped_lock                         lock( mutex );
+            static std::mutex                           mutex;
+            static std::unordered_set<VkPipelineLayout> reported;
+            const std::scoped_lock                      lock( mutex );
             if ( !reported.insert( pipeline.GetVkPipelineLayout() ).second )
                 return;
             LOG_ERROR( "Pipeline '{}': its layout's push stages 0x{:x} are not shader '{}''s current 0x{:x}; the "
@@ -619,11 +619,11 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
         }
 
-        // The push block of every submesh: the material's (the pipeline layout's full range, so the per-object values
-        // the caller wrote past the transform go too; zero past what the material holds) with the submesh's
+        // The push block of every submesh: the material's (the pipeline layout's full range, so the per-object
+        // values the caller wrote past the transform go too; zero past what the material holds) with the submesh's
         // transform over the first mat4. Stages and size are the LAYOUT's (VulkanPipeline::GetPushConstantRange),
         // never the shader's current reflection, which a recompile can move past the layout this pipeline holds.
-        const auto&            pushConstant = graphics->GetPushConstantRange();
+        const auto& pushConstant = graphics->GetPushConstantRange();
         ReportPushStagesApart( *graphics, shader->GetName(), shader->GetShaderPushConstant() );
         std::vector<std::byte> push;
         if ( pushConstant.has_value() && pushConstant->size > 0 )
@@ -776,15 +776,16 @@ namespace Desert::Graphic::API::Vulkan
                  cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS, graphics->GetVkPipelineLayout(), 0,
                  static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0, nullptr );
         // Stages and size are the pipeline LAYOUT's range (VulkanPipeline::GetPushConstantRange), not the shader's
-        // current reflection: the two part ways when the shader is re-reflected while this pipeline keeps its layout.
+        // current reflection: the two part ways when the shader is re-reflected while this pipeline keeps its
+        // layout.
         const std::span<const std::byte> push      = ChoosePushConstants( bindings, materialPush );
         const auto&                      pushRange = graphics->GetPushConstantRange();
         ReportPushStagesApart( *graphics, shader->GetName(), reflection.PushConstantRanges );
         if ( !push.empty() && pushRange.has_value() )
         {
             if ( push.size() > pushRange->size )
-                return Common::MakeFormattedError( "{}: pipeline '{}' push range is {} bytes, the pass pushes {}", pass,
-                                                   pipeline.GetSpecification().DebugName, pushRange->size,
+                return Common::MakeFormattedError( "{}: pipeline '{}' push range is {} bytes, the pass pushes {}",
+                                                   pass, pipeline.GetSpecification().DebugName, pushRange->size,
                                                    push.size() );
             vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(), pushRange->stageFlags,
                                 pushRange->offset, static_cast<uint32_t>( push.size() ), push.data() );

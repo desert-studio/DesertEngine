@@ -381,14 +381,15 @@ TEST( RenderGraphCompile, VulkanPushStagesAndAcquireStageComeFromOneDeclaration 
             ++pushes;
             const std::string call = text.substr( at, text.find( ';', at ) - at );
             EXPECT_EQ( call.find( "ShaderStage" ), std::string::npos )
-                 << entry.path().filename().string() << ": a push names a shader's reflected stages:
-" << call;
-            const bool layoutRange = call.find( "stageFlags" ) != std::string::npos;
-            const bool compute     = call.find( "VK_SHADER_STAGE_COMPUTE_BIT" ) != std::string::npos;
-            EXPECT_TRUE( layoutRange || compute )
-                 << entry.path().filename().string() << ": a push names neither its layout's range nor COMPUTE:
-"
-                 << call;
+                 << entry.path().filename().string()
+                 << ": a push names a shader's reflected stages:
+                    " << call;
+                 const bool layoutRange = call.find( "stageFlags" ) != std::string::npos;
+            const bool      compute     = call.find( "VK_SHADER_STAGE_COMPUTE_BIT" ) != std::string::npos;
+            EXPECT_TRUE( layoutRange || compute ) << entry.path().filename().string()
+                                                  << ": a push names neither its layout's range nor COMPUTE:
+                                                     "
+                                                  << call;
         }
     }
     EXPECT_GE( pushes, 4 ) << "the census lost the push sites it expected to read";
@@ -833,16 +834,17 @@ TEST( RenderGraphCompile, TheCullingSwitchKeepsEveryPassAndTheFrameAndViewportWi
 // Bloom: pass i writes mip i while sampling mip i-1 of the SAME texture. Per-subresource state is what
 // makes that legal - one barrier moves mip i-1 to shader-read, another brings mip i up from undefined.
 // THE ACQUIRED BACK BUFFER'S FIRST BARRIER CHAINS WITH THE ACQUIRE WAIT. The frame waits on the acquire semaphore
-// at kPresentAcquiredState's stages (VulkanSwapChainOutput::GetFrameOutput) and the back buffer is imported in that
-// state (VulkanSwapChain::ImportBackBuffer). The graph's transition out of Undefined must have those stages in its
-// source scope, or it is ordered against nothing and races the presentation engine's read: imported as
+// at kPresentAcquiredState's stages (VulkanSwapChainOutput::GetFrameOutput) and the back buffer is imported in
+// that state (VulkanSwapChain::ImportBackBuffer). The graph's transition out of Undefined must have those stages
+// in its source scope, or it is ordered against nothing and races the presentation engine's read: imported as
 // Access::None it was TOP_OF_PIPE, and the validation layer reported SYNC-HAZARD-WRITE-AFTER-READ in the
 // EditorImGui region on every frame (GATE-VAL1).
 TEST( RenderGraphCompile, TheAcquiredBackBuffersFirstBarrierWaitsAtTheAcquireStage )
 {
     EXPECT_EQ( kPresentAcquiredState.Layout, ImageLayout::Undefined );
     EXPECT_EQ( kPresentAcquiredState.Memory, static_cast<MemoryAccessFlags>( MemoryAccess_None ) );
-    EXPECT_EQ( kPresentAcquiredState.Stages, static_cast<PipelineStageFlags>( PipelineStage_ColorAttachmentOutput ) );
+    EXPECT_EQ( kPresentAcquiredState.Stages,
+               static_cast<PipelineStageFlags>( PipelineStage_ColorAttachmentOutput ) );
 
     ExternalTexture backbuffer;
     backbuffer.Desc = Tex2D( 64, 64, ImageFormat::BGRA8F );
@@ -850,9 +852,8 @@ TEST( RenderGraphCompile, TheAcquiredBackBuffersFirstBarrierWaitsAtTheAcquireSta
     Builder          graph( "EditorImGui" );
     const TextureRef back = graph.RegisterExternal( backbuffer, "BackBuffer" );
     graph.AddPass(
-         "EditorImGui", PassFlags::Raster,
-         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, back, LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f ) ); },
-         Ok );
+         "EditorImGui", PassFlags::Raster, [&]( PassBuilder& pass )
+         { pass.ColorTarget( 0, back, LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f ) ); }, Ok );
     graph.Extract( back, backbuffer, Access::Present );
 
     const CompileResult        result = CompileOrFail( graph );
