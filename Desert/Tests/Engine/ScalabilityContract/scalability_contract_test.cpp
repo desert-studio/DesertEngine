@@ -257,7 +257,7 @@ TEST( ScalabilityContract, TheTableRefusesEveryErrorNotTheFirst )
 // AntiAliasing.Samples is the MSAA count only; TAA's quality is its own (placeholder) row, 0..2.
 TEST( ScalabilityContract, SamplesAboveOneUnderANonMsaaMethodIsRefused )
 {
-    std::string bad( kTable );
+    std::string       bad( kTable );
     const std::string high = R"("AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1)";
     bad.replace( bad.find( high ), high.size(), R"("AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 4)" );
     const auto parsed = ScalabilityTable::Parse( bad );
@@ -275,7 +275,7 @@ TEST( ScalabilityContract, TemporalQualityIsAHiddenPlaceholderOfThreeLevels )
     EXPECT_EQ( spec.Max, 2 );
     EXPECT_EQ( spec.NarrowedBy, CatalogList::None );
     EXPECT_TRUE( IsPlaceholder( spec ) );
-    std::string bad( kTable );
+    std::string       bad( kTable );
     const std::string epic = R"("AntiAliasing.TemporalQuality": 2 },
       "Cinematic")";
     bad.replace( bad.find( epic ), epic.size(), R"("AntiAliasing.TemporalQuality": 3 },
@@ -330,9 +330,9 @@ TEST( ScalabilityContract, EveryPlaceholderIsHiddenAndEveryListedRowNamesAReader
     }
     // Textures has only placeholders today: no slider for it. Every other group has a real row.
     EXPECT_FALSE( IsGroupListed( Group::Textures ) );
-    for ( Group g : { Group::AntiAliasing, Group::ResolutionScale, Group::Filtering, Group::ViewDistance,
-                      Group::Effects, Group::Shadows, Group::GlobalIllumination, Group::Reflections,
-                      Group::PostProcess } )
+    for ( Group g :
+          { Group::AntiAliasing, Group::ResolutionScale, Group::Filtering, Group::ViewDistance, Group::Effects,
+            Group::Shadows, Group::GlobalIllumination, Group::Reflections, Group::PostProcess } )
         EXPECT_TRUE( IsGroupListed( g ) ) << GroupKey( g );
 }
 
@@ -352,7 +352,8 @@ namespace
     {
         g_SaveCalls = 0;
         g_LastSaved = {};
-        QualityState::Initialize( Table(), Vk::BuildCapabilityCatalog( RtxProbe() ), AllAt( Level::High ), &MockSave );
+        QualityState::Initialize( Table(), Vk::BuildCapabilityCatalog( RtxProbe() ), AllAt( Level::High ),
+                                  &MockSave );
     }
 } // namespace
 
@@ -389,7 +390,8 @@ TEST( ScalabilityContract, VSyncOnIsFifoAndOffTakesTheLowestLatencyModeOffered )
 
     Vk::CatalogProbe mailboxOnly = RtxProbe();
     mailboxOnly.PresentModes     = { VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_MAILBOX_KHR };
-    EXPECT_EQ( ResolvePresentMode( { .VSync = false }, Vk::BuildCapabilityCatalog( mailboxOnly ) ).Mode, PresentMode::Mailbox );
+    EXPECT_EQ( ResolvePresentMode( { .VSync = false }, Vk::BuildCapabilityCatalog( mailboxOnly ) ).Mode,
+               PresentMode::Mailbox );
 
     Vk::CatalogProbe fifoOnly = RtxProbe();
     fifoOnly.PresentModes     = { VK_PRESENT_MODE_FIFO_KHR };
@@ -560,10 +562,11 @@ namespace
 TEST( ScalabilityContract, TheShippedTableParsesAndHighNeedsNoFallbackOnACapableDevice )
 {
     const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "Editor/Resources/Config/Scalability.json not found above the working directory";
+    ASSERT_FALSE( root.empty() )
+         << "Editor/Resources/Config/Scalability.json not found above the working directory";
     const std::ifstream in( std::filesystem::path( root ) / "Editor/Resources/Config/Scalability.json",
                             std::ios::binary );
-    std::ostringstream text;
+    std::ostringstream  text;
     text << in.rdbuf();
     const auto parsed = ScalabilityTable::Parse( text.str() );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();

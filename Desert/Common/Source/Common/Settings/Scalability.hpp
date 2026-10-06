@@ -85,9 +85,9 @@ namespace Common::Scalability
     inline constexpr std::size_t kLevelCount = static_cast<std::size_t>( Level::Count );
 
     // EVERY QUALITY VALUE A RENDERER READS. A row exists only when a reader exists (contract §1.3): the comment
-    // names it. A group whose rows are all placeholders (Textures today) is HIDDEN: IsGroupListed() is false, so no
-    // UI or game API shows a slider for it, and a group with no row at all is refused by the loader when the data
-    // file gives it levels - a group slider that moves nothing is a dead setting.
+    // names it. A group whose rows are all placeholders (Textures today) is HIDDEN: IsGroupListed() is false, so
+    // no UI or game API shows a slider for it, and a group with no row at all is refused by the loader when the
+    // data file gives it levels - a group slider that moves nothing is a dead setting.
     //
     // PLACEHOLDERS (owner, 2026-10-06). A row whose spec says `Reader = std::nullopt` reserves a parameter for a
     // feature the engine does not have yet (TAA quality, ray-traced shadows/reflections/GI, upscaler sharpening,
@@ -185,7 +185,8 @@ namespace Common::Scalability
     //   { "Version": 1,
     //     "Groups": {
     //       "AntiAliasing": {
-    //         "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 1, ... },   // Samples > 1 only under MSAA
+    //         "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 1, ... },   // Samples > 1
+    //         only under MSAA
     //         ...
     //         "Cinematic": { "AntiAliasing.Method": "MSAA", "AntiAliasing.Samples": 8, ... } }, ... },
     //     "Recommend": {

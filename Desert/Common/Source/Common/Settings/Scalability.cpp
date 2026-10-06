@@ -14,9 +14,9 @@ namespace Common::Scalability
 {
     namespace
     {
-        using P  = Parameter;
-        using G  = Group;
-        using CL = CatalogList;
+        using P                         = Parameter;
+        using G                         = Group;
+        using CL                        = CatalogList;
         constexpr ParameterValue kRtMax = static_cast<ParameterValue>( RayTracingMode::RayTracingPipeline );
 
         // THE spec list (Scalability.hpp: one row per Parameter, in enum order - the census asserts it).
@@ -55,12 +55,14 @@ namespace Common::Scalability
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },
-             { P::ShadowRayTracing, G::Shadows, "Shadows.RayTracing", 0, kRtMax, CL::RayTracingModes, std::nullopt },
+             { P::ShadowRayTracing, G::Shadows, "Shadows.RayTracing", 0, kRtMax, CL::RayTracingModes,
+               std::nullopt },
              { P::GlobalIlluminationRayTracing, G::GlobalIllumination, "GlobalIllumination.RayTracing", 0, kRtMax,
                CL::RayTracingModes, std::nullopt },
              { P::ReflectionRayTracing, G::Reflections, "Reflections.RayTracing", 0, kRtMax, CL::RayTracingModes,
                std::nullopt },
-             { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 2, CL::None, std::nullopt },
+             { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 2, CL::None,
+               std::nullopt },
              { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None, std::nullopt },
         } };
     } // namespace
@@ -205,15 +207,17 @@ namespace Common::Scalability
         {
             if ( node.GetKind() == Json::Kind::Object )
                 return true;
-            errors.Add( node, "{}: expected an object, found {}", what, Json::Detail::DescribeFound( node.Raw() ) );
+            errors.Add( node, "{}: expected an object, found {}", what,
+                        Json::Detail::DescribeFound( node.Raw() ) );
             return false;
         }
 
-        // AntiAliasing.Samples is the MSAA sample count and nothing else: the framebuffer reads it only under MSAA,
-        // and the temporal methods' quality is AntiAliasing.TemporalQuality. A level that pairs FXAA or TAA with
-        // Samples 4 reads as "TAA at 4 samples" to whoever edits the table, so the loader refuses it (TAA1 brief).
+        // AntiAliasing.Samples is the MSAA sample count and nothing else: the framebuffer reads it only under
+        // MSAA, and the temporal methods' quality is AntiAliasing.TemporalQuality. A level that pairs FXAA or TAA
+        // with Samples 4 reads as "TAA at 4 samples" to whoever edits the table, so the loader refuses it (TAA1
+        // brief).
         void CheckSamplesOnlyUnderMsaa( const Json::Node& levelNode, std::string_view groupKey,
-                                        std::string_view levelKey,
+                                        std::string_view                                   levelKey,
                                         const std::array<ParameterValue, kParameterCount>& values,
                                         const std::array<bool, kParameterCount>& parsed, Errors& errors )
         {
@@ -234,67 +238,76 @@ namespace Common::Scalability
             if ( !ExpectObject( groups, "Groups", errors ) )
                 return;
             std::array<bool, kGroupCount> seen{};
-            groups.ForEachMember( [&]( std::string_view groupKey, const Json::Node& groupNode ) {
-                const std::optional<Group> group = FindGroup( groupKey );
-                if ( !group )
-                {
-                    errors.Add( groupNode, "unknown group '{}'", groupKey );
-                    return;
-                }
-                const std::size_t g = static_cast<std::size_t>( *group );
-                seen[g]             = true;
-                if ( !GroupHasParameters( *group ) )
-                {
-                    errors.Add( groupNode, "group '{}' has no parameters; levels for it would move nothing",
-                                groupKey );
-                    return;
-                }
-                if ( !ExpectObject( groupNode, groupKey, errors ) )
-                    return;
-                std::array<bool, kLevelCount> levelSeen{};
-                groupNode.ForEachMember( [&]( std::string_view levelKey, const Json::Node& levelNode ) {
-                    const std::optional<Level> level = FindLevel( levelKey );
-                    if ( !level )
-                    {
-                        errors.Add( levelNode, "{}: unknown level '{}'", groupKey, levelKey );
-                        return;
-                    }
-                    const std::size_t l = static_cast<std::size_t>( *level );
-                    levelSeen[l]        = true;
-                    if ( !ExpectObject( levelNode, levelKey, errors ) )
-                        return;
-                    std::array<bool, kParameterCount> set{}, parsed{};
-                    levelNode.ForEachMember( [&]( std::string_view key, const Json::Node& valueNode ) {
-                        const ParameterSpec* spec = FindSpec( key );
-                        if ( !spec )
-                        {
-                            errors.Add( valueNode, "{}.{}: unknown parameter '{}'", groupKey, levelKey, key );
-                            return;
-                        }
-                        if ( spec->Owner != *group )
-                        {
-                            errors.Add( valueNode, "{}.{}: '{}' belongs to group '{}'", groupKey, levelKey, key,
-                                        GroupKey( spec->Owner ) );
-                            return;
-                        }
-                        const std::size_t p = static_cast<std::size_t>( spec->Id );
-                        set[p]              = true;
-                        if ( const auto value = ParseValue( *spec, valueNode, errors ) )
-                        {
-                            table.Values[g][l][p] = *value;
-                            parsed[p]             = true;
-                        }
-                    } );
-                    for ( const ParameterSpec& spec : ParameterSpecs() )
-                        if ( spec.Owner == *group && !set[static_cast<std::size_t>( spec.Id )] )
-                            errors.Add( levelNode, "{}.{}: '{}' is not set", groupKey, levelKey, spec.Key );
-                    CheckSamplesOnlyUnderMsaa( levelNode, groupKey, levelKey, table.Values[g][l], parsed, errors );
-                } );
-                for ( std::size_t l = 0; l < kLevelCount; ++l )
-                    if ( !levelSeen[l] )
-                        errors.Add( groupNode, "{}: level '{}' is missing", groupKey,
-                                    LevelKey( static_cast<Level>( l ) ) );
-            } );
+            groups.ForEachMember(
+                 [&]( std::string_view groupKey, const Json::Node& groupNode )
+                 {
+                     const std::optional<Group> group = FindGroup( groupKey );
+                     if ( !group )
+                     {
+                         errors.Add( groupNode, "unknown group '{}'", groupKey );
+                         return;
+                     }
+                     const std::size_t g = static_cast<std::size_t>( *group );
+                     seen[g]             = true;
+                     if ( !GroupHasParameters( *group ) )
+                     {
+                         errors.Add( groupNode, "group '{}' has no parameters; levels for it would move nothing",
+                                     groupKey );
+                         return;
+                     }
+                     if ( !ExpectObject( groupNode, groupKey, errors ) )
+                         return;
+                     std::array<bool, kLevelCount> levelSeen{};
+                     groupNode.ForEachMember(
+                          [&]( std::string_view levelKey, const Json::Node& levelNode )
+                          {
+                              const std::optional<Level> level = FindLevel( levelKey );
+                              if ( !level )
+                              {
+                                  errors.Add( levelNode, "{}: unknown level '{}'", groupKey, levelKey );
+                                  return;
+                              }
+                              const std::size_t l = static_cast<std::size_t>( *level );
+                              levelSeen[l]        = true;
+                              if ( !ExpectObject( levelNode, levelKey, errors ) )
+                                  return;
+                              std::array<bool, kParameterCount> set{}, parsed{};
+                              levelNode.ForEachMember(
+                                   [&]( std::string_view key, const Json::Node& valueNode )
+                                   {
+                                       const ParameterSpec* spec = FindSpec( key );
+                                       if ( !spec )
+                                       {
+                                           errors.Add( valueNode, "{}.{}: unknown parameter '{}'", groupKey,
+                                                       levelKey, key );
+                                           return;
+                                       }
+                                       if ( spec->Owner != *group )
+                                       {
+                                           errors.Add( valueNode, "{}.{}: '{}' belongs to group '{}'", groupKey,
+                                                       levelKey, key, GroupKey( spec->Owner ) );
+                                           return;
+                                       }
+                                       const std::size_t p = static_cast<std::size_t>( spec->Id );
+                                       set[p]              = true;
+                                       if ( const auto value = ParseValue( *spec, valueNode, errors ) )
+                                       {
+                                           table.Values[g][l][p] = *value;
+                                           parsed[p]             = true;
+                                       }
+                                   } );
+                              for ( const ParameterSpec& spec : ParameterSpecs() )
+                                  if ( spec.Owner == *group && !set[static_cast<std::size_t>( spec.Id )] )
+                                      errors.Add( levelNode, "{}.{}: '{}' is not set", groupKey, levelKey,
+                                                  spec.Key );
+                              CheckSamplesOnlyUnderMsaa( levelNode, groupKey, levelKey, table.Values[g][l], parsed,
+                                                         errors );
+                          } );
+                     for ( std::size_t l = 0; l < kLevelCount; ++l )
+                         if ( !levelSeen[l] )
+                             errors.Add( groupNode, "{}: level '{}' is missing", groupKey,
+                                         LevelKey( static_cast<Level>( l ) ) );
+                 } );
             for ( std::size_t g = 0; g < kGroupCount; ++g )
                 if ( !seen[g] && GroupHasParameters( static_cast<Group>( g ) ) )
                     errors.Add( groups, "group '{}' has parameters but no levels",
@@ -310,24 +323,29 @@ namespace Common::Scalability
         {
             if ( !ExpectObject( node, section, errors ) )
                 return;
-            node.ForEachMember( [&]( std::string_view key, const Json::Node& list ) {
-                const std::optional<Group> group = FindGroup( key );
-                if ( !group || !GroupHasParameters( *group ) )
-                {
-                    errors.Add( list, "Recommend.{}: '{}' is not a group with parameters", section, key );
-                    return;
-                }
-                const std::size_t g = static_cast<std::size_t>( *group );
-                seen[g]             = true;
-                std::size_t count   = 0;
-                list.ForEachElement( [&]( std::size_t i, const Json::Node& element ) {
-                    ++count;
-                    if ( i < N && !ReadNumber( element, out[g][i] ) )
-                        errors.Add( element, "Recommend.{}.{}[{}]: not a number in range", section, key, i );
-                } );
-                if ( list.GetKind() != Json::Kind::Array || count != N )
-                    errors.Add( list, "Recommend.{}.{}: expected an array of {} numbers", section, key, N );
-            } );
+            node.ForEachMember(
+                 [&]( std::string_view key, const Json::Node& list )
+                 {
+                     const std::optional<Group> group = FindGroup( key );
+                     if ( !group || !GroupHasParameters( *group ) )
+                     {
+                         errors.Add( list, "Recommend.{}: '{}' is not a group with parameters", section, key );
+                         return;
+                     }
+                     const std::size_t g = static_cast<std::size_t>( *group );
+                     seen[g]             = true;
+                     std::size_t count   = 0;
+                     list.ForEachElement(
+                          [&]( std::size_t i, const Json::Node& element )
+                          {
+                              ++count;
+                              if ( i < N && !ReadNumber( element, out[g][i] ) )
+                                  errors.Add( element, "Recommend.{}.{}[{}]: not a number in range", section, key,
+                                              i );
+                          } );
+                     if ( list.GetKind() != Json::Kind::Array || count != N )
+                         errors.Add( list, "Recommend.{}.{}: expected an array of {} numbers", section, key, N );
+                 } );
         }
 
         void ParseRecommend( const Json::Node& recommend, ScalabilityTable& table, Errors& errors )
@@ -337,33 +355,38 @@ namespace Common::Scalability
             std::array<bool, kGroupCount> thresholdsSeen{};
             std::array<bool, kGroupCount> memorySeen{};
             bool                          deviceClassSeen = false;
-            recommend.ForEachMember( [&]( std::string_view key, const Json::Node& entry ) {
-                if ( key == "Thresholds" )
-                    ParsePerGroupList( entry, key, table.RecommendThresholds, thresholdsSeen, errors );
-                else if ( key == "MinVideoMemoryMiB" )
-                    ParsePerGroupList( entry, key, table.MinVideoMemoryMiB, memorySeen, errors );
-                else if ( key == "DeviceClass" )
-                {
-                    deviceClassSeen = true;
-                    if ( !ExpectObject( entry, "Recommend.DeviceClass", errors ) )
-                        return;
-                    constexpr std::array<std::string_view, 4> kClasses{ "Unknown", "Integrated", "AppleUnified",
-                                                                        "Discrete" };
-                    for ( std::size_t c = 0; c < kClasses.size(); ++c )
-                    {
-                        const std::optional<Json::Node> value = entry.Find( kClasses[c] );
-                        if ( !value || !ReadNumber( *value, table.DeviceClassPerfIndex[c] ) )
-                            errors.Add( entry, "Recommend.DeviceClass: '{}' is missing or not a number",
-                                        kClasses[c] );
-                    }
-                    entry.ForEachMember( [&]( std::string_view name, const Json::Node& member ) {
-                        if ( std::find( kClasses.begin(), kClasses.end(), name ) == kClasses.end() )
-                            errors.Add( member, "Recommend.DeviceClass: unknown device class '{}'", name );
-                    } );
-                }
-                else
-                    errors.Add( entry, "Recommend: unknown key '{}'", key );
-            } );
+            recommend.ForEachMember(
+                 [&]( std::string_view key, const Json::Node& entry )
+                 {
+                     if ( key == "Thresholds" )
+                         ParsePerGroupList( entry, key, table.RecommendThresholds, thresholdsSeen, errors );
+                     else if ( key == "MinVideoMemoryMiB" )
+                         ParsePerGroupList( entry, key, table.MinVideoMemoryMiB, memorySeen, errors );
+                     else if ( key == "DeviceClass" )
+                     {
+                         deviceClassSeen = true;
+                         if ( !ExpectObject( entry, "Recommend.DeviceClass", errors ) )
+                             return;
+                         constexpr std::array<std::string_view, 4> kClasses{ "Unknown", "Integrated",
+                                                                             "AppleUnified", "Discrete" };
+                         for ( std::size_t c = 0; c < kClasses.size(); ++c )
+                         {
+                             const std::optional<Json::Node> value = entry.Find( kClasses[c] );
+                             if ( !value || !ReadNumber( *value, table.DeviceClassPerfIndex[c] ) )
+                                 errors.Add( entry, "Recommend.DeviceClass: '{}' is missing or not a number",
+                                             kClasses[c] );
+                         }
+                         entry.ForEachMember(
+                              [&]( std::string_view name, const Json::Node& member )
+                              {
+                                  if ( std::find( kClasses.begin(), kClasses.end(), name ) == kClasses.end() )
+                                      errors.Add( member, "Recommend.DeviceClass: unknown device class '{}'",
+                                                  name );
+                              } );
+                     }
+                     else
+                         errors.Add( entry, "Recommend: unknown key '{}'", key );
+                 } );
             if ( !deviceClassSeen )
                 errors.Add( recommend, "Recommend.DeviceClass is missing" );
             for ( std::size_t g = 0; g < kGroupCount; ++g )
@@ -587,26 +610,28 @@ namespace Common::Scalability
         if ( root.GetKind() != Json::Kind::Object )
             return Common::MakeError<ScalabilityTable>( "Scalability.json: the document is not an object" );
         bool versionSeen = false, groupsSeen = false, recommendSeen = false;
-        root.ForEachMember( [&]( std::string_view key, const Json::Node& entry ) {
-            if ( key == "Version" )
-            {
-                versionSeen = true;
-                if ( !ReadNumber( entry, table.Version ) || table.Version == 0 )
-                    errors.Add( entry, "Version: expected a positive integer" );
-            }
-            else if ( key == "Groups" )
-            {
-                groupsSeen = true;
-                ParseGroups( entry, table, errors );
-            }
-            else if ( key == "Recommend" )
-            {
-                recommendSeen = true;
-                ParseRecommend( entry, table, errors );
-            }
-            else
-                errors.Add( entry, "unknown top-level key '{}'", key );
-        } );
+        root.ForEachMember(
+             [&]( std::string_view key, const Json::Node& entry )
+             {
+                 if ( key == "Version" )
+                 {
+                     versionSeen = true;
+                     if ( !ReadNumber( entry, table.Version ) || table.Version == 0 )
+                         errors.Add( entry, "Version: expected a positive integer" );
+                 }
+                 else if ( key == "Groups" )
+                 {
+                     groupsSeen = true;
+                     ParseGroups( entry, table, errors );
+                 }
+                 else if ( key == "Recommend" )
+                 {
+                     recommendSeen = true;
+                     ParseRecommend( entry, table, errors );
+                 }
+                 else
+                     errors.Add( entry, "unknown top-level key '{}'", key );
+             } );
         if ( !versionSeen )
             errors.Add( root, "Version is missing" );
         if ( !groupsSeen )
@@ -843,7 +868,7 @@ namespace Common::Scalability
             return report;
         }
         const auto saved = s.Save( s.Selection );
-        report.Saved       = saved.IsSuccess();
+        report.Saved     = saved.IsSuccess();
         if ( !report.Saved )
             LOG_ERROR( "[Scalability] the quality selection was not saved: {} — it applies to this session only",
                        saved.GetError() );

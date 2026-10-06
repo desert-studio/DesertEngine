@@ -148,8 +148,10 @@ namespace Common::Scalability
     // enum so a name can never differ between the data file and the log.
     inline constexpr std::array<std::string_view, 7> kAntiAliasingMethodNames{ "None", "FXAA",      "SMAA", "MSAA",
                                                                                "TAA",  "FSRNative", "DLAA" };
-    inline constexpr std::array<std::string_view, 6> kUpscalerNames{ "None", "TAAU", "FSR", "DLSS", "XeSS", "MetalFX" };
-    inline constexpr std::array<std::string_view, 3> kRayTracingModeNames{ "None", "RayQuery", "RayTracingPipeline" };
+    inline constexpr std::array<std::string_view, 6> kUpscalerNames{ "None", "TAAU", "FSR",
+                                                                     "DLSS", "XeSS", "MetalFX" };
+    inline constexpr std::array<std::string_view, 3> kRayTracingModeNames{ "None", "RayQuery",
+                                                                           "RayTracingPipeline" };
     static_assert( static_cast<std::size_t>( AntiAliasingMethod::DLAA ) + 1 == kAntiAliasingMethodNames.size() );
     static_assert( static_cast<std::size_t>( Upscaler::MetalFX ) + 1 == kUpscalerNames.size() );
     static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
