@@ -73,7 +73,7 @@ namespace
     }
 
     // The births of each of @p steps steps.
-    std::vector<std::uint32_t> Run( const VFX::VFXSpawnPlan& plan, int steps, double step = kStep )
+    std::vector<std::uint32_t> Births( const VFX::VFXSpawnPlan& plan, int steps, double step = kStep )
     {
         VFX::SpawnState            state;
         std::vector<std::uint32_t> born;
@@ -99,10 +99,10 @@ TEST( VFXEmitterSpawn, ARateOverNStepsBearsTheFloorOfItsProduct )
     // 25/s at 60 steps/s is 5/12 of a particle a step: the carry turns it into whole births.
     const auto plan = Plan( System( { Rate( 25.0f ) } ) );
     for ( const int n : { 1, 2, 3, 5, 13, 59, 61, 601 } )
-        EXPECT_EQ( Sum( Run( plan, n ) ), static_cast<std::uint64_t>( n * 25 / 60 ) ) << n << " steps";
+        EXPECT_EQ( Sum( Births( plan, n ) ), static_cast<std::uint64_t>( n * 25 / 60 ) ) << n << " steps";
 
     // Every step bears 0 or 1 at this rate — the births are spread, not bunched.
-    for ( const std::uint32_t b : Run( plan, 120 ) )
+    for ( const std::uint32_t b : Births( plan, 120 ) )
         EXPECT_LE( b, 1u );
 }
 
@@ -112,7 +112,7 @@ TEST( VFXEmitterSpawn, RatesAddAndADisabledModuleBearsNothing )
     system.Emitters[0].Stack.EmitterUpdate[2].Enabled = false;
     const auto plan = Plan( system );
     EXPECT_DOUBLE_EQ( plan.Rate, 125.0 );
-    EXPECT_EQ( Sum( Run( plan, 61 ) ), 127u ); // floor(61 / 60 * 125) = floor(127.08)
+    EXPECT_EQ( Sum( Births( plan, 61 ) ), 127u ); // floor(61 / 60 * 125) = floor(127.08)
 }
 
 TEST( VFXEmitterSpawn, ABurstFiresOncePerLoopInTheStepThatHoldsItsTime )
@@ -122,7 +122,7 @@ TEST( VFXEmitterSpawn, ABurstFiresOncePerLoopInTheStepThatHoldsItsTime )
     const auto plan   = Plan( System( { Burst( 7, 0.26f ) }, life ) );
 
     // Four loops of 30 steps: one burst each, in step 15 of the loop (0.26 s lies in [15/60, 16/60)).
-    const auto born = Run( plan, 120 );
+    const auto born = Births( plan, 120 );
     EXPECT_EQ( Sum( born ), 28u );
     for ( int s = 0; s < 120; ++s )
         EXPECT_EQ( born[s], s % 30 == 15 ? 7u : 0u ) << "step " << s;
@@ -130,8 +130,8 @@ TEST( VFXEmitterSpawn, ABurstFiresOncePerLoopInTheStepThatHoldsItsTime )
     // A burst at the loop's start fires in the loop's first step, and a step longer than the loop still fires it
     // once per loop it covers.
     const auto atStart = Plan( System( { Burst( 3, 0.0f ) }, life ) );
-    EXPECT_EQ( Run( atStart, 1 ), ( std::vector<std::uint32_t>{ 3u } ) );
-    EXPECT_EQ( Run( atStart, 2, 1.25 ), ( std::vector<std::uint32_t>{ 9u, 6u } ) ); // loops 0,1,2 then 3,4
+    EXPECT_EQ( Births( atStart, 1 ), ( std::vector<std::uint32_t>{ 3u } ) );
+    EXPECT_EQ( Births( atStart, 2, 1.25 ), ( std::vector<std::uint32_t>{ 9u, 6u } ) ); // loops 0,1,2 then 3,4
 }
 
 TEST( VFXEmitterSpawn, TheLifecycleClipsRateAndBursts )
@@ -142,7 +142,7 @@ TEST( VFXEmitterSpawn, TheLifecycleClipsRateAndBursts )
     once.Delay        = 0.505f;
     once.LoopDuration = 1.01f;
     once.Loop         = S::VFXLoopBehavior::Once;
-    const auto born   = Run( Plan( System( { Rate( 60.0f ), Burst( 10, 0.0f ) }, once ) ), 300 );
+    const auto born   = Births( Plan( System( { Rate( 60.0f ), Burst( 10, 0.0f ) }, once ) ), 300 );
     EXPECT_EQ( Sum( born ), 70u );
     for ( int s = 0; s < 300; ++s )
         if ( s < 30 || s > 90 )
@@ -155,13 +155,13 @@ TEST( VFXEmitterSpawn, TheLifecycleClipsRateAndBursts )
     three.Loop         = S::VFXLoopBehavior::Multiple;
     three.LoopCount    = 3;
     const auto plan    = Plan( System( { Rate( 45.0f ), Burst( 4, 0.11f ) }, three ) );
-    EXPECT_EQ( Sum( Run( plan, 90 ) ), 67u + 12u );
-    EXPECT_EQ( Sum( Run( plan, 600 ) ), 67u + 12u );
+    EXPECT_EQ( Sum( Births( plan, 90 ) ), 67u + 12u );
+    EXPECT_EQ( Sum( Births( plan, 600 ) ), 67u + 12u );
 
     // Infinite never stops: 10 s of 0.5 s loops is twenty bursts.
     S::VFXEmitterLifecycle forever;
     forever.LoopDuration = 0.5f;
-    EXPECT_EQ( Sum( Run( Plan( System( { Burst( 1, 0.01f ) }, forever ) ), 600 ) ), 20u );
+    EXPECT_EQ( Sum( Births( Plan( System( { Burst( 1, 0.01f ) }, forever ) ), 600 ) ), 20u );
 }
 
 TEST( VFXEmitterSpawn, AUserBindingReadsTheParameterDefault )
