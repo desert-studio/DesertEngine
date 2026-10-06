@@ -167,6 +167,7 @@ namespace Common::Constants
             LandscapeLayerInfo,
             Animation,
             LevelSequence,
+            Fracture,
             Cooked,
             COUNT
         };
@@ -257,6 +258,8 @@ namespace Common::Constants
              // Level sequences (`.dseq`, UE ULevelSequence) get their own folder for the anim graph's reason: a
              // sequence component's slot offers only what is scanned from here.
              /* LevelSequence */ { "Sequences/", DirRoot::Assets },
+             // Baked fractures (`.dfrac`, UE fractured Geometry Collections) beside the meshes they cut.
+             /* Fracture      */ { "Fractures/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -591,6 +594,7 @@ namespace Common::Constants
              Detail::Slot( ContentDir::LandscapeLayerInfo );
         inline const std::filesystem::path& ANIMATION_PATH      = Detail::Slot( ContentDir::Animation );
         inline const std::filesystem::path& LEVEL_SEQUENCE_PATH = Detail::Slot( ContentDir::LevelSequence );
+        inline const std::filesystem::path& FRACTURE_PATH       = Detail::Slot( ContentDir::Fracture );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
     } // namespace Path
 

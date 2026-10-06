@@ -77,6 +77,7 @@ namespace Common::Content
         Prefab,
         Redirector,
         LevelSequence,
+        Fracture,
         COUNT,
     };
 
@@ -161,6 +162,8 @@ namespace Common::Content
              /* Redirector           */ { "Redirector", "", nullptr },
              // UE's ULevelSequence: a TMLN block whose header states this kind (LevelSequenceAsset.hpp).
              /* LevelSequence        */ { "LevelSequence", ".dseq", &P::LEVEL_SEQUENCE_PATH },
+             // UE's fractured UGeometryCollection: a DFRC payload in the asset envelope (Destruction/FractureFormat.hpp).
+             /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
         } };
     }
 

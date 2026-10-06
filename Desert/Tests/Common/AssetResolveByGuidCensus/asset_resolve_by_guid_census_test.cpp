@@ -93,6 +93,8 @@ namespace
               "header states a GUID but StoredFormFor(RetargetAsset) writes AssetsRelative path only (AF10f)" },
          PathOnlyRow{ ContentKind::Prefab,
                       "header states a GUID but PrefabComponent writes PrefabPath only (PrefabData.hpp) (AF10f)" },
+         PathOnlyRow{ ContentKind::Fracture,
+                      "no referrer yet: the geometry-collection component (DST-02) writes the .dfrac GUID" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{
@@ -245,6 +247,7 @@ namespace
             case ContentKind::WorldCell:
             case ContentKind::WorldIndex:
             case ContentKind::Skybox:
+            case ContentKind::Fracture:
                 return SyntheticEnvelope( kind, guid );
             case ContentKind::Shader:
             {
