@@ -39,6 +39,9 @@ namespace Common::Constants
         inline const std::filesystem::path FONTS_PATH     = "Resources/Fonts/";
         // Built-in vector icons (.svg, imported into SDF at first use — see Runtime::IconService).
         inline const std::filesystem::path ICONS_PATH = "Resources/Icons/";
+        // Engine data tables the runtime reads at boot (Scalability.json: the quality groups' levels). Shipped
+        // whole: a packaged game without its table could not resolve a single quality setting.
+        inline const std::filesystem::path CONFIG_PATH = "Resources/Config/";
 
         // --- The census of project-derived directories ---
 

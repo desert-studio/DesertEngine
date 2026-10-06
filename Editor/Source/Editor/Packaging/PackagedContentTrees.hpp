@@ -43,7 +43,7 @@ namespace Desert::Editor
 
     // Every tree is STAGED into Saved/Cooked/<Platform>/<PakKey>/ by the cook (GamePackager.cpp
     // StageShippedContent) and the archive is packed from that one tree only — never from these sources.
-    inline std::array<PackagedTree, 5> PackagedContentTrees()
+    inline std::array<PackagedTree, 6> PackagedContentTrees()
     {
         namespace P = Common::Constants::Path;
         return { {
@@ -57,6 +57,8 @@ namespace Desert::Editor
              { &P::FONTS_PATH, "Resources/Fonts", false },
              // Icons/Gizmo is the viewport's light/camera billboards (Editor/Core/GizmoIconSet.hpp) — editor only.
              { &P::ICONS_PATH, "Resources/Icons", false, "Gizmo" },
+             // Engine data tables (Scalability.json) — the Runtime reads them as well as the editor.
+             { &P::CONFIG_PATH, "Resources/Config", false },
         } };
     }
 
