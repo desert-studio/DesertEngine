@@ -3,7 +3,9 @@
 
 #include <Common/Core/DevInstruments.hpp>
 
-#include <algorithm> // std::find — present-mode support probe
+#include <algorithm>
+#include <Common/Settings/DisplaySettings.hpp>
+#include <rflcpp/rfl/enums.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
@@ -88,36 +90,35 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t numberOfSwapChainImages =
              std::clamp( desiredImageCount, surfCaps.minImageCount, maxImageCount );
 
-        // Pick the present mode from what the surface ACTUALLY supports (hardcoding MAILBOX tripped a
-        // validation error on MoltenVK, which offers only FIFO + IMMEDIATE).
-        //  VSync ON  -> MAILBOX (low-latency triple buffering) when available, else FIFO.
-        //  VSync OFF -> IMMEDIATE, the only mode that is NOT paced by the display: both MAILBOX and FIFO
-        //               present at the monitor's refresh rate, so without this the frame rate is pinned to
-        //               the refresh of whichever monitor the window sits on regardless of the VSync flag.
-        // FIFO is the fallback everywhere — it is the only mode the spec guarantees exists.
+        // The present mode is the DISPLAY SETTING resolved against the device's catalog (SCAL1): the catalog's
+        // PresentModes list is what the surface offers, and Scalability::ResolvePresentMode is the one walk
+        // (VSync on -> FIFO; off -> IMMEDIATE, else MAILBOX, else FIFO with a reason). The swapchain no longer
+        // walks the surface's modes itself, so the settings UI, the resolver and the swapchain cannot disagree.
+        const Common::Scalability::ResolvedPresentMode present = Common::Scalability::ResolvePresentMode(
+             Common::Scalability::DisplaySettings{ .VSync = m_VSync },
+             EngineContext::GetInstance().GetCapabilities().Catalog );
         VkPresentModeKHR swapchainPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+        switch ( present.Mode )
         {
-            uint32_t presentModeCount = 0;
-            vkGetPhysicalDeviceSurfacePresentModesKHR( pDevice, m_Surface, &presentModeCount, nullptr );
-            std::vector<VkPresentModeKHR> presentModes( presentModeCount );
-            if ( presentModeCount > 0 )
-                vkGetPhysicalDeviceSurfacePresentModesKHR( pDevice, m_Surface, &presentModeCount,
-                                                           presentModes.data() );
-
-            const auto supports = [&presentModes]( VkPresentModeKHR mode )
-            { return std::find( presentModes.begin(), presentModes.end(), mode ) != presentModes.end(); };
-
-            if ( !m_VSync && supports( VK_PRESENT_MODE_IMMEDIATE_KHR ) )
-                swapchainPresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
-            else if ( supports( VK_PRESENT_MODE_MAILBOX_KHR ) )
+            case Common::Scalability::PresentMode::Fifo:
+                swapchainPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+                break;
+            case Common::Scalability::PresentMode::FifoRelaxed:
+                swapchainPresentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+                break;
+            case Common::Scalability::PresentMode::Mailbox:
                 swapchainPresentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+                break;
+            case Common::Scalability::PresentMode::Immediate:
+                swapchainPresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+                break;
         }
-
-        LOG_INFO( "[SwapChain] Present mode: {} (VSync {})",
-                  swapchainPresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR ? "IMMEDIATE"
-                  : swapchainPresentMode == VK_PRESENT_MODE_MAILBOX_KHR ? "MAILBOX"
-                                                                        : "FIFO",
-                  m_VSync ? "on" : "off" );
+        if ( present.Reason.empty() )
+            LOG_INFO( "[SwapChain] Present mode: {} (VSync {})", rfl::enum_to_string( present.Mode ),
+                      m_VSync ? "on" : "off" );
+        else
+            LOG_WARN( "[SwapChain] Present mode: {} (VSync {}): {}", rfl::enum_to_string( present.Mode ),
+                      m_VSync ? "on" : "off", present.Reason );
 
         VkSurfaceTransformFlagsKHR preTransform;
         if ( surfCaps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR )
@@ -288,10 +289,18 @@ namespace Desert::Graphic::API::Vulkan
         }
         else
         {
+            // THE OUTPUT IS DisplayOutput::SDR_sRGB, the one CapabilityCatalog::DisplayOutputs entry every device
+            // has and the only encoding the tonemapper writes. HDR10_PQ / scRGB_Linear stay unselected until the
+            // tonemapper has their output transform (a selector for them today would be a dead setting).
+            DESERT_VERIFY( Common::Scalability::CapabilityCatalog::Offers(
+                                EngineContext::GetInstance().GetCapabilities().Catalog.DisplayOutputs,
+                                Common::Scalability::DisplayOutput::SDR_sRGB ),
+                           "the catalog always offers SDR_sRGB" );
             bool found = false;
             for ( auto&& surfaceFormat : surfaceFormats )
             {
-                if ( surfaceFormat.format == VK_FORMAT_B8G8R8A8_UNORM )
+                if ( surfaceFormat.format == VK_FORMAT_B8G8R8A8_UNORM &&
+                     surfaceFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR )
                 {
                     m_ColorFormat = surfaceFormat.format;
                     m_ColorSpace  = surfaceFormat.colorSpace;
