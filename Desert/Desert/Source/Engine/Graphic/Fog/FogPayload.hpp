@@ -52,21 +52,11 @@ namespace Desert::Graphic
     // Already a multiple of std430's 16-byte block alignment, so the buffer size IS the struct size.
     inline constexpr uint32_t kFogPayloadBytes = sizeof( FogGpuPayload );
 
-    // The bindings of the fog compute pass. SetStorageBuffer / SetInput take these as explicit
-    // arguments and never consult the shader's own reflection — kFogParamsBinding must equal
-    // FOG_PARAMS_BINDING in Common/FogParams.glslh (the SkyPayload.hpp binding-number trap).
-    inline constexpr uint32_t kFogParamsBinding     = 1;
-    inline constexpr uint32_t kFogSceneDepthBinding = 2;
-    // The sky's camera aerial-perspective volume, which this pass composes ITSELF OVER. ALWAYS bound,
-    // even in a scene with no atmosphere at all: a declared sampler with no image is an invalid
-    // descriptor set, not an unused one. What varies
-    // is FogPush::AerialPerspective.z, which is 0 when there is no volume — and then the shader never
-    // reads the binding and composes the exact identity instead.
-    inline constexpr uint32_t kFogAerialPerspectiveBinding = 3;
-    // The sky's DISTANT SKY LIGHT — the one texel holding the average sky radiance. Bound on the same
-    // terms as the volume above (always bound, gated by FogGpuPayload::Ambient.w) and for the same
-    // reason: a declared sampler with no image is an invalid descriptor set, not an unused one.
-    inline constexpr uint32_t kFogDistantSkyLightBinding = 4;
+    // The fog compute pass's parameter buffer binding. SetStorageBuffer takes it as an explicit argument and
+    // never consults the shader's own reflection, so it must equal FOG_PARAMS_BINDING in
+    // Common/FogParams.glslh (the SkyPayload.hpp binding-number trap). The pass's images are entries of its
+    // binding block, by shader name (HeightFogRenderer::DeclareFrameNodes), and have no number here.
+    inline constexpr uint32_t kFogParamsBinding = 1;
 
     /**
      * Per-dispatch data: everything that changes with the CAMERA rather than with the fog settings.

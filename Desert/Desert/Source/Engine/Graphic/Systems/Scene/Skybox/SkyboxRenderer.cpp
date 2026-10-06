@@ -562,17 +562,6 @@ namespace Desert::Graphic::System
                   kTransmittanceLutWidth, kTransmittanceLutHeight, kMultiScatterLutSize, kMultiScatterLutSize );
     }
 
-    void SkyboxRenderer::DeclareAtmosphereReads( RenderPassDeclaration& declared, const RDG::Access access ) const
-    {
-        // The engine images behind the raw pointers AtmosphereEnv hands its consumers.
-        if ( m_Atmosphere.TransmittanceLut )
-            declared.Read( m_TransmittanceLut, access, "Sky.TransmittanceLut" );
-        if ( m_Atmosphere.AerialPerspectiveVolume )
-            declared.Read( m_AerialPerspectiveLut, access, "Sky.AerialPerspectiveLut" );
-        if ( m_Atmosphere.DistantSkyLight )
-            declared.Read( m_DistantLight, access, "Sky.DistantLight" );
-    }
-
     bool SkyboxRenderer::CachedLutsCurrent() const
     {
         return m_TransmittanceLut && m_MultiScatterLut && m_LutsValid && LutFingerprintOf( m_Sky ) == m_LutBaked;

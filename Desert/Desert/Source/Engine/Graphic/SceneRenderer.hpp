@@ -456,9 +456,6 @@ namespace Desert::Graphic
         // The shadow images a lit pass samples: every valid cascade of the directional shadow, and the cloud
         // layer's shadow map. A system whose materials receive shadows calls this from its pass's Declare.
         void DeclareShadowReads( RenderPassDeclaration& declared ) const;
-        // The atmosphere LUTs a consumer of GetAtmosphere() samples (aerial perspective, distant sky light,
-        // transmittance), each declared with @p access.
-        void DeclareAtmosphereReads( RenderPassDeclaration& declared, RDG::Access access ) const;
 
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is

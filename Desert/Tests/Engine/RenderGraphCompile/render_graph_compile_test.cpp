@@ -2790,8 +2790,9 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
          { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
            "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
+         // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
-           "declared.Read(refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
+           ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
          // The cloud composite's pair: entries of its block (the material route + both halves), each the read.
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            ".Sampled(\"u_CloudScatter\",scatter,RDG::Access::SampledGraphics" },
@@ -2880,10 +2881,14 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "Storage(\"u_CloudShadowMap\",m_ShadowMapImage,RDG::Access::StorageWrite,\"Clouds.ShadowMap\")" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
-           { "Read(depth,RDG::Access::SampledCompute",
-             "DeclareAtmosphereReads(fog.Access,RDG::Access::SampledCompute)",
-             "graph.CreateTexture(fogDesc,\"HeightFog.Fog\")", "Write(fogImage,RDG::Access::StorageWrite",
-             "transients.HeightFog=fogImage" } },
+           // Block 0's entries: the fog image it writes, the depth and the sky's two images it samples, each
+           // with the sampler the image carried as its own.
+           { "block.Storage(\"u_FogApply\",fogImage,RDG::Access::StorageWrite)",
+             ".Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
+             ".Sampled(\"u_AerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
+             ".Sampled(\"u_DistantSkyLight\",distantSkyLight,RDG::Access::SampledCompute,"
+             "GlobalTextureFilterSampler()",
+             "graph.CreateTexture(fogDesc,\"HeightFog.Fog\")", "transients.HeightFog=fogImage" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareFrameNodes(",
            { "Storage(\"u_CloudSkyOcclusion\",m_SkyOcclusionVolume,RDG::Access::StorageWrite",

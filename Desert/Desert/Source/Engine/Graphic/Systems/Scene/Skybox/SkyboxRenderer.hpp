@@ -76,8 +76,6 @@ namespace Desert::Graphic::System
         std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes();
         // The cached LUT pair counts as baked only once the frame graph accepted the nodes that bake it.
         void SettleAtmosphereLutNodes( bool accepted );
-        // The LUTs a consumer of GetAtmosphere() samples, declared with @p access (the fog and the clouds).
-        void DeclareAtmosphereReads( RenderPassDeclaration& declared, RDG::Access access ) const;
         // The sky pass samples the transmittance / sky-view LUTs this frame: the procedural backdrop is drawn and
         // an earlier frame's nodes have written both. SceneRenderer::ImportSceneViewTextures asks it before any
         // node is added (the SkyboxPass declares before the LUT nodes, so they cannot publish a transient it

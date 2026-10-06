@@ -1557,14 +1557,6 @@ namespace Desert::Graphic
         return cloudShadow;
     }
 
-    void SceneRenderer::DeclareAtmosphereReads( RenderPassDeclaration& declared, const RDG::Access access ) const
-    {
-        if ( const auto it = m_RenderSystems.find( "SkyboxSystem" ); it != m_RenderSystems.end() )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            if ( const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second ) )
-                sky->DeclareAtmosphereReads( declared, access );
-    }
-
     void SceneRenderer::DeclareShadowReads( RenderPassDeclaration& declared ) const
     {
         // `find`, as GetCloudShadowInput: a const observer inserts no empty system.
