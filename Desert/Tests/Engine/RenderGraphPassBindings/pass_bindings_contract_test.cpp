@@ -157,25 +157,60 @@ namespace
         return desc;
     }
 
-    // One compute pass "Bloom" that samples mip 0 of @p chain and writes mip 1; @p exec runs inside it.
-    template <class Exec>
-    Common::BoolResultStr RunBloomLikePass( Exec&& exec )
+    // The bloom upsample shader as its layout describes it: u_Source sampled, u_Output a storage image, 12 bytes
+    // of push constants.
+    ShaderBindingLayout BloomLayout()
+    {
+        return ShaderBindingLayout{ .ShaderName        = "BloomUpsample",
+                                    .Slots             = { { "u_Source", ShaderResourceKind::SampledTexture },
+                                                           { "u_Output", ShaderResourceKind::StorageTexture } },
+                                    .PushConstantBytes = 12 };
+    }
+
+    // The upsample's correct block: samples mip 1 of @p chain, writes mip 0, gives 12 bytes of push constants.
+    BindingBlockBuilder DeclareBloomBlock( PassBuilder& pass, TextureRef chain )
+    {
+        BindingBlockBuilder block = pass.Bindings( BloomLayout(), OtherRouteFill{} );
+        block.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                       SamplerDesc::LinearClamp() )
+             .Storage( "u_Output", chain, Access::StorageWrite, 0 )
+             .PushConstantBytes( 12 );
+        return block;
+    }
+
+    struct BloomRun
+    {
+        Common::BoolResultStr Executed;
+        ExecuteReport         Report;
+        bool                  ExecRan = false;
+    };
+
+    // One compute pass "PostFX: BloomUpsample1" over a two-mip chain: its setup runs @p declare (which declares
+    // the pass's binding block), its exec runs @p exec. Returns the graph's verdict, its report and whether the
+    // exec ran at all (a block refused by ValidatePassBindings faults the pass before its exec).
+    template <class Declare, class Exec>
+    BloomRun RunBloomLikePass( Declare&& declare, Exec&& exec )
     {
         ExternalTexture  chainImage( Tex2D( 64, 64, 2 ), Access::None );
-        ExternalTexture  otherImage( Tex2D( 8, 8 ), Access::None );
         Builder          graph( "pass-bindings" );
         const TextureRef chain = graph.RegisterExternal( chainImage, "Bloom" );
-        const TextureRef other = graph.RegisterExternal( otherImage, "Undeclared" );
+        bool             ran   = false;
         graph.AddPass(
-             "PostFX: BloomUpsample1", PassFlags::Compute,
-             [&]( PassBuilder& pass )
+             "PostFX: BloomUpsample1", PassFlags::Compute, [&]( PassBuilder& pass ) { declare( pass, chain ); },
+             [&]( PassContext& context ) -> Common::BoolResultStr
              {
-                 pass.Read( chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) );
-                 pass.Write( chain, Access::StorageWrite, SubresourceRange::Mip( 0 ) );
-             },
-             [&]( PassContext& context ) -> Common::BoolResultStr { return exec( context, chain, other ); } );
-        NoOpBackend backend;
-        return graph.Execute( backend );
+                 ran = true;
+                 return exec( context, chain );
+             } );
+        NoOpBackend                 backend;
+        const Common::BoolResultStr executed = graph.Execute( backend );
+        return BloomRun{ executed, graph.GetExecuteReport(), ran };
+    }
+
+    // The one fault of @p run, or a fault with an empty reason when there is not exactly one.
+    PassFault OnlyFault( const BloomRun& run )
+    {
+        return run.Report.Faults.size() == 1u ? run.Report.Faults[0] : PassFault{};
     }
 } // namespace
 
@@ -191,20 +226,17 @@ TEST( RenderGraphPassBindings, ABlockCannotLeaveTheExecThatBuiltIt )
     SUCCEED();
 }
 
-// Declared entries resolve to THIS execution's binding, keep the declared range and access, and name the slot
-// by its shader name. Storage is exactly one mip over every layer.
+// The entries declared in setup resolve to THIS execution's binding, keep the declared range and access, and name
+// the slot by its shader name; the exec adds only the push constants. Storage is exactly one mip over every layer.
 TEST( RenderGraphPassBindings, DeclaredEntriesResolveWithTheirRangeAndAccess )
 {
-    const Common::BoolResultStr executed = RunBloomLikePass(
-         []( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
+    const BloomRun run = RunBloomLikePass(
+         []( PassBuilder& pass, TextureRef chain ) { DeclareBloomBlock( pass, chain ); },
+         []( PassContext& context, TextureRef chain ) -> Common::BoolResultStr
          {
              const float  push[3] = { 1.0f / 32.0f, 1.0f / 32.0f, 1.0f };
-             PassBindings bindings( context );
-             bindings
-                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                            SamplerDesc::LinearClamp() )
-                  .Storage( "u_Output", chain, Access::StorageWrite, 0 )
-                  .PushConstants( push, sizeof( push ) );
+             PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+             bindings.PushConstants( push, sizeof( push ) );
              EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
              EXPECT_EQ( &bindings.GetContext(), &context );
              EXPECT_EQ( bindings.GetTextures().size(), 2u );
@@ -224,74 +256,95 @@ TEST( RenderGraphPassBindings, DeclaredEntriesResolveWithTheirRangeAndAccess )
              EXPECT_EQ( std::memcmp( bindings.GetPushConstants().data(), push, sizeof( push ) ), 0 );
              return Common::MakeSuccess( true );
          } );
-    EXPECT_TRUE( executed.IsSuccess() ) << executed.GetError();
+    EXPECT_TRUE( run.Executed.IsSuccess() ) << run.Executed.GetError();
+    EXPECT_TRUE( run.ExecRan );
+    EXPECT_TRUE( run.Report.Faults.empty() );
 }
 
-#if DESERT_DEV_INSTRUMENTS
-// An undeclared resource fails at the entry, naming the pass, the shader slot and the resource - not later as
-// a missing barrier and a wrong picture.
-TEST( RenderGraphPassBindings, AnUndeclaredResourceFailsNamingPassSlotAndResource )
+// The exec opens only a block ITS setup declared: an index the setup never declared is refused when the block is
+// opened, naming the pass - nothing of it is resolved.
+TEST( RenderGraphPassBindings, ABlockTheSetupDidNotDeclareIsRefusedNamingThePass )
 {
     std::string error;
-    RunBloomLikePass(
-         [&]( PassContext& context, TextureRef, TextureRef other ) -> Common::BoolResultStr
-         {
-             PassBindings bindings( context );
-             bindings.Sampled( "u_Source", other, Access::SampledCompute, SubresourceRange::All(),
-                               SamplerDesc::LinearClamp() );
-             error = bindings.GetStatus().IsSuccess() ? std::string() : bindings.GetStatus().GetError();
-             return Common::MakeSuccess( true );
-         } );
+    RunBloomLikePass( []( PassBuilder& pass, TextureRef chain ) { DeclareBloomBlock( pass, chain ); },
+                      [&]( PassContext& context, TextureRef ) -> Common::BoolResultStr
+                      {
+                          PassBindings bindings( context, context.GetBindingBlock( 1 ) );
+                          error =
+                               bindings.GetStatus().IsSuccess() ? std::string() : bindings.GetStatus().GetError();
+                          EXPECT_TRUE( bindings.GetTextures().empty() );
+                          return Common::MakeSuccess( true );
+                      } );
     EXPECT_NE( error.find( "PostFX: BloomUpsample1" ), std::string::npos ) << error;
-    EXPECT_NE( error.find( "u_Source" ), std::string::npos ) << error;
-    EXPECT_NE( error.find( "Undeclared" ), std::string::npos ) << error;
+    EXPECT_NE( error.find( "is not a block this pass declared" ), std::string::npos ) << error;
 }
 
-// The access and range bound are the ones declared: sampling the mip the pass writes, or binding the sampled mip
-// as storage, is refused.
-TEST( RenderGraphPassBindings, AnAccessOrRangeOtherThanTheDeclaredOneFails )
+// A slot name the shader does not declare, or a kind other than the shader's, is refused BEFORE the exec runs:
+// ValidatePassBindings faults the pass at Compile (Validation), naming the slot and the shader - not a missing
+// barrier and a wrong picture later. (Before FAULT1 these were exec-time refusals of the name-taking API.)
+TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBeforeItsExec )
 {
-    std::string wrongRange;
-    std::string wrongAccess;
-    RunBloomLikePass(
-         [&]( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
-         {
-             PassBindings a( context );
-             a.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 0 ),
-                        SamplerDesc::LinearClamp() );
-             wrongRange = a.GetStatus().IsSuccess() ? std::string() : a.GetStatus().GetError();
-             PassBindings b( context );
-             b.Storage( "u_Output", chain, Access::StorageWrite, 1 );
-             wrongAccess = b.GetStatus().IsSuccess() ? std::string() : b.GetStatus().GetError();
-             return Common::MakeSuccess( true );
-         } );
-    EXPECT_NE( wrongRange.find( "u_Source" ), std::string::npos ) << wrongRange;
-    EXPECT_NE( wrongAccess.find( "u_Output" ), std::string::npos ) << wrongAccess;
-}
-#endif
+    const auto failIfRun = []( PassContext&, TextureRef ) -> Common::BoolResultStr
+    { return Common::MakeError( std::string( "the exec of a refused block ran" ) ); };
 
-// A slot name is bound once per block; the first failure is the one reported, later good entries do not hide it.
-TEST( RenderGraphPassBindings, ASlotBoundTwiceFailsAndTheFirstFailureIsKept )
+    const BloomRun unknown = RunBloomLikePass(
+         []( PassBuilder& pass, TextureRef chain )
+         {
+             pass.Bindings( BloomLayout(), OtherRouteFill{} )
+                  .Sampled( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                            SamplerDesc::LinearClamp() )
+                  .Storage( "u_Output", chain, Access::StorageWrite, 0 )
+                  .PushConstantBytes( 12 );
+         },
+         failIfRun );
+    EXPECT_FALSE( unknown.ExecRan );
+    const PassFault unknownFault = OnlyFault( unknown );
+    EXPECT_EQ( unknownFault.Stage, PassFaultStage::Validation );
+    EXPECT_EQ( unknownFault.PassName, "PostFX: BloomUpsample1" );
+    EXPECT_NE( unknownFault.Reason.find( "'u_Sorce' is not a resource of shader 'BloomUpsample'" ),
+               std::string::npos )
+         << unknownFault.Reason;
+
+    const BloomRun wrongKind = RunBloomLikePass(
+         []( PassBuilder& pass, TextureRef chain )
+         {
+             pass.Bindings( BloomLayout(), OtherRouteFill{} )
+                  .Sampled( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                            SamplerDesc::LinearClamp() )
+                  .Storage( "u_Source", chain, Access::StorageWrite, 0 )
+                  .PushConstantBytes( 12 );
+         },
+         failIfRun );
+    EXPECT_FALSE( wrongKind.ExecRan );
+    const PassFault kindFault = OnlyFault( wrongKind );
+    EXPECT_EQ( kindFault.Stage, PassFaultStage::Validation );
+    EXPECT_NE( kindFault.Reason.find( "'u_Output' is a" ), std::string::npos ) << kindFault.Reason;
+    EXPECT_NE( kindFault.Reason.find( "in shader 'BloomUpsample', bound as" ), std::string::npos )
+         << kindFault.Reason;
+}
+
+// A slot name is declared once per block. A second entry for the same slot is refused at setup validation, before
+// the exec (mutation: drop the kTwiceFormat check in ValidatePassBindings -> the exec runs and this goes red).
+TEST( RenderGraphPassBindings, ASlotDeclaredTwiceFaultsThePassBeforeItsExec )
 {
-    std::string error;
-    RunBloomLikePass(
-         [&]( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
+    const BloomRun run = RunBloomLikePass(
+         []( PassBuilder& pass, TextureRef chain )
          {
-             PassBindings bindings( context );
-             bindings
+             DeclareBloomBlock( pass, chain )
                   .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                            SamplerDesc::LinearClamp() )
-                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                            SamplerDesc::LinearClamp() )
-                  .Storage( "u_Output", chain, Access::StorageWrite, 0 );
-             error = bindings.GetStatus().IsSuccess() ? std::string() : bindings.GetStatus().GetError();
-             return Common::MakeSuccess( true );
-         } );
-    EXPECT_NE( error.find( "u_Source" ), std::string::npos ) << error;
-    EXPECT_EQ( error.find( "u_Output" ), std::string::npos ) << error;
+                            SamplerDesc::LinearClamp() );
+         },
+         []( PassContext&, TextureRef ) -> Common::BoolResultStr
+         { return Common::MakeError( std::string( "the exec of a refused block ran" ) ); } );
+    EXPECT_FALSE( run.ExecRan );
+    const PassFault fault = OnlyFault( run );
+    EXPECT_EQ( fault.Stage, PassFaultStage::Validation );
+    EXPECT_NE( fault.Reason.find( "'u_Source' of shader 'BloomUpsample' is bound twice by the pass" ),
+               std::string::npos )
+         << fault.Reason;
 }
 
-// A sampled entry carries the sampler its call site named, and only a sampled entry has one: there is no
+// A sampled entry carries the sampler its declaration named, and only a sampled entry has one: there is no
 // implicit sampler on the graph route (SamplerDesc cannot be default-constructed), and distinct descriptions
 // are distinct keys of the backend's sampler cache.
 TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
@@ -299,14 +352,18 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
     static_assert( !std::is_default_constructible_v<SamplerDesc> );
     static_assert( SamplerDesc::LinearClamp().GetKey() != SamplerDesc::PointClamp().GetKey() );
     static_assert( SamplerDesc::LinearClamp().GetKey() != SamplerDesc::LinearRepeat().GetKey() );
-    const Common::BoolResultStr executed = RunBloomLikePass(
-         []( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
+    const BloomRun run = RunBloomLikePass(
+         []( PassBuilder& pass, TextureRef chain )
          {
-             PassBindings bindings( context );
-             bindings
+             pass.Bindings( BloomLayout(), OtherRouteFill{} )
                   .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
                             SamplerDesc::PointClamp() )
-                  .Storage( "u_Output", chain, Access::StorageWrite, 0 );
+                  .Storage( "u_Output", chain, Access::StorageWrite, 0 )
+                  .PushConstantBytes( 12 );
+         },
+         []( PassContext& context, TextureRef ) -> Common::BoolResultStr
+         {
+             PassBindings bindings( context, context.GetBindingBlock( 0 ) );
              EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
              EXPECT_EQ( bindings.GetTextures().size(), 2u );
              if ( bindings.GetTextures().size() != 2u )
@@ -321,11 +378,12 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
              EXPECT_FALSE( bindings.GetTextures()[1].Sampler.has_value() );
              return Common::MakeSuccess( true );
          } );
-    EXPECT_TRUE( executed.IsSuccess() ) << executed.GetError();
+    EXPECT_TRUE( run.Executed.IsSuccess() ) << run.Executed.GetError();
+    EXPECT_TRUE( run.ExecRan );
 }
 
 // The system textures are graph resources of a fresh graph (UE: FRDGSystemTextures): registered once, valid,
-// distinct, and a pass that declares a read of System.Black binds it by shader name like any graph texture -
+// distinct, and a pass whose block declares a read of System.Black binds it like any graph texture -
 // the tonemap's "bloom did not run" input, with no default texture substituted anywhere else.
 TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
 {
@@ -341,13 +399,18 @@ TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
 
     bool bound = false;
     graph.AddPass(
-         "Reads System.Black", PassFlags::Compute, [&]( PassBuilder& pass )
-         { pass.Read( system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ) ); },
+         "Reads System.Black", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Bindings( ShaderBindingLayout{ .ShaderName = "ReadsBlack",
+                                                 .Slots = { { "u_Source", ShaderResourceKind::SampledTexture } } },
+                            OtherRouteFill{} )
+                  .Sampled( "u_Source", system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ),
+                            SamplerDesc::LinearClamp() );
+         },
          [&]( PassContext& context ) -> Common::BoolResultStr
          {
-             PassBindings bindings( context );
-             bindings.Sampled( "u_Source", system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ),
-                               SamplerDesc::LinearClamp() );
+             PassBindings bindings( context, context.GetBindingBlock( 0 ) );
              EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
              EXPECT_EQ( bindings.GetTextures().size(), 1u );
              if ( bindings.GetTextures().size() == 1u )

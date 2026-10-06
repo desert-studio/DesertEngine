@@ -193,11 +193,31 @@ namespace
 
     using Verdict = Common::ResultStr<std::vector<RdgResolvedEntry>>;
 
-    // Runs one compute pass that samples mip 1 of a chain and writes mip 0, and resolves the block @p fill
-    // builds against @p reflection; returns the consumer's verdict.
+    const float kPush[3] = { 1.0f / 32.0f, 1.0f / 32.0f, 1.0f };
+
+    // What the setup BELIEVES the shader declares (a ShaderBindingLayout, as a stale ShaderBindingLayoutCache
+    // entry would hold it): the slots the block fills and the push size it gives, so ValidatePassBindings passes
+    // and the exec runs. ResolveRdgPassBindings is the late check against the pipeline's ACTUAL reflection - what
+    // these tests pin - and refuses whatever the believed layout got wrong.
+    ShaderBindingLayout Believed( std::vector<ShaderSlot> slots, uint32_t pushBytes )
+    {
+        return ShaderBindingLayout{
+             .ShaderName = "BloomUpsample", .Slots = std::move( slots ), .PushConstantBytes = pushBytes };
+    }
+
+    ShaderBindingLayout BelievedComplete()
+    {
+        return Believed( { { "u_Source", ShaderResourceKind::SampledTexture },
+                           { "u_Output", ShaderResourceKind::StorageTexture } },
+                         12 );
+    }
+
+    // Runs one compute pass over a two-mip chain whose setup declares a block over @p believed filled by @p fill
+    // (and gives @p believed's push size), whose exec opens block @p block and resolves it against
+    // @p reflection; returns the consumer's verdict.
     template <class Fill>
     Verdict ResolveInPass( const ShaderResource::ReflectionData& reflection, const RdgOtherRoute& other,
-                           Fill&& fill )
+                           const ShaderBindingLayout& believed, Fill&& fill, uint32_t block = 0 )
     {
         ExternalTexture  chainImage( Chain(), Access::None );
         Builder          graph( "pass-bindings-consumer" );
@@ -207,13 +227,15 @@ namespace
              "PostFX: BloomUpsample1", PassFlags::Compute,
              [&]( PassBuilder& pass )
              {
-                 pass.Read( chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) );
-                 pass.Write( chain, Access::StorageWrite, SubresourceRange::Mip( 0 ) );
+                 BindingBlockBuilder declared = pass.Bindings( believed, OtherRouteFill{} );
+                 fill( declared, chain );
+                 declared.PushConstantBytes( believed.PushConstantBytes );
              },
              [&]( PassContext& context ) -> Common::BoolResultStr
              {
-                 PassBindings bindings( context );
-                 fill( bindings, chain );
+                 PassBindings bindings( context, context.GetBindingBlock( block ) );
+                 if ( believed.PushConstantBytes != 0 )
+                     bindings.PushConstants( kPush, sizeof( kPush ) );
                  verdict = ResolveRdgPassBindings( reflection, "BloomUpsample", bindings, other );
                  return Common::MakeSuccess( true );
              } );
@@ -223,22 +245,19 @@ namespace
         return verdict;
     }
 
-    const float kPush[3] = { 1.0f / 32.0f, 1.0f / 32.0f, 1.0f };
-
-    void FillComplete( PassBindings& bindings, TextureRef chain )
+    void FillComplete( BindingBlockBuilder& block, TextureRef chain )
     {
-        bindings
-             .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+        block.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
                        SamplerDesc::LinearClamp() )
-             .Storage( "u_Output", chain, Access::StorageWrite, 0 )
-             .PushConstants( kPush, sizeof( kPush ) );
+             .Storage( "u_Output", chain, Access::StorageWrite, 0 );
     }
 } // namespace
 
 // The complete block resolves each name to its reflected (set, binding); the material's slot is left to it.
 TEST( RenderGraphVulkanPassBindings, ACompleteBlockResolvesEveryNameToItsReflectedSlot )
 {
-    const Verdict resolved = ResolveInPass( UpsampleReflection(), MaterialFillsParams(), FillComplete );
+    const Verdict resolved =
+         ResolveInPass( UpsampleReflection(), MaterialFillsParams(), BelievedComplete(), FillComplete );
     ASSERT_TRUE( resolved.IsSuccess() ) << resolved.GetError();
     const std::vector<RdgResolvedEntry>& entries = resolved.GetValue();
     ASSERT_EQ( entries.size(), 2u );
@@ -253,7 +272,11 @@ TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
 {
     const Verdict resolved =
          ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        []( PassBindings& bindings, TextureRef chain )
+                        Believed( { { "u_Source", ShaderResourceKind::SampledTexture },
+                                    { "u_Output", ShaderResourceKind::StorageTexture },
+                                    { "u_Sorce", ShaderResourceKind::SampledTexture } },
+                                  12 ),
+                        []( BindingBlockBuilder& bindings, TextureRef chain )
                         {
                             FillComplete( bindings, chain );
                             bindings.Sampled( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
@@ -270,13 +293,15 @@ TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
 {
     const Verdict resolved =
          ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        []( PassBindings& bindings, TextureRef chain )
+                        Believed( { { "u_Output", ShaderResourceKind::SampledTexture },
+                                    { "u_Source", ShaderResourceKind::StorageTexture } },
+                                  12 ),
+                        []( BindingBlockBuilder& bindings, TextureRef chain )
                         {
                             bindings
                                  .Sampled( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
                                            SamplerDesc::LinearClamp() )
-                                 .Storage( "u_Source", chain, Access::StorageWrite, 0 )
-                                 .PushConstants( kPush, sizeof( kPush ) );
+                                 .Storage( "u_Source", chain, Access::StorageWrite, 0 );
                         } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
@@ -290,30 +315,26 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
 {
     const Verdict noOutput =
          ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        []( PassBindings& bindings, TextureRef chain )
+                        Believed( { { "u_Source", ShaderResourceKind::SampledTexture } }, 12 ),
+                        []( BindingBlockBuilder& bindings, TextureRef chain )
                         {
-                            bindings
-                                 .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                                           SamplerDesc::LinearClamp() )
-                                 .PushConstants( kPush, sizeof( kPush ) );
+                            bindings.Sampled( "u_Source", chain, Access::SampledCompute,
+                                              SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp() );
                         } );
     ASSERT_FALSE( noOutput.IsSuccess() );
     EXPECT_NE( noOutput.GetError().find( "'u_Output' (set 0 binding 1)" ), std::string::npos )
          << noOutput.GetError();
 
-    const Verdict noMaterial = ResolveInPass( UpsampleReflection(), RdgOtherRoute{}, FillComplete );
+    const Verdict noMaterial =
+         ResolveInPass( UpsampleReflection(), RdgOtherRoute{}, BelievedComplete(), FillComplete );
     ASSERT_FALSE( noMaterial.IsSuccess() );
     EXPECT_NE( noMaterial.GetError().find( "'u_Params'" ), std::string::npos ) << noMaterial.GetError();
 
-    const Verdict noPush =
-         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        []( PassBindings& bindings, TextureRef chain )
-                        {
-                            bindings
-                                 .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                                           SamplerDesc::LinearClamp() )
-                                 .Storage( "u_Output", chain, Access::StorageWrite, 0 );
-                        } );
+    const Verdict noPush = ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
+                                          Believed( { { "u_Source", ShaderResourceKind::SampledTexture },
+                                                      { "u_Output", ShaderResourceKind::StorageTexture } },
+                                                    0 ),
+                                          FillComplete );
     ASSERT_FALSE( noPush.IsSuccess() );
     EXPECT_NE( noPush.GetError().find( "push-constant block 'Push'" ), std::string::npos ) << noPush.GetError();
 }
@@ -324,33 +345,28 @@ TEST( RenderGraphVulkanPassBindings, ASlotFilledByBothRoutesIsRefused )
 {
     RdgOtherRoute other = MaterialFillsParams();
     other.Filled.push_back( RdgSlotKey{ 0, 0 } );
-    const Verdict both = ResolveInPass( UpsampleReflection(), other, FillComplete );
+    const Verdict both = ResolveInPass( UpsampleReflection(), other, BelievedComplete(), FillComplete );
     ASSERT_FALSE( both.IsSuccess() );
     EXPECT_NE( both.GetError().find( "'u_Source' of shader 'BloomUpsample' is filled both" ), std::string::npos )
          << both.GetError();
 
     RdgOtherRoute pushToo = MaterialFillsParams();
     pushToo.PushConstants = true;
-    const Verdict push    = ResolveInPass( UpsampleReflection(), pushToo, FillComplete );
+    const Verdict push    = ResolveInPass( UpsampleReflection(), pushToo, BelievedComplete(), FillComplete );
     ASSERT_FALSE( push.IsSuccess() );
     EXPECT_NE( push.GetError().find( "push constants of shader 'BloomUpsample' are given both" ),
                std::string::npos )
          << push.GetError();
 }
 
-// A block with a failed entry is refused with that entry's error, before anything is resolved.
+// A block with a failed entry is refused with that entry's error, before anything is resolved. (A slot entered
+// twice no longer gets this far: ValidatePassBindings refuses it in setup, see RenderGraphPassBindings.) The
+// failed entry here is the block itself: the exec opens an index its setup never declared.
 TEST( RenderGraphVulkanPassBindings, ABlockWithAFailedEntryIsRefusedWithThatEntry )
 {
     const Verdict resolved =
-         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        []( PassBindings& bindings, TextureRef chain )
-                        {
-                            bindings
-                                 .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                                           SamplerDesc::LinearClamp() )
-                                 .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                                           SamplerDesc::LinearClamp() );
-                        } );
+         ResolveInPass( UpsampleReflection(), MaterialFillsParams(), BelievedComplete(), FillComplete, 1u );
     ASSERT_FALSE( resolved.IsSuccess() );
-    EXPECT_NE( resolved.GetError().find( "already bound" ), std::string::npos ) << resolved.GetError();
+    EXPECT_NE( resolved.GetError().find( "is not a block this pass declared" ), std::string::npos )
+         << resolved.GetError();
 }

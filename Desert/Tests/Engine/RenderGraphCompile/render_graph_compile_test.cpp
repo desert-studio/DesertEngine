@@ -4204,6 +4204,30 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
     EXPECT_TRUE( gbufferBlock.Block.Entries.empty() );
 }
 
+// RDG-FAULT1 C3b: the name-taking exec route is DELETED, not deprecated. A PassBindings is opened only from the
+// block its pass's setup declared (PassBindings( context, context.GetBindingBlock( i ) )); there is no constructor
+// from the context alone and no public Sampled / Storage / Uniform taking a shader name at exec. Once no caller is
+// left the compiler cannot catch a re-added overload (nothing calls it), so this census does: red on re-add of the
+// declaration or the definition.
+TEST( RenderGraphCompile, TheNameTakingExecBindingApiStaysDeleted )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string header =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/RDG/RDGPassBindings.hpp" );
+    const std::string body = SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/RDG/RDGPassBindings.cpp" );
+    ASSERT_FALSE( header.empty() );
+    ASSERT_FALSE( body.empty() );
+    EXPECT_NE( header.find( "PassBindings(constPassContext&context,BindingBlockRefblock);" ), std::string::npos )
+         << "the block constructor is the one way to open a PassBindings";
+    for ( const char* gone : { "PassBindings(constPassContext&context);", "PassBindings&Sampled(",
+                               "PassBindings&Storage(", "PassBindings&Uniform(" } )
+        EXPECT_EQ( header.find( gone ), std::string::npos ) << gone << " is back in RDGPassBindings.hpp";
+    for ( const char* gone : { "PassBindings::PassBindings(constPassContext&context):", "PassBindings::Sampled(",
+                               "PassBindings::Storage(", "PassBindings::Uniform(" } )
+        EXPECT_EQ( body.find( gone ), std::string::npos ) << gone << " is back in RDGPassBindings.cpp";
+}
+
 // RDG-FAULT1: every producer whose loss a surviving reader can absorb names the value the reader gets instead, at
 // the producer, right after the texture is created (before its pass is added): a lost SSAO term is "no occlusion"
 // (White - Black would black out the lit scene), a lost bloom / light shaft / SSR / GI / flare term "adds nothing"

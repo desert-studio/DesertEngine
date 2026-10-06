@@ -277,11 +277,19 @@ TEST( EngineHost, DispatchComputeThroughPassBindingsIsByteExact )
         const RDG::BufferRef bytes = graph.CreateBuffer( RDG::BufferDesc{ kWords * 4u }, "Readback" );
         graph.AddPass(
              "Fill", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass ) { pass.Write( words, RDG::Access::StorageWrite ); },
+             [&]( RDG::PassBuilder& pass )
+             {
+                 // The fill shader: one storage buffer "Words", no push constants.
+                 pass.Bindings(
+                          RDG::ShaderBindingLayout{
+                               .ShaderName = "EngineHostFill",
+                               .Slots      = { { "Words", RDG::ShaderResourceKind::StorageBuffer } } },
+                          RDG::OtherRouteFill{} )
+                      .Storage( "Words", words, RDG::Access::StorageWrite );
+             },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 RDG::PassBindings bindings( context );
-                 bindings.Storage( "Words", words, RDG::Access::StorageWrite );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline.GetValue(), kWords / 64u, 1u,
                                                                  1u );
              } );
@@ -353,10 +361,15 @@ namespace
         graph.AddPass(
              "Draw", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
-             { pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ); },
+             {
+                 pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                 // The fullscreen / procedural test shaders read no resource and take no push constants: an empty
+                 // block, which ValidatePassBindings checks like any other.
+                 pass.Bindings( RDG::ShaderBindingLayout{ .ShaderName = name }, RDG::OtherRouteFill{} );
+             },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 RDG::PassBindings bindings( context );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return draw( bindings );
              } );
         graph.AddPass(

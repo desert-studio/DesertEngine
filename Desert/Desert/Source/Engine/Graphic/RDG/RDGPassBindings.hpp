@@ -93,6 +93,7 @@ namespace Desert::Graphic::RDG
     // RDG-FAULT1. The pre-execution validation of one block - pure, no device, called by Builder::Compile for
     // every block of every pass. Success, or the FIRST mismatch as a stable reason (the reporter keys on it):
     //   "'<slot>' is not a resource of shader '<shader>'"            - the live 2026-10-05 glass case;
+    //   "'<slot>' of shader '<shader>' is bound twice by the pass";
     //   "'<slot>' is a <kind> in shader '<shader>', bound as <kind>";
     //   "'<slot>' of shader '<shader>' is bound by the pass and by the material";
     //   "'<slot>' of shader '<shader>' is filled by neither the pass nor the material";
@@ -101,19 +102,20 @@ namespace Desert::Graphic::RDG
     // only places entries at their (set, binding) and its own refusals are late faults.
     Common::BoolResultStr ValidatePassBindings( const DeclaredBindingBlock& block );
 
-    // The per-exec parameter block. Built from the PassContext the exec lambda receives; not copyable and
-    // not movable, so it cannot be returned out of the lambda or stored in a renderer. Each Add* resolves its
-    // ref through PassContext::GetTexture / GetBuffer immediately, so an undeclared resource, an access other
-    // than the declared one, or a ref from another graph fails HERE, naming the pass, the resource and the
-    // shader slot. The first failure is kept (GetStatus) and the consumer refuses a block that has one: a
-    // renderer does not have to check every call, and a half-bound dispatch is never recorded.
+    // The per-exec parameter block. Opened from the PassContext the exec lambda receives and the block its setup
+    // declared (PassBuilder::Bindings); not copyable and not movable, so it cannot be returned out of the lambda
+    // or stored in a renderer. Every slot name, access and range comes from that declaration - the exec names no
+    // shader slot and only adds the push constants. Each declared entry is resolved through PassContext::
+    // GetTexture / GetBuffer when the block is opened; a failure there (a block of another pass, a binding the
+    // execution cannot give) is kept as the first failure (GetStatus) and the consumer refuses a block that has
+    // one, so a half-bound dispatch is never recorded.
     class PassBindings
     {
     public:
-        explicit PassBindings( const PassContext& context );
         // RDG-FAULT1. Resolves every entry of the block @p block declared at setup through the context (the exec
-        // adds only PushConstants). Replaces the name-taking Sampled / Storage / Uniform below, which go when
-        // every renderer has moved its names into its setup (REMAINDER-FAULT1-C0, step C3).
+        // adds only PushConstants). This is the only constructor: the name-taking exec route (a PassBindings built
+        // from the context alone and filled with Sampled / Storage / Uniform by shader name) is gone, and the
+        // RenderGraphCompile census TheNameTakingExecBindingApiStaysDeleted keeps it gone.
         PassBindings( const PassContext& context, BindingBlockRef block );
 
         PassBindings( const PassBindings& )            = delete;
@@ -121,18 +123,6 @@ namespace Desert::Graphic::RDG
         PassBindings( PassBindings&& )                 = delete;
         PassBindings& operator=( PassBindings&& )      = delete;
 
-        // A texture read through @p sampler. @p declared is the access the setup declared for @p texture over
-        // @p range (SampledCompute / SampledGraphics). @p range = Mip(m) gives a view of that mip alone (the
-        // shader samples it at lod 0), All the whole image.
-        PassBindings& Sampled( std::string_view shaderName, TextureRef texture, Access declared,
-                               SubresourceRange range, SamplerDesc sampler );
-        // A storage image, one mip over every layer. @p declared is StorageWrite or StorageRead as declared
-        // for Mip(@p mip).
-        PassBindings& Storage( std::string_view shaderName, TextureRef texture, Access declared,
-                               uint32_t mip = 0 );
-        // A graph buffer bound as a uniform or storage buffer, the whole buffer.
-        PassBindings& Uniform( std::string_view shaderName, BufferRef buffer );
-        PassBindings& Storage( std::string_view shaderName, BufferRef buffer, Access declared );
         // The push-constant block of the draw / dispatch, copied. Its size is checked against the shader's
         // declared push-constant range by the consumer.
         PassBindings& PushConstants( const void* data, uint32_t size );
@@ -146,6 +136,13 @@ namespace Desert::Graphic::RDG
         std::span<const std::byte>    GetPushConstants() const;
 
     private:
+        // How the constructor resolves one declared entry. A sampled texture: @p range = Mip(m) is a view of that
+        // mip alone (the shader samples it at lod 0), All the whole image. A storage image: one mip over every
+        // layer.
+        void ResolveSampled( std::string_view shaderName, TextureRef texture, Access declared,
+                             SubresourceRange range, SamplerDesc sampler );
+        void ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared, uint32_t mip );
+
         const PassContext&        m_Context;
         std::vector<BoundTexture> m_Textures;
         std::vector<BoundBuffer>  m_Buffers;
