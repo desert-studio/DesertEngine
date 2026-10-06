@@ -39,6 +39,14 @@ namespace Desert::ECS
         virtual void SetCameraSnapshot( const glm::mat4& /*view*/, const glm::vec3& /*position*/ )
         {
         }
+
+        // The EDITOR'S frame time, pushed by the Scene on the main thread before the systems run: the real
+        // frame delta while the world is in Edit, zero in Play and Paused (whose time is the gameplay
+        // timestep Update receives). Default no-op — only a system that previews in the editor world on the
+        // author's request reads it (AnimationECSSystem: AnimationComponent::UpdateAnimationInEditor).
+        virtual void SetEditorTick( const Common::Timestep& /*editorTs*/ )
+        {
+        }
     };
 
 } // namespace Desert::ECS

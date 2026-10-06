@@ -259,9 +259,16 @@ namespace Desert::Editor
         // instead of argued: under `--play` the answer does not depend on the clock AT ALL — that is what
         // makes two runs of one command the same frame — and otherwise it is the measured value returned on
         // the exact float, which is what makes every capture taken before this flag existed still valid.
-        float FrameSeconds( float wallClockSeconds ) const
+        //
+        // @p recordedFrame is ShotRecordGate's verdict on this frame. Under `--play` a frame that is not
+        // recorded advances the world by NOTHING: frame N of the sequence is tick N of game time, so a tick
+        // spent under the splash, at a viewport size still settling or while content loads would be motion
+        // no file shows. Outside `--play` the verdict is irrelevant and the wall clock passes through.
+        [[nodiscard]] float FrameSeconds( float wallClockSeconds, bool recordedFrame ) const
         {
-            return PlayActive() ? PlayStepSeconds : wallClockSeconds;
+            if ( !PlayActive() )
+                return wallClockSeconds;
+            return recordedFrame ? PlayStepSeconds : 0.0f;
         }
 
         // Whether the camera MOVES. False is the whole of the existing behaviour: the pose is placed once

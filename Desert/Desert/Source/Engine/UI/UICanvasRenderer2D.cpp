@@ -23,7 +23,6 @@
 #include <unordered_set>
 #include <array>
 #include <optional>
-#include <chrono>
 #include <cstdint>
 #include <cmath>
 #include <limits>
@@ -37,25 +36,6 @@ namespace Desert::UI
         bool HandleSet( const Assets::AssetHandle& h )
         {
             return static_cast<uint64_t>( h ) != 0;
-        }
-
-        // Seconds since the first UI frame — a shared wall clock so every time-driven effect (pulse, marquee,
-        // hover eases) animates without any per-frame dt being plumbed through the stateless walk.
-        //
-        // THE ONE STATIC LEFT IN THIS FILE, and deliberately: it is a CLOCK, not state. Every view reads it
-        // and keeps its own last reading in its context, which is what a shared clock has to look like once
-        // two views draw in one frame — the previous arrangement kept the last reading here too, so of two
-        // walks in a frame the second measured no time at all. Nothing here is written after the first call.
-        //
-        // Its consequence is worth knowing before comparing frames: a canvas with a marquee or a running
-        // tween is NOT byte-reproducible run to run, because its phase comes from this clock rather than
-        // from the frame counter. Measured on MainMenu (one marquee): 0.63-0.85% of pixels differ between
-        // two runs of the same binary, and 0.405% even at 400 frames when the intro tween has settled.
-        // UI_ElementProbe has no marquee and no tween, and its floor is exactly 0.
-        float NowSeconds()
-        {
-            static const auto epoch = std::chrono::steady_clock::now();
-            return std::chrono::duration<float>( std::chrono::steady_clock::now() - epoch ).count();
         }
 
         // ONE CANVAS BEING WALKED BY ONE VIEW — the two coordinates of the key, bound together for the
@@ -846,8 +826,11 @@ namespace Desert::UI
 
         // @p tint is the caller's accumulated element tint (UICanvasContext::Tint), passed in rather than
         // read from a global so this helper stays a pure function of its arguments.
+        // @p viewSeconds is the view's UI time (UIViewContext::Time) — the marquee's phase, so it scrolls
+        // by frame steps the host handed in rather than by a wall clock, and frame N of a fixed-step run
+        // draws the same scroll every run.
         void DrawText2D( Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t, const Rect& rect,
-                         float scale, const glm::vec4& tint, float viewTime )
+                         float scale, const glm::vec4& tint, double viewSeconds )
         {
             if ( t.Text.empty() )
                 return;
@@ -894,7 +877,7 @@ namespace Desert::UI
                     contentW += advEm( sc.ch ) * sM;
                 const float gap    = std::max( 40.0f * scale, rect.W * 0.35f );
                 const float period = std::max( 1.0f, contentW + gap );
-                const float off    = std::fmod( viewTime * t.MarqueeSpeed * scale, period );
+                const auto  off = static_cast<float>( std::fmod( viewSeconds * t.MarqueeSpeed * scale, period ) );
                 const float blockH = ( bf.Ascent - bf.Descent ) * sM;
                 const float baseY  = rect.Y + ( rect.H - blockH ) * 0.5f + bf.Ascent * sM;
 
@@ -1281,7 +1264,7 @@ namespace Desert::UI
             // An element some retainer names as its mask: capture its subtree into the frame's mask layer for
             // it, before (and regardless of) its own visibility — a hidden element is a pure mask, UE's mask
             // texture as an element. Input is not routed through the capture.
-            if ( ctx.Root && ctx.MaskCapture != e && ctx.MaskTargets.contains( e ) )
+            if ( ctx.Root != nullptr && ctx.MaskCapture != e && ctx.MaskTargets.contains( e ) )
             {
                 auto& mask = ctx.Root->MaskLayer( static_cast<int64_t>( entt::to_integral( e ) ) );
                 if ( mask.Empty() )
@@ -1327,8 +1310,11 @@ namespace Desert::UI
                 fx.Time          = static_cast<float>( ctx.View.Time );
                 // A keyed clip REPLACES the authored amplitude while it drives it (never written back).
                 if ( const auto clip = ctx.View.AnimClips.Samples.find( e );
-                     clip != ctx.View.AnimClips.Samples.end() && clip->second.HazeAmplitude )
-                    fx.HazeAmplitude = *clip->second.HazeAmplitude * scale;
+                     clip != ctx.View.AnimClips.Samples.end() )
+                {
+                    if ( const std::optional<float> amplitude = clip->second.HazeAmplitude; amplitude.has_value() )
+                        fx.HazeAmplitude = *amplitude * scale;
+                }
 
                 int64_t maskKey = -1;
                 if ( rd.Mask )
@@ -1647,7 +1633,8 @@ namespace Desert::UI
                     const float op =
                          p.Pulse ? p.Opacity * ( p.PulseMin +
                                                  ( 1.0f - p.PulseMin ) *
-                                                      ( 0.5f + 0.5f * std::sin( ctx.View.Time * p.PulseSpeed ) ) )
+                                                      ( 0.5f + 0.5f * static_cast<float>( std::sin(
+                                                                           ctx.View.Time * p.PulseSpeed ) ) ) )
                                  : p.Opacity;
 
                     // Resolved once: the corner radius is read by the glow, the shadow and the fill, and a
@@ -1763,8 +1750,8 @@ namespace Desert::UI
                     // A keyed clip REPLACES the authored Reveal while it drives it (never written back).
                     float      reveal = path.Reveal;
                     const auto clip   = ctx.View.AnimClips.Samples.find( e );
-                    if ( clip != ctx.View.AnimClips.Samples.end() && clip->second.Reveal )
-                        reveal = *clip->second.Reveal;
+                    if ( clip != ctx.View.AnimClips.Samples.end() )
+                        reveal = clip->second.Reveal.value_or( reveal );
 
                     const std::vector<glm::vec2> shown = RevealUIPath( line, reveal );
                     if ( shown.size() >= 2 )
@@ -2253,7 +2240,7 @@ namespace Desert::UI
         }
     } // namespace
 
-    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx )
+    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx, float frameDtSeconds )
     {
         // This view is now looking at another scene. Entity ids are unique only inside a registry, so every
         // per-entity clock and every (canvas x view) cell the view holds would answer to ids that mean
@@ -2270,23 +2257,13 @@ namespace Desert::UI
         // held its renderer slot until something destroyed it (Docs/RENDERER_FRAME_STATE.md).
         view.RetireDeadCanvases( reg );
 
-        // THIS VIEW's frame delta, advanced once per FRAME and not once per canvas. Clamped so a long stall
-        // doesn't snap animations; the first frame of a view gets 0 rather than the age of the process.
-        // An offline host (movie render) owns the step; a live one measures it. Either way the first frame of a
-        // view gets 0, so frame N of a fixed-step view sits at exactly N * FixedStep.
-        if ( view.FixedStep.has_value() )
-        {
-            view.FrameDt       = view.HasDrawn ? *view.FixedStep : 0.0f;
-            view.LastFrameTime = view.Time + view.FrameDt;
-        }
-        else
-        {
-            const float now    = NowSeconds();
-            view.FrameDt       = view.HasDrawn ? std::clamp( now - view.LastFrameTime, 0.0f, 0.1f ) : 0.0f;
-            view.LastFrameTime = now;
-        }
+        // THIS VIEW's frame delta, advanced once per FRAME and not once per canvas — and handed in by the
+        // host, which owns the frame's timestep (as FSlateApplication::Tick takes the engine's DeltaTime).
+        // A clock read here measured how long the walk took rather than the step the frame stands for, so
+        // a fixed-step run (--play) did not draw tick N on frame N and a slow build drifted the playheads.
+        // Clamped so a long stall doesn't snap animations.
+        view.FrameDt = std::clamp( frameDtSeconds, 0.0f, 0.1f );
         view.Time += view.FrameDt;
-        view.HasDrawn      = true;
         ++view.FrameIndex; // drives the tween rewind-on-hide check
 
         // The scene's UI clips, stepped by the one view that owns scene time and evaluated by every view.
@@ -2943,8 +2920,10 @@ namespace Desert::UI
         // Tab and Down/S advance keyboard focus to the next focusable control, Up/W steps back (both wrap;
         // effective next frame). The list spans every canvas of the frame, so focus can leave a HUD and enter
         // an overlay. With nothing focused, either direction lands on the FIRST control — the top of a menu.
-        const int step = input ? ( input->Tab ? 1 : input->Navigate ) : 0;
-        if ( focused && step != 0 && !view.Focusables.empty() )
+        int step = 0;
+        if ( input != nullptr )
+            step = input->Tab ? 1 : input->Navigate;
+        if ( focused != nullptr && step != 0 && !view.Focusables.empty() )
         {
             const std::size_t n   = view.Focusables.size();
             std::size_t       idx = 0; // not-found -> focus the first

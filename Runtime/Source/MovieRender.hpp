@@ -22,7 +22,8 @@ namespace Desert::Player
      *  - THE TARGET is an offscreen framebuffer of exactly Width x Height (RuntimeLayer), so a 4K movie is
      *    4K on a laptop whose window is a postage stamp; the swapchain only gets an empty pass.
      *  - TIME is fixed: the application steps the world by 1/Fps per frame (Application::SetFixedDeltaTime)
-     *    and the UI view by the same step (UIViewContext::FixedStep), so frame N is at N/Fps of both clocks
+     *    and the UI view is handed that same step (BeginUIFrame; its first frame spends none), so frame N is
+     *    at N/Fps of the UI clock
      *    however long the GPU took — two runs give the same bytes.
      *  - FRAME 0 is the first frame after the content gate opened (ContentGate), so no frame shows a world
      *    or a font that is still loading, and the frames that follow are numbered without gaps or repeats.
@@ -105,7 +106,12 @@ namespace Desert::Player
     {
         using Result = std::optional<MovieRenderRequest>;
         MovieRenderRequest request;
-        bool any = false, haveMap = false, haveOut = false, haveRes = false, haveFps = false, haveDuration = false;
+        bool               any          = false;
+        bool               haveMap      = false;
+        bool               haveOut      = false;
+        bool               haveRes      = false;
+        bool               haveFps      = false;
+        bool               haveDuration = false;
 
         for ( size_t i = 0; i < args.size(); ++i )
         {

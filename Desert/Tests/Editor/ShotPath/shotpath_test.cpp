@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <Editor/Core/ShotOptions.hpp>
+#include <Editor/Core/ShotRecordGate.hpp>
 
 #include <cmath>
 
@@ -237,7 +238,10 @@ TEST( ShotPath, GameplayTimeIsOffUnlessAskedFor )
     // And the timestep is the measured one, on the exact float — not "close to", because a capture from
     // before this flag existed has to be the same capture.
     for ( float wall : { 0.0f, 1.0f / 60.0f, 0.013913f, 0.5f } )
-        EXPECT_EQ( shot.FrameSeconds( wall ), wall );
+    {
+        EXPECT_EQ( shot.FrameSeconds( wall, true ), wall );
+        EXPECT_EQ( shot.FrameSeconds( wall, false ), wall );
+    }
 }
 
 // 2. `--play` OUTSIDE A CAPTURE IS NOT A MODE. The editor's Play button is that. Honouring the flag in a
@@ -248,7 +252,7 @@ TEST( ShotPath, PlayNeedsACaptureToMeanAnything )
     headful.Play = true;
     EXPECT_FALSE( headful.Active() );
     EXPECT_FALSE( headful.PlayActive() );
-    EXPECT_EQ( headful.FrameSeconds( 0.031f ), 0.031f );
+    EXPECT_EQ( headful.FrameSeconds( 0.031f, false ), 0.031f );
     EXPECT_FLOAT_EQ( headful.SimulatedSeconds( 1800 ), 0.0f );
 
     ShotOptions capture;
@@ -276,7 +280,7 @@ TEST( ShotPath, UnderPlayTheStepIsFixedAndIgnoresTheWallClock )
     // Every wall-clock value a loaded machine could hand us — a fast frame, a slow one, a stall, a
     // zero-length one — produces the SAME step.
     for ( float wall : { 0.0f, 0.001f, 1.0f / 60.0f, 0.25f, 3.0f } )
-        EXPECT_EQ( shot.FrameSeconds( wall ), ShotOptions::PlayStepSeconds );
+        EXPECT_EQ( shot.FrameSeconds( wall, true ), ShotOptions::PlayStepSeconds );
 
     // And the step is 60 Hz specifically. Not a taste: every "N seconds" quoted in a report is
     // `--shot-frames` divided by this number, so moving it silently rewrites the recorded measurements.
@@ -328,6 +332,124 @@ TEST( ShotPath, PlayDoesNotDisturbTheCameraPath )
     moving.PositionTo    = glm::vec3( 30000.0f, 200.0f, 0.0f );
     EXPECT_TRUE( moving.HasMotion() );
     EXPECT_FALSE( moving.PlayActive() );
+}
+
+// ── Frame N is tick N: one verdict per frame, read by the world and by the writer ─────────────────
+//
+// The live capture that found this (ANIM-FIX6a-LIVE3) wrote frame_00001 at 64x64 a dozen ticks after a
+// script had already changed the speed, frame_00002 as solid magenta, and 37 frames under the splash.
+
+namespace
+{
+    ShotFrameConditions ReadyAt( uint32_t w, uint32_t h )
+    {
+        ShotFrameConditions c;
+        c.ViewportWidth  = w;
+        c.ViewportHeight = h;
+        return c;
+    }
+} // namespace
+
+// Under `--play` the world steps on a recorded frame and on no other.
+TEST( ShotRecordGate, UnderPlayAnUnrecordedFrameAdvancesNothing )
+{
+    ShotOptions shot;
+    shot.Play     = true;
+    shot.Sequence = "/tmp/seq";
+    for ( const float wall : { 0.0f, 0.016f, 0.5f } )
+    {
+        EXPECT_EQ( shot.FrameSeconds( wall, false ), 0.0f );
+        EXPECT_EQ( shot.FrameSeconds( wall, true ), ShotOptions::PlayStepSeconds );
+    }
+}
+
+// Every condition the picture depends on holds the recording back on its own.
+TEST( ShotRecordGate, EachPendingConditionHoldsTheFrame )
+{
+    auto settledGate = []
+    {
+        ShotRecordGate gate;
+        for ( int i = 0; i < ShotRecordGate::kStableFrames - 1; ++i )
+            EXPECT_FALSE( gate.Admit( ReadyAt( 1452, 894 ) ) );
+        return gate;
+    };
+    for ( int which = 0; which < 4; ++which )
+    {
+        ShotRecordGate      gate = settledGate();
+        ShotFrameConditions c    = ReadyAt( 1452, 894 );
+        c.SceneLoadPending       = which == 0;
+        c.StartupLoading         = which == 1;
+        c.SplashOnScreen         = which == 2;
+        c.ContentSettling        = which == 3;
+        EXPECT_FALSE( gate.Admit( c ) ) << "condition " << which;
+        EXPECT_FALSE( gate.Recording() );
+    }
+    ShotRecordGate gate = settledGate();
+    EXPECT_TRUE( gate.Admit( ReadyAt( 1452, 894 ) ) );
+    EXPECT_TRUE( gate.Recording() );
+
+    ShotRecordGate empty;
+    for ( int i = 0; i < 2 * ShotRecordGate::kStableFrames; ++i )
+        EXPECT_FALSE( empty.Admit( ReadyAt( 0, 0 ) ) );
+}
+
+// The sequence the live capture produced: 64x64, then a resize under the splash, then the window shown
+// at its real size. Nothing is recorded until the final size has held kStableFrames frames, and from
+// then on every recorded frame has that size.
+TEST( ShotRecordGate, TheFirstRecordedFrameIsAtTheFinalSizeAndTheSizeStaysFixed )
+{
+    ShotRecordGate      gate;
+    ShotFrameConditions splash = ReadyAt( 64, 64 );
+    splash.SplashOnScreen      = true;
+    for ( int i = 0; i < 5; ++i )
+        EXPECT_FALSE( gate.Admit( splash ) );
+    splash.ViewportWidth  = 1040;
+    splash.ViewportHeight = 636;
+    for ( int i = 0; i < 5; ++i )
+        EXPECT_FALSE( gate.Admit( splash ) );
+
+    // Revealed: the window's size moves once more before it holds.
+    EXPECT_FALSE( gate.Admit( ReadyAt( 1040, 636 ) ) ) << "the size the splash saw is not the final one yet";
+    EXPECT_FALSE( gate.Admit( ReadyAt( 1452, 894 ) ) ) << "the first frame at a new size is never recorded";
+    int held = 1;
+    while ( !gate.Admit( ReadyAt( 1452, 894 ) ) )
+        ASSERT_LT( ++held, ShotRecordGate::kStableFrames ) << "the gate never opened";
+    EXPECT_EQ( held + 1, ShotRecordGate::kStableFrames );
+    EXPECT_EQ( gate.RecordWidth(), 1452u );
+    EXPECT_EQ( gate.RecordHeight(), 894u );
+
+    // A resize mid-capture: the frames at the other size are neither recorded nor ticked, even once the
+    // other size has held — every file of a sequence has one size.
+    for ( int i = 0; i < 2 * ShotRecordGate::kStableFrames; ++i )
+        EXPECT_FALSE( gate.Admit( ReadyAt( 800, 600 ) ) );
+    // Back at the recorded size, it records again after the size has held.
+    bool reopened = false;
+    for ( int i = 0; i < ShotRecordGate::kStableFrames; ++i )
+        reopened = gate.Admit( ReadyAt( 1452, 894 ) );
+    EXPECT_TRUE( reopened );
+    EXPECT_TRUE( gate.Live() );
+}
+
+// Content that unsettles mid-capture pauses the recording (and the world) and does not end it; the
+// layout has to hold again before the next frame is recorded.
+TEST( ShotRecordGate, ContentUnsettlingMidCapturePausesWithoutRestarting )
+{
+    ShotRecordGate gate;
+    for ( int i = 0; i < ShotRecordGate::kStableFrames; ++i )
+        gate.Admit( ReadyAt( 1452, 894 ) );
+    ASSERT_TRUE( gate.Live() );
+    ShotFrameConditions loading = ReadyAt( 1452, 894 );
+    loading.ContentSettling     = true;
+    EXPECT_FALSE( gate.Admit( loading ) );
+    EXPECT_TRUE( gate.Recording() );
+    bool reopened = false;
+    for ( int i = 0; i < ShotRecordGate::kStableFrames; ++i )
+    {
+        EXPECT_FALSE( reopened );
+        reopened = gate.Admit( ReadyAt( 1452, 894 ) );
+    }
+    EXPECT_TRUE( reopened );
+    EXPECT_EQ( gate.RecordWidth(), 1452u );
 }
 
 int main( int argc, char** argv )

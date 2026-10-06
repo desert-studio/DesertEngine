@@ -49,15 +49,15 @@ namespace Desert::Media
         std::string Upload( const VideoFrame& frame );
 
         // nullptr until the first frame has been converted.
-        Graphic::Image2D* GetImage() const
+        [[nodiscard]] Graphic::Image2D* GetImage() const
         {
             return m_Output.get();
         }
-        uint32_t GetWidth() const
+        [[nodiscard]] uint32_t GetWidth() const
         {
             return m_Width;
         }
-        uint32_t GetHeight() const
+        [[nodiscard]] uint32_t GetHeight() const
         {
             return m_Height;
         }

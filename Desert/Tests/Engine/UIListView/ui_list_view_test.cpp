@@ -254,7 +254,7 @@ namespace
     bool Walk( ListScene& scene, R2D::DrawList2D& dl, UIViewContext& ctx )
     {
         dl.Reset();
-        UI::BeginUIFrame( ctx, scene.Registry, kViewport );
+        UI::BeginUIFrame( ctx, scene.Registry, kViewport, /*frameDtSeconds=*/0.0f );
         const bool drawn = UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl ).IsSuccess();
         UI::EndUIFrame( ctx, scene.Registry, dl, /*input=*/nullptr );
         return drawn;
@@ -668,7 +668,7 @@ TEST( ListViewCost, WalkTimeAgainstRowCount )
             {
                 const auto t0 = std::chrono::steady_clock::now();
                 dl.Reset();
-                UI::BeginUIFrame( ctx, scene.Registry, kViewport );
+                UI::BeginUIFrame( ctx, scene.Registry, kViewport, /*frameDtSeconds=*/0.0f );
                 const auto t1 = std::chrono::steady_clock::now();
                 (void)UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl );
                 const auto t2 = std::chrono::steady_clock::now();

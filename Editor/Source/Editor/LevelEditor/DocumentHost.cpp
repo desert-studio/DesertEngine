@@ -100,10 +100,18 @@ namespace Desert::Editor
     // The window title a document is drawn with: its type's icon, its subject's name, and the "###doc<...>"
     // identity DocumentTitle already baked into GetName(). NOT PanelDisplayTitle, which would look the icon
     // up by a name that is an asset's and give every document the same fallback.
+    // A DOCUMENT WHOSE FILE IS BEHIND IT SAYS SO ON ITS TAB: "<name>*", as UE marks a dirty package's asset
+    // editor tab. Dirty alone (IPanel.hpp: "the dot belongs on Dirty alone"); the "###" identity after the
+    // label is untouched, so the window and its dock place stay the same one while the marker comes and goes.
+    static constexpr std::string_view kDirtyDocumentLabelFormat = "{}*";
+
     std::string DocumentHost::DocumentDisplayTitle( const ISubjectDocument& document ) const
     {
-        return IconWindowTitle( DocumentIcon( document.Subject() ), DocumentDisplayName( document.GetName() ),
-                                document.GetName() );
+        const std::string name  = DocumentDisplayName( document.GetName() );
+        const std::string label = document.GetDiskState() == ISubjectDocument::DiskState::Dirty
+                                       ? std::format( kDirtyDocumentLabelFormat, name )
+                                       : name;
+        return IconWindowTitle( DocumentIcon( document.Subject() ), label, document.GetName() );
     }
 
     std::vector<DocumentHost::ViewConsumer> DocumentHost::ViewCensus() const

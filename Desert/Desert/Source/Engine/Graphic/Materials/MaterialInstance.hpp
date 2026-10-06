@@ -83,6 +83,13 @@ namespace Desert::Graphic
         // or its type isn't vec4-packable (mat4/texture). See MaterialProperty for the type enum.
         bool SetParamFromVec4( const std::string& name, const glm::vec4& value );
 
+        // The read counterpart: THIS instance's own override of `name`, packed into a vec4 the way
+        // SetParamFromVec4 unpacks it (float/int/bool in .x, vec2 .xy, vec3 .xyz); nullopt when the instance does
+        // not override it (the parent's / material's value shows) or the value is not vec4-packable.
+        std::optional<glm::vec4> GetOverrideAsVec4( const std::string& name ) const;
+        // Drop this instance's own override of `name` — the parent's / material's value shows again.
+        void ClearOverride( const std::string& name );
+
         // Batch operations
         void SetParameters( const std::vector<std::pair<std::string, MaterialPropertyValue>>& params );
         void SetParameters( const MaterialPropertySet& properties );

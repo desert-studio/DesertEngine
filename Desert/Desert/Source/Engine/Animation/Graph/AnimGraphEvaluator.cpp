@@ -249,6 +249,13 @@ namespace Desert::Animation::Graph
         if ( !result.Current )
             return result;
 
+        // A fade that may not be interrupted holds the machine until it has finished (UE: bCanInterrupt).
+        // Any layer, not only the newest: a layer below the newest is still blending only because nothing
+        // above it has finished, and it was the one that refused to be stacked over.
+        if ( std::any_of( run.Active.begin(), run.Active.end(),
+                          []( const ActiveTransition& a ) { return !a.CanInterrupt; } ) )
+            return result;
+
         for ( const auto& t : result.Current->Transitions )
         {
             if ( t.HasExitTime && normalizedTime < t.ExitTime )
@@ -271,14 +278,78 @@ namespace Desert::Animation::Graph
             // Панель могла бы вывести это наблюдением («имя сменилось — значит был переход»), но она
             // тикает, только когда открыта: закрыл окно на время перехода — и наблюдатель пропустил
             // ровно то событие, ради которого он есть. Здесь же это факт, а не догадка.
+            // НОВЫЙ ПЕРЕХОД НЕ ОБРЫВАЕТ ИДУЩИЙ, а кладётся поверх (UE ActiveTransitionArray): он смешивает
+            // от всего, что под ним, к своей цели, по своим часам и кривой. Мгновенный (Blend <= 0) —
+            // срез: под ним больше нечего видеть, стек пуст.
+            const auto curve = static_cast<AlphaBlendOption>( t.BlendCurve );
+            if ( t.Blend > 0.0f )
+                run.Active.push_back(
+                     ActiveTransition{ run.Current, target, t.Blend, 0.0f, curve, t.CanInterrupt } );
+            else
+                run.Active.clear();
             run.Previous   = run.Current;
             run.Current    = target;
             result.Current = StateOf( node, run.Current );
             result.Changed = true;
             result.Blend   = t.Blend;
+            result.Curve   = curve;
             break; // one transition per tick
         }
 
         return result;
+    }
+
+    void Evaluator::AdvanceTransitions( float seconds )
+    {
+        for ( MachineRun& run : m_Runs )
+        {
+            for ( ActiveTransition& active : run.Active )
+                active.Elapsed += seconds;
+            // The newest fade that has finished covers everything below it at weight 1: it and they retire.
+            for ( size_t i = run.Active.size(); i-- > 0; )
+                if ( run.Active[i].Alpha() >= 1.0f )
+                {
+                    run.Active.erase( run.Active.begin(),
+                                      run.Active.begin() + static_cast<std::ptrdiff_t>( i ) + 1 );
+                    break;
+                }
+        }
+    }
+
+    std::optional<Evaluator::EnteringFade> Evaluator::EnteringTransition() const
+    {
+        if ( m_Output < 0 )
+            return std::nullopt;
+        const MachineRun& run = m_Runs[static_cast<size_t>( m_Output )];
+        if ( run.Active.empty() || run.Active.back().To != run.Current )
+            return std::nullopt;
+        const ActiveTransition& newest = run.Active.back();
+        return EnteringFade{ newest.Duration, newest.Elapsed, newest.Curve };
+    }
+
+    std::vector<Evaluator::StateWeight> Evaluator::ActiveStateWeights() const
+    {
+        std::vector<StateWeight> layers;
+        if ( m_Output < 0 )
+            return layers;
+        const MachineRun& run = m_Runs[static_cast<size_t>( m_Output )];
+        if ( run.Active.empty() )
+        {
+            if ( const State* current = StateOf( m_Output, run.Current ) )
+                layers.push_back( { current, 1.0f } );
+            return layers;
+        }
+
+        std::vector<float> alphas;
+        alphas.reserve( run.Active.size() );
+        for ( const ActiveTransition& active : run.Active )
+            alphas.push_back( active.Alpha() );
+        std::vector<float> weights;
+        FadeStackWeights( alphas, weights );
+
+        layers.push_back( { StateOf( m_Output, run.Active.front().From ), weights[0] } );
+        for ( size_t i = 0; i < run.Active.size(); ++i )
+            layers.push_back( { StateOf( m_Output, run.Active[i].To ), weights[i + 1] } );
+        return layers;
     }
 } // namespace Desert::Animation::Graph

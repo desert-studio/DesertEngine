@@ -9,6 +9,7 @@
 // moment this file was edited at all: "no type named 'AnimationLibrary'", and two static_casts between
 // classes "not related by inheritance" because only the forward declarations were visible.
 #include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Animation/AnimationTick.hpp>
 #include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -30,7 +31,6 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -82,19 +82,18 @@ namespace Desert::ECS
         {
         }
 
+        void SetEditorTick( const Common::Timestep& editorTs ) override
+        {
+            m_EditorSeconds = editorTs.GetSeconds();
+        }
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& /*renderCommandBuffer*/,
                      const Common::Timestep& ts ) override
         {
-            // Editor PREVIEW: the gameplay timestep is 0 in Edit mode (gameplay frozen), but animation should
-            // still preview when "Playing" is on. So advance by a real wall-clock delta when the gameplay ts
-            // is ~0; use the gameplay ts in Play mode. Clamped to avoid huge jumps after a stall.
-            const auto  now    = std::chrono::steady_clock::now();
-            float       realDt = m_HasLast ? std::chrono::duration<float>( now - m_LastTime ).count() : 0.0f;
-            m_LastTime         = now;
-            m_HasLast          = true;
-            realDt             = std::min( realDt, 0.1f );
-            const float effectiveSeconds = ts.GetSeconds() > 1e-6f ? ts.GetSeconds() : realDt;
-            const Common::Timestep animTs( effectiveSeconds );
+            // Gameplay time in Play; in the editor world, the editor's frame time for the components that
+            // asked for it (UpdateAnimationInEditor) and nothing for the rest —
+            // Animation::AnimationAdvanceSeconds.
+            const float gameplaySeconds = ts.GetSeconds();
             auto view = registry.view<ECS::SkinnedMeshComponent, ECS::AnimationComponent>();
 
             for ( auto entity : view )
@@ -206,6 +205,7 @@ namespace Desert::ECS
                     // footstep is an audible desync. Asserted by Tests/Engine/AnimGraphScript so it stays a
                     // decision and not a habit.
                     DrainGraphParams( anim );
+                    RequestGraphClips( *anim.Graph, clipRig );
 
                     if ( anim.Playing )
                     {
@@ -225,8 +225,14 @@ namespace Desert::ECS
                                 const auto* cur  = anim.Animator->GetCurrentClip();
                                 if ( !cur || cur->AnimationName != clip.AnimationName )
                                 {
-                                    if ( res.Changed && res.Blend > 0.0f )
-                                        anim.Animator->CrossFade( clip, res.Blend, res.Current->Loop );
+                                    // THE ANIMATOR'S FADE IS THE MACHINE'S TRANSITION, read from the machine
+                                    // and not from the one tick it fired on (`res.Changed`): a clip that was
+                                    // still being read on that tick used to arrive ticks later as a Play —
+                                    // no blend at all, and the switch shown late. It now joins the
+                                    // transition at its elapsed time, so the alphas match tick for tick.
+                                    if ( const auto entering = anim.GraphEvaluator->EnteringTransition() )
+                                        anim.Animator->CrossFade( clip, entering->Duration, res.Current->Loop,
+                                                                  entering->Curve, entering->Elapsed );
                                     else
                                         anim.Animator->Play( clip, res.Current->Loop );
                                 }
@@ -244,7 +250,13 @@ namespace Desert::ECS
                         }
 
                         DrivePoseGraph( anim, clipRig, graphRebuilt );
+                        const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
+                             gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
                         anim.Animator->Update( animTs );
+                        // The machine's active transitions on the SAME step the Animator's fades just took
+                        // (its clock scales by the playback speed), so both stacks retire on one frame.
+                        anim.GraphEvaluator->AdvanceTransitions( animTs.GetSeconds() *
+                                                                 anim.Animator->GetPlaybackSpeed() );
                         anim.PendingNotifies = anim.Animator->ConsumeNotifyEvents();
                     }
                     continue;
@@ -309,6 +321,8 @@ namespace Desert::ECS
                     anim.Animator->SetLoop( anim.Loop );
                     anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed );
 
+                    const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
+                         gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
                     anim.Animator->Update( animTs );
 
                     // Notify markers crossed this frame -> queued for ScriptSystem to dispatch (assigned, so
@@ -331,6 +345,30 @@ namespace Desert::ECS
          * here means the graph changed under a queued write — a real event with a different cause, and it
          * is reported with the same once-per-distinct-message rule the clip failures next door use.
          */
+        /// UE: an AnimBP holds hard references to the sequences its states play, so they are resident before
+        /// a transition can ask for one. Here a graph names its clips by name and the library reads a clip on
+        /// demand — asked first on the tick a state is entered, the clip of that state was still being read
+        /// for several ticks and the transition's blend was lost. Every clip the graph can play is asked for
+        /// on every tick (a resident clip is a lookup; an evicted one is read again), so the machine never
+        /// enters a state whose clip it has not already requested.
+        void RequestGraphClips( const Animation::Graph::AnimGraph&     graph,
+                                const Animation::MeshSkeletonIdentity& rig )
+        {
+            const auto request = [&]( const std::string& clip )
+            {
+                if ( !clip.empty() )
+                    static_cast<void>( m_AnimationLibrary->FindForMesh( rig, clip ) );
+            };
+            for ( const Animation::Graph::PoseNode& node : graph.Nodes )
+            {
+                if ( node.Machine )
+                    for ( const Animation::Graph::State& state : node.Machine->States )
+                        request( state.Clip );
+                if ( node.Sequence )
+                    request( node.Sequence->Clip );
+            }
+        }
+
         void DrainGraphParams( ECS::AnimationComponent& anim )
         {
             if ( anim.PendingGraphParams.empty() )
@@ -1099,8 +1137,8 @@ namespace Desert::ECS
         // Non-owning: the manager belongs to the host, which outlives its scene. MAY BE NULL — a host
         // that builds no asset manager simply has no rigs, and SyncControlRig says so once.
         Assets::AssetManager*                 m_AssetManager = nullptr;
-        std::chrono::steady_clock::time_point m_LastTime;
-        bool                                  m_HasLast = false;
+        /// The editor world's frame time this frame (Scene::SetEditorTick): real time in Edit, 0 in Play/Paused.
+        float m_EditorSeconds = 0.0f;
 
         // ONE dedupe store for every complaint this system makes, and it remembers the MESSAGE rather than
         // just the key. The set it replaces could only say "already complained about this state", so a

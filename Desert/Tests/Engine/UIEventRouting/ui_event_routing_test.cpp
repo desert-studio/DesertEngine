@@ -105,7 +105,8 @@ namespace Desert::Runtime
     }
     Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
     {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
+        ADD_FAILURE() << "VideoService::Resolve reached with no video service (instance "
+                      << static_cast<const void*>( this ) << ")";
         return nullptr;
     }
     const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
@@ -237,7 +238,7 @@ namespace
 
         R2D::DrawList2D          dl;
         std::vector<std::string> out;
-        Desert::UI::BeginUIFrame( ctx, t.Registry, kViewport );
+        Desert::UI::BeginUIFrame( ctx, t.Registry, kViewport, /*frameDtSeconds=*/0.0f );
         const auto drawn = Desert::UI::RenderCanvas2D( ctx, t.Registry, t.Canvas, dl, nullptr, &input );
         EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
         // The routing is the VIEW's, not the walk's: it runs once per frame over the election every canvas

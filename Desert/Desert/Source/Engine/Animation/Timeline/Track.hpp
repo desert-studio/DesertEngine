@@ -14,7 +14,8 @@
  *     UI animation     Widget         "Offset" | "Size" | "Opacity" | "Color"   Vector | Float
  *     LevelSequence    Entity         "Transform" | reflected property path     any value kind
  *                      Entity         "" (skeletal)                        Animation
- *                      Sequence       ""                                   CameraCut | Event
+ *                      Entity         "Events"                             Event
+ *                      Sequence       "CameraCut" | "Events"               CameraCut | Event
  *
  * INVARIANTS (`Validate`): `Binding` is a binding of the owning sequence; every section's content is the
  * track's `Kind`; (Binding, Property, Kind) is unique within a sequence — two tracks for one property

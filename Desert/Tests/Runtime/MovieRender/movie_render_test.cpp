@@ -7,7 +7,8 @@
 
 #include <gtest/gtest.h>
 
-#include <clocale>
+#include <locale>
+#include <stdexcept>
 #include <string>
 
 using Desert::Player::ParseMovieRender;
@@ -16,8 +17,11 @@ namespace
 {
     std::vector<std::string> Full()
     {
-        return { "--render-movie", "Movies/Source/Title.desce", "--movie-out", "out", "--resolution", "64x36",
-                 "--fps", "60", "--duration", "0.1666667" };
+        return { "--render-movie", "Movies/Source/Title.desce",
+                 "--movie-out",    "out",
+                 "--resolution",   "64x36",
+                 "--fps",          "60",
+                 "--duration",     "0.1666667" };
     }
 } // namespace
 
@@ -32,7 +36,12 @@ TEST( MovieRender, FullRequestParses )
 {
     auto parsed = ParseMovieRender( Full() );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-    const auto& r = *parsed.GetValue();
+    const auto& request = parsed.GetValue();
+    if ( !request.has_value() )
+    {
+        FAIL() << "a full request parsed as 'no movie render'";
+    }
+    const auto& r = *request;
     EXPECT_EQ( r.Map, "Movies/Source/Title.desce" );
     EXPECT_EQ( r.Width, 64u );
     EXPECT_EQ( r.Height, 36u );
@@ -60,10 +69,15 @@ TEST( MovieRender, EveryFlagIsRequired )
 
 TEST( MovieRender, MalformedValuesAreRefused )
 {
-    for ( const auto& [flag, value] : std::vector<std::pair<std::string, std::string>>{
-               { "--resolution", "3840" }, { "--resolution", "0x10" }, { "--resolution", "axb" },
-               { "--fps", "0" }, { "--fps", "6o" }, { "--duration", "-1" }, { "--duration", "3s" },
-               { "--duration", "0.001" } } )
+    for ( const auto& [flag, value] :
+          std::vector<std::pair<std::string, std::string>>{ { "--resolution", "3840" },
+                                                            { "--resolution", "0x10" },
+                                                            { "--resolution", "axb" },
+                                                            { "--fps", "0" },
+                                                            { "--fps", "6o" },
+                                                            { "--duration", "-1" },
+                                                            { "--duration", "3s" },
+                                                            { "--duration", "0.001" } } )
     {
         auto args = Full();
         for ( size_t i = 0; i < args.size(); i += 2 )
@@ -81,28 +95,44 @@ namespace
         args.back() = seconds;
         auto parsed = ParseMovieRender( args );
         EXPECT_TRUE( parsed.IsSuccess() ) << "--duration " << seconds << ": " << parsed.GetError();
-        return parsed.IsSuccess() ? parsed.GetValue()->Duration : -1.0;
+        if ( !parsed.IsSuccess() )
+            return -1.0;
+        const auto& request = parsed.GetValue();
+        return request.has_value() ? request->Duration : -1.0;
     }
 
     // Switches LC_NUMERIC to a locale whose decimal separator is ',' for the scope, and back.
     struct CommaDecimalLocale
     {
-        std::string Previous;
-        bool        Active = false;
+        // std::locale::global with a named locale also sets the C locale, which is what a parser reading
+        // through strtod/stod would see; the C++ API keeps the switch out of the mt-unsafe C calls.
+        std::locale Previous = std::locale();
+        bool        Active   = false;
         CommaDecimalLocale()
         {
-            Previous = std::setlocale( LC_NUMERIC, nullptr );
             for ( const char* name : { "de_DE.UTF-8", "de_DE.utf8", "de_DE", "de-DE", "German_Germany.1252" } )
-                if ( std::setlocale( LC_NUMERIC, name ) != nullptr && *std::localeconv()->decimal_point == ',' )
+            {
+                std::locale candidate;
+                try
                 {
-                    Active = true;
+                    candidate = std::locale( name );
+                }
+                catch ( const std::runtime_error& )
+                {
+                    continue; // this machine has no locale by that name; try the next spelling
+                }
+                if ( std::use_facet<std::numpunct<char>>( candidate ).decimal_point() == ',' )
+                {
+                    Previous = std::locale::global( candidate );
+                    Active   = true;
                     return;
                 }
-            std::setlocale( LC_NUMERIC, Previous.c_str() );
+            }
         }
         ~CommaDecimalLocale()
         {
-            std::setlocale( LC_NUMERIC, Previous.c_str() );
+            if ( Active )
+                std::locale::global( Previous );
         }
     };
 } // namespace
@@ -114,11 +144,16 @@ TEST( MovieRender, FractionalDurationsParse )
     EXPECT_DOUBLE_EQ( ParsedDuration( "2.5" ), 2.5 );
     EXPECT_DOUBLE_EQ( ParsedDuration( "4" ), 4.0 );
     EXPECT_DOUBLE_EQ( ParsedDuration( "0.1666667" ), 0.1666667 );
-    auto args   = Full();
-    args.back() = "2.5";
+    auto args              = Full();
+    args.back()            = "2.5";
     const auto twoAndAHalf = ParseMovieRender( args );
     ASSERT_TRUE( twoAndAHalf.IsSuccess() ) << twoAndAHalf.GetError();
-    EXPECT_EQ( twoAndAHalf.GetValue()->FrameCount(), 150u ); // 2.5 s at 60 fps
+    const auto& twoAndAHalfRequest = twoAndAHalf.GetValue();
+    if ( !twoAndAHalfRequest.has_value() )
+    {
+        FAIL() << "--duration 2.5 parsed as 'no movie render'";
+    }
+    EXPECT_EQ( twoAndAHalfRequest->FrameCount(), 150u ); // 2.5 s at 60 fps
     for ( const char* bad : { "3.", ".5", "3,0", " 3", "3.0 ", "1e1", "inf", "nan", "0x10", "+3", "3.0.0" } )
     {
         args.back() = bad;

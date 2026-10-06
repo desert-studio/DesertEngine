@@ -31,7 +31,7 @@ namespace Desert::Media
 
         uint64_t CapacityFrames() const
         {
-            return Channels ? Ring.size() / Channels : 0;
+            return Channels != 0 ? Ring.size() / Channels : 0;
         }
     };
 
@@ -39,15 +39,15 @@ namespace Desert::Media
     {
         ma_result OnRead( ma_data_source* source, void* out, ma_uint64 frameCount, ma_uint64* framesRead )
         {
-            auto*        impl   = reinterpret_cast<MediaAudioOutput::Impl*>( source );
-            float*       dst    = static_cast<float*>( out );
+            auto*        impl   = static_cast<MediaAudioOutput::Impl*>( source );
+            auto*        dst    = static_cast<float*>( out );
             const size_t stride = impl->Channels;
             ma_uint64    taken  = 0;
             if ( !impl->Paused.load( std::memory_order_acquire ) )
             {
-                std::lock_guard lock( impl->Lock );
-                const uint64_t  capacity = impl->CapacityFrames();
-                taken                    = std::min<uint64_t>( frameCount, impl->Tail - impl->Head );
+                const std::lock_guard lock( impl->Lock );
+                const uint64_t        capacity = impl->CapacityFrames();
+                taken                          = std::min<uint64_t>( frameCount, impl->Tail - impl->Head );
                 for ( ma_uint64 i = 0; i < taken; ++i )
                 {
                     const size_t from = static_cast<size_t>( ( impl->Head + i ) % capacity ) * stride;
@@ -59,7 +59,7 @@ namespace Desert::Media
             // An underrun (or a pause) is silence, not the end: the sound must keep pulling.
             std::memset( dst + taken * stride, 0,
                          static_cast<size_t>( frameCount - taken ) * stride * sizeof( float ) );
-            if ( framesRead )
+            if ( framesRead != nullptr )
                 *framesRead = frameCount;
             return MA_SUCCESS;
         }
@@ -72,14 +72,14 @@ namespace Desert::Media
         ma_result OnGetDataFormat( ma_data_source* source, ma_format* format, ma_uint32* channels,
                                    ma_uint32* sampleRate, ma_channel* channelMap, size_t channelMapCap )
         {
-            auto* impl = reinterpret_cast<MediaAudioOutput::Impl*>( source );
-            if ( format )
+            auto* impl = static_cast<MediaAudioOutput::Impl*>( source );
+            if ( format != nullptr )
                 *format = ma_format_f32;
-            if ( channels )
+            if ( channels != nullptr )
                 *channels = impl->Channels;
-            if ( sampleRate )
+            if ( sampleRate != nullptr )
                 *sampleRate = impl->SampleRate;
-            if ( channelMap )
+            if ( channelMap != nullptr )
                 ma_channel_map_init_standard( ma_standard_channel_map_vorbis, channelMap, channelMapCap,
                                               impl->Channels ); // Opus uses the Vorbis channel order
             return MA_SUCCESS;
@@ -125,7 +125,7 @@ namespace Desert::Media
             m_Impl->SoundReady = false;
         }
         ma_engine* engine = Audio::AudioEngine::Get().GetNativeEngine();
-        if ( !engine )
+        if ( engine == nullptr )
             return "no audio device (the miniaudio engine failed to initialize)";
 
         m_Impl->SampleRate = sampleRate;
@@ -152,9 +152,9 @@ namespace Desert::Media
 
     void MediaAudioOutput::Push( const float* interleaved, uint64_t frames )
     {
-        std::lock_guard lock( m_Impl->Lock );
-        const uint64_t  capacity = m_Impl->CapacityFrames();
-        const size_t    stride   = m_Impl->Channels;
+        const std::lock_guard lock( m_Impl->Lock );
+        const uint64_t        capacity = m_Impl->CapacityFrames();
+        const size_t          stride   = m_Impl->Channels;
         // The player decodes a bounded lead (MediaPlayer kAudioLeadFrames, well under the ring's second);
         // a push that would overrun the reader drops its oldest unread frames rather than corrupt them.
         if ( m_Impl->Tail + frames - m_Impl->Head > capacity )
@@ -174,7 +174,7 @@ namespace Desert::Media
 
     uint64_t MediaAudioOutput::QueuedFrames() const
     {
-        std::lock_guard lock( m_Impl->Lock );
+        const std::lock_guard lock( m_Impl->Lock );
         return m_Impl->Tail - m_Impl->Head;
     }
 
@@ -185,7 +185,7 @@ namespace Desert::Media
 
     void MediaAudioOutput::Flush()
     {
-        std::lock_guard lock( m_Impl->Lock );
+        const std::lock_guard lock( m_Impl->Lock );
         m_Impl->Head = m_Impl->Tail = 0;
         m_Impl->Played.store( 0, std::memory_order_release );
     }

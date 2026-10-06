@@ -22,7 +22,7 @@ namespace Desert::Graphic::Render2D
         float HazeAmplitude = 0.0f; // screen px
         float HazeScale     = 1.0f; // screen px per noise cell
         float HazeSpeed     = 0.0f; // cells per second
-        float Time          = 0.0f; // the view clock (UIViewContext::Time — FixedStep under --render-movie)
+        float Time          = 0.0f; // the view clock (UIViewContext::Time; the host step under --render-movie)
 
         [[nodiscard]] bool operator==( const RetainerEffect& ) const = default;
     };
@@ -60,7 +60,7 @@ namespace Desert::Graphic::Render2D
     }
 
     // Where the haze samples the layer from, in layer px, for the pixel at @p localPx. A pure function of
-    // the pixel and the clock: two runs at the same FixedStep displace every pixel identically. The cells
+    // the pixel and the clock: two runs at the same fixed step displace every pixel identically. The cells
     // rise (−y) with time, which is what hot air over sand does.
     [[nodiscard]] inline glm::vec2 RetainerHazeOffsetPx( const RetainerEffect& fx, const glm::vec2& localPx )
     {

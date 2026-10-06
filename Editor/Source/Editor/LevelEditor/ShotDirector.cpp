@@ -76,7 +76,20 @@ namespace Desert::Editor
         return std::nullopt;
     }
 
-    void ShotDirector::BeginPlayIfDue( const bool startupLoading )
+    bool ShotDirector::AdmitFrame( const ShotFrameConditions& frame )
+    {
+        if ( !ShotOptions::Get().Active() )
+            return false;
+        const bool wasRecording = m_Gate.Recording();
+        const bool recorded     = m_Gate.Admit( frame );
+        if ( recorded && !wasRecording )
+            LOG_INFO( "[Shot] recording from this frame on at {}x{}: the splash is gone, the content has settled "
+                      "and the viewport held its size {} frame(s)",
+                      m_Gate.RecordWidth(), m_Gate.RecordHeight(), ShotRecordGate::kStableFrames );
+        return recorded;
+    }
+
+    void ShotDirector::BeginPlayIfDue( const bool recordedFrame )
     {
         // Screenshot mode, `--play`: start the world before the first frame that will be counted.
         //
@@ -93,7 +106,7 @@ namespace Desert::Editor
         // capture is exactly that case, so `--play` changes what MOVES in the frame and nothing about
         // where the frame is taken from.
         if ( auto& shot = ShotOptions::Get();
-             shot.PlayActive() && !m_SceneFiles.HasPendingLoad() && !startupLoading && m_Workspace.ActiveScene() &&
+             shot.PlayActive() && recordedFrame && m_Workspace.ActiveScene() &&
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit )
         {
             if ( m_Workspace.ActiveScene()->GetActiveCamera() )
@@ -171,19 +184,19 @@ namespace Desert::Editor
         }
     }
 
-    bool ShotDirector::CountRenderedFrame( const bool contentLoading )
+    bool ShotDirector::CountRenderedFrame( const bool recordedFrame )
     {
         // Screenshot mode, SECOND HALF: the frame just rendered is the frame that gets written. The frame
         // count is not decoration — a temporally accumulating pass needs several frames to converge, so an
         // early shot is a picture of the dither rather than of the scene.
-        // `!ContentSettling()` IS NOT A CONVENIENCE HERE, IT IS THE CORRECTNESS OF EVERY CAPTURE THIS
+        // `recordedFrame` CARRIES `!ContentSettling()`, AND THAT IS THE CORRECTNESS OF EVERY CAPTURE THIS
         // REPOSITORY TAKES. `--shot-frames N` counts rendered frames, and before the cloud kinds became
         // demand-driven every one of them was a frame whose content was already resident. Counting from
         // the first frame after a scene load would now start the count while a worker is still reading
         // the sky, so a low-frame capture would photograph a scene with no clouds in it and file it as
         // the picture of the scene -- the same shape as the blank-PNG trap the verification skill warns
         // about, and just as invisible in a diff of two such frames.
-        if ( auto& shot = ShotOptions::Get(); shot.Active() && !m_SceneFiles.HasPendingLoad() && !contentLoading )
+        if ( auto& shot = ShotOptions::Get(); shot.Active() && recordedFrame )
         {
             ++m_ShotFrame;
 

@@ -53,7 +53,7 @@ namespace Desert::Media
             }
         }
         m_State = MediaPlayerState::Stopped;
-        if ( m_Sink && m_Audio )
+        if ( m_Sink != nullptr && m_Audio )
             if ( std::string error = m_Sink->Start( OpusAudioDecoder::kSampleRate, m_Audio->Channels() );
                  !error.empty() )
             {
@@ -71,7 +71,7 @@ namespace Desert::Media
     void MediaPlayer::Close()
     {
         StopDecoding();
-        if ( m_Sink )
+        if ( m_Sink != nullptr )
             m_Sink->Flush();
         m_Demuxer = WebmDemuxer{};
         m_Video.reset();
@@ -94,10 +94,13 @@ namespace Desert::Media
         m_Sink              = sink;
         if ( !open )
             return;
-        if ( m_Sink && m_Audio )
+        if ( m_Sink != nullptr && m_Audio )
             if ( std::string error = m_Sink->Start( OpusAudioDecoder::kSampleRate, m_Audio->Channels() );
                  !error.empty() )
-                return Fail( std::format( "audio output: {}", error ) );
+            {
+                Fail( std::format( "audio output: {}", error ) );
+                return;
+            }
         Rewind( clock );
     }
 
@@ -106,7 +109,7 @@ namespace Desert::Media
         if ( m_State != MediaPlayerState::Stopped && m_State != MediaPlayerState::Paused )
             return;
         m_State = MediaPlayerState::Playing;
-        if ( m_Sink )
+        if ( m_Sink != nullptr )
             m_Sink->SetPaused( false );
     }
 
@@ -115,7 +118,7 @@ namespace Desert::Media
         if ( m_State != MediaPlayerState::Playing )
             return;
         m_State = MediaPlayerState::Paused;
-        if ( m_Sink )
+        if ( m_Sink != nullptr )
             m_Sink->SetPaused( true );
     }
 
@@ -151,7 +154,7 @@ namespace Desert::Media
 
     int64_t MediaPlayer::ClockNs() const
     {
-        if ( m_Sink && m_Audio )
+        if ( m_Sink != nullptr && m_Audio )
             return m_OriginNs +
                    static_cast<int64_t>( m_Sink->PlayedFrames() * 1000000000ull / OpusAudioDecoder::kSampleRate );
         return m_InternalNs;
@@ -165,7 +168,7 @@ namespace Desert::Media
             m_Video->Flush();
         if ( m_Audio )
             m_Audio->Reset( targetNs == 0 );
-        if ( m_Sink )
+        if ( m_Sink != nullptr )
         {
             m_Sink->Flush();
             m_Sink->SetPaused( m_State != MediaPlayerState::Playing );
@@ -199,7 +202,7 @@ namespace Desert::Media
         if ( !m_Decoder.joinable() )
             return;
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             m_StopDecoding = true;
         }
         m_Changed.notify_all();
@@ -209,7 +212,7 @@ namespace Desert::Media
     void MediaPlayer::DecodeLoop()
     {
         // Sound is decoded ahead in every state: a paused sink buffers it, so Play starts with it queued.
-        const bool wantSound = m_Sink && m_Audio;
+        const bool wantSound = m_Sink != nullptr && m_Audio;
         for ( ;; )
         {
             {
@@ -254,7 +257,7 @@ namespace Desert::Media
             m_Decoded.clear();
             if ( error.empty() && m_Video )
                 m_Video->Drain( m_Decoded );
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             for ( VideoFrame& f : m_Decoded )
                 m_Queue.push_back( std::move( f ) );
             m_DecodeError = std::move( error );
@@ -267,27 +270,27 @@ namespace Desert::Media
             m_Decoded.clear();
             if ( !m_Video->Decode( packet, m_Decoded ) )
             {
-                std::lock_guard lock( m_Lock );
+                const std::lock_guard lock( m_Lock );
                 m_DecodeError = m_Video->Error();
                 return false;
             }
             if ( !m_Decoded.empty() )
             {
                 {
-                    std::lock_guard lock( m_Lock );
+                    const std::lock_guard lock( m_Lock );
                     for ( VideoFrame& f : m_Decoded )
                         m_Queue.push_back( std::move( f ) );
                 }
                 m_Changed.notify_all();
             }
         }
-        else if ( packet.Kind == MediaTrackKind::Audio && m_Audio && m_Sink )
+        else if ( packet.Kind == MediaTrackKind::Audio && m_Audio && m_Sink != nullptr )
         {
             m_Pcm.clear();
             const int64_t frames = m_Audio->Decode( packet, m_Pcm );
             if ( frames < 0 )
             {
-                std::lock_guard lock( m_Lock );
+                const std::lock_guard lock( m_Lock );
                 m_DecodeError = m_Audio->Error();
                 return false;
             }
@@ -322,7 +325,7 @@ namespace Desert::Media
         // the next frame is not due yet the current one simply stays.
         bool taken = false;
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             while ( m_Queue.size() >= 2 && m_Queue[1].PtsNs <= clockNs )
                 m_Queue.pop_front();
             if ( !m_Queue.empty() && ( m_Queue.front().PtsNs <= clockNs || !m_Current ) )
@@ -343,12 +346,12 @@ namespace Desert::Media
     {
         if ( m_State == MediaPlayerState::Closed || m_State == MediaPlayerState::Error )
             return;
-        if ( m_State == MediaPlayerState::Playing && !( m_Sink && m_Audio ) )
+        if ( m_State == MediaPlayerState::Playing && ( m_Sink == nullptr || !m_Audio ) )
             m_InternalNs += static_cast<int64_t>( std::llround( deltaSeconds * 1e9 ) );
 
         const int64_t clock = ClockNs();
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             m_DecodeClockNs.store( clock );
         }
         m_Changed.notify_all();
@@ -357,26 +360,28 @@ namespace Desert::Media
 
         std::string decodeError;
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             decodeError = m_DecodeError;
         }
         if ( !decodeError.empty() )
         {
             StopDecoding();
-            return Fail( std::move( decodeError ) );
+            Fail( std::move( decodeError ) );
+            return;
         }
         Present( clock );
 
         bool drained = false;
         {
-            std::lock_guard lock( m_Lock );
+            const std::lock_guard lock( m_Lock );
             drained = m_DemuxDone && m_Queue.empty();
         }
         if ( m_State != MediaPlayerState::Playing || !drained )
             return;
         // The end: every frame shown and, with a sink, every sample played; without one, the clock has
         // passed the container's duration.
-        const bool soundDone = m_Sink && m_Audio ? m_Sink->QueuedFrames() == 0 : clock >= m_DurationNs;
+        const bool soundDone =
+             ( m_Sink != nullptr && m_Audio ) ? m_Sink->QueuedFrames() == 0 : clock >= m_DurationNs;
         if ( !soundDone )
             return;
         if ( m_Looping )

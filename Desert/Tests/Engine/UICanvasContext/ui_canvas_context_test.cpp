@@ -116,7 +116,8 @@ namespace Desert::Runtime
     }
     Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
     {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
+        ADD_FAILURE() << "VideoService::Resolve reached with no video service (instance "
+                      << static_cast<const void*>( this ) << ")";
         return nullptr;
     }
     const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
@@ -218,9 +219,9 @@ namespace
     // canvases in one frame use DrawTwo below instead of calling this twice, which would be two frames.
     bool Draw( UIViewContext& ctx, entt::registry& reg, entt::entity canvas, R2D::DrawList2D& dl,
                const UIInput* input = nullptr, std::string* outClicked = nullptr, entt::entity* focused = nullptr,
-               std::vector<std::string>* outMessages = nullptr )
+               std::vector<std::string>* outMessages = nullptr, float dtSeconds = 0.0f )
     {
-        Desert::UI::BeginUIFrame( ctx, reg, kViewport );
+        Desert::UI::BeginUIFrame( ctx, reg, kViewport, dtSeconds );
         const auto drawn = Desert::UI::RenderCanvas2D( ctx, reg, canvas, dl,
                                                        /*worldViewProj=*/nullptr, input, outClicked, focused );
         EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
@@ -229,26 +230,19 @@ namespace
     }
 
     // Draw one frame of @p f through @p ctx and hand back what the button was painted.
-    glm::vec4 Frame( UIViewContext& ctx, Fixture& f, const UIInput* input )
+    // @p dtSeconds is the frame's step, handed to BeginUIFrame as a host would — the walk reads no clock.
+    glm::vec4 Frame( UIViewContext& ctx, Fixture& f, const UIInput* input, float dtSeconds = 0.0f )
     {
         R2D::DrawList2D dl;
-        Draw( ctx, f.Registry, f.Canvas, dl, input );
+        Draw( ctx, f.Registry, f.Canvas, dl, input, nullptr, nullptr, nullptr, dtSeconds );
         return DrawnColor( dl );
     }
 
     // Same, spelled so a call can build the pointer state inline (a temporary lives to the end of the full
     // expression, which is longer than the walk).
-    glm::vec4 Frame( UIViewContext& ctx, Fixture& f, const UIInput& input )
+    glm::vec4 Frame( UIViewContext& ctx, Fixture& f, const UIInput& input, float dtSeconds = 0.0f )
     {
-        return Frame( ctx, f, &input );
-    }
-
-    // Push this view's wall clock @p seconds into the past, so the NEXT frame it draws measures that delta.
-    // The renderer reads a real clock (hover eases and tweens are wall-clock driven by design); this is how
-    // a test asks it for a specific one without sleeping.
-    void RewindClock( UIViewContext& ctx, float seconds )
-    {
-        ctx.LastFrameTime -= seconds;
+        return Frame( ctx, f, &input, dtSeconds );
     }
 
     bool SameColor( const glm::vec4& a, const glm::vec3& rgb )
@@ -320,8 +314,8 @@ TEST( UICanvasContext, APerEntityClockIsKeyedInsideItsOwnView )
     ctxA.CanvasState( a.Canvas ).HoverT[a.Button] = 1.0f;
     ASSERT_EQ( ctxA.CanvasState( a.Canvas ).HoverT.count( a.Button ), 1u );
 
-    RewindClock( ctxB, 0.5f ); // give B a real frame delta, so a leaked clock would have time to show
-    const glm::vec4 drawnB = Frame( ctxB, b, At( 900.0f, 900.0f, /*down=*/false ) );
+    // give B a real frame delta, so a leaked clock would have time to show
+    const glm::vec4 drawnB = Frame( ctxB, b, At( 900.0f, 900.0f, /*down=*/false ), 0.5f );
 
     EXPECT_TRUE( SameColor( drawnB, glm::vec3( 0.1f ) ) )
          << "B's button drew a hover blend from a clock that belongs to A's entity of the same id";
@@ -341,13 +335,11 @@ TEST( UICanvasContext, EveryViewMeasuresItsOwnFrameDelta )
     Frame( ctxA, a, At( 10.0f, 10.0f, /*down=*/false ) ); // seed both clocks
     Frame( ctxB, b, At( 10.0f, 10.0f, /*down=*/false ) );
 
-    RewindClock( ctxA, 0.05f );
-    RewindClock( ctxB, 0.05f );
-    Frame( ctxA, a, At( 10.0f, 10.0f, /*down=*/false ) );
-    Frame( ctxB, b, At( 10.0f, 10.0f, /*down=*/false ) );
+    Frame( ctxA, a, At( 10.0f, 10.0f, /*down=*/false ), 0.05f );
+    Frame( ctxB, b, At( 10.0f, 10.0f, /*down=*/false ), 0.05f );
 
-    EXPECT_NEAR( ctxA.FrameDt, 0.05f, 5e-3f );
-    EXPECT_NEAR( ctxB.FrameDt, 0.05f, 5e-3f )
+    EXPECT_FLOAT_EQ( ctxA.FrameDt, 0.05f );
+    EXPECT_FLOAT_EQ( ctxB.FrameDt, 0.05f )
          << "the second view of the frame measured no time — the two walks are sharing one clock";
 
     // And the hover ease that delta drives moved by the same amount in both. The tolerances here are wide
@@ -453,13 +445,13 @@ TEST( UICanvasContext, OnlyTheDrivingViewAdvancesTheScenesAnimationPlayhead )
     }
     (void)clip.Playback->JumpTo( AN::SecondsToFrameTime( 5.0, clip.Sequence.TickRate ) );
 
-    RewindClock( preview, 0.05f );
-    Frame( preview, f, nullptr );
-    EXPECT_NEAR( seconds(), 5.0, 1e-4 ) << "the authoring preview advanced a playhead it does not own";
+    Frame( preview, f, nullptr, 0.05f );
+    EXPECT_NEAR( seconds(), 5.0, 1e-6 ) << "the authoring preview advanced a playhead it does not own";
 
-    RewindClock( viewport, 0.05f );
-    Frame( viewport, f, At( 900.0f, 900.0f, /*down=*/false ) );
-    EXPECT_NEAR( seconds(), 5.05, 5e-3 ) << "the driving view did not advance the playhead";
+    // The step the host hands in, spent exactly: no clock inside the walk, so a slow frame (ASan, a loaded
+    // CI machine) cannot add the walk's own duration to the playhead.
+    Frame( viewport, f, At( 900.0f, 900.0f, /*down=*/false ), 0.05f );
+    EXPECT_NEAR( seconds(), 5.05, 1e-6 ) << "the driving view did not advance the playhead";
 }
 
 // AutoPlay is a GAME behaviour (MOVIE-EDPLAY). The editor auto-played every clip of an authored level, so a
@@ -471,10 +463,10 @@ TEST( UICanvasContext, AnAuthoredLevelHoldsAnAutoPlayClipAtItsPlayheadAndAGameWo
     namespace TL = Desert::Animation::Timeline;
     namespace AN = Desert::Animation;
     Fixture f;
-    auto&   clip      = f.Registry.emplace<ECS::UIAnimComponent>( f.Button ).Data;
-    clip.AutoPlay     = true;
-    clip.Loop         = TL::LoopMode::Once;
-    clip.Sequence.End = AN::FrameNumber{ 100 * AN::PROJECT_TICK_RATE.Numerator };
+    auto&   clip       = f.Registry.emplace<ECS::UIAnimComponent>( f.Button ).Data;
+    clip.AutoPlay      = true;
+    clip.Loop          = TL::LoopMode::Once;
+    clip.Sequence.End  = AN::FrameNumber{ 100 * AN::PROJECT_TICK_RATE.Numerator };
     const auto seconds = [&clip]
     { return AN::FrameTimeToSeconds( clip.Playback->Current(), clip.Sequence.TickRate ); };
 
@@ -486,21 +478,22 @@ TEST( UICanvasContext, AnAuthoredLevelHoldsAnAutoPlayClipAtItsPlayheadAndAGameWo
         FAIL() << "the driving view did not give the clip its player";
     }
     EXPECT_NE( clip.Playback->State(), TL::PlayState::Playing ) << "an authored level auto-played a UI clip";
-    RewindClock( authored, 0.5f );
-    Frame( authored, f, nullptr );
+    Frame( authored, f, nullptr, 0.5f );
     EXPECT_NEAR( seconds(), 0.0, 1e-6 ) << "the authored view moved a playhead nobody started";
 
     // The Sequencer's Play is what moves it in an authored level, and the viewport then advances it.
     clip.Playback->Play();
-    RewindClock( authored, 0.05f );
-    Frame( authored, f, nullptr );
+    Frame( authored, f, nullptr, 0.05f );
     EXPECT_NEAR( seconds(), 0.05, 5e-3 ) << "a clip the Sequencer started did not advance in the authored view";
 
     // Entering Play drops the player (Core::BeginPlay); the game world re-creates it and starts it at t = 0.
     clip.Playback.reset();
     UIViewContext game; // GameWorld defaults to true: the packaged game and the movie render
     Frame( game, f, nullptr );
-    ASSERT_TRUE( clip.Playback.has_value() );
+    if ( !clip.Playback.has_value() )
+    {
+        FAIL() << "the clip has no player";
+    }
     EXPECT_EQ( clip.Playback->State(), TL::PlayState::Playing ) << "a game world did not start an AutoPlay clip";
     EXPECT_NEAR( seconds(), 0.0, 1e-6 ) << "the game's first frame of the clip is not its first frame";
 }
@@ -524,7 +517,10 @@ TEST( UICanvasContext, AViewThatDoesNotDriveTheSceneNeverCreatesAClipsPlayer )
 
     UIViewContext viewport;
     Frame( viewport, f, nullptr );
-    ASSERT_TRUE( clip.Playback.has_value() );
+    if ( !clip.Playback.has_value() )
+    {
+        FAIL() << "the clip has no player";
+    }
     EXPECT_EQ( clip.Playback->State(), TL::PlayState::Playing )
          << "the driving game view inherited a player a preview had already decided about";
 }
@@ -2028,12 +2024,12 @@ namespace
         // One frame of @p view over both canvases, in draw order, with the pointer at @p input. Returns
         // the button action the frame fired, if any — a button only acts when the host offers somewhere to
         // put the answer, so a frame with no outClicked cannot navigate.
-        std::string Frame( UIViewContext& view, const UIInput& input )
+        std::string Frame( UIViewContext& view, const UIInput& input, float dtSeconds = 0.0f )
         {
             R2D::DrawList2D dl;
             std::string     clicked;
             const auto      canvases = Desert::UI::CanvasesInDrawOrder( Registry );
-            Desert::UI::BeginUIFrame( view, Registry, kViewport );
+            Desert::UI::BeginUIFrame( view, Registry, kViewport, dtSeconds );
             for ( const entt::entity c : canvases )
             {
                 const auto drawn = Desert::UI::RenderCanvas2D( view, Registry, c, dl,
@@ -2093,10 +2089,8 @@ TEST( UICanvasContextPair, HoverInOneCellMovesNoOtherCellOfTheTable )
     // Frame 1 elects; the ease only starts once the election is in (the walk reacts to LAST frame's hot).
     f.Frame( viewA, onLower );
     f.Frame( viewB, onUpper );
-    RewindClock( viewA, 0.5f );
-    RewindClock( viewB, 0.5f );
-    f.Frame( viewA, onLower );
-    f.Frame( viewB, onUpper );
+    f.Frame( viewA, onLower, 0.5f );
+    f.Frame( viewB, onUpper, 0.5f );
 
     const float aOnLower = viewA.CanvasState( f.Lower ).HoverT[f.LowerButton];
     const float aOnUpper = viewA.CanvasState( f.Upper ).HoverT[f.UpperButton];

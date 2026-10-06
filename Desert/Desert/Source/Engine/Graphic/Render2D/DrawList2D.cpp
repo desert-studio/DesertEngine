@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <numbers>
 
 namespace Desert::Graphic::Render2D
 {
@@ -350,7 +351,7 @@ namespace Desert::Graphic::Render2D
         // straight edges fall out between consecutive corner endpoints), then a one-pixel fringe strip that
         // fades the edge to transparent — the coverage a rasterised hard edge lacks, so a disc or a dune
         // arc reads as a curve and not as a staircase. y-down: angle 0=+x, PI/2=+y(down).
-        constexpr float PI      = 3.14159265358979323846f;
+        constexpr float PI      = std::numbers::pi_v<float>;
         const int       kSeg    = RoundedCornerSegments( r );
         const uint32_t  kPerim  = 4u * static_cast<uint32_t>( kSeg + 1 );
         DrawCommand&    cmd     = CurrentCommand( nullptr, false );
@@ -372,13 +373,13 @@ namespace Desert::Graphic::Render2D
         for ( int c = 0; c < 4; ++c )
             for ( int s = 0; s <= kSeg; ++s )
             {
-                const float     a     = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / kSeg );
-                const glm::vec2 dir   = { std::cos( a ), std::sin( a ) };
-                const glm::vec2 in    = cc[c] + dir * ( r - kEdgeFringe * 0.5f );
-                const glm::vec2 out   = cc[c] + dir * ( r + kEdgeFringe * 0.5f );
-                rim[perim]            = { Xf( in ), { 0.5f, 0.5f }, color };
-                fringe[perim * 2]     = { Xf( out ), { 0.5f, 0.5f }, clear };
-                fringe[perim * 2 + 1] = rim[perim];
+                const float a = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / static_cast<float>( kSeg ) );
+                const glm::vec2 dir                  = { std::cos( a ), std::sin( a ) };
+                const glm::vec2 in                   = cc[c] + dir * ( r - kEdgeFringe * 0.5f );
+                const glm::vec2 out                  = cc[c] + dir * ( r + kEdgeFringe * 0.5f );
+                rim[perim]                           = { Xf( in ), { 0.5f, 0.5f }, color };
+                fringe[std::size_t{ perim } * 2]     = { Xf( out ), { 0.5f, 0.5f }, clear };
+                fringe[std::size_t{ perim } * 2 + 1] = rim[perim];
                 ++perim;
             }
         fringe[static_cast<size_t>( kPerim ) * 2]     = fringe[0];
@@ -396,7 +397,7 @@ namespace Desert::Graphic::Render2D
         if ( radius <= kArcError )
             return 6;
         const float step = 2.0f * std::acos( 1.0f - kArcError / radius );
-        const int   n    = static_cast<int>( std::ceil( ( 3.14159265358979323846f * 0.5f ) / step ) );
+        const int   n    = static_cast<int>( std::ceil( ( std::numbers::pi_v<float> * 0.5f ) / step ) );
         return std::clamp( n, 6, 512 );
     }
 
@@ -528,8 +529,8 @@ namespace Desert::Graphic::Render2D
         {
             for ( uint32_t i = 0; i < count; ++i )
             {
-                pairs[i * 2]     = { Xf( points[i] + miter[i] * outer ), uv, outerColor };
-                pairs[i * 2 + 1] = { Xf( points[i] + miter[i] * inner ), uv, innerColor };
+                pairs[std::size_t{ i } * 2]     = { Xf( points[i] + miter[i] * outer ), uv, outerColor };
+                pairs[std::size_t{ i } * 2 + 1] = { Xf( points[i] + miter[i] * inner ), uv, innerColor };
             }
             EmitStrip( cmd, pairs.data(), count );
         };
@@ -551,7 +552,7 @@ namespace Desert::Graphic::Render2D
             std::array<glm::vec2, kCapSegments + 1> dir{};
             for ( int k = 0; k <= kCapSegments; ++k )
             {
-                const float a = 3.14159265358979f * static_cast<float>( k ) / kCapSegments;
+                const float a = std::numbers::pi_v<float> * static_cast<float>( k ) / kCapSegments;
                 dir[k]        = n * std::cos( a ) + outward * std::sin( a );
             }
             for ( int k = 0; k < kCapSegments; ++k )
@@ -563,11 +564,11 @@ namespace Desert::Graphic::Render2D
             }
             if ( fw <= 0.0f )
                 return;
-            std::array<Vertex2D, ( kCapSegments + 1 ) * 2> rim{};
+            std::array<Vertex2D, static_cast<std::size_t>( kCapSegments + 1 ) * 2> rim{};
             for ( int k = 0; k <= kCapSegments; ++k )
             {
-                rim[k * 2]     = { Xf( c + dir[k] * ( hw + fw ) ), uv, clear };
-                rim[k * 2 + 1] = { Xf( c + dir[k] * hw ), uv, core };
+                rim[static_cast<std::size_t>( k ) * 2]     = { Xf( c + dir[k] * ( hw + fw ) ), uv, clear };
+                rim[static_cast<std::size_t>( k ) * 2 + 1] = { Xf( c + dir[k] * hw ), uv, core };
             }
             EmitStrip( cmd, rim.data(), kCapSegments + 1 );
         };
@@ -607,7 +608,7 @@ namespace Desert::Graphic::Render2D
     DrawList2D& DrawList2D::BeginRetainedLayer( uint32_t* outIndex )
     {
         m_Layers.push_back( std::make_unique<DrawList2D>() );
-        if ( outIndex )
+        if ( outIndex != nullptr )
             *outIndex = static_cast<uint32_t>( m_Layers.size() - 1 );
         return *m_Layers.back();
     }

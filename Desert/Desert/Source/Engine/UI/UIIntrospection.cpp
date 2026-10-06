@@ -266,7 +266,9 @@ namespace Desert::UI
             UIViewContext probe        = view;
             probe.DrivesSceneAnimation = false;
             dl.Reset();
-            BeginUIFrame( probe, reg, viewportPx );
+            // A zero step: both walks must draw the SAME instant (the copy starts at the view's own time), or
+            // the difference would include a tween's or marquee's motion between them.
+            BeginUIFrame( probe, reg, viewportPx, /*frameDtSeconds=*/0.0f );
             const bool drawn = RenderCanvas2D( probe, reg, canvas, dl ).IsSuccess();
             EndUIFrame( probe, reg, dl, /*input=*/nullptr );
             return drawn;

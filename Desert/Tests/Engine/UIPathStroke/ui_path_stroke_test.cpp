@@ -66,8 +66,9 @@ TEST( UIPathStroke, TheEmittedStrokeEndsWhereTheRevealEnds )
                     /*roundCaps*/ false );
     ASSERT_FALSE( dl.GetVertices().empty() );
 
-    float maxX = -1e9f, maxOpaqueX = -1e9f;
-    bool  anyClear = false;
+    float maxX       = -1e9f;
+    float maxOpaqueX = -1e9f;
+    bool  anyClear   = false;
     for ( const auto& v : dl.GetVertices() )
     {
         maxX = std::max( maxX, v.Position.x );

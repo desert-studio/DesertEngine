@@ -111,7 +111,7 @@ namespace Desert::Editor::Render
                 input.ScrollDelta   = pv.Scroll;
                 input.Tab           = pv.Tab;
                 input.Submit        = pv.Submit;
-                input.Navigate      = pv.Navigate;
+                input.Navigate       = pv.Navigate;
                 input.Backspace     = pv.Backspace;
                 input.TypedText     = pv.TypedText;
             }
@@ -145,7 +145,7 @@ namespace Desert::Editor::Render
             m_UIView.GameWorld = scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
 
             const std::vector<entt::entity> canvases = UI::CanvasesInDrawOrder( scene->GetRegistry() );
-            UI::BeginUIFrame( m_UIView, scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
+            UI::BeginUIFrame( m_UIView, scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h }, m_FrameDtSeconds );
             for ( const entt::entity canvas : canvases )
                 if ( const auto drawn = UI::RenderCanvas2D(
                           m_UIView, scene->GetRegistry(), canvas, m_Render2D.GetDrawList(), vpPtr,

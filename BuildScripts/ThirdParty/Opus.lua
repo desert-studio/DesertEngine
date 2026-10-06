@@ -14,7 +14,8 @@ if not os.isfile( root .. "/include/opus.h" ) then
 end
 
 local function MakeList( mk, name )
-    local text = "\n" .. ( io.readfile( root .. "/" .. mk ) or "" ) .. "\n\n" -- a list may end the file
+    -- CR stripped: a Windows checkout (core.autocrlf) delivers the .mk with CRLF, and "\\\n" never matched there.
+    local text = "\n" .. ( io.readfile( root .. "/" .. mk ) or "" ):gsub( "\r", "" ) .. "\n\n" -- a list may end the file
     local body = text:match( "\n" .. name .. " = \\\n(.-)\n%s*\n" )
     if not body then
         error( "Opus.lua: no list " .. name .. " in " .. root .. "/" .. mk )
@@ -48,6 +49,8 @@ project "Opus"
     -- not code anyone steps through, and at -O0 decoding an Opus packet falls behind the sound clock — a Debug
     -- game then drops every frame of its startup movie and shows the last, faded-out one (2026-10-05).
     optimize "Speed"
+    -- MSVC refuses /O2 together with the /RTC1 MSBuild adds to every Debug configuration (D8016).
+    runtimechecks "Off"
 
     filter "system:windows"
         systemversion "latest"

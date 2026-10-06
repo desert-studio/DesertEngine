@@ -193,7 +193,7 @@ namespace Common
             for ( const PathRoot& candidate : ContentRoots() )
             {
                 // A root is relative only before SetEngineDir / SetProjectRoot; then it names no place yet.
-                if ( !candidate.Root->is_absolute() )
+                if ( !candidate.Root->is_absolute() && !candidate.Root->has_root_directory() )
                     continue;
                 const fs::path absoluteRoot = candidate.Root->lexically_normal();
 

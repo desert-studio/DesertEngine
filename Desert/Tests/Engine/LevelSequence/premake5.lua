@@ -15,6 +15,10 @@ project(test_name)
         "level_sequence_test.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/ECS/LevelSequencePlayback.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/ECS/LevelSequenceAuthoring.cpp",
+        -- The Sequencer's undo step (ScopedSequenceEdit over a SequenceOwner): each Material Parameter edit is one.
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
+        -- The Level Sequence document's properties: a Material Parameter track's `set` keys through the row's setter.
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
         -- ANIM-LSEQ3: an Animation section poses the bound entity's Animator, so the Animator and what it
         -- links (graph, retarget, controls, rig — AnimatorPose's list) compile here.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
@@ -50,6 +54,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- CommandHistory (header-only): the gizmo move + its auto-key, one undo
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",       -- the host applies to an entt registry

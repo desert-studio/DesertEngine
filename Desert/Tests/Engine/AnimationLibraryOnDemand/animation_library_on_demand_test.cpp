@@ -111,6 +111,37 @@ TEST_F( AnimationLibraryOnDemand, ALookupRequestsOnlyTheNamedClipAndItBecomesPla
     EXPECT_FALSE( library.HasPending( kClip ) ) << "a read clip is still reported as pending";
 }
 
+// ANIM-FIX6a (live, Fox in --play): the graph named 'Fox_Survey', the clip is 'Survey', and the refusal said
+// "0 clip(s) known" with 16 rows indexed — it counted only clips already READ, so the message pointed at the
+// registry instead of at the name. A miss is judged over every INDEXED clip (name + Rig tag, nothing read):
+// it counts them and names the clip the rig does have.
+TEST_F( AnimationLibraryOnDemand, AWrongNameCountsTheIndexedClipsAndNamesTheRigsClip )
+{
+    Animation::AnimationLibrary library( &m_Manager );
+    const std::size_t           rows = library.IndexRegistryRows();
+    ASSERT_GT( rows, 1U );
+
+    const auto row = Assets::ContentRegistry::RowOfPath(
+         Common::Content::ContentKind::Animation,
+         Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim" );
+    if ( !row.has_value() )
+    {
+        FAIL() << "the probe clip has no registry row";
+    }
+    ASSERT_FALSE( row->Skeleton.IsNull() ) << "the probe clip's row carries no Rig tag";
+    const Animation::MeshSkeletonIdentity rig{ { row->Skeleton, "the probe's skeleton" }, {} };
+
+    const std::string wrong = std::string( "Probe_" ) + kClip;
+    ASSERT_FALSE( library.HasPending( wrong ) );
+    const auto miss = library.FindForMesh( rig, wrong );
+    ASSERT_FALSE( miss );
+    EXPECT_EQ( ClipAssets(), 0U ) << "a name no row states started a read";
+    EXPECT_NE( miss.GetError().find( std::format( "{} clip(s) known", rows ) ), std::string::npos )
+         << "the refusal did not count the indexed clips: " << miss.GetError();
+    EXPECT_NE( miss.GetError().find( std::format( "'{}'", kClip ) ), std::string::npos )
+         << "the refusal did not name the clip the rig plays: " << miss.GetError();
+}
+
 // SKEL-hum: a spawned humanoid names its clip by kHumanoidDefaultClip and its body by kHumanoidMeshGuid; both
 // must resolve from the COMMITTED engine content, exactly as a scene load resolves them. The clip must also
 // READ: the first generation wrote index-aligned unnamed filler tracks and the reader refused the whole clip,

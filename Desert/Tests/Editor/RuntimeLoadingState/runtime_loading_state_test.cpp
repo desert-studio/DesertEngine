@@ -191,10 +191,16 @@ TEST( RuntimeLoadingState, TheSceneBlitSitsInsideTheBranchOnTheGate )
          << " no longer asks the gate for the frame's verdict. The gate is then a state nothing reads, "
             "which is what the log marker it replaced already was.";
 
-    const std::string guarded = BlockAfter( runtime, "if ( !loading )" );
-    ASSERT_FALSE( guarded.empty() ) << kRuntimeLayer << " has no `if ( !loading )` block at all";
+    // The verdict is carried from the gate to the blit by ONE flag (a startup movie also withholds the scene).
+    ASSERT_TRUE( std::regex_search( runtime, std::regex( R"(presentScene\s*=\s*!loading\s*&&)" ) ) )
+         << kRuntimeLayer
+         << " no longer derives `presentScene` from `!loading`; the gate's verdict then "
+            "does not reach the blit.";
+
+    const std::string guarded = BlockAfter( runtime, "if ( presentScene )" );
+    ASSERT_FALSE( guarded.empty() ) << kRuntimeLayer << " has no `if ( presentScene )` block at all";
     EXPECT_NE( guarded.find( "SubmitFullscreenQuad" ), std::string::npos )
-         << "the scene blit is no longer inside the `if ( !loading )` block of " << kRuntimeLayer
+         << "the scene blit is no longer inside the `if ( presentScene )` block of " << kRuntimeLayer
          << ". That single branch is the whole mechanism: with it removed, frame 1 of Clouds_HeroTrio is "
             "a cloudless procedural sky presented to the player, and nothing anywhere says so.";
 }

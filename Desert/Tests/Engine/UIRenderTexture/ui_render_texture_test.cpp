@@ -231,7 +231,7 @@ namespace
     // RenderCanvas2D bare would assert about an empty list and pass for the wrong reason.
     void Draw( UIViewContext& ctx, Fixture& f, R2D::DrawList2D& dl )
     {
-        Desert::UI::BeginUIFrame( ctx, f.Registry, kViewport );
+        Desert::UI::BeginUIFrame( ctx, f.Registry, kViewport, /*frameDtSeconds=*/0.0f );
         const auto drawn = Desert::UI::RenderCanvas2D( ctx, f.Registry, f.Canvas, dl );
         EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
         Desert::UI::EndUIFrame( ctx, f.Registry, dl, /*input=*/nullptr );

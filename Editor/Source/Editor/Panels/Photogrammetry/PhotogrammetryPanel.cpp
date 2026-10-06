@@ -322,7 +322,7 @@ namespace Desert::Editor
                 m_CamH        = h;
 
                 std::vector<uint8_t>                data = m_FrameBuf; // copy: spec takes ownership
-                ::Desert::Core::Formats::Image2DSpecification spec = {
+                const ::Desert::Core::Formats::Image2DSpecification spec = {
                      .Tag        = "CameraFeed",
                      .Width      = static_cast<uint32_t>( w ),
                      .Height     = static_cast<uint32_t>( h ),

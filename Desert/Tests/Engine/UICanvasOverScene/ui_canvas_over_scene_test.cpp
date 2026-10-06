@@ -240,7 +240,7 @@ namespace
     bool Walk( OverScene& scene, R2D::DrawList2D& dl, UIViewContext& ctx, const UIInput* input = nullptr )
     {
         dl.Reset();
-        UI::BeginUIFrame( ctx, scene.Registry, kViewport );
+        UI::BeginUIFrame( ctx, scene.Registry, kViewport, /*frameDtSeconds=*/0.0f );
         const bool drawn = UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl, nullptr, input ).IsSuccess();
         UI::EndUIFrame( ctx, scene.Registry, dl, input );
         return drawn;
@@ -501,7 +501,7 @@ TEST( CanvasOverSceneViewChange, AWorldSpaceCanvasIsStillDrawnByTheUIPhase )
     // element must still be enumerated where the pointer can find it.
     const glm::mat4 viewProj( 1.0f );
     dl.Reset();
-    UI::BeginUIFrame( ctx, scene.Registry, kViewport );
+    UI::BeginUIFrame( ctx, scene.Registry, kViewport, /*frameDtSeconds=*/0.0f );
     const auto drawn = UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl, &viewProj );
     UI::EndUIFrame( ctx, scene.Registry, dl, nullptr );
     EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();

@@ -155,6 +155,19 @@ namespace Desert::Animation
     [[nodiscard]] Common::BoolResultStr InsertBoneKey( Timeline::Sequence& sequence, std::string_view bone,
                                                        TrackChannel part, FrameNumber tick );
 
+    /// `RemoveKey` on the topmost section of @p track holding a @p part key on @p tick — the rule every Transform
+    /// track shares (a bone's in a clip, an actor's in a level sequence); @p label names the track in the
+    /// refusal. Revision++.
+    [[nodiscard]] Common::BoolResultStr RemoveTrackKey( Timeline::Sequence& sequence, Timeline::Track& track,
+                                                        std::string_view label, TrackChannel part,
+                                                        FrameNumber tick );
+
+    /// `MoveKey` on the topmost section of @p track holding a @p part key on @p from; @p to must lie in the
+    /// playback range. The track-level form `MoveBoneKey` is written over. Revision++.
+    [[nodiscard]] Common::BoolResultStr MoveTrackKey( Timeline::Sequence& sequence, Timeline::Track& track,
+                                                      std::string_view label, TrackChannel part, FrameNumber from,
+                                                      FrameNumber to );
+
     /// `RemoveKey` on the topmost section holding a @p part key on @p tick. Revision++.
     [[nodiscard]] Common::BoolResultStr RemoveBoneKey( Timeline::Sequence& sequence, std::string_view bone,
                                                        TrackChannel part, FrameNumber tick );

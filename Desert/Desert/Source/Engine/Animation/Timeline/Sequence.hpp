@@ -83,6 +83,22 @@ namespace Desert::Animation::Timeline
     };
 
     [[nodiscard]] const Binding* FindBinding( const Sequence& sequence, const BindingGuid& guid );
+
+    /// One bone's name before and after a Skeleton Editor Rename Bone.
+    struct BoneRename
+    {
+        std::string From;
+        std::string To;
+    };
+
+    /**
+     * @brief RENAME BONE, IN A SEQUENCE (UE: Skeleton Editing's Rename Bone carries the name into the assets that
+     * name the bone): every Bone binding whose Locator is a `From` of @p renames gets its `To`, and its Label with
+     * it when the label spoke the old name. ONE SIMULTANEOUS MAP - each binding is looked up once, so a swap
+     * A <-> B is two entries and not a chain. The binding GUID stays: it is the identity tracks point at, minted
+     * once and kept across a rename (Binding.hpp), so no track is touched. Returns how many bindings moved.
+     */
+    std::size_t                  RenameBoneLocators( Sequence& sequence, std::span<const BoneRename> renames );
     [[nodiscard]] const Track*   FindTrack( const Sequence& sequence, const BindingGuid& binding,
                                             std::string_view property );
 
