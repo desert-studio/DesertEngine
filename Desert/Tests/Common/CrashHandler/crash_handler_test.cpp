@@ -1,10 +1,11 @@
 // CR1 — the crash handler is proven by CRASHING, not by calling its helpers.
 //
 // A unit test cannot install a fault handler and then fault: the fault kills the test process and
-// the suite reports nothing. So this binary is BOTH the test and the subject. Given
-// `--crash-child <kind> <report-root>` it installs the handler with its report root pointed at a
-// throwaway directory, crashes in the named way, and dies; given no arguments it is an ordinary gtest
-// runner that spawns itself in child mode once per crash kind and reads what the child left behind.
+// the suite reports nothing. So the runner that holds this suite (CommonTests) is BOTH the test and the
+// subject. Given `--desert-child=crash --crash-child <kind> <report-root>` it installs the handler with its
+// report root pointed at a throwaway directory, crashes in the named way, and dies (TestSupport/runner.hpp:
+// ChildEntry); run as a gtest runner it spawns itself in child mode once per crash kind and reads what the
+// child left behind.
 //
 // WHY THE REPORT ROOT IS OVERRIDDEN AND NOT INHERITED: without it the child would write into
 // %LOCALAPPDATA%/DesertEngine/Crashes — the developer's real crash folder — and the assertions could
@@ -14,6 +15,8 @@
 #include <Common/Core/CrashHandler.hpp>
 #include <RuntimeCrashTest.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <TestSupport/runner.hpp>
 
 #include <gtest/gtest.h>
 
@@ -39,7 +42,10 @@ extern char** environ;
 
 namespace
 {
-    std::filesystem::path g_SelfPath;
+    // The runner that holds this suite (CommonTests); the crash child is the same binary, entered through
+    // `--desert-child=crash` (TestSupport/runner.hpp).
+    const std::filesystem::path g_SelfPath = Common::Utils::FileSystem::ExecutablePath();
+    constexpr const char*       kChildFlag = "--desert-child=crash";
 
     std::filesystem::path MakeScratchRoot( const char* inLabel )
     {
@@ -56,6 +62,7 @@ namespace
     {
 #if defined( _WIN32 )
         std::wstring command = L"\"" + g_SelfPath.wstring() + L"\" ";
+        command += std::wstring( kChildFlag, kChildFlag + std::strlen( kChildFlag ) ) + L" ";
         command += std::wstring( inMode, inMode + std::strlen( inMode ) ) + L" ";
         command += std::wstring( inKind, inKind + std::strlen( inKind ) );
         command += L" \"" + inReportRoot.wstring() + L"\"";
@@ -83,7 +90,8 @@ namespace
         std::string root   = inReportRoot.string();
         std::string mode   = inMode;
         std::string kind   = inKind;
-        char*       argv[] = { self.data(), mode.data(), kind.data(), root.data(), nullptr };
+        std::string child  = kChildFlag;
+        char*       argv[] = { self.data(), child.data(), mode.data(), kind.data(), root.data(), nullptr };
         pid_t       child  = 0;
         if ( ::posix_spawn( &child, self.c_str(), nullptr, nullptr, argv, environ ) != 0 )
         {
@@ -433,75 +441,77 @@ TEST( CrashHandler, ACrashAfterTheMoveLandsInTheGameDirectory )
     std::filesystem::remove_all( user, cleanup );
 }
 
-// A test driver: an exception escaping main terminates the process, and the harness reports that as a failure.
-// NOLINTNEXTLINE(bugprone-exception-escape)
-int main( int argc, char** argv )
+namespace
 {
-    g_SelfPath = std::filesystem::absolute( argv[0] );
-
-    const std::string mode      = argc == 4 ? argv[1] : "";
-    const bool        engineRun = mode == "--crash-child-engine" || mode == "--crash-child-moved";
-    if ( mode == "--crash-child" || engineRun )
+    // `<runner> --desert-child=crash <mode> <kind> <report-root>`: argv[0] is the runner, argv[1..3] what
+    // RunChild passed after the flag. Returns only when the crash did not happen.
+    int RunCrashChild( int argc, char** argv )
     {
-        // LogInit opens engine_log.txt in the WORKING directory, which is the checkout the suite runs
-        // from; a test writes nothing into the tree (TST1), so the child works inside its scratch root.
-        std::filesystem::current_path( argv[3] );
-        Common::Logger::LogInit();
+        const std::string mode      = argc == 4 ? argv[1] : "";
+        const bool        engineRun = mode == "--crash-child-engine" || mode == "--crash-child-moved";
+        if ( mode == "--crash-child" || engineRun )
+        {
+            // LogInit opens engine_log.txt in the WORKING directory, which is the checkout the suite runs
+            // from; a test writes nothing into the tree (TST1), so the child works inside its scratch root.
+            std::filesystem::current_path( argv[3] );
+            Common::Logger::LogInit();
 
-        Common::Crash::InstallOptions options;
-        options.hostName = "CrashHandlerTestChild";
-        if ( engineRun )
-        {
-            // No project and no override: the engine's per-user root, as the Runtime installs.
-#if defined( _WIN32 )
-            ::_putenv_s( "LOCALAPPDATA", argv[3] );
-#else
-            // The child process, before any thread starts: nothing else can be reading the environment.
-            // NOLINTNEXTLINE(concurrency-mt-unsafe)
-            ::setenv( "HOME", argv[3], 1 );
-#endif
-        }
-        else
-        {
-            options.reportRootOverride = argv[3];
-        }
-        const Common::BoolResultStr installed = Common::Crash::Install( options );
-        if ( !installed.IsSuccess() )
-        {
-            std::fputs( installed.GetError().c_str(), stderr );
-            return 2;
-        }
-        if ( mode == "--crash-child-moved" )
-        {
-            const Common::BoolResultStr moved =
-                 Common::Crash::MoveReportRoot( std::filesystem::path( argv[3] ) / "game" / "Crashes" );
-            if ( !moved.IsSuccess() )
+            Common::Crash::InstallOptions options;
+            options.hostName = "CrashHandlerTestChild";
+            if ( engineRun )
             {
-                std::fputs( moved.GetError().c_str(), stderr );
+                // No project and no override: the engine's per-user root, as the Runtime installs.
+#if defined( _WIN32 )
+                ::_putenv_s( "LOCALAPPDATA", argv[3] );
+#else
+                // The child process, before any thread starts: nothing else can be reading the environment.
+                // NOLINTNEXTLINE(concurrency-mt-unsafe)
+                ::setenv( "HOME", argv[3], 1 );
+#endif
+            }
+            else
+            {
+                options.reportRootOverride = argv[3];
+            }
+            const Common::BoolResultStr installed = Common::Crash::Install( options );
+            if ( !installed.IsSuccess() )
+            {
+                std::fputs( installed.GetError().c_str(), stderr );
                 return 2;
             }
-        }
+            if ( mode == "--crash-child-moved" )
+            {
+                const Common::BoolResultStr moved =
+                     Common::Crash::MoveReportRoot( std::filesystem::path( argv[3] ) / "game" / "Crashes" );
+                if ( !moved.IsSuccess() )
+                {
+                    std::fputs( moved.GetError().c_str(), stderr );
+                    return 2;
+                }
+            }
 
-        // Both context setters are exercised, because a value that is never written is a field the
-        // report would always show as "none" and nobody would notice.
-        Common::Crash::SetScenePath( "Scenes/CrashHandlerSuite.desce" );
-        Common::Crash::SetGpu( { .name          = "test harness, no device",
-                                 .vendorId      = 0x10DE,
-                                 .deviceId      = 0x2482,
-                                 .driverVersion = ( 591u << 22 ) | ( 86u << 14 ),
-                                 .apiVersion    = ( 1u << 22 ) | ( 4u << 12 ) | 303u } );
-        Common::Crash::SetGameName( "CrashHandlerSuiteGame" );
-        LOG_INFO( "[CrashHandlerTestChild] about to crash on purpose: {}", argv[2] );
+            // Both context setters are exercised, because a value that is never written is a field the
+            // report would always show as "none" and nobody would notice.
+            Common::Crash::SetScenePath( "Scenes/CrashHandlerSuite.desce" );
+            Common::Crash::SetGpu( { .name          = "test harness, no device",
+                                     .vendorId      = 0x10DE,
+                                     .deviceId      = 0x2482,
+                                     .driverVersion = ( 591u << 22 ) | ( 86u << 14 ),
+                                     .apiVersion    = ( 1u << 22 ) | ( 4u << 12 ) | 303u } );
+            Common::Crash::SetGameName( "CrashHandlerSuiteGame" );
+            LOG_INFO( "[CrashHandlerTestChild] about to crash on purpose: {}", argv[2] );
 
-        const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( argv[2] );
-        if ( !kind.has_value() )
-        {
-            std::fputs( "unknown crash kind\n", stderr );
-            return 2;
+            const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( argv[2] );
+            if ( !kind.has_value() )
+            {
+                std::fputs( "unknown crash kind\n", stderr );
+                return 2;
+            }
+            Common::Crash::TriggerTestCrash( *kind );
         }
-        Common::Crash::TriggerTestCrash( *kind );
+        std::fputs( "the crash child did not crash\n", stderr );
+        return 3;
     }
 
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    const Desert::TestSupport::ChildEntry kCrashChild{ "crash", &RunCrashChild };
+} // namespace

@@ -123,6 +123,8 @@ local kRunners = {
             -- read engine/editor headers that are header-only; nothing of Desert or Editor is linked.
             "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+            -- CrashHandler checks the packaged game's --crash-test parser (header-only RuntimeCrashTest.hpp).
+            "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
         }
         -- Optick: Common's JobSystem registers its worker threads with it. ReflectCpp: CanonicalText's
         -- writer reads and spells through yyjson, which ReflectCpp carries.
