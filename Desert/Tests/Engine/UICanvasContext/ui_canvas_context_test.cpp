@@ -2180,3 +2180,9 @@ TEST( UICanvasContextPair, TheEditorsPickAndTheWalkAgreeOnWhichCanvasIsOnTop )
         EXPECT_EQ( picked, upperOrder > 0 ? f.UpperButton : f.LowerButton );
     }
 }
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}

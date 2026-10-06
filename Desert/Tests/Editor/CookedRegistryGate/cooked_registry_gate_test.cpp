@@ -224,9 +224,9 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
     constexpr CookOnlyKind kCookOnlyKinds[] = {
          // A partitioned world's cells and index (AF2) exist only as cook output; the WorldCells suite holds
          // the census's extensions equal to the cook's file names and reads the kind back from a cooked header.
-         { "WorldCell", "Desert/Tests/Engine/WorldCells/world_cells_test.cpp",
+         { "WorldCell", "Desert/Tests/Tools/WorldCells/world_cells_test.cpp",
            "ACookedFileNamesItsKindInItsHeader" },
-         { "WorldIndex", "Desert/Tests/Engine/WorldCells/world_cells_test.cpp",
+         { "WorldIndex", "Desert/Tests/Tools/WorldCells/world_cells_test.cpp",
            "ACookedFileNamesItsKindInItsHeader" },
          // Left at an old path by a move (AF10c), deleted by fix-up (AF10d): never committed.
          { "Redirector", "Desert/Tests/Common/AssetRedirector/asset_redirector_test.cpp",

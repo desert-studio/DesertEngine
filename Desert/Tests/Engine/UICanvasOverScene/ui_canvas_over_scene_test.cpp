@@ -19,7 +19,6 @@
 // A->B->A protocol, and it is the one that would catch a per-entity table surviving a scene it does not
 // belong to, which is this project's recurring defect (entity ids are unique only inside a registry).
 
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -38,94 +37,10 @@
 #include <unordered_set>
 #include <vector>
 
-// The renderer resolves sprites, fonts, icons and video through these. Every one of them owns GPU
-// objects, and every draw helper already copes with the service being absent -- a sprite that will not
-// resolve falls back to its flat colour, text and icons draw nothing. That is exactly the path a headless
-// walk wants, so the suite supplies the accessors itself and returns nothing.
-namespace Desert::Runtime
-{
-    // NOLINTBEGIN(readability-convert-member-functions-to-static) — these are DEFINITIONS of the engine's
-    // own member functions, supplied here instead of linking the services. Their signatures belong to
-    // Engine/Runtime/ResourceRegistry.hpp and cannot be changed from a test.
-    TextureService* ResourceRegistry::GetTextureService()
-    {
-        return nullptr;
-    }
-    ImageService* ResourceRegistry::GetImageService()
-    {
-        return nullptr;
-    }
-    FontService* ResourceRegistry::GetFontService()
-    {
-        return nullptr;
-    }
-    UIThemeService* ResourceRegistry::GetUIThemeService()
-    {
-        return nullptr;
-    }
-    IconService* ResourceRegistry::GetIconService()
-    {
-        return nullptr;
-    }
-    AnimatedImageService* ResourceRegistry::GetAnimatedImageService()
-    {
-        return nullptr;
-    }
-    VideoService* ResourceRegistry::GetVideoService()
-    {
-        return nullptr;
-    }
-
-    // The service METHODS the walk calls on whatever those accessors hand back. Every accessor above
-    // returns nullptr, so none of these can run -- they exist because the linker still wants the symbols,
-    // and each fails the test outright rather than returning a plausible value.
-    Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& ) const
-    {
-        ADD_FAILURE() << "TextureService::Get reached with no texture service";
-        return nullptr;
-    }
-    Graphic::Image* ImageService::Resolve( const ImageHandle& ) const
-    {
-        ADD_FAILURE() << "ImageService::Resolve reached with no image service";
-        return nullptr;
-    }
-    Graphic::Image2D* AnimatedImageService::Resolve( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "AnimatedImageService::Resolve reached with no animated image service";
-        return nullptr;
-    }
-    Graphic::Image2D* VideoService::Resolve( uint64_t )
-    {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
-        return nullptr;
-    }
-    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "UIThemeService::Get reached with no theme service";
-        return nullptr;
-    }
-    Font* FontService::Get( uint64_t, float )
-    {
-        ADD_FAILURE() << "FontService::Get reached with no font service";
-        return nullptr;
-    }
-    uint64_t FontService::DefaultFontHandle()
-    {
-        ADD_FAILURE() << "FontService::DefaultFontHandle reached with no font service";
-        return 0;
-    }
-    bool FontService::RequestGlyphs( uint64_t, const std::vector<uint32_t>& )
-    {
-        ADD_FAILURE() << "FontService::RequestGlyphs reached with no font service";
-        return false;
-    }
-    Icon* IconService::Get( uint64_t )
-    {
-        ADD_FAILURE() << "IconService::Get reached with no icon service";
-        return nullptr;
-    }
-    // NOLINTEND(readability-convert-member-functions-to-static)
-} // namespace Desert::Runtime
+// The walk resolves sprites, fonts, icons, video and themes through the engine's ResourceRegistry. The
+// suite runs in a runner that links Desert, so those are the engine's own services, holding nothing: no
+// handle in this file is registered with any of them, and each answers an unregistered handle with
+// nothing -- a sprite draws its flat colour, video and theme slots stay empty.
 
 using Desert::UI::Rect;
 using Desert::UI::UIElementNode;

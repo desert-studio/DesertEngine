@@ -28,7 +28,6 @@
 // purity UIRenderTextureSource.hpp exists to protect — naming the concrete Render2D cache here would drag
 // a Vulkan device, a Core::Scene and a SceneRenderer into a test about six comparisons.
 
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -41,96 +40,10 @@
 #include <string>
 #include <vector>
 
-// The renderer resolves sprites, fonts, icons and video through these, and every one owns GPU objects.
-// Every draw helper already copes with the service being absent, which is exactly the path a headless
-// walk wants — see UICanvasContext's suite for the longer version of this argument.
-namespace Desert::Runtime
-{
-    TextureService* ResourceRegistry::GetTextureService()
-    {
-        return nullptr;
-    }
-    ImageService* ResourceRegistry::GetImageService()
-    {
-        return nullptr;
-    }
-    FontService* ResourceRegistry::GetFontService()
-    {
-        return nullptr;
-    }
-    UIThemeService* ResourceRegistry::GetUIThemeService()
-    {
-        return nullptr;
-    }
-    IconService* ResourceRegistry::GetIconService()
-    {
-        return nullptr;
-    }
-    AnimatedImageService* ResourceRegistry::GetAnimatedImageService()
-    {
-        return nullptr;
-    }
-    VideoService* ResourceRegistry::GetVideoService()
-    {
-        return nullptr;
-    }
-
-    // THE ANALYSER WANTS THESE STATIC AND THEY CANNOT BE. Each is an out-of-line definition of a method
-    // the ENGINE declared; changing its signature would stop it being that method and the link would fail
-    // — which is the whole point of defining them here. Suppressed by name and with the reason, in the
-    // narrowest block that covers them, rather than by widening the project's gate.
-    // NOLINTBEGIN(readability-convert-member-functions-to-static)
-    //
-    // The methods the walk would call on what those accessors hand back. None can run — every accessor
-    // above is null — so each fails outright rather than returning a plausible value, and a change that
-    // manages to reach one is loud instead of quiet.
-    Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& ) const
-    {
-        ADD_FAILURE() << "TextureService::Get reached with no texture service";
-        return nullptr;
-    }
-    Graphic::Image* ImageService::Resolve( const ImageHandle& ) const
-    {
-        ADD_FAILURE() << "ImageService::Resolve reached with no image service";
-        return nullptr;
-    }
-    Graphic::Image2D* AnimatedImageService::Resolve( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "AnimatedImageService::Resolve reached with no animated-image service";
-        return nullptr;
-    }
-    Graphic::Image2D* VideoService::Resolve( uint64_t )
-    {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
-        return nullptr;
-    }
-    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "UIThemeService::Get reached with no theme service";
-        return nullptr;
-    }
-    Font* FontService::Get( uint64_t, float )
-    {
-        ADD_FAILURE() << "FontService::Get reached with no font service";
-        return nullptr;
-    }
-    uint64_t FontService::DefaultFontHandle()
-    {
-        ADD_FAILURE() << "FontService::DefaultFontHandle reached with no font service";
-        return 0;
-    }
-    bool FontService::RequestGlyphs( uint64_t, const std::vector<uint32_t>& )
-    {
-        ADD_FAILURE() << "FontService::RequestGlyphs reached with no font service";
-        return false;
-    }
-    Icon* IconService::Get( uint64_t )
-    {
-        ADD_FAILURE() << "IconService::Get reached with no icon service";
-        return nullptr;
-    }
-    // NOLINTEND(readability-convert-member-functions-to-static)
-} // namespace Desert::Runtime
+// The walk resolves sprites, fonts, icons, video and themes through the engine's ResourceRegistry. The
+// suite runs in a runner that links Desert, so those are the engine's own services, holding nothing: no
+// handle in this file is registered with any of them, and each answers an unregistered handle with
+// nothing -- a sprite draws its flat colour, video and theme slots stay empty.
 
 namespace ECS = Desert::ECS;
 namespace R2D = Desert::Graphic::Render2D;

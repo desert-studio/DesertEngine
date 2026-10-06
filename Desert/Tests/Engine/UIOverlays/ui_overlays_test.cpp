@@ -30,7 +30,6 @@
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <gtest/gtest.h>
 
@@ -59,92 +58,10 @@ namespace
     }
 } // namespace
 
-// The renderer resolves sprites, fonts, icons and video through these. Every one of them owns GPU objects,
-// and every draw helper already copes with the service being absent. The service METHODS below can then
-// never run; each fails outright rather than returning a plausible value.
-namespace Desert::Runtime
-{
-    TextureService* ResourceRegistry::GetTextureService()
-    {
-        return nullptr;
-    }
-    ImageService* ResourceRegistry::GetImageService()
-    {
-        return nullptr;
-    }
-    FontService* ResourceRegistry::GetFontService()
-    {
-        return nullptr;
-    }
-    // Ю13's theme service, needed here because this suite LINKS the walk rather than reading it as text.
-    // Absent like the rest, and that is a meaningful state rather than a hole: a canvas with no theme
-    // service resolves every slot from the elements' own authored fields, which is what an overlay
-    // authored before themes existed does. The walk copes with the accessor being null.
-    UIThemeService* ResourceRegistry::GetUIThemeService()
-    {
-        return nullptr;
-    }
-    IconService* ResourceRegistry::GetIconService()
-    {
-        return nullptr;
-    }
-    AnimatedImageService* ResourceRegistry::GetAnimatedImageService()
-    {
-        return nullptr;
-    }
-    VideoService* ResourceRegistry::GetVideoService()
-    {
-        return nullptr;
-    }
-
-    Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& ) const
-    {
-        ADD_FAILURE() << "TextureService::Get reached with no texture service";
-        return nullptr;
-    }
-    Graphic::Image* ImageService::Resolve( const ImageHandle& ) const
-    {
-        ADD_FAILURE() << "ImageService::Resolve reached with no image service";
-        return nullptr;
-    }
-    Graphic::Image2D* AnimatedImageService::Resolve( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "AnimatedImageService::Resolve reached with no animated image service";
-        return nullptr;
-    }
-    Graphic::Image2D* VideoService::Resolve( uint64_t )
-    {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
-        return nullptr;
-    }
-    // Reachable only if the walk stopped honouring a null service accessor; the stub above answers
-    // nullptr, so a canvas here resolves every slot from the author's own fields and Get is never asked.
-    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "UIThemeService::Get reached with no theme service";
-        return nullptr;
-    }
-    Font* FontService::Get( uint64_t, float )
-    {
-        ADD_FAILURE() << "FontService::Get reached with no font service";
-        return nullptr;
-    }
-    uint64_t FontService::DefaultFontHandle()
-    {
-        ADD_FAILURE() << "FontService::DefaultFontHandle reached with no font service";
-        return 0;
-    }
-    bool FontService::RequestGlyphs( uint64_t, const std::vector<uint32_t>& )
-    {
-        ADD_FAILURE() << "FontService::RequestGlyphs reached with no font service";
-        return false;
-    }
-    Icon* IconService::Get( uint64_t )
-    {
-        ADD_FAILURE() << "IconService::Get reached with no icon service";
-        return nullptr;
-    }
-} // namespace Desert::Runtime
+// The walk resolves sprites, fonts, icons, video and themes through the engine's ResourceRegistry. The
+// suite runs in a runner that links Desert, so those are the engine's own services, holding nothing: no
+// handle in this file is registered with any of them, and each answers an unregistered handle with
+// nothing -- a sprite draws its flat colour, video and theme slots stay empty.
 
 using Desert::UI::OverlayAxis;
 using Desert::UI::PlaceOverlay;

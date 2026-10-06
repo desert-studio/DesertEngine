@@ -191,3 +191,9 @@ TEST( TextureOwnership, CreateDropCyclesLeaveNoImageBehind )
     EXPECT_EQ( occupied, static_cast<size_t>( before ) )
          << "the service holds more images than there are live textures";
 }
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}

@@ -760,3 +760,9 @@ TEST( UIIntrospectionBatches, ACanvasWithNoMaterialReportsNoneOfIt )
     EXPECT_EQ( probe.Stats.UniqueMaterials, 0u );
     EXPECT_EQ( probe.Stats.PipelineSwitches, 0u );
 }
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
