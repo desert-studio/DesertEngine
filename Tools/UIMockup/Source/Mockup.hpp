@@ -1,5 +1,10 @@
 #pragma once
 
+// ImVec2 arithmetic; defined here, before the first ImGui include of every UIMockup source (ThemeManager.cpp
+// defines it for itself).
+#ifndef IMGUI_DEFINE_MATH_OPERATORS
+#define IMGUI_DEFINE_MATH_OPERATORS
+#endif
 #include <imgui.h>
 #include <imgui_internal.h> // ImRect
 

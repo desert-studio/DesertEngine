@@ -47,9 +47,6 @@ project "UIMockup"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",     -- stb_image/stb_image_write.h
     }
 
-    -- ImVec2 arithmetic everywhere, as ThemeManager.cpp already asks for it (an identical redefinition there).
-    defines { "IMGUI_DEFINE_MATH_OPERATORS" }
-
     links {
         "GLFW",
     }

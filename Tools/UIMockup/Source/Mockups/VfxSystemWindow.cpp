@@ -270,7 +270,7 @@ namespace Desert::UIMockup::Mockups
                 {
                     ImGui::TableSetupColumn( "name", ImGuiTableColumnFlags_WidthStretch, 1.0f );
                     ImGui::TableSetupColumn( "value", ImGuiTableColumnFlags_WidthFixed, 150.0f );
-                    ImGui::TableSetupColumn( "mode", ImGuiTableColumnFlags_WidthFixed, 74.0f );
+                    ImGui::TableSetupColumn( "mode", ImGuiTableColumnFlags_WidthFixed, 88.0f );
                     rows();
                     ImGui::EndTable();
                 }
@@ -342,7 +342,7 @@ namespace Desert::UIMockup::Mockups
 
             ImDrawList*  draw  = ImGui::GetWindowDrawList();
             const ImVec2 start = ImGui::GetCursorScreenPos();
-            const float  width = ImGui::GetContentRegionAvail().x - kNameWidth - 12.0f;
+            const float  width = ImGui::GetContentRegionAvail().x - kNameWidth - 28.0f;
             const float  x0    = start.x + kNameWidth;
             auto         at    = [&]( float seconds ) { return x0 + width * seconds / kSeconds; };
 

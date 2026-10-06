@@ -261,7 +261,7 @@ namespace Desert::UIMockup::Mockups
         ModeStrip();
         ImGui::EndChild();
 
-        constexpr float kPanelWidth = 440.0f;
+        constexpr float kPanelWidth = 500.0f;
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 4, 4 ) );
         ImGui::BeginChild( "##panel", ImVec2( kPanelWidth, 0 ), true );
         ModePanel( fonts );
