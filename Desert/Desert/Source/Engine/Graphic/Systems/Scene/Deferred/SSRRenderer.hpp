@@ -180,7 +180,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_TracePipeline )
                 return;
-            pass.Bindings( m_TraceLayout.Get( *m_TraceShader ),
+            pass.Bindings( m_TraceLayout.Get( m_TraceShader ),
                            Renderer::GetInstance().GetPipelineRouteFill( *m_TracePipeline ) )
                  .Sampled( "u_GBufferAlbedo", gbuffer[0], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
@@ -228,7 +228,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_ResolvePipeline || !m_ResolveMaterial )
                 return;
-            pass.Bindings( m_ResolveLayout.Get( *m_ResolveShader ),
+            pass.Bindings( m_ResolveLayout.Get( m_ResolveShader ),
                            m_ResolveMaterial->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearRepeat() )
@@ -262,7 +262,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_CompositePipeline || !m_CompositeMaterial )
                 return;
-            pass.Bindings( m_CompositeLayout.Get( *m_CompositeShader ),
+            pass.Bindings( m_CompositeLayout.Get( m_CompositeShader ),
                            m_CompositeMaterial->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_SSR", resolved, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearRepeat() )

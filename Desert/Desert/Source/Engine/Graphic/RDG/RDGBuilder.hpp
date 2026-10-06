@@ -143,6 +143,11 @@ namespace Desert::Graphic::RDG
         // faults THIS pass (PassFaultStage::Validation) and the graph goes on without it. The exec builds
         // PassBindings( context, block.GetRef() ) and names no shader slot itself. A pass recording several draws
         // with different shaders declares one block per shader.
+        // @p layout is the kept layout (ShaderBindingLayoutCache / RDG::LayoutCache): the block shares it, no
+        // copy.
+        BindingBlockBuilder Bindings( const std::shared_ptr<const ShaderBindingLayout>& layout,
+                                      OtherRouteFill                                    other );
+        // A layout made for this declaration only (tests, a draw list built per frame): the graph takes it over.
         BindingBlockBuilder Bindings( ShaderBindingLayout layout, OtherRouteFill other );
 
     private:

@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -130,8 +131,10 @@ namespace Desert::Graphic::RDG
 
     struct DeclaredBindingBlock
     {
-        ShaderBindingLayout               Layout;
-        OtherRouteFill                    Other;
+        // Shared and const: a renderer hands the graph the layout it keeps (RDG::LayoutCache) by pointer, no
+        // per-frame copy of the slot list; null is refused by ValidatePassBindings.
+        std::shared_ptr<const ShaderBindingLayout> Layout;
+        OtherRouteFill                             Other;
         std::vector<DeclaredBindingEntry> Entries;
         uint32_t                          PushConstantBytes = 0; // what the exec will push
     };

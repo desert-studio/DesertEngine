@@ -77,7 +77,7 @@ namespace Desert::Graphic::System
         {
             if ( !IsReady() || !gbufferDepth.IsValid() )
                 return;
-            pass.Bindings( m_BindingLayout.Get( *m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
+            pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_Depth", gbufferDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::PointClamp() );
         }

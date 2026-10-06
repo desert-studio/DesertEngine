@@ -147,7 +147,7 @@ namespace Desert::Graphic::System
         void DeclareGatherBindings( RDG::PassBuilder& pass, const GIGatherInputs& inputs ) const
         {
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            auto                       block    = pass.Bindings( m_GatherLayout.Get( *m_Pipeline->GetShader() ),
+            auto                       block    = pass.Bindings( m_GatherLayout.Get( m_Pipeline->GetShader() ),
                                                                  m_Material->GetMaterialExecutor()->GetRouteFill() );
             const auto sampled = [&]( std::string_view name, RDG::TextureRef texture ) {
                 block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
@@ -166,7 +166,7 @@ namespace Desert::Graphic::System
                                       RDG::TextureRef worldPos ) const
         {
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            pass.Bindings( m_ResolveLayout.Get( *m_ResolvePipeline->GetShader() ),
+            pass.Bindings( m_ResolveLayout.Get( m_ResolvePipeline->GetShader() ),
                            m_ResolveMaterial->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler )

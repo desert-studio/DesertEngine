@@ -244,7 +244,9 @@ namespace Desert::Graphic::RDG
 
     Common::BoolResultStr ValidatePassBindings( const DeclaredBindingBlock& block )
     {
-        const ShaderBindingLayout& layout   = block.Layout;
+        if ( !block.Layout )
+            return Common::MakeError( std::string( "the block declares no shader binding layout" ) );
+        const ShaderBindingLayout& layout   = *block.Layout;
         const auto                 byOther  = [&]( std::string_view name )
         { return std::find( block.Other.Slots.begin(), block.Other.Slots.end(), name ) != block.Other.Slots.end(); };
         for ( const DeclaredBindingEntry& entry : block.Entries )
@@ -279,8 +281,14 @@ namespace Desert::Graphic::RDG
 
     BindingBlockBuilder PassBuilder::Bindings( ShaderBindingLayout layout, OtherRouteFill other )
     {
+        return Bindings( std::make_shared<const ShaderBindingLayout>( std::move( layout ) ), std::move( other ) );
+    }
+
+    BindingBlockBuilder PassBuilder::Bindings( const std::shared_ptr<const ShaderBindingLayout>& layout,
+                                               OtherRouteFill                                    other )
+    {
         std::vector<DeclaredBindingBlock>& blocks = m_Builder.m_Passes[m_Pass].Blocks;
-        blocks.push_back( DeclaredBindingBlock{ std::move( layout ), std::move( other ), {}, 0 } );
+        blocks.push_back( DeclaredBindingBlock{ layout, std::move( other ), {}, 0 } );
         return BindingBlockBuilder( *this, BindingBlockRef{ m_Pass, static_cast<uint32_t>( blocks.size() - 1 ) } );
     }
 

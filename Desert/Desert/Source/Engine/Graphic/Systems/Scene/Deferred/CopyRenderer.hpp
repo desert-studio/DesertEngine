@@ -50,7 +50,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_Pipeline )
                 return;
-            pass.Bindings( m_BindingLayout.Get( *m_Shader ), RDG::OtherRouteFill{} )
+            pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::OtherRouteFill{} )
                  .Sampled( "u_Input", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearRepeat() );
         }

@@ -52,7 +52,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_Pipeline || !m_MaterialFXAA )
             return;
-        pass.Bindings( m_BindingLayout.Get( *m_Shader ), m_MaterialFXAA->GetMaterialExecutor()->GetRouteFill() )
+        pass.Bindings( m_BindingLayout.Get( m_Shader ), m_MaterialFXAA->GetMaterialExecutor()->GetRouteFill() )
              .Sampled( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearRepeat() );
     }

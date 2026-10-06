@@ -7,6 +7,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
+#include <Engine/Graphic/RDG/RDGLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
@@ -3382,7 +3383,7 @@ namespace
 TEST( RenderGraphCompile, BindingValidationNamesTheSlotTheShaderLacks )
 {
     DeclaredBindingBlock block;
-    block.Layout = GlassLayout();
+    block.Layout = std::make_shared<const ShaderBindingLayout>( GlassLayout() );
     block.Entries.push_back( { "u_SceneColor", ShaderResourceKind::SampledTexture, ResourceKind::Texture, 0,
                                Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
     EXPECT_TRUE( ValidatePassBindings( block ).IsSuccess() );
@@ -3394,6 +3395,51 @@ TEST( RenderGraphCompile, BindingValidationNamesTheSlotTheShaderLacks )
     EXPECT_NE( refused.GetError().find( "'u_ShadowMap0' is not a resource of shader 'StaticMeshGlass'" ),
                std::string::npos )
          << refused.GetError();
+}
+
+// RDG-FAULT1 C3b. The kept layout follows the shader OBJECT and its compile: another object at the same reload
+// generation (a renderer swapped its shader without a reload) re-derives; the same object at the same generation
+// hands back the kept pointer (no per-frame derivation, no copy); a reload re-derives; a block declared earlier
+// keeps the layout it was validated against.
+TEST( RenderGraphCompile, LayoutCacheKeysOnTheShaderObjectAndItsReload )
+{
+    struct FakeShader
+    {
+        std::string Name;
+    };
+    int        derived = 0;
+    const auto derive  = [&]( const FakeShader& shader )
+    {
+        ++derived;
+        return ShaderBindingLayout{ shader.Name, {}, 0 };
+    };
+    LayoutCache                                      cache;
+    auto                                             first = std::make_shared<FakeShader>( FakeShader{ "First" } );
+    const std::shared_ptr<const ShaderBindingLayout> kept  = cache.Get( first, 0, derive );
+    EXPECT_EQ( kept->ShaderName, "First" );
+    EXPECT_EQ( cache.Get( first, 0, derive ).get(), kept.get() );
+    EXPECT_EQ( derived, 1 );
+
+    auto second = std::make_shared<FakeShader>( FakeShader{ "Second" } );
+    EXPECT_EQ( cache.Get( second, 0, derive )->ShaderName, "Second" );
+    EXPECT_EQ( derived, 2 );
+
+    second->Name = "SecondReloaded";
+    EXPECT_EQ( cache.Get( second, 1, derive )->ShaderName, "SecondReloaded" );
+    EXPECT_EQ( derived, 3 );
+    EXPECT_EQ( kept->ShaderName, "First" ); // a block holding the old layout still validates against it
+
+    second.reset(); // destroyed; a new object (possibly at the same address) is never the old one
+    auto third = std::make_shared<FakeShader>( FakeShader{ "Third" } );
+    EXPECT_EQ( cache.Get( third, 1, derive )->ShaderName, "Third" );
+    EXPECT_EQ( derived, 4 );
+}
+
+TEST( RenderGraphCompile, BindingValidationRefusesABlockWithoutALayout )
+{
+    const Common::BoolResultStr refused = ValidatePassBindings( DeclaredBindingBlock{} );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "declares no shader binding layout" ), std::string::npos );
 }
 
 TEST( RenderGraphCompile, FaultedPassIsCulledWithItsExclusiveDependants )
@@ -3670,7 +3716,7 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
         glass.Slots.push_back( std::move( slot ) );
     EXPECT_TRUE( Desert::Graphic::SamplesSceneViewInputs( glass ) );
     CollectedBlock glassBlock;
-    glassBlock.Block.Layout = glass;
+    glassBlock.Block.Layout = std::make_shared<const ShaderBindingLayout>( glass );
     glassBlock.Sampled( "u_SceneColor", TextureRef{ 0 }, Access::SampledGraphics, SubresourceRange::All(),
                         SamplerDesc::LinearRepeat() );
     Desert::Graphic::BindSceneViewInputs( glassBlock, view, glass );
@@ -3684,7 +3730,7 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
     for ( const std::string_view name : Desert::Graphic::kSceneViewShadowMapNames )
         lit.Slots.push_back( { std::string( name ), ShaderResourceKind::SampledTexture } );
     CollectedBlock litBlock;
-    litBlock.Block.Layout = lit;
+    litBlock.Block.Layout = std::make_shared<const ShaderBindingLayout>( lit );
     Desert::Graphic::BindSceneViewInputs( litBlock, view, lit );
     const Common::BoolResultStr litValid = ValidatePassBindings( litBlock.Block );
     EXPECT_TRUE( litValid.IsSuccess() ) << litValid.GetError();

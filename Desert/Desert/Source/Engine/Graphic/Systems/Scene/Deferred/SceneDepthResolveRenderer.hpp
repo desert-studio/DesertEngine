@@ -111,7 +111,7 @@ namespace Desert::Graphic::System
         {
             if ( !IsReady() || !sceneDepth.IsValid() )
                 return;
-            pass.Bindings( m_BindingLayout.Get( *m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
+            pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::PointClamp() );
         }

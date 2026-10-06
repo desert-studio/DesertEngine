@@ -222,7 +222,7 @@ namespace Desert::Graphic::System
                   ? std::shared_ptr<Image>( atmosphere.DistantSkyLight )
                   : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
         const Renderer& renderer = Renderer::GetInstance();
-        auto            block    = fog.Access.Bindings( renderer.GetBindingLayout( *m_FogPipeline->GetShader() ),
+        auto            block    = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
                                                         renderer.GetPipelineRouteFill( *m_FogPipeline ) );
         block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
         block.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite )
@@ -286,9 +286,7 @@ namespace Desert::Graphic::System
             {
                 return;
             }
-            declared
-                 .Bindings( Renderer::GetInstance().GetBindingLayout( *m_ApplyPipeline->GetShader() ),
-                            RDG::OtherRouteFill{} )
+            declared.Bindings( m_ApplyLayout.Get( m_ApplyPipeline->GetShader() ), RDG::OtherRouteFill{} )
                  .Sampled( "u_FogApply", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
         };

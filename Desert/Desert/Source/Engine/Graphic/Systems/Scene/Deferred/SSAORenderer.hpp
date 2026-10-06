@@ -62,7 +62,7 @@ namespace Desert::Graphic::System
             if ( !m_Pipeline || !m_Material )
                 return;
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            pass.Bindings( m_BindingLayout.Get( *m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
+            pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_GBufferPos", worldPos, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler )
                  .Sampled( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
