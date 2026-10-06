@@ -80,7 +80,9 @@ Wiring: premake 5.0-beta8 has no spelling for these (`Ccache.props:11`); emit th
 them — a developer's Visual Studio build included. Census: a premake-time check that every generated
 `.vcxproj` has `<UseMultiToolTask>true` (the `BuildAllTests` Utility project excepted by kind).
 
-Expected: Desert 696 s serial -> ~696/N on N cores, bounded by the slowest TU (17.7 s).
+Expected: Desert 696 s serial -> ~696/12 on this machine's 12 logical cores (~1-2 min when nothing else
+builds), bounded by the slowest TU (17.7 s). CI already runs this way (ccache + MultiToolTask, run
+35863890019: Build step Release 74.7 min, Debug 36.0); locally it is the missing half.
 Verify: `msbuild Desert.vcxproj -t:Rebuild` wall time, before/after, same tree, nothing else building.
 
 ## 4. P1 — one test runner per layer
@@ -134,7 +136,10 @@ the message) — an empty selection is an error, never "0 tests passed".
 | same gtest test-suite name in two suites | `CloudNoiseContainer` (CloudNoiseSheet, CloudNoiseVolume), `ShaderRootFixture` (MeshVertexPath, PBRSceneFrame, ShaderCacheKey) | one shared fixture in `TestSupport/` or distinct names: gtest aborts when one test-suite name maps to two fixture classes, and two different classes with one name at namespace scope are an ODR violation the linker resolves silently |
 | tests that `current_path(...)` | ~56 call sites (PackagedContent, AssetPathIdentity, WorldPartition, EngineShaderByGuid, PakChunks, MaterialDocumentOpen, MeshBinaryFormat, CrashHandler ...) | unchanged: process-per-suite keeps the scratch cwd; save/restore guards stay |
 | tree location (walk up from cwd to `Editor/Resources/Shaders`) | many | unchanged (cwd is still `build/TestScratch/...` under the checkout) |
-| suite-specific premake (`postbuild`, extra links/includes) | see REMAINDER inventory | moved to the runner project; a suite needing a link no other suite of its layer needs is named in the runner's premake with the reason |
+| `argv[0]` read in main | CrashHandler `crash_handler_test.cpp:440` (re-spawns itself, :69 CreateProcessW / :88 posix_spawn), AssetHandleStability `asset_handle_stability_test.cpp:1350`, CloudNoiseVolumeHandle `cloud_noise_volume_handle_test.cpp:152` | RunnerMain exposes the runner's own path to tests (one accessor in `TestSupport/`); CrashHandler's child is `<runner> --desert-child=crash` |
+| `dependson` (build order on a tool) | 18 suites: AssetResolverCensus, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, SceneCloudLayoutDefault, SceneDebugFields, SceneForeignKeys, SceneMeshGuidMigration, SceneMigratorWritePath, SceneSettingsHomes, SettingConsumers, SkyPresets, UIClipUndo, UIComponentRoundTrip, WorldSceneGenerator (+ the parent) | union moves onto the runner that holds them |
+| extra links | ControlTransport (`ws2_32`, `advapi32`), UIScriptCollections (`Lua`) | onto their runner, with the reason |
+| `TESTING` / `GTEST` in engine/editor/tool sources | none | linking the prebuilt `Desert.lib` (compiled without those defines) changes no engine code |
 
 ### Census that keeps it from regressing
 
