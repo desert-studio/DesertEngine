@@ -153,12 +153,12 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        AddRaster( graph, "TerrainGBuffer", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
-                   [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   {
-                       return UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                            ->RenderGBufferManual( context );
-                   } );
+        auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        AddRaster(
+             graph, "TerrainGBuffer", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return terrain->RenderGBufferManual( context ); },
+             [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareGBufferDraws( pass ); } );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 
@@ -172,10 +172,12 @@ namespace Desert::Graphic
                 return;
             // Colour 0 = "no caster here" for the VPL gather. Standard-Z pass (drawn through a cascade matrix), so
             // depth clears to 1 = far, not to the engine's reversed-Z clear.
-            AddRaster( graph, "Deferred: RSM", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
-                       RDG::LoadOp::ClearDepth( 1.0f ), {},
-                       [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                       { return meshRenderer->RenderRSMManual( context ); } );
+            AddRaster(
+                 graph, "Deferred: RSM", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+                 RDG::LoadOp::ClearDepth( 1.0f ), {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderRSMManual( context ); },
+                 [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareRSMDraws( pass ); } );
             m_RSMLastSunDir = sunDir;
         }
     }
@@ -243,13 +245,19 @@ namespace Desert::Graphic
         const auto scene = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Debug: Overdraw Resolve" );
         if ( !accum || !scene || accum->Colors.empty() )
             return;
-        AddRaster( graph, "Debug: Overdraw", *accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
-                   RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
-                   [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderOverdrawAccumManual( context ); } );
-        AddRaster( graph, "Debug: Overdraw Resolve", *scene, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
-                   accum->Colors, [meshRenderer, overdraw = accum->Colors[0]]( const RDG::PassContext& context )
-                   { return meshRenderer->RecordOverdrawResolve( context, overdraw ); } );
+        AddRaster(
+             graph, "Debug: Overdraw", *accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+             RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderOverdrawAccumManual( context ); },
+             [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareOverdrawDraws( pass ); } );
+        // The accumulation is read through the resolve's block (its u_Overdraw entry is the node's read).
+        AddRaster(
+             graph, "Debug: Overdraw Resolve", *scene, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RecordOverdrawResolve( context ); },
+             [meshRenderer, overdraw = accum->Colors[0]]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareOverdrawResolve( pass, overdraw ); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 } // namespace Desert::Graphic

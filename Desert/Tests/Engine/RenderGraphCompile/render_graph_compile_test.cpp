@@ -2678,9 +2678,11 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
          // block binding of that node rather than a blanket read.
          { "Systems/Scene/Mesh/MeshRenderer.cpp", "m_ForwardDraws.Declare(declared,SceneViewInputsOf(refs));" },
          { "Systems/Scene/Mesh/MeshRenderer.cpp", "BindSceneViewInputs(block,*view,layout);" },
+         // The terrain node likewise: one block per Forward material of the frame's groups, each binding the
+         // scene/view inputs its shader has slots for (TerrainRenderer's DeclareGroupBlocks).
          { "Systems/Scene/Terrain/TerrainRenderer.cpp",
-           "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
-           "SampledGraphics" },
+           "(void)DeclareGroupBlocks(declared,GroupExecutors(&ProgramMaterials::Forward),&view);" },
+         { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
            "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
@@ -2889,14 +2891,21 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
 
     const std::string shadow = stripped( "Systems/Scene/Mesh/MeshRendererShadow.cpp" );
     ASSERT_FALSE( shadow.empty() );
-    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,m_CascadeVP[c]);!cast.IsSuccess())"
-                            "returncast;" ),
+    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,firstBlock,m_CascadeVP[c]);"
+                            "!cast.IsSuccess()){returncast;}" ),
                std::string::npos )
          << "the cascade body drops the non-mesh caster's draw result";
-    // The RSM draw, and the cascade's draw list (singles / generic / skinned / instanced, built in its Declare by
-    // BuildShadowCascadeDraws) whose Record returns the first refused draw (MeshDrawList::Record).
-    EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 2u )
-         << "a shadow / RSM draw's refusal is no longer returned by its body";
+    // ...and records through the blocks the caster declared on the cascade node in its setup.
+    EXPECT_NE( shadow.find( "constuint32_tdeclaredBlocks=caster->DeclareShadowCascade(declared,c);" ),
+               std::string::npos )
+         << "the cascade's setup no longer lets the non-mesh casters declare their blocks";
+    // The cascade's draw list (singles / generic / skinned / instanced, built in its Declare by
+    // BuildShadowCascadeDraws) and the RSM's (DeclareRSMDraws), whose Record returns the first refused draw
+    // (MeshDrawList::Record).
+    EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 1u )
+         << "a shadow draw's refusal is no longer returned by its body";
+    EXPECT_NE( shadow.find( "returnm_RSMDraws.Record(context);" ), std::string::npos )
+         << "the RSM body drops its draw list's result";
     EXPECT_NE( shadow.find( "if(autodrawn=m_CascadeDraws[c].Record(context);!drawn.IsSuccess())returndrawn;" ),
                std::string::npos )
          << "the cascade body drops its draw list's result";
@@ -2909,12 +2918,10 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
     EXPECT_NE( terrain.find( "draw.VertexCount,1);!drawn.IsSuccess())returndrawn;}returnBOOLSUCCESS;" ),
                std::string::npos )
          << "RecordDraws drops a refused terrain draw";
-    EXPECT_NE( terrain.find( "returnRecordDraws(bindings,*m_Pipeline,&ProgramMaterials::Forward" ),
+    EXPECT_NE( terrain.find( "returnRecordDraws(context,0,*m_Pipeline,&ProgramMaterials::Forward" ),
                std::string::npos );
-    EXPECT_NE( terrain.find( "returnRecordDraws(RDG::PassBindings(context),*m_GBufferPipeline" ),
-               std::string::npos );
-    EXPECT_NE( terrain.find( "returnRecordDraws(RDG::PassBindings(context),*m_ShadowPipeline" ),
-               std::string::npos );
+    EXPECT_NE( terrain.find( "returnRecordDraws(context,0,*m_GBufferPipeline" ), std::string::npos );
+    EXPECT_NE( terrain.find( "returnRecordDraws(context,firstBlock,*m_ShadowPipeline" ), std::string::npos );
 }
 
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and

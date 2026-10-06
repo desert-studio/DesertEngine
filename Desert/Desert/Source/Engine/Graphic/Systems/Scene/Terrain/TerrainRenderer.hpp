@@ -62,10 +62,15 @@ namespace Desert::Graphic::System
         // uploads them. Nothing may draw a terrain this frame before it ran.
         void PrepareFrame();
 
-        // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'.
+        // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
+        // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples
+        // no scene/view input); the exec records through them.
+        void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
 
+        [[nodiscard]] uint32_t DeclareShadowCascade( RenderPassDeclaration& declared, uint32_t cascade ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context, uint32_t cascade,
+                                                                 uint32_t         firstBlock,
                                                                  const glm::mat4& cascadeViewProj ) override;
 
         void Submit( const TerrainDrawData& data )
@@ -105,8 +110,14 @@ namespace Desert::Graphic::System
             uint32_t VertexCount = 0;
         };
 
+        // The executors of @p program's material of every frame group, in group order: a node drawing the
+        // terrain declares one binding block per entry (block firstBlock + group), and RecordDraws records group
+        // g's draws through block firstBlock + g.
+        [[nodiscard]] std::vector<const MaterialExecutor*>
+        GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const;
+
         [[nodiscard]] Common::BoolResultStr
-        RecordDraws( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+        RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
                      std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
                      const glm::mat4&                                       clipFromWorld );
 

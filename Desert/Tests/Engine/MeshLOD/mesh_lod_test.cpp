@@ -449,9 +449,9 @@ TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
     };
 
     const Row rows[] = {
-         { "DrawMesh( pass, instancedPipeline", "d.LodLevel",
+         { "= instancedPipeline,", "d.LodLevel",
            "the opaque instanced batch — auto-batched statics and ISM instances" },
-         { "DrawMesh( pass, m_ShadowInstancedPipeline.get()", "b.LodLevel",
+         { "= m_ShadowInstancedPipeline.get(),", "b.LodLevel",
            "the cascade's instanced casters; a caster at a coarser level than the object the camera "
            "sees casts a silhouette that does not match it" },
     };

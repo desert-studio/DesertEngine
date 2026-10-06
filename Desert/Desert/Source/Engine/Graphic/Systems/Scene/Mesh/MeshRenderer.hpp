@@ -41,8 +41,6 @@ namespace Desert::Graphic::System
 {
     namespace MeshRendererDetail
     {
-        class MeshPassBindings;
-
         // One draw of a lit mesh node, chosen when the frame's draw list is BUILT (the node's setup, before any
         // command is recorded): pipeline, mesh, transform, the material executor that records it, instance range,
         // submesh mask and LOD. UE: a FMeshDrawCommand, built in InitViews and recorded later.
@@ -81,6 +79,12 @@ namespace Desert::Graphic::System
             [[nodiscard]] bool IsEmpty() const
             {
                 return m_Commands.empty();
+            }
+            // The binding blocks Declare declares (one per distinct material executor): a node declaring more
+            // blocks after the list's numbers them from here.
+            [[nodiscard]] uint32_t BlockCount() const
+            {
+                return static_cast<uint32_t>( m_Executors.size() );
             }
 
             // The blocks are the node's ONLY binding blocks (indices 0..n-1, in first-use order). @p view: the
@@ -275,8 +279,11 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr RenderSkinnedManual( const RDG::PassContext& context ) const;
         // Reflective Shadow Map: the G-buffer rasterized from the SUN instead of the camera, into the scene
         // renderer's RSM buffer. Every lit texel becomes a virtual point light for the RSM GI mode, which is
-        // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists.
-        [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context );
+        // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists. SETUP of the
+        // node "Deferred: RSM": builds its draw list (the bounce sources' Materials[] and the sun's frame state
+        // written here) and declares its binding block; the exec records that list.
+        void                                DeclareRSMDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context ) const;
         // World -> RSM clip for the pass above — the GI resolve needs it to project fragments into the
         // sun's view. Valid after UpdateCascades(); identity before the first frame.
         glm::mat4 GetRSMViewProj() const
@@ -293,12 +300,15 @@ namespace Desert::Graphic::System
         // Overdraw debug view: re-rasterize every opaque mesh with additive blend (no depth) into a float
         // accumulation buffer, then heat-map the per-pixel overdraw count over the finished scene colour.
         // Path-independent (re-draws geometry; ignores the G-buffer), so it works in Forward and Deferred.
-        // node "Debug: Overdraw" (m_OverdrawFB)
-        [[nodiscard]] Common::BoolResultStr RenderOverdrawAccumManual( const RDG::PassContext& context );
-        // node "Debug: Overdraw Resolve" (the scene target): samples @p overdraw, the accumulation the node
-        // "Debug: Overdraw" wrote, as u_Overdraw through RDG::PassBindings.
-        [[nodiscard]] Common::BoolResultStr RecordOverdrawResolve( const RDG::PassContext& context,
-                                                                   RDG::TextureRef         overdraw );
+        // node "Debug: Overdraw" (m_OverdrawFB): its setup builds the draw list (culled like the camera pass it
+        // reports on) and declares its block; the exec records it.
+        void                                DeclareOverdrawDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RenderOverdrawAccumManual( const RDG::PassContext& context ) const;
+        // node "Debug: Overdraw Resolve" (the scene target): its setup declares the resolve's block, which samples
+        // @p overdraw - the accumulation the node "Debug: Overdraw" wrote - as u_Overdraw; the exec draws through
+        // it.
+        void DeclareOverdrawResolve( RDG::PassBuilder& pass, RDG::TextureRef overdraw );
+        [[nodiscard]] Common::BoolResultStr RecordOverdrawResolve( const RDG::PassContext& context ) const;
 
         const std::shared_ptr<Framebuffer>& GetOverdrawFramebuffer() const
         {
@@ -503,7 +513,13 @@ namespace Desert::Graphic::System
         // "Deferred: Skinned"
         // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
         MeshRendererDetail::MeshDrawList m_CascadeDraws[kMaxCascades];
+        // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
+        // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
         MeshRendererDetail::MeshDrawList m_GlassDraws; // "Deferred: Glass" (block 0 = the glass executor's)
+        MeshRendererDetail::MeshDrawList m_RSMDraws;   // "Deferred: RSM"
+        MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
+        MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"
 
         // Material pipelines on demand (AL1-12). The spec a data-driven material draws with in this renderer;
         // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,

@@ -24,16 +24,17 @@ namespace Desert::Graphic::System
         };
     } // namespace
 
-    Common::BoolResultStr MeshRenderer::RenderRSMManual( const RDG::PassContext& context )
+    void MeshRenderer::DeclareRSMDraws( RDG::PassBuilder& pass )
     {
         // Reuses the G-buffer SHADER and attachment layout — the RSM framebuffer is created to match, so
         // the two are render-pass compatible and the shader's four outputs line up. The pipeline is its
         // own (standard-Z, see SetupDeferredPass) and so is the camera.
+        m_RSMDraws.Clear();
         if ( !m_RSMPipeline || !m_RSMMaterial || !m_RSMInstance || m_StaticQueue.empty() )
-            return BOOLSUCCESS;
+            return;
         const auto& rsm = m_SceneRenderer != nullptr ? m_SceneRenderer->GetRSMBuffer() : nullptr;
         if ( !rsm )
-            return BOOLSUCCESS;
+            return;
 
         // All OPAQUE static objects are bounce sources (glass transmits rather than bouncing diffusely).
         // Their effective materials go into the DEDICATED RSM material's Materials SSBO, so each texel's
@@ -55,11 +56,9 @@ namespace Desert::Graphic::System
             gpuMats.push_back( gm );
         }
         if ( objs.empty() )
-            return BOOLSUCCESS;
+            return;
 
-        // The G-buffer shader's textures are the material's own (Properties): every draw is Plain.
-        const MeshPassBindings pass( context );
-
+        // Written ONCE, before the block is declared, so its route fill is what the draws will read.
         if ( auto* sb = m_RSMMaterial->Get<StorageBufferProperty>( "Materials" ) )
             sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( PBRGpuMaterial ) ) );
 
@@ -70,19 +69,31 @@ namespace Desert::Graphic::System
         MaterialInstance* ri = m_RSMInstance.get();
         CaptureFrameState( &lightCam ).ApplyTo( ri );
 
-        // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM).
+        // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM). The
+        // per-object transform, material row and instance bind are each draw's state, written right before it.
+        MaterialPBR* const rsmMaterial = m_RSMMaterial.get();
         for ( uint32_t i = 0; i < static_cast<uint32_t>( objs.size() ); ++i )
         {
             const auto* obj = objs[i];
-            MaterialPBR::UpdateTransform( ri, obj->Transform );
-            m_RSMMaterial->SetMaterialIndex( i );
-            m_RSMMaterial->Bind( ri );
-            if ( auto drawn = DrawMesh( pass, m_RSMPipeline.get(), obj->Mesh, obj->Transform,
-                                        m_RSMMaterial->GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes );
-                 !drawn.IsSuccess() )
-                return drawn;
+            m_RSMDraws.Add( { .Pipeline          = m_RSMPipeline.get(),
+                              .Mesh              = obj->Mesh,
+                              .Transform         = obj->Transform,
+                              .Material          = rsmMaterial->GetMaterialExecutor(),
+                              .HiddenSubmeshMask = obj->HiddenSubmeshes,
+                              .BindState         = [rsmMaterial, ri, transform = obj->Transform, i]
+                              {
+                                  MaterialPBR::UpdateTransform( ri, transform );
+                                  rsmMaterial->SetMaterialIndex( i );
+                                  rsmMaterial->Bind( ri );
+                              } } );
         }
-        return BOOLSUCCESS;
+        // The G-buffer shader's textures are the material's own (Properties): it samples no scene/view input.
+        m_RSMDraws.Declare( pass, std::nullopt );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderRSMManual( const RDG::PassContext& context ) const
+    {
+        return m_RSMDraws.Record( context );
     }
 
     void MeshRenderer::LogShadowBudget( double allocMs ) const
@@ -602,12 +613,22 @@ namespace Desert::Graphic::System
                               return drawn;
 
                           // Casters that are not meshes (the tessellated terrain), recorded into THIS pass so the
-                          // cascade is cleared once and holds everyone's depth (IShadowCaster).
-                          for ( const auto& weak : m_ShadowCasters )
-                              if ( const auto caster = weak.lock() )
-                                  if ( auto cast = caster->RecordShadowCascade( context, c, m_CascadeVP[c] );
-                                       !cast.IsSuccess() )
-                                      return cast;
+                          // cascade is cleared once and holds everyone's depth (IShadowCaster): the ones the
+                          // Declare declared, each through its own blocks.
+                          for ( const auto& [weak, firstBlock] : m_CascadeCasters[c] )
+                          {
+                              const auto caster = weak.lock();
+                              if ( !caster )
+                              {
+                                  continue; // gone since the setup: its draws went with it
+                              }
+                              if ( auto cast =
+                                        caster->RecordShadowCascade( context, c, firstBlock, m_CascadeVP[c] );
+                                   !cast.IsSuccess() )
+                              {
+                                  return cast;
+                              }
+                          }
                           return BOOLSUCCESS;
                       },
                       m_ShadowPipeline->GetSpecification(), m_CascadeFB[c], {},
@@ -623,10 +644,24 @@ namespace Desert::Graphic::System
                 // Depth-only casters sample no graph resource: one block per caster material with the material's
                 // own fill, so ValidatePassBindings judges every caster before anything is recorded.
                 m_CascadeDraws[c].Clear();
+                m_CascadeCasters[c].clear();
                 if ( !m_ShadowsEnabled )
                     return;
                 BuildShadowCascadeDraws( c, m_CascadeDraws[c] );
                 m_CascadeDraws[c].Declare( declared, std::nullopt );
+
+                // The non-mesh casters declare their blocks after the list's
+                // (IShadowCaster::DeclareShadowCascade).
+                uint32_t nextBlock = m_CascadeDraws[c].BlockCount();
+                for ( const auto& weak : m_ShadowCasters )
+                {
+                    if ( const auto caster = weak.lock() )
+                    {
+                        const uint32_t declaredBlocks = caster->DeclareShadowCascade( declared, c );
+                        m_CascadeCasters[c].emplace_back( weak, nextBlock );
+                        nextBlock += declaredBlocks;
+                    }
+                }
             };
         }
     }

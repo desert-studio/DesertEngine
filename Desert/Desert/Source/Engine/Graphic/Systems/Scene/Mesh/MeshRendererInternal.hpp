@@ -44,44 +44,9 @@ namespace Desert::Graphic::System
         static_assert( MaterialPBRBase::kMaxCascades == kSceneViewShadowCascades,
                        "the lit materials' cascade count is the scene/view inputs' cascade count" );
 
-        // The PassBindings of a mesh node whose shaders sample no graph resource (shadow, RSM, silhouette, overdraw):
-        // every slot is the material's. The lit nodes declare their blocks in setup instead (MeshDrawList).
-        class MeshPassBindings
-        {
-        public:
-            explicit MeshPassBindings( const RDG::PassContext& context ) : m_Plain( context )
-            {
-            }
-
-            [[nodiscard]] const RDG::PassBindings& For( const MaterialExecutor& /*material*/ ) const
-            {
-                return m_Plain;
-            }
-
-        private:
-            RDG::PassBindings m_Plain;
-        };
-
-        // THE mesh draw of every MeshRenderer pass: Renderer::RenderMesh( bindings, ... ) with the bindings
-        // For() the material. A missing pipeline, mesh or material is the pass's error, never a skipped draw.
-        [[nodiscard]] inline Common::BoolResultStr
-        DrawMesh( const MeshPassBindings& pass, const GraphicsPipeline* pipeline, const Mesh* mesh,
-                  const glm::mat4& transform, const MaterialExecutor* material, uint32_t instanceCount = 1,
-                  uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0, uint32_t lodLevel = 0 )
-        {
-            if ( pipeline == nullptr || mesh == nullptr || material == nullptr )
-                return Common::MakeFormattedError( "mesh draw refused: no {}", pipeline == nullptr ? "pipeline"
-                                                                               : mesh == nullptr   ? "mesh"
-                                                                                                   : "material" );
-            return Renderer::GetInstance().RenderMesh( pass.For( *material ), *pipeline, *mesh, transform,
-                                                       *material, instanceCount, firstInstance, hiddenSubmeshMask,
-                                                       lodLevel );
-        }
     } // namespace MeshRendererDetail
 
-    using MeshRendererDetail::DrawMesh;
     using MeshRendererDetail::MeshDrawList;
-    using MeshRendererDetail::MeshPassBindings;
 
     using MeshRendererDetail::BuildEffectiveMaterial;
     using MeshRendererDetail::FirstPBRSlot;

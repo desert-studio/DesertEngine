@@ -6,6 +6,11 @@
 
 #include <cstdint>
 
+namespace Desert::Graphic
+{
+    class RenderPassDeclaration;
+}
+
 namespace Desert::Graphic::RDG
 {
     class PassContext;
@@ -30,9 +35,18 @@ namespace Desert::Graphic::System
     public:
         virtual ~IShadowCaster() = default;
 
-        // Draws through the cascade node's @p context (RDG::PassBindings); the first refused draw is the error.
+        // SETUP: declares on the cascade node one binding block per material this caster draws the cascade with
+        // (the shader's reflected layout and the material's route fill), so ValidatePassBindings judges the
+        // caster before anything is recorded. The blocks follow the ones already declared on the node; returns
+        // how many it declared (0: nothing to draw this frame).
+        [[nodiscard]] virtual uint32_t DeclareShadowCascade( RenderPassDeclaration& declared,
+                                                             uint32_t               cascade ) = 0;
+
+        // Draws through the blocks DeclareShadowCascade declared, the first of them at @p firstBlock
+        // (RDG::PassBindings( context, context.GetBindingBlock( firstBlock + i ) )); the first refused draw is the
+        // error.
         [[nodiscard]] virtual Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context,
-                                                                         uint32_t                cascade,
+                                                                         uint32_t cascade, uint32_t firstBlock,
                                                                          const glm::mat4& cascadeViewProj ) = 0;
     };
 } // namespace Desert::Graphic::System
