@@ -666,6 +666,11 @@ namespace Desert::Core::Serialize
                 if ( const auto a = mgr.FindByHandle<Assets::PrefabAsset>( id ) )
                     loaded = a->Guid();
             }
+            else if ( type == "FoliageTypeAsset" )
+            {
+                if ( const auto a = mgr.FindByHandle<Assets::FoliageTypeAsset>( id ) )
+                    loaded = a->Guid();
+            }
             else if ( type == "MaterialAsset" )
             {
                 if ( const auto a = mgr.FindByHandle<Assets::SurfaceMaterialAsset>( id ) )
@@ -865,6 +870,19 @@ namespace Desert::Core::Serialize
                 }
                 return static_cast<uint64_t>( a->GetMetadata().Handle );
             }
+            if ( type == "FoliageTypeAsset" )
+            {
+                // The locator half of a procedural volume's type list {Guid, Path}: ResolveGuidRef reaches it
+                // only when the GUID's registry row did not, and checks the file found here IS that type.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::FoliageTypeAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::FoliageTypeAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
             if ( type == "PrefabAsset" )
             {
                 // The locator half of the Default Pawn's {Guid, Path}: ResolveGuidRef reaches it only when
@@ -1055,6 +1073,22 @@ namespace Desert::Core::Serialize
                 // Loaded through the locator half above (FromPath's PrefabAsset branch), which owns the one
                 // mutable view of the manager: FromPath resolves a relative locator against the assets root,
                 // so the row's path is handed over relative to that root and round-trips to itself.
+                const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
+                const std::filesystem::path relative =
+                     full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
+                if ( relative.empty() )
+                    return 0;
+                return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
+            }
+            if ( type == "FoliageTypeAsset" )
+            {
+                // BY GUID through the content registry, the Foliage block's way: a type's handle IS
+                // HandleForGuid of its header GUID, so the row under that handle is the type wherever it moved.
+                if ( mgr.FindByHandle<Assets::FoliageTypeAsset>( handle ) )
+                    return guid;
+                const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
+                if ( key.empty() )
+                    return 0;
                 const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
                 const std::filesystem::path relative =
                      full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
@@ -2017,6 +2051,33 @@ namespace Desert::Core::Serialize
                 actor.Sequence = sequence->GetMetadata().Handle;
             };
 
+            Register( std::move( s ) );
+        }
+
+        // ---- Procedural foliage field: the volume that generated it (S1) ----
+        // {Owner}: the generating entity's UUID (UE: the instances' ProceduralGuid). A field with this block is
+        // rewritten by its volume's Resimulate and never painted into by the brush.
+        {
+            ComponentSerializer s;
+            s.Key       = "ProceduralFoliageField";
+            s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::ProceduralFoliageFieldComponent>(); };
+            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& ) -> Common::Json::Value
+            {
+                Common::Json::ObjectBuilder out;
+                out.Set( "Owner", static_cast<int64_t>( static_cast<uint64_t>(
+                                       entity.GetComponent<ECS::ProceduralFoliageFieldComponent>().Owner ) ) );
+                return { out.Build() };
+            };
+            s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g, const Assets::AssetManager&,
+                                Common::Json::Issues& issues )
+            {
+                if ( !g.ExpectKind( Common::Json::Kind::Object, issues ) )
+                    return;
+                int64_t owner = 0;
+                g.ReadInto( "Owner", owner, issues );
+                entity.AddComponent<ECS::ProceduralFoliageFieldComponent>().Owner =
+                     Common::UUID( static_cast<uint64_t>( owner ) );
+            };
             Register( std::move( s ) );
         }
 

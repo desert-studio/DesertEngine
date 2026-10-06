@@ -7,6 +7,7 @@
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/UI/UIAnchorControls.hpp>
 #include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Core/ToastManager.hpp>
 #include <Editor/Core/SubjectOpenRequest.hpp>
 #include <Editor/Panels/PanelContext.hpp>
 #include <Editor/Panels/Clouds/CloudsPanel.hpp>
@@ -173,6 +174,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PostProcessVolumeComponent, 
 // component rather than another field of the layer, because there may be several of them and each has a
 // place in the world; the layer is one shell and has none.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::HeroCloudComponent, Data, "HeroCloudData", "Hero Cloud" )
+// Procedural Foliage is a CUSTOM entry (S1): Resimulate and the type list with a drop target, then the reflected
+// fields. See MakeProceduralFoliageEntry below.
 // Sky Atmosphere is a CUSTOM entry: the reflected fields PLUS the sky-colour ramp (which needs the scene's
 // sun elevation, and that is not a field) and the IBL bake button. See
 // ComponentWidgets/SkyAtmosphereComponent.cpp.
@@ -1823,6 +1826,82 @@ namespace Desert::Editor
         return e;
     }
 
+    // PROCEDURAL FOLIAGE VOLUME (UE AProceduralFoliageVolume's Details: Resimulate, the spawner's FoliageTypes).
+    // Resimulate rewrites this volume's own fields (FoliagePaintTool::ResimulateProcedural); the types are a
+    // list of `.defoliage` rows, a `.defoliage` dropped on "Add" joins it.
+    static ComponentEditorEntry MakeProceduralFoliageEntry()
+    {
+        using C = ::Desert::ECS::ProceduralFoliageComponent;
+        ComponentEditorEntry e;
+        e.Name              = "Procedural Foliage";
+        e.CanRemove         = true;
+        e.ReflectedTypeName = "ProceduralFoliageData";
+        e.Has               = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
+        e.Add               = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
+        e.Remove            = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
+        e.DataPtr           = []( ::Desert::ECS::Entity& en ) -> void* { return &en.GetComponent<C>().Data; };
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
+        {
+            using Tool   = ::Desert::Editor::Tools::FoliagePaintTool;
+            auto manager = ctx.AssetManager.lock();
+            if ( !ctx.FieldFilter && manager )
+            {
+                if ( ImGui::Button( ICON_MDI_RESTART "  Resimulate", ImVec2( -1.0f, 0.0f ) ) && scene )
+                {
+                    const auto id   = en.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
+                    const auto done = Tool::ResimulateProcedural( *scene, *manager, id );
+                    if ( !done )
+                        ::Desert::Editor::ToastManager::Push( done.GetError(), ::Desert::Editor::ToastLevel::Error,
+                                                              6.0f );
+                    else
+                        ::Desert::Editor::ToastManager::Push( std::format(
+                             "Procedural foliage: {} instances ({} fields new, {} rewritten, {} removed)",
+                             done.GetValue().Instances, done.GetValue().Created, done.GetValue().Rewritten,
+                             done.GetValue().Removed ) );
+                }
+                ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                     "Simulate the types and replace the instances this volume generated (painted foliage "
+                     "stays)" );
+
+                auto&  types  = en.GetComponent<C>().Data.FoliageTypes;
+                size_t remove = types.size();
+                for ( size_t i = 0; i < types.size(); ++i )
+                {
+                    ImGui::PushID( static_cast<int>( i ) );
+                    const auto type = Tool::ResolveType( *manager, types[i] );
+                    if ( ImGui::SmallButton( ICON_MDI_CLOSE ) )
+                        remove = i;
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted( type ? type->GetMetadata().Filepath.filename().string().c_str()
+                                                 : "(type does not load)" );
+                    ImGui::PopID();
+                }
+                if ( remove < types.size() )
+                    types.erase( types.begin() + static_cast<std::ptrdiff_t>( remove ) );
+                ImGui::Button( ICON_MDI_PLUS "  Drop a .defoliage to add a type", ImVec2( -1.0f, 0.0f ) );
+                if ( ImGui::BeginDragDropTarget() )
+                {
+                    if ( const ImGuiPayload* p =
+                              ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                    {
+                        const std::string path( static_cast<const char*>( p->Data ) );
+                        if ( std::filesystem::path( path ).extension() ==
+                             ::Desert::Assets::Serialization::kFoliageTypeExtension )
+                            if ( const auto dropped = Tool::OpenTypeFile( *manager, path ) )
+                                if ( std::find( types.begin(), types.end(), dropped->GetMetadata().Handle ) ==
+                                     types.end() )
+                                    types.push_back( dropped->GetMetadata().Handle );
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                ImGui::Spacing();
+            }
+            PropertyEditorBuilder::Draw( &en.GetComponent<C>().Data, "ProceduralFoliageData", ctx.AssetMgr(),
+                                         ctx.UIHelper, ctx.FieldFilter );
+        };
+        return e;
+    }
+
     // LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor's Details - Sequence, Playback Settings, Binding
     // Overrides). The Sequence is an asset field like every other in Details: a slot whose picker lists the
     // project's `.dseq` rows (the registry's, nothing loaded to list them) with a search, a `.dseq` dropped from
@@ -2193,6 +2272,8 @@ namespace
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeProjectileEntry() );
     const int _desert_foliage_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeFoliageEntry() );
+    const int _desert_procedural_foliage_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
+         ::Desert::Editor::MakeProceduralFoliageEntry() );
     const int _desert_level_sequence_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeLevelSequenceEntry() );
 

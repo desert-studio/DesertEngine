@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
         "Versions": {
-            "FOLT": 6
+            "FOLT": 7
         },
         "Dependencies": []
     },
@@ -48,5 +48,35 @@
         "Height": 100.0,
         "DirectionDegrees": 0.0
     },
-    "IncludeInHLOD": true
+    "IncludeInHLOD": true,
+    "Procedural": {
+        "CollisionRadius": 100.0,
+        "ShadeRadius": 100.0,
+        "NumSteps": 3,
+        "InitialSeedDensity": 1.0,
+        "AverageSpreadDistance": 50.0,
+        "SpreadVariance": 150.0,
+        "SeedsPerStep": 3,
+        "DistributionSeed": 0,
+        "MaxInitialSeedOffset": 0.0,
+        "CanGrowInShade": false,
+        "SpawnsInShade": false,
+        "MaxInitialAge": 0.0,
+        "MaxAge": 10.0,
+        "OverlapPriority": 0.0,
+        "ProceduralScale": {
+            "Min": 1.0,
+            "Max": 3.0
+        },
+        "ScaleCurve": [
+            {
+                "Time": 0.0,
+                "Value": 0.0
+            },
+            {
+                "Time": 1.0,
+                "Value": 1.0
+            }
+        ]
+    }
 }

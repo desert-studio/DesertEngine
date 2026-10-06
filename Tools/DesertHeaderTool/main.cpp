@@ -639,7 +639,15 @@ namespace
                         f.fieldType = MapFieldType( typeName );
                         f.meta      = pendingMeta;
                         // Asset metadata implies AssetHandle field type even if spelled generically.
-                        if ( f.meta.isAsset )
+                        // A vector of them (Asset<T> on std::vector<AssetHandle>) is a container of handles whose
+                        // elements are references of that asset type, not one handle.
+                        const std::string assetElem = VectorElement( typeName );
+                        if ( f.meta.isAsset && !assetElem.empty() && MapFieldType( assetElem ) == "AssetHandle" )
+                        {
+                            f.isContainer   = true;
+                            f.elemFieldType = "AssetHandle";
+                        }
+                        else if ( f.meta.isAsset )
                         {
                             f.fieldType = "AssetHandle";
                         }

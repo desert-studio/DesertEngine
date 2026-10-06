@@ -725,6 +725,8 @@ namespace Desert::Core
         r.prepare<ECS::PostProcessVolumeComponent>();
         r.prepare<ECS::VolumetricCloudComponent>();
         r.prepare<ECS::HeroCloudComponent>();
+        r.prepare<ECS::ProceduralFoliageComponent>();
+        r.prepare<ECS::ProceduralFoliageFieldComponent>();
 
         // Gameplay -- serial systems today, and prepared all the same: what makes a type safe is that its
         // pool exists before the first parallel group, not which system happens to be serial this week.
