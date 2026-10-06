@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -49,10 +50,26 @@ namespace Common::Scalability
         double      Work         = 0.0; // the pass' work units (pixels, ALU ops, bytes)
     };
 
+    // A pass' rate on the reference GPU, in the pass' work units per millisecond. The benchmark's backend owns
+    // these beside its shaders (the workload and its reference rate change together); GpuPerfIndex reads them.
+    struct BenchmarkReference
+    {
+        std::string Name;
+        double      WorkPerMillisecond = 0.0;
+    };
+
+    // PURE. 100 x the geometric mean, over the passes, of (Work / Milliseconds) / the same-named reference's
+    // WorkPerMillisecond — UE FSynthBenchmark's shape (each pass a ratio to the reference, combined). The
+    // geometric mean keeps one pass that is ten times faster from hiding another that is ten times slower.
+    // An error, never a made-up index: no passes, a pass with no reference, a pass with no time or no work, a
+    // reference with no rate.
+    [[nodiscard]] Common::ResultStr<float> GpuPerfIndex( const std::vector<BenchmarkPass>&      passes,
+                                                         const std::vector<BenchmarkReference>& references );
+
     struct BenchmarkResult
     {
-        // Normalised so the reference GPU (owner's RTX 3070 Ti, Debug-independent: Release shaders) is 100,
-        // UE-style. 0 when the device could not be timed (Timed false).
+        // Normalised so the reference GPU (owner's RTX 3070 Ti) is 100, UE-style (GpuPerfIndex).
+        // 0 when the device could not be timed (Timed false).
         float                      GpuPerfIndex = 0.0f;
         bool                       Timed        = false; // false = device-class fallback was used
         std::vector<BenchmarkPass> Passes;               // empty when not timed

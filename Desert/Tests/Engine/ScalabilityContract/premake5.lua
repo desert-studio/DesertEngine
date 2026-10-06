@@ -18,6 +18,8 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/API/Vulkan/DeviceCaps.cpp",
         -- the pure catalog builder; its probe half (ProbeCatalog) is not compiled here
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.cpp",
+        -- MakeBenchmarkCacheKey (pure); the Vulkan benchmark itself (VulkanGpuBenchmark.cpp) is not compiled here
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/GpuBenchmark.cpp",
     }
 
     includedirs {

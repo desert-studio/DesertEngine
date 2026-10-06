@@ -2,14 +2,13 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
+#include <Engine/Core/Device.hpp>
 
 #include <cstdint>
 #include <memory>
 
 namespace Desert::Engine
 {
-    class Device;
-
     /**
      * @brief The recommended-settings benchmark's GPU half (SCAL1; UE FSynthBenchmark's GPU part).
      *
@@ -35,8 +34,8 @@ namespace Desert::Engine
         [[nodiscard]] static std::unique_ptr<GpuBenchmark> Create();
     };
 
-    // The cache key of the device the process created (identity from DeviceCapabilities + the driver version),
-    // with the table's version.
-    [[nodiscard]] Common::Scalability::BenchmarkCacheKey MakeBenchmarkCacheKey( const Device& device,
-                                                                                uint32_t      tableVersion );
+    // The cache key of the device the process created — pass device.GetCapabilities() (identity + the driver
+    // version) — with the table's version.
+    [[nodiscard]] Common::Scalability::BenchmarkCacheKey MakeBenchmarkCacheKey( const DeviceCapabilities& caps,
+                                                                                uint32_t tableVersion );
 } // namespace Desert::Engine

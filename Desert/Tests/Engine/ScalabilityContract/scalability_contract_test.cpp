@@ -8,11 +8,13 @@
 #include <Common/Settings/DisplaySettings.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
+#include <Engine/Core/GpuBenchmark.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -669,6 +671,76 @@ TEST( ScalabilityContract, TheCacheIsValidOnlyForTheSameDeviceDriverAndTable )
     BenchmarkCacheKey newTable = key;
     newTable.TableVersion      = 2;
     EXPECT_FALSE( CacheValid( cached, newTable ) );
+}
+
+TEST( ScalabilityContract, AnIndexOnAThresholdTakesTheLevelAboveItAndJustBelowTheLevelUnder )
+{
+    // The mapping itself, per group, against the table's own boundaries (no VRAM cap: plenty of memory).
+    const ScalabilityTable table = Table();
+    for ( std::size_t g = 0; g < kGroupCount; ++g )
+    {
+        for ( std::size_t i = 0; i < table.RecommendThresholds[g].size(); ++i )
+        {
+            BenchmarkResult at;
+            at.Timed        = true;
+            at.Class        = DeviceClass::Discrete;
+            at.VideoMemory  = 64ull << 30;
+            at.GpuPerfIndex = table.RecommendThresholds[g][i];
+            BenchmarkResult below = at;
+            below.GpuPerfIndex    = std::nextafter( at.GpuPerfIndex, 0.0f );
+            EXPECT_EQ( RecommendLevels( at, table )[g], static_cast<Level>( i + 1 ) ) << "group " << g << " t" << i;
+            EXPECT_EQ( RecommendLevels( below, table )[g], static_cast<Level>( i ) ) << "group " << g << " t" << i;
+        }
+    }
+}
+
+TEST( ScalabilityContract, ThePerfIndexIsTheGeometricMeanOfThePassRatiosToTheReference )
+{
+    const std::vector<BenchmarkReference> reference{ { "Alu", 1000.0 }, { "Bandwidth", 50.0 } };
+
+    // Exactly the reference rates -> 100.
+    auto same = GpuPerfIndex( { { "Alu", 2.0, 2000.0 }, { "Bandwidth", 4.0, 200.0 } }, reference );
+    ASSERT_TRUE( same.IsSuccess() ) << same.GetError();
+    EXPECT_NEAR( same.GetValue(), 100.0f, 1e-3f );
+
+    // Twice the reference on every pass -> 200.
+    auto twice = GpuPerfIndex( { { "Alu", 1.0, 2000.0 }, { "Bandwidth", 2.0, 200.0 } }, reference );
+    ASSERT_TRUE( twice.IsSuccess() ) << twice.GetError();
+    EXPECT_NEAR( twice.GetValue(), 200.0f, 1e-3f );
+
+    // Four times faster on one pass, four times slower on the other -> 100, not the arithmetic 212.5.
+    auto mixed = GpuPerfIndex( { { "Alu", 0.5, 2000.0 }, { "Bandwidth", 16.0, 200.0 } }, reference );
+    ASSERT_TRUE( mixed.IsSuccess() ) << mixed.GetError();
+    EXPECT_NEAR( mixed.GetValue(), 100.0f, 1e-3f );
+}
+
+TEST( ScalabilityContract, APassThatIsNotARateIsAnErrorNotAnIndex )
+{
+    const std::vector<BenchmarkReference> reference{ { "Alu", 1000.0 } };
+    EXPECT_FALSE( GpuPerfIndex( {}, reference ).IsSuccess() );
+    EXPECT_FALSE( GpuPerfIndex( { { "Fill", 1.0, 10.0 } }, reference ).IsSuccess() ); // no reference
+    EXPECT_FALSE( GpuPerfIndex( { { "Alu", 0.0, 10.0 } }, reference ).IsSuccess() );  // no time
+    EXPECT_FALSE( GpuPerfIndex( { { "Alu", 1.0, 0.0 } }, reference ).IsSuccess() );   // no work
+    EXPECT_FALSE( GpuPerfIndex( { { "Alu", 1.0, 10.0 } }, { { "Alu", 0.0 } } ).IsSuccess() );
+}
+
+TEST( ScalabilityContract, TheCacheKeyIsTheCreatedDevicesIdentityAndATableChangeInvalidatesIt )
+{
+    Desert::Engine::DeviceCapabilities caps;
+    caps.VendorId      = 0x10DE;
+    caps.DeviceId      = 0x2482;
+    caps.DriverVersion = 0x93C00000u;
+    caps.Name          = "NVIDIA GeForce RTX 3070 Ti";
+    const BenchmarkCacheKey key = Desert::Engine::MakeBenchmarkCacheKey( caps, 3 );
+    EXPECT_EQ( key, ( BenchmarkCacheKey{ 0x10DE, 0x2482, 0x93C00000u, "NVIDIA GeForce RTX 3070 Ti", 3 } ) );
+
+    RecommendedQuality cached;
+    cached.Key = key;
+    EXPECT_TRUE( CacheValid( cached, Desert::Engine::MakeBenchmarkCacheKey( caps, 3 ) ) );
+    EXPECT_FALSE( CacheValid( cached, Desert::Engine::MakeBenchmarkCacheKey( caps, 4 ) ) );
+    Desert::Engine::DeviceCapabilities otherGpu = caps;
+    otherGpu.DeviceId                           = 0x2484;
+    EXPECT_FALSE( CacheValid( cached, Desert::Engine::MakeBenchmarkCacheKey( otherGpu, 3 ) ) );
 }
 
 int main( int argc, char** argv )
