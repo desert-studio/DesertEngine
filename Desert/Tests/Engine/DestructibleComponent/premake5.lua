@@ -13,6 +13,7 @@ project(test_name)
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Destruction/DestructionWorld.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Destruction/DestructionField.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/ECS/System/DestructibleLifetime.cpp",
     }
 

@@ -29,6 +29,7 @@
 //
 // Every number is in centimetres, kilograms and seconds.
 
+#include <Engine/Destruction/DestructionField.hpp>
 #include <Engine/Destruction/FractureFormat.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
@@ -110,6 +111,12 @@ namespace Desert::Destruction
         /// How many bodies @p object is in now.
         [[nodiscard]] uint32_t GetBodyCount( DestructibleHandle object ) const;
 
+        /// Fires @p command once, now (DestructionField.hpp): strains break at once (UE MaxAppliedStrain =
+        /// max(collision, external), PBDRigidClustering.cpp:1178), an impulse then pushes the bodies the break
+        /// left, a kill removes bodies with Removed events, an anchor makes the bodies holding its leaves
+        /// static. Returns how many bodies it acted on. The one entry for every trigger (component, Sequencer).
+        uint32_t ApplyField( const FieldCommand& command );
+
         /// Breaks and removals since ClearEvents, in the order they happened.
         [[nodiscard]] std::span<const DestructionEvent> GetEvents() const
         {
@@ -129,6 +136,7 @@ namespace Desert::Destruction
             std::vector<int32_t> Neighbours; // leaves only: the leaves whose hulls touch this one's
             float                InternalStrain   = 0.0f;
             float                CollisionImpulse = 0.0f;
+            float                ExternalStrain   = 0.0f; // a field's strain, this instant only
             bool                 Anchored         = false; // the subtree holds an anchored leaf
             int32_t              Body             = -1;    // index into Object::Bodies
         };
@@ -159,6 +167,9 @@ namespace Desert::Destruction
         };
 
         void Advance( float dt );
+        /// Breaks every unit of @p strained bodies whose applied strain reaches its internal strain.
+        void Release( std::vector<BodyRef> strained );
+        [[nodiscard]] glm::vec3 WorldPoint( const BodyState& body, const glm::dvec3& local ) const;
         void Break( uint32_t objectIndex, uint32_t bodyIndex, const std::vector<int32_t>& released );
         Common::ResultStr<uint32_t> SpawnBody( uint32_t objectIndex, std::vector<int32_t> members,
                                                const glm::vec3& position, const glm::quat& rotation,

@@ -357,22 +357,7 @@ namespace Desert::Destruction
                             break;
                         }
 
-        // BreakingModel: each strained body once, in a fixed order.
-        std::sort( strained.begin(), strained.end(), []( const BodyRef& a, const BodyRef& b )
-                   { return a.Object != b.Object ? a.Object < b.Object : a.Body < b.Body; } );
-        strained.erase( std::unique( strained.begin(), strained.end(), []( const BodyRef& a, const BodyRef& b )
-                                     { return a.Object == b.Object && a.Body == b.Body; } ),
-                        strained.end() );
-        for ( const BodyRef& ref : strained )
-        {
-            const Object&        object = m_Objects[ref.Object];
-            std::vector<int32_t> released;
-            for ( const int32_t unit : UnitsOf( object, object.Bodies[ref.Body] ) )
-                if ( object.Nodes[unit].CollisionImpulse >= object.Nodes[unit].InternalStrain )
-                    released.push_back( unit );
-            if ( !released.empty() )
-                Break( ref.Object, ref.Body, released );
-        }
+        Release( std::move( strained ) );
         for ( const auto& [o, unit] : touched )
             m_Objects[o].Nodes[unit].CollisionImpulse = 0.0f; // ResetCollisionImpulseArray
 
@@ -403,6 +388,142 @@ namespace Desert::Destruction
                 DestroyBody( o, b );
             }
         }
+    }
+
+    void DestructionWorld::Release( std::vector<BodyRef> strained )
+    {
+        // BreakingModel: each strained body once, in a fixed order.
+        std::sort( strained.begin(), strained.end(), []( const BodyRef& a, const BodyRef& b )
+                   { return a.Object != b.Object ? a.Object < b.Object : a.Body < b.Body; } );
+        strained.erase( std::unique( strained.begin(), strained.end(), []( const BodyRef& a, const BodyRef& b )
+                                     { return a.Object == b.Object && a.Body == b.Body; } ),
+                        strained.end() );
+        for ( const BodyRef& ref : strained )
+        {
+            const Object& object = m_Objects[ref.Object];
+            if ( object.Bodies[ref.Body].Handle == Physics::kInvalidBody )
+                continue;
+            std::vector<int32_t> released;
+            for ( const int32_t unit : UnitsOf( object, object.Bodies[ref.Body] ) )
+            {
+                const NodeState& n = object.Nodes[unit];
+                if ( std::max( n.CollisionImpulse, n.ExternalStrain ) >= n.InternalStrain ) // :1178
+                    released.push_back( unit );
+            }
+            if ( !released.empty() )
+                Break( ref.Object, ref.Body, released );
+        }
+    }
+
+    glm::vec3 DestructionWorld::WorldPoint( const BodyState& body, const glm::dvec3& local ) const
+    {
+        return m_Physics.GetPosition( body.Handle ) + m_Physics.GetRotation( body.Handle ) * glm::vec3( local );
+    }
+
+    uint32_t DestructionWorld::ApplyField( const FieldCommand& command )
+    {
+        uint32_t acted = 0u;
+        // Bodies alive now, by reference: a break or a kill below changes the slots.
+        std::vector<BodyRef> bodies;
+        for ( uint32_t o = 0; o < m_Objects.size(); ++o )
+            for ( uint32_t b = 0; b < m_Objects[o].Bodies.size(); ++b )
+                if ( m_Objects[o].Data && m_Objects[o].Bodies[b].Handle != Physics::kInvalidBody )
+                    bodies.push_back( BodyRef{ o, b } );
+
+        switch ( command.Type )
+        {
+            case FieldPhysicsType::Impulse:
+            case FieldPhysicsType::ExternalStrain:
+            {
+                // ExternalClusterStrain at every unit's centre of mass, then the release of this instant.
+                const bool           impulse = command.Type == FieldPhysicsType::Impulse;
+                std::vector<BodyRef> strained;
+                for ( const BodyRef& ref : bodies )
+                {
+                    Object&          object = m_Objects[ref.Object];
+                    const BodyState& body   = object.Bodies[ref.Body];
+                    for ( const int32_t unit : UnitsOf( object, body ) )
+                    {
+                        const glm::vec3 at = WorldPoint( body, object.Data->Nodes[unit].CenterOfMass );
+                        const float     s  = impulse ? glm::length( Evaluate( command.Vector, at ) )
+                                                     : Evaluate( command.Scalar, at );
+                        if ( !( s > 0.0f ) || !std::isfinite( s ) )
+                            continue;
+                        object.Nodes[unit].ExternalStrain = std::max( object.Nodes[unit].ExternalStrain, s );
+                        strained.push_back( ref );
+                    }
+                }
+                Release( strained );
+                for ( Object& object : m_Objects )
+                    for ( NodeState& node : object.Nodes )
+                        node.ExternalStrain = 0.0f; // UE resets it with the release (:1247)
+                acted = static_cast<uint32_t>( strained.size() );
+                if ( !impulse )
+                    break;
+                // The impulse then acts on the bodies the break left (the pieces, not the whole that was).
+                acted = 0u;
+                for ( uint32_t o = 0; o < m_Objects.size(); ++o )
+                    for ( const BodyState& body : m_Objects[o].Bodies )
+                    {
+                        if ( body.Handle == Physics::kInvalidBody || body.Static )
+                            continue;
+                        const glm::vec3 j =
+                             Evaluate( command.Vector, WorldPoint( body, CenterOfMass( m_Objects[o], body.Members ) ) );
+                        if ( !( glm::length( j ) > 0.0f ) )
+                            continue;
+                        m_Physics.AddImpulse( body.Handle, j );
+                        ++acted;
+                    }
+                break;
+            }
+            case FieldPhysicsType::Kill:
+                for ( const BodyRef& ref : bodies )
+                {
+                    Object&          object = m_Objects[ref.Object];
+                    const BodyState& body   = object.Bodies[ref.Body];
+                    if ( !( Evaluate( command.Scalar, WorldPoint( body, CenterOfMass( object, body.Members ) ) ) >
+                            0.0f ) )
+                        continue;
+                    for ( const int32_t m : body.Members )
+                        m_Events.push_back( DestructionEvent{ DestructionEventKind::Removed, ref.Object, m,
+                                                              WorldPoint( body, object.Data->Nodes[m].CenterOfMass ),
+                                                              m_Physics.GetLinearVelocity( body.Handle ) } );
+                    DestroyBody( ref.Object, ref.Body );
+                    ++acted;
+                }
+                break;
+            case FieldPhysicsType::Anchor:
+                for ( const BodyRef& ref : bodies )
+                {
+                    Object&         object = m_Objects[ref.Object];
+                    const BodyState body   = object.Bodies[ref.Body];
+                    bool            newly  = false;
+                    for ( const int32_t leaf : body.PartLeaf )
+                    {
+                        if ( object.Nodes[leaf].Anchored ||
+                             !( Evaluate( command.Scalar, WorldPoint( body, object.Data->Nodes[leaf].CenterOfMass ) ) >
+                                0.0f ) )
+                            continue;
+                        for ( int32_t up = leaf; up >= 0; up = object.Nodes[up].Parent )
+                            object.Nodes[up].Anchored = true;
+                        newly = true;
+                    }
+                    if ( !newly || body.Static )
+                        continue;
+                    // The body holds an anchored leaf now: it stays where it is, static (SpawnBody reads Anchored).
+                    const glm::vec3 position = m_Physics.GetPosition( body.Handle );
+                    const glm::quat rotation = m_Physics.GetRotation( body.Handle );
+                    DestroyBody( ref.Object, ref.Body );
+                    auto spawned = SpawnBody( ref.Object, body.Members, position, rotation, glm::vec3( 0.0f ),
+                                              glm::vec3( 0.0f ), body.Broken );
+                    if ( !spawned.IsSuccess() )
+                        LOG_ERROR( "destructible {}: anchoring node {} failed: {}", ref.Object, body.Members[0],
+                                   spawned.GetError() );
+                    ++acted;
+                }
+                break;
+        }
+        return acted;
     }
 
     void DestructionWorld::Break( uint32_t objectIndex, uint32_t bodyIndex, const std::vector<int32_t>& released )

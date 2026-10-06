@@ -1,4 +1,4 @@
--- DST-03: DestructionWorld on Jolt — strain from contact impulses, break, velocity, anchor, remove on sleep.
+-- DST-04: destruction fields (impulse, strain, kill, anchor) applied to a DestructionWorld on Jolt.
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
 

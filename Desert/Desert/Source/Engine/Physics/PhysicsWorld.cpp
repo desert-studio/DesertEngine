@@ -785,6 +785,13 @@ namespace Desert::Physics
         m_Impl->Bodies->SetLinearVelocity( JPH::BodyID( handle ), ToJolt( velocity ) );
     }
 
+    void PhysicsWorld::AddImpulse( BodyHandle handle, const glm::vec3& impulse )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        m_Impl->Bodies->AddImpulse( JPH::BodyID( handle ), ToJolt( impulse ) );
+    }
+
     glm::vec3 PhysicsWorld::GetLinearVelocity( BodyHandle handle ) const
     {
         if ( !m_Impl || handle == kInvalidBody )
