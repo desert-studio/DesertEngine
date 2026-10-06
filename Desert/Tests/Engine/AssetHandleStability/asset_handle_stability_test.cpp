@@ -766,7 +766,7 @@ TEST( AssetHandleStability, TwoRootsThatShareAPrefixDoNotSwapKeysOnExpansion )
     // round trip for whichever root it picked and quietly move every other asset. A project whose assets
     // root lies inside the engine's resources makes this concrete — ASSETS_PATH (`Resources/Assets/`) is
     // nested inside RESOURCE_PATH (`Resources/`), and the two tags must still land in different places.
-    ProjectRootGuard            guard;
+    const ProjectRootGuard      guard;
     const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
     Common::Constants::Path::SetProjectRoot( engineDir / "Resources", "Assets" );
 
@@ -841,7 +841,7 @@ TEST( AssetHandleStability, AProjectNestedInsideResourcesStillKeysItsAssetsAsAss
     // A project whose ASSETS_PATH is `<engine>/Resources/Assets/` -- INSIDE RESOURCE_PATH (`Resources/`).
     // Both roots contain the file, so the answer must not depend on which one the code happens to test
     // first. Longest match is what makes that true, and this is the case that proves it.
-    ProjectRootGuard            guard;
+    const ProjectRootGuard      guard;
     const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
     Common::Constants::Path::SetProjectRoot( engineDir / "Resources", "Assets" );
 

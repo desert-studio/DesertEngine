@@ -56,14 +56,20 @@ namespace
     // Every `.demat` under the real content tree, walked directly rather than through
     // `ContentRegistry::FilesOfKind` — the mechanism under test is shader resolution, not the content
     // scan, so the census of WHICH files to check must not depend on the same machinery being tested.
+    // Both homes of committed content: the engine's (Editor/Resources) and the sample project's Content
+    // (Projects/Desert/Content, PRJ1) — a material lives in exactly one of them.
     std::vector<std::filesystem::path> EveryCommittedMaterial( const std::filesystem::path& editorDir )
     {
         std::vector<std::filesystem::path> found;
-        std::error_code                    ec;
-        for ( const auto& entry : std::filesystem::recursive_directory_iterator( editorDir / "Resources", ec ) )
+        for ( const std::filesystem::path& root :
+              { editorDir / "Resources", editorDir.parent_path() / "Projects" / "Desert" / "Content" } )
         {
-            if ( entry.is_regular_file() && entry.path().extension() == ".demat" )
-                found.push_back( entry.path() );
+            std::error_code ec;
+            for ( const auto& entry : std::filesystem::recursive_directory_iterator( root, ec ) )
+            {
+                if ( entry.is_regular_file() && entry.path().extension() == ".demat" )
+                    found.push_back( entry.path() );
+            }
         }
         return found;
     }
@@ -102,7 +108,8 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
     ASSERT_GT( shaderCount, 0u ) << "no .shader file registered — the content roots did not resolve";
 
     const std::vector<std::filesystem::path> materials = EveryCommittedMaterial( editorDir );
-    ASSERT_GT( materials.size(), 0u ) << "no .demat file found under '" << editorDir.string() << "'";
+    ASSERT_GT( materials.size(), 0u ) << "no .demat file found under the engine or project content of '"
+                                      << editorDir.parent_path().string() << "'";
 
     std::vector<std::string> unresolved;
     for ( const std::filesystem::path& materialPath : materials )

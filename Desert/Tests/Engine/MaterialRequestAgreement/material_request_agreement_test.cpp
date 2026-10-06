@@ -205,8 +205,7 @@ TEST( MaterialRequestAgreement, EveryShippedDemoMaterialStillSaysWhatItsAuthorAs
 
     for ( const auto& demo : CornellDemoMaterials() )
     {
-        const std::string path =
-             std::format( "{}Projects/Desert/Content/Materials/{}.demat", root, demo.Name );
+        const std::string path = std::format( "{}Projects/Desert/Content/Materials/{}.demat", root, demo.Name );
         ASSERT_TRUE( std::filesystem::exists( path ) )
              << path << " is in the demo material table but not in the repository";
 
