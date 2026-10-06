@@ -6,6 +6,8 @@
 #include <Engine/Graphic/Render2D/UIMaterialFallback.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -82,13 +84,14 @@ namespace Desert::Graphic::Render2D
             return Resolve( handle );
         }
 
-        // The entry a draw of @p entry actually binds (RDG-FAULT1, UE's default-material fallback). An entry whose
-        // shader reads the parameter row but whose row is empty would leave the row buffer unwritten, and the
-        // setup validation would fault the WHOLE UI / present node; that draw binds the error fill (the one
-        // default UI material) instead, logged once per material. Render2D::Resolve asks this for every material
-        // draw, so the setup and the exec bind the same entry. Null only when the error fill itself could not be
-        // built.
-        [[nodiscard]] const Entry* DrawableOrDefault( const Entry* entry );
+        // The entry a draw of @p entry actually binds (RDG-FAULT1, UE's default-material fallback), PREPARED for
+        // the draw (row, @p projection, row index written - PrepareDraw). An entry that cannot draw - its row does
+        // not fit its shader's parameter layout, or the block Render2D declares for it fails the very
+        // RDG::ValidatePassBindings the pass setup runs - would fault the WHOLE UI / present node; that draw binds
+        // the error fill (the one default UI material) instead, logged once per material. Render2D::Resolve asks
+        // this for every material draw, so the setup and the exec bind the same entry. Null when the entry has no
+        // material, or when the error fill itself cannot draw (that draw is skipped in setup and exec alike).
+        [[nodiscard]] const Entry* DrawableOrDefault( const Entry* entry, const glm::mat4& projection );
 
         // Destroy the entries no frame still in flight can be reading. Called once per Flush, on the same
         // rule and with the same window as Render2D's texture executors — a UI material owns descriptor
@@ -108,6 +111,13 @@ namespace Desert::Graphic::Render2D
 
         // The magenta hatch, built on first need and shared by every failing handle.
         const Entry* ErrorEntry();
+
+        // Write what one draw of @p entry reads - its parameter row (only a row that fits, UIMaterialFallback::
+        // RowFault), @p projection and row index 0 - then return why the draw cannot record, empty when it can:
+        // the row's fault, else the error of RDG::ValidatePassBindings on exactly the block Render2D::DeclareInto
+        // declares (the entry's kept layout + its executor's route fill). The ONE place a UI material draw is
+        // prepared, so the fallback and the setup refusal cannot disagree.
+        std::string PrepareDraw( const Entry& entry, const glm::mat4& projection );
 
         std::shared_ptr<Framebuffer>                   m_Target;
         std::unordered_map<Assets::AssetHandle, Entry> m_Entries;

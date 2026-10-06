@@ -913,22 +913,29 @@ TEST( DrawList2DMaterial, ANullMaterialRecordsNOTHINGRatherThanAWhiteRect )
     EXPECT_TRUE( dl.GetCommands().empty() );
 }
 
-// RDG-FAULT1: a UI material whose shader reads the parameter row but has no row falls back to the default UI
-// material for ITS draws only - the others draw as authored, every draw still declares a block (the UI node is not
-// faulted), and the reason is reported once across frames, not per draw or per frame.
+// RDG-FAULT1: a UI material whose parameter row does not fit its shader's parameter layout - empty, SHORT, or with
+// another field at a slot - falls back to the default UI material for ITS draws only - the others draw as
+// authored, every draw still declares a block (the UI node is not faulted), and the reason is reported once across
+// frames, not per draw or per frame.
 TEST( UIMaterialFallback, OneBrokenMaterialFallsBackAloneAndIsReportedOnce )
 {
     using R2D::UIMaterialFallback;
+    using Fields = std::vector<std::string>;
     struct Draw
     {
         std::string Name;
         bool        RowBlock;
-        std::size_t Slots;
+        Fields      Layout; // the recording shader's parameter layout
+        Fields      Row;    // the fields of the schema the row was built from
+        std::size_t Slots;  // the vec4 slots the row holds
     };
-    const std::vector<Draw> canvas = { { "UIGradient", true, 2 },
-                                       { "UIBroken", true, 0 },
-                                       { "UIPlainTint", false, 0 },
-                                       { "UIBroken", true, 0 } };
+    const Fields            gradient = { "TopColor", "BottomColor" };
+    const std::vector<Draw> canvas   = { { "UIGradient", true, gradient, gradient, 2 },
+                                         { "UIBroken", true, gradient, {}, 0 },
+                                         { "UIPlainTint", false, {}, {}, 0 },
+                                         { "UIBroken", true, gradient, {}, 0 },
+                                         { "UIShort", true, gradient, { "TopColor" }, 1 },
+                                         { "UIRenamed", true, gradient, { "TopColor", "Bottom" }, 2 } };
     UIMaterialFallback      fallback;
     int                     reports = 0;
     for ( int frame = 0; frame < 2; ++frame )
@@ -936,7 +943,9 @@ TEST( UIMaterialFallback, OneBrokenMaterialFallsBackAloneAndIsReportedOnce )
         std::vector<std::string> declared;
         for ( const Draw& draw : canvas )
         {
-            const UIMaterialFallback::Verdict verdict = fallback.Admit( draw.Name, draw.RowBlock, draw.Slots );
+            const std::string fault =
+                 UIMaterialFallback::RowFault( draw.RowBlock, draw.Layout, draw.Row, draw.Slots );
+            const UIMaterialFallback::Verdict verdict = fallback.Admit( draw.Name, fault );
             if ( verdict == UIMaterialFallback::Verdict::DefaultFirstReport )
                 ++reports;
             declared.push_back( verdict == UIMaterialFallback::Verdict::Draws ? draw.Name
@@ -947,7 +956,16 @@ TEST( UIMaterialFallback, OneBrokenMaterialFallsBackAloneAndIsReportedOnce )
         EXPECT_EQ( declared[1], "default" );
         EXPECT_EQ( declared[2], "UIPlainTint" ) << "a material without a row block needs no row";
         EXPECT_EQ( declared[3], "default" );
+        EXPECT_EQ( declared[4], "default" ) << "a SHORT row is not a row of this shader";
+        EXPECT_EQ( declared[5], "default" ) << "a row whose slot 1 is another field is not a row of this shader";
     }
-    EXPECT_EQ( reports, 1 ) << "the broken material is logged once across frames";
-    EXPECT_EQ( fallback.ReportedCount(), 1u );
+    EXPECT_EQ( reports, 3 ) << "each broken material is logged once across frames";
+    EXPECT_EQ( fallback.ReportedCount(), 3u );
+    EXPECT_NE( UIMaterialFallback::RowFault( true, gradient, Fields{ "TopColor" }, 1 ).find( "holds 1 slot(s)" ),
+               std::string::npos )
+         << "the short row's reason names its size";
+    EXPECT_NE(
+         UIMaterialFallback::RowFault( true, gradient, Fields{ "TopColor", "Bottom" }, 2 ).find( "'BottomColor'" ),
+         std::string::npos )
+         << "the missing field is named";
 }

@@ -5,7 +5,10 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
@@ -25,6 +28,17 @@ namespace Desert::Graphic::Render2D
         // The shipped fill an element draws when its material slot cannot be executed. Named here rather
         // than spelled at three call sites so the refusal and the picture cannot describe different things.
         constexpr const char* kErrorShaderName = "UIMatError";
+
+        // The fields of a parameter row: the non-texture parameters in slot order
+        // (Core::Formats::MaterialParamSlot).
+        std::vector<std::string> RowFields( const Core::Formats::ShaderProgramMeta& meta )
+        {
+            std::vector<std::string> fields;
+            for ( const auto& p : meta.Params )
+                if ( !p.IsTexture )
+                    fields.push_back( p.Name );
+            return fields;
+        }
 
         // The vertex layout of the 2D batcher — pos / uv / straight RGBA, i.e. DrawList2D::Vertex2D. It is
         // the SAME layout Render2D::Init builds its own three pipelines with; a UI material draws the
@@ -245,29 +259,70 @@ namespace Desert::Graphic::Render2D
         return &it->second;
     }
 
-    const UIMaterialCache::Entry* UIMaterialCache::DrawableOrDefault( const Entry* entry )
+    std::string UIMaterialCache::PrepareDraw( const Entry& entry, const glm::mat4& projection )
     {
-        if ( !entry || entry->Error || !entry->Material )
-            return entry;
-        const bool declaresRowBlock =
-             entry->Material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) != nullptr;
-        const std::string& name = entry->Material->GetShaderName();
-        switch ( m_Fallback.Admit( name, declaresRowBlock, entry->Material->GetParamRow().size() ) )
+        DataDrivenMaterial&            material = *entry.Material;
+        const std::shared_ptr<Shader>& shader   = entry.Pipeline->GetSpecification().Shader;
+        if ( !shader )
+            return "the pipeline has no shader";
+        auto*       rowBuffer = material.Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName );
+        const auto& row       = material.GetParamRow();
+        std::string fault =
+             UIMaterialFallback::RowFault( rowBuffer != nullptr, RowFields( shader->GetProgramMeta() ),
+                                           RowFields( material.GetSchema() ), row.size() );
+        if ( !fault.empty() )
+            return fault;
+        // THE PARAMETERS ARE A ROW, NOT PUSH BYTES. One row per material and therefore index 0 - a UI material is
+        // shared by every element pointing at the same asset. `SetMaterialIndex` writes that index at
+        // Core::Formats::kMaterialIndexPushOffset (64), the same offset the mesh path writes it at. 64 bytes of
+        // projection at offset 0 + 4 of row index at 64 = 68 of the 128 available (Common/UIVertex.glslh).
+        if ( rowBuffer )
+            rowBuffer->SetRawData( row.data(), static_cast<uint32_t>( row.size() * sizeof( glm::vec4 ) ) );
+        material.SetPushMatrix( projection );
+        material.SetMaterialIndex( 0 );
+        const RDG::DeclaredBindingBlock block{
+             entry.Layout.Get( shader ), material.GetMaterialExecutor()->GetRouteFill(), {}, 0 };
+        const Common::BoolResultStr valid = RDG::ValidatePassBindings( block );
+        return valid.IsSuccess() ? std::string() : valid.GetError();
+    }
+
+    const UIMaterialCache::Entry* UIMaterialCache::DrawableOrDefault( const Entry*     entry,
+                                                                      const glm::mat4& projection )
+    {
+        if ( !entry || !entry->Material )
+            return nullptr;
+        if ( !entry->Error && entry->Pipeline )
         {
-            case UIMaterialFallback::Verdict::Draws:
-                return entry;
-            case UIMaterialFallback::Verdict::DefaultFirstReport:
+            const std::string  fault = PrepareDraw( *entry, projection );
+            const std::string& name  = entry->Material->GetShaderName();
+            switch ( m_Fallback.Admit( name, fault ) )
             {
-                LOG_ERROR(
-                     "[UIMaterial] '{}' reads the parameter row but has no row to write, so its draws use the "
-                     "default UI material '{}' instead of failing the whole UI pass",
-                     name, kErrorShaderName );
-                break;
+                case UIMaterialFallback::Verdict::Draws:
+                    return entry;
+                case UIMaterialFallback::Verdict::DefaultFirstReport:
+                {
+                    LOG_ERROR( "[UIMaterial] '{}' cannot draw ({}), so its draws use the default UI material '{}' "
+                               "instead of failing the whole UI pass",
+                               name, fault, kErrorShaderName );
+                    break;
+                }
+                case UIMaterialFallback::Verdict::Default:
+                    break;
             }
-            case UIMaterialFallback::Verdict::Default:
-                break;
         }
-        return ErrorEntry();
+        const Entry* fallback = entry->Error ? entry : ErrorEntry();
+        if ( !fallback || !fallback->Material || !fallback->Pipeline )
+            return nullptr;
+        const std::string fault = PrepareDraw( *fallback, projection );
+        if ( fault.empty() )
+            return fallback;
+        if ( m_Fallback.Admit( kErrorShaderName, fault ) == UIMaterialFallback::Verdict::DefaultFirstReport )
+        {
+            LOG_ERROR(
+                 "[UIMaterial] the default UI material '{}' cannot draw either ({}); those draws are skipped",
+                 kErrorShaderName, fault );
+        }
+        return nullptr;
     }
 
     void UIMaterialCache::RetireUnused()

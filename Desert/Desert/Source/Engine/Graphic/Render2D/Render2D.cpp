@@ -11,7 +11,6 @@
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
-#include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Graphic/Render2D/Render2DExecutorRetire.hpp>
@@ -240,8 +239,8 @@ namespace Desert::Graphic::Render2D
             // execute resolved to the magenta error entry back there, with the reason logged.
             // An entry whose row would leave the row buffer unwritten binds the default UI material instead - a
             // per-draw decision made here, so setup (DeclareInto) and Flush agree, never the whole node's fault.
-            const auto* entry =
-                 m_MaterialCache.DrawableOrDefault( static_cast<const UIMaterialCache::Entry*>( cmd.Material ) );
+            const auto* entry = m_MaterialCache.DrawableOrDefault(
+                 static_cast<const UIMaterialCache::Entry*>( cmd.Material ), m_Projection );
             if ( !entry || !entry->Pipeline || !entry->Material )
                 return resolved;
             resolved.Kind     = CommandKind::Material;
@@ -297,23 +296,9 @@ namespace Desert::Graphic::Render2D
                      .PushConstantBytes( static_cast<uint32_t>( sizeof( GlassPush ) ) );
                 continue;
             }
-            if ( resolved.Kind == CommandKind::Material )
-            {
-                // THE PARAMETERS ARE A ROW, NOT PUSH BYTES. One row per material and therefore index 0 - a UI
-                // material is shared by every element pointing at the same asset. `SetMaterialIndex` writes that
-                // index at Core::Formats::kMaterialIndexPushOffset (64), the same offset the mesh path writes it
-                // at. Written before the route fill: a row buffer nothing wrote is refused by the validation.
-                const auto& row = resolved.Material->GetParamRow();
-                if ( !row.empty() )
-                    if ( auto* sb = resolved.Material->Get<StorageBufferProperty>(
-                              Core::Formats::kMaterialRowBlockName ) )
-                        sb->SetRawData( row.data(), static_cast<uint32_t>( row.size() * sizeof( glm::vec4 ) ) );
-                // 64 bytes of projection at offset 0 + 4 of row index at 64 = 68 of the 128 available.
-                // Common/UIVertex.glslh carries the batcher's pixel -> clip projection in the mat4 slot.
-                resolved.Material->SetPushMatrix( m_Projection );
-                resolved.Material->SetMaterialIndex( 0 );
-            }
-            else
+            // A material draw's row, projection and row index were written by Resolve (UIMaterialCache::
+            // PrepareDraw, the one place - it also validated exactly this block).
+            if ( resolved.Kind != CommandKind::Material )
             {
                 resolved.Plain->PushConstant( &m_Projection, (uint32_t)sizeof( glm::mat4 ) );
             }

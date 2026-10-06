@@ -4302,8 +4302,21 @@ TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
     const std::size_t after = cache.find( "UIMaterialCache::RetireUnused(", drawable );
     EXPECT_TRUE( admit != std::string::npos && admit < after )
          << "DrawableOrDefault no longer asks the UIMaterialFallback";
-    EXPECT_NE( cache.find( "returnErrorEntry();}voidUIMaterialCache::RetireUnused(" ), std::string::npos )
+    const std::string drawableBody = cache.substr( drawable, after - drawable );
+    EXPECT_NE( drawableBody.find( "PrepareDraw(*entry,projection)" ), std::string::npos )
+         << "DrawableOrDefault no longer judges the entry by PrepareDraw";
+    EXPECT_NE( drawableBody.find( "entry->Error?entry:ErrorEntry()" ), std::string::npos )
          << "a refused draw no longer binds the error fill (the one default UI material)";
+    // The fallback and the setup refusal cannot disagree: PrepareDraw judges by the row's fit AND the very
+    // ValidatePassBindings the setup runs, and the row is written nowhere else.
+    const std::size_t prepare = cache.find( "std::stringUIMaterialCache::PrepareDraw(" );
+    ASSERT_NE( prepare, std::string::npos );
+    const std::string prepareBody = cache.substr( prepare, drawable > prepare ? drawable - prepare : 0 );
+    EXPECT_NE( prepareBody.find( "UIMaterialFallback::RowFault(" ), std::string::npos );
+    EXPECT_NE( prepareBody.find( "RDG::ValidatePassBindings(block)" ), std::string::npos )
+         << "PrepareDraw no longer runs the setup's own binding validation";
+    EXPECT_EQ( render2d.find( "kMaterialRowBlockName" ), std::string::npos )
+         << "Render2D.cpp writes the parameter row again - PrepareDraw is the one place";
 }
 
 // RDG-FAULT1: every producer whose loss a surviving reader can absorb names the value the reader gets instead, at
