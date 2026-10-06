@@ -80,8 +80,11 @@ extern char** environ;
 //               module_offset=<0x… offset of `address` within that module>
 //               function=<the faulting function, or "unknown" when no symbol resolved>
 //               fault_frame=<dec index into the [stack] frames that `function` came from>
-//   [build]     version=…  sha=…  branch=…  dirty=<0|1>
-//   [context]   machine=<host name>  scene=<path or "none">  os=…  gpu=<device name or "unknown">
+//   [build]     config=<Debug|Release|Shipping>   the configuration the WRITER was compiled in; the
+//                                     reporter picks its view from this key (Shipping ⇒ the player view)
+//               version=…  sha=…  branch=…  dirty=<0|1>      (sha, branch, dirty: NOT in Shipping)
+//   [context]   machine=<host name>  scene=<path or "none">  (machine, scene: NOT in Shipping)
+//               os=…  gpu=<device name or "unknown">
 //               gpu_vendor=<0x… PCI id>  gpu_device=<0x…>  gpu_driver=<vendor's own spelling>
 //               gpu_api=<major.minor.patch>   all "unknown" until the host created its device
 //               game=<the game's Name, or "unread" before the host read it>
@@ -89,6 +92,15 @@ extern char** environ;
 //               Repeated, innermost first. Unresolved parts are empty between the pipes; the field
 //               count is always five so a parser can split on '|' unconditionally.
 //   [log]       log=<one captured log line, oldest first>   (the ring sink, capacity kLogRingLines)
+//               The section header is written in every configuration; in Shipping it holds no line.
+//
+// THE PLAYER REPORT (CR2b). A Shipping binary is on a player's machine, and its report is what that
+// player sees and may send on. The repository's branch, commit and tree state, the machine's name,
+// any filesystem path (the scene, a frame's file:line) and the log tail are not the player's business
+// and are not ours to collect from them, so under DESERT_CONFIG_SHIPPING the writer does not EMIT
+// them — they are absent from the file, not hidden by the reader. `config=Shipping` is what tells the
+// reporter to draw the player view; an older or truncated report without the key gets the developer
+// view, which can only show what the file holds.
 //   [end]       written=<complete>    ABSENT if the process died before finishing — its presence is
 //                                     how a reader tells a whole report from a truncated one.
 //
@@ -103,6 +115,21 @@ extern char** environ;
 
 namespace Common::Crash::Detail
 {
+    // The configuration this writer was compiled in. Exactly one of the three is defined per build;
+    // a fourth configuration must name its audience here rather than inherit one.
+#if defined( DESERT_CONFIG_SHIPPING )
+    constexpr const char* kBuildConfig  = "Shipping";
+    constexpr bool        kPlayerReport = true;
+#elif defined( DESERT_CONFIG_DEBUG )
+    constexpr const char* kBuildConfig  = "Debug";
+    constexpr bool        kPlayerReport = false;
+#elif defined( DESERT_CONFIG_RELEASE )
+    constexpr const char* kBuildConfig  = "Release";
+    constexpr bool        kPlayerReport = false;
+#else
+#error "CrashHandler.cpp: no DESERT_CONFIG_* is defined - the report cannot name its audience"
+#endif
+
     // Capacities. Fixed, because every one of these buffers is read from a signal handler where
     // an allocation is undefined behaviour. Chosen to cover the real values with room to spare;
     // anything longer is truncated, which still identifies a crash.
@@ -518,14 +545,21 @@ namespace Common::Crash::Detail
         writer.Char( '\n' );
 
         writer.Str( "[build]\n" );
+        writer.Field( "config", kBuildConfig );
         writer.Field( "version", g_Version );
-        writer.Field( "sha", g_Sha );
-        writer.Field( "branch", g_Branch );
-        writer.Field( "dirty", g_Dirty ? "1" : "0" );
+        if constexpr ( !kPlayerReport )
+        {
+            writer.Field( "sha", g_Sha );
+            writer.Field( "branch", g_Branch );
+            writer.Field( "dirty", g_Dirty ? "1" : "0" );
+        }
 
         writer.Str( "[context]\n" );
-        writer.Field( "machine", g_Machine );
-        writer.Field( "scene", g_Scene );
+        if constexpr ( !kPlayerReport )
+        {
+            writer.Field( "machine", g_Machine );
+            writer.Field( "scene", g_Scene );
+        }
         writer.Field( "os", g_Os );
         writer.Field( "gpu", g_Gpu );
         writer.Field( "gpu_vendor", g_GpuVendor );
@@ -546,15 +580,20 @@ namespace Common::Crash::Detail
             writer.Char( '|' );
             writer.Str( g_Frames[i].function );
             writer.Char( '|' );
-            writer.Str( g_Frames[i].source );
+            if constexpr ( !kPlayerReport )
+            {
+                writer.Str( g_Frames[i].source ); // "file:line" is a path on the build machine
+            }
             writer.Char( '\n' );
         }
 
         writer.Str( "[log]\n" );
         const std::uint32_t written = g_LogWritten.load( std::memory_order_acquire );
-        const std::uint32_t count   = written < static_cast<std::uint32_t>( kLogRingLines )
-                                           ? written
-                                           : static_cast<std::uint32_t>( kLogRingLines );
+        // The player report carries the section and no line of it (see THE PLAYER REPORT above).
+        const std::uint32_t count = kPlayerReport ? 0u
+                                    : written < static_cast<std::uint32_t>( kLogRingLines )
+                                         ? written
+                                         : static_cast<std::uint32_t>( kLogRingLines );
         for ( std::uint32_t i = 0; i < count; ++i )
         {
             const std::uint32_t slot = ( written - count + i ) % static_cast<std::uint32_t>( kLogRingLines );
@@ -1478,9 +1517,12 @@ namespace Common::Crash
 
         CopyIntoFixed( g_Host, kSmallField, inOptions.hostName.empty() ? "unknown" : inOptions.hostName );
         CopyIntoFixed( g_Version, kSmallField, Common::Version::Full() );
-        CopyIntoFixed( g_Sha, kSmallField, Common::Version::Hash() );
-        CopyIntoFixed( g_Branch, kSmallField, Common::Version::Branch() );
-        g_Dirty = Common::Version::Dirty();
+        if constexpr ( !kPlayerReport ) // a player report never names the repository state
+        {
+            CopyIntoFixed( g_Sha, kSmallField, Common::Version::Hash() );
+            CopyIntoFixed( g_Branch, kSmallField, Common::Version::Branch() );
+            g_Dirty = Common::Version::Dirty();
+        }
         CopyIntoFixed( g_Started, kSmallField, stamp );
         FormatOsDescription();
 

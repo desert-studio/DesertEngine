@@ -168,6 +168,13 @@ namespace
         EXPECT_EQ( FieldValue( contents, "host" ), "CrashHandlerTestChild" );
         EXPECT_FALSE( FieldValue( contents, "codename" ).empty() );
         EXPECT_FALSE( FieldValue( contents, "version" ).empty() );
+        // CR2b: the suites run in Debug and Release, both of which write the developer report — the
+        // configuration named, and the repository/machine keys present. Shipping (no suite) omits them.
+        const std::string config = FieldValue( contents, "config" );
+        EXPECT_TRUE( config == "Debug" || config == "Release" ) << "config=" << config;
+        EXPECT_FALSE( FieldValue( contents, "sha" ).empty() );
+        EXPECT_FALSE( FieldValue( contents, "branch" ).empty() );
+        EXPECT_FALSE( FieldValue( contents, "machine" ).empty() );
         EXPECT_FALSE( FieldValue( contents, "os" ).empty() );
         EXPECT_EQ( FieldValue( contents, "scene" ), "Scenes/CrashHandlerSuite.desce" );
         // CR1c: the GPU keys come from the device the host created, decoded; the game from SetGameName.
