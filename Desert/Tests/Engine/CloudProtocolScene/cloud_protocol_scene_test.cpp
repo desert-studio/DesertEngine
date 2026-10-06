@@ -226,7 +226,12 @@ TEST( CloudProtocolScene, TheSettingsBlockIsWrittenInFull )
 // asserts the two halves of that: the default is High, and no protocol scene may state a tier of its own.
 TEST( CloudProtocolScene, TheTierTheProtocolIsMeasuredAtIsTheMachineDefaultAndThatDefaultIsHigh )
 {
-    EXPECT_EQ( Common::Settings::MachineSettings{}.CloudQualityTier, Common::Settings::CloudQuality::High )
+    // SCAL1: the tier is the Effects group's CloudQuality parameter; a machine that never chose runs the
+    // Effects group at High with no override (whose table value ScalabilityContract pins to High).
+    const Common::Settings::MachineSettings fresh;
+    EXPECT_EQ( fresh.Quality.Levels[static_cast<std::size_t>( Common::Scalability::Group::Effects )],
+               Common::Scalability::Level::High );
+    EXPECT_TRUE( fresh.Quality.Overrides.empty() )
          << "the calibrated reference tier moved; every number in Docs/Clouds/CALIBRATION.md was taken at "
             "High and a new default silently re-measures all of them";
 

@@ -102,10 +102,9 @@ namespace Desert::Graphic::API::Vulkan
             m_Capabilities.MaxPushConstantSize    = deviceProperties.limits.maxPushConstantsSize;
             m_Capabilities.MaxTexture2DSize       = deviceProperties.limits.maxImageDimension2D;
             m_Capabilities.MaxTextureArrayLayers  = deviceProperties.limits.maxImageArrayLayers;
-            m_Capabilities.MaxColorAttachments    = deviceProperties.limits.maxColorAttachments;
+            m_Capabilities.MaxColorAttachments       = deviceProperties.limits.maxColorAttachments;
             m_Capabilities.SupportsTimestampQueries  = deviceProperties.limits.timestampComputeAndGraphics == VK_TRUE;
             m_Capabilities.TimestampPeriodNs         = deviceProperties.limits.timestampPeriod;
-
 
             // Float render targets: RGBA32F must be usable as a colour attachment AND blendable, which is
             // what every accumulating screen-space pass (SSR trace/resolve, GI resolve, bloom) relies on.
@@ -135,15 +134,14 @@ namespace Desert::Graphic::API::Vulkan
                       typeName, m_Capabilities.VideoMemory / ( 1024ull * 1024ull ) );
             LOG_INFO( "[Vulkan] Caps: maxTex2D {}, colorAttachments {}, float RTs {}, "
                       "timestamps {} (period {} ns/tick)",
-                      m_Capabilities.MaxTexture2DSize,
-                      m_Capabilities.MaxColorAttachments, m_Capabilities.SupportsFloatRenderTargets ? "yes" : "NO",
+                      m_Capabilities.MaxTexture2DSize, m_Capabilities.MaxColorAttachments,
+                      m_Capabilities.SupportsFloatRenderTargets ? "yes" : "NO",
                       m_Capabilities.SupportsTimestampQueries ? "yes" : "no", m_Capabilities.TimestampPeriodNs );
             LOG_INFO( "[Vulkan] Caps: textureCompressionBC (BC1-BC7) {}",
                       m_Capabilities.SupportsTextureCompressionBC ? "supported -> enabled on the device"
                                                                   : "NOT supported -- no BC textures" );
 
             Graphic::RenderConfig::WideLines = m_Capabilities.SupportsWideLines; // clamp debug-line width if false
-
 
             // The selectable lists, built once from probed facts (VulkanCapabilityCatalog.hpp). The surface half
             // (display outputs, present modes beyond FIFO) is probed when the first swapchain's surface exists.

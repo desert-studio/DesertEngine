@@ -1390,7 +1390,7 @@ namespace
     bool HasOverride( const Migrated& m, Parameter parameter, int value )
     {
         const Common::Scalability::ParameterOverride wanted{ KeyOf( parameter ), value };
-        const auto& overrides = m.Settings.Quality.Overrides;
+        const auto&                                  overrides = m.Settings.Quality.Overrides;
         return std::find( overrides.begin(), overrides.end(), wanted ) != overrides.end();
     }
 
@@ -1482,9 +1482,9 @@ TEST( ConfigOwnership, RetiredPostAAStandsInForAAMethodOnlyWhenAAMethodIsAbsent 
     ExpectOnly( Migrate( std::format( R"({{"AA":"{}"}})", MethodName( other ) ) ),
                 Common::Scalability::ParameterOverride{ KeyOf( Parameter::AntiAliasingMethod ), other } );
     // An older build's `AA` never overrides the AAMethod a newer build wrote beside it.
-    ExpectOnly( Migrate( std::format( R"({{"AAMethod":"{}","AA":"{}"}})", MethodName( high ),
-                                      MethodName( other ) ) ),
-                std::nullopt );
+    ExpectOnly(
+         Migrate( std::format( R"({{"AAMethod":"{}","AA":"{}"}})", MethodName( high ), MethodName( other ) ) ),
+         std::nullopt );
     // `AA` with a count above one was MSAA.
     EXPECT_TRUE( HasOverride( Migrate( R"({"AA":"None","MSAASamples":4})" ), Parameter::AntiAliasingMethod, 3 ) );
 }
@@ -1518,7 +1518,7 @@ TEST( ConfigOwnership, AnUntouchedDefaultFileMigratesWithZeroOverrides )
     constexpr const char* kClouds[]  = { "Low", "Medium", "High" };
     const std::string     raw        = std::format(
          R"({{"AAMethod":"{}","MSAASamples":{},"TextureFilterMode":"{}","Anisotropy":{},"MeshLOD":{},)"
-                        R"("CloudQualityTier":"{}"}})",
+                    R"("CloudQualityTier":"{}"}})",
          MethodName( HighOf( Parameter::AntiAliasingMethod ) ), HighOf( Parameter::AntiAliasingSamples ),
          kFilters[HighOf( Parameter::TextureFilter )], HighOf( Parameter::Anisotropy ),
          HighOf( Parameter::MeshLOD ) ? "true" : "false", kClouds[HighOf( Parameter::CloudQuality )] );

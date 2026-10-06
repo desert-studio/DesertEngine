@@ -31,7 +31,7 @@
 // call the same QualityState API; the renderer READS ResolvedQuality and never sees a group or a level. No
 // renderer reads a Level — if one does, the table has a missing parameter.
 //
-// MIGRATION OF THE EXISTING MachineSettings FIELDS (done by the implementation step, no legacy bridge, §4):
+// MIGRATION OF THE FORMER MachineSettings FIELDS (DONE in SCAL1-S2, no legacy bridge, §4; MigrateRetiredKeys):
 //     MachineSettings field   -> Parameter                 (Group)
 //     AAMethod                -> AntiAliasingMethod        (AntiAliasing)
 //     MSAASamples             -> AntiAliasingSamples       (AntiAliasing)
