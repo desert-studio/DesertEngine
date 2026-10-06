@@ -9,7 +9,7 @@
 //                                                      never a delivery one
 //   PakTool list     <archive.dpak>                    every entry with its content size, its stored
 //                                                      size, its offset and its codec, then the
-//                                                      format version
+//                                                      entry and deletion counts
 //   PakTool extract  <archive.dpak> <outDir>           unpack all entries into outDir
 //   PakTool manifest <archive.dpak|srcDir> <out.txt>   record what this release hands out
 //                                                      [--prefix P]
@@ -122,9 +122,9 @@ namespace
         // adds none would otherwise list as an empty archive.
         for ( const auto& key : reader.DeletedKeys() )
             std::printf( "%10s  %s\n", "DELETED", key.c_str() );
-        std::printf( "PakTool: %zu entr%s, %zu deletion(s), format v%u in %s\n", reader.EntryCount(),
+        std::printf( "PakTool: %zu entr%s, %zu deletion(s) in %s\n", reader.EntryCount(),
                      reader.EntryCount() == 1 ? "y" : "ies", reader.DeletedKeys().size(),
-                     static_cast<unsigned>( reader.Version() ), pakPath.string().c_str() );
+                     pakPath.string().c_str() );
         return 0;
     }
 
