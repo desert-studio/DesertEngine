@@ -126,8 +126,8 @@ namespace Desert::Assets
     Common::ResultStr<std::vector<std::byte>> ReadTextureSourceImage( const std::filesystem::path& file );
 
     // THE ONE DEFAULT for an asset no material slot speaks for (a loose image's first import, the migration of
-    // a version-1 asset): an HDR source (Radiance `#?RADIANCE`/`#?RGBE`, the signature stb tests) is Linear --
-    // its values are radiance; otherwise Colour and Unspecified are sRGB (UE's default SRGB=true) and
+    // a version-1 asset): a float source (Radiance `#?RADIANCE`/`#?RGBE`, OpenEXR `v/1\x01`) is Linear --
+    // its values are scene-linear radiance; otherwise Colour and Unspecified are sRGB (UE's default SRGB=true) and
     // NormalMap, Mask and Data are Linear.
     Core::Formats::TextureColorSpace DefaultTextureColorSpace( Core::Formats::TextureIntent intent,
                                                                std::span<const std::byte>   sourceBytes );

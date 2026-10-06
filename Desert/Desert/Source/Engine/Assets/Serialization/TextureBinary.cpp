@@ -47,7 +47,7 @@ namespace Desert::Assets::Serialization
             uint32_t Height;
             uint32_t Format; // an ImageFormat enumerator, travelling at a width the file fixes
             uint32_t LevelCount;
-            uint32_t Flags; // no version defines one; a non-zero value is REFUSED, see below
+            uint32_t Flags; // bit 0 = sRGB (kTextureFlagSRGB); any other bit is REFUSED, see below
             uint32_t SourceKeyLength;
             uint32_t SourceKeyOffset; // from file start
             uint64_t SourceContentHash;
@@ -802,13 +802,10 @@ namespace Desert::Assets::Serialization
                      who, header.HeaderSize, kTextureBinaryVersion, sizeof( FileHeader ) );
             }
 
-            // FORWARD-COMPATIBILITY GUARDS, NOT DEAD FIELDS. Version 1 defines no flag and has no
-            // encoder, so both of these are written as zero. A file that sets either was produced by a
-            // build that knows something this one does not — an sRGB marking it would have to honour,
-            // an encoder whose output it cannot interpret — and the only safe answer is to say so.
-            // Ignoring them would be the silent wrong answer: the texture would decode and draw, in the
-            // wrong colour space or from the wrong bytes.
-            // Bit 0 is the sRGB marking (kTextureFlagSRGB); every other bit is still a forward guard.
+            // FORWARD-COMPATIBILITY GUARD, NOT DEAD SPACE. Bit 0 is the sRGB marking (kTextureFlagSRGB)
+            // and is honoured below. A file that sets any other bit was produced by a build that knows
+            // something this one does not, and the only safe answer is to say so: ignoring it would
+            // decode and draw the texture from a meaning this build cannot apply, silently.
             if ( ( header.Flags & ~kTextureFlagSRGB ) != 0 )
             {
                 return Common::MakeFormattedError<TextureBinaryHeaderInfo>(

@@ -156,3 +156,16 @@ TEST( MaterialImportContract, AnImportedMaterialNamesNoPreviewMesh )
     ASSERT_EQ( data.Params.size(), 1u );
     EXPECT_EQ( data.Params[0].Name, "BaseColor" );
 }
+
+// TEX-SRGB: the one table that says which source keys are colour. A key it does not list is data, so a new
+// key defaults to Linear (a wrong sRGB decode of data is the silent error; a too-dark colour is visible).
+TEST( MaterialImportContract, OnlyColourSourceKeysAreSrgb )
+{
+    using CS = Desert::Core::Formats::TextureColorSpace;
+    for ( const char* colour :
+          { "gltf.baseColorTexture", "gltf.emissiveTexture", "fbx.DiffuseColor", "fbx.EmissiveColor" } )
+        EXPECT_EQ( SourceKeyColorSpace( colour ), CS::SRGB ) << colour;
+    for ( const char* data : { "gltf.normalTexture", "gltf.metallicRoughnessTexture", "gltf.occlusionTexture",
+                               "fbx.NormalMap", "fbx.ReflectionFactor", "" } )
+        EXPECT_EQ( SourceKeyColorSpace( data ), CS::Linear ) << data;
+}

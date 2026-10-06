@@ -226,9 +226,23 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
     expectSlot( "u_NormalTexture", "nrm.png" );
     expectSlot( "u_EmissiveTexture", "emi.png" );
 
+    // TEX-SRGB: each slot carries the colour space its source key states -- colour keys sRGB, data Linear --
+    // and that is what the importer writes into a newly created `.detex`.
+    using CS               = Desert::Core::Formats::TextureColorSpace;
+    const auto expectSpace = [&]( const char* name, CS space )
+    {
+        const ImportedTextureSlot* s = Slot( fill, name );
+        ASSERT_NE( s, nullptr ) << name << " was not bound";
+        EXPECT_EQ( s->ColorSpace, space ) << name;
+    };
+    expectSpace( "u_AlbedoTexture", CS::SRGB );
+    expectSpace( "u_EmissiveTexture", CS::SRGB );
+    expectSpace( "u_NormalTexture", CS::Linear );
+
     // ORM: metallic-roughness (.gb) and occlusion (.r) are different images -> one packed image.
     const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
     ASSERT_NE( orm, nullptr );
+    EXPECT_EQ( orm->ColorSpace, CS::Linear ) << "metallic/roughness/occlusion are data, never sRGB";
     ASSERT_EQ( orm->Parts.size(), 2u );
     EXPECT_TRUE( orm->NeedsPacking() );
     const fs::path packed = PackedTexturePath( *orm );

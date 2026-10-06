@@ -466,7 +466,8 @@ namespace Desert::Assets
             return sourceBytes.size() >= magic.size() &&
                    std::memcmp( sourceBytes.data(), magic.data(), magic.size() ) == 0;
         };
-        if ( startsWith( "#?RADIANCE" ) || startsWith( "#?RGBE" ) )
+        // OpenEXR's magic is 0x76 0x2f 0x31 0x01; its values are scene-linear floats (UE forces SRGB off for them).
+        if ( startsWith( "#?RADIANCE" ) || startsWith( "#?RGBE" ) || startsWith( std::string_view( "v/1\x01", 4 ) ) )
             return Core::Formats::TextureColorSpace::Linear;
         return intent == Core::Formats::TextureIntent::Colour ||
                          intent == Core::Formats::TextureIntent::Unspecified
