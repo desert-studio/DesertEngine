@@ -6,7 +6,9 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Materials/Particles/MaterialParticleBillboard.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <glm/glm.hpp>
 
@@ -73,20 +75,27 @@ namespace Desert::Graphic::System
         // time) all come from it. Outside a `--play` capture that is the measured wall-clock step, so the
         // editor sees what it always saw; under one it is the fixed step, so two runs simulate alike. This
         // system reads no clock of its own - the ParticleTimestep suite holds it to that.
-        // Records one DispatchCompute per declared emitter on @p context's command buffer, binding that emitter's
-        // imported state and spawn counter (ImportSimulationBuffers) as StorageWrite; the first refused dispatch
-        // is returned, naming the pass and the slot.
+        // Records one DispatchCompute per declared emitter on @p context's command buffer from that emitter's
+        // binding block (DeclareSimulateBindings, the same emitters in the same order: block n is the n-th
+        // declared emitter) plus its push constants; the first refused dispatch is returned, naming the pass and
+        // the slot.
         [[nodiscard]] Common::BoolResultStr Simulate( const RDG::PassContext& context, float frameSeconds );
 
         // Imports every emitter of this frame's particle-state and spawn-counter buffers into @p graph
-        // (Renderer::ImportBuffer) and returns their handles, which the node that runs Simulate
-        // ("Particles: Simulate") declares as StorageWrite: the graph then places the barrier against the
-        // previous graph's use of the same buffer (last frame's simulation of the persistent state). An
-        // emitter whose buffers cannot be imported is logged and sits the frame out: Simulate
+        // (Renderer::ImportBuffer) and keeps their handles in the frame emitters, which the node that runs
+        // Simulate ("Particles: Simulate") declares through DeclareSimulateBindings: the graph then places the
+        // barrier against the previous graph's use of the same buffer (last frame's simulation of the persistent
+        // state). An emitter whose buffers cannot be imported is logged and sits the frame out: Simulate
         // dispatches only emitters whose writes the graph was told about. Call once per frame graph, after
         // PrepareFrame. The ExternalBuffers live in m_FrameEmitters, which the graph points at until its
         // Execute ends; only the next PrepareFrame refills it.
-        std::vector<RDG::BufferRef> ImportSimulationBuffers( RDG::Builder& graph );
+        void ImportSimulationBuffers( RDG::Builder& graph );
+
+        // The setup of "Particles: Simulate": one binding block per imported emitter (block n = the n-th, in
+        // m_FrameEmitters order, the order Simulate walks), against ParticleSimulate's layout - Particles and
+        // SpawnCounter StorageWrite (each entry is the declaration of its access) and the SimPush bytes. With
+        // no simulation pipeline it declares nothing and Simulate dispatches nothing.
+        void DeclareSimulateBindings( RDG::PassBuilder& pass ) const;
 
     private:
         // Push constant for ParticleSimulate (must match the shader's 128-byte block).
@@ -137,6 +146,11 @@ namespace Desert::Graphic::System
         };
 
         bool        CreatePipelines();
+        // Whether ParticlePass draws @p fe this frame - the one condition its Declare and its exec both walk the
+        // emitters by, so the exec's n-th drawn emitter opens the n-th declared block.
+        static bool IsDrawn( const FrameEmitter& fe );
+        // The billboard pipeline of @p fe's blend (null when that pipeline failed to build).
+        GraphicsPipeline* BillboardPipeline( const FrameEmitter& fe ) const;
         EmitterGpu& GetOrCreate( uint32_t entityId, int maxParticles );
         // Rewrites @p gpu's particle state with zeros in place and drops its spawn carry. The failure is
         // returned for the caller to report, since only the caller knows why it asked.
@@ -145,6 +159,10 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline>  m_SimPipeline;
         std::shared_ptr<GraphicsPipeline> m_AddPipeline;   // additive blend
         std::shared_ptr<GraphicsPipeline> m_AlphaPipeline; // alpha blend
+        // The three shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
+        mutable ShaderBindingLayoutCache m_SimLayout;
+        mutable ShaderBindingLayoutCache m_AddLayout;
+        mutable ShaderBindingLayoutCache m_AlphaLayout;
 
         std::unordered_map<uint32_t, EmitterGpu> m_Emitters;
         std::vector<FrameEmitter>                m_FrameEmitters;

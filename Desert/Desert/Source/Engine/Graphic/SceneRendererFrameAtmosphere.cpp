@@ -43,10 +43,11 @@ namespace Desert::Graphic
         // Particle simulation: one compute dispatch per emitter, outside any render pass, BEFORE the billboard
         // draw reads the integrated particle buffer in its vertex stage. A Compute node that imports every
         // emitter's state and spawn-counter buffers (ParticleRenderer::ImportSimulationBuffers, through
-        // Renderer::ImportBuffer) and declares StorageWrite on them, so the graph places the barrier against the
+        // Renderer::ImportBuffer) and declares StorageWrite on them (one binding block per emitter,
+        // ParticleRenderer::DeclareSimulateBindings), so the graph places the barrier against the
         // previous graph's write of the persistent state. The simulation reads its buffers only through that
         // read-modify-write, so StorageWrite is every access it makes. The billboard draw that reads the result
-        // (ParticlePass, a Transparency raster node) declares Read(particles, StorageRead), so the graph places
+        // (ParticlePass, a Transparency raster node) declares it StorageRead in its blocks, so the graph places
         // the compute -> vertex barrier; DispatchCompute records none of its own. NeverCull stays: the node
         // also advances the particle clock on a frame with no emitter, a write the graph cannot see. The graph
         // executes before OnUpdate returns, so the frame's UpdateInfo, and the imports held by the renderer's
@@ -54,15 +55,11 @@ namespace Desert::Graphic
         auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
         if ( !particles )
             return;
-        const float                       seconds = static_cast<float>( sceneRenderInfo.Timestep.GetSeconds() );
-        const std::vector<RDG::BufferRef> written = particles->ImportSimulationBuffers( graph );
+        const float seconds = static_cast<float>( sceneRenderInfo.Timestep.GetSeconds() );
+        particles->ImportSimulationBuffers( graph );
         graph.AddPass(
              "Particles: Simulate", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
-             [&written]( RDG::PassBuilder& pass )
-             {
-                 for ( const RDG::BufferRef buffer : written )
-                     pass.Write( buffer, RDG::Access::StorageWrite );
-             },
+             [particles]( RDG::PassBuilder& pass ) { particles->DeclareSimulateBindings( pass ); },
              [particles, seconds]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return particles->Simulate( context, seconds ); } );
     }

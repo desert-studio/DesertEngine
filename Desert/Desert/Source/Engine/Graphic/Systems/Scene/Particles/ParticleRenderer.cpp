@@ -298,22 +298,21 @@ namespace Desert::Graphic::System
             fe.Push.Gravity.w    = time;
         }
 
-        auto& renderer = Renderer::GetInstance();
+        auto&    renderer = Renderer::GetInstance();
+        uint32_t block    = 0;
         for ( auto& fe : m_FrameEmitters )
         {
             // An emitter whose buffers the graph does not know (ImportSimulationBuffers refused them, and said
             // why) is not written: its barrier against the previous frame's simulation would be missing.
             if ( !fe.Declared )
                 continue;
-            // The graph node that runs this ("Particles: Simulate") declares both buffers StorageWrite, and the
+            // The node's setup (DeclareSimulateBindings) declared this emitter's block: both buffers StorageWrite
+            // by their shader names (ParticleSimulate's Buffer(0) Particles / Buffer(1) SpawnCounter); the
             // billboard draw (ParticlePass) declares the state StorageRead, so the graph places the compute ->
             // vertex barrier between them and the vertex -> compute one before the next frame's write.
-            // DispatchCompute records the dispatch alone, on this node's command buffer, binding the two graph
-            // buffers by their shader names (ParticleSimulate's Buffer(0) Particles / Buffer(1) SpawnCounter).
-            RDG::PassBindings bindings( context );
-            bindings.Storage( "Particles", fe.ParticlesRef, RDG::Access::StorageWrite )
-                 .Storage( "SpawnCounter", fe.CounterRef, RDG::Access::StorageWrite )
-                 .PushConstants( &fe.Push, sizeof( fe.Push ) );
+            // DispatchCompute records the dispatch alone, on this node's command buffer.
+            RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+            bindings.PushConstants( &fe.Push, sizeof( fe.Push ) );
 
             const uint32_t groups =
                  ( static_cast<uint32_t>( fe.Gpu->MaxParticles ) + kParticleLocalSize - 1 ) / kParticleLocalSize;
@@ -325,10 +324,8 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    std::vector<RDG::BufferRef> ParticleRenderer::ImportSimulationBuffers( RDG::Builder& graph )
+    void ParticleRenderer::ImportSimulationBuffers( RDG::Builder& graph )
     {
-        std::vector<RDG::BufferRef> written;
-        written.reserve( m_FrameEmitters.size() * 2 );
         auto& renderer = Renderer::GetInstance();
         for ( size_t i = 0; i < m_FrameEmitters.size(); ++i )
         {
@@ -351,12 +348,36 @@ namespace Desert::Graphic::System
                 continue;
             }
             fe.ParticlesRef = graph.RegisterExternal( fe.ParticlesImport, std::format( "ParticleState{}", i ) );
-            written.push_back( fe.ParticlesRef );
             fe.CounterRef = graph.RegisterExternal( fe.CounterImport, std::format( "ParticleSpawn{}", i ) );
-            written.push_back( fe.CounterRef );
-            fe.Declared = true;
+            fe.Declared     = true;
         }
-        return written;
+    }
+
+    void ParticleRenderer::DeclareSimulateBindings( RDG::PassBuilder& pass ) const
+    {
+        if ( !m_SimPipeline )
+            return; // Simulate dispatches nothing either
+        const auto& layout = m_SimLayout.Get( m_SimPipeline->GetSpecification().Shader );
+        for ( const FrameEmitter& fe : m_FrameEmitters )
+        {
+            if ( !fe.Declared )
+                continue; // Simulate skips it the same way
+            pass.Bindings( layout, Renderer::GetInstance().GetPipelineRouteFill( *m_SimPipeline ) )
+                 .Storage( "Particles", fe.ParticlesRef, RDG::Access::StorageWrite )
+                 .Storage( "SpawnCounter", fe.CounterRef, RDG::Access::StorageWrite )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( SimPush ) ) );
+        }
+    }
+
+    bool ParticleRenderer::IsDrawn( const FrameEmitter& fe )
+    {
+        // An emitter the graph was not told about is neither simulated nor drawn.
+        return fe.Declared && fe.Gpu && fe.Gpu->Particles && fe.Gpu->Material;
+    }
+
+    GraphicsPipeline* ParticleRenderer::BillboardPipeline( const FrameEmitter& fe ) const
+    {
+        return fe.Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
     }
 
     void ParticleRenderer::RegisterPasses( RenderGraphBuilder& builder )
@@ -375,23 +396,18 @@ namespace Desert::Graphic::System
                            if ( !camera )
                                return BOOLSUCCESS;
 
-                           auto& renderer = Renderer::GetInstance();
+                           auto&    renderer = Renderer::GetInstance();
+                           uint32_t block    = 0;
                            for ( auto& fe : m_FrameEmitters )
                            {
-                               // An emitter the graph was not told about is neither simulated nor drawn.
-                               if ( !fe.Declared || !fe.Gpu || !fe.Gpu->Particles || !fe.Gpu->Material )
+                               if ( !IsDrawn( fe ) )
                                    continue;
-                               // Each emitter updates and draws ITS OWN material: a shared one here routed every
-                               // emitter through one descriptor set, which is written at most once per frame — so
-                               // every emitter after the first drew the first one's buffer.
-                               fe.Gpu->Material->Update( camera );
-                               auto* pipeline = fe.Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
+                               GraphicsPipeline* pipeline = BillboardPipeline( fe );
                                if ( pipeline == nullptr )
                                    return Common::MakeError( "ParticlePass: no pipeline for the emitter's blend" );
-                               // The integrated state is a pass parameter: the graph buffer the Declare below
-                               // reads.
-                               RDG::PassBindings bindings( context );
-                               bindings.Storage( "Particles", fe.ParticlesRef, RDG::Access::StorageRead );
+                               // The Declare below filled this emitter's material and declared its block (the
+                               // integrated state, StorageRead): the n-th drawn emitter opens block n.
+                               RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
                                if ( auto drawn = renderer.DrawProcedural(
                                          bindings, *pipeline, fe.Gpu->Material->GetMaterialExecutor(),
                                          static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u, 1 );
@@ -406,10 +422,28 @@ namespace Desert::Graphic::System
         {
             // The billboards read each emitter's integrated state in the vertex stage: StorageRead, so the graph
             // places the compute -> vertex barrier after "Particles: Simulate" (and the vertex -> compute one
-            // before next frame's simulation).
+            // before next frame's simulation). One block per drawn emitter, in the exec's order, declared
+            // against the emitter's own material route AFTER the material is filled: the graph validates the
+            // block against that fill before anything is recorded, so it is filled here and never in the exec.
+            // Each emitter fills ITS OWN material: a shared one routed every emitter through one descriptor set,
+            // written at most once per frame - so every emitter after the first drew the first one's buffer.
+            const auto camera = m_SceneRenderer->GetMainCamera();
+            if ( !camera )
+                return; // the exec draws nothing either
             for ( const FrameEmitter& fe : m_FrameEmitters )
-                if ( fe.Declared )
-                    declared.Read( fe.ParticlesRef, RDG::Access::StorageRead );
+            {
+                if ( !IsDrawn( fe ) )
+                    continue;
+                GraphicsPipeline* pipeline = BillboardPipeline( fe );
+                if ( pipeline == nullptr )
+                    continue; // the exec refuses the emitter by name before it opens a block
+                fe.Gpu->Material->Update( camera );
+                ShaderBindingLayoutCache& layout = fe.Additive ? m_AddLayout : m_AlphaLayout;
+                declared
+                     .Bindings( layout.Get( pipeline->GetSpecification().Shader ),
+                                fe.Gpu->Material->GetMaterialExecutor()->GetRouteFill() )
+                     .Storage( "Particles", fe.ParticlesRef, RDG::Access::StorageRead );
+            }
         };
     }
 } // namespace Desert::Graphic::System

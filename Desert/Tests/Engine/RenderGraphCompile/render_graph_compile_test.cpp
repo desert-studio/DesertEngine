@@ -2746,11 +2746,13 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
          body.find( "graph.AddPass(\"Particles:Simulate\",RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
          std::string::npos );
 
-    // The node declares the emitters' buffers: imported through Renderer::ImportBuffer, written StorageWrite.
+    // The node declares the emitters' buffers: imported through Renderer::ImportBuffer, written StorageWrite by
+    // the setup's binding blocks (ParticleRenderer::DeclareSimulateBindings, one per imported emitter).
     EXPECT_NE( body.find( "particles->ImportSimulationBuffers(graph)" ), std::string::npos )
          << "the simulation node does not import the emitters' buffers";
-    EXPECT_NE( body.find( "pass.Write(buffer,RDG::Access::StorageWrite)" ), std::string::npos )
-         << "the simulation node does not declare its writes";
+    EXPECT_NE( body.find( "[particles](RDG::PassBuilder&pass){particles->DeclareSimulateBindings(pass);}" ),
+               std::string::npos )
+         << "the simulation node does not declare its writes in its setup";
     EXPECT_EQ( body.find( "[](RDG::PassBuilder&){}" ), std::string::npos )
          << "the simulation node declares nothing";
 
@@ -2773,18 +2775,30 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     const size_t simulateAt = particleText.find( "ParticleRenderer::Simulate(constRDG::PassContext&context," );
     ASSERT_NE( simulateAt, std::string::npos );
     EXPECT_NE( particleText.find( "if(!fe.Declared)continue;", simulateAt ), std::string::npos );
-    // The node's exec binds this frame's graph handles of both buffers by their shader names, as the declared
-    // StorageWrite, and dispatches through DispatchCompute (no pipeline setter carries a graph buffer).
+    // The setup declares one block per imported emitter: this frame's graph handles of both buffers by their
+    // shader names, StorageWrite, and the push bytes; the exec opens the n-th declared emitter's block n and
+    // dispatches through DispatchCompute (no pipeline setter carries a graph buffer, no name is bound in it).
+    const size_t declareAt =
+         particleText.find( "voidParticleRenderer::DeclareSimulateBindings(RDG::PassBuilder&pass)const" );
+    ASSERT_NE( declareAt, std::string::npos );
+    const std::string declareBody =
+         particleText.substr( declareAt, particleText.find( "ParticleRenderer::", declareAt + 5 ) - declareAt );
+    EXPECT_NE( declareBody.find( "if(!fe.Declared)continue;" ), std::string::npos )
+         << "the setup declares an emitter Simulate skips: the block numbering drifts";
+    EXPECT_NE( declareBody.find( ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageWrite)"
+                                 ".Storage(\"SpawnCounter\",fe.CounterRef,RDG::Access::StorageWrite)"
+                                 ".PushConstantBytes(static_cast<uint32_t>(sizeof(SimPush)))" ),
+               std::string::npos );
     const std::string simulateBody = particleText.substr(
          simulateAt, particleText.find( "ParticleRenderer::ImportSimulationBuffers(", simulateAt ) - simulateAt );
-    EXPECT_NE( simulateBody.find( "bindings.Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageWrite)"
-                                  ".Storage(\"SpawnCounter\",fe.CounterRef,RDG::Access::StorageWrite)" ),
+    EXPECT_NE( simulateBody.find( "RDG::PassBindingsbindings(context,context.GetBindingBlock(block++));" ),
                std::string::npos );
+    EXPECT_EQ( simulateBody.find( ".Storage(" ), std::string::npos ) << "Simulate binds a buffer by name";
     EXPECT_NE( simulateBody.find( "renderer.DispatchCompute(bindings,*m_SimPipeline,groups,1,1)" ),
                std::string::npos );
     EXPECT_EQ( simulateBody.find( "SetStorageBuffer" ), std::string::npos );
     EXPECT_NE( importBody.find( "fe.CounterRef=graph.RegisterExternal(fe.CounterImport," ), std::string::npos );
-    EXPECT_NE( importBody.find( "written.push_back(fe.CounterRef);" ), std::string::npos );
+    EXPECT_NE( importBody.find( "fe.Declared=true;" ), std::string::npos );
 
     // The same shape in a graph: two frames of a persistent buffer written by the node. The second frame's
     // write waits on the first's, from the state the first graph wrote back.
@@ -3306,6 +3320,60 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
     ASSERT_NE( jfaExec, std::string::npos );
     EXPECT_LT( jfaFill, jfaDeclare ) << "the composite is filled before its route fill is declared";
     EXPECT_LT( jfaDeclare, jfaExec ) << "both in the setup, before the exec";
+}
+
+// RDG-FAULT1 C3b, the scene and UI systems that record from setup-declared blocks: no exec in these files opens a
+// name-taking PassBindings( context ) - every RDG::PassBindings is constructed over a declared block
+// (PassBindings( context, context.GetBindingBlock( n ) )). A file joins the table when its nodes are converted.
+TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    for ( const char* file :
+          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" } )
+    {
+        const std::string text   = SqueezedSource( root, file );
+        size_t            opened = 0;
+        for ( size_t at = text.find( "RDG::PassBindings" ); at != std::string::npos;
+              at        = text.find( "RDG::PassBindings", at + 1 ) )
+        {
+            size_t args = at + std::string_view( "RDG::PassBindings" ).size();
+            while ( args < text.size() &&
+                    ( std::isalnum( static_cast<unsigned char>( text[args] ) ) != 0 || text[args] == '_' ) )
+                ++args;
+            if ( args >= text.size() || text[args] != '(' )
+                continue; // a type use (a parameter, a reference), not a construction
+            ++opened;
+            EXPECT_EQ( text.compare( args, std::string_view( "(context,context.GetBindingBlock(" ).size(),
+                                     "(context,context.GetBindingBlock(" ),
+                       0 )
+                 << file << ": " << text.substr( at, 80 ) << " is not opened over a setup-declared block";
+        }
+        EXPECT_GT( opened, 0u ) << file << " opens no PassBindings: the needle is stale";
+    }
+
+    // ParticlePass fills each emitter's material in its Declare, before the block that names the material's
+    // route fill; the exec only draws.
+    const std::string particles = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    const size_t pass = particles.find( ".AddPass(\"ParticlePass\"" );
+    const size_t declare =
+         particles.find( ".Declare=[this](RenderPassDeclaration&declared,constFrameGraphRefs&)", pass );
+    ASSERT_NE( pass, std::string::npos );
+    ASSERT_NE( declare, std::string::npos );
+    const std::string exec        = particles.substr( pass, declare - pass );
+    const std::string declaration = particles.substr( declare );
+    EXPECT_EQ( exec.find( "->Update(" ), std::string::npos ) << "ParticlePass fills a material in its exec";
+    const size_t update   = declaration.find( "fe.Gpu->Material->Update(camera);" );
+    const size_t bindings = declaration.find( "fe.Gpu->Material->GetMaterialExecutor()->GetRouteFill()" );
+    ASSERT_NE( update, std::string::npos );
+    ASSERT_NE( bindings, std::string::npos );
+    EXPECT_LT( update, bindings ) << "the material is filled before its route fill is declared";
+    EXPECT_NE( declaration.find( ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageRead)" ),
+               std::string::npos );
+    // Both walk the emitters by the one condition, so the exec's n-th drawn emitter opens block n.
+    EXPECT_NE( exec.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );
+    EXPECT_NE( declaration.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );
 }
 
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and
