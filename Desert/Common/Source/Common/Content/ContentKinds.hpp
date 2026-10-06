@@ -77,6 +77,7 @@ namespace Common::Content
         Prefab,
         Redirector,
         LevelSequence,
+        VFXSystem,
         COUNT,
     };
 
@@ -161,6 +162,8 @@ namespace Common::Content
              /* Redirector           */ { "Redirector", "", nullptr },
              // UE's ULevelSequence: a TMLN block whose header states this kind (LevelSequenceAsset.hpp).
              /* LevelSequence        */ { "LevelSequence", ".dseq", &P::LEVEL_SEQUENCE_PATH },
+             // UE's UNiagaraSystem with its emitters embedded (Engine/Assets/Serialization/VFXSystem.hpp).
+             /* VFXSystem            */ { "VFXSystem", ".dfx", &P::VFX_PATH },
         } };
     }
 

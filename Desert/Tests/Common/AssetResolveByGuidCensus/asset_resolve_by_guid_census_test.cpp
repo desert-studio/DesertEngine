@@ -93,6 +93,8 @@ namespace
               "header states a GUID but StoredFormFor(RetargetAsset) writes AssetsRelative path only (AF10f)" },
          PathOnlyRow{ ContentKind::Prefab,
                       "header states a GUID but PrefabComponent writes PrefabPath only (PrefabData.hpp) (AF10f)" },
+         PathOnlyRow{ ContentKind::VFXSystem,
+                      "header states a GUID but no component names a .dfx yet (VFXComponent is VFX-03)" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
          PathOnlyRow{
@@ -262,6 +264,15 @@ namespace
                                          Common::Content::AssetGuidToText( guid ) +
                                          "\",\"Versions\":{\"LLYI\":3},\"Dependencies\":[]},"
                                          "\"LayerName\":\"AF10a_Probe\"}\n";
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::VFXSystem:
+            {
+                // No system ships with the corpus yet; the least `.dfx` header the scan reads.
+                const std::string text = std::format(
+                     R"({{"Header":{{"Kind":"VFXSystem","Guid":"{}","Versions":{{"VFXS":1}},"Dependencies":[]}}}})"
+                     "\n",
+                     Common::Content::AssetGuidToText( guid ) );
                 return { text.begin(), text.end() };
             }
             case ContentKind::LevelSequence:

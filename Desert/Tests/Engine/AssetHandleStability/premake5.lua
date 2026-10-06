@@ -50,6 +50,8 @@ project(test_name)
         -- layer up — which is why both compile straight into a suite that links no renderer.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/UIThemeAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/LandscapeLayerInfoAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/VFXSystemAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/VFXSystem.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/LandscapeLayerInfo.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/UIThemeData.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/StringTableAsset.cpp",

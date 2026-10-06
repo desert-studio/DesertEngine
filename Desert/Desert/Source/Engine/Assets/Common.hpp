@@ -97,6 +97,9 @@ namespace Desert::Assets
         // Entity bindings name entities of the scene that places it through a LevelSequenceComponent. See
         // Engine/Assets/LevelSequenceAsset.hpp.
         LevelSequence,
+        // A VFX SYSTEM (`.dfx`): UE's UNiagaraSystem with its emitters embedded — emitters, their module
+        // stacks as data, User.* parameters, category and tags. See Engine/Assets/Serialization/VFXSystem.hpp.
+        VFXSystem,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -183,6 +186,9 @@ namespace Desert::Assets
             // A LEVEL SEQUENCE IS SCENE-SCOPED for the retarget's reason: `LevelSequenceComponent::Sequence`
             // is an `AssetHandle` held by a live entity.
             case AssetTypeID::LevelSequence:
+            // A VFX SYSTEM IS SCENE-SCOPED for the retarget's reason: the placing VFXComponent (VFX-03) holds
+            // its `AssetHandle`, and a system no live entity names has nothing to show.
+            case AssetTypeID::VFXSystem:
             case AssetTypeID::Count:
                 return false;
         }
@@ -249,6 +255,8 @@ namespace Desert::Assets
                 return "LandscapeLayerInfo";
             case AssetTypeID::LevelSequence:
                 return "LevelSequence";
+            case AssetTypeID::VFXSystem:
+                return "VFXSystem";
             case AssetTypeID::Count:
                 return "Count";
         }
