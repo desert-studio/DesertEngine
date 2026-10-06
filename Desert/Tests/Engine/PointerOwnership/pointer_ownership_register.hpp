@@ -788,6 +788,21 @@ namespace Desert::Tests::PointerCensus
           "resolved from ImageService for the image of m_WhiteTexture, which this Render2D owns; it is declared AFTER "
           "that texture, so it is destroyed first and the texture's destructor (which unregisters the image) runs "
           "last. The only other release path is Renderer::Shutdown -- terminal, after the last Flush" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp",
+          "Render2D", "Pipeline", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, the value Render2D::Resolve returns for ONE draw command: built and consumed inside one iteration of DeclareInto (setup) or Flush (exec) and never stored, so the pointer cannot outlive the walk that made it. Points at m_Pipeline / m_TextPipeline / m_GlassPipeline (shared_ptr members of this Render2D, rebuilt only by Init, never during a frame's graph) or at a UIMaterialCache entry's Pipeline (the cache is the Render2D member m_MaterialCache; its unordered_map nodes do not move, Rebuild runs only from Init, and RetireUnused runs after the last draw of the Flush and keeps every entry a frame in flight can read)" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp",
+          "Render2D", "Executor", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, the value Render2D::Resolve returns for ONE draw command: built and consumed inside one iteration of DeclareInto (setup) or Flush (exec) and never stored, so the pointer cannot outlive the walk that made it. The 2D/text executor of this Render2D's executor caches (retired by RetireUnusedExecutors only after the draws, on the frames-in-flight window) or the executor of a UIMaterialCache entry's runtime material (owned by that entry's unique_ptr Material) -- the same owners and window as the Pipeline row" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp",
+          "Render2D", "Plain", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, the value Render2D::Resolve returns for ONE draw command: built and consumed inside one iteration of DeclareInto (setup) or Flush (exec) and never stored, so the pointer cannot outlive the walk that made it. The same executor as the Executor row for a plain/text draw, non-const because its projection is pushed: owned by this Render2D's executor caches, retired only after the draws on the frames-in-flight window" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp",
+          "Render2D", "Material", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, the value Render2D::Resolve returns for ONE draw command: built and consumed inside one iteration of DeclareInto (setup) or Flush (exec) and never stored, so the pointer cannot outlive the walk that made it. The runtime material of a UIMaterialCache entry (the entry's unique_ptr, or the shared error entry m_Error after UIMaterialCache::DrawableOrDefault substitutes the default UI material); owned by the Render2D member m_MaterialCache and retired only after the Flush's last draw" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp",
+          "Render2D", "Layout", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, the value Render2D::Resolve returns for ONE draw command: built and consumed inside one iteration of DeclareInto (setup) or Flush (exec) and never stored, so the pointer cannot outlive the walk that made it. One of this Render2D's ShaderBindingLayoutCache members (m_PlainLayout / m_TextLayout / m_GlassLayout) or the mutable Layout of the UIMaterialCache entry the draw binds -- members of objects that outlive the walk, by the same rules as the Pipeline row" },
         { "Desert/Desert/Source/Engine/Graphic/Texture.hpp",
           "Texture2D", "m_Service", Guard::StaticStorage,
           "ResourceRegistry::GetImageService's function-local static; ResourceRegistry.cpp constructs it before "
