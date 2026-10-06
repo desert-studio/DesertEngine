@@ -54,8 +54,11 @@
 #include <Engine/ECS/System/AudioECSSystem.hpp>
 
 // STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); declare only.
-// Unconditional: --render-movie writes its frames with it in every configuration, Shipping included.
+// Only the development tools write a PNG from this host (--shot, --render-movie), so a shipping build
+// does not need the declaration either.
+#if DESERT_DEV_INSTRUMENTS
 #include <stb_image/stb_image_write.h>
+#endif
 
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
@@ -130,10 +133,17 @@ namespace
 
 namespace Desert::Player
 {
+#if DESERT_DEV_INSTRUMENTS
     RuntimeLayer::RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play,
                                 std::optional<MovieRenderRequest> movie, Engine::Application* application )
          : Common::Layer( "RuntimeLayer" ), m_ScenePathOverride( std::move( scenePathOverride ) ),
            m_PlayRequest( std::move( play ) ), m_Application( application ), m_Movie( std::move( movie ) )
+#else
+    RuntimeLayer::RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play,
+                                Engine::Application* application )
+         : Common::Layer( "RuntimeLayer" ), m_ScenePathOverride( std::move( scenePathOverride ) ),
+           m_PlayRequest( std::move( play ) ), m_Application( application )
+#endif
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
         // Filled by the "Indexing animation clips" stage of the boot, the same call the editor makes. This
@@ -329,8 +339,10 @@ namespace Desert::Player
         // same count reached with directory walks and reached without them are two different boots, and
         // nothing else in the process can tell them apart (§T2.4).
         LOG_INFO( "[ContentScan] boot finished — {}", Common::Utils::ContentScanLedger::Report() );
+#if DESERT_DEV_INSTRUMENTS
         if ( m_Movie.has_value() )
             return InitMovieTarget(); // rendering a movie is not launching the game: no startup movies
+#endif
         BeginStartupMovies();
         return BOOLSUCCESS;
     }
@@ -439,6 +451,7 @@ namespace Desert::Player
         m_Navigate      = 0;
     }
 
+#if DESERT_DEV_INSTRUMENTS
     Common::BoolResultStr RuntimeLayer::InitMovieTarget()
     {
         if ( !m_Movie.has_value() )
@@ -509,6 +522,7 @@ namespace Desert::Player
             m_Application->Close( 0 );
         }
     }
+#endif // DESERT_DEV_INSTRUMENTS
 
     void RuntimeLayer::BuildGameplaySystems()
     {
@@ -688,11 +702,13 @@ namespace Desert::Player
         ++m_PresentedFrames;
         if ( m_StartupMovies && m_StartupPictureCurrent )
             m_StartupMovies->NotifyFramePresented(); // the first shown frame of a movie starts its clock
+#if DESERT_DEV_INSTRUMENTS
         if ( m_Movie.has_value() )
         {
             CollectMovieFrame();
             return;
         }
+#endif
 
 #if !DESERT_DEV_INSTRUMENTS
         // A shipping player counts its presented frames and does nothing else here: the capture that used
@@ -972,7 +988,12 @@ namespace Desert::Player
         std::string clicked;
         bool        uiBuilt      = false;
         bool        presentScene = false;
-        if ( const auto swapFb = m_Movie.has_value() ? m_MovieTarget : renderer.GetCompositeFramebuffer() )
+#if DESERT_DEV_INSTRUMENTS
+        const auto composeTarget = m_Movie.has_value() ? m_MovieTarget : renderer.GetCompositeFramebuffer();
+#else
+        const auto composeTarget = renderer.GetCompositeFramebuffer();
+#endif
+        if ( const auto swapFb = composeTarget )
         {
             if ( !m_PresentReady )
                 if ( const auto r = InitPresent( swapFb ); !r )
@@ -999,8 +1020,10 @@ namespace Desert::Player
                 // is deliberate: a cover is only as opaque as whoever edits it next leaves it, and this way
                 // the undercooked image is not in the swapchain to begin with.
                 const bool loading = m_Content.Loading();
+#if DESERT_DEV_INSTRUMENTS
                 // Frame 0 of a movie is the first frame of a complete world; loading frames are not written.
                 m_MovieFrameDrawn = m_Movie.has_value() && !loading;
+#endif
                 // A startup movie covers the frame like the loading screen does, and the world keeps being
                 // rendered (and so keeps loading) underneath it.
                 const bool startupMovie = StartupMoviesPlaying();
@@ -1130,6 +1153,7 @@ namespace Desert::Player
             m_Render2D->RenderRetained();
 
         // A movie composes into its own offscreen target of the requested size; the game into the swapchain.
+#if DESERT_DEV_INSTRUMENTS
         if ( m_Movie.has_value() )
         {
             if ( const auto begun = Graphic::Renderer::BeginRenderPass( m_MoviePass.get(), true ); !begun )
@@ -1146,6 +1170,7 @@ namespace Desert::Player
             }
         }
         else
+#endif
             renderer.BeginSwapChainRenderPass();
 
         if ( presentScene )
@@ -1162,11 +1187,13 @@ namespace Desert::Player
 
         // The swapchain image acquired for this frame still has to be rendered to before it is presented;
         // during a movie it carries an empty pass and the picture lives in the offscreen target only.
+#if DESERT_DEV_INSTRUMENTS
         if ( m_Movie.has_value() )
         {
             renderer.BeginSwapChainRenderPass();
             renderer.EndRenderPass();
         }
+#endif
 
         // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and it has to be: a swapchain
         // image may only be touched between its acquire and its present, and reading it back afterwards

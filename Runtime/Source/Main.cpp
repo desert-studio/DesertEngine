@@ -58,8 +58,10 @@ namespace Desert::Player
 {
     static std::string       s_SceneOverride;
     static Core::PlayRequest s_PlayRequest;
+#if DESERT_DEV_INSTRUMENTS
     static std::optional<MovieRenderRequest>
          s_Movie; // --render-movie: offline render of a level (MovieRender.hpp)
+#endif
 
     class RuntimeApp : public Engine::Application
     {
@@ -70,10 +72,14 @@ namespace Desert::Player
 
         void OnCreate() override
         {
+#if DESERT_DEV_INSTRUMENTS
             // A movie is rendered on fixed time: frame N is at N / fps of world time on every run.
             if ( s_Movie.has_value() )
                 SetFixedDeltaTime( s_Movie->FrameStep() );
             PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, s_Movie, this ) );
+#else
+            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, this ) );
+#endif
         }
 
         void OnDestroy() override
@@ -96,6 +102,24 @@ namespace Desert::Player
     LOG_ERROR( "{}", message );
     std::exit( exitCode );
 }
+
+#if !DESERT_DEV_INSTRUMENTS
+// THE DEVELOPMENT FLAGS A SHIPPING BUILD DOES NOT HAVE ARE REFUSED, NOT IGNORED. Their code is not compiled
+// (RuntimeShot.hpp, MovieRender.hpp), and a flag that was silently dropped is a silent fallback: a script
+// that asked for a capture or a movie would start the game in a window and wait for files that never come.
+// One list, one refusal, one text — a new development flag is a new row here, not a second copy.
+static void RefuseDevelopmentFlags( int argc, char** argv )
+{
+    static constexpr const char* kDevelopmentFlags[] = { "--shot", "--shot-frames", "--render-movie" };
+    for ( int i = 1; i < argc; ++i )
+        for ( const char* flag : kDevelopmentFlags )
+            if ( std::strcmp( argv[i], flag ) == 0 )
+                FailStartup( std::format( "{} is a development tool and is not in a Shipping build; "
+                                          "run a Debug or Release Runtime",
+                                          flag ),
+                             2 );
+}
+#endif
 
 std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char** argv )
 {
@@ -133,8 +157,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // FATAL rather than a warning, since an unattended capture that silently did not happen leaves a
     // windowed game running with nobody watching it. See RuntimeShot.hpp.
     //
-    // NOT IN A SHIPPING BUILD. `--shot` is then not an unrecognised flag that is politely ignored — it is
-    // a flag that does not exist, because the code that would read it was not compiled.
+    // NOT IN A SHIPPING BUILD: the code that would read `--shot` is not compiled, and the flag is REFUSED
+    // at startup rather than politely ignored (RefuseDevelopmentFlags, with --render-movie below).
 #if DESERT_DEV_INSTRUMENTS
     const std::vector<std::string> shotArgs( argv + ( argc > 0 ? 1 : 0 ), argv + argc );
     if ( const auto parsed = Desert::Player::ParseRuntimeShot( shotArgs, Desert::Player::RuntimeShot::Get() );
@@ -146,6 +170,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
 
     // THE MOVIE RENDER (UE Movie Render Queue): the level it names replaces --scene, and a malformed request is
     // fatal for the same reason --shot's is — an unattended render that silently did not start never ends.
+    //
+    // NOT IN A SHIPPING BUILD, like --shot (MovieRender.hpp): there both are refused by one function.
+#if DESERT_DEV_INSTRUMENTS
     {
         const std::vector<std::string> movieArgs( argv + ( argc > 0 ? 1 : 0 ), argv + argc );
         auto                           movie = Desert::Player::ParseMovieRender( movieArgs );
@@ -155,6 +182,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         if ( Desert::Player::s_Movie.has_value() )
             Desert::Player::s_SceneOverride = Desert::Player::s_Movie->Map;
     }
+#else
+    RefuseDevelopmentFlags( argc, argv );
+#endif
 
     // THE CRASH HANDLER, BEFORE ANYTHING THAT CAN FAULT (PKG1c; UE installs its handler before the
     // project loads). Mounting the archive and parsing the .deproj are exactly that, and the game's Name —
@@ -342,11 +372,13 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // Width/Height left as std::nullopt -> fullscreen at the monitor's native resolution.
     // A movie renders into its own offscreen target; the window is only the host of the device, so it is a
     // small window rather than a fullscreen one covering the desktop for the length of the render.
+#if DESERT_DEV_INSTRUMENTS
     if ( Desert::Player::s_Movie.has_value() )
     {
         appInfo.Width  = 640u;
         appInfo.Height = 360u;
     }
+#endif
 
     return std::make_unique<Desert::Player::RuntimeApp>( appInfo );
 }

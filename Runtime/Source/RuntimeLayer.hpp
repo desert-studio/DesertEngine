@@ -53,8 +53,13 @@ namespace Desert::Player
         // worker threads — see the quit handler in OnUpdate).
         // @p play: how the FIRST level begins Play (`--player-start`); a level switch begins with the default
         // start, since a tag names a start in the level it was given for.
+        // @p movie: the --render-movie request; a development build's only (MovieRender.hpp).
+#if DESERT_DEV_INSTRUMENTS
         RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play,
                       std::optional<MovieRenderRequest> movie, Engine::Application* application );
+#else
+        RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play, Engine::Application* application );
+#endif
         ~RuntimeLayer();
 
         [[nodiscard]] Common::BoolResultStr OnAttach() override;
@@ -139,7 +144,9 @@ namespace Desert::Player
 
         // THE MOVIE RENDER (--render-movie, MovieRender.hpp). Set, the frame is composed into m_MovieTarget —
         // an offscreen framebuffer of the requested size — instead of the swapchain, and every frame drawn
-        // after the content gate opened is read back and written as the next numbered PNG.
+        // after the content gate opened is read back and written as the next numbered PNG. Absent from a
+        // Shipping build, with the flag.
+#if DESERT_DEV_INSTRUMENTS
         std::optional<MovieRenderRequest>     m_Movie;
         std::shared_ptr<Graphic::Framebuffer> m_MovieTarget;
         std::shared_ptr<Graphic::RenderPass>  m_MoviePass;
@@ -147,6 +154,7 @@ namespace Desert::Player
         bool                                  m_MovieFrameDrawn = false; // this frame showed the world -> write it
         Common::BoolResultStr                 InitMovieTarget();
         void                                  CollectMovieFrame();
+#endif
         uint32_t                                     m_LastWidth = 0, m_LastHeight = 0;
 
         // A UI button clicked this frame with an "scene:<path>" OnClickMessage — applied next OnUpdate.

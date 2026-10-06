@@ -1,5 +1,13 @@
 #pragma once
 
+#include <Common/Core/DevInstruments.hpp>
+
+// A DEVELOPMENT TOOL, SO NOT IN A SHIPPING BUILD (owner 2026-10-06: "the player does not need it"). Like
+// RuntimeShot.hpp, this header is the boundary: under `Shipping` there is no request, no parser and no
+// `--render-movie` to parse; Main.cpp refuses the flag at startup and RuntimeLayer drops its target, its
+// pass and its PNG writer with it.
+#if DESERT_DEV_INSTRUMENTS
+
 #include <Common/Core/ResultStr.hpp>
 
 #include <cmath>
@@ -180,3 +188,5 @@ namespace Desert::Player
         return Common::MakeSuccess( Result{ std::move( request ) } );
     }
 } // namespace Desert::Player
+
+#endif // DESERT_DEV_INSTRUMENTS
