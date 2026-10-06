@@ -264,6 +264,11 @@ namespace Desert::Graphic::API::Vulkan
         auto storageProp = static_cast<StorageBufferProperty*>( prop );
         if ( storageProp == nullptr )
             return;
+        // A storage buffer nothing ever wrote is not the material's slot (MaterialExecutor::GetRouteFill leaves it
+        // to the pass, e.g. the Composite's uploaded light buffers): writing a lazy copy's descriptor here would put
+        // the binding in GetWrittenSlots and the record would refuse it as filled by both routes.
+        if ( !storageProp->IsWritten() )
+            return;
 
         const uint32_t frameIndex    = EngineContext::GetInstance().GetCurrentFrameIndex();
         const uint64_t absoluteFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
