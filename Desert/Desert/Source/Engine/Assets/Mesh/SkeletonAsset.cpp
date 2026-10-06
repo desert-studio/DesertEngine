@@ -37,15 +37,15 @@ namespace Desert::Assets
         // first would free the object. Written only after the file parsed, so a failed reload keeps the rig.
         // SKEL 4: the sockets and bone masks are checked against the bones just read BEFORE the rig is replaced,
         // so a file naming a bone it lacks is refused by name and a loaded rig keeps what it had.
-        Animation::Skeleton read( std::move( data.Bones ) );
-        if ( auto sockets = read.SetSockets( std::move( data.Sockets ) ); !sockets )
+        Animation::Skeleton rig( std::move( data.Bones ) );
+        if ( auto sockets = rig.SetSockets( std::move( data.Sockets ) ); !sockets )
             return Common::MakeFormattedError<bool>( "'{}': {}", file.string(), sockets.GetError() );
-        if ( auto masks = read.SetBoneMasks( std::move( data.BoneMasks ) ); !masks )
+        if ( auto masks = rig.SetBoneMasks( std::move( data.BoneMasks ) ); !masks )
             return Common::MakeFormattedError<bool>( "'{}': {}", file.string(), masks.GetError() );
         if ( m_Skeleton )
-            *m_Skeleton = std::move( read );
+            *m_Skeleton = std::move( rig );
         else
-            m_Skeleton = std::make_unique<Animation::Skeleton>( std::move( read ) );
+            m_Skeleton = std::make_unique<Animation::Skeleton>( std::move( rig ) );
         // Taken from the bones that were just read, never from `data.Signature`: the file's own field is
         // what a cook WROTE, and this is what the rig in memory IS. A mesh is matched against the second.
         m_Signature = m_Skeleton->GetSignature();

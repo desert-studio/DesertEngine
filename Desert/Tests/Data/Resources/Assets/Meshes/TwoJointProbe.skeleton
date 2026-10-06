@@ -3,7 +3,7 @@
         "Kind": "Skeleton",
         "Guid": "e287e4cefcdec52a99588849bcf0a0a0",
         "Versions": {
-            "SKEL": 3
+            "SKEL": 4
         },
         "Dependencies": []
     },
@@ -33,5 +33,7 @@
             "ParentBoneID": 0
         }
     ],
-    "CompatibleSkeletons": []
+    "CompatibleSkeletons": [],
+    "Sockets": [],
+    "BoneMasks": []
 }
