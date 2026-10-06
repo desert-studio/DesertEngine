@@ -232,9 +232,9 @@ namespace Desert::Graphic::API::Vulkan
                                               2.0 * static_cast<double>( kBandwidthBytes ) } };
             for ( Pass& pass : passes )
             {
-                const std::string path = std::string( "<GpuBenchmark:" ) + pass.Name + ">";
-                auto spirv = ::Desert::Core::ShaderCompiler::CompileGLSLToSPIRV( ::Desert::Core::Formats::ShaderStage::Compute,
-                                                                       pass.Source, path );
+                const std::string path  = std::string( "<GpuBenchmark:" ) + pass.Name + ">";
+                auto              spirv = ::Desert::Core::ShaderCompiler::CompileGLSLToSPIRV(
+                     ::Desert::Core::Formats::ShaderStage::Compute, pass.Source, path );
                 if ( !spirv.IsSuccess() )
                     return Fail( std::format( "pass '{}' did not compile: {}", pass.Name, spirv.GetError() ) );
                 const std::vector<uint32_t>& code = spirv.GetValue();

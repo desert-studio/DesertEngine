@@ -75,8 +75,9 @@ namespace Common::Scalability
         double logSum = 0.0;
         for ( const BenchmarkPass& pass : passes )
         {
-            const auto reference = std::find_if( references.begin(), references.end(),
-                                                 [&]( const BenchmarkReference& r ) { return r.Name == pass.Name; } );
+            const auto reference =
+                 std::find_if( references.begin(), references.end(),
+                               [&]( const BenchmarkReference& r ) { return r.Name == pass.Name; } );
             if ( reference == references.end() )
                 return Common::MakeError<float>(
                      std::format( "GPU benchmark: pass '{}' has no reference rate", pass.Name ) );
@@ -84,12 +85,13 @@ namespace Common::Scalability
                 return Common::MakeError<float>(
                      std::format( "GPU benchmark: the reference rate of pass '{}' is not positive", pass.Name ) );
             if ( !( pass.Milliseconds > 0.0 ) || !( pass.Work > 0.0 ) )
-                return Common::MakeError<float>( std::format(
-                     "GPU benchmark: pass '{}' measured {} ms for {} work units — not a rate", pass.Name,
-                     pass.Milliseconds, pass.Work ) );
+                return Common::MakeError<float>(
+                     std::format( "GPU benchmark: pass '{}' measured {} ms for {} work units — not a rate",
+                                  pass.Name, pass.Milliseconds, pass.Work ) );
             logSum += std::log( ( pass.Work / pass.Milliseconds ) / reference->WorkPerMillisecond );
         }
-        return Common::MakeSuccess( static_cast<float>( 100.0 * std::exp( logSum / static_cast<double>( passes.size() ) ) ) );
+        return Common::MakeSuccess(
+             static_cast<float>( 100.0 * std::exp( logSum / static_cast<double>( passes.size() ) ) ) );
     }
 
     bool CacheValid( const std::optional<RecommendedQuality>& cached, const BenchmarkCacheKey& now )

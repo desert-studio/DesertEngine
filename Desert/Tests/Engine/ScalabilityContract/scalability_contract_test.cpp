@@ -682,13 +682,14 @@ TEST( ScalabilityContract, AnIndexOnAThresholdTakesTheLevelAboveItAndJustBelowTh
         for ( std::size_t i = 0; i < table.RecommendThresholds[g].size(); ++i )
         {
             BenchmarkResult at;
-            at.Timed        = true;
-            at.Class        = DeviceClass::Discrete;
-            at.VideoMemory  = 64ull << 30;
-            at.GpuPerfIndex = table.RecommendThresholds[g][i];
+            at.Timed              = true;
+            at.Class              = DeviceClass::Discrete;
+            at.VideoMemory        = 64ull << 30;
+            at.GpuPerfIndex       = table.RecommendThresholds[g][i];
             BenchmarkResult below = at;
             below.GpuPerfIndex    = std::nextafter( at.GpuPerfIndex, 0.0f );
-            EXPECT_EQ( RecommendLevels( at, table )[g], static_cast<Level>( i + 1 ) ) << "group " << g << " t" << i;
+            EXPECT_EQ( RecommendLevels( at, table )[g], static_cast<Level>( i + 1 ) )
+                 << "group " << g << " t" << i;
             EXPECT_EQ( RecommendLevels( below, table )[g], static_cast<Level>( i ) ) << "group " << g << " t" << i;
         }
     }
@@ -727,10 +728,10 @@ TEST( ScalabilityContract, APassThatIsNotARateIsAnErrorNotAnIndex )
 TEST( ScalabilityContract, TheCacheKeyIsTheCreatedDevicesIdentityAndATableChangeInvalidatesIt )
 {
     Desert::Engine::DeviceCapabilities caps;
-    caps.VendorId      = 0x10DE;
-    caps.DeviceId      = 0x2482;
-    caps.DriverVersion = 0x93C00000u;
-    caps.Name          = "NVIDIA GeForce RTX 3070 Ti";
+    caps.VendorId               = 0x10DE;
+    caps.DeviceId               = 0x2482;
+    caps.DriverVersion          = 0x93C00000u;
+    caps.Name                   = "NVIDIA GeForce RTX 3070 Ti";
     const BenchmarkCacheKey key = Desert::Engine::MakeBenchmarkCacheKey( caps, 3 );
     EXPECT_EQ( key, ( BenchmarkCacheKey{ 0x10DE, 0x2482, 0x93C00000u, "NVIDIA GeForce RTX 3070 Ti", 3 } ) );
 
