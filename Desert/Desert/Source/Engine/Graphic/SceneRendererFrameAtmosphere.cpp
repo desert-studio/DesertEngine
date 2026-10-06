@@ -112,5 +112,9 @@ namespace Desert::Graphic
              textures.Import( result.Scatter, std::format( "Clouds.History{}", result.Slot ) );
         textures.Transients.CloudGuide =
              textures.Import( result.Guide, std::format( "Clouds.HistoryGuide{}", result.Slot ) );
+        // The pair is next frame's history: if a fault removes the resolve that writes it, the history restarts.
+        for ( const RDG::TextureRef history : { textures.Transients.CloudScatter, textures.Transients.CloudGuide } )
+            if ( history.IsValid() )
+                textures.MarkHistory( history, [clouds]() { clouds->OnTemporalHistoryReset(); } );
     }
 } // namespace Desert::Graphic

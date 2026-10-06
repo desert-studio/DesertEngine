@@ -137,6 +137,9 @@ namespace Desert::Graphic
              textures.Import( autoExp->GetPreviousLuminanceImage(), "AutoExposure.Previous" );
         const RDG::TextureRef adapted =
              textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" );
+        // Next frame adapts from this luminance: if a fault removes its writer, the next adaptation snaps.
+        if ( adapted.IsValid() )
+            textures.MarkHistory( adapted, [autoExp]() { autoExp->OnTemporalHistoryReset(); } );
         // The histogram lives within this frame: a transient buffer of this graph, cleared, filled and resolved by
         // the three nodes below. Nothing reads it the next frame.
         const RDG::BufferRef histogram =

@@ -10,6 +10,7 @@
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
 
+#include <algorithm>
 #include <format>
 #include <functional>
 #include <initializer_list>
@@ -99,6 +100,25 @@ namespace Desert::Graphic
             m_Refs.emplace( image.get(), ref );
             return ref;
         }
+        // RDG-FAULT1: @p history (a valid ref of this graph) is temporal history its owner reads next frame. If a
+        // fault removes its writer the frame goes on (ExternalFaultPolicy::InvalidateHistory) and @p reset -- the
+        // owner's history reset -- runs in ResetInvalidatedHistories, so next frame does not read a slot nobody
+        // wrote this frame.
+        void MarkHistory( RDG::TextureRef history, std::function<void()> reset )
+        {
+            m_Graph.SetFaultPolicy( history, RDG::ExternalFaultPolicy::InvalidateHistory );
+            m_Histories.emplace_back( history.Index, std::move( reset ) );
+        }
+        // After the graph executed: every history the graph listed in ExecuteReport::InvalidatedExternals is reset
+        // by its owner.
+        void ResetInvalidatedHistories() const
+        {
+            const std::vector<uint32_t>& invalidated = m_Graph.GetExecuteReport().InvalidatedExternals;
+            for ( const auto& [index, reset] : m_Histories )
+                if ( std::ranges::find( invalidated, index ) != invalidated.end() )
+                    reset();
+        }
+
         // The state the graph leaves @p image in at its end, for a reader outside this graph that samples it --
         // the scene's final image, which the editor viewport (ImGui) and the runtime blit sample after the
         // frame. The image must already be imported by a node of this graph (Import); an image no node
@@ -203,6 +223,7 @@ namespace Desert::Graphic
         std::vector<std::unique_ptr<RDG::ExternalTexture>> m_Storage; // outlive Execute: the graph points at them
         std::map<const Image*, RDG::TextureRef>            m_Refs;
         std::map<const Image*, RDG::ExternalTexture*>      m_Externals; // Import's registrations, for Extract
+        std::vector<std::pair<uint32_t, std::function<void()>>> m_Histories; // MarkHistory: external index, reset
     };
 
     // Shared by every raster node on an engine framebuffer (SceneRendererFrameMesh.cpp,
