@@ -398,18 +398,7 @@ namespace Desert::Graphic
              "PostFX: Tonemap", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( graphInputs.Source, RDG::Access::SampledGraphics );
-                 pass.Read( graphInputs.AvgLuminance, RDG::Access::SampledGraphics );
-                 pass.Read( graphInputs.Bloom, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
-                 // Any of the three may be System.Black: a texture the node already reads is not declared again
-                 // (every binding reads mip 0, the shaft and flare images' only level).
-                 if ( graphInputs.LightShafts != graphInputs.Bloom )
-                     pass.Read( graphInputs.LightShafts, RDG::Access::SampledGraphics,
-                                RDG::SubresourceRange::Mip( 0 ) );
-                 if ( graphInputs.LensFlare != graphInputs.Bloom &&
-                      graphInputs.LensFlare != graphInputs.LightShafts )
-                     pass.Read( graphInputs.LensFlare, RDG::Access::SampledGraphics,
-                                RDG::SubresourceRange::Mip( 0 ) );
+                 tonemap->DeclareBindings( pass, graphInputs );
                  // A fullscreen triangle writes every pixel: the old contents are not loaded.
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },

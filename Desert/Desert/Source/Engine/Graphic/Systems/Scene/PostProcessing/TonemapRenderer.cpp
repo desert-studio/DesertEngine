@@ -51,8 +51,31 @@ namespace Desert::Graphic::System
             m_Framebuffer->Resize( width, height );
     }
 
+    void TonemapRenderer::DeclareBindings( RDG::PassBuilder& pass, const GraphInputs& inputs ) const
+    {
+        if ( !m_Pipeline || !m_MaterialTonemap )
+            return;
+        // The samplers the material route sampled these with before: the scene colour and the luminance with the
+        // image's own (linear, REPEAT), the three effect images with LinearClamp at mip 0. Any of the three may
+        // be the same System.Black ref: three read entries of one ref in one state are one read of the pass
+        // (RenderGraphCompile TwoBlockEntriesReadingOneImageInOneState...).
+        pass.Bindings( m_BindingLayout.Get( m_Shader ), m_MaterialTonemap->GetMaterialExecutor()->GetRouteFill() )
+             .Sampled( "u_GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
+             .Sampled( "u_AvgLuminance", inputs.AvgLuminance, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
+             .Sampled( "u_BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
+             .Sampled( "u_LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() );
+    }
+
     Common::BoolResultStr TonemapRenderer::Record( const RDG::PassContext& context, const GraphInputs& inputs )
     {
+        if ( !m_Pipeline || !m_MaterialTonemap )
+            return Common::MakeError( "PostFX: Tonemap: the tonemap pipeline is not initialised" );
         const auto& framebuffer =
              m_TargetFramebuffer.lock(); // We call lock internally to avoid cyclic dependencies.
         if ( !framebuffer )
@@ -70,19 +93,7 @@ namespace Desert::Graphic::System
 
         m_MaterialTonemap->BindValues( params );
 
-        // The sampler the material route sampled these two with (the image's own: linear, REPEAT).
-        RDG::PassBindings bindings( context );
-        bindings
-             .Sampled( "u_GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-             .Sampled( "u_AvgLuminance", inputs.AvgLuminance, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-             .Sampled( "u_BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                        m_MaterialTonemap->GetMaterialExecutor() );
     }

@@ -3435,6 +3435,41 @@ TEST( RenderGraphCompile, LayoutCacheKeysOnTheShaderObjectAndItsReload )
     EXPECT_EQ( derived, 4 );
 }
 
+// RDG-FAULT1 C3b (Tonemap): one block may name ONE ref in several slots - bloom, light shafts and lens flare are
+// all System.Black when their nodes did not run. Three sampled reads of one subresource in one layout are one read
+// of the pass, so the node compiles and runs; refusing a repeated ref in a block would drop the tonemap every
+// frame an effect is off.
+TEST( RenderGraphCompile, OneRefInThreeSlotsOfOneBlockIsOneRead )
+{
+    ExternalTexture     blackImport( Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::None );
+    ExternalTexture     backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder             graph( "tonemap black" );
+    const TextureRef    black = graph.RegisterExternal( blackImport, "System.Black" );
+    const TextureRef    back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    ShaderBindingLayout layout{ "SceneComposite",
+                                { { "u_BloomTexture", ShaderResourceKind::SampledTexture },
+                                  { "u_LightShaftTexture", ShaderResourceKind::SampledTexture },
+                                  { "u_LensFlareTexture", ShaderResourceKind::SampledTexture } },
+                                0 };
+    graph.AddPass(
+         "PostFX: Tonemap", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Bindings( layout, {} )
+                  .Sampled( "u_BloomTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ),
+                            SamplerDesc::LinearClamp() )
+                  .Sampled( "u_LightShaftTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ),
+                            SamplerDesc::LinearClamp() )
+                  .Sampled( "u_LensFlareTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ),
+                            SamplerDesc::LinearClamp() );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+    const CompileResult result = CompileOrFail( graph );
+    ASSERT_EQ( result.Passes.size(), 1u );
+    EXPECT_TRUE( result.CulledPassNames.empty() );
+}
+
 TEST( RenderGraphCompile, BindingValidationRefusesABlockWithoutALayout )
 {
     const Common::BoolResultStr refused = ValidatePassBindings( DeclaredBindingBlock{} );
