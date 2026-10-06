@@ -30,9 +30,9 @@ namespace
 
 TEST( ThumbnailOrbitEdit, YawWrapsAt180FromBothSides )
 {
-    const ThumbnailOrbit near{ 0.0f, 170.0f, 0.0f };
-    EXPECT_FLOAT_EQ( TE::Orbited( near, 20.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw, -170.0f );
-    EXPECT_FLOAT_EQ( TE::Orbited( near, 10.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw, 180.0f ); // (-180, 180]
+    const ThumbnailOrbit nearSide{ 0.0f, 170.0f, 0.0f };
+    EXPECT_FLOAT_EQ( TE::Orbited( nearSide, 20.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw, -170.0f );
+    EXPECT_FLOAT_EQ( TE::Orbited( nearSide, 10.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw, 180.0f ); // (-180, 180]
     const ThumbnailOrbit farSide{ 0.0f, -170.0f, 0.0f };
     EXPECT_FLOAT_EQ( TE::Orbited( farSide, -10.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw, 180.0f );
     for ( int turns = -3; turns <= 3; ++turns )
