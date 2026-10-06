@@ -44,7 +44,9 @@ namespace Desert::Editor::Render
         //
         // LIFETIME: by value in the pass, and the pass is owned by the document's RenderRegistry. Closing
         // the document destroys the pass and with it every cell — there is nothing to release by hand.
-        ::Desert::UI::UIViewContext m_UIView;
+        // The engine resources this view draws with; declared first, so it outlives the view built on it.
+        ::Desert::UI::RegistryUICanvasResources m_UIResources;
+        ::Desert::UI::UIViewContext             m_UIView{ m_UIResources };
 
         // The offscreen worlds behind this view's render-texture elements. By value in the pass for the
         // same reason m_UIView is: closing the document destroys the pass, and destroying this is what

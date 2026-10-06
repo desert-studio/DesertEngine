@@ -34,16 +34,21 @@
 #include <Engine/UI/UIRenderTextureSource.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
 
+#include <TestSupport/ui_canvas_resources_mock.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <string>
 #include <vector>
 
-// The walk resolves sprites, fonts, icons, video and themes through the engine's ResourceRegistry. The
-// suite runs in a runner that links Desert, so those are the engine's own services, holding nothing: no
-// handle in this file is registered with any of them, and each answers an unregistered handle with
-// nothing -- a sprite draws its flat colour, video and theme slots stay empty.
+// The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
+namespace
+{
+    TestSupport::MockUICanvasResources s_Resources;
+} // namespace
+
+// The walk resolves sprites, fonts, icons, video and themes through the view's IUICanvasResources; every
+// view here is handed the mock below, which answers nothing: a sprite draws its flat colour, text draws nothing.
 
 namespace ECS = Desert::ECS;
 namespace R2D = Desert::Graphic::Render2D;
@@ -187,7 +192,7 @@ TEST( UIRenderTexture, AnAnsweredElementDrawsTheWorldItWasGiven )
 {
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D dl;
@@ -204,7 +209,7 @@ TEST( UIRenderTexture, ARefusedElementDrawsMagentaRatherThanNothing )
 {
     Fixture       f;
     StubSource    source( /*answers=*/false );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D dl;
@@ -225,7 +230,7 @@ TEST( UIRenderTexture, AnElementWithNoBackendAtAllAlsoDrawsMagenta )
     // The element's entire job is a picture, so unlike a material (which falls back to the element's own
     // fill) there is nothing to fall back TO, and silence here would be the same defect one level up.
     Fixture       f;
-    UIViewContext ctx; // RenderTextures deliberately left null
+    UIViewContext ctx{ s_Resources }; // RenderTextures deliberately left null
 
     R2D::DrawList2D dl;
     Draw( ctx, f, dl );
@@ -240,7 +245,7 @@ TEST( UIRenderTexture, AVisibleElementIsAskedAboutOncePerFrame )
 {
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D dl;
@@ -262,7 +267,7 @@ TEST( UIRenderTexture, AHiddenElementIsNotAskedAboutAtAllAndThatIsHowItsSlotCome
     // once, which is the same state the ViewBudget suite argues no picture can hold.
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     f.Layout().Visibility = ECS::UIVisibility::Hidden;
@@ -283,7 +288,7 @@ TEST( UIRenderTexture, ShowingAndHidingTheSameElementTogglesTheDemand )
     // view, over three frames, is what makes them two facts.
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D visible;
@@ -313,7 +318,7 @@ TEST( UIRenderTexture, TheRequestCarriesTheElementsOwnPixelSize )
 {
     Fixture       f; // 400 x 300 at scale 1
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D dl;
@@ -331,7 +336,7 @@ TEST( UIRenderTexture, ResolutionScaleReachesTheRequestAndIsNotAKnobThatMovesNot
 
     f.Data().ResolutionScale = 0.5f;
     {
-        UIViewContext ctx;
+        UIViewContext ctx{ s_Resources };
         ctx.RenderTextures = &source;
         R2D::DrawList2D dl;
         Draw( ctx, f, dl );
@@ -342,7 +347,7 @@ TEST( UIRenderTexture, ResolutionScaleReachesTheRequestAndIsNotAKnobThatMovesNot
 
     f.Data().ResolutionScale = 2.0f;
     {
-        UIViewContext ctx;
+        UIViewContext ctx{ s_Resources };
         ctx.RenderTextures = &source;
         R2D::DrawList2D dl;
         Draw( ctx, f, dl );
@@ -363,7 +368,7 @@ TEST( UIRenderTexture, ATargetIsClampedAtBothEndsBecauseItIsARealAllocation )
     f.Layout().OffsetMax     = f.Layout().OffsetMin; // a zero-sized rect
     f.Data().ResolutionScale = 1.0f;
     {
-        UIViewContext ctx;
+        UIViewContext ctx{ s_Resources };
         ctx.RenderTextures = &source;
         R2D::DrawList2D dl;
         Draw( ctx, f, dl );
@@ -377,7 +382,7 @@ TEST( UIRenderTexture, ATargetIsClampedAtBothEndsBecauseItIsARealAllocation )
     f.Layout().OffsetMax     = { kSide * 8.0f, kSide * 8.0f };
     f.Data().ResolutionScale = 2.0f;
     {
-        UIViewContext ctx;
+        UIViewContext ctx{ s_Resources };
         ctx.RenderTextures = &source;
         R2D::DrawList2D dl;
         Draw( ctx, f, dl );
@@ -393,7 +398,7 @@ TEST( UIRenderTexture, TintAndOpacityReachTheDrawnQuad )
 {
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     f.Data().Tint    = { 1.0f, 0.0f, 0.0f };

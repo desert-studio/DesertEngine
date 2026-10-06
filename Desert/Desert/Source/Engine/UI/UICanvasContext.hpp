@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/UI/UICanvasResources.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UILayout.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
@@ -263,6 +264,17 @@ namespace Desert::UI
     class UIViewContext
     {
     public:
+        // A view cannot exist without the resources it draws with: a host keeps a RegistryUICanvasResources
+        // beside its view (they die together), a test hands in a mock that answers what it is about. See
+        // UICanvasResources.hpp for why this is a constructor argument and not a registry lookup in the walk.
+        explicit UIViewContext( IUICanvasResources& resources ) : m_Resources( &resources ) {}
+
+        // Where every sprite, frame, theme, font and icon of this view's walks comes from.
+        [[nodiscard]] IUICanvasResources& Resources() const
+        {
+            return *m_Resources;
+        }
+
         // --- Identity ---------------------------------------------------------------------------------
         // The registry this state describes, remembered so a view that is pointed at another scene starts
         // clean instead of reading its predecessor's entity ids. Compared by address and never dereferenced.
@@ -484,6 +496,8 @@ namespace Desert::UI
         }
 
     private:
+        // Never null: bound by the constructor and copied with the view (an introspection probe walks a copy).
+        IUICanvasResources*                               m_Resources;
         std::unordered_map<entt::entity, UICanvasContext> m_Canvases;
     };
 } // namespace Desert::UI

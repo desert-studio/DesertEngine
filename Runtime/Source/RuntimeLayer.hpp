@@ -107,7 +107,9 @@ namespace Desert::Player
         // stack per canvas the level holds. It rebinds itself when a "scene:" button loads another scene, so
         // entity ids from the old registry never answer for the new one, and a canvas destroyed mid-level
         // takes its cell with it.
-        UI::UIViewContext m_UIView;
+        // The engine resources this view draws with; declared first, so it outlives the view built on it.
+        UI::RegistryUICanvasResources m_UIResources;
+        UI::UIViewContext             m_UIView{ m_UIResources };
 
         Common::BoolResultStr InitPresent( const std::shared_ptr<Graphic::Framebuffer>& swapFb );
 

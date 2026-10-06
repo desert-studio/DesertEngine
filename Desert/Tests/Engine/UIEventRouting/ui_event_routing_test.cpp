@@ -21,11 +21,18 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
+#include <TestSupport/ui_canvas_resources_mock.hpp>
 #include <gtest/gtest.h>
 
 #include <string>
 #include <vector>
 #include <Common/Json/Document.hpp>
+
+// The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
+namespace
+{
+    TestSupport::MockUICanvasResources s_Resources;
+} // namespace
 
 namespace
 {
@@ -46,10 +53,8 @@ namespace
     }
 } // namespace
 
-// The walk resolves sprites, fonts, icons, video and themes through the engine's ResourceRegistry. The
-// suite runs in a runner that links Desert, so those are the engine's own services, holding nothing: no
-// handle in this file is registered with any of them, and each answers an unregistered handle with
-// nothing -- a sprite draws its flat colour, video and theme slots stay empty.
+// The walk resolves sprites, fonts, icons, video and themes through the view's IUICanvasResources; every
+// view here is handed the mock below, which answers nothing: a sprite draws its flat colour, text draws nothing.
 
 using Desert::UI::Rect;
 using Desert::UI::UIInput;
@@ -200,7 +205,7 @@ TEST( UIEventRoute, APressOnALeafIsHeardByEveryAncestorInnermostFirst )
     t.Listen( t.Inner, "inner" );
     t.Listen( t.LeafA, "leafA" );
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
 
     const std::vector<std::string> expected = { "leafA:down", "inner:down", "outer:down", "canvas:down" };
@@ -217,7 +222,7 @@ TEST( UIEventRoute, TunnelListenersAllRunBeforeAnyBubbleListener )
     t.Listen( t.Inner, "inner" ); // Bubble, the default
     t.Listen( t.LeafA, "leafA" ).Phase = ECS::UIEventPhase::Tunnel;
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
 
     // Tunnel descends: outer before leafA. Then the bubble pass runs, and inner is all that is left.
@@ -236,7 +241,7 @@ TEST( UIEventRoute, StopPropagationOnTheTargetEndsTheRouteAndTheAncestorsHearNot
     t.Listen( t.Outer, "outer" );
     t.Listen( t.LeafA, "leafA" ).StopPropagation = true;
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
 
     ASSERT_EQ( msgs.size(), 1u ) << "propagation continued past a listener that stopped it";
@@ -256,7 +261,7 @@ TEST( UIEventRoute, ATunnellingAncestorThatStopsTakesThePressAndItsChildrenNever
     t.Listen( t.Inner, "inner" );
     t.Listen( t.LeafA, "leafA" );
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
 
     ASSERT_EQ( msgs.size(), 1u );
@@ -272,7 +277,7 @@ TEST( UIEventRoute, ReleaseTravelsTheSameChainAsPress )
     t.Listen( t.Outer, "outer" );
     t.Listen( t.LeafA, "leafA" );
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     const auto      msgs = Release( t, ctx, kOnLeafA );
 
     const std::vector<std::string> expected = { "leafA:up", "outer:up" };
@@ -294,7 +299,7 @@ TEST( UIEventRouteMeetsHitTest, AChildrenOnlyAncestorIsSkippedAndTheOneAboveItSt
     t.Listen( t.LeafA, "leafA" );
     t.SetHitTest( t.Inner, ECS::UIHitTest::ChildrenOnly );
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
 
     const std::vector<std::string> expected = { "leafA:down", "outer:down", "canvas:down" };
@@ -312,7 +317,7 @@ TEST( UIEventRouteMeetsHitTest, ABlockingTargetSwallowsThePressForItsAncestorsTo
     t.Listen( t.LeafA, "leafA" );
     t.SetHitTest( t.LeafA, ECS::UIHitTest::Blocking );
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
 
     EXPECT_TRUE( msgs.empty() ) << "a Blocking element let a press through to " << msgs.size() << " listener(s)";
@@ -329,7 +334,7 @@ TEST( UIEventRouteMeetsHitTest, NothingUnderANoneAncestorCanEvenStartARoute )
     t.Listen( t.LeafA, "leafA" );
     t.SetHitTest( t.Outer, ECS::UIHitTest::None );
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
 
     EXPECT_TRUE( msgs.empty() ) << "a press reached a sub-tree that is transparent to the pointer";
@@ -354,7 +359,7 @@ TEST( UIEventHover, MovingBetweenTwoChildrenOfOnePanelSaysNothingAboutThePanel )
     t.Listen( t.LeafA, "leafA" );
     t.Listen( t.LeafB, "leafB" );
 
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     Frame( t, ctx, kOnLeafA ); // settle the election: the first frame has nothing to compare against
     Frame( t, ctx, kOnLeafA );
     const auto msgs = Frame( t, ctx, kOnLeafB );
@@ -374,7 +379,7 @@ TEST( UIEventHover, ArrivingFromOutsideEntersEveryAncestorOutermostFirst )
     t.Listen( t.Inner, "inner" );
     t.Listen( t.LeafA, "leafA" );
 
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     Frame( t, ctx, kOffAll );
     Frame( t, ctx, kOffAll );
     const auto msgs = Frame( t, ctx, kOnLeafA );
@@ -392,7 +397,7 @@ TEST( UIEventHover, LeavingForAnAncestorExitsOnlyTheBranchThePointerLeft )
     t.Listen( t.Inner, "inner" );
     t.Listen( t.LeafA, "leafA" );
 
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     Frame( t, ctx, kOnLeafA );
     Frame( t, ctx, kOnLeafA );
     const auto toInner = Frame( t, ctx, kOnInner ); // still inside inner and outer
@@ -418,7 +423,7 @@ TEST( UIEventHover, AChildrenOnlyElementIsNotToldThePointerArrived )
     t.Listen( t.LeafA, "leafA" );
     t.SetHitTest( t.Inner, ECS::UIHitTest::ChildrenOnly );
 
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     Frame( t, ctx, kOffAll );
     Frame( t, ctx, kOffAll );
     const auto msgs = Frame( t, ctx, kOnLeafA );
@@ -444,7 +449,7 @@ TEST( UIEventRoute, TheDefaultsAreBubbleAndDoNotStop )
     Tree t;
     t.Listen( t.LeafA, "leafA" );
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     const auto      msgs = Press( t, ctx, kOnLeafA );
 
     const std::vector<std::string> expected = { "leafA:down" };

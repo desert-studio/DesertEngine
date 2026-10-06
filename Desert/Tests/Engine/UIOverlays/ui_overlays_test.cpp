@@ -31,6 +31,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
+#include <TestSupport/ui_canvas_resources_mock.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -38,6 +39,12 @@
 #include <string>
 #include <vector>
 #include <Common/Json/Document.hpp>
+
+// The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
+namespace
+{
+    TestSupport::MockUICanvasResources s_Resources;
+} // namespace
 
 namespace
 {
@@ -58,10 +65,8 @@ namespace
     }
 } // namespace
 
-// The walk resolves sprites, fonts, icons, video and themes through the engine's ResourceRegistry. The
-// suite runs in a runner that links Desert, so those are the engine's own services, holding nothing: no
-// handle in this file is registered with any of them, and each answers an unregistered handle with
-// nothing -- a sprite draws its flat colour, video and theme slots stay empty.
+// The walk resolves sprites, fonts, icons, video and themes through the view's IUICanvasResources; every
+// view here is handed the mock below, which answers nothing: a sprite draws its flat colour, text draws nothing.
 
 using Desert::UI::OverlayAxis;
 using Desert::UI::PlaceOverlay;
@@ -295,7 +300,7 @@ TEST( OverlayModal, APressThatMissesTheDialogDoesNotReachTheElementUnderIt )
 
     // --- Control: the modal is CLOSED, so the press is an ordinary press on the HUD.
     {
-        UIViewContext                  view;
+        UIViewContext                  view{ s_Resources };
         const std::vector<std::string> fired = w.Frame( view, press );
         EXPECT_NE( std::find( fired.begin(), fired.end(), "hud:down" ), fired.end() )
              << "with no modal open the HUD button did not hear its own press — the rest of this test "
@@ -305,7 +310,7 @@ TEST( OverlayModal, APressThatMissesTheDialogDoesNotReachTheElementUnderIt )
 
     // --- The modal is open.
     {
-        UIViewContext view;
+        UIViewContext view{ s_Resources };
         // One frame first: BeginUIFrame binds the view to this registry and drops everything it held, so a
         // cell written before the view has ever seen the scene is thrown away with it.
         w.Frame( view, At( 900.0f, 900.0f ) );
@@ -334,7 +339,7 @@ TEST( OverlayModal, AFullyTransparentScrimStillCaptures )
     dialog.OffsetMin = { 600.0f, 600.0f };
     dialog.OffsetMax = { 800.0f, 700.0f };
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     w.Frame( view, At( 900.0f, 900.0f ) ); // bind the view to this registry first — see the test above
     view.CanvasState( modal ).OverlayOpen = true;
     UIInput press                         = At( 50.0f, 50.0f );
@@ -350,7 +355,7 @@ TEST( OverlayModal, AClosedOverlayDrawsNothingAndIsNotTheSameStatementAsAnInvisi
     World              w;
     const entt::entity modal = w.MakeOverlay( ECS::UIOverlayKind::Modal, "Confirm", 200 );
 
-    UIViewContext   view;
+    UIViewContext   view{ s_Resources };
     R2D::DrawList2D dl;
     DUI::BeginUIFrame( view, w.Registry, kViewport );
     const auto closed = DUI::RenderCanvas2D( view, w.Registry, modal, dl );
@@ -382,7 +387,7 @@ TEST( OverlayTooltip, ItOpensOnlyAfterTheAuthoredDelayAndClosesWhenThePointerLea
     const entt::entity tip = w.MakeOverlay( ECS::UIOverlayKind::Tooltip, "Tip", 400 );
     w.Trigger( w.HudButton, "Tip", ECS::UIOverlayTriggerEvent::Hover, "Explains the button" );
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     const UIInput onButton = At( 50.0f, 50.0f );
 
     w.Frame( view, onButton ); // frame 1: the trigger is seen, the clock starts at zero
@@ -421,14 +426,14 @@ TEST( OverlayTooltip, AtTheRightEdgeTheOpenedTooltipFlipsAndStaysInsideTheView )
     w.Trigger( w.HudButton, "Tip", ECS::UIOverlayTriggerEvent::Hover, "hint" );
 
     // --- Control first: in the middle of the view it does NOT flip.
-    UIViewContext middleView;
+    UIViewContext middleView{ s_Resources };
     Idle( w, middleView, At( 400.0f, 400.0f ), 2 );
     ASSERT_TRUE( middleView.CanvasState( tip ).OverlayOpen );
     const Rect middle = OverlayBox( w, middleView, tip );
     EXPECT_GT( middle.X, 400.0f ) << "the tooltip flipped when there was room not to";
 
     // --- 40 px from the right border: 300 px of tooltip cannot fit to the right of the cursor.
-    UIViewContext edgeView;
+    UIViewContext edgeView{ s_Resources };
     Idle( w, edgeView, At( kSide - 40.0f, 400.0f ), 2 );
     ASSERT_TRUE( edgeView.CanvasState( tip ).OverlayOpen );
     const Rect edge = OverlayBox( w, edgeView, tip );
@@ -450,7 +455,7 @@ TEST( OverlayTooltip, AnOpenTooltipNeverTakesThePointerFromWhatItDescribes )
     w.Registry.get<ECS::UIOverlayComponent>( tip ).Data.FollowPointer = false;
     w.Trigger( w.HudButton, "Tip", ECS::UIOverlayTriggerEvent::Hover, "hint" );
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     const UIInput onButton = At( 50.0f, 50.0f );
     Idle( w, view, onButton, 3 );
 
@@ -469,7 +474,7 @@ TEST( OverlayContextMenu, ItOpensOnTheRightButtonAndClosesOnEscape )
     const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
     w.Trigger( w.HudButton, "Menu", ECS::UIOverlayTriggerEvent::RightClick );
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     Click( w, view, 50.0f, 50.0f, /*right=*/true );
     ASSERT_TRUE( view.CanvasState( menu ).OverlayOpen ) << "the right button did not open the menu";
     ASSERT_EQ( view.OverlayStack.size(), 1u );
@@ -482,7 +487,7 @@ TEST( OverlayContextMenu, ItOpensOnTheRightButtonAndClosesOnEscape )
 
     // The control: an overlay that says it does not close on Escape does not.
     w.Registry.get<ECS::UIOverlayComponent>( menu ).Data.CloseOnEscape = false;
-    UIViewContext second;
+    UIViewContext second{ s_Resources };
     Click( w, second, 50.0f, 50.0f, /*right=*/true );
     ASSERT_TRUE( second.CanvasState( menu ).OverlayOpen );
     w.Frame( second, esc );
@@ -496,7 +501,7 @@ TEST( OverlayContextMenu, APressOutsideTheMenuClosesItAndAPressInsideDoesNot )
     const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
     w.Trigger( w.HudButton, "Menu", ECS::UIOverlayTriggerEvent::RightClick );
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     Click( w, view, 50.0f, 50.0f, /*right=*/true );
     ASSERT_TRUE( view.CanvasState( menu ).OverlayOpen );
 
@@ -525,7 +530,7 @@ TEST( OverlayContextMenu, ASubmenuIsAnotherOverlayOpenedFromAnItemAndClosesWithI
     const entt::entity item = w.Registry.get<ECS::RelationshipComponent>( menu ).Children.front();
     w.Trigger( item, "Sub", ECS::UIOverlayTriggerEvent::Hover );
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     Click( w, view, 50.0f, 50.0f, /*right=*/true );
     ASSERT_TRUE( view.CanvasState( menu ).OverlayOpen );
 
@@ -556,7 +561,7 @@ TEST( OverlayToast, ANotificationLeavesOnItsOwnClock )
     o.ToastLifetime           = 0.5f;
     o.ToastSlots              = 3;
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     DUI::UIOverlayRequests::Get().Clear();
     DUI::UIOverlayRequests::Get().Raise( "Toasts", "Saved" );
 
@@ -582,7 +587,7 @@ TEST( OverlayToast, TheVisibleStackIsBoundedByTheAuthoredSlotsAndTheQueueBehindI
     o.ToastLifetime           = 10.0f; // long enough that nothing expires during the test
     o.ToastSlots              = 2;
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     DUI::UIOverlayRequests::Get().Clear();
     for ( int i = 0; i < 40; ++i )
         DUI::UIOverlayRequests::Get().Raise( "Toasts", "line " + std::to_string( i ) );
@@ -608,7 +613,7 @@ TEST( OverlayToast, AToastNeverTakesThePointerFromWhatIsUnderIt )
     const entt::entity toasts = w.MakeOverlay( ECS::UIOverlayKind::Toast, "Toasts", 100, { kSide, kSide } );
     w.Registry.get<ECS::UIOverlayComponent>( toasts ).Data.ToastLifetime = 10.0f;
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     DUI::UIOverlayRequests::Get().Clear();
     DUI::UIOverlayRequests::Get().Raise( "Toasts", "Saved" );
 
@@ -634,7 +639,7 @@ TEST( OverlayPlacement, WhereItDrawsAndWhereItCanBeClickedAreOneAnswer )
     const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
     w.Trigger( w.HudButton, "Menu", ECS::UIOverlayTriggerEvent::RightClick );
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     Click( w, view, 120.0f, 80.0f, /*right=*/true ); // inside the HUD button, which carries the trigger
     ASSERT_TRUE( view.CanvasState( menu ).OverlayOpen );
 
@@ -654,7 +659,7 @@ TEST( OverlayPlacement, WhereItDrawsAndWhereItCanBeClickedAreOneAnswer )
             "something else — the menu draws in one place and is clickable in another";
 
     // The control: the position the menu was AUTHORED at is no longer where it can be clicked.
-    UIViewContext third;
+    UIViewContext third{ s_Resources };
     Click( w, third, 120.0f, 80.0f, /*right=*/true );
     ASSERT_TRUE( third.CanvasState( menu ).OverlayOpen );
     w.Frame( third, At( 4.0f, 4.0f ) );
@@ -740,7 +745,7 @@ TEST( OverlayAuthoring, ADesignViewShowsEveryOverlayWhereItWasAuthored )
     World              w;
     const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     view.AuthoringPreview = true;
     R2D::DrawList2D dl;
     DUI::BeginUIFrame( view, w.Registry, kViewport );
@@ -779,7 +784,7 @@ TEST( OverlayAuthoring, AnElementInsideAnOverlayGetsItsMaterialLikeAnyOtherEleme
     w.Registry.get<ECS::UIPanelComponent>( item ).Data.Material = Desert::Assets::AssetHandle( 0xC0FFEEull );
 
     RecordingMaterials materials;
-    UIViewContext      view;
+    UIViewContext      view{ s_Resources };
     view.Materials        = &materials;
     view.AuthoringPreview = true; // shown as authored, which is what an author sees while building it
     w.Frame( view, At( 900.0f, 900.0f ) );

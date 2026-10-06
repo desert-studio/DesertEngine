@@ -24,7 +24,7 @@
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <TestSupport/ui_canvas_resources_mock.hpp>
 
 #include <gtest/gtest.h>
 
@@ -32,7 +32,13 @@
 #include <cmath>
 #include <optional>
 
-// One handle the animated-image stub below answers for, and the fake image it hands back. The draw list
+// The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
+namespace
+{
+    TestSupport::MockUICanvasResources s_Resources;
+} // namespace
+
+// One handle the mock's animated-image answer is armed for, and the fake image it hands back. The draw list
 // treats a texture as an OPAQUE id — it stores the pointer and never dereferences it — so a fixed address
 // is a complete stand-in for a GPU image here, and it is what lets the canvas-background draw be asserted
 // without a device. Only this handle resolves; everything else still gets nothing, so a button with no
@@ -43,106 +49,12 @@ namespace
 
     // Never dereferenced. Taken as an address so it is a real, unique object rather than a made-up number.
     int                       g_FakeImageStorage       = 0;
-    bool                      g_BackgroundServiceArmed = false;
     Desert::Graphic::Image2D* FakeImage()
     {
         return reinterpret_cast<Desert::Graphic::Image2D*>( &g_FakeImageStorage );
     }
 } // namespace
 
-// The renderer resolves sprites, fonts, icons and video through these. Every one of them owns GPU objects,
-// and every draw helper already copes with the service being absent — a sprite that will not resolve falls
-// back to its flat colour, text and icons draw nothing. That is exactly the path a headless walk wants, so
-// the suite supplies the accessors itself and returns nothing.
-namespace Desert::Runtime
-{
-    TextureService* ResourceRegistry::GetTextureService()
-    {
-        return nullptr;
-    }
-    ImageService* ResourceRegistry::GetImageService()
-    {
-        return nullptr;
-    }
-    FontService* ResourceRegistry::GetFontService()
-    {
-        return nullptr;
-    }
-    // Ю13's theme service. Absent like the rest, which is a MEANINGFUL state and not a hole: a canvas
-    // with no theme service behind it resolves every slot from the elements' own authored fields, which
-    // is exactly what a canvas with no theme does and what every scene authored before themes existed
-    // does. The walk copes with the accessor being null and never dereferences it.
-    UIThemeService* ResourceRegistry::GetUIThemeService()
-    {
-        return nullptr;
-    }
-    IconService* ResourceRegistry::GetIconService()
-    {
-        return nullptr;
-    }
-    // The one service the suite can stand up, because the only thing the renderer does with what it
-    // returns is put the pointer in a draw command. It is armed by a single test and otherwise absent.
-    AnimatedImageService* ResourceRegistry::GetAnimatedImageService()
-    {
-        static AnimatedImageService stub;
-        return g_BackgroundServiceArmed ? &stub : nullptr;
-    }
-    VideoService* ResourceRegistry::GetVideoService()
-    {
-        return nullptr;
-    }
-
-    // The service METHODS the walk calls on whatever those accessors hand back. Every accessor above
-    // returns nullptr, so none of these can run — they exist because the linker still wants the symbols,
-    // and each fails the test outright rather than returning a plausible value, so a future change that
-    // manages to reach one is a loud failure instead of a quiet stub.
-    Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& ) const
-    {
-        ADD_FAILURE() << "TextureService::Get reached with no texture service";
-        return nullptr;
-    }
-    Graphic::Image* ImageService::Resolve( const ImageHandle& ) const
-    {
-        ADD_FAILURE() << "ImageService::Resolve reached with no image service";
-        return nullptr;
-    }
-    // Answers for exactly one handle. Every other sprite in the walk keeps resolving to nothing, so a
-    // button or panel with no image of its own draws its flat colour as it does everywhere else.
-    Graphic::Image2D* AnimatedImageService::Resolve( const Assets::AssetHandle& handle )
-    {
-        return static_cast<uint64_t>( handle ) == kBackgroundHandle ? FakeImage() : nullptr;
-    }
-    Graphic::Image2D* VideoService::Resolve( uint64_t )
-    {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
-        return nullptr;
-    }
-    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "UIThemeService::Get reached with no theme service";
-        return nullptr;
-    }
-    Font* FontService::Get( uint64_t, float )
-    {
-        ADD_FAILURE() << "FontService::Get reached with no font service";
-        return nullptr;
-    }
-    uint64_t FontService::DefaultFontHandle()
-    {
-        ADD_FAILURE() << "FontService::DefaultFontHandle reached with no font service";
-        return 0;
-    }
-    bool FontService::RequestGlyphs( uint64_t, const std::vector<uint32_t>& )
-    {
-        ADD_FAILURE() << "FontService::RequestGlyphs reached with no font service";
-        return false;
-    }
-    Icon* IconService::Get( uint64_t )
-    {
-        ADD_FAILURE() << "IconService::Get reached with no icon service";
-        return nullptr;
-    }
-} // namespace Desert::Runtime
 
 using Desert::UI::Rect;
 using Desert::UI::UICanvasContext;
@@ -290,8 +202,8 @@ TEST( UICanvasContext, TheHotElectionOfOneViewDoesNotReachAnother )
 TEST( UICanvasContext, AnInertPreviewDoesNotClearTheInteractiveViewsElection )
 {
     Fixture         f;
-    UIViewContext   viewport;
-    UIViewContext   preview;
+    UIViewContext   viewport{ s_Resources };
+    UIViewContext   preview{ s_Resources };
     preview.DrivesSceneAnimation = false; // as UIEditorPanel configures it
 
     Frame( viewport, f, At( 10.0f, 10.0f ) );
@@ -435,8 +347,8 @@ TEST( UICanvasContext, OnlyTheDrivingViewAdvancesTheScenesAnimationPlayhead )
     clip.Duration = 100.0f; // long enough that nothing wraps
     clip.Loop     = false;
 
-    UIViewContext viewport;
-    UIViewContext preview;
+    UIViewContext viewport{ s_Resources };
+    UIViewContext preview{ s_Resources };
     preview.DrivesSceneAnimation = false;
 
     Frame( viewport, f, At( 900.0f, 900.0f, /*down=*/false ) );
@@ -459,7 +371,7 @@ TEST( UICanvasContext, OnlyTheDrivingViewAdvancesTheScenesAnimationPlayhead )
 TEST( UICanvasContext, RebindingAViewToAnotherRegistryDropsItsPerEntityState )
 {
     Fixture         a, b;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
 
     Frame( ctx, a, At( 10.0f, 10.0f ) );
     Frame( ctx, a, At( 10.0f, 10.0f ) );
@@ -522,11 +434,11 @@ TEST( UICanvasContext, AResolvableCanvasBackgroundCoversTheCanvasAndIsDrawnFirst
     f.Registry.get<ECS::UICanvasComponent>( f.Canvas ).Data.Sprite =
          Desert::Assets::AssetHandle( kBackgroundHandle );
 
-    g_BackgroundServiceArmed = true;
-    UIViewContext   ctx;
+    s_Resources.AnswerAnimatedFrame( kBackgroundHandle, FakeImage() );
+    UIViewContext   ctx{ s_Resources };
     R2D::DrawList2D dl;
     Draw( ctx, f.Registry, f.Canvas, dl );
-    g_BackgroundServiceArmed = false;
+    s_Resources.ForgetAnimatedFrames();
 
     ASSERT_FALSE( dl.GetCommands().empty() );
     EXPECT_EQ( dl.GetCommands().front().Texture, FakeImage() )
@@ -660,7 +572,7 @@ namespace
     // Draw @p s once and hand back where each of its three items landed (nullopt = not drawn at all).
     std::array<std::optional<Rect>, 3> Layout( Stack& s )
     {
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         R2D::DrawList2D dl;
         Draw( ctx, s.Registry, s.Canvas, dl );
         return { RectOfColor( dl, Stack::ColorOf( 0 ) ), RectOfColor( dl, Stack::ColorOf( 1 ) ),
@@ -800,7 +712,7 @@ namespace
 
     Probe Press( Nested& n, float x, float y )
     {
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         R2D::DrawList2D first;
         const UIInput   in = At( x, y );
         Draw( ctx, n.Registry, n.Canvas, first, &in );
@@ -947,7 +859,7 @@ namespace
         n.SetHitTest( n.Panel, hit );
         ArmButton( n );
 
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         R2D::DrawList2D a, b;
         const UIInput   hold = At( 10.0f, 10.0f );
         Draw( ctx, n.Registry, n.Canvas, a, &hold );
@@ -968,7 +880,7 @@ namespace
         n.SetHitTest( n.Panel, hit );
         ArmButton( n );
 
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         R2D::DrawList2D a, b;
         entt::entity    focused = entt::null;
 
@@ -991,7 +903,7 @@ namespace
     {
         n.SetHitTest( n.Panel, hit );
 
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         R2D::DrawList2D dl;
         entt::entity    focused = entt::null;
         UIInput         tab     = At( 900.0f, 900.0f, /*down=*/false );
@@ -1056,7 +968,7 @@ TEST( UICanvasHitTest, EnterOnAFocusHeldFromBeforeDoesNotFireAnUnreachableButton
         ArmButton( n );
 
         entt::entity    focused = n.Button; // handed, not tabbed: the panel changed under a live focus
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         R2D::DrawList2D dl;
         std::string     clicked;
         UIInput         enter = At( 900.0f, 900.0f, /*down=*/false );
@@ -1098,7 +1010,7 @@ TEST( UICanvasHitTest, AFieldOutOfTheHitTestsReachStopsAcceptingTypedText )
         // Focus is HANDED to the field rather than tabbed to, which is the stale-focus case: it is what a
         // host holds after the field was legitimately focused and the panel changed afterwards.
         entt::entity    focused = field;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         R2D::DrawList2D dl;
         UIInput         keys = At( 900.0f, 900.0f, /*down=*/false );
         keys.TypedText       = "x";
@@ -1223,7 +1135,7 @@ TEST( UICanvasSelection, NotNamingACanvasIsARefusalAndNotTheFirstOne )
 {
     TwoCanvases t;
 
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     R2D::DrawList2D dl;
     const auto      unnamed = Desert::UI::RenderCanvas2D( ctx, t.Registry, entt::null, dl );
     EXPECT_FALSE( unnamed.IsSuccess() ) << "RenderCanvas2D accepted no canvas and drew something anyway";
@@ -1376,7 +1288,7 @@ namespace
     // the election is finished by the time RenderCanvas2D returns (ctx.Hot = ctx.HotNext).
     bool ElectsAt( XformFixture& f, entt::entity e, const glm::vec2& p )
     {
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         R2D::DrawList2D dl;
         const UIInput   in = At( p.x, p.y, /*down=*/false );
         Draw( ctx, f.Registry, f.Canvas, dl, &in );
@@ -1392,7 +1304,7 @@ TEST( UICanvasContext, WhereARotatedElementIsDrawnIsWhereItTakesThePointer )
     f.Layout( f.Panel ).Pivot    = { 0.0f, 0.0f }; // a CORNER: an inverse/forward slip is not symmetric here
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     Draw( ctx, f.Registry, f.Canvas, dl, nullptr );
     const std::array<glm::vec2, 4> quad = DrawnQuad( dl );
 
@@ -1451,7 +1363,7 @@ TEST( UICanvasContext, AChildOfARotatedParentIsDrawnAndPickedWhereTheParentCarri
     glm::vec2 straightCentre;
     {
         R2D::DrawList2D dl;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         Draw( ctx, f.Registry, f.Canvas, dl, nullptr );
         ASSERT_GE( dl.GetVertices().size(), 8u ); // parent quad, then the child's
         straightCentre = ( dl.GetVertices()[4].Position + dl.GetVertices()[6].Position ) * 0.5f;
@@ -1462,7 +1374,7 @@ TEST( UICanvasContext, AChildOfARotatedParentIsDrawnAndPickedWhereTheParentCarri
     std::array<glm::vec2, 4> childQuad{};
     {
         R2D::DrawList2D dl;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         Draw( ctx, f.Registry, f.Canvas, dl, nullptr );
         ASSERT_GE( dl.GetVertices().size(), 8u );
         for ( int i = 0; i < 4; ++i )
@@ -1529,7 +1441,7 @@ TEST( UICanvasContext, TheSameRotationAboutTwoPivotsLandsInTwoPlaces )
         f.Layout( f.Panel ).Rotation = 45.0f;
         f.Layout( f.Panel ).Pivot    = pivot;
         R2D::DrawList2D dl;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         Draw( ctx, f.Registry, f.Canvas, dl, nullptr );
         EXPECT_GE( dl.GetVertices().size(), 4u );
         return ( dl.GetVertices()[0].Position + dl.GetVertices()[2].Position ) * 0.5f;
@@ -1618,7 +1530,7 @@ namespace
     int SweepAgreement( XformFixture& f, entt::entity target, const glm::vec3& color, float step )
     {
         R2D::DrawList2D dl;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         Draw( ctx, f.Registry, f.Canvas, dl, nullptr );
 
         int covered = 0, disagreements = 0;
@@ -1654,7 +1566,7 @@ TEST( UICanvasContext, ARotatedClipperRefusesThePointerExactlyWhereItCutThePixel
     // Not vacuous in the OTHER direction either: there is a point inside the clipper's box and outside the
     // clipper itself, and it must now be refused by both halves. Under Ю8 both accepted it.
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     Draw( ctx, f.Registry, f.Canvas, dl, nullptr );
     glm::vec4 box{ 0.0f };
     for ( const auto& cmd : dl.GetCommands() )
@@ -1702,7 +1614,7 @@ TEST( UICanvasContext, TwoRotatedClippersNestAsAnIntersectionOfBothQuadrilateral
     const auto coveredCount = [&]( XformFixture& fx )
     {
         R2D::DrawList2D dl;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         Draw( ctx, fx.Registry, fx.Canvas, dl, nullptr );
         int n = 0;
         for ( float y = 5.0f; y < kSide; y += 5.0f )
@@ -1818,7 +1730,7 @@ TEST( UICanvasContext, TwoTurnedLevelsComposeRatherThanReplace )
     f.Registry.get<ECS::RelationshipComponent>( f.Panel ).Children.push_back( child );
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     Draw( ctx, f.Registry, f.Canvas, dl, nullptr );
     ASSERT_GE( dl.GetVertices().size(), 8u );
 
@@ -2064,7 +1976,7 @@ TEST( UICanvasContextPair, TheCanvasDrawnLastTakesThePointerFromTheOneBelowIt )
     l.OffsetMin = { 0.0f, 0.0f };
     l.OffsetMax = { 100.0f, 50.0f };
 
-    UIViewContext view;
+    UIViewContext view{ s_Resources };
     f.Frame( view, At( 10.0f, 10.0f ) );
     EXPECT_EQ( view.Hot, f.UpperButton ) << "the pointer was over both canvases and the one drawn FIRST kept it";
 
@@ -2074,7 +1986,7 @@ TEST( UICanvasContextPair, TheCanvasDrawnLastTakesThePointerFromTheOneBelowIt )
     // per-walk hand-over did.
     l.OffsetMin = { 200.0f, 0.0f };
     l.OffsetMax = { 300.0f, 50.0f };
-    UIViewContext second;
+    UIViewContext second{ s_Resources };
     second.Reset();
     f.Frame( second, At( 10.0f, 10.0f ) );
     EXPECT_EQ( second.Hot, f.LowerButton )
@@ -2088,7 +2000,7 @@ TEST( UICanvasContextPair, TheCanvasDrawnLastTakesThePointerFromTheOneBelowIt )
 TEST( UICanvasContextPair, ACanvasThatStopsExistingTakesItsCellWithIt )
 {
     TwoCanvasFixture f;
-    UIViewContext    view;
+    UIViewContext    view{ s_Resources };
 
     f.Frame( view, At( 10.0f, 10.0f ) );
     ASSERT_EQ( view.CanvasStateCount(), 2u );
@@ -2137,7 +2049,7 @@ TEST( UICanvasContextPair, CanvasesAreOrderedByTheirAuthoredSortOrder )
 TEST( UICanvasContextPair, AWalkWithNoOpenFrameIsRefusedByName )
 {
     TwoCanvasFixture f;
-    UIViewContext    view;
+    UIViewContext    view{ s_Resources };
     R2D::DrawList2D  dl;
 
     const auto refused = Desert::UI::RenderCanvas2D( view, f.Registry, f.Lower, dl );
@@ -2165,7 +2077,7 @@ TEST( UICanvasContextPair, TheEditorsPickAndTheWalkAgreeOnWhichCanvasIsOnTop )
     {
         f.Registry.get<ECS::UICanvasComponent>( f.Upper ).Data.SortOrder = upperOrder;
 
-        UIViewContext view;
+        UIViewContext view{ s_Resources };
         f.Frame( view, At( point.x, point.y ) );
 
         // The editor's loop, spelled exactly as ViewportPanel spells it.
@@ -2179,10 +2091,4 @@ TEST( UICanvasContextPair, TheEditorsPickAndTheWalkAgreeOnWhichCanvasIsOnTop )
                                       << upperOrder;
         EXPECT_EQ( picked, upperOrder > 0 ? f.UpperButton : f.LowerButton );
     }
-}
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

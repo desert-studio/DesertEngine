@@ -15,19 +15,26 @@ namespace Desert::Graphic
             m_Service->Unregister( m_Handle );
     }
 
-    void Texture2D::AdoptImage( std::shared_ptr<Image2D>&& image )
+    TextureBackend TextureBackend::Device()
     {
-        m_Service = Runtime::ResourceRegistry::GetImageService();
+        // Stateless: one instance serves every texture, and it lives as long as the process.
+        static const DeviceImageFactory device;
+        return TextureBackend{ device, *Runtime::ResourceRegistry::GetImageService() };
+    }
+
+    void Texture2D::AdoptImage( std::shared_ptr<Image2D>&& image, Runtime::ImageService& registry )
+    {
+        m_Service = &registry;
         m_Handle  = m_Service->Register( std::move( image ), Runtime::ImageHandle::Type::Image2D );
     }
 
     Common::ResultStr<std::shared_ptr<Texture2D>>
-    Texture2D::CreateFromAsset( const std::filesystem::path& cookedPath )
+    Texture2D::CreateFromAsset( const std::filesystem::path& cookedPath, const TextureBackend& backend )
     {
         auto cooked = ReadCooked( cookedPath );
         if ( !cooked.IsSuccess() )
             return Common::MakeError<std::shared_ptr<Texture2D>>( cooked.GetError() );
-        return CreateFromCooked( cooked.ExtractValue() );
+        return CreateFromCooked( cooked.ExtractValue(), backend );
     }
 
     Common::ResultStr<CookedTexture2D> Texture2D::ReadCooked( const std::filesystem::path& cookedPath )
@@ -74,7 +81,8 @@ namespace Desert::Graphic
         return Common::MakeSuccess( std::move( cooked ) );
     }
 
-    Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromCooked( CookedTexture2D cooked )
+    Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromCooked( CookedTexture2D cooked,
+                                                                              const TextureBackend& backend )
     {
         auto texture      = std::make_shared<Texture2D>();
         texture->m_Width  = cooked.Width;
@@ -90,7 +98,7 @@ namespace Desert::Graphic
                                                                  .Properties = Core::Formats::Sample,
                                                                  .MipLevels  = std::move( cooked.Levels ) };
 
-        auto image = Image2D::Create( imageSpec );
+        auto image = backend.Images.CreateImage2D( imageSpec );
         if ( !image )
         {
             return Common::MakeFormattedError<std::shared_ptr<Texture2D>>(
@@ -98,14 +106,15 @@ namespace Desert::Graphic
                  cooked.Width, cooked.Height, levelCount );
         }
 
-        texture->AdoptImage( std::move( image ) );
+        texture->AdoptImage( std::move( image ), backend.Registry );
         return Common::MakeSuccess( texture );
     }
 
     Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::Create( const std::string& tag, uint32_t width,
                                                                      uint32_t                        height,
                                                                      Core::Formats::ImageFormat      format,
-                                                                     Core::Formats::ImagePixelData&& data )
+                                                                     Core::Formats::ImagePixelData&& data,
+                                                                     const TextureBackend&           backend )
     {
         auto texture      = std::make_shared<Texture2D>();
         texture->m_Width  = width;
@@ -121,7 +130,7 @@ namespace Desert::Graphic
             .Usage      = Core::Formats::Image2DUsage::Image2D,
             .Properties = Core::Formats::Sample };
 
-        texture->AdoptImage( Image2D::Create( imageSpec ) );
+        texture->AdoptImage( backend.Images.CreateImage2D( imageSpec ), backend.Registry );
         return Common::MakeSuccess( texture );
     }
 

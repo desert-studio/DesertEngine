@@ -26,6 +26,7 @@
 #include <Engine/Graphic/RenderGraphSort.hpp>
 #include <Engine/UI/UIIntrospection.hpp>
 
+#include <TestSupport/ui_canvas_resources_mock.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -37,10 +38,14 @@
 #include <unordered_set>
 #include <vector>
 
-// The walk resolves sprites, fonts, icons, video and themes through the engine's ResourceRegistry. The
-// suite runs in a runner that links Desert, so those are the engine's own services, holding nothing: no
-// handle in this file is registered with any of them, and each answers an unregistered handle with
-// nothing -- a sprite draws its flat colour, video and theme slots stay empty.
+// The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
+namespace
+{
+    TestSupport::MockUICanvasResources s_Resources;
+} // namespace
+
+// The walk resolves sprites, fonts, icons, video and themes through the view's IUICanvasResources; every
+// view here is handed the mock below, which answers nothing: a sprite draws its flat colour, text draws nothing.
 
 using Desert::UI::Rect;
 using Desert::UI::UIElementNode;
@@ -232,7 +237,7 @@ TEST( CanvasOverScene, TheCanvasDrawsWithThreeDEntitiesBesideItInTheRegistry )
 {
     OverScene       scene;
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     EXPECT_EQ( DrawnCount( scene, ctx ), 2u ); // the marker and the button; the canvas is not a child
@@ -246,7 +251,7 @@ TEST( CanvasOverScene, TheCanvasDrawsWithThreeDEntitiesBesideItInTheRegistry )
     {
         scene.Registry.destroy( e );
     }
-    UIViewContext fresh;
+    UIViewContext fresh{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, fresh ) );
     EXPECT_EQ( dl.GetVertices().size(), withThreeD );
 }
@@ -258,7 +263,7 @@ TEST( CanvasOverScene, TheCanvasDrawsWithThreeDEntitiesBesideItInTheRegistry )
 TEST( CanvasOverScene, ThePointerLandsOnTheElementTheFrameDrewThere )
 {
     OverScene     scene;
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     EXPECT_EQ( HotAt( scene, ctx, OverScene::MarkerCentre() ), scene.Marker );
     EXPECT_EQ( HotAt( scene, ctx, { 640.0f, 528.0f } ), scene.Button );
     // Off the canvas's elements entirely: nothing is elected, which is what lets a click reach the 3D.
@@ -271,17 +276,17 @@ TEST( CanvasOverScene, AnOverlayThatDrawsWithoutAnsweringThePointerIsItsOwnFailu
     // pointer passes through. That is a legitimate authoring choice and a defect when it is not one, so
     // the witness states which of the two this canvas is.
     OverScene     scene;
-    UIViewContext before;
+    UIViewContext before{ s_Resources };
     ASSERT_EQ( HotAt( scene, before, OverScene::MarkerCentre() ), scene.Marker );
 
     scene.Registry.get<ECS::UILayoutComponent>( scene.Marker ).Data.HitTest = ECS::UIHitTest::None;
-    UIViewContext after;
+    UIViewContext after{ s_Resources };
     EXPECT_EQ( HotAt( scene, after, OverScene::MarkerCentre() ), kNoEntity );
 
     // ...and it still draws, which is the half that makes this a defect shape rather than a hidden
     // element: the picture is unchanged and only the pointer's answer moved.
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_EQ( DrawnCount( scene, ctx ), 2u );
 }
@@ -298,7 +303,7 @@ TEST( CanvasOverSceneViewChange, TheHotElementSurvivesTheViewVisitingAnotherScen
     OverScene a;
     OverScene b;
 
-    UIViewContext      view;
+    UIViewContext      view{ s_Resources };
     const entt::entity hotInA = HotAt( a, view, OverScene::MarkerCentre() );
     ASSERT_EQ( hotInA, a.Marker );
 
@@ -334,7 +339,7 @@ TEST( CanvasOverSceneViewChange, TheCellsOfASceneTheViewHasLeftDoNotAnswerForThe
     OverScene b;
     b.Registry.destroy( b.ThreeD.back() ); // make B structurally unlike A, so ids cannot line up by luck
 
-    UIViewContext   view;
+    UIViewContext   view{ s_Resources };
     R2D::DrawList2D dl;
     ASSERT_TRUE( Walk( a, dl, view ) );
     ASSERT_NE( view.FindCanvasState( a.Canvas ), nullptr );
@@ -363,8 +368,8 @@ TEST( CanvasOverSceneViewChange, TwoLiveViewsOfOneSceneElectIndependently )
     // the defect the (canvas x view) key was introduced to close, and it reappears as "the second
     // viewport steals the first one's hover".
     OverScene     scene;
-    UIViewContext left;
-    UIViewContext right;
+    UIViewContext left{ s_Resources };
+    UIViewContext right{ s_Resources };
 
     EXPECT_EQ( HotAt( scene, left, OverScene::MarkerCentre() ), scene.Marker );
     EXPECT_EQ( HotAt( scene, right, { 640.0f, 528.0f } ), scene.Button );
@@ -380,12 +385,12 @@ TEST( CanvasOverSceneViewChange, TheAuthoringPreviewToggleDoesNotChangeWhatIsDra
     // no command for this toggle, so the frame witness cannot check it.
     OverScene       scene;
     R2D::DrawList2D dl;
-    UIViewContext   design;
+    UIViewContext   design{ s_Resources };
     design.AuthoringPreview = true;
     ASSERT_TRUE( Walk( scene, dl, design ) );
     const std::size_t designVerts = dl.GetVertices().size();
 
-    UIViewContext preview;
+    UIViewContext preview{ s_Resources };
     preview.AuthoringPreview = false;
     ASSERT_TRUE( Walk( scene, dl, preview ) );
     EXPECT_EQ( dl.GetVertices().size(), designVerts );
@@ -405,7 +410,7 @@ TEST( CanvasOverSceneViewChange, AWorldSpaceCanvasIsStillDrawnByTheUIPhase )
     // canvas out of the frame.
     OverScene       scene;
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_FALSE( dl.GetVertices().empty() );
 
