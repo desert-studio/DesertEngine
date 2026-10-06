@@ -22,6 +22,7 @@
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
+#include "Editor/Panels/ControlRig/ControlRigDocument.hpp"
 #include "Editor/Panels/UI/UIEditorPanel.hpp"
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
@@ -122,6 +123,21 @@ namespace Desert::Editor
                   {
                       return std::make_unique<Editor::TextureViewerDocument>( Assets::AssetHandle( subject.Owner ),
                                                                               assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE CONTROL RIG EDITOR (07_panels_design §11.2): elements, the Forwards-solve canvas, the inspector.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::ControlRig ) ),
+             Registration{
+                  "Control Rig", ICON_MDI_HUMAN_HANDSUP,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::ControlRigDocument>( Assets::AssetHandle( subject.Owner ),
+                                                                           assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&
@@ -471,6 +487,10 @@ namespace Desert::Editor
                std::string( Common::Content::KindSpec( Common::Content::ContentKind::Skeleton ).Extension ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestAnimationEditorDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::Serialization::kControlRigExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestControlRigDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
              [&assetManager]( const std::string& path )
