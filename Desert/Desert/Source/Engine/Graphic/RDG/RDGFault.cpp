@@ -35,7 +35,36 @@ namespace Desert::Graphic::RDG
         return "unknown";
     }
 
-    ClearValue GetFaultDefaultClear( FaultDefault value )
+    void FaultDefaults::SetSources( TextureRef black, TextureRef white, TextureRef blackCube )
+    {
+        m_Black     = black;
+        m_White     = white;
+        m_BlackCube = blackCube;
+    }
+
+    uint32_t FaultDefaults::GetSource( FaultDefault value ) const
+    {
+        switch ( value )
+        {
+            case FaultDefault::Black:
+                return m_Black.Index;
+            case FaultDefault::White:
+                return m_White.Index;
+            case FaultDefault::BlackCube:
+                return m_BlackCube.Index;
+            case FaultDefault::None:
+                break;
+        }
+        return kInvalidResource;
+    }
+
+    bool FaultDefaults::HasSources() const
+    {
+        return m_Black.Index != kInvalidResource && m_White.Index != kInvalidResource &&
+               m_BlackCube.Index != kInvalidResource;
+    }
+
+    ClearValue FaultDefaults::GetClear( FaultDefault value )
     {
         ClearValue clear;
         const float level = value == FaultDefault::White ? 1.0f : 0.0f;

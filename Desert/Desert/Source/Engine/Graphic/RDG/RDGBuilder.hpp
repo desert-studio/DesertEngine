@@ -230,7 +230,7 @@ namespace Desert::Graphic::RDG
         // only producer was removed is substituted (a texture with a FaultDefault, DefaultSubstitution) or removed
         // too (PassFaultStage::Dependency, RootPass = the pass the chain starts at). Culling and everything after
         // it run on what is left. The returned error is reserved for a malformed GRAPH (a resource declared wrong
-        // outside any pass, a FaultDefault without SetFaultDefaultSources); a faulted pass is never an error.
+        // outside any pass, a FaultDefault in a graph whose FaultDefaults have no sources); a faulted pass is never an error.
         Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;
 
         // RDG-CONTRACTS B(2). The same compile, scheduled for @p pipes. Compile(memory) above is this overload
@@ -271,9 +271,11 @@ namespace Desert::Graphic::RDG
         // reads is InvalidateHistory. Refused for a handle that is not an external of this graph.
         void SetFaultPolicy( TextureRef external, ExternalFaultPolicy policy );
         void SetFaultPolicy( BufferRef external, ExternalFaultPolicy policy );
-        // The images FaultDefault names, as resources of this graph. Called by RegisterSystemTextures, so every
-        // graph that registers its system textures can honour a FaultDefault without a second call site.
-        void SetFaultDefaultSources( TextureRef black, TextureRef white, TextureRef blackCube );
+        // What the FaultDefault values mean in this graph (their system-texture sources and clears). Its sources
+        // are set by RegisterSystemTextures, so every graph that registers its system textures can honour a
+        // FaultDefault without a second call site.
+        FaultDefaults&       GetFaultDefaults();
+        const FaultDefaults& GetFaultDefaults() const;
 
         // Compiles against the backend's memory requirements, has the backend acquire physical resources,
         // then for every executed pass in order: label/timestamp, its one barrier batch, begin render pass
@@ -382,8 +384,6 @@ namespace Desert::Graphic::RDG
         void                  RecordError( std::string message );
         // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
         void                  RecordPassError( uint32_t pass, std::string message );
-        // The resource index of the system texture @p value names (kInvalidResource for None or unset sources).
-        uint32_t              GetFaultDefaultSource( FaultDefault value ) const;
         const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
 
         std::string                 m_Name;
@@ -392,10 +392,10 @@ namespace Desert::Graphic::RDG
         std::string                 m_DeclarationError;
         bool                        m_Executed    = false;
         bool                        m_PassCulling = true;
-        // RDG-FAULT1. The system textures a FaultDefault names (SetFaultDefaultSources), the faults of the last
+        // RDG-FAULT1. What a FaultDefault names and clears to (FaultDefaults), the faults of the last
         // Execute, and the substitutions Execute made for LATE faults (PassContext::GetTexture honours them
         // together with CompileResult::Substitutions).
-        TextureRef                       m_FaultBlack, m_FaultWhite, m_FaultBlackCube;
+        FaultDefaults                    m_FaultDefaults;
         ExecuteReport                    m_Report;
         std::vector<DefaultSubstitution> m_LateSubstitutions;
     };

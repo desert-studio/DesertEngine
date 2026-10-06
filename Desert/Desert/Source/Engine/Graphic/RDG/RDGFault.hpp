@@ -71,9 +71,28 @@ namespace Desert::Graphic::RDG
         BlackCube, // SystemTextures::BlackCube
     };
 
-    // The clear an attachment LOADED from a lost transient gets instead (DefaultSubstitution::AttachmentCleared):
-    // Black 0,0,0,1; White 1,1,1,1; BlackCube 0,0,0,1. None has no clear (its readers are culled).
-    ClearValue GetFaultDefaultClear( FaultDefault value );
+    // RDG-FAULT1. The single owner of what a FaultDefault IS in one graph: which resource of the graph a value names
+    // (its source, the system texture registered by RegisterSystemTextures) and which clear an attachment LOADED
+    // from a lost transient gets instead (DefaultSubstitution::AttachmentCleared). Held by the Builder
+    // (Builder::GetFaultDefaults); Compile and Execute ask it, nothing else knows the images or the colours.
+    class FaultDefaults
+    {
+    public:
+        // The images the values name, as resources of the graph. Set once, by RegisterSystemTextures.
+        void SetSources( TextureRef black, TextureRef white, TextureRef blackCube );
+
+        // The resource index @p value names; kInvalidResource for None or before SetSources.
+        uint32_t GetSource( FaultDefault value ) const;
+        // True when every non-None value has a source (a graph that declares a FaultDefault needs this).
+        bool HasSources() const;
+
+        // Black 0,0,0,1; White 1,1,1,1; BlackCube 0,0,0,1. None has no clear (its readers are culled): returns the
+        // Black clear, never asked for None by the graph.
+        static ClearValue GetClear( FaultDefault value );
+
+    private:
+        TextureRef m_Black, m_White, m_BlackCube;
+    };
 
     // What losing every writer of an EXTERNAL resource to a fault means (Builder::SetFaultPolicy). Removing a pass
     // leaves an external with the contents it entered the graph with, which is right for most of them and wrong

@@ -274,11 +274,14 @@ namespace Desert::Graphic::RDG
         m_Resources[external.Index].Policy = policy;
     }
 
-    void Builder::SetFaultDefaultSources( TextureRef black, TextureRef white, TextureRef blackCube )
+    FaultDefaults& Builder::GetFaultDefaults()
     {
-        m_FaultBlack     = black;
-        m_FaultWhite     = white;
-        m_FaultBlackCube = blackCube;
+        return m_FaultDefaults;
+    }
+
+    const FaultDefaults& Builder::GetFaultDefaults() const
+    {
+        return m_FaultDefaults;
     }
 
     const ExecuteReport& Builder::GetExecuteReport() const
@@ -657,22 +660,6 @@ namespace Desert::Graphic::RDG
         return Common::MakeSuccess( true );
     }
 
-    uint32_t Builder::GetFaultDefaultSource( FaultDefault value ) const
-    {
-        switch ( value )
-        {
-            case FaultDefault::Black:
-                return m_FaultBlack.Index;
-            case FaultDefault::White:
-                return m_FaultWhite.Index;
-            case FaultDefault::BlackCube:
-                return m_FaultBlackCube.Index;
-            case FaultDefault::None:
-                break;
-        }
-        return kInvalidResource;
-    }
-
     Common::BoolResultStr Builder::Execute( IBackend& backend )
     {
         if ( m_Executed )
@@ -768,7 +755,7 @@ namespace Desert::Graphic::RDG
         // a FaultDefault exists, not only when Compile already substituted one.
         for ( const FaultDefault value : { FaultDefault::Black, FaultDefault::White, FaultDefault::BlackCube } )
         {
-            const uint32_t source = GetFaultDefaultSource( value );
+            const uint32_t source = m_FaultDefaults.GetSource( value );
             if ( anyFaultDefault && source < views.size() )
                 views[source].Used = true;
         }
@@ -806,7 +793,7 @@ namespace Desert::Graphic::RDG
                     continue;
                 const ResourceRecord& record = m_Resources[edge.Resource];
                 const uint32_t        source = record.Kind == ResourceKind::Texture && !record.IsExternal()
-                                                    ? GetFaultDefaultSource( record.Default )
+                                                    ? m_FaultDefaults.GetSource( record.Default )
                                                     : kInvalidResource;
                 bool attachment = false, sampled = false, other = false;
                 for ( const ResourceUse& use : m_Passes[p].Uses )
@@ -838,7 +825,7 @@ namespace Desert::Graphic::RDG
                         if ( decision.Resource == edge.Resource && decision.Load == LoadAction::Load )
                         {
                             decision.Load  = LoadAction::Clear;
-                            decision.Clear = GetFaultDefaultClear( record.Default );
+                            decision.Clear = FaultDefaults::GetClear( record.Default );
                         }
                     }
                     m_LateSubstitutions.push_back( { p, edge.Resource, kInvalidResource, record.Default, true } );

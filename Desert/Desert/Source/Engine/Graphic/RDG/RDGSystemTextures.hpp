@@ -29,7 +29,7 @@ namespace Desert::Graphic::RDG
                                      graph.RegisterExternal( white, "System.White" ),
                                      graph.RegisterExternal( blackCube, "System.BlackCube" ) };
         // RDG-FAULT1: the images a FaultDefault names, so every graph with system textures can honour one.
-        graph.SetFaultDefaultSources( system.Black, system.White, system.BlackCube );
+        graph.GetFaultDefaults().SetSources( system.Black, system.White, system.BlackCube );
         return system;
     }
 } // namespace Desert::Graphic::RDG
