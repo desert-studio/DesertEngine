@@ -132,7 +132,7 @@ namespace Desert::Editor::MeshDnD
             return Common::UUID::Null();
         }
         if ( !StaticMeshCookAvailable( cookedStr, sourcePath ) )
-            Importer().Import( sourcePath );
+            Importer().Import( sourcePath, ImportPass::Import );
 
         if ( !StaticMeshCookAvailable( cookedStr, sourcePath ) )
             return Common::UUID::Null(); // cook failed / produced a skinned mesh (.skmesh) instead
@@ -142,7 +142,7 @@ namespace Desert::Editor::MeshDnD
         // (DIMP 2), which only the imported mesh knows. The asset below reads its GUID from it.
         if ( std::error_code ec;
              !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( sourcePath ), ec ) )
-            Importer().Import( sourcePath );
+            Importer().Import( sourcePath, ImportPass::Import );
         if ( const auto identity = Assets::Serialization::ReadImportRecordGuid( sourcePath ); !identity )
         {
             LOG_ERROR( "[MeshDnD] {}", identity.GetError() );
@@ -204,7 +204,7 @@ namespace Desert::Editor::MeshDnD
         // StaticMeshCookAvailable, not exists(): since AF4h an imported static mesh's envelope lives in the DDC
         // and nothing is written at staticStr, so exists() read every fresh cook as "cook failed".
         if ( !StaticMeshCookAvailable( staticStr, sourcePath ) && !std::filesystem::exists( skinnedStr ) )
-            (void)Importer().Import( sourcePath );
+            (void)Importer().Import( sourcePath, ImportPass::Import );
 
         const bool isSkinned = std::filesystem::exists( skinnedStr );
         const bool isStatic  = StaticMeshCookAvailable( staticStr, sourcePath );

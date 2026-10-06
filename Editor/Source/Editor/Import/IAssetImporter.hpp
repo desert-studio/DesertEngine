@@ -20,9 +20,11 @@ namespace Desert::Editor
 
     // WHO IS ASKING FOR THE PARSE (UE: a factory import vs. a DDC build). `Import` is the user's (re)import: it
     // creates the content the source yields - the texture assets of its embedded images, beside the source - and
-    // those files are content, committed with the source. `Cook` is the editor deriving what it loads (the boot
-    // and background cook, Rebuild Cooked Assets): it reads that content and writes only derived data, never a
-    // file into Content - a checkout that was merely opened stays clean (SELF-COOK).
+    // those files are content, committed with the source; a drop and Rebuild Cooked Assets are imports too. `Cook`
+    // is the editor deriving what it loads (the boot and background cook): it reads that content and writes only
+    // derived data, never a file into Content - every write of the import is refused under it with the re-import
+    // that makes the file (ImportManager.cpp ContentWriteAllowed), so a checkout that was merely opened stays
+    // clean (SELF-COOK).
     enum class ImportPass
     {
         Import,

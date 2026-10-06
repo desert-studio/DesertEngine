@@ -157,6 +157,40 @@ namespace
         return std::format( "{}{}{}{}{}{}{}", head, tipName, afterTip, OnePixelPng, middle, uri, tail );
     }
 
+    // A STATIC source: the mock's triangle (the first 36 bytes of its buffer) with its embedded-texture material,
+    // no skin and no clip - the import writes a .stmesh, its record and its material beside it.
+    std::string StaticGltf()
+    {
+        std::vector<unsigned char> b;
+        for ( const float f : { -0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f } )
+            Put( b, f );
+        constexpr std::string_view head   = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+"nodes":[{"name":"Prop","mesh":0}],
+"meshes":[{"name":"Prop","primitives":[{"attributes":{"POSITION":0},"material":0}]}],
+"materials":[{"name":"Paint","pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],
+"textures":[{"source":0}],
+"images":[{"mimeType":"image/png","uri":"data:image/png;base64,)";
+        constexpr std::string_view middle = R"("}],
+"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[-0.5,0,0],"max":[0.5,0,2]}],
+"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36}],
+"buffers":[{"byteLength":36,"uri":"data:application/octet-stream;base64,)";
+        constexpr std::string_view tail   = R"("}]})";
+        return std::format( "{}{}{}{}{}", head, OnePixelPng, middle, Base64( b ), tail );
+    }
+
+    // Every file under the sandbox's content tree with its size and write time: what a cook may not change.
+    std::map<std::string, std::pair<uintmax_t, std::filesystem::file_time_type>> ContentFiles()
+    {
+        std::map<std::string, std::pair<uintmax_t, std::filesystem::file_time_type>> files;
+        std::error_code                                                              ec;
+        const std::filesystem::path root = Common::Constants::Path::FullPath( "Resources" );
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( root, ec ) )
+            if ( entry.is_regular_file( ec ) )
+                files[std::filesystem::relative( entry.path(), root ).generic_string()] = {
+                     entry.file_size( ec ), entry.last_write_time( ec ) };
+        return files;
+    }
+
     std::string Read( const std::filesystem::path& file )
     {
         const auto content = Common::Utils::FileSystem::ReadFileContent( file );
@@ -674,14 +708,58 @@ TEST_F( SkinnedImport, ARepeatedRunReimportsNothingUntilTheSourceBytesChange )
     ASSERT_EQ( twin.Verdict, Editor::CookVerdict::Cooked );
     ASSERT_TRUE( twin.WrittenSkeletons.empty() ) << "precondition: the second file shares the first skeleton";
 
-    EXPECT_EQ( ImportManager().Import( m_Source ), Editor::CookVerdict::UpToDate )
+    EXPECT_EQ( ImportManager().Import( m_Source, Editor::ImportPass::Cook ), Editor::CookVerdict::UpToDate )
          << "an unchanged source with its own skeleton was re-imported";
-    EXPECT_EQ( ImportManager().Import( second ), Editor::CookVerdict::UpToDate )
+    EXPECT_EQ( ImportManager().Import( second, Editor::ImportPass::Cook ), Editor::CookVerdict::UpToDate )
          << "an unchanged source imported onto another file's skeleton was re-imported";
 
     std::ofstream( Common::Constants::Path::FullPath( m_Source ), std::ios::binary | std::ios::app ) << "\n";
-    EXPECT_EQ( ImportManager().Import( m_Source ), Editor::CookVerdict::Cooked )
-         << "a source whose bytes changed was taken as up to date";
+    EXPECT_EQ( ImportManager().Import( m_Source, Editor::ImportPass::Cook ), Editor::CookVerdict::Failed )
+         << "a source whose bytes changed was taken as up to date, or the cook re-imported it";
+    EXPECT_EQ( ImportManager().Import( m_Source, Editor::ImportPass::Import ), Editor::CookVerdict::Cooked )
+         << "the user's import of a source whose bytes changed did not re-import it";
+}
+
+// A COOK WRITES NOTHING INTO CONTENT (SELF-COOK; UE: the cook reads the packages the import made, its products go
+// to the DDC). A skinned source never imported - on a rig of its own, so the skeleton branch is reached too - and
+// the fixture's source with changed bytes are both refused by the boot/background cook (Failed, the log names the
+// re-import), and not one file under the content tree appears, changes or disappears: no import record, skeleton,
+// clip, skinned mesh, material or embedded texture asset.
+// Mutations (ImportManager.cpp, each `ContentWriteAllowed` guard dropped in turn): the record's => Fresh.deimport
+// appears; the skeleton's => Fresh.skeleton; the clip's => Fresh_Turn.anim; the skinned mesh's => Fresh.skmesh /
+// Rig.skmesh rewritten; the material's (SerializeMaterialAsset) => the .demat and its texture appear => red here.
+TEST_F( SkinnedImport, ACookWritesNothingUnderContentForANewOrAStaleSkinnedSource )
+{
+    const auto fresh  = WriteSource( "Resources/Assets/Mock/Fresh.gltf", "OwnTip" );
+    const auto before = ContentFiles();
+    EXPECT_EQ( ImportManager().Import( fresh, Editor::ImportPass::Cook ), Editor::CookVerdict::Failed )
+         << "the cook of a never-imported skinned source was not refused";
+    EXPECT_EQ( ContentFiles(), before ) << "the cook of a never-imported skinned source wrote into Content";
+
+    std::ofstream( Common::Constants::Path::FullPath( m_Source ), std::ios::binary | std::ios::app ) << "\n";
+    const auto stale = ContentFiles();
+    EXPECT_EQ( ImportManager().Import( m_Source, Editor::ImportPass::Cook ), Editor::CookVerdict::Failed )
+         << "the cook of a skinned source whose bytes changed was not refused";
+    EXPECT_EQ( ContentFiles(), stale ) << "the cook of a stale skinned source rewrote its assets in Content";
+}
+
+// The same for a STATIC source: the cook neither writes its .stmesh, its record nor its material; the user's
+// import does, after which the cook finds it current. Mutation: ImportManager.cpp the static mesh's
+// `ContentWriteAllowed` dropped => Prop.stmesh / Prop.deimport appear on the cook => red here.
+TEST_F( SkinnedImport, ACookWritesNothingUnderContentForANewStaticSource )
+{
+    const std::filesystem::path prop = "Resources/Assets/Props/Prop.gltf";
+    std::filesystem::create_directories( Common::Constants::Path::FullPath( prop ).parent_path() );
+    std::ofstream( Common::Constants::Path::FullPath( prop ), std::ios::binary ) << StaticGltf();
+    const auto before = ContentFiles();
+    EXPECT_EQ( ImportManager().Import( prop, Editor::ImportPass::Cook ), Editor::CookVerdict::Failed )
+         << "the cook of a never-imported static source was not refused";
+    EXPECT_EQ( ContentFiles(), before ) << "the cook of a never-imported static source wrote into Content";
+
+    EXPECT_EQ( ImportManager().Import( prop, Editor::ImportPass::Import ), Editor::CookVerdict::Cooked );
+    EXPECT_NE( ContentFiles(), before ) << "precondition: the user's import wrote the static source's assets";
+    EXPECT_EQ( ImportManager().Import( prop, Editor::ImportPass::Cook ), Editor::CookVerdict::UpToDate )
+         << "the cook did not find the static source the import just wrote current";
 }
 
 // A SKELETON CHOSEN ON THE MESH IS PART OF ITS IMPORT SETTINGS (UE: the skeleton is an FBX import option, and
@@ -721,7 +799,7 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
         FAIL() << "the source's import record states no skeleton: a Reimport rebinds the rig the bones match";
     EXPECT_EQ( *chosen, other );
 
-    ASSERT_EQ( ImportManager().Import( m_Source, true ), Editor::CookVerdict::Cooked );
+    ASSERT_EQ( ImportManager().Import( m_Source, Editor::ImportPass::Import, true ), Editor::CookVerdict::Cooked );
     EXPECT_EQ( MeshSkeletonGuidOf( mesh ), otherText )
          << "the Reimport reverted the mesh to the skeleton its bones match: the artist's choice was lost";
 }
@@ -757,7 +835,8 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
     for ( const auto& [name, bytes] : committed )
         std::ofstream( onDisk / name, std::ios::binary ) << bytes;
 
-    EXPECT_EQ( Editor::ImportManager().Import( folder / "TwoJointProbe.gltf" ), Editor::CookVerdict::UpToDate )
+    EXPECT_EQ( Editor::ImportManager().Import( folder / "TwoJointProbe.gltf", Editor::ImportPass::Cook ),
+               Editor::CookVerdict::UpToDate )
          << "the committed import of TwoJointProbe.gltf was taken as stale";
 
     std::map<std::string, std::string> after;

@@ -81,6 +81,22 @@ namespace Desert::Editor
 
     namespace
     {
+        // A COOK WRITES NOTHING INTO CONTENT (SELF-COOK; UE: the cook reads the packages the import made and puts
+        // only derived data into the DDC). Every branch of the import that creates or rewrites a file beside the
+        // source - the import record, the skeleton, the clips, the skinned or static mesh, the material and the
+        // textures it packs or imports - asks here first: the user's import writes, the boot/background cook is
+        // refused with the file and the re-import that writes it. A checkout that was merely opened stays clean.
+        Common::BoolResultStr ContentWriteAllowed( const ImportPass pass, const std::filesystem::path& source,
+                                                   const std::filesystem::path& file, std::string_view what )
+        {
+            if ( pass == ImportPass::Import )
+                return BOOLSUCCESS;
+            return Common::MakeFormattedError<bool>(
+                 "'{}': its {} '{}' is missing or older than the source, and a cook writes nothing into Content - "
+                 "re-import the source (Import Settings > Reimport)",
+                 source.generic_string(), what, file.generic_string() );
+        }
+
         // A skinned import is current when its mesh exists and the source's import record states the hash of the
         // source's CURRENT bytes (AF8b, the texture IMPT rule of AF7; UE UAssetImportData). Bytes, not times: the
         // skinned assets are authored content committed beside their source, and a fresh checkout writes both in
@@ -215,7 +231,7 @@ namespace Desert::Editor
         }
     } // namespace
 
-    CookVerdict ImportManager::Import( const std::filesystem::path& path, bool force )
+    CookVerdict ImportManager::Import( const std::filesystem::path& path, const ImportPass pass, const bool force )
     {
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
@@ -242,7 +258,7 @@ namespace Desert::Editor
             LOG_ERROR( "[Import] '{}' was not imported: {}", path.string(), settings.GetError() );
             return CookVerdict::Failed;
         }
-        return ImportParsed( path, settings.GetValue(), ImportPass::Cook ).Verdict;
+        return ImportParsed( path, settings.GetValue(), pass ).Verdict;
     }
 
     ImportOutcome ImportManager::ImportWithSettings( const std::filesystem::path&        path,
@@ -278,7 +294,7 @@ namespace Desert::Editor
         // those to grow an answer nobody is waiting for. What Д31-D asked for is that a cooked file
         // that was never written stops being INDISTINGUISHABLE from one that was; it now is.
         ImportOutcome outcome{ CookVerdict::Cooked, {}, {}, {} };
-        if ( const auto cooked = CreateAssetsFromImport( result, path, settings, outcome ); !cooked )
+        if ( const auto cooked = CreateAssetsFromImport( result, path, settings, pass, outcome ); !cooked )
         {
             LOG_ERROR( "[Import] '{}' was parsed but its cooked output is incomplete: {}", path.string(),
                        cooked.GetError() );
@@ -317,7 +333,8 @@ namespace Desert::Editor
         return files;
     }
 
-    void ImportManager::ImportAllFromDirectory( const std::filesystem::path& root, bool force )
+    void ImportManager::ImportAllFromDirectory( const std::filesystem::path& root, const ImportPass pass,
+                                                const bool force )
     {
         namespace fs = std::filesystem;
 
@@ -331,7 +348,7 @@ namespace Desert::Editor
 
         if ( files.size() == 1 )
         {
-            (void)Import( files.front(), force );
+            (void)Import( files.front(), pass, force );
             return;
         }
 
@@ -341,7 +358,7 @@ namespace Desert::Editor
                                               {
                                                   // One cooker per worker thread, reused across files.
                                                   thread_local ImportManager s_ThreadImporter;
-                                                  (void)s_ThreadImporter.Import( files[i], force );
+                                                  (void)s_ThreadImporter.Import( files[i], pass, force );
                                               } );
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - started )
@@ -357,7 +374,7 @@ namespace Desert::Editor
     Common::BoolResultStr ImportManager::CreateAssetsFromImport( const ImportResult&                 result,
                                                                  const std::filesystem::path&        sourcePath,
                                                                  const Assets::SourceImportSettings& settings,
-                                                                 ImportOutcome&                      written )
+                                                                 const ImportPass pass, ImportOutcome& written )
     {
         std::vector<std::filesystem::path>& writtenMeshes = written.WrittenMeshes;
         std::string firstFailure;
@@ -392,8 +409,13 @@ namespace Desert::Editor
             else if ( resolved.Skeleton )
                 kind = Common::Content::ContentKind::Skeleton;
             if ( resolved.Mesh || resolved.Skeleton || !resolved.Animations.empty() )
-                record( RecordImport( sourcePath, kind, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
-                                      settings ) );
+            {
+                const auto allowed = ContentWriteAllowed(
+                     pass, sourcePath, Common::Content::ImportRecordPathFor( sourcePath ), "import record" );
+                record( allowed ? RecordImport( sourcePath, kind, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
+                                                settings )
+                                : allowed );
+            }
             // The file's unit was logged at the parse ("geometry scaled by <cm per unit>"); the record's options
             // are the second factor, baked here, and say so - a reimport at Scale 10 read "scaled by 100" alone.
             LOG_INFO( "[Import] '{}': Uniform Scale {} and Up Axis {} (import options) baked into the mesh, the "
@@ -425,6 +447,9 @@ namespace Desert::Editor
                 return Common::MakeError<bool>( existing.GetError() );
             if ( const auto& found = existing.GetValue(); found.has_value() )
                 skeleton = *found;
+            else if ( const auto allowed = ContentWriteAllowed( pass, sourcePath, ownSkeleton, "skeleton" );
+                      !allowed )
+                record( allowed );
             else
             {
                 const auto serialized = SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath );
@@ -441,24 +466,37 @@ namespace Desert::Editor
 
         for ( auto& anim : resolved.Animations )
         {
-            anim.Skeleton         = skeleton;
+            anim.Skeleton   = skeleton;
+            const auto clip = SkinnedAssetPath( sourcePath, std::format( "_{}.anim", anim.AnimationName ) );
+            if ( const auto allowed = ContentWriteAllowed( pass, sourcePath, clip, "clip" ); !allowed )
+            {
+                record( allowed );
+                continue;
+            }
             const auto serialized = SerializeAnimationAsset( anim, sourcePath );
             if ( serialized )
-                written.WrittenClips.push_back(
-                     SkinnedAssetPath( sourcePath, std::format( "_{}.anim", anim.AnimationName ) ) );
+                written.WrittenClips.push_back( clip );
             record( serialized );
         }
 
         if ( resolved.Mesh && resolved.Mesh->IsSkinned )
         {
             resolved.Mesh->Skeleton = skeleton;
-            if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
-                BakeMeshLODs( resolved.Mesh.value() );
-            const auto serialized = SerializeMeshAsset( resolved.Mesh.value(), sourcePath );
-            if ( serialized )
-                writtenMeshes.push_back( SkinnedAssetPath( sourcePath, ".skmesh" ) );
-            record( serialized );
+            const auto mesh         = SkinnedAssetPath( sourcePath, ".skmesh" );
+            if ( const auto allowed = ContentWriteAllowed( pass, sourcePath, mesh, "skinned mesh" ); !allowed )
+                record( allowed );
+            else
+            {
+                if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
+                    BakeMeshLODs( resolved.Mesh.value() );
+                const auto serialized = SerializeMeshAsset( resolved.Mesh.value(), sourcePath );
+                if ( serialized )
+                    writtenMeshes.push_back( mesh );
+                record( serialized );
+            }
         }
+        else if ( resolved.Mesh && pass == ImportPass::Cook )
+            record( ContentWriteAllowed( pass, sourcePath, CookPaths::MeshAsset( sourcePath ), "static mesh" ) );
         else if ( resolved.Mesh )
         {
             // The static mesh is a source asset beside its file (ImportedMeshAsset.hpp); its slots are named
@@ -489,7 +527,7 @@ namespace Desert::Editor
         // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
         // thumbnails.
         for ( const auto& material : resolved.Materials )
-            record( SerializeMaterialAsset( material, sourcePath ) );
+            record( SerializeMaterialAsset( material, sourcePath, pass ) );
 
         if ( !firstFailure.empty() )
             return Common::MakeError<bool>( firstFailure );
@@ -634,7 +672,8 @@ namespace Desert::Editor
     }
 
     Common::BoolResultStr ImportManager::SerializeMaterialAsset( const ImportedMaterial&      material,
-                                                                 const std::filesystem::path& sourcePath )
+                                                                 const std::filesystem::path& sourcePath,
+                                                                 const ImportPass             pass )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Content/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
@@ -654,6 +693,9 @@ namespace Desert::Editor
         std::error_code ec;
         if ( std::filesystem::exists( Common::Constants::Path::FullPath( path ), ec ) )
             return BOOLSUCCESS; // deliberately kept, not a failure to write
+        // Neither the material nor the textures it packs and imports below are the cook's to create.
+        if ( const auto allowed = ContentWriteAllowed( pass, sourcePath, path, "material" ); !allowed )
+            return allowed;
         // THE TEMPLATE CHOOSES ITSELF (MAT1b): every shipped shader with an Import block is a candidate, the
         // core picks the one whose Requires the source satisfies most, and that template's rows say which
         // source key fills which Property. No taker is a refusal naming the material and the file.

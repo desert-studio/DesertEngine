@@ -47,9 +47,12 @@ namespace Desert::Editor
     public:
         ImportManager();
 
-        // force = re-cook even if an up-to-date cooked output already exists (Rebuild Cooked Assets).
-        // The verdict is what the background startup cook (EditorLayer::DrainBackgroundCook) acts on.
-        CookVerdict Import( const std::filesystem::path& path, bool force = false );
+        // force = re-import even if the source's assets are current (Rebuild Cooked Assets).
+        // @p pass says who asks: ImportPass::Cook is the boot/background cook (EditorLayer::DrainBackgroundCook
+        // acts on its verdict) - a source whose assets are not current is Failed with a log naming the re-import,
+        // and not one file under Content is written; ImportPass::Import is the user's action (a drop, Rebuild
+        // Cooked Assets), which writes the assets as the import does.
+        CookVerdict Import( const std::filesystem::path& path, ImportPass pass, bool force = false );
         // THE IMPORT WITH OPTIONS (THM1l; UE: the FBX Import Options window's Import, and the asset's Reimport).
         // Always imports (a changed option must reach the meshes even when the file's bytes did not change);
         // @p settings are written into the source's import record, the options' one home, which every later
@@ -62,7 +65,7 @@ namespace Desert::Editor
         // The mesh sources under `root` the bulk cook reaches (`.blend` excluded: a headless Blender run is
         // imported on demand only).
         static std::vector<std::filesystem::path> MeshSources( const std::filesystem::path& root );
-        void         ImportAllFromDirectory( const std::filesystem::path& root, bool force = false );
+        void ImportAllFromDirectory( const std::filesystem::path& root, ImportPass pass, bool force = false );
         Common::UUID ImportTexture( const std::filesystem::path& path );
 
         // Publishes the import templates every importer chooses among: the loaded ShaderAssets of `manager`
@@ -98,7 +101,7 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr CreateAssetsFromImport( const ImportResult&                 result,
                                                                     const std::filesystem::path&        sourcePath,
                                                                     const Assets::SourceImportSettings& settings,
-                                                                    ImportOutcome&                      written );
+                                                                    ImportPass pass, ImportOutcome& written );
 
     private:
         [[nodiscard]] Common::BoolResultStr
@@ -107,8 +110,11 @@ namespace Desert::Editor
 
         // Success ALSO means "a .demat was already there and was deliberately kept" — re-import must not
         // clobber the artist's edits, so not writing is the correct outcome, not a failure to write.
+        // Under ImportPass::Cook a missing .demat is a refusal naming the re-import: the cook writes nothing into
+        // Content (SELF-COOK), so neither the material nor its packed/imported textures are created by it.
         [[nodiscard]] Common::BoolResultStr SerializeMaterialAsset( const ImportedMaterial&      material,
-                                                                    const std::filesystem::path& sourcePath );
+                                                                    const std::filesystem::path& sourcePath,
+                                                                    ImportPass                   pass );
 
         // The GUID the written .skeleton states (kept from the file it replaces, minted for a new one).
         [[nodiscard]] Common::ResultStr<Common::Content::AssetGuid>
