@@ -134,7 +134,9 @@ TEST_F( GameUserSettingsTest, TheProjectDefaultsAnswerWhenThePlayerHasNoFile )
     EXPECT_EQ( fromProject.GetValue().Language, "en" );
 
     ASSERT_TRUE( SaveGameUserSettings( Sample(), User() ) ); // the player's own file now wins
-    EXPECT_EQ( LoadGameUserSettings( Project(), User() ).GetValue().Language, "ru" );
+    const auto fromPlayer = LoadGameUserSettings( Project(), User() );
+    ASSERT_TRUE( fromPlayer ) << fromPlayer.GetError();
+    EXPECT_EQ( fromPlayer.GetValue().Language, "ru" );
 }
 
 TEST_F( GameUserSettingsTest, NoFileAnywhereIsARefusalNamingBothPaths )
@@ -211,4 +213,10 @@ TEST( GameUserSettingsApply, AnInvalidValueTouchesNothing )
     EXPECT_EQ( window.ModeCalls, 0 );
     EXPECT_EQ( window.VSyncCalls, 0 );
     EXPECT_EQ( pacer.Limit(), 0u );
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

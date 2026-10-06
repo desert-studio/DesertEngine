@@ -21,7 +21,8 @@ namespace Desert
     //   Maximized          — zoomed to the monitor's work area, taskbar/Dock visible (the editor's start);
     //   WindowedFullscreen — borderless over the whole monitor at its native mode (UE: WindowedFullscreen);
     //   Fullscreen         — the monitor itself is switched to Width x Height (UE: Fullscreen, exclusive).
-    enum class WindowMode : uint8_t
+    // No narrow underlying type: reflect-cpp names an enum over an int range (get_enum_names).
+    enum class WindowMode
     {
         Windowed,
         Maximized,
