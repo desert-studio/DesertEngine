@@ -40,8 +40,9 @@ namespace Desert::Assets
     inline constexpr uint32_t kUIThemeSchemaVersion = 2;
     // A .derig: the control rig file layout, stated in the header since v2 (T7c; v1 as the string table's).
     // v3 (ANIM-SKELREF): the rig states its TargetSkeleton {Guid, Path}.
+    // v4 (ANIM-FIX11): Graphs per solve event, node canvas Positions, control Limits.
     inline constexpr uint32_t kControlRigSchemaTag     = Common::Content::FourCC( "CRIG" );
-    inline constexpr uint32_t kControlRigSchemaVersion = 3;
+    inline constexpr uint32_t kControlRigSchemaVersion = 4;
     // A .retarget: the retarget file layout, stated in the header since v2 (T7c; v1 as the string table's).
     // v3 (T7f): the source rig is named by {Guid, Path} and stated as the header's one Dependency.
     // v4 (ANIM-SKELREF): the target rig is named too (TargetSkeleton {Guid, Path}); not a Dependency.

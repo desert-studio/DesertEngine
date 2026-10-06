@@ -1297,7 +1297,26 @@ namespace Desert::Migration
                         continue;
                     }
                     out << ( check ? "would raise " : "raised " ) << path.string() << " " << tag << " " << from
-                        << " -> " << from + 1 << " (TargetSkeleton)\n";
+                        << " -> " << ( tag == "CRIG" ? 4u : from + 1 ) << " (TargetSkeleton)\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                        ++failed;
+                    continue;
+                }
+            }
+            if ( path.extension() == ".derig" )
+            {
+                // CRIG 3 -> 4 (ANIM-FIX11): Graphs per solve event, node Positions, control Limits.
+                const auto stated = ReadStatedVersion( path, text, "CRIG" );
+                if ( stated && stated.GetValue() == 3u )
+                {
+                    const auto raised = Desert::Migration::MigrateControlRigToV4( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — CRIG 3 -> 4: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " CRIG 3 -> 4\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                         ++failed;
                     continue;
