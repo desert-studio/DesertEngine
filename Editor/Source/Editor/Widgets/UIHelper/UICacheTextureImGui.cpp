@@ -61,7 +61,8 @@ namespace Desert::Editor::UI
         }
 
         return m_Ids.Acquire(
-             image, vulkanImage->GetResourceGeneration(), [&res, &vulkanImage]() -> ImTextureID
+             image, vulkanImage->GetResourceGeneration(),
+             [&res, &vulkanImage]() -> ImTextureID
              {
                  // ImGui draws into a display-encoded UNORM target: an sRGB texture shows its stored bytes
                  // through the UNORM alias, not their linear decode (which would draw it darker).

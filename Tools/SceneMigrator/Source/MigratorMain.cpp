@@ -580,7 +580,8 @@ namespace Desert::Migration
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, texture asset, cloud layout, cloud noise volume, sculpted cloud volume, landscape tile, "
+                << ", cooked mesh, texture asset, cloud layout, cloud noise volume, sculpted cloud volume, "
+                   "landscape tile, "
                    "shader "
                    "or other text "
                    "asset "
@@ -1464,8 +1465,8 @@ namespace Desert::Migration
         int texturesRaised = 0;
         for ( const auto& path : textures )
         {
-            const std::string bytes  = ReadAll( path );
-            const auto        raised = Desert::Assets::UpgradeTextureSourceAsset( std::as_bytes( std::span( bytes ) ) );
+            const std::string bytes = ReadAll( path );
+            const auto raised = Desert::Assets::UpgradeTextureSourceAsset( std::as_bytes( std::span( bytes ) ) );
             if ( !raised )
             {
                 err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
@@ -1479,7 +1480,8 @@ namespace Desert::Migration
                 << Desert::Assets::kTextureAssetSubsystemVersion << "\n";
             if ( check )
                 continue;
-            if ( const auto written = Common::Utils::FileSystem::WriteBytesToFileAtomic( path, *raised.GetValue() );
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, *raised.GetValue() );
                  !written )
             {
                 err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
@@ -1505,8 +1507,7 @@ namespace Desert::Migration
         if ( failed > 0 )
             return 1;
         return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
-                            animGraphsRaised > 0 || meshesRaised > 0 || recordsStated > 0 ||
-                            texturesRaised > 0 ) )
+                            animGraphsRaised > 0 || meshesRaised > 0 || recordsStated > 0 || texturesRaised > 0 ) )
                     ? 1
                     : 0;
     }

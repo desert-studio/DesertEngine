@@ -255,7 +255,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_EncodedView != VK_NULL_HANDLE )
             m_MipViews.push_back( m_EncodedView ); // destroyed with the other extra views, on the same queue
         allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_Resource.Sampler, m_MipViews );
-        m_Resource = {}; m_MipViews.clear(); m_EncodedView = VK_NULL_HANDLE; m_IsLoaded = false;
+        m_Resource = {};
+        m_MipViews.clear();
+        m_EncodedView = VK_NULL_HANDLE;
+        m_IsLoaded    = false;
         return BOOLSUCCESS;
     }
 
@@ -549,8 +552,9 @@ namespace Desert::Graphic::API::Vulkan
         
         m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
         if ( srgb )
-            m_EncodedView = Utils::CreateView( vkDevice, m_Resource.Image, GetImageVulkanFormat( m_Specification.Format ),
-                                               aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
+            m_EncodedView =
+                 Utils::CreateView( vkDevice, m_Resource.Image, GetImageVulkanFormat( m_Specification.Format ),
+                                    aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
 
         if ( m_Specification.Properties & Core::Formats::Sample )
             Utils::CreateSampler( vkDevice, m_Resource.Sampler, Utils::SamplerFilterPolicy::Global );

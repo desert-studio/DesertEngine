@@ -681,8 +681,8 @@ namespace Desert::Editor
         std::map<std::filesystem::path, ::Desert::Core::Formats::TextureColorSpace> spaces;
         for ( const ImportedTextureSlot& slot : fill.Textures )
         {
-            const std::filesystem::path image = slot.NeedsPacking() ? PackedTexturePath( slot )
-                                                                    : slot.Parts.front().Source;
+            const std::filesystem::path image =
+                 slot.NeedsPacking() ? PackedTexturePath( slot ) : slot.Parts.front().Source;
             auto [at, fresh] = spaces.try_emplace( image, slot.ColorSpace );
             if ( !fresh && slot.ColorSpace == ::Desert::Core::Formats::TextureColorSpace::SRGB )
                 at->second = ::Desert::Core::Formats::TextureColorSpace::SRGB;
@@ -707,10 +707,11 @@ namespace Desert::Editor
                     return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}': {}",
                                                                  material.Name, sourcePath.generic_string(),
                                                                  image.generic_string(), created.GetError() ) );
-                if ( const auto set = Assets::SetTextureColorSpace( created.GetValue(), spaces.at( image ) ); !set )
-                    return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}': {}",
-                                                                 material.Name, sourcePath.generic_string(),
-                                                                 created.GetValue().generic_string(), set.GetError() ) );
+                if ( const auto set = Assets::SetTextureColorSpace( created.GetValue(), spaces.at( image ) );
+                     !set )
+                    return Common::MakeError<bool>( std::format(
+                         "material '{}' in '{}': texture '{}': {}", material.Name, sourcePath.generic_string(),
+                         created.GetValue().generic_string(), set.GetError() ) );
             }
             if ( static_cast<uint64_t>( ImportTexture( image.string() ) ) == 0 )
                 return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}' for slot '{}' "
