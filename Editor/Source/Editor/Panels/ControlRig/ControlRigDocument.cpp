@@ -172,17 +172,17 @@ namespace Desert::Editor
         const float width        = ImGui::GetContentRegionAvail().x;
         const float side         = std::clamp( width * 0.2f, 180.0f, 320.0f );
 
-        ImGui::BeginChild( "##elements", ImVec2( side, height ), ImGuiChildFlags_Borders );
+        ImGui::BeginChild( "##elements", ImVec2( side, height ), true );
         DrawElements();
         ImGui::EndChild();
         ImGui::SameLine();
         ImGui::BeginChild( "##canvas",
                            ImVec2( width - side * 2.0f - ImGui::GetStyle().ItemSpacing.x * 2.0f, height ),
-                           ImGuiChildFlags_Borders );
+                           true );
         DrawCanvas();
         ImGui::EndChild();
         ImGui::SameLine();
-        ImGui::BeginChild( "##inspector", ImVec2( side, height ), ImGuiChildFlags_Borders );
+        ImGui::BeginChild( "##inspector", ImVec2( side, height ), true );
         DrawInspector();
         ImGui::EndChild();
         DrawStatus();
@@ -458,12 +458,15 @@ namespace Desert::Editor
         }
         release |= ImGui::IsItemDeactivatedAfterEdit();
 
-        ImGui::SeparatorText( "Offset" );
+        ImGui::Separator();
+        ImGui::TextDisabled( "%s", "Offset" );
         EditTransform( "Offset", c.Offset, release );
-        ImGui::SeparatorText( "Initial value" );
+        ImGui::Separator();
+        ImGui::TextDisabled( "%s", "Initial value" );
         EditTransform( "Pose", c.Pose, release );
 
-        ImGui::SeparatorText( "Parent" );
+        ImGui::Separator();
+        ImGui::TextDisabled( "%s", "Parent" );
         const auto bones = BoneNames();
         for ( size_t i = 0; i < c.Parents.size(); ++i )
         {
@@ -528,7 +531,8 @@ namespace Desert::Editor
             m_Draft.reset();
         }
 
-        ImGui::SeparatorText( "Drives bone" );
+        ImGui::Separator();
+        ImGui::TextDisabled( "%s", "Drives bone" );
         const auto  drive   = std::ranges::find( data.Drives, name, &ControlDriveData::Control );
         const char* current = drive == data.Drives.end() ? "(none)" : drive->Bone.c_str();
         if ( ImGui::BeginCombo( "Bone", current ) )
@@ -589,7 +593,8 @@ namespace Desert::Editor
             ImGui::NewLine();
         }
 
-        ImGui::SeparatorText( "Inputs" );
+        ImGui::Separator();
+        ImGui::TextDisabled( "%s", "Inputs" );
         for ( const auto& input : node.Inputs )
         {
             ImGui::PushID( input.Pin.c_str() );

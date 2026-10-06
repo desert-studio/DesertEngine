@@ -117,3 +117,9 @@ TEST( ControlRigDocumentTest, ClosingTheDocumentDropsItsUndoRecords )
     }
     EXPECT_FALSE( history.Undo() ) << "a record pointing into a closed document would write freed memory";
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
