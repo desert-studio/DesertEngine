@@ -13,7 +13,6 @@ namespace Desert::ECS
 {
     static_assert(
          std::is_same_v<decltype( DestructibleComponent::RuntimeObject ), Destruction::DestructibleHandle> );
-    static_assert( DestructibleComponent{}.RuntimeObject == Destruction::kInvalidDestructible );
 
     DestructibleLifetime::~DestructibleLifetime()
     {

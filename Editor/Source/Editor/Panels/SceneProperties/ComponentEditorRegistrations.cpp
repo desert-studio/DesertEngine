@@ -91,7 +91,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpotLightComponent, Data, "S
 // below. Collider is registered as a CUSTOM component below (auto-fit to mesh bounds on add) instead of the plain
 // reflected one-liner — see MakeColliderEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "RigidBodyData", "Rigid Body" )
-DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data, "DestructibleData", "Destructible" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data, "DestructibleData",
+                                     "Destructible" )
 // Character Controller is a CUSTOM entry: the reflected capsule fields PLUS the live state the physics
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
 // runs, and they were invisible. See MakeCharacterControllerEntry.
