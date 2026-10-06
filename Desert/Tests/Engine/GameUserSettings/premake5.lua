@@ -22,8 +22,6 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/LocalizationService.cpp",
     }
-    -- The game's own defaults file is read where it lives in the repo.
-    defines { 'DESERT_REPO_ROOT="%{_MAIN_SCRIPT_DIR}"' }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",

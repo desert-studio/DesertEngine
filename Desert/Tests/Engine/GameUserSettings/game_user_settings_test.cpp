@@ -18,6 +18,8 @@
 #include <memory>
 #include <string>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 using namespace Desert;
 using namespace Desert::Settings;
 namespace fs = std::filesystem;
@@ -169,7 +171,7 @@ TEST_F( GameUserSettingsTest, AnOutOfRangeValueIsNotSaved )
 
 TEST( GameUserSettingsProject, TheGamesOwnDefaultsLoadAndValidate )
 {
-    const fs::path project = fs::path( DESERT_REPO_ROOT ) / "Projects" / "Desert";
+    const fs::path project = Desert::TestSupport::RepositoryRoot() / "Projects" / "Desert";
     const auto     loaded  = LoadGameUserSettings( project, fs::temp_directory_path() / "desert-gus-no-player" );
     ASSERT_TRUE( loaded ) << loaded.GetError();
 }
