@@ -654,7 +654,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto&          pcValue = pushConstant.value();
         VkPushConstantRange pushConstantCI;
         pushConstantCI.offset     = pcValue.Offset;
-        pushConstantCI.size       = pcValue.Size;
+        pushConstantCI.size       = ShaderResources::ShaderLayout::PushBlockSize( pushConstant );
         pushConstantCI.stageFlags = (VkShaderStageFlags)pcValue.ShaderStage;
 
         return { 1, pushConstantCI };

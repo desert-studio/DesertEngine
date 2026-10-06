@@ -2,25 +2,63 @@
 #include <Engine/Graphic/RendererAPI.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/ShaderResources/ShaderResourcesManager.hpp>
 
-static constexpr uint32_t kMaxPushConstantsSize = 128U;
+#include <cstring>
 
 namespace Desert::Graphic
 {
+    namespace
+    {
+        // The push block of a Vulkan program, by the one function its pipeline's layout range uses.
+        uint32_t VulkanPushBlockSize( const std::shared_ptr<Shader>& shader )
+        {
+            if ( !shader )
+            {
+                return 0u;
+            }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): Vulkan branch, Vulkan shader
+            auto* vulkanShader = static_cast<API::Vulkan::VulkanShader*>( shader.get() );
+            return ShaderResources::ShaderLayout::PushBlockSize( vulkanShader->GetShaderPushConstant() );
+        }
+    } // namespace
+
     MaterialExecutor::MaterialExecutor( std::string&& debugName, const std::shared_ptr<Shader>& shader,
                                         const Core::Formats::ShaderProgramMeta& parameterSchema,
-                                        std::unique_ptr<MaterialBackend>&&      materialBackend )
+                                        std::unique_ptr<MaterialBackend>&&      materialBackend,
+                                        uint32_t                                pushBlockSize )
          : m_DebugName( std::move( debugName ) ), m_MaterialBackend( std::move( materialBackend ) ),
            m_Shader( shader )
     {
-        m_PushConstantBuffer.Allocate( kMaxPushConstantsSize );
-        // Zero so any push-constant bytes the shader declares but a draw doesn't explicitly write
-        // (we push the full reflected range size) are defined rather than garbage.
+        // Exactly the shader's push block — the pipeline's layout range — so what the material pushes is
+        // never longer than the range it is pushed through. Zeroed so the bytes a draw does not write are
+        // defined.
+        m_PushConstantBuffer.Allocate( pushBlockSize );
         m_PushConstantBuffer.ZeroInitialize();
         InitializeProperties( parameterSchema );
+    }
+
+    void MaterialExecutor::PushConstant( const void* buffer, uint32_t bufferSize, uint32_t offset )
+    {
+        // Not Buffer::Write: that sets Size to the LAST write's length, and the block is the shader's whole
+        // range whatever was written last.
+        if ( static_cast<std::size_t>( offset ) + bufferSize > m_PushConstantBuffer.AllocatedSize )
+        {
+            if ( !m_ReportedPushOverflow )
+            {
+                m_ReportedPushOverflow = true;
+                LOG_ERROR(
+                     "Material '{}': a push write of {} bytes at offset {} is past shader '{}''s {}-byte push "
+                     "block; refused (reported once per material)",
+                     m_DebugName, bufferSize, offset, m_Shader ? m_Shader->GetName() : std::string( "<none>" ),
+                     m_PushConstantBuffer.AllocatedSize );
+            }
+            return;
+        }
+        std::memcpy( static_cast<std::byte*>( m_PushConstantBuffer.Data ) + offset, buffer, bufferSize );
     }
 
     void MaterialExecutor::InitializeProperties( const Core::Formats::ShaderProgramMeta& parameterSchema )
@@ -151,7 +189,8 @@ namespace Desert::Graphic
                 return std::make_unique<MaterialExecutor>(
                      std::move( debugName ), resolvedShader,
                      parameterSchema ? *parameterSchema : resolvedShader->GetProgramMeta(),
-                     std::make_unique<API::Vulkan::VulkanMaterialBackend>( resolvedShader ) );
+                     std::make_unique<API::Vulkan::VulkanMaterialBackend>( resolvedShader ),
+                     VulkanPushBlockSize( resolvedShader ) );
             }
         }
         DESERT_VERIFY( false, "Unknown RendererAPI" );
@@ -170,7 +209,8 @@ namespace Desert::Graphic
             {
                 return std::make_unique<MaterialExecutor>(
                      std::move( debugName ), shader, parameterSchema ? *parameterSchema : shader->GetProgramMeta(),
-                     std::make_unique<API::Vulkan::VulkanMaterialBackend>( shader ) );
+                     std::make_unique<API::Vulkan::VulkanMaterialBackend>( shader ),
+                     VulkanPushBlockSize( shader ) );
             }
         }
         DESERT_VERIFY( false, "Unknown RendererAPI" );
