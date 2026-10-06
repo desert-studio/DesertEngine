@@ -42,14 +42,14 @@ namespace Desert::Core
     };
 
     // The blob's own version: the reader refuses any other. Bump it when the byte layout changes.
-    inline constexpr uint32_t kShaderMapFormatVersion = 4;
+    inline constexpr uint32_t kShaderMapFormatVersion = 5; // 5: ShaderProgramMeta::ParticleSource
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the
     // fingerprint of that code (kShaderMapProducerSources, whitespace and comments stripped); it is part of
     // the deriver's version, so re-recording it moves every key. ShaderCacheKey's
     // TheShaderMapProducerFingerprintIsRecorded computes it from the files and prints the value to paste.
-    inline constexpr uint64_t kShaderMapProducerFingerprint = 0xc8098c4921b995c0ULL;
+    inline constexpr uint64_t kShaderMapProducerFingerprint = 0xd3a126e4bce5625dULL;
 
     // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself. The shading-model
     // registry and manifest reader are listed because the parser calls them while producing a surface map (the

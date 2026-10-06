@@ -186,8 +186,10 @@ namespace Desert::Core::Formats
         Terrain,         // tessellated terrain materials
         Skybox,
         PostProcess,
-        Volume, // participating media marched by a compute pass (the volumetric cloud layer)
-        UI      // the fill of a 2D UI element, rasterized by the Render2D batcher
+        Volume,  // participating media marched by a compute pass (the volumetric cloud layer)
+        UI,      // the fill of a 2D UI element, rasterized by the Render2D batcher
+        Particle // a VFX fragment (a stack module or a compiled emitter stack), compiled INTO a simulation
+                 // program; never drawn and never assigned to a renderable
     };
 
     // The enum's own spelling, for diagnostics. It lives beside the enum so a domain added above cannot
@@ -216,6 +218,8 @@ namespace Desert::Core::Formats
                 return "Volume";
             case ShaderDomain::UI:
                 return "UI";
+            case ShaderDomain::Particle:
+                return "Particle";
         }
         return "Unspecified";
     }
@@ -319,6 +323,12 @@ namespace Desert::Core::Formats
         // rather than a convention.
         std::string MediumSource;
 
+        // THE BODY OF A `Particle { ... }` BLOCK — the second program fragment, in `Domain Particle`
+        // (VFX-04): either one stack module (Engine/VFX/VFXStackCompiler.hpp ParseParticleModule reads its
+        // declarations) or the whole simulation body an emitter's stack compiles to. Like the medium it has
+        // no stages of its own: the simulation program includes it. Empty for every other program.
+        std::string ParticleSource;
+
         MaterialLayoutBindings LayoutBindings;
 
         // The `BlendMode` of a `Domain Surface` template (Opaque for every other program).
@@ -330,6 +340,13 @@ namespace Desert::Core::Formats
         bool IsMediumProgram() const
         {
             return !MediumSource.empty();
+        }
+
+        // A program fragment of either kind (medium or particle): the metadata is the whole of it and no
+        // stage is compiled for it.
+        bool IsFragmentProgram() const
+        {
+            return IsMediumProgram() || !ParticleSource.empty();
         }
 
         bool HasParams() const

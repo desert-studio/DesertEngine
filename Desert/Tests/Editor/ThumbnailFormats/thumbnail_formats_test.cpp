@@ -385,6 +385,7 @@ namespace
          Desert::Core::Formats::ShaderDomain::Unspecified, Desert::Core::Formats::ShaderDomain::Surface,
          Desert::Core::Formats::ShaderDomain::Terrain,     Desert::Core::Formats::ShaderDomain::Skybox,
          Desert::Core::Formats::ShaderDomain::PostProcess, Desert::Core::Formats::ShaderDomain::Volume,
+         Desert::Core::Formats::ShaderDomain::UI,          Desert::Core::Formats::ShaderDomain::Particle,
     };
 } // namespace
 

@@ -2807,3 +2807,51 @@ TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
     }
     EXPECT_EQ( defined["SHADING_MODEL_INDEX_UNLIT"], 0 ) << "a writer that forgets the index must read as Unlit";
 }
+
+// VFX-04. `Domain Particle` is the second program FRAGMENT: a Particle block parses into ParticleSource with no
+// stages, its metadata survives the shader map byte for byte (format 5 carries the field), the boot precheck
+// sees it, and the block and the domain are refused apart and beside stages.
+TEST( ParticleDomainFragment, AParticleFragmentIsMetadataOnlyAndSurvivesTheShaderMap )
+{
+    namespace PP           = Desert::Core::Preprocess;
+    const std::string text = "Shader \"VFX/Probe\"\n{\n    Domain Particle\n    Particle\n    {\n"
+                             "        void Module( inout ParticleCtx p ) { p.Age += 1.0; }\n    }\n}\n";
+    ASSERT_TRUE( PP::DShaderParser::MayDeclareParticle( text ) );
+    const auto parsed = PP::DShaderParser::Parse( text );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto& meta = parsed.GetValue().Meta;
+    EXPECT_EQ( meta.Domain, Desert::Core::Formats::ShaderDomain::Particle );
+    EXPECT_NE( meta.ParticleSource.find( "p.Age += 1.0;" ), std::string::npos );
+    EXPECT_TRUE( meta.IsFragmentProgram() );
+    EXPECT_FALSE( meta.IsMediumProgram() );
+    EXPECT_TRUE( parsed.GetValue().Stages.empty() );
+
+    const auto whole = PP::ShaderPreprocess::ParseProgramMetaForPass( text, "VFX/Probe.shader", "" );
+    ASSERT_TRUE( whole.IsSuccess() ) << whole.GetError();
+    Desert::Core::ShaderMap map;
+    map.Meta        = whole.GetValue();
+    const auto back = Desert::Core::DeserializeShaderMap( Desert::Core::SerializeShaderMap( map ) );
+    ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
+    EXPECT_EQ( back.GetValue().Meta.ParticleSource, meta.ParticleSource );
+    EXPECT_TRUE( back.GetValue() == map );
+}
+
+TEST( ParticleDomainFragment, TheBlockAndTheDomainAreRefusedApartAndBesideStages )
+{
+    namespace PP       = Desert::Core::Preprocess;
+    const auto refused = []( const std::string& text, std::string_view why )
+    {
+        const auto parsed = PP::DShaderParser::Parse( text );
+        ASSERT_FALSE( parsed.IsSuccess() ) << text;
+        EXPECT_NE( parsed.GetError().find( why ), std::string::npos ) << parsed.GetError();
+    };
+    refused( "Shader \"A\"\n{\n    Particle\n    {\n        void Module() {}\n    }\n}\n",
+             "needs 'Domain Particle'" );
+    refused( "Shader \"B\"\n{\n    Domain Particle\n    Compute\n    {\n        void main() {}\n    }\n}\n",
+             "needs a Particle" );
+    refused( "Shader \"C\"\n{\n    Domain Particle\n    Particle\n    {\n        void Module() {}\n    }\n"
+             "    Compute\n    {\n        void main() {}\n    }\n}\n",
+             "must not also declare" );
+    refused( "Shader \"D\"\n{\n    Domain Particle\n    Particle\n    {\n    }\n}\n", "must not be empty" );
+    EXPECT_FALSE( PP::DShaderParser::MayDeclareParticle( "Shader \"E\" { Domain Surface }" ) );
+}
