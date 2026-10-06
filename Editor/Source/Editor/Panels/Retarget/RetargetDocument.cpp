@@ -363,10 +363,14 @@ namespace Desert::Editor
              asset && asset->IsReadyForUse() )
         {
             if ( const auto reloaded = asset->LoadFromFile(); !reloaded )
+            {
                 LOG_ERROR( "Retarget: '{}' was saved but the resident asset would not re-read it: {}",
                            path.generic_string(), reloaded.GetError() );
+            }
             else
+            {
                 asset->ResolveDependencies( *m_Assets );
+            }
         }
         m_Status       = std::format( "Saved {}", path.filename().string() );
         m_StatusFailed = false;
