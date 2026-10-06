@@ -140,7 +140,8 @@ namespace Desert::Graphic
         AddRaster( graph, "Deferred: GBuffer", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                    RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
                    [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGBufferManual( context ); } );
+                   { return meshRenderer->RenderGBufferManual( context ); },
+                   [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGBufferDraws( pass ); } );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
@@ -185,12 +186,14 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || !meshRenderer )
             return;
-        // The scene/view inputs (cascades, environment cubes, BRDF LUT, cloud shadow map) are pass parameters.
-        const SceneViewInputs              view    = SceneViewInputsOf( textures.GraphRefs() );
-        const std::vector<RDG::TextureRef> sampled = view.Refs();
-        AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGenericManual( context, view ); } );
+        // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
+        // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        AddRaster(
+             graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGenericManual( context ); },
+             [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGenericDraws( pass, view ); } );
     }
 
     void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,
@@ -199,12 +202,14 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
         if ( !targets || !meshRenderer )
             return;
-        // The scene/view inputs (cascades, environment cubes, BRDF LUT, cloud shadow map) are pass parameters.
-        const SceneViewInputs              view    = SceneViewInputsOf( textures.GraphRefs() );
-        const std::vector<RDG::TextureRef> sampled = view.Refs();
-        AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderSkinnedManual( context, view ); } );
+        // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
+        // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        AddRaster(
+             graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderSkinnedManual( context ); },
+             [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareSkinnedDraws( pass, view ); } );
     }
 
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,

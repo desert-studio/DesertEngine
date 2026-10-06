@@ -44,48 +44,22 @@ namespace Desert::Graphic::System
         static_assert( MaterialPBRBase::kMaxCascades == kSceneViewShadowCascades,
                        "the lit materials' cascade count is the scene/view inputs' cascade count" );
 
-        // The PassBindings of one mesh node (UE: the mesh pass's pass parameters) over the node's PassContext.
-        // Plain binds nothing (the material fills every slot it owns); a node constructed with the frame's
-        // SceneViewInputs binds them (BindSceneViewInputs: shadow cascades, environment cubes, BRDF LUT, cloud
-        // shadow map) for every draw whose SHADER samples them, by its reflected resource list - so a custom
-        // shader without the receivers is never handed a name it does not have. One block per shader, built on
-        // its first draw in the node.
+        // The PassBindings of a mesh node whose shaders sample no graph resource (shadow, RSM, silhouette, overdraw):
+        // every slot is the material's. The lit nodes declare their blocks in setup instead (MeshDrawList).
         class MeshPassBindings
         {
         public:
-            explicit MeshPassBindings( const RDG::PassContext& context ) : m_Context( context ), m_Plain( context )
-            {
-            }
-            MeshPassBindings( const RDG::PassContext& context, const SceneViewInputs& view )
-                 : m_Context( context ), m_Plain( context ), m_View( view )
+            explicit MeshPassBindings( const RDG::PassContext& context ) : m_Plain( context )
             {
             }
 
-            [[nodiscard]] const RDG::PassBindings& For( const MaterialExecutor& material ) const
+            [[nodiscard]] const RDG::PassBindings& For( const MaterialExecutor& /*material*/ ) const
             {
-                const std::shared_ptr<Shader> shader = material.GetShader();
-                if ( !m_View || !shader )
-                    return m_Plain;
-                auto it = m_ByShader.find( shader.get() );
-                if ( it == m_ByShader.end() )
-                {
-                    std::unique_ptr<RDG::PassBindings> lit;
-                    if ( SamplesSceneViewInputs( *shader ) )
-                    {
-                        lit = std::make_unique<RDG::PassBindings>( m_Context );
-                        BindSceneViewInputs( *lit, *m_View, *shader );
-                    }
-                    it = m_ByShader.emplace( shader.get(), std::move( lit ) ).first;
-                }
-                return it->second ? *it->second : m_Plain;
+                return m_Plain;
             }
 
         private:
-            const RDG::PassContext&        m_Context;
-            RDG::PassBindings              m_Plain;
-            std::optional<SceneViewInputs> m_View;
-            // nullptr: the shader samples no scene/view input (Plain).
-            mutable std::unordered_map<const Shader*, std::unique_ptr<RDG::PassBindings>> m_ByShader;
+            RDG::PassBindings m_Plain;
         };
 
         // THE mesh draw of every MeshRenderer pass: Renderer::RenderMesh( bindings, ... ) with the bindings
@@ -106,6 +80,7 @@ namespace Desert::Graphic::System
     } // namespace MeshRendererDetail
 
     using MeshRendererDetail::DrawMesh;
+    using MeshRendererDetail::MeshDrawList;
     using MeshRendererDetail::MeshPassBindings;
 
     using MeshRendererDetail::BuildEffectiveMaterial;

@@ -2926,17 +2926,22 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
         return std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() );
     };
     const std::string mesh = read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
-    EXPECT_NE( mesh.find( "for ( const RDG::TextureRef input : SceneViewInputsOf( refs ).Refs() )" ),
-               std::string::npos )
+    // MeshGeometryPass builds its draw list in setup and declares one block per material of it, the scene/view
+    // inputs bound where the material's shader has slots for them (MeshDrawList; RDG-FAULT1 C3a).
+    EXPECT_NE( mesh.find( "m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );" ), std::string::npos )
          << "MeshGeometryPass no longer declares the scene/view inputs";
-    EXPECT_NE( mesh.find( "declared.Read( input, RDG::Access::SampledGraphics" ), std::string::npos );
+    EXPECT_NE( mesh.find( "BindSceneViewInputs( block, *view, layout );" ), std::string::npos )
+         << "MeshDrawList no longer binds the scene/view inputs into its blocks";
 
     const std::string frame    = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
     size_t            declared = 0;
     for ( size_t at = frame.find( "= view.Refs();" ); at != std::string::npos;
           at        = frame.find( "= view.Refs();", at + 1 ) )
         ++declared;
-    EXPECT_EQ( declared, 2u ) << "Deferred: Generic / Skinned each declare SceneViewInputs::Refs()";
+    EXPECT_EQ( declared, 0u ) << "a mesh node declares SceneViewInputs::Refs() wholesale instead of its blocks";
+    EXPECT_NE( frame.find( "meshRenderer->DeclareGenericDraws( pass, view );" ), std::string::npos );
+    EXPECT_NE( frame.find( "meshRenderer->DeclareSkinnedDraws( pass, view );" ), std::string::npos );
+    EXPECT_NE( frame.find( "meshRenderer->DeclareGBufferDraws( pass );" ), std::string::npos );
     // The glass declares its inputs as its binding block in setup (only those its shader has slots for).
     const std::string glass =
          read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );

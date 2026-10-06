@@ -58,7 +58,7 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
 
         // The G-buffer shader's textures are the material's own (Properties): every draw is Plain.
-        const MeshPassBindings pass( context, {} );
+        const MeshPassBindings pass( context );
 
         if ( auto* sb = m_RSMMaterial->Get<StorageBufferProperty>( "Materials" ) )
             sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( PBRGpuMaterial ) ) );
@@ -348,7 +348,7 @@ namespace Desert::Graphic::System
                      m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c] );
 
                      // Depth-only casters sample nothing: every draw is Plain.
-                     const MeshPassBindings pass( context, {} );
+                     const MeshPassBindings pass( context );
 
                      // Shadow casters are MATERIAL-INDEPENDENT (depth only), so batch purely by Mesh*: any
                      // group of >= 2 identical meshes collapses into ONE instanced draw per cascade. This is

@@ -101,7 +101,11 @@ namespace Desert::Graphic
                 fill.Slots.push_back( name );
         };
         add( m_UniformBufferPropertiesLookup );
-        add( m_StorageBufferPropertiesLookup );
+        // A storage buffer nothing ever wrote is NOT filled: its slot is then "filled by neither the pass nor the
+        // material" in the pass's setup validation, before any draw is recorded.
+        for ( const auto& [name, index] : m_StorageBufferPropertiesLookup )
+            if ( m_StorageBufferPropertiesStorage[index]->IsWritten() )
+                fill.Slots.push_back( name );
         add( m_Texture2DPropertiesLookup );
         add( m_TextureCubePropertiesLookup );
         // Deterministic, so a validation message does not depend on hash-map order.

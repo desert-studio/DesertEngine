@@ -74,7 +74,8 @@ namespace Desert::Graphic
 
         void                    Apply() const;
         // RDG-FAULT1. What this material fills for a draw (the other route of a pass's binding block, declared in
-        // the pass's SETUP): every property it owns - each one always holds a resource, its own or its schema
+        // the pass's SETUP): every property it owns except a storage buffer nothing ever wrote (StorageBufferProperty::
+        // IsWritten - the pass's setup refuses that block) - each one always holds a resource, its own or its schema
         // default (Texture2DProperty::Apply restores the default, a cube writes the fallback) - and the push
         // constants, which the executor always supplies (its buffer is allocated at creation).
         [[nodiscard]] RDG::OtherRouteFill GetRouteFill() const;

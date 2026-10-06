@@ -218,7 +218,7 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
 
         // The accumulation shader samples nothing: every draw is Plain.
-        const MeshPassBindings pass( context, {} );
+        const MeshPassBindings pass( context );
 
         // 1) Accumulate into m_OverdrawFB (the graph opens it cleared to 0): every opaque mesh additively
         //    (static + generic; both use the static vertex layout). Skinned meshes are skipped — they'd need
@@ -335,7 +335,7 @@ namespace Desert::Graphic::System
                      return BOOLSUCCESS;
 
                  // The mask shaders sample nothing: every draw is Plain.
-                 const MeshPassBindings pass( context, {} );
+                 const MeshPassBindings pass( context );
                  m_SilhouetteMaterial->UpdateCamera( camera );
 
                  // ===== Static =====
