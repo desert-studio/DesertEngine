@@ -194,6 +194,14 @@ namespace Desert::Graphic::API::Vulkan
         // --- Vulkan Specific ---
         NO_DISCARD Common::BoolResultStr RT_Invalidate();
 
+        /// Which view and sampler a descriptor written from this image was written against: process-wide
+        /// unique, minted whenever CreateResource or RecreateSampler replaces them. A cache keyed on the
+        /// image (the editor's UI texture ids) compares it instead of trusting a recyclable VkImageView.
+        [[nodiscard]] uint64_t GetResourceGeneration() const noexcept
+        {
+            return m_ResourceGeneration;
+        }
+
     private:
         Common::BoolResultStr CreateResource();
         void UploadData( VkCommandBuffer cmdBuffer, VkBuffer stagingBuffer );
@@ -205,7 +213,8 @@ namespace Desert::Graphic::API::Vulkan
         Core::Formats::Image2DSpecification m_Specification;
         VulkanImageResource                 m_Resource;
         std::vector<VkImageView>            m_MipViews;
-        bool                                m_IsLoaded = false;
+        bool                                m_IsLoaded           = false;
+        uint64_t                            m_ResourceGeneration = 0;
     };
 
     /**

@@ -1,12 +1,14 @@
 #include <Editor/Core/Control/InputInjection.hpp>
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <Editor/ImGuiIntegration/VulkanImGuiLayer.hpp>
+#include <Editor/Widgets/UIHelper/UICacheTextureImGui.hpp>
 
 #include <Common/Core/Events/MouseEvents.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 
+#include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
@@ -126,6 +128,8 @@ namespace Desert::Graphic::API::Vulkan
         pool_info.poolSizeCount                 = static_cast<uint32_t>( IM_ARRAYSIZE( pool_sizes ) );
         pool_info.pPoolSizes                    = pool_sizes;
         VK_CHECK_RESULT( vkCreateDescriptorPool( device, &pool_info, nullptr, &m_ImguiPool ) );
+        // The UI texture cache frees its per-image sets back into this pool when their images die (AM3).
+        ::Desert::Editor::UI::UICacheTextureImGui::Get().BindPool( m_ImguiPool );
 
         ImGui_ImplGlfw_InitForVulkan( static_cast<GLFWwindow*>( engineContext.GetNativeWindowHandle() ), true );
 
@@ -195,9 +199,14 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( m_ImguiPool != VK_NULL_HANDLE )
         {
-            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                   ->GetVulkanLogicalDevice();
-            vkDestroyDescriptorPool( device, m_ImguiPool, nullptr );
+            // Destroying the pool frees every set the texture cache still holds, so it forgets them rather
+            // than freeing each. Through the allocator, not vkDestroyDescriptorPool: frees the cache queued
+            // for this pool in the last frames are still in its ring, and the allocator drops a pool's
+            // pending frees with the pool instead of running them against a dead handle afterwards.
+            ::Desert::Editor::UI::UICacheTextureImGui::Get().ReleasePool();
+            SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                 ->GetVulkanAllocator()
+                 ->RT_DestroyDescriptorPool( m_ImguiPool );
             m_ImguiPool = VK_NULL_HANDLE;
         }
 
@@ -211,6 +220,8 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanImGui::Begin()
     {
+        // Before any panel asks for a texture id: the sets of images destroyed since last frame go back.
+        (void)::Desert::Editor::UI::UICacheTextureImGui::Get().RetireReleased();
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         if ( auto frame = ::Desert::Editor::Control::InputInjection::NextFrame() )

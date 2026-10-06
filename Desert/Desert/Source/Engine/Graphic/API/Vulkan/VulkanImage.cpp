@@ -14,6 +14,7 @@
 #include <Common/Utilities/String.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <mutex>
 #include <unordered_map>
@@ -209,6 +210,17 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     // --- VulkanImage2D ---
+
+    namespace
+    {
+        // Monotonic over the process, so a generation never names two (view, sampler) pairs. Main thread
+        // creates images, but an atomic costs nothing here and keeps the rule independent of that.
+        uint64_t NextResourceGeneration()
+        {
+            static std::atomic<uint64_t> s_Next{ 0 };
+            return ++s_Next;
+        }
+    } // namespace
 
     VulkanImage2D::VulkanImage2D( const Core::Formats::Image2DSpecification& spec ) : m_Specification( spec ) {}
     VulkanImage2D::~VulkanImage2D()
@@ -645,7 +657,8 @@ namespace Desert::Graphic::API::Vulkan
 
         CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
 
-        m_IsLoaded = true;
+        m_IsLoaded           = true;
+        m_ResourceGeneration = NextResourceGeneration();
         return Common::MakeSuccess( true );
     }
 
@@ -1559,6 +1572,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanImage2D::RecreateSampler()
     {
         RecreateSamplerImpl( m_Resource, Utils::SamplerFilterPolicy::Global );
+        m_ResourceGeneration = NextResourceGeneration();
     }
     void VulkanImageCube::RecreateSampler()
     {
