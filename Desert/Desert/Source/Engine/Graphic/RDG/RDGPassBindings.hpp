@@ -141,6 +141,95 @@ namespace Desert::Graphic::RDG
         Access             Declared = Access::None;
     };
 
+    // RDG-FAULT1. A shader's resource interface as the graph sees it: names and kinds, no set / binding indices
+    // (those stay the backend's, resolved at record time). Made from the pipeline's reflection by the backend
+    // (Vulkan: MakeShaderBindingLayout, REMAINDER-FAULT1-C0 step C2) when the renderer builds its pass; a value,
+    // so validation needs no device and the suite builds one by hand.
+    struct ShaderSlot
+    {
+        std::string        Name;
+        ShaderResourceKind Kind = ShaderResourceKind::SampledTexture;
+    };
+
+    struct ShaderBindingLayout
+    {
+        std::string             ShaderName;            // what an error names ("StaticMeshGlass")
+        std::vector<ShaderSlot> Slots;                 // every resource slot the shader declares
+        uint32_t                PushConstantBytes = 0; // the declared range; 0 = the shader declares none
+    };
+
+    // What the other route (the material, or a pipeline's own setters for asset textures) fills for the draw, as
+    // known when the pass is declared: the slots holding a real resource and whether it gives the push constants.
+    struct OtherRouteFill
+    {
+        std::vector<std::string> Slots;
+        bool                     PushConstants = false;
+    };
+
+    // One entry of a declared block: the resource, the access it declares for the pass, and the shader slot.
+    struct DeclaredBindingEntry
+    {
+        std::string                ShaderName;
+        ShaderResourceKind         Kind     = ShaderResourceKind::SampledTexture;
+        ResourceKind               Resource = ResourceKind::Texture;
+        uint32_t                   Index    = kInvalidResource;
+        Access                     Declared = Access::None;
+        SubresourceRange           Range    = SubresourceRange::All();
+        std::optional<SamplerDesc> Sampler; // SampledTexture only
+    };
+
+    struct DeclaredBindingBlock
+    {
+        ShaderBindingLayout               Layout;
+        OtherRouteFill                    Other;
+        std::vector<DeclaredBindingEntry> Entries;
+        uint32_t                          PushConstantBytes = 0; // what the exec will push
+    };
+
+    // A declared block of one pass: the exec's handle to it. Meaningless outside the graph that declared it.
+    struct BindingBlockRef
+    {
+        uint32_t Pass  = ~0u;
+        uint32_t Block = ~0u;
+    };
+
+    // Fills one DeclaredBindingBlock from a setup lambda (PassBuilder::Bindings). Each call declares the access on
+    // the pass exactly as PassBuilder::Read / Write would, so it is subject to the same declaration checks.
+    class BindingBlockBuilder
+    {
+    public:
+        BindingBlockBuilder& Sampled( std::string_view shaderName, TextureRef texture, Access declared,
+                                      SubresourceRange range, SamplerDesc sampler );
+        BindingBlockBuilder& Storage( std::string_view shaderName, TextureRef texture, Access declared,
+                                      uint32_t mip = 0 );
+        BindingBlockBuilder& Uniform( std::string_view shaderName, BufferRef buffer );
+        BindingBlockBuilder& Storage( std::string_view shaderName, BufferRef buffer, Access declared );
+        // The size the exec's PassBindings::PushConstants will give; 0 = none.
+        BindingBlockBuilder& PushConstantBytes( uint32_t bytes );
+
+        BindingBlockRef GetRef() const;
+
+    private:
+        friend class PassBuilder;
+        BindingBlockBuilder( PassBuilder& pass, BindingBlockRef ref ) : m_Pass( pass ), m_Ref( ref )
+        {
+        }
+
+        PassBuilder&    m_Pass;
+        BindingBlockRef m_Ref;
+    };
+
+    // RDG-FAULT1. The pre-execution validation of one block - pure, no device, called by Builder::Compile for
+    // every block of every pass. Success, or the FIRST mismatch as a stable reason (the reporter keys on it):
+    //   "'<slot>' is not a resource of shader '<shader>'"            - the live 2026-10-05 glass case;
+    //   "'<slot>' is a <kind> in shader '<shader>', bound as <kind>";
+    //   "'<slot>' of shader '<shader>' is bound by the pass and by the material";
+    //   "'<slot>' of shader '<shader>' is filled by neither the pass nor the material";
+    //   "push constants: shader '<shader>' declares <n> bytes, the pass gives <m>" (both routes / neither / size).
+    // These are exactly the checks ResolveRdgPassBindings makes at record time today; after FAULT1 that function
+    // only places entries at their (set, binding) and its own refusals are late faults.
+    Common::BoolResultStr ValidatePassBindings( const DeclaredBindingBlock& block );
+
     // The per-exec parameter block. Built from the PassContext the exec lambda receives; not copyable and
     // not movable, so it cannot be returned out of the lambda or stored in a renderer. Each Add* resolves its
     // ref through PassContext::GetTexture / GetBuffer immediately, so an undeclared resource, an access other
@@ -151,6 +240,10 @@ namespace Desert::Graphic::RDG
     {
     public:
         explicit PassBindings( const PassContext& context );
+        // RDG-FAULT1. Resolves every entry of the block @p block declared at setup through the context (the exec
+        // adds only PushConstants). Replaces the name-taking Sampled / Storage / Uniform below, which go when
+        // every renderer has moved its names into its setup (REMAINDER-FAULT1-C0, step C3).
+        PassBindings( const PassContext& context, BindingBlockRef block );
 
         PassBindings( const PassBindings& )            = delete;
         PassBindings& operator=( const PassBindings& ) = delete;

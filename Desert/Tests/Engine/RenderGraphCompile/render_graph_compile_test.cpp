@@ -6,6 +6,9 @@
 
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGFault.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 
@@ -206,6 +209,10 @@ namespace
         {
             return m_FallbackLog;
         }
+        PassFaultReporter& GetPassFaultReporter() override
+        {
+            return m_FaultReporter;
+        }
         Common::BoolResultStr BeginPipeSegment( const PipeSegment& segment ) override
         {
             Segments.push_back( std::format( "Begin {} {}..{}",
@@ -226,12 +233,15 @@ namespace
         std::vector<std::string> Calls;
         std::vector<std::string> Segments; // Begin/EndPipeSegment, kept out of Calls
         std::vector<std::string> FallbackLines;
+        std::vector<std::string> FaultLines; // what the backend's PassFaultReporter logged, in order
         PipeCapabilities         Pipes;
 
     private:
         NoPlacementAllocator    m_Allocator;
         AsyncComputeFallbackLog m_FallbackLog{ [this]( std::string_view line )
                                                { FallbackLines.emplace_back( line ); } };
+        PassFaultReporter       m_FaultReporter{ [this]( PassFaultReporter::Severity, std::string_view line )
+                                           { FaultLines.emplace_back( line ); } };
 
     public:
     private:
@@ -3003,4 +3013,300 @@ TEST( RenderGraphCompile, EditorInterfaceIsAGraphNode )
             EXPECT_EQ( swapChain.find( gone ), std::string::npos )
                  << file << ": the swapchain owns a render pass again: " << gone;
     }
+}
+
+// ── Fault isolation (RDG-FAULT1) ────────────────────────────────────────────────────────────────────────
+// THE DEFECT THESE PIN (seen live 2026-10-05): one pass binding slots its shader lacks (glass bound
+// u_ShadowMap0..3) failed the WHOLE graph - nothing drew - and the same error was logged every frame. The
+// relations under test: the faulted pass and only what depends on it alone leave the plan; a shared reader gets
+// the producer's declared default; the frame still executes; the report is said once and taken back once.
+
+namespace
+{
+    // StaticMeshGlass as the graph sees it: it samples the scene colour and declares no shadow map.
+    ShaderBindingLayout GlassLayout()
+    {
+        return { "StaticMeshGlass", { { "u_SceneColor", ShaderResourceKind::SampledTexture } }, 0 };
+    }
+
+    // Shadow -> Lighting -> Glass (binds u_ShadowMap0: Validation fault) -> GlassBlur (reads only Glass) ->
+    // Composite (reads Lighting AND GlassBlur) -> Backbuffer.
+    struct GlassFrame
+    {
+        ExternalTexture          black{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+        ExternalTexture          white{ Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::SampledGraphics };
+        ExternalTexture          blackCube{ Tex2D( 1, 1, ImageFormat::RGBA8F, 1, 6 ), Access::SampledGraphics };
+        ExternalTexture          backbuffer{ Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None };
+        Builder                  graph{ "FaultFrame" };
+        SystemTextures           system;
+        TextureRef               shadow, lit, glass, glassBlur, back;
+        std::vector<std::string> ran;
+
+        // @p glassBlurDefault: what Composite reads when GlassBlur is lost; @p backPolicy: the backbuffer's.
+        GlassFrame( FaultDefault glassBlurDefault, ExternalFaultPolicy backPolicy )
+        {
+            system    = RegisterSystemTextures( graph, black, white, blackCube );
+            shadow    = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "Shadow" );
+            lit       = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "Lit" );
+            glass     = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "Glass" );
+            glassBlur = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "GlassBlur" );
+            back      = graph.RegisterExternal( backbuffer, "Backbuffer" );
+            graph.SetFaultDefault( glassBlur, glassBlurDefault );
+            graph.SetFaultPolicy( back, backPolicy );
+
+            auto record = [this]( const char* name )
+            {
+                return [this, name]( PassContext& )
+                {
+                    ran.emplace_back( name );
+                    return Common::MakeSuccess( true );
+                };
+            };
+            graph.AddPass(
+                 "Shadow", PassFlags::Raster, [this]( PassBuilder& pass )
+                 { pass.ColorTarget( 0, shadow, LoadOp::ClearColor( 1, 1, 1, 1 ) ); }, record( "Shadow" ) );
+            graph.AddPass(
+                 "Lighting", PassFlags::Raster,
+                 [this]( PassBuilder& pass )
+                 {
+                     pass.Read( shadow, Access::SampledGraphics );
+                     pass.ColorTarget( 0, lit, LoadOp::ClearColor( 0, 0, 0, 1 ) );
+                 },
+                 record( "Lighting" ) );
+            graph.AddPass(
+                 "Glass", PassFlags::Raster,
+                 [this]( PassBuilder& pass )
+                 {
+                     pass.ColorTarget( 0, glass, LoadOp::ClearColor( 0, 0, 0, 0 ) );
+                     pass.Bindings( GlassLayout(), {} )
+                          .Sampled( "u_SceneColor", lit, Access::SampledGraphics, SubresourceRange::All(),
+                                    SamplerDesc::LinearClamp() )
+                          .Sampled( "u_ShadowMap0", shadow, Access::SampledGraphics, SubresourceRange::All(),
+                                    SamplerDesc::LinearClamp() );
+                 },
+                 record( "Glass" ) );
+            graph.AddPass(
+                 "GlassBlur", PassFlags::Raster,
+                 [this]( PassBuilder& pass )
+                 {
+                     pass.Read( glass, Access::SampledGraphics );
+                     pass.ColorTarget( 0, glassBlur, LoadOp::DontCare() );
+                 },
+                 record( "GlassBlur" ) );
+            graph.AddPass(
+                 "Composite", PassFlags::Raster,
+                 [this]( PassBuilder& pass )
+                 {
+                     pass.Read( lit, Access::SampledGraphics );
+                     pass.Read( glassBlur, Access::SampledGraphics );
+                     pass.ColorTarget( 0, back, LoadOp::DontCare() );
+                 },
+                 record( "Composite" ) );
+        }
+    };
+
+    std::vector<std::string> ExecutedNames( const CompileResult& result )
+    {
+        std::vector<std::string> names;
+        for ( const CompiledPass& pass : result.Passes )
+            names.push_back( pass.Name );
+        return names;
+    }
+
+    Common::BoolResultStr RecordAs( std::vector<std::string>& ran, const char* name )
+    {
+        ran.emplace_back( name );
+        return Common::MakeSuccess( true );
+    }
+} // namespace
+
+TEST( RenderGraphCompile, BindingValidationNamesTheSlotTheShaderLacks )
+{
+    DeclaredBindingBlock block;
+    block.Layout = GlassLayout();
+    block.Entries.push_back( { "u_SceneColor", ShaderResourceKind::SampledTexture, ResourceKind::Texture, 0,
+                               Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
+    EXPECT_TRUE( ValidatePassBindings( block ).IsSuccess() );
+
+    block.Entries.push_back( { "u_ShadowMap0", ShaderResourceKind::SampledTexture, ResourceKind::Texture, 1,
+                               Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
+    const Common::BoolResultStr refused = ValidatePassBindings( block );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "'u_ShadowMap0' is not a resource of shader 'StaticMeshGlass'" ),
+               std::string::npos )
+         << refused.GetError();
+}
+
+TEST( RenderGraphCompile, FaultedPassIsCulledWithItsExclusiveDependants )
+{
+    GlassFrame          frame( FaultDefault::Black, ExternalFaultPolicy::FrameFatal );
+    const CompileResult result = CompileOrFail( frame.graph );
+
+    // Glass (2) is faulted; GlassBlur (3) read only Glass and has no default for it, so it goes with it.
+    EXPECT_EQ( result.FaultCulledPasses, ( std::vector<uint32_t>{ 2, 3 } ) );
+    EXPECT_TRUE( result.CulledPasses.empty() ); // fault culling is not reported as "nothing consumes it"
+    EXPECT_EQ( ExecutedNames( result ), ( std::vector<std::string>{ "Shadow", "Lighting", "Composite" } ) );
+    ASSERT_EQ( result.Faults.size(), 2u );
+    EXPECT_EQ( result.Faults[0].PassName, "Glass" );
+    EXPECT_EQ( result.Faults[0].Stage, PassFaultStage::Validation );
+    EXPECT_NE( result.Faults[0].Reason.find( "u_ShadowMap0" ), std::string::npos );
+    EXPECT_EQ( result.Faults[1].PassName, "GlassBlur" );
+    EXPECT_EQ( result.Faults[1].Stage, PassFaultStage::Dependency );
+    EXPECT_EQ( result.Faults[1].RootPass, std::optional<uint32_t>{ 2 } );
+    // A removed pass leaves no trace in the plan: no allocation for what only it and its dependants used.
+    EXPECT_EQ( result.FindAllocation( frame.glass.Index ), nullptr );
+    EXPECT_EQ( result.FindAllocation( frame.glassBlur.Index ), nullptr );
+    EXPECT_FALSE( result.Frame.has_value() );
+}
+
+TEST( RenderGraphCompile, SharedDependantReadsTheProducersSystemDefault )
+{
+    GlassFrame          frame( FaultDefault::Black, ExternalFaultPolicy::FrameFatal );
+    const CompileResult result = CompileOrFail( frame.graph );
+
+    ASSERT_EQ( result.Substitutions.size(), 1u );
+    const DefaultSubstitution& substitution = result.Substitutions[0];
+    EXPECT_EQ( substitution.ReaderPass, 4u ); // Composite
+    EXPECT_EQ( substitution.Original, frame.glassBlur.Index );
+    EXPECT_EQ( substitution.Replacement, frame.system.Black.Index );
+    EXPECT_EQ( substitution.Default, FaultDefault::Black );
+    EXPECT_FALSE( substitution.AttachmentCleared );
+}
+
+TEST( RenderGraphCompile, FrameExecutesWithoutTheFaultedPassAndReportsOnce )
+{
+    RecordingBackend backend;
+    for ( int frameIndex = 0; frameIndex < 3; ++frameIndex )
+    {
+        GlassFrame frame( FaultDefault::Black, ExternalFaultPolicy::FrameFatal );
+        ASSERT_TRUE( frame.graph.Execute( backend ).IsSuccess() );
+        EXPECT_EQ( frame.ran, ( std::vector<std::string>{ "Shadow", "Lighting", "Composite" } ) );
+        EXPECT_EQ( frame.graph.GetExecuteReport().Faults.size(), 2u );
+        EXPECT_TRUE( std::none_of( backend.Calls.begin(), backend.Calls.end(),
+                                   []( const std::string& call ) { return call == "BeginPass Glass"; } ) );
+    }
+    // Three frames with the same defect: ONE line, naming the cascade with its root.
+    ASSERT_EQ( backend.FaultLines.size(), 1u );
+    EXPECT_NE( backend.FaultLines[0].find( "Glass" ), std::string::npos );
+    EXPECT_NE( backend.FaultLines[0].find( "GlassBlur" ), std::string::npos );
+    EXPECT_EQ( backend.GetPassFaultReporter().GetActiveCount(), 1u );
+}
+
+TEST( RenderGraphCompile, FaultThatLeavesAFrameFatalExternalUnwrittenIsAFrameFault )
+{
+    // No default for GlassBlur: Composite, the backbuffer's only writer, is culled too.
+    RecordingBackend    backend;
+    GlassFrame          frame( FaultDefault::None, ExternalFaultPolicy::FrameFatal );
+    const CompileResult result = CompileOrFail( frame.graph );
+    ASSERT_TRUE( result.Frame.has_value() );
+    EXPECT_EQ( result.Frame->Externals, std::vector<uint32_t>{ frame.back.Index } );
+    EXPECT_EQ( result.Frame->RootPasses, std::vector<uint32_t>{ 2 } );
+
+    EXPECT_FALSE( frame.graph.Execute( backend ).IsSuccess() );
+    EXPECT_TRUE( backend.Calls.empty() ); // nothing recorded: the caller clears the backbuffer and presents
+    EXPECT_TRUE( frame.ran.empty() );
+    EXPECT_EQ( backend.FaultLines.size(), 1u ); // the frame fault is reported through the same reporter
+}
+
+TEST( RenderGraphCompile, KeepsContentsExternalWithoutWriterIsNotAFrameFault )
+{
+    GlassFrame          frame( FaultDefault::None, ExternalFaultPolicy::KeepsContents );
+    const CompileResult result = CompileOrFail( frame.graph );
+    EXPECT_FALSE( result.Frame.has_value() );
+    EXPECT_EQ( result.FaultCulledPasses, ( std::vector<uint32_t>{ 2, 3, 4 } ) );
+    // Shadow and Lighting fed only removed passes: culled the ordinary way, not as faults.
+    EXPECT_EQ( result.CulledPasses, ( std::vector<uint32_t>{ 0, 1 } ) );
+    EXPECT_TRUE( result.Passes.empty() );
+}
+
+TEST( RenderGraphCompile, LateExecutionFaultKeepsTheFrameAndSkipsOnlyItsDependants )
+{
+    ExternalTexture          backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder                  graph( "late" );
+    const TextureRef         a    = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "A" );
+    const TextureRef         b    = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "B" );
+    const TextureRef         back = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    std::vector<std::string> ran;
+    graph.AddPass(
+         "Broken", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, a, LoadOp::ClearColor( 0, 0, 0, 1 ) ); },
+         [&]( PassContext& ) -> Common::BoolResultStr
+         {
+             ran.emplace_back( "Broken" );
+             return Common::MakeError( "descriptor pool exhausted" );
+         } );
+    graph.AddPass(
+         "UsesBroken", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( a, Access::SampledGraphics );
+             pass.ColorTarget( 0, b, LoadOp::DontCare() );
+         },
+         [&]( PassContext& ) { return RecordAs( ran, "UsesBroken" ); } );
+    graph.AddPass(
+         "Present", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, back, LoadOp::DontCare() ); },
+         [&]( PassContext& ) { return RecordAs( ran, "Present" ); } );
+    graph.AddPass(
+         "Blend", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( b, Access::SampledGraphics );
+             pass.ColorTarget( 0, back, LoadOp::Load() );
+         },
+         [&]( PassContext& ) { return RecordAs( ran, "Blend" ); } );
+
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    // Broken ran and failed; UsesBroken (no default for A) and Blend (its only input B is lost) are skipped;
+    // Present is not touched by the fault.
+    EXPECT_EQ( ran, ( std::vector<std::string>{ "Broken", "Present" } ) );
+    const ExecuteReport& report = graph.GetExecuteReport();
+    ASSERT_FALSE( report.Faults.empty() );
+    EXPECT_EQ( report.Faults[0].PassName, "Broken" );
+    EXPECT_EQ( report.Faults[0].Stage, PassFaultStage::Execution );
+    EXPECT_FALSE( report.Frame.has_value() );
+    // The render pass Broken opened is closed and the graph ends normally (no AbandonGraph).
+    EXPECT_TRUE( std::none_of( backend.Calls.begin(), backend.Calls.end(),
+                               []( const std::string& call ) { return call == "AbandonGraph"; } ) );
+    ASSERT_FALSE( backend.Calls.empty() );
+    EXPECT_EQ( backend.Calls.back().rfind( "EndGraph", 0 ), 0u );
+}
+
+TEST( RenderGraphCompile, FaultReporterSaysOncePerPassAndReasonAgainOnChangeAndOnRecovery )
+{
+    std::vector<std::pair<PassFaultReporter::Severity, std::string>> lines;
+    PassFaultReporter reporter( [&]( PassFaultReporter::Severity severity, std::string_view line )
+                                { lines.emplace_back( severity, std::string( line ) ); } );
+    const std::vector<std::string_view> added = { "Glass" };
+
+    ExecuteReport broken;
+    broken.Faults.push_back( { 2, "Glass", PassFaultStage::Validation,
+                               "'u_ShadowMap0' is not a resource of shader 'StaticMeshGlass'", std::nullopt } );
+    for ( int frameIndex = 0; frameIndex < 5; ++frameIndex )
+        reporter.Report( "Scene", added, broken );
+    ASSERT_EQ( lines.size(), 1u ); // five frames, one line
+    EXPECT_EQ( lines[0].first, PassFaultReporter::Severity::Error );
+
+    ExecuteReport changed    = broken;
+    changed.Faults[0].Reason = "'u_ShadowMap1' is not a resource of shader 'StaticMeshGlass'";
+    reporter.Report( "Scene", added, changed );
+    reporter.Report( "Scene", added, changed );
+    ASSERT_EQ( lines.size(), 2u ); // a different reason is news, once
+
+    // The same pass failing in another graph (a preview) is its own key, and that graph not executing this
+    // frame does not count as its recovery.
+    reporter.Report( "Preview", added, broken );
+    ASSERT_EQ( lines.size(), 3u );
+
+    reporter.Report( "Scene", added, ExecuteReport{} );
+    ASSERT_EQ( lines.size(), 4u );
+    EXPECT_EQ( lines[3].first, PassFaultReporter::Severity::Recovered );
+    EXPECT_NE( lines[3].second.find( "Glass" ), std::string::npos );
+    reporter.Report( "Scene", added, ExecuteReport{} );
+    EXPECT_EQ( lines.size(), 4u );              // recovery is said once
+    EXPECT_EQ( reporter.GetActiveCount(), 1u ); // Preview's fault is still active
+
+    reporter.Report( "Scene", added, broken );
+    EXPECT_EQ( lines.size(), 5u ); // a relapse is reported again
 }

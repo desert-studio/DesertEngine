@@ -66,4 +66,21 @@ namespace Desert::Editor
     // Collapse runs of CONSECUTIVE identical (text, level) lines into LogRuns with a count. Order is
     // preserved; non-adjacent duplicates are NOT merged (they are separate events in the timeline).
     std::vector<LogRun> CollapseConsecutive( const std::vector<std::pair<std::string, int>>& lines );
+
+    // RDG-FAULT1. The collapse the panel needs. CollapseConsecutive compares the WHOLE line, and every line the
+    // logger writes opens with its own timestamp, so a message repeated every frame never collapsed: the
+    // 2026-10-05 flood was ~60 distinct rows a second with Collapse on. A repeat is the same Severity, Category
+    // and Message of ParseLogLine - the time is not part of the event's identity. The run keeps the first line's
+    // Text and the first and last time, so the panel shows "x<Count>  <FirstTime> .. <LastTime>". An unparsed line
+    // has no time and compares whole. Order is preserved; non-adjacent repeats stay separate. Replaces
+    // CollapseConsecutive (deleted with its call in LogsPanel::Refresh by the implementation step).
+    struct LogRepeatRun
+    {
+        std::string Text; // the first line of the run, whole
+        int         Level = 0;
+        int         Count = 1;
+        std::string FirstTime; // "16:55:20.047"; empty for an unparsed line
+        std::string LastTime;
+    };
+    std::vector<LogRepeatRun> CollapseRepeats( const std::vector<std::pair<std::string, int>>& lines );
 } // namespace Desert::Editor
