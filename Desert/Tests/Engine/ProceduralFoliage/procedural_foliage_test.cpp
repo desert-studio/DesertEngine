@@ -164,3 +164,9 @@ TEST( ProceduralFoliage, StitchedTilesPlaceEveryPlantOnceWithNoOverlapOrBareStri
     EXPECT_GE( static_cast<float>( seam ), 0.6f * static_cast<float>( interior ) )
          << "seam " << seam << " against interior " << interior;
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}

@@ -12,6 +12,7 @@
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/World/Foliage/Procedural/ProceduralFoliageTile.hpp>
 
+#include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
