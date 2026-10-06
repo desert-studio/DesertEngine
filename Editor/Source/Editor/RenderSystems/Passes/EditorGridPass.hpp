@@ -2,6 +2,7 @@
 
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialGrid.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 namespace Desert::Editor::Render
 {
@@ -23,5 +24,7 @@ namespace Desert::Editor::Render
         std::weak_ptr<::Desert::Core::Scene>       m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline> m_Pipeline;
         std::unique_ptr<Graphic::MaterialGrid>     m_Material;
+        // The pass's one setup block, keyed on m_Pipeline's shader.
+        Graphic::ShaderBindingLayoutCache m_BindingLayout;
     };
 } // namespace Desert::Editor::Render

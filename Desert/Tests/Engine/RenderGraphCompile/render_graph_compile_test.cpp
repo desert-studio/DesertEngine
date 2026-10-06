@@ -3336,6 +3336,8 @@ TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
     for ( const auto& entry : fs::directory_iterator( root / dir ) )
         files.push_back( dir + entry.path().filename().string() );
     files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    files.push_back( "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp" );
+    files.push_back( "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" );
     const std::regex get( R"(([Ll]ayout\.Get\())" );
     const std::regex key( R"(^[A-Za-z_][\w\[\]\.]*->GetSpecification\(\)\.Shader\))" );
     size_t           gets = 0;
@@ -3361,8 +3363,9 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    for ( const char* file :
-          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" } )
+    for ( const char* file : { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+                               "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp",
+                               "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" } )
     {
         const std::string text   = SqueezedSource( root, file );
         size_t            opened = 0;
@@ -3406,6 +3409,21 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     // Both walk the emitters by the one condition, so the exec's n-th drawn emitter opens block n.
     EXPECT_NE( exec.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );
     EXPECT_NE( declaration.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );
+
+    // The editor's grid and cubemap-ball passes declare their one block in the external pass's Declare (layout
+    // kept per pipeline shader, the material's route fill); the exec opens block 0 of it. Without the Declare the
+    // exec's GetBindingBlock( 0 ) faults the node every frame.
+    for ( const char* file : { "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp",
+                               "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" } )
+    {
+        const std::string text = SqueezedSource( root, file );
+        EXPECT_NE( text.find( "pass.Declare=[this](Graphic::RenderPassDeclaration&declared,"
+                              "constGraphic::ExternalPassContext&){declared.Bindings(m_BindingLayout.Get("
+                              "m_Pipeline->GetSpecification().Shader),m_Material->GetMaterialExecutor()->"
+                              "GetRouteFill());};" ),
+                   std::string::npos )
+             << file << " declares no setup block";
+    }
 }
 
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and
