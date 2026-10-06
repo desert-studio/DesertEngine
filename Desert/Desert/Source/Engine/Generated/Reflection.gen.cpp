@@ -20,6 +20,7 @@
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
+#include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 
@@ -209,6 +210,38 @@ namespace
                     .Field( FieldInfo{ .Name = "MaxSleepTime", .Type = FieldType::Vec2, .Offset = offsetof( T, MaxSleepTime ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaxSleepTime )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Max Sleep Time", .Category = "Removal", .Tooltip = "Seconds asleep before removal, drawn per piece in [x, y] (UE MaximumSleepTime).", .Units = "s", } } )
                     .Field( FieldInfo{ .Name = "SlowMovingAsSleeping", .Type = FieldType::Bool, .Offset = offsetof( T, SlowMovingAsSleeping ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SlowMovingAsSleeping )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Slow Moving As Sleeping", .Category = "Removal", .Tooltip = "A piece creeping slower than the threshold counts as asleep (UE bSlowMovingAsSleeping).", } } )
                     .Field( FieldInfo{ .Name = "SlowMovingVelocityThreshold", .Type = FieldType::Float, .Offset = offsetof( T, SlowMovingVelocityThreshold ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SlowMovingVelocityThreshold )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Slow Moving Velocity Threshold", .Category = "Removal", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000.0f, .Units = "cm/s", } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
+                using T = ::Desert::ECS::RadialImpulseFieldData;
+                TypeBuilder( "RadialImpulseFieldData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "Magnitude", .Type = FieldType::Float, .Offset = offsetof( T, Magnitude ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Magnitude )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Magnitude", .Category = "Field", .Tooltip = "The impulse at the centre; the falloff takes it to zero at the radius. Its length is also the strain a piece inside reads, against the piece's Damage Threshold.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e8f, .Units = "kg*cm/s", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .Tooltip = "Pieces whose centre of mass is farther than this are not touched.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "Falloff", .Type = FieldType::Enum, .Offset = offsetof( T, Falloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Falloff )>(), .TypeName = "Destruction::FieldFalloff", .Meta = PropertyMetadata{ .DisplayName = "Falloff", .Category = "Field", .Tooltip = "How the magnitude goes from the centre to the radius (UE Falloff Type).", }, .EnumValues = { EnumValue{ "None", 0 }, EnumValue{ "Linear", 1 }, EnumValue{ "Squared", 2 }, EnumValue{ "Inverse", 3 }, EnumValue{ "Logarithmic", 4 }, } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
+                using T = ::Desert::ECS::StrainFieldData;
+                TypeBuilder( "StrainFieldData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "Magnitude", .Type = FieldType::Float, .Offset = offsetof( T, Magnitude ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Magnitude )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Magnitude", .Category = "Field", .Tooltip = "The strain at the centre; a piece breaks off where the strain it reads reaches its Damage Threshold.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e8f, .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "Falloff", .Type = FieldType::Enum, .Offset = offsetof( T, Falloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Falloff )>(), .TypeName = "Destruction::FieldFalloff", .Meta = PropertyMetadata{ .DisplayName = "Falloff", .Category = "Field", .Tooltip = "How the magnitude goes from the centre to the radius (UE Falloff Type).", }, .EnumValues = { EnumValue{ "None", 0 }, EnumValue{ "Linear", 1 }, EnumValue{ "Squared", 2 }, EnumValue{ "Inverse", 3 }, EnumValue{ "Logarithmic", 4 }, } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
+                using T = ::Desert::ECS::KillFieldData;
+                TypeBuilder( "KillFieldData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, .Summary = true, } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
+                using T = ::Desert::ECS::AnchorFieldData;
+                TypeBuilder( "AnchorFieldData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "Extent", .Type = FieldType::Vec3, .Offset = offsetof( T, Extent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Extent )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Extent", .Category = "Field", .Tooltip = "The box's full size along the entity's own axes, before the entity's scale.", .IsLength = true, .Summary = true, } } )
                     .WithDefault<T>()
                     .Register();
             }
