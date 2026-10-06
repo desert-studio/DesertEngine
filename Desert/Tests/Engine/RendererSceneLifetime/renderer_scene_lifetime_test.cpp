@@ -421,30 +421,36 @@ TEST( RendererSceneLifetime, TheTemporalResetReachesEverySystemAndTouchesNoPass 
 
 // RELATION: the capture's count starts on a cut, for every view.
 //
-// ArmShotCount is the first caller of the camera cut; it calls it for every view of the scene and only then
-// lets the count run. A capture whose count started without the cut is again a function of how many
-// start-up frames this run happened to take.
+// ShotDirector::AdmitFrame is the first caller of the camera cut: on the first frame its gate records
+// (ShotRecordGate — splash gone, content settled, viewport size stable; its own rules are ShotPath's), it
+// cuts every view of the scene, and only recorded frames are counted. A capture whose count started
+// without the cut is again a function of how many start-up frames this run happened to take.
 TEST( RendererSceneLifetime, TheCaptureCountStartsOnATemporalReset )
 {
-    const std::string editor = StripComments(
-         ReadAll( ( std::filesystem::path( RepoRoot() ) / "Editor/Source/EditorLayer.cpp" ).string() ) );
-    ASSERT_FALSE( editor.empty() );
-    const std::string arm = BodyAfter( editor, "EditorLayer::ArmShotCount()" );
-    ASSERT_FALSE( arm.empty() ) << "EditorLayer::ArmShotCount is gone.";
+    const std::string director = StripComments(
+         ReadAll( ( std::filesystem::path( RepoRoot() ) / "Editor/Source/Editor/LevelEditor/ShotDirector.cpp" )
+                       .string() ) );
+    ASSERT_FALSE( director.empty() );
+    const std::string admit = BodyAfter( director, "ShotDirector::AdmitFrame(" );
+    ASSERT_FALSE( admit.empty() ) << "ShotDirector::AdmitFrame is gone.";
 
-    EXPECT_NE( arm.find( "GetViewCount()" ), std::string::npos ) << "the arm frame does not visit every view.";
-    EXPECT_NE( arm.find( "->ResetTemporalHistory()" ), std::string::npos )
-         << "the arm frame does not cut the views' temporal history.";
-    EXPECT_NE( arm.find( "m_Revealed" ), std::string::npos )
-         << "the count can start before the window is revealed, while the viewport is still being laid out.";
-    EXPECT_NE( arm.find( "m_ShotExtentW" ), std::string::npos )
-         << "the count can start on a frame whose image size just changed (the black frames after a resize).";
+    EXPECT_NE( admit.find( "m_Gate.Admit( frame )" ), std::string::npos )
+         << "the recorded frame is not decided by ShotRecordGate (reveal, settled content, stable size).";
+    const std::size_t first = admit.find( "recorded && !wasRecording" );
+    ASSERT_NE( first, std::string::npos ) << "the cut is not taken on the first recorded frame.";
+    const std::string cut = admit.substr( first );
+    EXPECT_NE( cut.find( "GetViewCount()" ), std::string::npos )
+         << "the first recorded frame does not visit every view.";
+    EXPECT_NE( cut.find( "->ResetTemporalHistory()" ), std::string::npos )
+         << "the first recorded frame does not cut the views' temporal history.";
 
-    const std::size_t counted = editor.find( "++m_ShotFrame" );
-    ASSERT_NE( counted, std::string::npos );
-    const std::size_t gate = editor.rfind( "ArmShotCount()", counted );
-    ASSERT_NE( gate, std::string::npos ) << "the shot counter is not gated on ArmShotCount.";
-    EXPECT_LT( counted - gate, 200u ) << "ArmShotCount is not the condition of the block that counts frames.";
+    const std::string count = BodyAfter( director, "ShotDirector::CountRenderedFrame(" );
+    const std::size_t counted = count.find( "++m_ShotFrame" );
+    ASSERT_NE( counted, std::string::npos ) << "ShotDirector::CountRenderedFrame no longer counts frames.";
+    const std::size_t gate = count.rfind( "recordedFrame", counted );
+    ASSERT_NE( gate, std::string::npos ) << "the shot counter is not gated on the recorded frame.";
+    EXPECT_LT( counted - gate, 200u )
+         << "the recorded frame is not the condition of the block that counts frames.";
 }
 
 // ===================================================================================================

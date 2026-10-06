@@ -64,6 +64,26 @@ namespace
         return out.str();
     }
 
+    // The mesh renderer is one class split over MeshRenderer*.cpp (shadow, deferred, forward, debug parts): a
+    // census of "the mesh renderer" reads every part, so code moving between them cannot step outside it.
+    std::string ReadMeshRendererSources( const std::filesystem::path& repo )
+    {
+        const std::filesystem::path dir = repo / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh";
+        std::vector<std::filesystem::path> parts;
+        std::error_code                    ec;
+        for ( const auto& entry : std::filesystem::directory_iterator( dir, ec ) )
+        {
+            const std::string name = entry.path().filename().string();
+            if ( name.starts_with( "MeshRenderer" ) && entry.path().extension() == ".cpp" )
+                parts.push_back( entry.path() );
+        }
+        std::sort( parts.begin(), parts.end() );
+        std::string text;
+        for ( const auto& part : parts )
+            text += ReadFile( part );
+        return text;
+    }
+
     // Every .shader under Editor/Resources/Shaders/Programs, parsed ONCE and sorted, so a failure names
     // the same file on every machine and the whole suite pays for one walk rather than one per test
     // (assembling a stage un-sugars every line, which is not free over seventy-odd files). The root is
@@ -858,12 +878,11 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
     EXPECT_FALSE( Desert::Graphic::MeshShaderFor( "", MeshVertexPath::Static, MeshPass::Glass ).has_value() );
 
     const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
-    const std::string source =
-         ReadFile( here / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
-    ASSERT_FALSE( source.empty() ) << "MeshRenderer.cpp was not found from " << here;
+    const std::string source = ReadMeshRendererSources( here );
+    ASSERT_FALSE( source.empty() ) << "no MeshRenderer*.cpp was found from " << here;
     for ( const std::string_view single : { "m_GlassMaterial", "m_StaticGlassPipeline", "\"StaticMeshGlass\"" } )
         EXPECT_EQ( source.find( single ), std::string::npos )
-             << "MeshRenderer.cpp holds " << single << ": one translucency material/pipeline for every template";
+             << "MeshRenderer*.cpp holds " << single << ": one translucency material/pipeline for every template";
     EXPECT_NE( source.find( "TranslucentDrawFor( mat->GetShaderName() )" ), std::string::npos )
          << "the translucency pass must take each object's draw state from ITS material's cell shader";
 }
@@ -873,12 +892,11 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
 TEST( ShippedShaderPasses, TheMeshRendererPicksNoPassByAParameterName )
 {
     const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
-    const std::string source =
-         ReadFile( here / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
-    ASSERT_FALSE( source.empty() ) << "MeshRenderer.cpp was not found from " << here;
+    const std::string source = ReadMeshRendererSources( here );
+    ASSERT_FALSE( source.empty() ) << "no MeshRenderer*.cpp was found from " << here;
     for ( const std::string_view name : { "\"Transmission\"", "\"IOR\"", "\"GlassTint\"" } )
         EXPECT_EQ( source.find( name ), std::string::npos )
-             << "MeshRenderer.cpp names " << name << ": a pass is chosen by the template's blend mode";
+             << "MeshRenderer*.cpp names " << name << ": a pass is chosen by the template's blend mode";
 }
 
 TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestName )

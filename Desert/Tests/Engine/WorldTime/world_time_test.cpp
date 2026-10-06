@@ -188,11 +188,15 @@ namespace
 
     // Every consumer that used to keep its own clock (TIME1), and the line that now connects it to the
     // world's. One named row each — a consumer that goes back to its own clock fails here by name.
-    constexpr std::array<Consumer, 9> kConsumers{ {
+    constexpr std::array<Consumer, 11> kConsumers{ {
          { "Desert/Desert/Source/Engine/Core/Scene.cpp", "Common::Timestep( m_WorldTime.GetDeltaSeconds() )" },
          { "Desert/Desert/Source/Engine/Core/Scene.cpp", "system->SetWorldTime( m_WorldTime )" },
-         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
-           "const Common::Timestep animTs( m_WorldDeltaSeconds )" },
+         // Animation: gameplay by the world's Delta (Update's step), the editor preview by its real delta
+         // (SetEditorTick), one rule over both (Animation::AnimationAdvanceSeconds).
+         { "Desert/Desert/Source/Engine/Core/Scene.cpp",
+           "const Common::Timestep gameplayTs( TicksGameplay() ? m_WorldTime.GetDeltaSeconds() : 0.0f )" },
+         { "Desert/Desert/Source/Engine/Core/Scene.cpp", "Common::Timestep( m_WorldTime.GetRealDeltaSeconds() )" },
+         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp", "Animation::AnimationAdvanceSeconds(" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
            "AdvanceWind( data, m_WorldDeltaSeconds )" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",

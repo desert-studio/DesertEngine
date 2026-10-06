@@ -411,15 +411,26 @@ namespace Desert::Graphic::System
     std::shared_ptr<GraphicsPipeline>
     MeshRenderer::DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target, const bool useLoadPass )
     {
-        static constexpr const char* kDefaultSurface = "DefaultSurface";
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( kDefaultSurface );
+        // Found by ROLE (the project's DefaultSurfaceTemplate, else the shader declaring `Default Surface`),
+        // never by a template name.
+        const auto key = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceTemplate();
+        if ( !key )
+        {
+            static bool s_Unresolved = false;
+            if ( !std::exchange( s_Unresolved, true ) )
+                LOG_ERROR( "[MeshRenderer] no default surface template: {}; a material whose pipeline is not ready "
+                           "yet is not drawn",
+                           key.GetError() );
+            return nullptr;
+        }
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( key.GetValue() );
         if ( !shader || !shader->IsCompiled() )
         {
             static bool s_Warned = false;
             if ( !std::exchange( s_Warned, true ) )
-                LOG_ERROR( "[MeshRenderer] the engine shader '{}' (Shaders/Programs/PBR/DefaultSurface.shader) is "
-                           "missing or did not compile: a material whose pipeline is not ready yet is not drawn",
-                           kDefaultSurface );
+                LOG_ERROR( "[MeshRenderer] the default surface template '{}' is missing or did not compile: a "
+                           "material whose pipeline is not ready yet is not drawn",
+                           key.GetValue() );
             return nullptr;
         }
         GraphicsPipelineSpecification spec = GenericPipelineSpec( shader, target, useLoadPass );
@@ -433,7 +444,7 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         if ( !m_DefaultSurfaceMaterial )
-            m_DefaultSurfaceMaterial = std::make_unique<DataDrivenMaterial>( kDefaultSurface );
+            m_DefaultSurfaceMaterial = std::make_unique<DataDrivenMaterial>( key.GetValue() );
         return built.GetValue();
     }
 

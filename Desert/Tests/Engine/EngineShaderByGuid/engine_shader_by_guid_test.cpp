@@ -350,8 +350,6 @@ namespace
     };
 
     constexpr AllowedTemplateName kAllowedTemplateNames[] = {
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "DefaultSurface",
-           "compile key of the renderer's fallback surface program (MAT1a-T1 owns it)" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp", "Terrain",
            "compile key of the terrain renderer's own program, not a material's template" },
          { "Desert/Common/Source/Common/Content/ShaderAssetHeader.hpp", "Terrain",
