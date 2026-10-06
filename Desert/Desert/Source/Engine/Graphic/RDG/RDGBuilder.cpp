@@ -214,27 +214,81 @@ namespace Desert::Graphic::RDG
         const int kinds = ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 );
-        if ( kinds != 1 )
-            RecordError(
-                 fmt::format( "graph '{}': pass '{}' names {} of Raster/Compute/Copy; exactly one is required",
-                              m_Name, name, kinds ) );
-        if ( HasFlag( flags, PassFlags::AsyncCompute ) && !HasFlag( flags, PassFlags::Compute ) )
-            RecordError(
-                 std::format( "graph '{}': pass '{}' declares AsyncCompute without Compute; only a compute "
-                              "pass can run on the async compute queue",
-                              m_Name, name ) );
-
         PassRecord record;
         record.Name  = std::string( name );
         record.Flags = flags;
         m_Passes.push_back( std::move( record ) );
-        return PassBuilder( *this, static_cast<uint32_t>( m_Passes.size() - 1 ) );
+        const auto pass = static_cast<uint32_t>( m_Passes.size() - 1 );
+        // A malformed pass faults itself (RDG-FAULT1), the graph goes on without it.
+        if ( kinds != 1 )
+            RecordPassError( pass,
+                 fmt::format( "graph '{}': pass '{}' names {} of Raster/Compute/Copy; exactly one is required",
+                              m_Name, name, kinds ) );
+        if ( HasFlag( flags, PassFlags::AsyncCompute ) && !HasFlag( flags, PassFlags::Compute ) )
+            RecordPassError( pass,
+                 std::format( "graph '{}': pass '{}' declares AsyncCompute without Compute; only a compute "
+                              "pass can run on the async compute queue",
+                              m_Name, name ) );
+        return PassBuilder( *this, pass );
     }
 
     void Builder::RecordError( std::string message )
     {
         if ( m_DeclarationError.empty() )
             m_DeclarationError = std::move( message );
+    }
+
+    void Builder::RecordPassError( uint32_t pass, std::string message )
+    {
+        if ( m_Passes[pass].DeclarationError.empty() )
+            m_Passes[pass].DeclarationError = std::move( message );
+    }
+
+    void Builder::SetFaultDefault( TextureRef texture, FaultDefault value )
+    {
+        const ResourceRecord* record = FindResource( texture.Index, ResourceKind::Texture );
+        if ( !record || record->IsExternal() )
+            return RecordError( std::format( "graph '{}': SetFaultDefault of handle {}, which is not a transient "
+                                             "texture of this graph",
+                                             m_Name, texture.Index ) );
+        m_Resources[texture.Index].Default = value;
+    }
+
+    void Builder::SetFaultPolicy( TextureRef external, ExternalFaultPolicy policy )
+    {
+        const ResourceRecord* record = FindResource( external.Index, ResourceKind::Texture );
+        if ( !record || !record->IsExternal() )
+            return RecordError( std::format( "graph '{}': SetFaultPolicy of texture handle {}, which is not an "
+                                             "external of this graph",
+                                             m_Name, external.Index ) );
+        m_Resources[external.Index].Policy = policy;
+    }
+
+    void Builder::SetFaultPolicy( BufferRef external, ExternalFaultPolicy policy )
+    {
+        const ResourceRecord* record = FindResource( external.Index, ResourceKind::Buffer );
+        if ( !record || !record->IsExternal() )
+            return RecordError( std::format( "graph '{}': SetFaultPolicy of buffer handle {}, which is not an "
+                                             "external of this graph",
+                                             m_Name, external.Index ) );
+        m_Resources[external.Index].Policy = policy;
+    }
+
+    void Builder::SetFaultDefaultSources( TextureRef black, TextureRef white, TextureRef blackCube )
+    {
+        m_FaultBlack     = black;
+        m_FaultWhite     = white;
+        m_FaultBlackCube = blackCube;
+    }
+
+    const ExecuteReport& Builder::GetExecuteReport() const
+    {
+        return m_Report;
+    }
+
+    ExternalTexture* Builder::FindExternalTexture( uint32_t resource ) const
+    {
+        return resource < m_Resources.size() ? m_Resources[resource].ExternalTex : nullptr;
     }
 
     const Builder::ResourceRecord* Builder::FindResource( uint32_t index, ResourceKind kind ) const
@@ -292,36 +346,36 @@ namespace Desert::Graphic::RDG
         const Builder::ResourceRecord* resource = m_Builder.FindResource( texture.Index, ResourceKind::Texture );
         const std::string&             graph    = m_Builder.m_Name;
         if ( !resource )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid texture handle {}",
+            return m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': {}() of invalid texture handle {}",
                                                        graph, pass.Name, call, texture.Index ) );
         if ( RdgIsFinalOnlyAccess( access ) )
-            return m_Builder.RecordError( fmt::format(
+            return m_Builder.RecordPassError( m_Pass, fmt::format(
                  "graph '{}' pass '{}': {}('{}', {}) - {} is a state after the "
                  "graph (Extract), not something a pass does",
                  graph, pass.Name, call, resource->Name, GetAccessName( access ), GetAccessName( access ) ) );
         if ( ( GetAccessInfo( access ).Targets & AccessTarget_Texture ) == 0 )
-            return m_Builder.RecordError(
+            return m_Builder.RecordPassError( m_Pass,
                  fmt::format( "graph '{}' pass '{}': {}('{}', {}) - a buffer-only access on a "
                               "texture",
                               graph, pass.Name, call, resource->Name, GetAccessName( access ) ) );
         if ( RdgIsAttachmentAccess( access ) )
-            return m_Builder.RecordError(
+            return m_Builder.RecordPassError( m_Pass,
                  fmt::format( "graph '{}' pass '{}': {}('{}', {}) - attachments are declared "
                               "with ColorTarget()/DepthTarget(), which carry the load op",
                               graph, pass.Name, call, resource->Name, GetAccessName( access ) ) );
         if ( asWrite != IsWriteAccess( access ) )
-            return m_Builder.RecordError( fmt::format(
+            return m_Builder.RecordPassError( m_Pass, fmt::format(
                  "graph '{}' pass '{}': {}('{}', {}) - {} is a {} access", graph, pass.Name, call, resource->Name,
                  GetAccessName( access ), GetAccessName( access ), asWrite ? "read" : "write" ) );
         if ( !RdgPassKindAllows( pass.Flags, access ) )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) in a {} pass", graph,
+            return m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': {}('{}', {}) in a {} pass", graph,
                                                        pass.Name, call, resource->Name, GetAccessName( access ),
                                                        RdgPassKindName( pass.Flags ) ) );
 
         const TextureDesc& desc     = resource->Texture;
         SubresourceRange   resolved = range;
         if ( resolved.BaseMip >= desc.Mips || resolved.BaseLayer >= desc.Layers )
-            return m_Builder.RecordError(
+            return m_Builder.RecordPassError( m_Pass,
                  fmt::format( "graph '{}' pass '{}': {}('{}') mip {} layer {} is outside {} "
                               "mips x {} layers",
                               graph, pass.Name, call, resource->Name, resolved.BaseMip, resolved.BaseLayer,
@@ -333,7 +387,7 @@ namespace Desert::Graphic::RDG
         if ( resolved.MipCount == 0 || resolved.LayerCount == 0 ||
              resolved.BaseMip + resolved.MipCount > desc.Mips ||
              resolved.BaseLayer + resolved.LayerCount > desc.Layers )
-            return m_Builder.RecordError(
+            return m_Builder.RecordPassError( m_Pass,
                  fmt::format( "graph '{}' pass '{}': {}('{}') mips [{}, +{}) layers [{}, +{}) "
                               "do not fit {} mips x {} layers",
                               graph, pass.Name, call, resource->Name, resolved.BaseMip, resolved.MipCount,
@@ -348,24 +402,24 @@ namespace Desert::Graphic::RDG
         const Builder::ResourceRecord* resource = m_Builder.FindResource( buffer.Index, ResourceKind::Buffer );
         const std::string&             graph    = m_Builder.m_Name;
         if ( !resource )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid buffer handle {}",
+            return m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': {}() of invalid buffer handle {}",
                                                        graph, pass.Name, call, buffer.Index ) );
         if ( RdgIsFinalOnlyAccess( access ) )
-            return m_Builder.RecordError(
+            return m_Builder.RecordPassError( m_Pass,
                  fmt::format( "graph '{}' pass '{}': {}('{}', {}) - a state after the graph "
                               "(Extract), not something a pass does",
                               graph, pass.Name, call, resource->Name, GetAccessName( access ) ) );
         if ( ( GetAccessInfo( access ).Targets & AccessTarget_Buffer ) == 0 )
-            return m_Builder.RecordError(
+            return m_Builder.RecordPassError( m_Pass,
                  fmt::format( "graph '{}' pass '{}': {}('{}', {}) - a texture-only access on a "
                               "buffer",
                               graph, pass.Name, call, resource->Name, GetAccessName( access ) ) );
         if ( asWrite != IsWriteAccess( access ) )
-            return m_Builder.RecordError( fmt::format(
+            return m_Builder.RecordPassError( m_Pass, fmt::format(
                  "graph '{}' pass '{}': {}('{}', {}) - {} is a {} access", graph, pass.Name, call, resource->Name,
                  GetAccessName( access ), GetAccessName( access ), asWrite ? "read" : "write" ) );
         if ( !RdgPassKindAllows( pass.Flags, access ) )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) in a {} pass", graph,
+            return m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': {}('{}', {}) in a {} pass", graph,
                                                        pass.Name, call, resource->Name, GetAccessName( access ),
                                                        RdgPassKindName( pass.Flags ) ) );
 
@@ -381,14 +435,14 @@ namespace Desert::Graphic::RDG
         const std::string&             graph    = m_Builder.m_Name;
         const std::string_view call = isResolve ? "ResolveTarget" : ( isDepth ? "DepthTarget" : "ColorTarget" );
         if ( !resource )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid texture handle {}",
+            return m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': {}() of invalid texture handle {}",
                                                        graph, pass.Name, call, texture.Index ) );
         if ( !HasFlag( pass.Flags, PassFlags::Raster ) )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') in a {} pass", graph,
+            return m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': {}('{}') in a {} pass", graph,
                                                        pass.Name, call, resource->Name,
                                                        RdgPassKindName( pass.Flags ) ) );
         if ( access == Access::DepthRead && load.Action == LoadAction::Clear )
-            return m_Builder.RecordError(
+            return m_Builder.RecordPassError( m_Pass,
                  fmt::format( "graph '{}' pass '{}': DepthTarget('{}') clears a read-only "
                               "depth attachment",
                               graph, pass.Name, resource->Name ) );
@@ -396,7 +450,7 @@ namespace Desert::Graphic::RDG
         {
             if ( existing.IsDepth == isDepth && existing.IsResolve == isResolve &&
                  ( isDepth || existing.Slot == slot ) )
-                return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') binds slot {} twice",
+                return m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': {}('{}') binds slot {} twice",
                                                            graph, pass.Name, call, resource->Name, slot ) );
         }
         // One render pass has one sample count: every colour and depth attachment shares it. A resolve target is
@@ -409,14 +463,14 @@ namespace Desert::Graphic::RDG
             if ( isResolve && !existing.IsResolve && !existing.IsDepth && existing.Slot == slot &&
                  ( other.Samples <= 1 || self.Samples != 1 || other.Format != self.Format ||
                    other.Size.Width != self.Size.Width || other.Size.Height != self.Size.Height ) )
-                return m_Builder.RecordError( fmt::format(
+                return m_Builder.RecordPassError( m_Pass, fmt::format(
                      "graph '{}' pass '{}': ResolveTarget('{}') cannot resolve colour slot {} ('{}'): the colour "
                      "has {} sample(s), format {}, {}x{}; the resolve target {} sample(s), format {}, {}x{}",
                      graph, pass.Name, resource->Name, slot, otherRecord.Name, other.Samples,
                      static_cast<uint32_t>( other.Format ), other.Size.Width, other.Size.Height, self.Samples,
                      static_cast<uint32_t>( self.Format ), self.Size.Width, self.Size.Height ) );
             if ( !isResolve && !existing.IsResolve && other.Samples != self.Samples )
-                return m_Builder.RecordError(
+                return m_Builder.RecordPassError( m_Pass,
                      fmt::format( "graph '{}' pass '{}': {}('{}') has {} sample(s), '{}' in the same pass has {}",
                                   graph, pass.Name, call, resource->Name, self.Samples, otherRecord.Name,
                                   other.Samples ) );
@@ -425,7 +479,7 @@ namespace Desert::Graphic::RDG
              std::none_of( pass.Attachments.begin(), pass.Attachments.end(),
                            [slot]( const Builder::AttachmentRecord& existing )
                            { return !existing.IsDepth && !existing.IsResolve && existing.Slot == slot; } ) )
-            return m_Builder.RecordError(
+            return m_Builder.RecordPassError( m_Pass,
                  fmt::format( "graph '{}' pass '{}': ResolveTarget('{}') for colour slot {}, which has no "
                               "ColorTarget declared before it",
                               graph, pass.Name, resource->Name, slot ) );
@@ -434,7 +488,7 @@ namespace Desert::Graphic::RDG
         const uint32_t     baseLayer  = layer == kAllRemaining ? 0 : layer;
         const uint32_t     layerCount = layer == kAllRemaining ? desc.Layers : 1;
         if ( mip >= desc.Mips || baseLayer >= desc.Layers )
-            return m_Builder.RecordError(
+            return m_Builder.RecordPassError( m_Pass,
                  fmt::format( "graph '{}' pass '{}': {}('{}') mip {} layer {} is outside {} "
                               "mips x {} layers",
                               graph, pass.Name, call, resource->Name, mip, baseLayer, desc.Mips, desc.Layers ) );
@@ -511,13 +565,26 @@ namespace Desert::Graphic::RDG
             }
         }
 #endif
+        // RDG-FAULT1: a read of a transient whose producer was removed by a fault reads the FaultDefault the
+        // producer declared - the system texture - under the handle the pass declared (DefaultSubstitution).
+        uint32_t bound = texture.Index;
+        for ( const std::vector<DefaultSubstitution>* list : { &m_Result.Substitutions, &m_Builder.m_LateSubstitutions } )
+        {
+            for ( const DefaultSubstitution& substitution : *list )
+            {
+                if ( substitution.ReaderPass == m_Pass && substitution.Original == texture.Index &&
+                     !substitution.AttachmentCleared )
+                    bound = substitution.Replacement;
+            }
+        }
+        resource = &m_Builder.m_Resources[bound];
         TextureBinding binding;
-        binding.Resource = texture.Index;
+        binding.Resource = bound;
         binding.Name     = resource->Name;
         binding.Desc     = &resource->Texture;
         binding.External = resource->ExternalTex ? resource->ExternalTex : resource->ExtractTex;
-        binding.Memory   = m_Result.FindAllocation( texture.Index );
-        binding.Physical = m_Backend.GetPhysicalTexture( texture.Index ).get();
+        binding.Memory   = m_Result.FindAllocation( bound );
+        binding.Physical = m_Backend.GetPhysicalTexture( bound ).get();
         return Common::MakeSuccess( binding );
     }
 
@@ -590,18 +657,72 @@ namespace Desert::Graphic::RDG
         return Common::MakeSuccess( true );
     }
 
+    uint32_t Builder::GetFaultDefaultSource( FaultDefault value ) const
+    {
+        switch ( value )
+        {
+            case FaultDefault::Black:
+                return m_FaultBlack.Index;
+            case FaultDefault::White:
+                return m_FaultWhite.Index;
+            case FaultDefault::BlackCube:
+                return m_FaultBlackCube.Index;
+            case FaultDefault::None:
+                break;
+        }
+        return kInvalidResource;
+    }
+
     Common::BoolResultStr Builder::Execute( IBackend& backend )
     {
         if ( m_Executed )
             return Common::MakeFormattedError( "graph '{}' was already executed; a graph is built per frame",
                                                m_Name );
         m_Executed = true;
+        m_Report   = {};
+        m_LateSubstitutions.clear();
+
+        std::vector<std::string_view> added;
+        added.reserve( m_Passes.size() );
+        for ( const PassRecord& pass : m_Passes )
+            added.push_back( pass.Name );
+        // RDG-FAULT1: every way this execute ends goes through one of these two, so the reporter hears each
+        // execute exactly once and an error is exactly a FrameFault.
+        const auto finish = [&]() -> Common::BoolResultStr
+        {
+            std::stable_sort( m_Report.Faults.begin(), m_Report.Faults.end(),
+                              []( const PassFault& a, const PassFault& b ) { return a.Pass < b.Pass; } );
+            std::sort( m_Report.FaultCulled.begin(), m_Report.FaultCulled.end() );
+            backend.GetPassFaultReporter().Report( m_Name, added, m_Report );
+            if ( m_Report.Frame )
+                return Common::MakeError( m_Report.Frame->Reason );
+            return Common::MakeSuccess( true );
+        };
+        const auto frameFault = [&]( std::string reason, std::vector<uint32_t> roots ) -> Common::BoolResultStr
+        {
+            FrameFault fault{ std::move( reason ), {}, std::move( roots ) };
+            for ( uint32_t r = 0; r < m_Resources.size(); ++r )
+            {
+                if ( m_Resources[r].ExternalTex && m_Resources[r].Policy == ExternalFaultPolicy::FrameFatal )
+                    fault.Externals.push_back( r );
+            }
+            m_Report.Frame = std::move( fault );
+            return finish();
+        };
 
         Common::ResultStr<CompileResult> compiled =
              Compile( backend.GetMemoryRequirements(), backend.GetPipeCapabilities() );
         if ( !compiled )
-            return Common::MakeError( compiled.GetError() );
-        const CompileResult& result = compiled.GetValue();
+            return frameFault( compiled.GetError(), {} );
+        const CompileResult& result   = compiled.GetValue();
+        m_Report.Faults               = result.Faults;
+        m_Report.FaultCulled          = result.FaultCulledPasses;
+        m_Report.InvalidatedExternals = result.InvalidatedExternals;
+        if ( result.Frame )
+        {
+            m_Report.Frame = result.Frame; // nothing recorded: the caller clears Frame->Externals and presents
+            return finish();
+        }
 
         // The decided fallback, announced once per backend (the log keeps the count).
         if ( !result.DemotedAsyncPasses.empty() )
@@ -612,7 +733,14 @@ namespace Desert::Graphic::RDG
             backend.GetAsyncComputeFallbackLog().Report( demoted );
         }
 
+        const auto substituted = [&]( uint32_t pass, uint32_t resource )
+        {
+            return std::any_of( result.Substitutions.begin(), result.Substitutions.end(),
+                                [&]( const DefaultSubstitution& s )
+                                { return s.ReaderPass == pass && s.Original == resource; } );
+        };
         std::vector<ResourceView> views( m_Resources.size() );
+        bool                      anyFaultDefault = false;
         for ( uint32_t r = 0; r < m_Resources.size(); ++r )
         {
             const ResourceRecord& record = m_Resources[r];
@@ -625,60 +753,151 @@ namespace Desert::Graphic::RDG
             view.ExternalTex             = record.ExternalTex;
             view.ExternalBuf             = record.ExternalBuf;
             view.Extracted               = record.IsExtracted() && !record.IsExternal();
+            anyFaultDefault              = anyFaultDefault || record.Default != FaultDefault::None;
         }
         for ( const DerivedUsage& usage : result.Usages )
             views[usage.Resource].AccessMask = usage.AccessMask;
         for ( const CompiledPass& compiledPass : result.Passes )
         {
+            // A read replaced by its FaultDefault does not touch the lost transient (it has no allocation).
             for ( const ResourceUse& use : m_Passes[compiledPass.Pass].Uses )
-                views[use.Resource].Used = true;
+                views[use.Resource].Used =
+                     views[use.Resource].Used || !substituted( compiledPass.Pass, use.Resource );
+        }
+        // A LATE fault substitutes through PassContext at record time, so the system textures are bound whenever
+        // a FaultDefault exists, not only when Compile already substituted one.
+        for ( const FaultDefault value : { FaultDefault::Black, FaultDefault::White, FaultDefault::BlackCube } )
+        {
+            const uint32_t source = GetFaultDefaultSource( value );
+            if ( anyFaultDefault && source < views.size() )
+                views[source].Used = true;
         }
 
         const GraphView       graph{ m_Name, views, &result };
         Common::BoolResultStr begun = backend.BeginGraph( graph );
         if ( !begun )
-            return Common::MakeFormattedError( "graph '{}': {}", m_Name, begun.GetError() );
+            return frameFault( std::format( "graph '{}': {}", m_Name, begun.GetError() ), {} );
 
-        // One pass inside its segment: barriers, render pass, exec, releases. A failure abandons the graph.
-        auto recordPass = [&]( const CompiledPass& compiledPass ) -> Common::BoolResultStr
+        // RDG-FAULT1 late faults. lostRoot[p] >= 0: pass p did not produce its outputs this frame (its exec failed,
+        // or it was skipped for a lost input); the value is the pass the chain starts at.
+        std::vector<int32_t> lostRoot( m_Passes.size(), -1 );
+        bool                 renderPassOpen = false;
+        const auto lateFault = [&]( uint32_t pass, PassFaultStage stage, std::string reason,
+                                    std::optional<uint32_t> root )
         {
-            backend.BeginPass( compiledPass );
-            if ( !compiledPass.Barriers.empty() )
+            lostRoot[pass] = static_cast<int32_t>( root ? *root : pass );
+            m_Report.Faults.push_back( { pass, m_Passes[pass].Name, stage, std::move( reason ), root } );
+            m_Report.FaultCulled.push_back( pass );
+        };
+
+        // One pass inside its segment: barriers, render pass, exec, releases. Only a BACKEND failure abandons
+        // the graph; a pass that fails or loses an input is a late fault and the graph goes on.
+        auto recordPass = [&]( const CompiledPass& planned ) -> Common::BoolResultStr
+        {
+            const uint32_t          p = planned.Pass;
+            CompiledPass            adjusted;
+            bool                    useAdjusted = false;
+            std::optional<uint32_t> skipRoot;
+            std::string             skipReason;
+            for ( const DependencyEdge& edge : result.Edges )
             {
-                backend.RecordBarriers( compiledPass.Barriers );
-                Common::BoolResultStr recorded = RecordExternalStates( compiledPass.Barriers );
+                if ( edge.To != p || edge.Kind != DependencyKind::ReadAfterWrite || lostRoot[edge.From] < 0 ||
+                     skipRoot )
+                    continue;
+                const ResourceRecord& record = m_Resources[edge.Resource];
+                const uint32_t        source = record.Kind == ResourceKind::Texture && !record.IsExternal()
+                                                    ? GetFaultDefaultSource( record.Default )
+                                                    : kInvalidResource;
+                bool attachment = false, sampled = false, other = false;
+                for ( const ResourceUse& use : m_Passes[p].Uses )
+                {
+                    if ( use.Resource != edge.Resource )
+                        continue;
+                    const bool isSampled =
+                         use.Usage == Access::SampledGraphics || use.Usage == Access::SampledCompute;
+                    attachment = attachment || use.Attachment >= 0;
+                    sampled    = sampled || ( use.Attachment < 0 && isSampled );
+                    other      = other || ( use.Attachment < 0 && !isSampled );
+                }
+                if ( source == kInvalidResource || other )
+                {
+                    skipRoot   = static_cast<uint32_t>( lostRoot[edge.From] );
+                    skipReason = std::format( "reads '{}', which pass '{}' did not produce", record.Name,
+                                              m_Passes[edge.From].Name );
+                    continue;
+                }
+                if ( sampled )
+                    m_LateSubstitutions.push_back( { p, edge.Resource, source, record.Default, false } );
+                if ( attachment )
+                {
+                    if ( !useAdjusted )
+                        adjusted = planned;
+                    useAdjusted = true;
+                    for ( AttachmentDecision& decision : adjusted.Attachments )
+                    {
+                        if ( decision.Resource == edge.Resource && decision.Load == LoadAction::Load )
+                        {
+                            decision.Load  = LoadAction::Clear;
+                            decision.Clear = GetFaultDefaultClear( record.Default );
+                        }
+                    }
+                    m_LateSubstitutions.push_back( { p, edge.Resource, kInvalidResource, record.Default, true } );
+                }
+            }
+            const CompiledPass& pass = useAdjusted ? adjusted : planned;
+
+            backend.BeginPass( pass );
+            if ( !pass.Barriers.empty() )
+            {
+                // Recorded even for a skipped pass: the layout chain the plan computed must stay true.
+                backend.RecordBarriers( pass.Barriers );
+                Common::BoolResultStr recorded = RecordExternalStates( pass.Barriers );
                 if ( !recorded )
                 {
                     backend.AbandonGraph();
-                    return Common::MakeFormattedError( "graph '{}' pass '{}': {}", m_Name, compiledPass.Name,
-                                                       recorded.GetError() );
+                    return frameFault(
+                         std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name, recorded.GetError() ), {} );
                 }
             }
-            const bool rendering =
-                 HasFlag( compiledPass.Flags, PassFlags::Raster ) && !compiledPass.Attachments.empty();
-            if ( rendering && !compiledPass.ContinuesRenderPass )
+            const bool rendering = HasFlag( pass.Flags, PassFlags::Raster ) && !pass.Attachments.empty();
+            if ( skipRoot )
             {
-                Common::BoolResultStr started = backend.BeginRenderPass( compiledPass );
-                if ( !started )
+                if ( renderPassOpen )
+                    backend.EndRenderPass();
+                renderPassOpen = false;
+                lateFault( p, PassFaultStage::Dependency, std::move( skipReason ), skipRoot );
+            }
+            else
+            {
+                // A pass merged into a render pass that a faulted or skipped pass closed opens its own; merged
+                // passes load every attachment, so the plan's decisions hold.
+                if ( rendering && ( !pass.ContinuesRenderPass || !renderPassOpen || useAdjusted ) )
                 {
-                    backend.AbandonGraph();
-                    return Common::MakeFormattedError( "graph '{}' pass '{}': {}", m_Name, compiledPass.Name,
-                                                       started.GetError() );
+                    if ( renderPassOpen )
+                        backend.EndRenderPass();
+                    Common::BoolResultStr started = backend.BeginRenderPass( pass );
+                    if ( !started )
+                    {
+                        backend.AbandonGraph();
+                        return frameFault(
+                             std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name, started.GetError() ),
+                             {} );
+                    }
+                    renderPassOpen = true;
+                }
+                PassContext           context( *this, result, backend, p );
+                Common::BoolResultStr outcome = m_Passes[p].Exec( context );
+                if ( !outcome )
+                    lateFault( p, PassFaultStage::Execution, outcome.GetError(), std::nullopt );
+                if ( rendering && renderPassOpen && ( !outcome || !pass.KeepsRenderPassOpen ) )
+                {
+                    backend.EndRenderPass();
+                    renderPassOpen = false;
                 }
             }
-            PassContext           context( *this, result, backend, compiledPass.Pass );
-            Common::BoolResultStr outcome = m_Passes[compiledPass.Pass].Exec( context );
-            if ( !outcome )
-            {
-                backend.AbandonGraph();
-                return Common::MakeFormattedError( "graph '{}' pass '{}' failed: {}", m_Name, compiledPass.Name,
-                                                   outcome.GetError() );
-            }
-            if ( rendering && !compiledPass.KeepsRenderPassOpen )
-                backend.EndRenderPass();
-            if ( !compiledPass.EpilogueBarriers.empty() )
-                backend.RecordEpilogueBarriers( compiledPass.EpilogueBarriers );
-            backend.EndPass( compiledPass );
+            if ( !pass.EpilogueBarriers.empty() )
+                backend.RecordEpilogueBarriers( pass.EpilogueBarriers );
+            backend.EndPass( pass );
             return Common::MakeSuccess( true );
         };
 
@@ -692,8 +911,9 @@ namespace Desert::Graphic::RDG
             if ( !segmentBegun )
             {
                 backend.AbandonGraph();
-                return Common::MakeFormattedError( "graph '{}' segment at pass '{}': {}", m_Name, segmentName,
-                                                   segmentBegun.GetError() );
+                return frameFault( std::format( "graph '{}' segment at pass '{}': {}", m_Name, segmentName,
+                                                segmentBegun.GetError() ),
+                                   {} );
             }
             if ( prologue )
                 backend.RecordEpilogueBarriers( result.PrologueBarriers );
@@ -708,8 +928,43 @@ namespace Desert::Graphic::RDG
             if ( !segmentEnded )
             {
                 backend.AbandonGraph();
-                return Common::MakeFormattedError( "graph '{}' segment at pass '{}': {}", m_Name, segmentName,
-                                                   segmentEnded.GetError() );
+                return frameFault( std::format( "graph '{}' segment at pass '{}': {}", m_Name, segmentName,
+                                                segmentEnded.GetError() ),
+                                   {} );
+            }
+        }
+
+        // An external whose every writer this frame was lost late: FrameFatal ends the frame (after EndGraph
+        // below, so the graph's command buffers stay well formed), InvalidateHistory is listed for its owner.
+        std::vector<uint32_t> lateFatal, lateRoots;
+        for ( uint32_t r = 0; r < m_Resources.size(); ++r )
+        {
+            const ResourceRecord& record = m_Resources[r];
+            if ( !record.IsExternal() || record.Policy == ExternalFaultPolicy::KeepsContents )
+                continue;
+            bool                  anyWriter = false, anySurvivor = false;
+            std::vector<uint32_t> roots;
+            for ( const CompiledPass& compiledPass : result.Passes )
+            {
+                for ( const ResourceUse& use : m_Passes[compiledPass.Pass].Uses )
+                {
+                    if ( use.Resource != r || !IsWriteAccess( use.Usage ) )
+                        continue;
+                    anyWriter = true;
+                    if ( lostRoot[compiledPass.Pass] < 0 )
+                        anySurvivor = true;
+                    else
+                        roots.push_back( static_cast<uint32_t>( lostRoot[compiledPass.Pass] ) );
+                }
+            }
+            if ( !anyWriter || anySurvivor )
+                continue;
+            if ( record.Policy == ExternalFaultPolicy::InvalidateHistory )
+                m_Report.InvalidatedExternals.push_back( r );
+            else
+            {
+                lateFatal.push_back( r );
+                lateRoots.insert( lateRoots.end(), roots.begin(), roots.end() );
             }
         }
 
@@ -729,7 +984,7 @@ namespace Desert::Graphic::RDG
 
         Common::BoolResultStr ended = backend.EndGraph( result.FinalBarriers );
         if ( !ended )
-            return Common::MakeFormattedError( "graph '{}': {}", m_Name, ended.GetError() );
+            return frameFault( std::format( "graph '{}': {}", m_Name, ended.GetError() ), {} );
 
         std::string recordError; // the first failed layout write-back; every other one still runs
         for ( const ExternalFinalState& final : result.ExternalFinalStates )
@@ -769,7 +1024,18 @@ namespace Desert::Graphic::RDG
             }
         }
         if ( !recordError.empty() )
-            return Common::MakeError( recordError );
-        return Common::MakeSuccess( true );
+            return frameFault( std::move( recordError ), {} );
+        if ( !lateFatal.empty() )
+        {
+            std::string names;
+            for ( const uint32_t r : lateFatal )
+                std::format_to( std::back_inserter( names ), "{}'{}'", names.empty() ? "" : ", ",
+                                m_Resources[r].Name );
+            std::sort( lateRoots.begin(), lateRoots.end() );
+            lateRoots.erase( std::unique( lateRoots.begin(), lateRoots.end() ), lateRoots.end() );
+            m_Report.Frame = FrameFault{ std::format( "{} lost every writer to a fault during execution", names ),
+                                         std::move( lateFatal ), std::move( lateRoots ) };
+        }
+        return finish();
     }
 } // namespace Desert::Graphic::RDG

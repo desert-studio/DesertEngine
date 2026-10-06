@@ -309,6 +309,8 @@ namespace Desert::Graphic::RDG
     private:
         friend class PassBuilder;
         friend class PassContext;
+        friend class BindingBlockBuilder; // appends the entries of a declared block (RDGPassBindings.cpp)
+        friend class PassBindings;        // resolves a declared block in the exec
 
         Common::BoolResultStr RecordExternalStates( std::span<const Barrier> barriers );
 
@@ -380,6 +382,8 @@ namespace Desert::Graphic::RDG
         void                  RecordError( std::string message );
         // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
         void                  RecordPassError( uint32_t pass, std::string message );
+        // The resource index of the system texture @p value names (kInvalidResource for None or unset sources).
+        uint32_t              GetFaultDefaultSource( FaultDefault value ) const;
         const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
 
         std::string                 m_Name;

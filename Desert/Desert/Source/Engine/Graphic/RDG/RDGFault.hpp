@@ -71,6 +71,10 @@ namespace Desert::Graphic::RDG
         BlackCube, // SystemTextures::BlackCube
     };
 
+    // The clear an attachment LOADED from a lost transient gets instead (DefaultSubstitution::AttachmentCleared):
+    // Black 0,0,0,1; White 1,1,1,1; BlackCube 0,0,0,1. None has no clear (its readers are culled).
+    ClearValue GetFaultDefaultClear( FaultDefault value );
+
     // What losing every writer of an EXTERNAL resource to a fault means (Builder::SetFaultPolicy). Removing a pass
     // leaves an external with the contents it entered the graph with, which is right for most of them and wrong
     // for two kinds, so the owner of the external says which kind it is:

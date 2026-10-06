@@ -35,6 +35,14 @@ namespace Desert::Graphic::RDG
         return "unknown";
     }
 
+    ClearValue GetFaultDefaultClear( FaultDefault value )
+    {
+        ClearValue clear;
+        const float level = value == FaultDefault::White ? 1.0f : 0.0f;
+        clear.Color       = { level, level, level, 1.0f };
+        return clear;
+    }
+
     PassFaultReporter::PassFaultReporter( Sink sink ) : m_Sink( std::move( sink ) )
     {
     }
