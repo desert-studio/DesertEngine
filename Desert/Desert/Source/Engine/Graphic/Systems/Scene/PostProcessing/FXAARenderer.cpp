@@ -48,12 +48,20 @@ namespace Desert::Graphic::System
             m_Framebuffer->Resize( width, height );
     }
 
-    Common::BoolResultStr FXAARenderer::Record( const RDG::PassContext& context, RDG::TextureRef input )
+    void FXAARenderer::DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef input ) const
     {
-        // The sampler the material route sampled the input with (the image's own: linear, REPEAT).
-        RDG::PassBindings bindings( context );
-        bindings.Sampled( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                          RDG::SamplerDesc::LinearRepeat() );
+        if ( !m_Pipeline || !m_MaterialFXAA )
+            return;
+        pass.Bindings( m_BindingLayout.Get( *m_Shader ), m_MaterialFXAA->GetMaterialExecutor()->GetRouteFill() )
+             .Sampled( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearRepeat() );
+    }
+
+    Common::BoolResultStr FXAARenderer::Record( const RDG::PassContext& context )
+    {
+        if ( !m_Pipeline || !m_MaterialFXAA )
+            return Common::MakeError( "PostFX: FXAA: the FXAA pipeline is not initialised" );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                        m_MaterialFXAA->GetMaterialExecutor() );
     }

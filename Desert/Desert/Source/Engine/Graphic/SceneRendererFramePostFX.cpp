@@ -428,11 +428,10 @@ namespace Desert::Graphic
              "PostFX: FXAA", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( input, RDG::Access::SampledGraphics );
+                 fxaa->DeclareBindings( pass, input );
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
-             [fxaa, input]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return fxaa->Record( context, input ); } );
+             [fxaa]( RDG::PassContext& context ) -> Common::BoolResultStr { return fxaa->Record( context ); } );
     }
 
     void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures )

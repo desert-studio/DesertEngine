@@ -2026,7 +2026,9 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
         const bool        declares     = declarations.find( "pass.Read(" ) != std::string::npos ||
                               declarations.find( "pass.Write(" ) != std::string::npos ||
                               declarations.find( "pass.ColorTarget(" ) != std::string::npos ||
-                              declarations.find( "ReadEach(" ) != std::string::npos;
+                              declarations.find( "ReadEach(" ) != std::string::npos ||
+                              // a renderer's DeclareBindings declares the node's binding block (RDG-FAULT1)
+                              declarations.find( "Bindings( pass" ) != std::string::npos;
         EXPECT_TRUE( declares || flags.find( "PassFlags::NeverCull" ) != std::string::npos )
              << name << " declares no access and is not a culling root";
         if ( flags.find( "RDG::PassFlags::Raster" ) != std::string::npos )
