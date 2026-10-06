@@ -363,6 +363,13 @@ namespace Desert::ECS
             return Common::MakeError<Result>( "the entity's StaticMesh has no mesh assigned" );
         }
 
+        /// The scene's destruction world while Play runs, null in Edit: what a field entity fires into
+        /// (ECS::FireDestructionField), from the Sequencer or from gameplay.
+        [[nodiscard]] Destruction::DestructionWorld* GetDestructionWorld() const
+        {
+            return m_Destruction.get();
+        }
+
     private:
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )

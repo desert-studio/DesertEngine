@@ -109,13 +109,15 @@ TEST( DestructionFields, FalloffNodesFollowUe )
 TEST( DestructionFields, ImpulseInsideRadiusBreaksAndPushes )
 {
     Fixture f( 1.0e4f );
-    // Node 1's centre is 100 cm from the centre, node 2's 200 cm: only node 1 is inside the 150 cm radius.
-    EXPECT_GT( f.destruction->ApplyField( RadialImpulse( { -150.0f, 50.0f, 50.0f }, 1.0e6f, 150.0f ) ), 0u );
+    // Node 1's centre is 10 cm from the centre, node 2's 90 cm: only node 1 is inside the 50 cm radius. The centre
+    // sits on node 1's inner side so the push is -X, away from node 2: a centre on the outer side drives node 1
+    // into the face it shares with node 2 and the contact hands node 2 the momentum (76 cm/s after one step).
+    EXPECT_GT( f.destruction->ApplyField( RadialImpulse( { -40.0f, 50.0f, 50.0f }, 1.0e6f, 50.0f ) ), 0u );
     EXPECT_EQ( f.destruction->GetBodyCount( f.object ), 2u );
     ASSERT_FALSE( f.destruction->GetEvents().empty() );
     EXPECT_EQ( f.destruction->GetEvents().front().Node, 1 );
     f.Run( 1 );
-    EXPECT_GT( f.physics.GetLinearVelocity( f.Body( 1 ) ).x, 50.0f ) << "pushed away from the centre";
+    EXPECT_LT( f.physics.GetLinearVelocity( f.Body( 1 ) ).x, -50.0f ) << "pushed away from the centre";
     EXPECT_LT( glm::length( f.physics.GetLinearVelocity( f.Body( 2 ) ) ), 1.0f ) << "outside the radius";
 }
 
