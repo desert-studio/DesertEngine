@@ -80,6 +80,8 @@ namespace Desert::Destruction
     {
         glm::dvec3 Normal{ 0.0, 0.0, 1.0 }; // need not be unit length
         glm::dvec3 Point{ 0.0 };
+
+        bool operator==( const CutPlane& ) const = default;
     };
 
     /// The arrangement of `planes` inside `bounds`: every non-empty convex region the planes cut the box into.
@@ -97,6 +99,8 @@ namespace Desert::Destruction
         double    Length = 194.0; // cm, UE's defaults (FractureToolBrick.h:49)
         double    Height = 52.0;
         double    Depth  = 96.0;
+
+        bool operator==( const BrickSettings& ) const = default;
     };
 
     /// Axis-aligned bricks covering `bounds` in the bond pattern, each clipped to the bounds.
