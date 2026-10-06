@@ -1214,7 +1214,9 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 50 with VIDEO-2a's UIPathData (kPathRows, every field read by the canvas walk's path branch).
     // -> 51 with VIDEO-2c's UIRetainerData (kRetainerRows, read by the walk's retainer branch and
     // ResolveRetainerMasks in UICanvasRenderer2D.cpp).
-    EXPECT_EQ( all.size(), 51u );
+    // -> 52 with S1's ProceduralFoliageData (kProceduralFoliageRows: eight fields read by
+    // ProceduralFoliageResimulate.cpp, FoliageTypes by FoliagePaintTool.cpp).
+    EXPECT_EQ( all.size(), 52u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

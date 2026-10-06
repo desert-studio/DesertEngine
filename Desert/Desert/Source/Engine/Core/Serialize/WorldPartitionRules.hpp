@@ -519,6 +519,9 @@ namespace Desert::Core::Rules
          // UE AProceduralFoliageVolume is an actor placed in a cell like any other: its box (translation +-
          // Extent) is its footprint, and what it grows lands in its own foliage fields, placed by theirs.
          { "ProceduralFoliage", ComponentLoading::Spatial },
+         // The marker on a field a volume grew (UE: instances carrying the volume's ProceduralGuid): it sits on
+         // that field's entity and travels with its Foliage, which is Spatial.
+         { "ProceduralFoliageField", ComponentLoading::Spatial },
          { "InstancedStaticMesh", ComponentLoading::Spatial }, // its instances are its footprint
          { "Lock", ComponentLoading::Spatial },
          { "Locomotion", ComponentLoading::Spatial },
