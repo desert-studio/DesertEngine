@@ -63,7 +63,6 @@ namespace Desert::Engine
         // --- Buffers --------------------------------------------------------------------------------
         uint64_t MaxStorageBufferSize   = 0;
         uint64_t StorageBufferAlignment = 0;
-        uint32_t MaxPushConstantSize    = 0; ///< Per-object transforms ride a push constant; this caps them.
 
         // --- Raster / lines -------------------------------------------------------------------------
         bool  SupportsWideLines = false;
