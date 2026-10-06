@@ -328,10 +328,11 @@ namespace Desert::Migration
     // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
 
-    // The SKEL 3 text of a SKEL 1 or 2 `.skeleton`: header GUID, signature, bones, PreviewMesh and
-    // CompatibleSkeletons kept (SKEL 1 stated neither: null, []); the dead `Import` provenance dropped (SKEL 3).
-    // A file that does not state SKEL 1 or 2 is an error naming what it states. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text );
+    // The SKEL 4 text of a SKEL 1, 2 or 3 `.skeleton`: header GUID, signature, bones, PreviewMesh and
+    // CompatibleSkeletons kept (SKEL 1 stated neither: null, []); the dead `Import` provenance dropped (SKEL 3);
+    // Sockets and BoneMasks stated empty (SKEL 4, ANIM-FIX5a: no earlier generation had either). A file that does
+    // not state SKEL 1, 2 or 3 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateSkeletonToV4( const std::string& text );
 
     // The ANGR 3 text of an ANGR 2 `.danimgraph`: everything kept, the Output Pose node of the graph and of every
     // implemented layer graph placed where the v2 editor drew it (Animation::Graph::DefaultOutputPosePosition:

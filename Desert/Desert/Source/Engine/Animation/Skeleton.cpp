@@ -4,11 +4,23 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <string>
+#include <unordered_set>
 
 namespace Desert::Animation
 {
+    namespace
+    {
+        // See Skeleton::GetAuthoringRevision: unique across the process, never 0.
+        uint64_t NextAuthoringRevision()
+        {
+            static std::atomic<uint64_t> next{ 0 };
+            return ++next;
+        }
+    } // namespace
+
     Skeleton::Skeleton( std::vector<BoneInfo>&& bones )
          : m_Bones( std::move( bones ) ), m_Signature( ComputeSignature( m_Bones ) ),
            m_ContentSignature( ComputeContentSignature( m_Bones ) )
@@ -30,6 +42,7 @@ namespace Desert::Animation
         }
 
         BuildStructure();
+        m_AuthoringRevision = NextAuthoringRevision();
     }
 
     void Skeleton::BuildStructure()
@@ -227,5 +240,96 @@ namespace Desert::Animation
             fold( bone.OffsetMatrix );
         }
         return hash;
+    }
+
+    Common::BoolResultStr Skeleton::SetSockets( std::vector<SkeletonSocket> sockets )
+    {
+        std::unordered_set<std::string> names;
+        for ( const SkeletonSocket& socket : sockets )
+        {
+            if ( socket.Name.empty() )
+                return Common::MakeFormattedError<bool>( "a socket on bone '{}' has no name", socket.Bone );
+            if ( !names.insert( socket.Name ).second )
+                return Common::MakeFormattedError<bool>( "two sockets are named '{}'", socket.Name );
+            if ( !FindBoneIndex( socket.Bone ) )
+                return Common::MakeFormattedError<bool>(
+                     "socket '{}' is on bone '{}', which the skeleton does not have", socket.Name, socket.Bone );
+        }
+        m_Sockets           = std::move( sockets );
+        m_AuthoringRevision = NextAuthoringRevision();
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr Skeleton::SetBoneMasks( std::vector<BoneMask> masks )
+    {
+        std::unordered_set<std::string> names;
+        for ( const BoneMask& mask : masks )
+        {
+            if ( mask.Name.empty() )
+                return Common::MakeError<bool>( "a bone mask has no name" );
+            if ( !names.insert( mask.Name ).second )
+                return Common::MakeFormattedError<bool>( "two bone masks are named '{}'", mask.Name );
+            for ( const BoneMaskEntry& entry : mask.Entries )
+                if ( !( entry.Weight >= 0.0F && entry.Weight <= 1.0F ) )
+                    return Common::MakeFormattedError<bool>(
+                         "bone mask '{}' weighs bone '{}' at {}, outside [0, 1]", mask.Name, entry.Bone,
+                         entry.Weight );
+            if ( auto resolved = ResolveBoneMaskWeights( mask, *this ); !resolved )
+                return Common::MakeError<bool>( resolved.GetError() );
+        }
+        m_BoneMasks         = std::move( masks );
+        m_AuthoringRevision = NextAuthoringRevision();
+        return BOOLSUCCESS;
+    }
+
+    const SkeletonSocket* Skeleton::FindSocket( const std::string_view name ) const
+    {
+        const auto it = std::ranges::find( m_Sockets, name, &SkeletonSocket::Name );
+        return it == m_Sockets.end() ? nullptr : &*it;
+    }
+
+    const BoneMask* Skeleton::FindBoneMask( const std::string_view name ) const
+    {
+        const auto it = std::ranges::find( m_BoneMasks, name, &BoneMask::Name );
+        return it == m_BoneMasks.end() ? nullptr : &*it;
+    }
+
+    Common::ResultStr<std::vector<float>> ResolveBoneMaskWeights( const BoneMask& mask, const Skeleton& skeleton )
+    {
+        using Weights          = std::vector<float>;
+        const size_t boneCount = skeleton.GetBones().size();
+        // Per bone: the entry that names it, if any.
+        std::vector<const BoneMaskEntry*> entryOf( boneCount, nullptr );
+        for ( const BoneMaskEntry& entry : mask.Entries )
+        {
+            const auto bone = skeleton.FindBoneIndex( entry.Bone );
+            if ( !bone )
+                return Common::MakeError<Weights>(
+                     fmt::format( "bone mask '{}' weighs bone '{}', which the skeleton does not have", mask.Name,
+                                  entry.Bone ) );
+            if ( entryOf[*bone] != nullptr )
+                return Common::MakeError<Weights>(
+                     fmt::format( "bone mask '{}' weighs bone '{}' twice", mask.Name, entry.Bone ) );
+            entryOf[*bone] = &entry;
+        }
+
+        Weights weight( boneCount, 0.0F );
+        Weights handedDown( boneCount, 0.0F ); // what a bone's children inherit
+        for ( const uint32_t b : skeleton.GetResolveOrder() )
+        {
+            const uint32_t parent    = skeleton.ResolveParent( b );
+            const float    inherited = parent == Skeleton::NO_PARENT ? 0.0F : handedDown[parent];
+            if ( const BoneMaskEntry* entry = entryOf[b] )
+            {
+                weight[b]     = entry->Weight;
+                handedDown[b] = entry->IncludeDescendants ? entry->Weight : inherited;
+            }
+            else
+            {
+                weight[b]     = inherited;
+                handedDown[b] = inherited;
+            }
+        }
+        return Common::MakeSuccess( std::move( weight ) );
     }
 } // namespace Desert::Animation

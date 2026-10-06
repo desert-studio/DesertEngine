@@ -1534,9 +1534,9 @@ namespace Desert::Editor
     // the systems, but could only be authored by editing the scene file. One entry each.
     // ============================================================================================
 
-    // UE's "Sockets ▸ Parent Socket": follow a BONE of another skinned entity (weapon in hand, hat on
-    // head). The bone list comes from the TARGET's skeleton, so the name can only ever be one that
-    // exists — typing it by hand was the alternative.
+    // UE's "Sockets ▸ Parent Socket": follow a SOCKET (or a bone) of another skinned entity (weapon in hand,
+    // hat on head). The list comes from the TARGET's skeleton - its sockets first, then its bones, UE's picker
+    // order - so the name can only ever be one that exists; typing it by hand was the alternative.
     static ComponentEditorEntry MakeSocketEntry()
     {
         using C = ::Desert::ECS::SocketAttachmentComponent;
@@ -1580,7 +1580,7 @@ namespace Desert::Editor
                 if ( ImGui::Selectable( "None (detached)" ) )
                 {
                     c.Target = {};
-                    c.BoneName.clear();
+                    c.SocketName.clear();
                 }
                 if ( scene )
                 {
@@ -1596,7 +1596,7 @@ namespace Desert::Editor
                         if ( ImGui::Selectable( name.c_str(), uuid == c.Target ) )
                         {
                             c.Target = uuid;
-                            c.BoneName.clear(); // a bone of the OLD rig means nothing on the new one
+                            c.SocketName.clear(); // a socket of the OLD rig means nothing on the new one
                         }
                     }
                 }
@@ -1604,7 +1604,7 @@ namespace Desert::Editor
             }
             U::ImGuiUtilities::EndPropertyRow();
 
-            // --- Bone: the target's own bone names --------------------------------------------------
+            // --- Socket: the target's own sockets, then its bones -------------------------------------
             const ::Desert::Animation::Skeleton* skeleton = nullptr;
             if ( targetEntity )
             {
@@ -1617,9 +1617,9 @@ namespace Desert::Editor
                     skeleton = &static_cast<::Desert::SkinnedMesh*>( mesh )->GetSkeleton();
             }
 
-            U::ImGuiUtilities::BeginPropertyRow( "Bone", "Bone on the target's skeleton to follow" );
-            const std::string bonePreview = c.BoneName.empty() ? "None" : c.BoneName;
-            if ( U::ImGuiUtilities::AssetSlot( "socketbone", bonePreview.c_str(), c.BoneName.empty() ) )
+            U::ImGuiUtilities::BeginPropertyRow( "Socket", "Socket (or bone) on the target's skeleton to follow" );
+            const std::string bonePreview = c.SocketName.empty() ? "None" : c.SocketName;
+            if ( U::ImGuiUtilities::AssetSlot( "socketbone", bonePreview.c_str(), c.SocketName.empty() ) )
                 ImGui::OpenPopup( "socket_bone" );
             if ( ImGui::BeginPopup( "socket_bone" ) )
             {
@@ -1632,12 +1632,25 @@ namespace Desert::Editor
                     static ImGuiTextFilter boneFilter;
                     boneFilter.Draw( "##bonesearch", 180.0f );
                     ImGui::Separator();
+                    if ( !skeleton->GetSockets().empty() )
+                    {
+                        ImGui::TextDisabled( "Sockets" );
+                        for ( const auto& named : skeleton->GetSockets() )
+                        {
+                            if ( !boneFilter.PassFilter( named.Name.c_str() ) )
+                                continue;
+                            if ( ImGui::Selectable( named.Name.c_str(), named.Name == c.SocketName ) )
+                                c.SocketName = named.Name;
+                        }
+                        ImGui::Separator();
+                        ImGui::TextDisabled( "Bones" );
+                    }
                     for ( const auto& bone : skeleton->GetBones() )
                     {
                         if ( !boneFilter.PassFilter( bone.Name.c_str() ) )
                             continue;
-                        if ( ImGui::Selectable( bone.Name.c_str(), bone.Name == c.BoneName ) )
-                            c.BoneName = bone.Name;
+                        if ( ImGui::Selectable( bone.Name.c_str(), bone.Name == c.SocketName ) )
+                            c.SocketName = bone.Name;
                     }
                 }
                 ImGui::EndPopup();
@@ -1645,13 +1658,13 @@ namespace Desert::Editor
             U::ImGuiUtilities::EndPropertyRow();
 
             // --- Grip offset (the weapon almost never sits on the bone origin) -----------------------
-            U::ImGuiUtilities::BeginPropertyRow( "Offset Location", "Relative to the bone, in centimetres" );
+            U::ImGuiUtilities::BeginPropertyRow( "Offset Location", "On top of the socket (or bone), in centimetres" );
             U::ImGuiUtilities::VectorField( "sockloc", &c.OffsetTranslation.x, 3, 0.5f, "%.1f" );
             U::ImGuiUtilities::EndPropertyRow();
 
             // Stored in radians like every other rotation in the engine; shown in degrees like every other
             // rotation in the editor.
-            U::ImGuiUtilities::BeginPropertyRow( "Offset Rotation", "Relative to the bone, in degrees" );
+            U::ImGuiUtilities::BeginPropertyRow( "Offset Rotation", "On top of the socket (or bone), in degrees" );
             glm::vec3 socketDegrees = glm::degrees( c.OffsetRotation );
             if ( U::ImGuiUtilities::VectorField( "sockrot", &socketDegrees.x, 3, 0.5f, "%.1f\xc2\xb0" ) )
                 c.OffsetRotation = glm::radians( socketDegrees );

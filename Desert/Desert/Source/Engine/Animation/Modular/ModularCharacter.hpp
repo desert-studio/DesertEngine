@@ -62,11 +62,12 @@ namespace Desert::Animation
         bool     operator==( const ClothInstanceId& ) const = default;
     };
 
-    // Same fields and meaning as ECS SocketAttachmentComponent (offsets relative to the bone; euler radians).
+    // Same fields and meaning as ECS SocketAttachmentComponent (a skeleton socket or a bone by name; offsets on top
+    // of it; euler radians).
     struct SocketAttachmentDesc
     {
         Common::AssetHandle Mesh; // a static mesh: helmets, scopes, pouches
-        std::string         BoneName;
+        std::string         SocketName;
         glm::vec3           OffsetTranslation = { 0.0f, 0.0f, 0.0f };
         glm::vec3           OffsetRotation    = { 0.0f, 0.0f, 0.0f };
         glm::vec3           OffsetScale       = { 1.0f, 1.0f, 1.0f };

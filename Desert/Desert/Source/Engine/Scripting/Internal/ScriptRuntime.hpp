@@ -359,9 +359,10 @@ namespace Desert::Scripting
                 return {};
             }
 
-            // Socket-attach this entity to a bone of `target` (UE-style): adds a SocketAttachmentComponent so
-            // AttachmentSystem makes us follow that bone each frame. e.g. weapon:attachTo(player, "hand_r").
-            void AttachTo( ScriptEntity target, const std::string& bone )
+            // Socket-attach this entity to a socket (or a bone) of `target`'s skeleton (UE AttachToComponent with a
+            // socket name): adds a SocketAttachmentComponent so AttachmentSystem makes us follow it each frame.
+            // e.g. weapon:attachTo(player, "hand_r").
+            void AttachTo( ScriptEntity target, const std::string& socket )
             {
                 if ( !Valid() || !target.Valid() )
                     return;
@@ -370,9 +371,9 @@ namespace Desert::Scripting
                     targetId = target.Reg().get<ECS::UUIDComponent>( target.handle ).UUID;
                 if ( !Reg().has<ECS::SocketAttachmentComponent>( handle ) )
                     Reg().emplace<ECS::SocketAttachmentComponent>( handle );
-                auto& sa    = Reg().get<ECS::SocketAttachmentComponent>( handle );
-                sa.Target   = targetId;
-                sa.BoneName = bone;
+                auto& sa      = Reg().get<ECS::SocketAttachmentComponent>( handle );
+                sa.Target     = targetId;
+                sa.SocketName = socket;
             }
 
             void Detach()

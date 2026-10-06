@@ -653,3 +653,60 @@ TEST( LinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle
          << cycle.GetError();
     EXPECT_EQ( table.Layers().size(), 1U ) << "the refused link left the table as it was";
 }
+
+// ── ANIM-FIX5a: a layer names a bone mask OF THE SKELETON instead of restating filters ──────────────────
+
+TEST( LayeredBlendPerBone, ASkeletonBoneMaskReachesWhatTheSameBranchFilterReaches )
+{
+    Skeleton skeleton = FiveBones();
+    ASSERT_TRUE( skeleton.SetBoneMasks( { BoneMask{ "UpperBody", { BoneMaskEntry{ "spine", 1.0F, true } } } } ) );
+
+    G::LayeredBlendPerBoneNode byFilter;
+    byFilter.Layers = { G::LayerSetup{ { G::BranchFilter{ "spine", 0 } } } };
+    G::LayeredBlendPerBoneNode byMask;
+    byMask.Layers = { G::LayerSetup{ {}, std::string( "UpperBody" ) } };
+
+    const auto filtered = G::BuildPerBoneWeights( byFilter, skeleton );
+    const auto masked   = G::BuildPerBoneWeights( byMask, skeleton );
+    ASSERT_TRUE( filtered ) << filtered.GetError();
+    ASSERT_TRUE( masked ) << masked.GetError();
+    for ( size_t b = 0; b < 5; ++b )
+    {
+        EXPECT_EQ( masked.GetValue()[b].Layer, filtered.GetValue()[b].Layer ) << "bone " << b;
+        EXPECT_FLOAT_EQ( masked.GetValue()[b].Weight, filtered.GetValue()[b].Weight ) << "bone " << b;
+    }
+}
+
+TEST( LayeredBlendPerBone, AMaskEntryWithoutDescendantsWeighsItsBoneAloneAndAnInnerEntryOverrides )
+{
+    // spine branch at 0.5, chest alone at 1 (head still inherits spine's 0.5), leg untouched.
+    const BoneMask mask{ "Mixed",
+                         { BoneMaskEntry{ "spine", 0.5F, true }, BoneMaskEntry{ "chest", 1.0F, false } } };
+    const auto     weights = ResolveBoneMaskWeights( mask, FiveBones() );
+    ASSERT_TRUE( weights ) << weights.GetError();
+    const std::vector<float> expected = { 0.0F, 0.5F, 1.0F, 0.5F, 0.0F };
+    for ( size_t b = 0; b < expected.size(); ++b )
+        EXPECT_FLOAT_EQ( weights.GetValue()[b], expected[b] ) << "bone " << b;
+}
+
+TEST( LayeredBlendPerBone, AMissingMaskAndALayerStatingBothAreRefusedByName )
+{
+    Skeleton skeleton = FiveBones();
+    ASSERT_TRUE( skeleton.SetBoneMasks( { BoneMask{ "UpperBody", { BoneMaskEntry{ "spine", 1.0F, true } } } } ) );
+
+    G::LayeredBlendPerBoneNode missing;
+    missing.Layers     = { G::LayerSetup{ {}, std::string( "Arms" ) } };
+    const auto refused = G::BuildPerBoneWeights( missing, skeleton );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( "'Arms'" ), std::string::npos ) << refused.GetError();
+
+    G::LayeredBlendPerBoneNode both;
+    both.Layers         = { G::LayerSetup{ { G::BranchFilter{ "leg", 0 } }, std::string( "UpperBody" ) } };
+    const auto twoTruths = G::BuildPerBoneWeights( both, skeleton );
+    ASSERT_FALSE( twoTruths );
+    EXPECT_NE( twoTruths.GetError().find( "both" ), std::string::npos ) << twoTruths.GetError();
+
+    // The skeleton refuses a mask naming a bone it lacks, and keeps what it had.
+    EXPECT_FALSE( skeleton.SetBoneMasks( { BoneMask{ "Typo", { BoneMaskEntry{ "spien", 1.0F, true } } } } ) );
+    EXPECT_NE( skeleton.FindBoneMask( "UpperBody" ), nullptr );
+}

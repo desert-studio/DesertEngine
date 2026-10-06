@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Animation/Skeleton.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -34,6 +35,29 @@ namespace Desert::ECS::Rules
         if ( planarSpeed <= loco.RunSpeed )
             return loco.WalkClip;
         return loco.RunClip;
+    }
+
+    // What a SocketAttachmentComponent's name follows on @p skeleton: a SOCKET of the rig first (its bone, and its
+    // local transform composed after the bone's), else a bone of that name with an identity socket transform (UE
+    // USkinnedMeshComponent::GetSocketTransform). Nullopt = neither - the caller reports it.
+    struct AttachPoint
+    {
+        uint32_t  Bone        = 0;
+        glm::mat4 SocketLocal = glm::mat4( 1.0f );
+    };
+    inline std::optional<AttachPoint> ResolveAttachPoint( const Animation::Skeleton& skeleton,
+                                                          const std::string&         socketName )
+    {
+        if ( const Animation::SkeletonSocket* named = skeleton.FindSocket( socketName ) )
+        {
+            const auto bone = skeleton.FindBoneIndex( named->Bone );
+            if ( !bone )
+                return std::nullopt;
+            return AttachPoint{ *bone, named->LocalTransform() };
+        }
+        if ( const auto bone = skeleton.FindBoneIndex( socketName ) )
+            return AttachPoint{ *bone, glm::mat4( 1.0f ) };
+        return std::nullopt;
     }
 
     // Where a socket-attached entity ends up: the bone's model-space transform lifted into the target's

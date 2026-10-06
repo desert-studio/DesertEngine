@@ -68,9 +68,10 @@ namespace Desert::Assets
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
     // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
     // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the
-    // import record's SourceHash is the one freshness). Tools/SceneMigrator raises v1 and v2 to v3.
+    // import record's SourceHash is the one freshness). v4 (ANIM-FIX5a): the rig's Sockets and BoneMasks (UE
+    // USkeleton::Sockets / BlendProfiles), every file stating both lists. Tools/SceneMigrator raises v1-v3 to v4.
     inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );
-    inline constexpr uint32_t kSkeletonSchemaVersion = 3;
+    inline constexpr uint32_t kSkeletonSchemaVersion = 4;
     // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
     // v5 (SKEL-TREE): the clip names its skeleton by GUID (`Skeleton`, an AssetGuidRef, also the header's one

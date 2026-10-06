@@ -158,7 +158,7 @@ namespace Desert::Core::Serialize
     {
         return Common::Json::ObjectBuilder()
              .Set( "Target", c.Target )
-             .Set( "BoneName", c.BoneName )
+             .Set( "SocketName", c.SocketName )
              .Set( "OffsetTranslation", c.OffsetTranslation )
              .Set( "OffsetRotation", c.OffsetRotation )
              .Set( "OffsetScale", c.OffsetScale )
@@ -169,7 +169,7 @@ namespace Desert::Core::Serialize
                                Common::Json::Issues& issues )
     {
         from.ReadInto( "Target", c.Target, issues );
-        from.ReadInto( "BoneName", c.BoneName, issues );
+        from.ReadInto( "SocketName", c.SocketName, issues );
         from.ReadInto( "OffsetTranslation", c.OffsetTranslation, issues );
         from.ReadInto( "OffsetRotation", c.OffsetRotation, issues );
         from.ReadInto( "OffsetScale", c.OffsetScale, issues );
