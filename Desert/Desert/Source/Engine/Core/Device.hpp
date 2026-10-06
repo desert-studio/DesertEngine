@@ -55,6 +55,11 @@ namespace Desert::Engine
         std::string Name;                              ///< Adapter name, e.g. "NVIDIA GeForce RTX 3070 Ti".
         std::string VendorName;                        ///< Decoded PCI vendor: NVIDIA / AMD / Intel / Apple.
         DeviceType  Type = DeviceType::Unknown;        ///< Discrete vs integrated — drives default quality.
+        /// PCI vendor / device id and the packed driver version, as the driver reports them. Reader: the
+        /// recommended-settings cache key (MakeBenchmarkCacheKey) — a new GPU or driver re-benchmarks.
+        uint32_t VendorId      = 0;
+        uint32_t DeviceId      = 0;
+        uint32_t DriverVersion = 0;
 
         // --- Memory ---------------------------------------------------------------------------------
         /// Total device-local heap in bytes. 0 when it could not be determined. Used to decide whether the

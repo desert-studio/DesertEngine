@@ -90,16 +90,36 @@ namespace Common::Scalability
     // constants (REMAINDER-SCAL1-C0.md lists the candidates); until a group has a row the table loader REFUSES a
     // data file that gives it levels, and the UI does not show it — a group slider that moves nothing is a dead
     // setting.
+    //
+    // PLACEHOLDERS (owner, 2026-10-06). A row whose spec says `Reader = std::nullopt` reserves a parameter for a
+    // feature the engine does not have yet (TAA quality, ray-traced shadows/reflections/GI, upscaler sharpening,
+    // texture streaming). The loader validates it like any row, Resolve passes it through (range + catalog), but
+    // nothing applies it: ListedParameters() and IsGroupListed() leave it out of every UI and of the game API, and
+    // QualityState::SetOverride refuses it. The day its feature lands the row gains its reader and appears. A
+    // contract test pins both directions: every placeholder is hidden, every listed row names its reader.
     enum class Parameter : uint8_t
     {
         AntiAliasingMethod = 0, // SceneRenderer framebuffer setup + post AA pass. Values: AntiAliasingMethod
-        AntiAliasingSamples,    // SceneRenderer framebuffer sample count; only under MSAA. Values: 2/4/8
+        AntiAliasingSamples,    // SceneRenderer framebuffer sample count; read only under MSAA. Values: 1/2/4/8
         RenderScalePercent,     // view-target size (RDG) and the upscaler pass. Values: RenderScaleRange
         Upscaler,               // upscaler pass. Values: Upscaler
         TextureFilter,          // sampler cache (RenderConfig push). Values: MachineSettings TextureFilter 0..3
         Anisotropy,             // sampler cache. Values: CapabilityCatalog::AnisotropyLevels
         MeshLOD,                // mesh LOD selection. Values: 0/1
         CloudQuality,           // Graphic::CloudQualityScale. Values: CloudQuality 0..2
+        ShadowCascades,         // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
+        ShadowMapSize,          // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
+        ShadowDistance,         // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km
+        // ---- placeholders (Reader = nullopt) ----
+        TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
+        TextureStreamingPoolMiB,      // Textures: resident texture budget
+        ShadowRayTracing,             // Shadows: RayTracingMode
+        GlobalIlluminationRayTracing, // GlobalIllumination: RayTracingMode
+        ReflectionRayTracing,         // Reflections: RayTracingMode
+        AmbientOcclusionQuality,      // PostProcess: 0..3
+        BloomQuality,                 // PostProcess: 0..3
+        TemporalAAQuality,            // AntiAliasing: 0..3
+        UpscalerSharpness,            // ResolutionScale: percent
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
@@ -133,11 +153,22 @@ namespace Common::Scalability
         ParameterValue   Min;
         ParameterValue   Max;
         CatalogList      NarrowedBy;
+        // WHO READS THE RESOLVED VALUE (file / system), or std::nullopt for a placeholder: a reserved parameter
+        // with no reader, hidden from every selector (see PLACEHOLDERS above).
+        std::optional<std::string_view> Reader;
     };
+    [[nodiscard]] constexpr bool IsPlaceholder( const ParameterSpec& spec )
+    {
+        return !spec.Reader.has_value();
+    }
     [[nodiscard]] std::span<const ParameterSpec> ParameterSpecs();
     [[nodiscard]] const ParameterSpec&           SpecOf( Parameter parameter );
     [[nodiscard]] std::string_view               GroupKey( Group group ); // "Shadows", "AntiAliasing", ...
     [[nodiscard]] std::string_view               LevelKey( Level level ); // "Low" ... "Cinematic"
+    // What a selector (editor panel, palette, game menu, console listing) may show: the parameters that have a
+    // reader, and the groups owning at least one of them.
+    [[nodiscard]] std::vector<Parameter> ListedParameters();
+    [[nodiscard]] bool                   IsGroupListed( Group group );
 
     // A full set of values, one per parameter, indexed by Parameter. Unset slots do not exist: the table loader
     // refuses a level that does not set every parameter of its group.
@@ -311,7 +342,12 @@ namespace Common::Scalability
         // Once, after the device exists (the catalog) and machine.json is loaded (the selection). The table is
         // parsed by the host from Scalability.yaml; a parse failure stops the host — there is no built-in table to
         // fall back to (a second copy of the levels in code would be the two-sources defect).
-        static void Initialize( ScalabilityTable table, CapabilityCatalog catalog, QualitySelection saved );
+        //
+        // `save` persists a selection (the host's machine.json writer); Apply calls it after publishing. Injected
+        // so the one apply point does not depend on how the host stores machine settings, and so tests mock it.
+        using Saver = Common::BoolResultStr ( * )( const QualitySelection& selection );
+        static void Initialize( ScalabilityTable table, CapabilityCatalog catalog, QualitySelection saved,
+                                Saver save );
         // A device loss / new device: same selection, new catalog -> re-resolve, report what changed.
         static void ReplaceCatalog( CapabilityCatalog catalog );
 
@@ -322,6 +358,7 @@ namespace Common::Scalability
             std::vector<Fallback> NewFallbacks; // fallbacks not present in the previous resolution
             bool                  ValuesChanged = false;
             bool                  Saved         = false;
+            std::string_view      Refused; // non-empty: nothing was applied, and why (logged at ERROR)
         };
         // THE apply point: resolve, log each NEW fallback once, publish ResolvedQuality (Generation + 1 when
         // values changed), notify listeners, save machine.json. Every setter below is this with an edited

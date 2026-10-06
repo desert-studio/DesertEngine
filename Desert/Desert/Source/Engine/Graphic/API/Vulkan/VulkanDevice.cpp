@@ -18,7 +18,8 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/CrashHandler.hpp>
 
-#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp> // ReadShaderPhaseTimes — pipelines built so far
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
 #include <algorithm> // std::max — largest device-local heap
 #include <array>
@@ -64,6 +65,9 @@ namespace Desert::Graphic::API::Vulkan
 
         // --- Identity ---
         m_Capabilities.Name = deviceProperties.deviceName;
+        m_Capabilities.VendorId      = deviceProperties.vendorID;
+        m_Capabilities.DeviceId      = deviceProperties.deviceID;
+        m_Capabilities.DriverVersion = deviceProperties.driverVersion;
         switch ( deviceProperties.deviceType )
         {
             case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
@@ -154,6 +158,12 @@ namespace Desert::Graphic::API::Vulkan
             // re-querying the driver — one source of truth, so the value the renderer clamps to and the value
             // GetCapabilities() reports can never disagree.
             Graphic::RenderConfig::MaxMSAASamples = static_cast<int>( m_Capabilities.MaxMSAASamples() );
+
+            // The selectable lists, built once from probed facts (VulkanCapabilityCatalog.hpp). The surface half
+            // (display outputs, present modes beyond FIFO) is probed when the first swapchain's surface exists.
+            m_Capabilities.Catalog =
+                 BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, VK_NULL_HANDLE, m_DeviceCaps ) );
+            LOG_INFO( "[Vulkan] {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
 
             m_QueueFamilyProperties = m_Bootstrap->get_queue_families();
             m_DepthFormat           = FindDepthFormat();

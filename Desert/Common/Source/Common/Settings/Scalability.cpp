@@ -12,6 +12,54 @@ namespace Common::Scalability
 {
     namespace
     {
+        using P  = Parameter;
+        using G  = Group;
+        using CL = CatalogList;
+        constexpr ParameterValue kRtMax = static_cast<ParameterValue>( RayTracingMode::RayTracingPipeline );
+
+        // THE spec list (Scalability.hpp: one row per Parameter, in enum order - the census asserts it).
+        // The three shadow rows are the values that used to be the renderer constant kSceneShadowQuality
+        // (ShadowCascades.hpp); S2 moves the reader onto ResolvedQuality.
+        constexpr std::array<ParameterSpec, kParameterCount> kParameterSpecs{ {
+             { P::AntiAliasingMethod, G::AntiAliasing, "AntiAliasing.Method", 0,
+               static_cast<ParameterValue>( AntiAliasingMethod::DLAA ), CL::AntiAliasingMethods,
+               "SceneRenderer framebuffer setup + post AA pass" },
+             { P::AntiAliasingSamples, G::AntiAliasing, "AntiAliasing.Samples", 1, 8, CL::MSAACounts,
+               "SceneRenderer framebuffer sample count (MSAA)" },
+             { P::RenderScalePercent, G::ResolutionScale, "Resolution.Percent", 50, 200, CL::RenderScale,
+               "RDG view-target size + upscaler pass" },
+             { P::Upscaler, G::ResolutionScale, "Resolution.Upscaler", 0,
+               static_cast<ParameterValue>( Upscaler::MetalFX ), CL::Upscalers, "upscaler pass" },
+             { P::TextureFilter, G::Filtering, "Filtering.Texture", 0, 3, CL::None,
+               "sampler cache (RenderConfig push)" },
+             { P::Anisotropy, G::Filtering, "Filtering.Anisotropy", 1, 16, CL::AnisotropyLevels,
+               "sampler cache (RenderConfig push)" },
+             { P::MeshLOD, G::ViewDistance, "ViewDistance.MeshLOD", 0, 1, CL::None, "mesh LOD selection" },
+             { P::CloudQuality, G::Effects, "Effects.CloudQuality", 0, 2, CL::None, "Graphic::CloudQualityScale" },
+             { P::ShadowCascades, G::Shadows, "Shadows.Cascades", 1, 4, CL::None,
+               "MeshRenderer scene-view ShadowQuality::CascadeCount" },
+             { P::ShadowMapSize, G::Shadows, "Shadows.MapSize", 512, 4096, CL::None,
+               "MeshRenderer scene-view ShadowQuality::ShadowMapSize" },
+             { P::ShadowDistance, G::Shadows, "Shadows.Distance", 1000, 100000, CL::None,
+               "MeshRenderer scene-view ShadowQuality::MaxDistance (cm)" },
+             { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
+             { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
+               std::nullopt },
+             { P::ShadowRayTracing, G::Shadows, "Shadows.RayTracing", 0, kRtMax, CL::RayTracingModes, std::nullopt },
+             { P::GlobalIlluminationRayTracing, G::GlobalIllumination, "GlobalIllumination.RayTracing", 0, kRtMax,
+               CL::RayTracingModes, std::nullopt },
+             { P::ReflectionRayTracing, G::Reflections, "Reflections.RayTracing", 0, kRtMax, CL::RayTracingModes,
+               std::nullopt },
+             { P::AmbientOcclusionQuality, G::PostProcess, "PostProcess.AmbientOcclusion", 0, 3, CL::None,
+               std::nullopt },
+             { P::BloomQuality, G::PostProcess, "PostProcess.Bloom", 0, 3, CL::None, std::nullopt },
+             { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 3, CL::None, std::nullopt },
+             { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None, std::nullopt },
+        } };
+    } // namespace
+
+    namespace
+    {
         // Enum-valued parameters are written by NAME in Scalability.yaml; this is the one place a parameter is
         // tied to its name list (CapabilityCatalog.hpp owns the lists).
         std::span<const std::string_view> ValueNames( Parameter parameter )
@@ -729,7 +777,13 @@ namespace Common::Scalability
         LogUnknownOverrides( selection, &s.Selection );
         s.Selection        = selection;
         ApplyReport report = Publish( Resolve( s.Selection, s.Table, s.Catalog ) );
-        const auto  saved  = s.Save( s.Selection );
+        if ( !s.Save )
+        {
+            LOG_ERROR( "[Scalability] QualityState was initialized without a saver; the selection applies to this "
+                       "session only" );
+            return report;
+        }
+        const auto saved = s.Save( s.Selection );
         report.Saved       = saved.IsSuccess();
         if ( !report.Saved )
             LOG_ERROR( "[Scalability] the quality selection was not saved: {} — it applies to this session only",
