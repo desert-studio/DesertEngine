@@ -100,7 +100,8 @@ namespace Desert::Editor
         return Common::MakeSuccess( *m_ColorSpace );
     }
 
-    Common::BoolResultStr TextureViewerDocument::ApplyColorSpace( const ::Desert::Core::Formats::TextureColorSpace space )
+    Common::BoolResultStr
+    TextureViewerDocument::ApplyColorSpace( const ::Desert::Core::Formats::TextureColorSpace space )
     {
         const std::string file = AssetFile();
         if ( file.empty() )
@@ -206,7 +207,8 @@ namespace Desert::Editor
             int space = static_cast<int>( current.GetValue() );
             ImGui::SetNextItemWidth( 90.0f );
             if ( ImGui::Combo( "##ColorSpace", &space, "Linear\0sRGB\0" ) )
-                if ( const auto applied = ApplyColorSpace( static_cast<::Desert::Core::Formats::TextureColorSpace>( space ) );
+                if ( const auto applied =
+                          ApplyColorSpace( static_cast<::Desert::Core::Formats::TextureColorSpace>( space ) );
                      !applied.IsSuccess() )
                     LOG_ERROR( "[TextureViewer] colour space not changed: {}", applied.GetError() );
             ImGui::SameLine();
