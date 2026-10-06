@@ -104,15 +104,24 @@ namespace Desert::Graphic::System
             return m_Resolved;
         }
 
-        // Inside the render pass the frame graph opens on SceneDepthResolved ("Scene: DepthResolve").
-        // @p sceneDepth is the node's SampledGraphics read, fetched at sample 0 as u_Depth.
-        Common::BoolResultStr Record( const RDG::PassContext& context, RDG::TextureRef sceneDepth )
+        // SETUP of "Scene: DepthResolve": the node's one block (block 0) - @p sceneDepth as u_Depth, fetched at
+        // sample 0 (PointClamp), the material as the other route. Not ready: nothing declared, Record refuses.
+        void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneDepth ) const
         {
             if ( !IsReady() || !sceneDepth.IsValid() )
-                return Common::MakeError( "SceneDepthResolve recorded without its pipeline or the scene depth" );
-            RDG::PassBindings bindings( context );
-            bindings.Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                              RDG::SamplerDesc::PointClamp() );
+                return;
+            pass.Bindings( Renderer::GetInstance().GetBindingLayout( *m_Shader ),
+                           m_Material->GetMaterialExecutor()->GetRouteFill() )
+                 .Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::PointClamp() );
+        }
+
+        // Inside the render pass the frame graph opens on SceneDepthResolved: opens block 0.
+        Common::BoolResultStr Record( const RDG::PassContext& context )
+        {
+            if ( !IsReady() )
+                return Common::MakeError( "SceneDepthResolve recorded without its pipeline" );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
         }

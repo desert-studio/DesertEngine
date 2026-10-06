@@ -52,8 +52,24 @@ namespace Desert::Graphic::System
         // cameraPos.xyz = camera. radius and bias are WORLD distances (the shader offsets samples in world
         // space), and a world unit is a centimetre - callers passing literature values must convert through
         // Common::Units.
-        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, RDG::TextureRef worldPos,
-                                                    RDG::TextureRef normal, const glm::mat4& viewProj,
+        //
+        // SETUP: DeclareBindings declares the node's one block (block 0): u_GBufferPos / u_GBufferNormal with the
+        // sampler the material route sampled the G-buffer with (the image's own: linear, REPEAT), the material
+        // as the other route. Not initialised: nothing is declared and Record refuses.
+        void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef worldPos, RDG::TextureRef normal ) const
+        {
+            if ( !m_Pipeline || !m_Material )
+                return;
+            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
+            pass.Bindings( Renderer::GetInstance().GetBindingLayout( *m_Shader ),
+                           m_Material->GetMaterialExecutor()->GetRouteFill() )
+                 .Sampled( "u_GBufferPos", worldPos, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler )
+                 .Sampled( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler );
+        }
+
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, const glm::mat4& viewProj,
                                                     const glm::vec4& cameraPos, float radius, float bias,
                                                     float power, int sampleCount )
         {
@@ -62,14 +78,7 @@ namespace Desert::Graphic::System
 
             m_Material->BindInputs( viewProj, cameraPos, radius, bias, power, sampleCount );
 
-            // The sampler the material route sampled the G-buffer with (the image's own: linear, REPEAT).
-            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            RDG::PassBindings          bindings( context );
-            bindings
-                 .Sampled( "u_GBufferPos", worldPos, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
-                 .Sampled( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
         }

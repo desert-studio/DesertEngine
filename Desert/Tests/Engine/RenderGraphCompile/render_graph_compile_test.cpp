@@ -62,6 +62,12 @@ namespace
         return Common::MakeSuccess( true );
     }
 
+    // A DeferredFrameNodes declare callback with no shader behind it: the node's sampled read, declared plainly.
+    void ReadSampledGraphics( PassBuilder& pass, TextureRef texture )
+    {
+        pass.Read( texture, Access::SampledGraphics );
+    }
+
     constexpr uint64_t AlignUp( uint64_t value, uint64_t alignment )
     {
         return ( value + alignment - 1 ) / alignment * alignment;
@@ -2316,7 +2322,7 @@ TEST( RenderGraphCompile, DepthToSceneIsACopyAtOneSampleAndARasterDepthExpandAtM
         const TextureRef sourceRef = graph.RegisterExternal( source, "GBuffer.Depth" );
         const TextureRef targetRef = graph.RegisterExternal( target, "SceneColor.Depth" );
         graph.Extract( targetRef, target, Access::DepthWrite );
-        Nodes::AddDepthToScene( graph, samples, sourceRef, targetRef, Ok, Ok );
+        Nodes::AddDepthToScene( graph, samples, sourceRef, targetRef, Ok, ReadSampledGraphics, Ok );
         const CompileResult result = CompileOrFail( graph );
         ASSERT_EQ( result.Passes.size(), 1u ) << samples;
         const CompiledPass* copy   = result.FindPass( "Deferred: DepthResolve" );
@@ -2357,7 +2363,7 @@ TEST( RenderGraphCompile, SceneDepthResolveIsARasterNodeOnlyAtMsaa )
         const TextureRef sceneRef    = graph.RegisterExternal( scene, "SceneColor.Depth" );
         const TextureRef resolvedRef = graph.RegisterExternal( resolved, "SceneDepthResolved.Depth" );
         graph.Extract( resolvedRef, resolved, Access::SampledCompute );
-        Nodes::AddSceneDepthResolve( graph, samples, sceneRef, resolvedRef, Ok );
+        Nodes::AddSceneDepthResolve( graph, samples, sceneRef, resolvedRef, ReadSampledGraphics, Ok );
         const CompileResult result  = CompileOrFail( graph );
         const CompiledPass* resolve = result.FindPass( "Scene: DepthResolve" );
         if ( samples == 1 )

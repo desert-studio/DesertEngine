@@ -33,10 +33,12 @@ namespace Desert::Graphic::DeferredFrameNodes
     // G-buffer depth -> scene target depth. The same sample count: "Deferred: DepthResolve", a Copy node. A
     // multisampled scene target over the single-sample G-buffer: a copy between sample counts does not exist, so
     // "Deferred: DepthExpand" is a Raster node whose only target is the scene depth (every sample written by a
-    // full-screen gl_FragDepth, so its old contents are DontCare) and which samples the G-buffer depth.
-    template <typename CopyExec, typename ExpandExec>
+    // full-screen gl_FragDepth, so its old contents are DontCare) and which samples the G-buffer depth:
+    // @p declareExpand( pass, source ) declares that read (the renderer's binding block, RDG-FAULT1).
+    template <typename CopyExec, typename ExpandDeclare, typename ExpandExec>
     void AddDepthToScene( RDG::Builder& graph, uint32_t targetSamples, RDG::TextureRef source,
-                          RDG::TextureRef target, CopyExec&& copy, ExpandExec&& expand )
+                          RDG::TextureRef target, CopyExec&& copy, ExpandDeclare&& declareExpand,
+                          ExpandExec&& expand )
     {
         if ( targetSamples <= 1 )
         {
@@ -49,7 +51,7 @@ namespace Desert::Graphic::DeferredFrameNodes
              "Deferred: DepthExpand", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( source, RDG::Access::SampledGraphics );
+                 declareExpand( pass, source );
                  pass.DepthTarget( target, RDG::LoadOp::DontCare(), /*write*/ true );
              },
              std::forward<ExpandExec>( expand ) );
@@ -59,9 +61,10 @@ namespace Desert::Graphic::DeferredFrameNodes
     // Raster node samples the multisampled scene depth (sample 0, SampledGraphics) and writes it through
     // gl_FragDepth into the 1x SceneDepthResolved (its only target, old contents DontCare); every consumer
     // declares its read of that 1x texture. At one sample no node exists and the consumers read the scene depth.
-    template <typename ResolveExec>
+    // @p declareResolve( pass, sceneDepth ) declares the node's read (the renderer's binding block, RDG-FAULT1).
+    template <typename ResolveDeclare, typename ResolveExec>
     void AddSceneDepthResolve( RDG::Builder& graph, uint32_t sceneSamples, RDG::TextureRef sceneDepth,
-                               RDG::TextureRef resolved, ResolveExec&& resolve )
+                               RDG::TextureRef resolved, ResolveDeclare&& declareResolve, ResolveExec&& resolve )
     {
         if ( sceneSamples <= 1 )
             return;
@@ -69,7 +72,7 @@ namespace Desert::Graphic::DeferredFrameNodes
              "Scene: DepthResolve", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( sceneDepth, RDG::Access::SampledGraphics );
+                 declareResolve( pass, sceneDepth );
                  pass.DepthTarget( resolved, RDG::LoadOp::DontCare(), /*write*/ true );
              },
              std::forward<ResolveExec>( resolve ) );
