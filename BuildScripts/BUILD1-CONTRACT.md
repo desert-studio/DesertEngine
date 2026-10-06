@@ -156,6 +156,32 @@ compiled once (in Desert, with PCH); 366 links -> 5; PDB 12.4 GB -> ~5 runner PD
 Verify: `msbuild -t:BuildAllTests` wall time + `build/Tests` size, before/after, same tree;
 the sum of tests run per suite in the reports equals today's (5,278).
 
+### Adding a suite (and converting one that arrives the old way)
+
+A suite is a directory `Desert/Tests/<Layer>/<Suite>/` with `*.cpp` and nothing else: no `premake5.lua`, no
+`int main`. Generation lists it in `build/TestManifest.txt` as `<Layer>Tests <Suite>` and compiles it into
+the layer runner. A suite merged in from a branch that still has its own script converts in one minute:
+
+1. delete `Desert/Tests/<Layer>/<Suite>/premake5.lua` and the suite's `int main` (RunnerMain is the main);
+2. anything the script added beyond the template (an include dir, a library, a tool or editor source,
+   a `dependson`) goes into `kRunners.<Layer>` in `Desert/Tests/premake5.lua`, with its reason; an
+   engine source the script compiled is NOT copied: the runner links `Desert.lib`;
+3. file-local types into `namespace { }`, and a gtest test-suite name no other suite of the layer uses.
+
+`Desert/Tests/Common/TestRunnerLayout` names the suite and the rule it breaks if a step is missed. While
+the Engine/Editor layers are converted (P1-B), a suite that keeps its `premake5.lua` AND its `main` still
+builds as its own project (manifest line `<Suite> <Suite>`); one without the other is red.
+
+Run one suite / all suites:
+
+- Windows: `build\Bin\Tests\Debug\CommonTests.exe --desert-suite=Pak` (any gtest flag works with it);
+  all: build the `BuildAllTests` target, then `run_tests.bat` (RunTests.ps1 reads the manifest).
+- macOS: `CI=true premake5 gmake && scripts/Dev/suite.sh Pak` (resolves the runner from the manifest, builds
+  only that runner, runs `--desert-suite=Pak`); all: `CI=true premake5 gmake`, then
+  `make -C build/Projects config=debug BuildAllTests` (with your usual -j), then `scripts/MacOS/RunTests.sh "$PWD" Debug`.
+- The ASan/CI shard planner (`scripts/CI/TestShards.py plan --expected build/TestManifest.txt`) and both
+  runners take the suite list from the manifest only; nothing globs the output directory any more.
+
 ## 5. P2 — precompiled headers
 
 ### Selection rule (one rule, applied per project from its own `CL.read` tlog)

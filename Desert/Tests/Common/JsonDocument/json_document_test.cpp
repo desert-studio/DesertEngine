@@ -16,7 +16,9 @@
 #include <string>
 #include <vector>
 
-namespace DocumentTest
+// In an anonymous namespace: every suite of the layer links into one runner, and two suites'
+// namespace-scope types of one name would be an ODR violation the linker resolves silently.
+namespace
 {
     enum class Mode
     {
@@ -95,9 +97,8 @@ namespace DocumentTest
         Nested                     Deep   = { { 0.7f }, { 5, "five", 0.3f } };
         std::vector<Block>         Blocks = { Block{}, Block{ 2, "c", 1e-3f } };
     };
-} // namespace DocumentTest
+} // namespace
 
-using namespace DocumentTest;
 namespace Json = Common::Json;
 
 namespace
@@ -438,9 +439,4 @@ TEST( JsonDocument, FromStructWritesTheSameBytesAsTheStructWriter )
     carrier.Other[std::string( "Foreign" )] = Json::Value( std::string( "kept" ) );
     EXPECT_EQ( Json::Write( Json::FromStruct( carrier ) ), Json::Write( carrier ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

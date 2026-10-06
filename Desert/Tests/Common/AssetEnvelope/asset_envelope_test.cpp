@@ -447,9 +447,4 @@ TEST( AssetGuidHandle, EachHalfReachesTheHandle )
     EXPECT_NE( Common::Content::HandleForGuid( base ),
                Common::Content::HandleForGuid( Common::Content::AssetGuid{ 2, 1 } ) );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

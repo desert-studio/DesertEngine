@@ -439,9 +439,4 @@ TEST( PackagedMount, AnArchiveThatNamesNoChunksIsAGameThatWasNeverDivided )
     DESERT_EXPECT_RESULT_EQ( Common::Utils::FileSystem::ReadFileContent( dir / "Assets/menu.desce" ),
                              "the whole game" );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

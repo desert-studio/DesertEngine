@@ -1004,9 +1004,4 @@ TEST( ShippingBoundary, ThePackagerDefaultsToAConfigurationTheWorkspaceDeclares 
          << "the packager offers a configuration the workspace does not declare — packaging it can only "
             "ever fail with 'Runtime binary not found'.";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

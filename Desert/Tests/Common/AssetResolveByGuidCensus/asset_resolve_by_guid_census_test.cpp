@@ -447,9 +447,4 @@ TEST( AssetResolveByGuidCensus, RegisterRowsAreUniqueAndCarryAReason )
             EXPECT_NE( kPathOnly[i].Kind, kPathOnly[j].Kind ) << "row " << i << " and row " << j;
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

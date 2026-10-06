@@ -81,9 +81,4 @@ TEST( ProductName, TheDefaultIsItselfAValidName )
     EXPECT_EQ( Common::Settings::SanitizeProductName( Common::Settings::kDefaultProductDirectoryName ),
                Common::Settings::kDefaultProductDirectoryName );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

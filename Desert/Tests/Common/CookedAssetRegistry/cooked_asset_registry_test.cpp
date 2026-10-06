@@ -517,12 +517,6 @@ TEST( CookedAssetRegistry, AKindOrASizeThatDisagreesIsReportedAndTheRowIsStillFo
     EXPECT_EQ( problems.size(), 2u ) << "one row, two independent faults, two sentences";
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── AF7: THE HEADER COLUMN ────────────────────────────────────────────────────────────────────────
 //
 // The registry records what each file's OWN HEADER states - GUID and subsystem versions - read without

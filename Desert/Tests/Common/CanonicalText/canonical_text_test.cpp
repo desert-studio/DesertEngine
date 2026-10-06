@@ -424,9 +424,4 @@ TEST( CanonicalText, AFailedWriterRefusesTheSaveAndLeavesTheFileAsItWas )
     EXPECT_NE( after.str().find( "false" ), std::string::npos );
     fs::remove_all( dir );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

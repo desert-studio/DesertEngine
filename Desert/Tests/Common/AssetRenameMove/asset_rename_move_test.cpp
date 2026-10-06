@@ -395,12 +395,6 @@ TEST( AssetRenameMove, TheEditorFolderRouteIsOneUndoStep )
     CR::ResetForTest();
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // A PARTITIONED SCENE MOVES WITH ITS ENTITY FILES (WP16b). The folder is found by the scene's path
 // (Common/Content/ExternalEntitiesFolder.hpp), so a rename that left it behind would load a world with every
 // entity file "missing", and the stale folder would be adopted by the next scene given the old name.

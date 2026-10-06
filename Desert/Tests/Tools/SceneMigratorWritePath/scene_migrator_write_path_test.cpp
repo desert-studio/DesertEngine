@@ -186,12 +186,6 @@ TEST( SceneMigratorWritePath, AVersionOneLandscapeTileFailsByPathAndNumberAndIsL
     fs::remove_all( dir );
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // THE CORPUS IS ALREADY IN THE SAVER'S TEXT (SAVE1). Opening a committed scene and saving it with no edit
 // must leave `git status` clean. Every difference such a save produced was stale corpus text, never the
 // saver: reflected blocks missing fields added since the file was written (SkyAtmosphere +25,

@@ -196,13 +196,4 @@ TEST( JobSystem, WorkerCountIsPositive )
 {
     EXPECT_GE( Common::JobSystem::Get().WorkerCount(), static_cast<size_t>( 1 ) );
 }
-
-// NO EXPLICIT Shutdown() HERE, DELIBERATELY. This main() used to end with one, commented "join workers
-// before static destruction" — a workaround for the pool outliving Optick's own singleton, which every
-// binary that uses the pool would have had to remember. The ordering is now guaranteed in JobSystem's
-// constructor, and leaving the workaround in would mean this suite could never notice if it broke.
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

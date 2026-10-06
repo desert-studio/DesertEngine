@@ -267,9 +267,4 @@ TEST( AssetRedirector, ARedirectorFoundAwayFromItsOldKeyIsRefused )
                                                 Common::Content::DescribeContentFile( at, ContentKind::Scene ) );
     EXPECT_FALSE( row ) << "a redirector answered for a path it was not written for";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

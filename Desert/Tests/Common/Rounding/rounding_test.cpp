@@ -113,9 +113,4 @@ TEST( Rounding, TheQuantiserIsMonotonic )
     }
     EXPECT_EQ( previous, 255 );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

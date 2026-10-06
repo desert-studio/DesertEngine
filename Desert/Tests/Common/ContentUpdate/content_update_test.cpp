@@ -515,9 +515,4 @@ TEST( ContentUpdate, AKeyThatLeavesTheInstallIsRefusedBeforeAnyByteMoves )
     EXPECT_FALSE( fs::exists( dir / "escaped.txt" ) );
     EXPECT_FALSE( fs::exists( install / "fine.txt" ) ) << "validated whole, then executed whole";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

@@ -228,9 +228,4 @@ TEST( FileSystemRead, ListFilesRecursiveMissingRootIsEmptyNotAnError )
     const fs::path dir = MakeTempDir( "desert_fsread_norvoot" );
     EXPECT_TRUE( Common::Utils::FileSystem::ListFilesRecursive( dir / "never_created" ).empty() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

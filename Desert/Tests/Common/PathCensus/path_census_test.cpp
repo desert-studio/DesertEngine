@@ -398,9 +398,4 @@ TEST( PathCensus, NoAuthoredDocumentReferencesAFileUnderACookedFolder )
     }
     EXPECT_GT( read, 0u ) << "no scene was read under " << ( repo / "Editor" / "Resources" ).generic_string();
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

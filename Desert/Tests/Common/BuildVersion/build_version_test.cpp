@@ -234,9 +234,4 @@ TEST( BuildVersion, FullCarriesTheParts )
              << "Without a build number Full() must have no build-number field at all: " << full;
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

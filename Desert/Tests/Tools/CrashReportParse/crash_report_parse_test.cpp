@@ -158,9 +158,4 @@ TEST( CrashReportParse, NotAReportIsRefusedWithThePath )
     EXPECT_FALSE( future.valid );
     EXPECT_NE( future.error.find( "version 2" ), std::string::npos ) << future.error;
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

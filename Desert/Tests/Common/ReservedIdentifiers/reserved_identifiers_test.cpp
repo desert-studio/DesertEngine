@@ -172,12 +172,6 @@ TEST( ReservedIdentifiers, NoSourceDeclaresAVariableWindowsWillEat )
          << report;
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // THE SEPARATOR, WHICH IS THE SAME DEFECT AS `far` WEARING DIFFERENT CLOTHES.
 //
 // `std::filesystem::path::string()` returns the NATIVE spelling: forward slashes on macOS and Linux,

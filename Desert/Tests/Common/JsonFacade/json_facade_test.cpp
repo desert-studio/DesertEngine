@@ -15,7 +15,9 @@
 #include <string>
 #include <vector>
 
-namespace FacadeTest
+// In an anonymous namespace: every suite of the layer links into one runner, and two suites'
+// namespace-scope types of one name would be an ODR violation the linker resolves silently.
+namespace
 {
     struct Inner
     {
@@ -67,9 +69,8 @@ namespace FacadeTest
     private:
         int m_Value = 0;
     };
-} // namespace FacadeTest
+} // namespace
 
-using namespace FacadeTest;
 namespace Json = Common::Json;
 
 static_assert( Json::IsReflectable<Doc> );
@@ -227,9 +228,4 @@ TEST( JsonFacade, FileFunctionsNameTheFile )
 
     std::filesystem::remove_all( dir );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

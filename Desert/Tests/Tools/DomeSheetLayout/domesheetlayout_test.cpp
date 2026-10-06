@@ -281,9 +281,4 @@ TEST( DomeSheet, BlitClipsInsteadOfWritingOutsideTheSheet )
     EXPECT_EQ( sheet.At( 6, 6 )[0], 0 );
     EXPECT_EQ( sheet.Pixels.size(), 10u * 10u * 3u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

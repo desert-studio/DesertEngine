@@ -2,10 +2,176 @@ local currentDir = _MAIN_SCRIPT_DIR
 
 os.mkdir(currentDir .. "/build/TestReports")
 
-local test_premake_files = os.matchfiles("./**/premake5.lua")
+-- ── ONE TEST RUNNER PER LAYER (BUILD1 P1, BuildScripts/BUILD1-CONTRACT.md §4) ──────────────────────
+--
+-- A SUITE IS A DIRECTORY, `Desert/Tests/<Layer>/<Suite>/`, and the runner of its layer is ONE executable
+-- (`<Layer>Tests`) that holds every suite of the layer and LINKS the layer's libraries. It replaces one
+-- project per suite, each recompiling the engine sources it needed: 366 links and ~1,800 compiles of
+-- mostly the same sources. The suite is chosen at run time, `<Layer>Tests --desert-suite=<Suite>`
+-- (TestSupport/runner.hpp), and RunTests.ps1/.sh keep running one PROCESS per suite.
+--
+-- A suite has no premake5.lua and no `main`: its `*.cpp` (the suite directory itself, not below it) are
+-- compiled into the runner, and TestSupport/RunnerMain.cpp is the runner's only `main`. What a suite
+-- needs beyond that (an include directory, a library, a tool source) goes into its RUNNER's entry in
+-- `kRunners` below, once, with the reason.
+--
+-- THE TRANSITION. A suite that still has its own premake5.lua is still its own project (the script is
+-- included below) and is listed in the manifest as its own executable; it keeps its own `main`. The
+-- Engine and Editor suites, and CrashHandler (its child-process mode moves to `--desert-child=crash`),
+-- are converted by the second half of P1, which then removes this branch. A suite WITHOUT a premake5.lua
+-- in a layer that has no runner fails generation, so no suite can end up built nowhere; and
+-- Desert/Tests/Common/TestRunnerLayout fails a suite that has a main without a premake5.lua or the other
+-- way round, so "exactly one of the two" holds for every suite.
+local testsDir = currentDir .. "/Desert/Tests"
+local kLayers  = { "Common", "Engine", "Editor", "Runtime", "Tools" }
 
-for _, premake_file in ipairs(test_premake_files) do
-    include(path.getdirectory(premake_file))
+local function DesertTestsCommonSettings(deps)
+    kind "ConsoleApp"
+    language "C++"
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    -- TestSupport/*.hpp is included as "TestSupport/..." from every layer.
+    includedirs { "%{_MAIN_SCRIPT_DIR}/Desert/Tests" }
+    for _, p in pairs(deps.Common.IncludeDir) do
+        externalincludedirs { p }
+    end
+    for _, p in pairs(deps.TestSpecific.IncludeDir) do
+        externalincludedirs { p }
+    end
+    for _, define in ipairs(deps.TestSpecific.Defines) do
+        defines { define }
+    end
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter "system:linux"
+        defines { "DESERT_PLATFORM_LINUX" }
+    filter "configurations:Debug"
+        for _, lib in pairs(deps.TestSpecific.Libraries.Debug) do
+            links { lib }
+        end
+    filter "configurations:Release"
+        for _, lib in pairs(deps.TestSpecific.Libraries.Release) do
+            links { lib }
+        end
+    filter {}
+end
+
+-- What each runner adds to the common settings: the union of what its suites' own scripts carried
+-- before BUILD1, each with the reason it is there.
+local kRunners = {
+    Common = function(deps)
+        includedirs {
+            "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+            -- Rounding, ProductName, ReservedIdentifiers, TidyRegister-style text checks and AssetRenameMove
+            -- read engine/editor headers that are header-only; nothing of Desert or Editor is linked.
+            "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+        }
+        -- Optick: Common's JobSystem registers its worker threads with it. ReflectCpp: CanonicalText's
+        -- writer reads and spells through yyjson, which ReflectCpp carries.
+        links { "Common", "ReflectCpp", "Optick" }
+    end,
+    Runtime = function(deps)
+        -- PackagedMount tests the packaged game's mount. Runtime is an executable, so the one source it
+        -- needs is compiled here rather than linked.
+        files { "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp" }
+        includedirs {
+            "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+            "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
+        }
+        links { "Common", "Optick" }
+    end,
+    Tools = function(deps)
+        -- The tools are executables, so the sources their suites test are compiled here, once. The engine
+        -- sources they need come from Desert.lib: the same objects the editor ships.
+        files {
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MigratorMain.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SceneMigration.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldBuild.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldGenMain.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source/CrashReport.cpp",
+            -- BuildScriptContract holds the editor's asset-reference scan to the build scripts.
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
+        }
+        includedirs {
+            "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+            "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+            -- LandscapeData's headers include the shared shader layout (CODEMAP note).
+            "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source",
+        }
+        externalincludedirs {
+            deps.DesertSpecific.IncludeDir.base,
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
+        }
+        for _, key in ipairs({ "Vulkan", "shaderc", "spirv_cross" }) do
+            local p = deps.DesertSpecific.IncludeDir[key]
+            if p then externalincludedirs { p } end
+        end
+        defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
+        -- Desert and its link closure, exactly as Desert/Tests/Engine/EngineHost links it.
+        links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp" }
+        filter "system:windows"
+            buildoptions { "/bigobj" }
+        filter "configurations:Debug"
+            defines { "DESERT_CONFIG_DEBUG" }
+            links { deps.DesertSpecific.Libraries.Debug }
+        filter "configurations:Release"
+            defines { "DESERT_CONFIG_RELEASE" }
+            links { deps.DesertSpecific.Libraries.Release }
+        filter {}
+    end,
+}
+
+local deps           = dofile(currentDir .. "/Desert/Dependencies.lua")
+local manifest_lines = {} -- "<Executable> <Suite>", one per suite
+local test_projects  = {} -- every project RunAllTests depends on
+
+for _, layer in ipairs(kLayers) do
+    local suiteDirs = os.matchdirs(testsDir .. "/" .. layer .. "/*")
+    table.sort(suiteDirs)
+    local configure  = kRunners[layer]
+    local runnerName = layer .. "Tests"
+    local converted  = {}
+    for _, dir in ipairs(suiteDirs) do
+        local suite = path.getname(dir)
+        if os.isfile(dir .. "/premake5.lua") then
+            include(dir)
+            project(suite)
+                removeconfigurations { "Shipping" }
+            table.insert(test_projects, suite)
+            table.insert(manifest_lines, suite .. " " .. suite)
+        else
+            if not configure then
+                error(string.format("Desert/Tests/%s/%s has no premake5.lua, and the %s layer has no runner yet",
+                    layer, suite, layer), 0)
+            end
+            table.insert(converted, dir)
+            table.insert(manifest_lines, runnerName .. " " .. suite)
+        end
+    end
+    if configure and #converted > 0 then
+        project(runnerName)
+            DesertTestsCommonSettings(deps)
+            files { testsDir .. "/TestSupport/RunnerMain.cpp" }
+            for _, dir in ipairs(converted) do
+                files { dir .. "/*.cpp" }
+            end
+            configure(deps)
+            removeconfigurations { "Shipping" }
+        table.insert(test_projects, runnerName)
+    end
 end
 
 -- ── THE TEST SUITES ARE NOT PART OF THE SHIPPING CONFIGURATION ──────────────────────────────────────
@@ -43,10 +209,7 @@ end
 -- graph, not present-and-empty. A present-and-empty project is still a node the solution builds, still
 -- a name in run_tests.bat's manifest, and still something a future `filter "configurations:Shipping"`
 -- can accidentally bring back.
-for _, premake_file in ipairs(test_premake_files) do
-    project( path.getname( path.getdirectory( premake_file ) ) )
-        removeconfigurations { "Shipping" }
-end
+-- Applied per project in the layer loop above.
 
 -- THE LIST OF EXPECTED TEST BINARIES IS A FILE, WRITTEN HERE, AT GENERATION TIME.
 --
@@ -65,13 +228,10 @@ end
 -- would simply stop being run, silently. That is the same class of defect as the one above, and the
 -- manifest is what closes it on Windows.
 --
--- Configuration-independent on purpose: Debug and Release build the same set of suites, so this is
+-- Each line is `<Executable> <Suite>`: the layer runner (or, for a suite not converted yet, its own
+-- binary) and the suite directory it runs. Configuration-independent on purpose: Debug and Release build the same set of suites, so this is
 -- written once at generation time and only the configuration travels through the postbuild below.
-local test_names = {}
-for _, premake_file in ipairs(test_premake_files) do
-    table.insert(test_names, path.getname(path.getdirectory(premake_file)))
-end
-io.writefile(currentDir .. "/build/TestManifest.txt", table.concat(test_names, "\n") .. "\n")
+io.writefile(currentDir .. "/build/TestManifest.txt", table.concat(manifest_lines, "\n") .. "\n")
 
 group "Tests"
     project "BuildAllTests"
@@ -81,11 +241,6 @@ group "Tests"
         targetdir "%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}"
         objdir "%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}"
 
-        for _, premake_file in ipairs(test_premake_files) do
-            local test_dir = path.getdirectory(premake_file)
-            local test_name = path.getname(test_dir)
-           -- dependson(test_name)
-        end
 
     project "RunAllTests"
         kind "Utility"
@@ -106,8 +261,8 @@ group "Tests"
         -- makes "RunAllTests" mean "every test suite is built": a Utility project with no edges is a
         -- node that claims a dependency it does not have, and the next person to put work back into
         -- this postbuild would inherit the 2026-08 defect all over again.
-        for _, premake_file in ipairs(test_premake_files) do
-            dependson(path.getname(path.getdirectory(premake_file)))
+        for _, projectName in ipairs(test_projects) do
+            dependson(projectName)
         end
 
     if os.target() == "windows" then
@@ -191,9 +346,7 @@ group "Tests"
     -- which is the right place for it, and putting it back in a postbuild would only re-create the
     -- duplicate run that the Windows branch above just stopped paying for.
 
+
 print("\n=== Test Configuration ===")
-print("Found test modules: " .. #test_premake_files)
-for i, file in ipairs(test_premake_files) do
-    print("  " .. i .. ". " .. path.getdirectory(file))
-end
-print("Test reports will be saved to: ".. currentDir .. "/build/TestReports")
+print(string.format("%d suites in %d test projects (build/TestManifest.txt)", #manifest_lines, #test_projects))
+print("Test reports will be saved to: " .. currentDir .. "/build/TestReports")

@@ -392,11 +392,10 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-sanitizers-macos14-${{ github.sha }}
 
-      # The expected list is what the unsharded runner ran: the executables in the test directory.
+      # The expected list is build/TestManifest.txt, the same list RunTests.sh runs from (BUILD1).
       - name: Plan test shards
         run: >-
-          python3 scripts/CI/TestShards.py plan --expected-dir build/Bin/Tests/Debug
-          --compare-manifest build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
+          python3 scripts/CI/TestShards.py plan --expected build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
           --column asan --shards 3 --out build/TestPlan
 
       # tar, not upload-artifact's own zip: the zip drops the executable bit. The DWARF stays in the

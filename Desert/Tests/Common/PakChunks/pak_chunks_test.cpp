@@ -1134,9 +1134,4 @@ TEST( PakChunks, EveryPackedTextFileIsCheckedOutVerbatim )
                                         "`-text` rule to .gitattributes:"
                                      << listed;
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+

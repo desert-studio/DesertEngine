@@ -16,7 +16,7 @@ apart. The table (scripts/CI/TestTimings.tsv) can go stale; staleness costs BALA
 plan is taken over the expected-suite list, never over the table.
 
 Subcommands:
-  plan    --expected FILE | --expected-dir DIR [--compare-manifest FILE]   --timings TSV --column NAME --shards N --out DIR
+  plan    --expected build/TestManifest.txt   --timings TSV --column NAME --shards N --out DIR
           Writes DIR/shard-<i>.txt (i = 1..N, heaviest first so the long suites start first) and
           DIR/expected.txt. Fails unless the shards are disjoint and their union is the expected list.
   verify  --plan DIR --reports DIR
@@ -41,14 +41,15 @@ def read_list(path):
         return [line.strip() for line in f if line.strip()]
 
 
-def expected_from_dir(directory):
-    # Exactly what scripts/MacOS/RunTests.sh globs: regular executable files.
-    names = []
-    for name in os.listdir(directory):
-        p = os.path.join(directory, name)
-        if os.path.isfile(p) and os.access(p, os.X_OK):
-            names.append(name)
-    return names
+def read_manifest(path):
+    # build/TestManifest.txt: `<Executable> <Suite>` per line (Desert/Tests/premake5.lua). Shards name suites.
+    suites = []
+    for line in read_list(path):
+        fields = line.split()
+        if len(fields) != 2:
+            sys.exit(f"[ERROR] {path}: malformed manifest line (want '<Executable> <Suite>'): {line!r}")
+        suites.append(fields[1])
+    return suites
 
 
 def read_timings(path, column):
@@ -67,16 +68,7 @@ def read_timings(path, column):
 
 
 def plan(args):
-    if args.expected:
-        expected = read_list(args.expected)
-    else:
-        expected = expected_from_dir(args.expected_dir)
-        # The unsharded RunTests.sh printed this comparison on every run; it moved here with the glob.
-        if args.compare_manifest and os.path.isfile(args.compare_manifest):
-            listed = len(read_list(args.compare_manifest))
-            if listed != len(expected):
-                print(f"::warning title=Test suite count::{len(expected)} binaries in {args.expected_dir} but "
-                      f"{listed} projects in {args.compare_manifest} — a suite is not linking, or the manifest is stale")
+    expected = read_manifest(args.expected)
     if not expected:
         sys.exit("[ERROR] the expected-suite list is empty")
     dupes = sorted({n for n in expected if expected.count(n) > 1})
@@ -170,10 +162,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("plan")
-    g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--expected")
-    g.add_argument("--expected-dir")
-    p.add_argument("--compare-manifest", default="")
+    p.add_argument("--expected", required=True)
     p.add_argument("--timings", required=True)
     p.add_argument("--column", required=True, choices=COLUMNS)
     p.add_argument("--shards", required=True, type=int)

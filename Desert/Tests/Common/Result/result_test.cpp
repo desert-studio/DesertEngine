@@ -26,9 +26,4 @@ TEST( Result, succ )
     EXPECT_EQ( res.IsSuccess(), true );
     EXPECT_EQ( res.GetValue().a, 112233 );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+
