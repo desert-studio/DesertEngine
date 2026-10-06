@@ -921,7 +921,15 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanRdgBackend::VulkanRdgBackend( const VulkanRdgDevice& device, VulkanRdgPool& pool )
          : m_Device( device ), m_Pool( pool ), m_Memory( device ),
-           m_FallbackLog( []( std::string_view line ) { LOG_WARN( "{}", line ); } )
+           m_FallbackLog( []( std::string_view line ) { LOG_WARN( "{}", line ); } ),
+           m_FaultReporter(
+                []( RDG::PassFaultReporter::Severity severity, std::string_view line )
+                {
+                    if ( severity == RDG::PassFaultReporter::Severity::Error )
+                        LOG_ERROR( "[RDG] {}", line );
+                    else
+                        LOG_INFO( "[RDG] {}", line );
+                } )
     {
     }
 
@@ -1442,6 +1450,11 @@ namespace Desert::Graphic::API::Vulkan
     RDG::AsyncComputeFallbackLog& VulkanRdgBackend::GetAsyncComputeFallbackLog()
     {
         return m_FallbackLog;
+    }
+
+    RDG::PassFaultReporter& VulkanRdgBackend::GetPassFaultReporter()
+    {
+        return m_FaultReporter;
     }
 
     Common::BoolResultStr VulkanRdgBackend::BeginPipeSegment( const RDG::PipeSegment& segment )

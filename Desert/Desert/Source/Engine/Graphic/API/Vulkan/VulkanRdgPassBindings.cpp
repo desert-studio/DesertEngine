@@ -70,6 +70,20 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
+    RDG::ShaderBindingLayout MakeShaderBindingLayout( const ShaderResource::ReflectionData& reflection,
+                                                      std::string_view                      shaderName )
+    {
+        RDG::ShaderBindingLayout layout;
+        layout.ShaderName = std::string( shaderName );
+        for ( const ReflectedSlot& slot : CollectSlots( reflection ) )
+        {
+            if ( slot.Kind )
+                layout.Slots.push_back( { std::string( slot.Name ), *slot.Kind } );
+        }
+        layout.PushConstantBytes = reflection.PushConstantRanges ? reflection.PushConstantRanges->Size : 0;
+        return layout;
+    }
+
     Common::ResultStr<std::vector<RdgResolvedEntry>>
     ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, std::string_view shaderName,
                             const RDG::PassBindings& bindings, const RdgOtherRoute& other )

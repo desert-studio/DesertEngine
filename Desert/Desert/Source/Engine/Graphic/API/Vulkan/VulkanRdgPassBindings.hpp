@@ -47,6 +47,12 @@ namespace Desert::Graphic::API::Vulkan
     // resource of the shader; an entry's kind does not match the reflected descriptor bucket; a slot is filled
     // by the block AND @p other; a resource slot of the shader is filled by neither; the push constants are
     // given by both, by neither while the shader declares a range, or with a size other than the declared one.
+    // RDG-FAULT1. What a pass's binding block is validated against (RDG::ValidatePassBindings): every slot the
+    // reflected shader declares that a block can fill, and its push-constant range. An acceleration structure
+    // has no ShaderResourceKind (a block cannot fill one), so it is not a slot of the layout.
+    RDG::ShaderBindingLayout MakeShaderBindingLayout( const ShaderResource::ReflectionData& reflection,
+                                                      std::string_view                      shaderName );
+
     Common::ResultStr<std::vector<RdgResolvedEntry>>
     ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, std::string_view shaderName,
                             const RDG::PassBindings& bindings, const RdgOtherRoute& other );
