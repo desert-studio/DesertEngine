@@ -2936,7 +2936,13 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
     for ( size_t at = frame.find( "= view.Refs();" ); at != std::string::npos;
           at        = frame.find( "= view.Refs();", at + 1 ) )
         ++declared;
-    EXPECT_EQ( declared, 3u ) << "Deferred: Generic / Skinned / Glass each declare SceneViewInputs::Refs()";
+    EXPECT_EQ( declared, 2u ) << "Deferred: Generic / Skinned each declare SceneViewInputs::Refs()";
+    // The glass declares its inputs as its binding block in setup (only those its shader has slots for).
+    const std::string glass =
+         read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
+    EXPECT_NE( glass.find( "BindSceneViewInputs( block, view, layout );" ), std::string::npos )
+         << "Deferred: Glass no longer declares the scene/view inputs in its binding block";
+    EXPECT_NE( frame.find( "meshRenderer->DeclareGlassBindings( pass, sceneCopy, view );" ), std::string::npos );
 
     const std::string refs = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
     EXPECT_NE( refs.find( "{ EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap }" ), std::string::npos )
@@ -3367,4 +3373,145 @@ TEST( RenderGraphCompile, FaultReporterSaysOncePerPassAndReasonAgainOnChangeAndO
 
     reporter.Report( "Scene", added, broken );
     EXPECT_EQ( lines.size(), 5u ); // a relapse is reported again
+}
+
+namespace
+{
+    // What a setup's binding block receives from BindSceneViewInputs (the same Sampled() shape as
+    // RenderPassDeclaration::BlockDeclaration and RDG::BindingBlockBuilder), kept as the block
+    // ValidatePassBindings checks.
+    struct CollectedBlock
+    {
+        DeclaredBindingBlock Block;
+
+        CollectedBlock& Sampled( std::string_view name, TextureRef texture, Access access, SubresourceRange range,
+                                 SamplerDesc sampler )
+        {
+            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::SampledTexture,
+                                       ResourceKind::Texture, texture.Index, access, range, sampler } );
+            return *this;
+        }
+    };
+
+    Desert::Graphic::SceneViewInputs DistinctSceneViewInputs()
+    {
+        Desert::Graphic::SceneViewInputs view;
+        for ( uint32_t c = 0; c < Desert::Graphic::kSceneViewShadowCascades; ++c )
+            view.ShadowMaps[c] = TextureRef{ 10 + c };
+        view.EnvIrradiance  = TextureRef{ 20 };
+        view.EnvSpecular    = TextureRef{ 21 };
+        view.BrdfLut        = TextureRef{ 22 };
+        view.CloudShadowMap = TextureRef{ 23 };
+        return view;
+    }
+
+    std::vector<ShaderSlot> SceneViewSlotsWithoutCascades()
+    {
+        return {
+             { std::string( Desert::Graphic::kSceneViewEnvIrradianceName ), ShaderResourceKind::SampledTexture },
+             { std::string( Desert::Graphic::kSceneViewEnvSpecularName ), ShaderResourceKind::SampledTexture },
+             { std::string( Desert::Graphic::kSceneViewBrdfLutName ), ShaderResourceKind::SampledTexture },
+             { std::string( Desert::Graphic::kSceneViewCloudShadowMapName ),
+               ShaderResourceKind::SampledTexture } };
+    }
+} // namespace
+
+// RDG-FAULT1 (the fault that started it): the glass shader (StaticMeshGlass) has no cascade slot. The scene/view
+// inputs are declared in the glass node's SETUP against the shader's layout, so u_ShadowMap0..3 never enter its
+// block and ValidatePassBindings passes it; a lit layout still gets all four cascades.
+TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
+{
+    const Desert::Graphic::SceneViewInputs view = DistinctSceneViewInputs();
+
+    ShaderBindingLayout glass = GlassLayout();
+    for ( ShaderSlot& slot : SceneViewSlotsWithoutCascades() )
+        glass.Slots.push_back( std::move( slot ) );
+    EXPECT_TRUE( Desert::Graphic::SamplesSceneViewInputs( glass ) );
+    CollectedBlock glassBlock;
+    glassBlock.Block.Layout = glass;
+    glassBlock.Sampled( "u_SceneColor", TextureRef{ 0 }, Access::SampledGraphics, SubresourceRange::All(),
+                        SamplerDesc::LinearRepeat() );
+    Desert::Graphic::BindSceneViewInputs( glassBlock, view, glass );
+    const Common::BoolResultStr glassValid = ValidatePassBindings( glassBlock.Block );
+    EXPECT_TRUE( glassValid.IsSuccess() ) << glassValid.GetError();
+    EXPECT_EQ( glassBlock.Block.Entries.size(), 5u ); // the scene copy + irradiance, specular, BRDF LUT, cloud map
+    for ( const DeclaredBindingEntry& entry : glassBlock.Block.Entries )
+        EXPECT_EQ( entry.ShaderName.rfind( "u_ShadowMap", 0 ), std::string::npos ) << entry.ShaderName;
+
+    ShaderBindingLayout lit{ "StaticMeshPBR", SceneViewSlotsWithoutCascades(), 0 };
+    for ( const std::string_view name : Desert::Graphic::kSceneViewShadowMapNames )
+        lit.Slots.push_back( { std::string( name ), ShaderResourceKind::SampledTexture } );
+    CollectedBlock litBlock;
+    litBlock.Block.Layout = lit;
+    Desert::Graphic::BindSceneViewInputs( litBlock, view, lit );
+    const Common::BoolResultStr litValid = ValidatePassBindings( litBlock.Block );
+    EXPECT_TRUE( litValid.IsSuccess() ) << litValid.GetError();
+    ASSERT_EQ( litBlock.Block.Entries.size(), 8u );
+    for ( uint32_t c = 0; c < Desert::Graphic::kSceneViewShadowCascades; ++c )
+    {
+        EXPECT_EQ( litBlock.Block.Entries[c].ShaderName, Desert::Graphic::kSceneViewShadowMapNames[c] );
+        EXPECT_EQ( litBlock.Block.Entries[c].Index, 10 + c );
+    }
+
+    // A G-buffer program samples no scene/view input: nothing is declared for it.
+    const ShaderBindingLayout gbuffer{
+         "StaticMeshGBuffer", { { "u_AlbedoTexture", ShaderResourceKind::SampledTexture } }, 0 };
+    EXPECT_FALSE( Desert::Graphic::SamplesSceneViewInputs( gbuffer ) );
+    CollectedBlock gbufferBlock;
+    Desert::Graphic::BindSceneViewInputs( gbufferBlock, view, gbuffer );
+    EXPECT_TRUE( gbufferBlock.Block.Entries.empty() );
+}
+
+// RDG-FAULT1: every producer whose loss a surviving reader can absorb names the value the reader gets instead, at
+// the producer, right after the texture is created (before its pass is added): a lost SSAO term is "no occlusion"
+// (White - Black would black out the lit scene), a lost bloom / light shaft / SSR / GI / flare term "adds nothing"
+// (Black). A producer without one takes every reader down with it.
+TEST( RenderGraphCompile, ProducersDeclareTheirFaultDefault )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const auto stripped = [&root]( const char* relative )
+    {
+        std::ifstream file( root / relative );
+        EXPECT_TRUE( file ) << relative << " is gone";
+        std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        std::erase_if( text, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
+        return text;
+    };
+    struct Producer
+    {
+        const char* File;
+        const char* Variable;
+        const char* GraphName;
+        const char* Default;
+    };
+    constexpr const char* kDeferred   = "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp";
+    constexpr const char* kPostFX     = "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp";
+    const Producer        producers[] = {
+         { kDeferred, "ao", "SSAO", "White" },
+         { kDeferred, "gather", "GI.Gather", "Black" },
+         { kDeferred, "trace", "SSR.Trace", "Black" },
+         { kDeferred, "tiles", "SSR.TileMask", "Black" },
+         { kPostFX, "chain", "Bloom", "Black" },
+         { kPostFX, "ping", "LightShaft.Ping", "Black" },
+         { kPostFX, "pong", "LightShaft.Pong", "Black" },
+         { kPostFX, "image", "LensFlare", "Black" },
+    };
+    for ( const Producer& producer : producers )
+    {
+        const std::string text   = stripped( producer.File );
+        const std::string create = std::format( "TextureRef{}=graph.CreateTexture(", producer.Variable );
+        const size_t      at     = text.find( create );
+        ASSERT_NE( at, std::string::npos ) << producer.GraphName << ": " << create;
+        const size_t named = text.find( std::format( ",\"{}\");", producer.GraphName ), at );
+        ASSERT_NE( named, std::string::npos ) << producer.GraphName;
+        EXPECT_LT( named - at, 120u ) << producer.GraphName << ": the texture is created under another name";
+        const size_t defaulted = text.find( std::format( "graph.SetFaultDefault({},RDG::FaultDefault::{});",
+                                                         producer.Variable, producer.Default ),
+                                            at );
+        ASSERT_NE( defaulted, std::string::npos )
+             << producer.GraphName << " declares no FaultDefault::" << producer.Default;
+        EXPECT_LT( defaulted, text.find( "AddPass(", at ) )
+             << producer.GraphName << ": the FaultDefault is not declared with the texture";
+    }
 }

@@ -189,12 +189,18 @@ namespace Desert::Graphic::System
         // Forward transparent (glass) pass: draws meshes with material Transmission > 0 over the composited
         // scene, inside the "Deferred: Glass" graph node whose @p context this is. @p sceneCopy is this frame's
         // snapshot of the opaque scene (FrameTransients::SceneColorCopy, declared as a read of the node); the
-        // glass samples it for refraction as u_SceneColor through RDG::PassBindings and draws every object via
-        // Renderer::RenderMesh( bindings, ... ). Nothing to draw is success; a refused draw is the error.
-        // @p view (SceneViewInputsOf, declared by the node) is bound for the inputs the glass shader samples.
-        [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context,
-                                                               RDG::TextureRef         sceneCopy,
-                                                               const SceneViewInputs&  view );
+        // glass samples it for refraction as u_SceneColor and draws every object via Renderer::RenderMesh(
+        // bindings,
+        // ... ) with the binding block DeclareGlassBindings declared in the node's setup (block 0). Nothing to
+        // draw is success; a refused draw is the error.
+        [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context );
+        // SETUP of the "Deferred: Glass" node: the glass shader's binding block - u_SceneColor = @p sceneCopy and
+        // the scene/view inputs of @p view the glass shader has a slot for (its environment cubes, BRDF LUT and
+        // cloud shadow map; it declares no cascade, so u_ShadowMap0..3 are not bound), against the shader's
+        // reflected layout with the glass material as the other route. Declares nothing (and the node draws
+        // nothing) when the glass pass was not created; the error naming why is SetupGlassPass's.
+        void DeclareGlassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy,
+                                   const SceneViewInputs& view ) const;
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
         // this they simply vanish in Deferred. Forward path draws them inside MeshGeometryPass.

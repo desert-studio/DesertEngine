@@ -456,9 +456,22 @@ namespace Desert::Graphic::System
         return DrawGenericMeshes( /*useLoadPass*/ true, MeshPassBindings( context, view ) );
     }
 
-    Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context,
-                                                           const RDG::TextureRef   sceneCopy,
-                                                           const SceneViewInputs&  view )
+    void MeshRenderer::DeclareGlassBindings( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
+                                             const SceneViewInputs& view ) const
+    {
+        if ( !m_StaticGlassPipeline || !m_GlassMaterial || !m_GlassInstance )
+            return;
+        const MaterialExecutor&        executor = *m_GlassMaterial->GetMaterialExecutor();
+        const RDG::ShaderBindingLayout layout = Renderer::GetInstance().GetBindingLayout( *executor.GetShader() );
+        // The scene snapshot the glass samples for refraction (binding 19, glass-shader-only) with the sampler the
+        // material route sampled the copy with (the image's own: linear, REPEAT).
+        RDG::BindingBlockBuilder block = pass.Bindings( layout, executor.GetRouteFill() );
+        block.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearRepeat() );
+        BindSceneViewInputs( block, view, layout );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context )
     {
         if ( !m_StaticGlassPipeline || !m_GlassMaterial || !m_GlassInstance || m_StaticQueue.empty() )
             return BOOLSUCCESS;
@@ -505,15 +518,8 @@ namespace Desert::Graphic::System
         const PBRSceneFrame frameState = CaptureFrameState( camera );
         frameState.ApplyTo( gi );
 
-        // The scene snapshot the glass samples for refraction (binding 19, glass-shader-only) is this frame's
-        // graph transient, bound by name; the sampler is the one the material route sampled the copy with (the
-        // image's own: linear, REPEAT).
-        RDG::PassBindings bindings( context );
-        bindings.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                          RDG::SamplerDesc::LinearRepeat() );
-        // The scene/view inputs the glass shader samples (the environment cubes, the BRDF LUT, the cloud
-        // shadow map; it samples no cascade), pass parameters of the node like the scene copy.
-        BindSceneViewInputs( bindings, view, *m_GlassMaterial->GetMaterialExecutor()->GetShader() );
+        // The scene copy and the scene/view inputs: the block DeclareGlassBindings declared in the node's setup.
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
 
         // --- Draw the glass over the composited scene: the graph opens the render pass (LOAD + blend) ---
         const MaterialExecutor& executor = *m_GlassMaterial->GetMaterialExecutor();

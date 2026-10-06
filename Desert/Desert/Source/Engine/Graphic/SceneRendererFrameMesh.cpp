@@ -48,7 +48,8 @@ namespace Desert::Graphic
         void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
                         const RDG::LoadOp& color, const RDG::LoadOp& depth,
                         const std::vector<RDG::TextureRef>&                             sampled,
-                        std::function<Common::BoolResultStr( const RDG::PassContext& )> body )
+                        std::function<Common::BoolResultStr( const RDG::PassContext& )> body,
+                        const std::function<void( RDG::PassBuilder& )>&                 declareBindings = {} )
         {
             graph.AddPass(
                  name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
@@ -62,6 +63,10 @@ namespace Desert::Graphic
                          pass.DepthTarget( targets.Depth, depth );
                      for ( uint32_t slot = 0; slot < targets.Resolves.size(); ++slot )
                          pass.ResolveTarget( slot, targets.Resolves[slot] );
+                     if ( declareBindings )
+                     {
+                         declareBindings( pass );
+                     }
                  },
                  [body = std::move( body )]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return body( context ); } );
@@ -210,14 +215,15 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
         if ( !targets )
             return;
-        // The glass samples the scene copy for its refraction and the scene/view inputs, both bound by name in
-        // the body.
-        const SceneViewInputs        view    = SceneViewInputsOf( textures.GraphRefs() );
-        std::vector<RDG::TextureRef> sampled = view.Refs();
-        sampled.push_back( sceneCopy );
-        AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, sceneCopy, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGlassManual( context, sceneCopy, view ); } );
+        // The glass samples the scene copy for its refraction and the scene/view inputs its shader has slots for:
+        // its binding block, declared here (the block entries are the node's reads), resolved in the body.
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        AddRaster(
+             graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGlassManual( context ); },
+             [meshRenderer, sceneCopy, view]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS
