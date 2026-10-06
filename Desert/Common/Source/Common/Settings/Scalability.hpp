@@ -52,7 +52,7 @@ namespace Common::Scalability
 {
     // The groups — UE's sg.* set plus AntiAliasing and ResolutionScale, which UE keeps as sg.AntiAliasingQuality
     // and sg.ResolutionQuality. Order is the UI order and the JSON order.
-    enum class Group : uint8_t
+    enum class Group : int
     {
         Textures = 0, // sg.TextureQuality — streaming pool, mip bias, cooked-size cap
         Filtering,    // texture filter + anisotropy (UE folds this into Textures; split because players tune it
@@ -71,7 +71,7 @@ namespace Common::Scalability
     inline constexpr std::size_t kGroupCount = static_cast<std::size_t>( Group::Count );
 
     // Levels — UE's 0..4. Cinematic is a real level (offline / screenshots), not a synonym of Epic.
-    enum class Level : uint8_t
+    enum class Level : int
     {
         Low = 0,
         Medium,
@@ -93,7 +93,7 @@ namespace Common::Scalability
     // nothing applies it: ListedParameters() and IsGroupListed() leave it out of every UI and of the game API, and
     // QualityState::SetOverride refuses it. The day its feature lands the row gains its reader and appears. A
     // contract test pins both directions: every placeholder is hidden, every listed row names its reader.
-    enum class Parameter : uint8_t
+    enum class Parameter : int
     {
         AntiAliasingMethod = 0, // SceneRenderer framebuffer setup + post AA pass. Values: AntiAliasingMethod
         AntiAliasingSamples,    // SceneRenderer framebuffer sample count; read only under MSAA. Values: 1/2/4/8
@@ -132,7 +132,7 @@ namespace Common::Scalability
     using ParameterValue = int32_t;
 
     // Which catalog list a parameter's values are checked against, if any.
-    enum class CatalogList : uint8_t
+    enum class CatalogList : int
     {
         None = 0, // a closed range in the spec is the whole truth (MeshLOD, TextureFilter, CloudQuality)
         AntiAliasingMethods,
@@ -255,7 +255,7 @@ namespace Common::Scalability
     };
 
     // How axis 2 renders this frame.
-    enum class ScaleMode : uint8_t
+    enum class ScaleMode : int
     {
         Upscale,     // RenderScalePercent < 100: the Upscaler (never None) reconstructs output size
         Native,      // == 100
