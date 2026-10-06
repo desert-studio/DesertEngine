@@ -29,17 +29,8 @@ namespace Desert::Graphic
         // Properties block does not is a pass parameter (shadow cascades, environment cubes, BRDF LUT, cloud
         // shadow map, scene textures): the pass binds it through RDG::PassBindings, and no property exists
         // here for anything to write into -- "filled both" cannot be built.
-        std::unordered_map<std::string, const Core::Formats::ShaderParam*> textureParameters;
-        for ( const Core::Formats::ShaderParam* param :
-              Core::Formats::MaterialTextureParameters( parameterSchema ) )
-            textureParameters.emplace( param->Name, param );
-        const auto parameterFor = [&]( const std::string& name, bool cube ) -> const Core::Formats::ShaderParam*
-        {
-            const auto it = textureParameters.find( name );
-            if ( it == textureParameters.end() || it->second->IsCubeTexture != cube )
-                return nullptr;
-            return it->second;
-        };
+        const auto parameterFor = [&]( const std::string& name, bool cube )
+        { return Core::Formats::FindMaterialTextureParameter( parameterSchema, name, cube ); };
 
         auto uniformManager =
              ShaderResources::ShaderResourcesManager::Create( "Material_" + m_Shader->GetName(), m_Shader );

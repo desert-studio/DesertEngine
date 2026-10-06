@@ -52,6 +52,40 @@ namespace
 // The two halves, each on its own
 // ---------------------------------------------------------------------------------------------
 
+// RDG-FAULT1 (material/pass binding split): the MaterialExecutor gives a property ONLY to a sampler the schema's
+// Properties block declares, of the declared kind; every other reflected sampler is a pass parameter bound
+// through RDG::PassBindings, so no slot can be filled by both.
+TEST( ShaderDomainRouting, OnlySchemaTexturesBecomeMaterialProperties )
+{
+    ShaderProgramMeta meta;
+    ShaderParam       albedo;
+    albedo.Name      = "u_Albedo";
+    albedo.IsTexture = true;
+    ShaderParam environment;
+    environment.Name          = "u_Environment";
+    environment.IsTexture     = true;
+    environment.IsCubeTexture = true;
+    ShaderParam asset;
+    asset.Name      = "u_Layout";
+    asset.IsTexture = true;
+    asset.AssetKind = "CloudLayout";
+    ShaderParam tint;
+    tint.Name = "u_Tint";
+    meta.Params = { albedo, environment, asset, tint };
+
+    ASSERT_NE( FindMaterialTextureParameter( meta, "u_Albedo", false ), nullptr );
+    EXPECT_EQ( FindMaterialTextureParameter( meta, "u_Albedo", false )->Name, "u_Albedo" );
+    EXPECT_NE( FindMaterialTextureParameter( meta, "u_Environment", true ), nullptr );
+    // A pass parameter: reflected by the shader, not in Properties (shadow cascades, BRDF LUT, scene textures).
+    EXPECT_EQ( FindMaterialTextureParameter( meta, "u_ShadowCascades", false ), nullptr );
+    EXPECT_EQ( FindMaterialTextureParameter( meta, "u_BRDFLut", true ), nullptr );
+    // Declared as the other kind, an asset reference, or not a texture: no texture property either.
+    EXPECT_EQ( FindMaterialTextureParameter( meta, "u_Albedo", true ), nullptr );
+    EXPECT_EQ( FindMaterialTextureParameter( meta, "u_Environment", false ), nullptr );
+    EXPECT_EQ( FindMaterialTextureParameter( meta, "u_Layout", false ), nullptr );
+    EXPECT_EQ( FindMaterialTextureParameter( meta, "u_Tint", false ), nullptr );
+}
+
 TEST( ShaderDomainRouting, MeshPathDrawsSurfaceAndNothingElse )
 {
     EXPECT_TRUE( DrawnByMeshPath( ShaderDomain::Surface ) );
