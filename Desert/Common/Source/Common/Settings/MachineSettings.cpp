@@ -7,6 +7,10 @@
 #include <rflcpp/rfl/enums.hpp>
 
 #include <algorithm>
+#include <array>
+#include <charconv>
+#include <format>
+#include <iterator>
 #include <cstdlib>
 #include <optional>
 
@@ -129,13 +133,10 @@ namespace Common::Settings
             // writes, so it is rewritten.
             const std::string canonical = Json::Write( fromDisk );
             // The retired key must not be adopted back as "another build's key", or the file would keep it.
-            MachineSettings::MigrateRetiredKeys( fromDisk, raw.GetValue() );
+            MachineSettings::DropRetiredKeys( fromDisk );
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
             return canonical;
         }
-
-        // Defined beside ResolveAA, which it reports through; Load() is one of its two callers.
-        void ReportAppliedAntiAliasing( const MachineSettings& applied );
     } // namespace
 
     MachineSettings& MachineSettings::Get()
@@ -149,7 +150,7 @@ namespace Common::Settings
         return s_File;
     }
 
-    void MachineSettings::Load( const std::filesystem::path& file )
+    void MachineSettings::Load( const std::filesystem::path& file, const Scalability::ScalabilityTable& table )
     {
         s_File = file;
 
@@ -194,24 +195,27 @@ namespace Common::Settings
         // struct as changed on the first save after an upgrade. Taken before the migration, for the same
         // reason as in AdoptUnknownKeysFromDisk.
         s_OnDisk            = Json::Write( Get() );
-        const bool migrated = MigrateRetiredKeys( Get(), raw.GetValue() );
+        const RetiredKeyMigration migrated = MigrateRetiredKeys( Get(), raw.GetValue(), table );
 
-        // NAMED, not numbered: this line is what a support ticket's engine_log.txt has to answer "what
-        // was this machine actually rendering at" with, and `2` is not an answer. The names come from the
-        // same rfl call that writes them to the file, so the log and the file cannot disagree.
-        LOG_INFO(
-             "[Machine] {} — AA {} (MSAA samples {} on forward scenes), mesh LOD {}, filter {} {}x, clouds {}{}",
-             s_File.string(), rfl::enum_to_string( Get().AAMethod ), Get().EffectiveAA( true ).Samples,
-             Get().MeshLOD ? "on" : "off", rfl::enum_to_string( Get().TextureFilterMode ), Get().Anisotropy,
-             rfl::enum_to_string( Get().CloudQualityTier ),
-             migrated ? " — migrated from the retired AA/MSAASamples pair; the next save drops `AA`" : "" );
-
-        ReportAppliedAntiAliasing( Get() );
+        // NAMED, not numbered: this line is what a support ticket's engine_log.txt has to answer "what was this
+        // machine asking for" with. What it actually RUNS is QualityState's to say (it knows the device).
+        std::string levels;
+        for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
+            std::format_to( std::back_inserter( levels ), "{}{} {}", g == 0 ? "" : ", ",
+                            Scalability::GroupKey( static_cast<Scalability::Group>( g ) ),
+                            Scalability::LevelKey( Get().Quality.Levels[g] ) );
+        LOG_INFO( "[Machine] {} — quality {}; {} override(s)", s_File.string(), levels,
+                  Get().Quality.Overrides.size() );
 
         // The migration is written back NOW, not at the user's next change (contract §4: no legacy key
         // left in the file).
-        if ( migrated )
+        if ( migrated.KeysMoved > 0 )
+        {
+            LOG_INFO( "[Machine] {}: migrated {} retired quality key(s) into Quality, {} of them as override(s) "
+                      "(the rest equal the High level); the next save drops them",
+                      s_File.string(), migrated.KeysMoved, migrated.Overrides );
             Save();
+        }
 
         // CARRYING A KEY WE DO NOT UNDERSTAND IS AN EVENT, NOT A DETAIL: another build owns settings this
         // binary cannot show or edit. Named rather than counted, because a count tells a reader nothing
@@ -228,99 +232,148 @@ namespace Common::Settings
         }
     }
 
-    EffectiveAntiAliasing MachineSettings::EffectiveAA( const bool pathSupportsMSAA ) const
+    Scalability::QualitySelection MachineSettings::HighSelection()
     {
-        if ( AAMethod != AntiAliasingMethod::MSAA )
-            return { AAMethod, 1, AAMethod, false };
-        if ( pathSupportsMSAA )
-            return { AntiAliasingMethod::MSAA, MSAASamples, AntiAliasingMethod::None, false };
-        // UE's fallback for a deferred scene: FXAA at one sample. MSAASamples is kept for the next forward scene.
-        return { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, true };
+        Scalability::QualitySelection selection;
+        selection.Levels.fill( Scalability::Level::High );
+        return selection;
     }
 
     namespace
     {
-        constexpr std::string_view kMSAAOnlyForward =
-             "MSAA applies to forward scenes only: deferred lighting shades one sample per pixel";
-
-        // What an APPLIED anti-aliasing choice means on the path that cannot multisample. Called only where
-        // the choice is applied (Load, CommitAntiAliasing), so each application says it once and the
-        // per-frame readers say nothing.
-        void ReportAppliedAntiAliasing( const MachineSettings& applied )
+        // The keys task/SCAL1 retired, and the parameter each one became. `AA` is the post filter that predates
+        // AAMethod and is folded into it below.
+        struct RetiredKey
         {
-            const AntiAliasingResolution deferred = applied.ResolveAA( false );
-            if ( !deferred.Effective.MSAAUnavailableOnPath )
-                return;
-            LOG_INFO( "[Anti-Aliasing] MSAA {}x applies to forward scenes; deferred scenes run {}: {}",
-                      deferred.RequestedSamples, rfl::enum_to_string( deferred.Effective.Method ),
-                      deferred.Reason );
+            std::string_view                      Name;
+            std::optional<Scalability::Parameter> Becomes;
+        };
+        constexpr std::size_t kRetiredMethod = 0, kRetiredSamples = 1, kRetiredPostAA = 6;
+        constexpr std::array<RetiredKey, 7> kRetiredKeys{ {
+             { "AAMethod", Scalability::Parameter::AntiAliasingMethod },
+             { "MSAASamples", Scalability::Parameter::AntiAliasingSamples },
+             { "TextureFilterMode", Scalability::Parameter::TextureFilter },
+             { "Anisotropy", Scalability::Parameter::Anisotropy },
+             { "MeshLOD", Scalability::Parameter::MeshLOD },
+             { "CloudQualityTier", Scalability::Parameter::CloudQuality },
+             { "AA", std::nullopt },
+        } };
+
+        bool IsRetired( std::string_view name )
+        {
+            return std::any_of( kRetiredKeys.begin(), kRetiredKeys.end(),
+                                [name]( const RetiredKey& key ) { return key.Name == name; } );
+        }
+
+        template <std::size_t N>
+        std::optional<Scalability::ParameterValue> IndexIn( const std::array<std::string_view, N>& names,
+                                                            std::string_view                       value )
+        {
+            const auto it = std::find( names.begin(), names.end(), value );
+            if ( it == names.end() )
+                return std::nullopt;
+            return static_cast<Scalability::ParameterValue>( it - names.begin() );
+        }
+
+        // A retired value as the parameter's int. ObjectMembers re-writes every value compactly, so an enum
+        // arrives as its quoted name and a bool as true/false. The names are the retired enums' spellings, whose
+        // ints the parameters keep (Scalability::AntiAliasingMethod starts None/FXAA/SMAA/MSAA; TextureFilter and
+        // CloudQuality are still the parameters' value domains).
+        std::optional<Scalability::ParameterValue> RetiredValue( std::string_view key, std::string_view value )
+        {
+            constexpr std::array<std::string_view, 4> kMethods{ "\"None\"", "\"FXAA\"", "\"SMAA\"", "\"MSAA\"" };
+            constexpr std::array<std::string_view, 4> kFilters{ "\"Nearest\"", "\"Bilinear\"", "\"Trilinear\"",
+                                                                "\"Anisotropic\"" };
+            constexpr std::array<std::string_view, 3> kClouds{ "\"Low\"", "\"Medium\"", "\"High\"" };
+            if ( key == "AAMethod" || key == "AA" )
+                return IndexIn( kMethods, value );
+            if ( key == "TextureFilterMode" )
+                return IndexIn( kFilters, value );
+            if ( key == "CloudQualityTier" )
+                return IndexIn( kClouds, value );
+            if ( key == "MeshLOD" )
+            {
+                if ( value == "true" )
+                    return 1;
+                if ( value == "false" )
+                    return 0;
+                return std::nullopt;
+            }
+            Scalability::ParameterValue number = 0;
+            const auto [end, error] = std::from_chars( value.data(), value.data() + value.size(), number );
+            if ( error != std::errc{} || end != value.data() + value.size() )
+                return std::nullopt;
+            return number;
         }
     } // namespace
 
-    AntiAliasingResolution MachineSettings::ResolveAA( const bool pathSupportsMSAA ) const
+    MachineSettings::RetiredKeyMigration MachineSettings::MigrateRetiredKeys(
+         MachineSettings& settings, std::string_view rawJson, const Scalability::ScalabilityTable& table )
     {
-        AntiAliasingResolution resolved;
-        resolved.RequestedMethod  = AAMethod;
-        resolved.RequestedSamples = AAMethod == AntiAliasingMethod::MSAA ? MSAASamples : 1;
-        resolved.Effective        = EffectiveAA( pathSupportsMSAA );
-        resolved.Reason = resolved.Effective.MSAAUnavailableOnPath ? kMSAAOnlyForward : std::string_view{};
-        return resolved;
-    }
-
-    bool MachineSettings::CommitAntiAliasing( const AntiAliasingMethod method, const int msaaSamples )
-    {
-        MachineSettings& settings = Get();
-        settings.AAMethod         = method;
-        if ( msaaSamples > 1 )
-            settings.MSAASamples = msaaSamples;
-        ReportAppliedAntiAliasing( settings );
-        return Save();
-    }
-
-    bool MachineSettings::MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson )
-    {
-        constexpr std::string_view kRetiredPostAA = "AA";
-
-        const auto members = Json::ObjectMembers( rawJson );
+        RetiredKeyMigration result;
+        const auto          members = Json::ObjectMembers( rawJson );
         if ( !members )
-            return false;
+            return result;
 
-        const std::string* retiredValue = nullptr;
-        bool               hasMethod    = false;
+        std::array<std::optional<std::string>, kRetiredKeys.size()> found;
+        bool                                                        hasQuality = false;
         for ( const auto& [name, value] : members.GetValue() )
         {
-            if ( name == kRetiredPostAA )
-                retiredValue = &value;
-            else if ( name == "AAMethod" )
-                hasMethod = true;
+            if ( name == "Quality" )
+                hasQuality = true;
+            for ( std::size_t k = 0; k < kRetiredKeys.size(); ++k )
+                if ( kRetiredKeys[k].Name == name )
+                    found[k] = value;
         }
-        if ( retiredValue == nullptr )
-            return false;
+        result.KeysMoved = static_cast<int>(
+             std::count_if( found.begin(), found.end(), []( const auto& v ) { return v.has_value(); } ) );
+        if ( result.KeysMoved == 0 )
+            return result;
+        DropRetiredKeys( settings );
+        if ( hasQuality )
+            return result;
 
+        // Read every retired value first: AAMethod decides whether MSAASamples means anything, and `AA` stands
+        // for AAMethod only when AAMethod is absent.
+        std::array<std::optional<Scalability::ParameterValue>, kRetiredKeys.size()> values;
+        for ( std::size_t k = 0; k < kRetiredKeys.size(); ++k )
+        {
+            if ( !found[k] )
+                continue;
+            values[k] = RetiredValue( kRetiredKeys[k].Name, *found[k] );
+            if ( !values[k] )
+                LOG_ERROR( "[Machine] retired key {} holds {}, which is not one of its values; it is dropped and "
+                           "its parameter stays at the High level",
+                           kRetiredKeys[k].Name, *found[k] );
+        }
+        const auto msaa = static_cast<Scalability::ParameterValue>( Scalability::AntiAliasingMethod::MSAA );
+        if ( !found[kRetiredMethod] && values[kRetiredPostAA] )
+            values[kRetiredMethod] =
+                 values[kRetiredSamples] && *values[kRetiredSamples] > 1 ? msaa : *values[kRetiredPostAA];
+        if ( !values[kRetiredMethod] || *values[kRetiredMethod] != msaa )
+            values[kRetiredSamples].reset();
+
+        settings.Quality = HighSelection();
+        for ( std::size_t k = 0; k < kRetiredKeys.size(); ++k )
+        {
+            if ( !kRetiredKeys[k].Becomes || !values[k] )
+                continue;
+            const Scalability::Parameter parameter = *kRetiredKeys[k].Becomes;
+            if ( *values[k] == table.ValueAt( parameter, Scalability::Level::High ) )
+                continue;
+            settings.Quality.Overrides.push_back( { std::string( Scalability::SpecOf( parameter ).Key ), *values[k] } );
+            ++result.Overrides;
+        }
+        return result;
+    }
+
+    void MachineSettings::DropRetiredKeys( MachineSettings& settings )
+    {
         Json::CarriedKeys kept;
         for ( const auto& [name, value] : settings.UnknownKeys )
-            if ( name != kRetiredPostAA )
+            if ( !IsRetired( name ) )
                 kept.insert( name, value );
         settings.UnknownKeys = std::move( kept );
-
-        if ( hasMethod )
-            return true;
-
-        if ( settings.MSAASamples > 1 )
-        {
-            settings.AAMethod = AntiAliasingMethod::MSAA;
-            return true;
-        }
-
-        // ObjectMembers re-writes every value compactly, so a string arrives with its quotes.
-        if ( *retiredValue == "\"FXAA\"" )
-            settings.AAMethod = AntiAliasingMethod::FXAA;
-        else if ( *retiredValue == "\"SMAA\"" )
-            settings.AAMethod = AntiAliasingMethod::SMAA;
-        else
-            settings.AAMethod = AntiAliasingMethod::None;
-        settings.MSAASamples = 4;
-        return true;
     }
 
     bool MachineSettings::Save()

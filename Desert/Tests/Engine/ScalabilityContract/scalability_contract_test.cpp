@@ -37,10 +37,10 @@ namespace
       "Medium":    { "AntiAliasing.Method": "SMAA", "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 1 },
       "High":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 },
       "Epic":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 },
-      "Cinematic": { "AntiAliasing.Method": "DLAA", "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 }
+      "Cinematic": { "AntiAliasing.Method": "TAA", , "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 }
     },
     "ResolutionScale": {
-      "Low":       { "Resolution.Percent": 50,  "Resolution.Upscaler": "DLSS", "Resolution.Sharpness": 20 },
+      "Low":       { "Resolution.Percent": 50,  "Resolution.Upscaler": "TAAU", "Resolution.Sharpness": 20 },
       "Medium":    { "Resolution.Percent": 67,  "Resolution.Upscaler": "TAAU", "Resolution.Sharpness": 20 },
       "High":      { "Resolution.Percent": 100, "Resolution.Upscaler": "None", "Resolution.Sharpness": 0 },
       "Epic":      { "Resolution.Percent": 100, "Resolution.Upscaler": "None", "Resolution.Sharpness": 0 },
@@ -143,7 +143,6 @@ namespace
         probe.MaxImageDimension2D        = 32768;
         probe.TimestampValidBitsGraphics = 64;
         probe.SeparateComputeFamily      = true;
-        probe.DlssAvailable              = true;
         for ( Vk::Capability c : { Vk::Capability::RayQuery, Vk::Capability::RayTracingPipeline,
                                    Vk::Capability::AccelerationStructure, Vk::Capability::SamplerAnisotropy,
                                    Vk::Capability::TextureCompressionBC } )
@@ -159,7 +158,6 @@ namespace
     {
         Vk::CatalogProbe probe                                                                  = RtxProbe();
         probe.VendorId                                                                          = 0x1002;
-        probe.DlssAvailable                                                                     = false;
         probe.Caps.Rows[static_cast<std::size_t>( Vk::Capability::RayTracingPipeline )].Present = false;
         return probe;
     }
@@ -177,7 +175,6 @@ namespace
         probe.AstcLdrSampled             = true;
         probe.TimestampValidBitsGraphics = 64;
         probe.Portability                = true;
-        probe.MetalFxAvailable           = true;
         // MoltenVK may report the RT pipeline extension's feature bit through portability; the builder must
         // still never offer it.
         for ( Vk::Capability c : { Vk::Capability::RayQuery, Vk::Capability::RayTracingPipeline,
@@ -404,11 +401,13 @@ TEST( ScalabilityContract, VSyncOnIsFifoAndOffTakesTheLowestLatencyModeOffered )
 
 // ---- The catalog, per device -----------------------------------------------------------------------------
 
-TEST( ScalabilityContract, RtxOffersDlssDlaaAndTheRayTracingPipeline )
+// The fixtures carry only what the real probe produces today: no third-party upscaler SDK is integrated, so every
+// DLSS / FSR / XeSS / MetalFX probe flag is false and the catalog offers the engine's own methods only.
+TEST( ScalabilityContract, RtxOffersTheRayTracingPipelineAndNoThirdPartyUpscaler )
 {
     const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
-    EXPECT_TRUE( CapabilityCatalog::Offers( c.Upscalers, Upscaler::DLSS ) );
-    EXPECT_TRUE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::DLAA ) );
+    EXPECT_EQ( c.Upscalers, ( std::vector<Upscaler>{ Upscaler::TAAU, Upscaler::None } ) );
+    EXPECT_FALSE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::DLAA ) );
     EXPECT_TRUE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::RayTracingPipeline ) );
     EXPECT_EQ( c.MSAACounts, ( std::vector<int>{ 1, 2, 4, 8 } ) );
     EXPECT_EQ( c.AnisotropyLevels, ( std::vector<int>{ 1, 2, 4, 8, 16 } ) );
@@ -438,13 +437,12 @@ TEST( ScalabilityContract, EveryDeviceOffersTheEnginesOwnMethodsAndFifo )
     }
 }
 
-TEST( ScalabilityContract, MoltenVkNeverOffersTheRtPipelineDlssOrAsyncComputeAndPrefersAstc )
+TEST( ScalabilityContract, MoltenVkNeverOffersTheRtPipelineOrAsyncComputeAndPrefersAstc )
 {
     const CapabilityCatalog c = Vk::BuildCapabilityCatalog( AppleSiliconProbe() );
     EXPECT_FALSE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::RayTracingPipeline ) );
     EXPECT_TRUE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::RayQuery ) );
-    EXPECT_FALSE( CapabilityCatalog::Offers( c.Upscalers, Upscaler::DLSS ) );
-    EXPECT_TRUE( CapabilityCatalog::Offers( c.Upscalers, Upscaler::MetalFX ) );
+    EXPECT_EQ( c.Upscalers, ( std::vector<Upscaler>{ Upscaler::TAAU, Upscaler::None } ) );
     EXPECT_FALSE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::DLAA ) );
     ASSERT_FALSE( c.TextureCompression.empty() );
     EXPECT_EQ( c.TextureCompression.front(), TextureCompressionFamily::ASTC );

@@ -266,16 +266,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
               content.BasePak.empty() ? std::string( "none — loose files" ) : content.BasePak.string(),
               content.Patches.size() );
 
-    // WHAT THIS MACHINE CAN AFFORD, from this player's own directory — the same schema the editor reads
-    // from `~/.desertengine/machine.json`, in the place a packaged game's per-user state belongs (К3).
-    // Before the application exists, because SceneRenderer::Init bakes the MSAA sample count into every
-    // pipeline it creates and a later load would apply one launch behind.
-    //
-    // Per PRODUCT, not per install: two games on one machine are two different budgets. An absent file is
-    // the ordinary first-run state and leaves the schema defaults standing, which is exactly the picture
-    // this game rendered before it had a dial at all.
-    Common::Settings::MachineSettings::Load(
-         Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "machine.json" );
+    // machine.json (WHAT THIS MACHINE CAN AFFORD) is loaded by RuntimeLayer through Graphic::QualityBoot::Start, once
+    // the device exists: the quality resolves against the device's CapabilityCatalog.
 
     // The driver pipeline cache goes beside machine.json, in this player's directory, never the install
     // (PKG1). Before the application: the device reads it while it is being created.

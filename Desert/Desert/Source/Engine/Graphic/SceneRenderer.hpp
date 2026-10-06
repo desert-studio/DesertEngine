@@ -28,6 +28,7 @@
 #include <Common/Core/EventRegistry.hpp>
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <Common/Settings/Scalability.hpp>
 
 #include "Systems/Scene/Mesh/MeshRenderer.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
@@ -275,7 +276,7 @@ namespace Desert::Graphic
         // could not change it.
         //
         // Call it BEFORE BeginScene: the values reach the systems from there.
-        void SetQuality( const Common::Settings::MachineSettings& quality )
+        void SetQuality( const Common::Scalability::ResolvedQuality& quality )
         {
             m_Quality = quality;
         }
@@ -554,7 +555,6 @@ namespace Desert::Graphic
         void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
 
         // The scene sample count the device can run for `requested` (the method's effective count).
-        static uint32_t SupportedSceneSamples( int requested );
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.
         void ApplySceneSampleCount( uint32_t samples );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
@@ -622,7 +622,7 @@ namespace Desert::Graphic
         ShaderProtocols::SpotLight      m_SpotLight;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
-        Common::Settings::AntiAliasingMethod m_AAMode       = Common::Settings::AntiAliasingMethod::FXAA;
+        Common::Scalability::AntiAliasingMethod m_AAMode    = Common::Scalability::AntiAliasingMethod::FXAA;
         bool                               m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest
@@ -663,7 +663,8 @@ namespace Desert::Graphic
         // offscreen thumbnail and photogrammetry previews are exactly such renderers: nobody pushes to
         // them, and before this initialiser they would have quietly reset the sampler to Trilinear/8x.
         // "Not pushed to" therefore has to mean "this machine's answer" here rather than "the defaults".
-        Common::Settings::MachineSettings m_Quality = Common::Settings::MachineSettings::Get();
+        // The RESOLVED quality (SCAL1): the only product of the scalability system a renderer reads.
+        Common::Scalability::ResolvedQuality m_Quality = Common::Scalability::QualityState::Resolved();
         // What this VIEW is drawing on top of the world. NOT refreshed from the scene — pushed in by
         // whoever owns the view (SetDebugView), and "show nothing" until someone does. See
         // Graphic/DebugViewState.hpp for why it stopped being scene data.

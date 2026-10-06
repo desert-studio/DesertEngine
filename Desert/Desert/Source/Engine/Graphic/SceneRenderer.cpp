@@ -123,18 +123,6 @@ namespace Desert::Graphic
 #endif
     }
 
-    uint32_t SceneRenderer::SupportedSceneSamples( const int requested )
-    {
-        // Clamped to the device's ceiling, then down to a count its sample MASK has: support is a bitmask,
-        // so a device can offer 1/4/8 and not 2.
-        uint32_t samples =
-             static_cast<uint32_t>( std::clamp( requested, 1, RenderConfig::MaxMSAASamples.load() ) );
-        const uint32_t mask = EngineContext::GetInstance().GetCapabilities().MSAASampleMask;
-        while ( samples > 1 && !( mask & samples ) )
-            samples >>= 1;
-        return std::max( 1u, samples );
-    }
-
     void SceneRenderer::ApplySceneSampleCount( const uint32_t samples )
     {
         if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetSpecification().Samples == samples )
@@ -192,7 +180,7 @@ namespace Desert::Graphic
         // method every frame (ApplySceneSampleCount, from BeginScene); this is the count it starts at.
         //
         // ONE SAMPLE HERE, whatever the machine chose: MSAA applies only on the forward path (AA2,
-        // MachineSettings::ResolveAA) and no scene — so no path — is known until the first BeginScene,
+        // Scalability::ResolveAntiAliasingForPath) and no scene — so no path — is known until the first BeginScene,
         // which raises the count for a forward scene under MSAA. Starting at 1 means a deferred scene never
         // allocates a multisampled target it cannot use.
         FramebufferSpecification fbSpec;
@@ -611,7 +599,8 @@ namespace Desert::Graphic
         // the outline are, and a scene file cannot state them at all. Named as one local because they are
         // one answer arriving from one place — and because a census that asks "does anything read this
         // setting" has to be able to SEE the read (Desert/Tests/Engine/ConfigOwnership).
-        const Common::Settings::MachineSettings& quality = m_Quality;
+        const Common::Scalability::ResolvedQuality& quality = m_Quality;
+        using Common::Scalability::Parameter;
 
         // TWO FORWARD-ONLY DEBUG VIEWS, and they force the path for the same reason.
         //
@@ -633,17 +622,17 @@ namespace Desert::Graphic
         // not reallocate the scene target at another sample count, and the Scalability panel reports
         // against the same scene path. Under MSAA in a deferred scene this is FXAA at one sample, so no
         // multisampled target, no DepthExpand/SceneDepthResolve resources and no multisampled pipeline
-        // variant is ever built there. The renderer neither decides nor logs that downgrade: ResolveAA does
-        // both, once per change of the resolved value however many renderers read it (AA-LOG).
-        const Common::Settings::EffectiveAntiAliasing aa =
-             quality.ResolveAA( Core::RenderPathSupportsMSAA( sceneSettings.RenderingPath ) ).Effective;
+        // variant is ever built there. The sample count is already one the device offers (Resolve walks the
+        // catalog's MSAACounts down and reports it), so nothing is clamped here.
+        const Common::Scalability::PathAntiAliasing aa = Common::Scalability::ResolveAntiAliasingForPath(
+             quality, Core::RenderPathSupportsMSAA( sceneSettings.RenderingPath ) );
         m_AAMode = aa.PostProcess;
-        ApplySceneSampleCount( SupportedSceneSamples( aa.Samples ) );
+        ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
         // rather than read from a global at the point of use: several SceneRenderers are live at once
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
-        m_CloudQuality   = quality.CloudQualityTier;
+        m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         m_GIMode         = post.GlobalIllumination;
         m_GIIntensity    = post.GIIntensity;
         m_EnableSSR      = post.EnableSSR;
@@ -675,7 +664,7 @@ namespace Desert::Graphic
              ->SetBackdropVisible( m_DebugView.ShowSkyBackdrop );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWireframe( m_DebugView.WireframeMode );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetLODEnabled( quality.MeshLOD );
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetShadows( shadows.Enabled, shadows.Bias, static_cast<int>( m_DebugView.ShadowDebug ),
                            shadows.CascadeSplitLambda );
@@ -683,14 +672,8 @@ namespace Desert::Graphic
              ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
                              m_DebugView.BoundingBoxLineWidth, m_DebugView.LightingDebug );
 
-        // Global texture filter: push into RenderConfig (read by sampler creation). On an actual change,
-        // recreate all image samplers so the new filter applies live (no reload).
-        const int  desiredFilter = static_cast<int>( quality.TextureFilterMode );
-        const int  desiredAniso  = quality.Anisotropy;
-        const bool filterChanged = RenderConfig::TextureFilter.exchange( desiredFilter ) != desiredFilter;
-        const bool anisoChanged  = RenderConfig::AnisotropyLevel.exchange( desiredAniso ) != desiredAniso;
-        if ( filterChanged || anisoChanged )
-            Renderer::GetInstance().RecreateImageSamplers();
+        // The texture filter and anisotropy are NOT pushed from here: they are global sampler state, written once
+        // per change by QualityBoot's QualityState listener, not by every view each frame.
 
         // THE TWO BRIGHT-PASS THRESHOLDS ARE AUTHORED IN THE EXPOSED IMAGE AND COMPARED IN THE RAW ONE,
         // and until this line they were simply handed across that boundary unchanged.
@@ -954,11 +937,11 @@ namespace Desert::Graphic
         AddFrameLensFlare( graph, textures, sceneColor(), values );
         AddFrameTonemap( graph, textures );
 
-        if ( m_AAMode == Common::Settings::AntiAliasingMethod::FXAA )
+        if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
         {
             AddFrameFXAA( graph, textures );
         }
-        else if ( m_AAMode == Common::Settings::AntiAliasingMethod::SMAA )
+        else if ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA )
         {
             AddFrameSMAA( graph, textures );
         }
@@ -1336,8 +1319,8 @@ namespace Desert::Graphic
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
     {
         // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.
-        const char* finalSystem = ( m_AAMode == Common::Settings::AntiAliasingMethod::FXAA )   ? "FXAASystem"
-                                  : ( m_AAMode == Common::Settings::AntiAliasingMethod::SMAA ) ? "SMAASystem"
+        const char* finalSystem = ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )   ? "FXAASystem"
+                                  : ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA ) ? "SMAASystem"
                                                                                                : "TonemapSystem";
 
         return std::static_pointer_cast<System::RenderSystem>( m_RenderSystems[finalSystem] )

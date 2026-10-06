@@ -743,6 +743,8 @@ namespace Desert::Editor
         float                                   m_BottomHeight    = 0.0f;
         void                                    DrawBottomDrawerToggle();
         char                                    m_LayoutNameBuf[64] = {};
+        // QualityBoot::Start's answer, taken in the constructor (before the renderer) and returned by OnAttach.
+        Common::BoolResultStr m_QualityStart = Common::MakeSuccess( true );
         std::unique_ptr<Graphic::SceneRenderer> m_SceneRenderer;
         bool                                    m_OpenScenePopup     = false;
         bool                                    m_SaveSceneRequested = false;

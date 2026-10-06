@@ -9,6 +9,10 @@
 
 // The unknown-key carrier below is a FIELD of the struct, so its type has to be visible here.
 #include <Common/Json/Json.hpp>
+#include <Common/Settings/RecommendedQuality.hpp>
+#include <Common/Settings/Scalability.hpp>
+
+#include <optional>
 
 namespace Common::Settings
 {
@@ -50,65 +54,8 @@ namespace Common::Settings
     // back. Desert/Tests/Engine/ConfigOwnership asserts the relation directly: turning the machine down
     // does not change a byte of any scene file.
 
-    // THE anti-aliasing method — one choice, mutually exclusive (UE's r.AntiAliasingMethod). MSAA is a
-    // method like the others: its sample count is MachineSettings::MSAASamples (UE's r.MSAACount) and is
-    // meaningful only under MSAA; every other method renders one sample. So "MSAA 4x plus SMAA" cannot be
-    // expressed, and every value applies on the next frame (SceneRenderer recreates its framebuffers when the
-    // effective sample count changes).
-    enum class AntiAliasingMethod : int
-    {
-        None = 0,
-        FXAA,
-        SMAA,
-        MSAA,
-    };
-
-    // WHAT A FRAME RUNS for the stored method on a given render path (MachineSettings::EffectiveAA).
-    //
-    // MSAA ONLY WHERE IT WORKS, as in UE (r.MSAACount applies with forward shading only; the deferred
-    // renderer offers FXAA/TAA/TSR). In the deferred path every opaque surface goes through the G-buffer
-    // and one lighting sample per pixel, so MSAA smooths only the few forward-drawn objects (glass) and
-    // costs its memory for nothing: AA1 measured the white cube's silhouette at 0 intermediate edge
-    // pixels under 1x/2x/4x/8x, and 87 under FXAA. So:
-    //
-    //     stored method | forward path             | deferred path
-    //     None          | None, 1 sample           | None, 1 sample
-    //     FXAA          | FXAA, 1 sample           | FXAA, 1 sample
-    //     SMAA          | SMAA, 1 sample           | SMAA, 1 sample
-    //     MSAA (n)      | MSAA, n samples, no post | FXAA, 1 sample  (MSAAUnavailableOnPath)
-    //
-    // The stored choice is never rewritten: a machine set to MSAA 4x gets it back in the next forward
-    // scene. The fallback is never silent: MachineSettings::ResolveAA logs it once per change of the resolved
-    // value (AntiAliasingResolution), and the Scalability panel shows requested -> effective with the reason.
-    struct EffectiveAntiAliasing
-    {
-        AntiAliasingMethod Method  = AntiAliasingMethod::FXAA; // what the frame runs
-        int                Samples = 1; // scene framebuffer sample count; > 1 only under Method MSAA
-        // The post-process pass after tonemapping: Method, except None under MSAA.
-        AntiAliasingMethod PostProcess = AntiAliasingMethod::FXAA;
-        // True when the stored method is MSAA and this path cannot multisample (the FXAA row above).
-        bool MSAAUnavailableOnPath = false;
-
-        bool operator==( const EffectiveAntiAliasing& ) const = default;
-    };
-
-    // THE REQUESTED ANTI-ALIASING AND WHAT A FRAME RUNS INSTEAD, resolved in one place
-    // (MachineSettings::ResolveAA) as UE resolves scalability CVars before any renderer reads them. Every
-    // SceneRenderer (viewport, preview, game) and the Scalability panel read this value; none of them
-    // decides the downgrade or writes the line about it.
-    struct AntiAliasingResolution
-    {
-        AntiAliasingMethod    RequestedMethod  = AntiAliasingMethod::FXAA; // the machine's stored choice
-        int                   RequestedSamples = 1; // the stored MSAA count; > 1 only when the request is MSAA
-        EffectiveAntiAliasing Effective;            // what the frame runs on this path
-        // Why Effective differs from the request; empty when it does not. A static string.
-        std::string_view Reason;
-
-        bool operator==( const AntiAliasingResolution& ) const = default;
-    };
-
-    // Global texture sampler filter. Live: SceneRenderer pushes it into Graphic::RenderConfig and the
-    // samplers are recreated on a change, so it applies without a reload.
+    // The value domain of Scalability::Parameter::TextureFilter (Filtering.Texture). Live: the resolved value is
+    // pushed into Graphic::RenderConfig by QualityState's listener and the samplers are recreated on a change.
     //
     // THIS ENUM USED TO EXIST TWICE — `Core::TextureFilter` in the scene settings and
     // `Graphic::TextureFilterMode` in RenderConfig, with a comment on the first saying "Must match
@@ -140,21 +87,14 @@ namespace Common::Settings
 
     struct MachineSettings
     {
-        // The anti-aliasing method. Applies on the next frame, no restart.
-        AntiAliasingMethod AAMethod = AntiAliasingMethod::FXAA;
-
-        // MSAA sample count (2/4/8) — read ONLY when AAMethod is MSAA; see EffectiveMSAASamples. Clamped to
-        // the device's ceiling (Graphic::RenderConfig::MaxMSAASamples) by the renderer that applies it.
-        int MSAASamples = 4;
-
-        // Distance-based mesh level of detail. LOD0 (near) is byte-identical geometry, so off vs on only
-        // changes what is drawn far from the camera — fidelity, not authoring.
-        bool MeshLOD = true;
-
-        TextureFilter TextureFilterMode = TextureFilter::Trilinear;
-        int           Anisotropy        = 8; // 1/2/4/8/16x — used only in Anisotropic filter mode
-
-        CloudQuality CloudQualityTier = CloudQuality::High;
+        // THE QUALITY THIS MACHINE ASKED FOR (SCAL1): a level per group plus per-parameter overrides. Written only
+        // through Scalability::QualityState (its Saver lands here); every renderer reads the RESOLVED values
+        // (QualityState::Resolved()), never this. Replaces the six retired knobs AAMethod, MSAASamples,
+        // TextureFilterMode, Anisotropy, MeshLOD and CloudQualityTier (see MigrateRetiredKeys).
+        Scalability::QualitySelection Quality = HighSelection();
+        // The benchmark's answer, cached with the device / driver / table identity it was measured on
+        // (Scalability::CacheValid). Absent until the first benchmark run on this machine.
+        std::optional<Scalability::RecommendedQuality> Recommended;
 
         // Where this machine keeps the DerivedDataCache (Common/Content/DerivedDataCache.hpp; UE's
         // [DerivedDataBackendGraph] Path). Empty = <projectDir>/DerivedDataCache; relative = against the
@@ -180,17 +120,17 @@ namespace Common::Settings
         // AAMethod), see MigrateRetiredKeys.
         Json::CarriedKeys UnknownKeys;
 
-        // THE LIVE STATE. Everything that consumes one of these reads it from here; nothing keeps a copy
-        // except the two derived pushes the Vulkan backend needs to read atomically
-        // (Graphic::RenderConfig::TextureFilter / AnisotropyLevel, written by SceneRenderer::BeginScene
-        // and by nothing else).
+        // THE STORED STATE. Quality is read once, by the host, into Scalability::QualityState::Initialize; after
+        // that QualityState owns the live selection and writes it back here through its Saver.
         static MachineSettings& Get();
 
         // Reads `file` into Get(), and REMEMBERS IT as the place Save() writes. Missing file = this
         // machine has never chosen anything, so the defaults above stand and nothing is written; a file
         // that exists and cannot be read or parsed is reported and the defaults stand.
         //
-        static void Load( const std::filesystem::path& file );
+        // `table` is the parsed Scalability.json: the retired-key migration needs its High values (see
+        // MigrateRetiredKeys), so the host parses the table before it loads this file.
+        static void Load( const std::filesystem::path& file, const Scalability::ScalabilityTable& table );
 
         // The path Load() was given, or an empty path when this process never called it.
         static const std::filesystem::path& File();
@@ -204,35 +144,32 @@ namespace Common::Settings
         // with no path is not a store, and guessing one would be the silent fallback §1.4 forbids.
         static bool Save();
 
-        // THE ONE PLACE THAT DECIDES WHAT ANTI-ALIASING A FRAME ACTUALLY RUNS (AA2), from the stored choice
-        // and whether the active render path can multisample. See EffectiveAntiAliasing for the table.
+        // Every level High, no override: the selection of a machine that never chose anything.
+        [[nodiscard]] static Scalability::QualitySelection HighSelection();
+
+        // What one migration did, for the log line and the tests.
+        struct RetiredKeyMigration
+        {
+            int  KeysMoved = 0; // retired keys found in the file (each is removed from UnknownKeys)
+            int  Overrides = 0; // of those, the ones whose value differs from the High table value
+            bool operator==( const RetiredKeyMigration& ) const = default;
+        };
+        // THE MIGRATION OF THE RETIRED SCHEMA (SCAL1; expires with machine.json written before task/SCAL1), applied
+        // by Load(). PURE: `rawJson` is the text `settings` was read from, `table` gives the High values.
         //
-        // The path arrives as a capability, not as Core::RenderPath, because Common does not link the
-        // engine; Core::RenderPathSupportsMSAA (SceneSettings.hpp) is the one mapping from a path to it.
-        EffectiveAntiAliasing EffectiveAA( bool pathSupportsMSAA ) const;
-
-        // THE RESOLUTION EVERY READER TAKES (AA-LOG): the request, EffectiveAA for the path, and the reason
-        // for a downgrade. A PURE function of (this, path): renderers, the panel and the palette call it as
-        // often as they like, and it neither logs nor remembers anything. The downgrade is REPORTED where the
-        // choice is applied — Load() and CommitAntiAliasing() — so it is said once per change by construction.
-        AntiAliasingResolution ResolveAA( bool pathSupportsMSAA ) const;
-
-        // THE ONE PLACE A CHANGED ANTI-ALIASING CHOICE IS COMMITTED (AA-LOG2; UE's CVar sink). The Scalability
-        // panel and the palette both go through it. Stores `method` (and `msaaSamples`, when > 1) in Get(),
-        // reports what the choice means on the deferred path when it is MSAA — one line, here, because this is
-        // where the setting changed — and saves. Returns whether machine.json now holds the choice; the choice
-        // applies to this session either way.
-        static bool CommitAntiAliasing( AntiAliasingMethod method, int msaaSamples );
-
-        // THE MIGRATION OF THE RETIRED SCHEMA, applied by Load() and by the re-read before every Save().
-        // The old file stored two independent keys, `AA` (None/FXAA/SMAA post filter) and `MSAASamples`
-        // (1 = off). `rawJson` is the text `settings` was read from. When it holds the retired `AA` key:
-        //   * AAMethod present too (an older build re-saved a new file) -> AAMethod wins;
-        //   * otherwise MSAASamples > 1 -> Method MSAA with that count (the post filter is dropped), else
-        //     Method = AA and MSAASamples = 4 (the default count for when MSAA is picked later).
-        // `AA` is removed from UnknownKeys either way, so the next save writes only the new keys. Returns
-        // whether the retired key was found.
-        static bool MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson );
+        // The retired keys are AAMethod, MSAASamples, TextureFilterMode, Anisotropy, MeshLOD, CloudQualityTier and the
+        // older `AA` (the post filter before AAMethod). When the file holds any of them and NO `Quality` key, the
+        // selection becomes all-High plus one override per retired value that differs from the High table value —
+        // so an untouched machine comes out with zero overrides. MSAASamples moves only under AAMethod MSAA (it was
+        // read only there); `AA` stands for AAMethod when AAMethod is absent (MSAASamples > 1 meant MSAA). When the
+        // file already holds `Quality` (a newer build re-saved it and an older one added its keys back), Quality
+        // wins and the retired keys are only dropped. Either way they leave UnknownKeys, so the next save writes
+        // only `Quality`. A retired value that cannot be read is reported and not migrated.
+        static RetiredKeyMigration MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson,
+                                                       const Scalability::ScalabilityTable& table );
+        // Removes the retired keys from `settings.UnknownKeys` without migrating them — the re-read before a save,
+        // where the live Quality already holds this session's answer.
+        static void DropRetiredKeys( MachineSettings& settings );
     };
     DESERT_JSON_STRUCT( MachineSettings, "MachineSettings", 1 )
     DESERT_JSON_LENIENT( MachineSettings,
