@@ -231,6 +231,12 @@ namespace Desert::Graphic::System
         // timeline, and sharing one texel across renderers would buy nothing and cost a synchronisation
         // rule.
         std::shared_ptr<ComputePipeline> m_DistantLightPipeline;
+        // Each LUT node's block layout, keyed on its pipeline's shader (kept, not re-derived per frame).
+        ShaderBindingLayoutCache         m_TransmittanceLutLayout;
+        ShaderBindingLayoutCache         m_MultiScatterLutLayout;
+        ShaderBindingLayoutCache         m_SkyViewLutLayout;
+        ShaderBindingLayoutCache         m_AerialPerspectiveLayout;
+        ShaderBindingLayoutCache         m_DistantLightLayout;
         std::shared_ptr<Image2D>         m_TransmittanceLut;
         std::shared_ptr<Image2D>         m_MultiScatterLut;
         std::shared_ptr<Image2D>         m_SkyViewLut;

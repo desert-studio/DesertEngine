@@ -1064,12 +1064,12 @@ namespace Desert::Graphic::System
         // A cloud compute node's one binding block (block 0): the pipeline's shader layout, the pipeline route
         // the node's setup filled with the pipeline's setters, and the push block its exec gives. The exec opens
         // it with RDG::PassBindings( context, context.GetBindingBlock( 0 ) ) and only records.
-        auto DeclareComputeBlock( RenderPassDeclaration& declared, const ComputePipeline& pipeline,
-                                  const uint32_t pushBytes )
+        // @p layout is the one the renderer keeps for @p pipeline (keyed on its shader, not re-derived per frame).
+        auto DeclareComputeBlock( RenderPassDeclaration& declared, const ComputePipeline* pipeline,
+                                  ShaderBindingLayoutCache& layout, const uint32_t pushBytes )
         {
-            const Renderer& renderer = Renderer::GetInstance();
-            auto            block    = declared.Bindings( renderer.GetBindingLayout( *pipeline.GetShader() ),
-                                                          renderer.GetPipelineRouteFill( pipeline ) );
+            auto block = declared.Bindings( layout.Get( pipeline->GetSpecification().Shader ),
+                                            Renderer::GetInstance().GetPipelineRouteFill( *pipeline ) );
             block.PushConstantBytes( pushBytes );
             return block;
         }
@@ -1168,7 +1168,7 @@ namespace Desert::Graphic::System
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowAuthoredBinding, m_ShadowAuthoredBuffer.get() );
         BindMedium( m_ShadowMapPipeline.get(), m_ShadowMediumParamsBuffer.get() );
         SampledMedium(
-             SampledVolumes( DeclareComputeBlock( shadow.Access, *m_ShadowMapPipeline,
+             SampledVolumes( DeclareComputeBlock( shadow.Access, m_ShadowMapPipeline.get(), m_ShadowMapLayout,
                                                   static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) ) )
              .Storage( "u_CloudShadowMap", m_ShadowMapImage, RDG::Access::StorageWrite, "Clouds.ShadowMap" );
         shadow.Record = [this, push, resolution]( RDG::PassContext& context,
@@ -1885,7 +1885,8 @@ namespace Desert::Graphic::System
             // ExecuteInFrame between the march's own upload and the march itself, which is exactly the
             // window m_ParamsBuffer is already shared across.
             BindMedium( m_SkyOcclusionPipeline.get(), m_MediumParamsBuffer.get() );
-            SampledMedium( SampledVolumes( DeclareComputeBlock( occlusion.Access, *m_SkyOcclusionPipeline, 0 ) ) )
+            SampledMedium( SampledVolumes( DeclareComputeBlock( occlusion.Access, m_SkyOcclusionPipeline.get(),
+                                                                m_SkyOcclusionLayout, 0 ) ) )
                  .Storage( "u_CloudSkyOcclusion", m_SkyOcclusionVolume, RDG::Access::StorageWrite,
                            "Clouds.SkyOcclusion" );
             occlusion.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -1991,7 +1992,7 @@ namespace Desert::Graphic::System
              skyOcclusionReady
                   ? std::shared_ptr<Image>( m_SkyOcclusionVolume )
                   : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
-        SampledMedium( SampledVolumes( DeclareComputeBlock( march.Access, *m_MarchPipeline,
+        SampledMedium( SampledVolumes( DeclareComputeBlock( march.Access, m_MarchPipeline.get(), m_MarchLayout,
                                                             static_cast<uint32_t>( sizeof( CloudPush ) ) ) ) )
              .Storage( "u_CloudScatter", trace, RDG::Access::StorageWrite )
              .Storage( "u_CloudGuide", traceGuide, RDG::Access::StorageWrite )
@@ -2079,7 +2080,7 @@ namespace Desert::Graphic::System
              m_HistoryValid ? std::format( "Clouds.HistoryGuide{}", readIndex ) : "Clouds.HistoryFallback";
         // This frame's trace pair, by shader name. Linear + clamp: the reconstruction texelFetches the texel it
         // owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
-        DeclareComputeBlock( temporal.Access, *m_ResolvePipeline, 0 )
+        DeclareComputeBlock( temporal.Access, m_ResolvePipeline.get(), m_ResolveLayout, 0 )
              .Sampled( "u_CloudTrace", trace, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_CloudTraceGuide", traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),

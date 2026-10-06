@@ -3362,6 +3362,12 @@ TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
         }
     }
     EXPECT_GT( gets, 10u ) << "the census found almost no layout lookups: the needle is stale";
+    // The Skybox LUT and cloud compute helpers take the kept layout; neither derives one per frame any more.
+    for ( const char* file :
+          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp" } )
+        EXPECT_EQ( SqueezedSource( root, file ).find( "GetBindingLayout(" ), std::string::npos )
+             << file << " derives a binding layout per frame again (Renderer::GetBindingLayout)";
 }
 
 // RDG-FAULT1 C3b, the scene and UI systems that record from setup-declared blocks: no exec in these files opens a

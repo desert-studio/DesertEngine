@@ -506,6 +506,11 @@ namespace Desert::Graphic::System
         std::unique_ptr<MaterialCloudComposite> m_CompositeMaterial;
         // The composite block's layout, keyed on m_CompositePipeline's shader (kept, not re-derived per frame).
         ShaderBindingLayoutCache m_CompositeLayout;
+        // Each compute node's block layout, keyed on its pipeline's shader.
+        ShaderBindingLayoutCache m_ShadowMapLayout;
+        ShaderBindingLayoutCache m_SkyOcclusionLayout;
+        ShaderBindingLayoutCache m_MarchLayout;
+        ShaderBindingLayoutCache m_ResolveLayout;
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveParamsBuffer;
