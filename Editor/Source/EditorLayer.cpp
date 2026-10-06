@@ -4648,7 +4648,7 @@ namespace Desert::Editor
 
         // Anti-aliasing method (AA1): the Scalability panel's choice, reachable from the control channel.
         for ( PaletteCommand& command :
-              AntiAliasingPaletteCommands( Graphic::RenderConfig::MaxMSAASamples.load() ) )
+              AntiAliasingPaletteCommands( Common::Scalability::QualityState::Catalog() ) )
             commands.push_back( std::move( command ) );
 
         // Details: scroll to a field / open an asset picker, as the last Details frame drew them (CTL2).

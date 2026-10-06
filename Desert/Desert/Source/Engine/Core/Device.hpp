@@ -75,7 +75,6 @@ namespace Desert::Engine
         bool  SupportsWideLines = false;
         float MaxLineWidth      = 1.0f;
         bool  SupportsAnisotropy = false;
-        float MaxAnisotropy      = 1.0f;
         /// VK fillModeNonSolid: wireframe (VK_POLYGON_MODE_LINE) pipelines. Independent from wideLines —
         /// MoltenVK supports non-solid fill but NOT wide lines.
         bool SupportsNonSolidFill = false;
@@ -95,11 +94,8 @@ namespace Desert::Engine
         /// layer 1.4.350.1 says a word (measured 2026-09-23). A driver that enforces it would refuse,
         /// and nothing on this machine would have warned us first.
         bool SupportsTextureCompressionBC = false;
-        /// Bitmask of usable MSAA counts (bit N set = 2^N samples), colour AND depth both supported.
-        uint32_t MSAASampleMask = 1;
 
         // --- Feature flags the renderer branches on -------------------------------------------------
-        bool SupportsTessellation        = false;
         bool SupportsTimestampQueries    = false; ///< GPU-side profiling; the profiler is CPU-only without it.
         /// Nanoseconds per timestamp tick — the factor that turns a query delta into real time. Read by
         /// the GPU profiler and by nothing else; it is 1.0 on MoltenVK (Metal counts in nanoseconds
@@ -122,15 +118,6 @@ namespace Desert::Engine
         [[nodiscard]] bool IsDiscrete() const
         {
             return Type == DeviceType::Discrete;
-        }
-        /// Highest usable MSAA sample count (1 when multisampling is unavailable).
-        [[nodiscard]] uint32_t MaxMSAASamples() const
-        {
-            uint32_t best = 1;
-            for ( uint32_t bit = 0; bit < 6; ++bit )
-                if ( MSAASampleMask & ( 1u << bit ) )
-                    best = 1u << bit;
-            return best;
         }
     };
 

@@ -84,16 +84,13 @@ namespace Desert::Graphic::API::Vulkan
             const VkFilter            filter  = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
             const VkSamplerMipmapMode mipMode = linearMip ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
 
-            // Anisotropy: only when requested AND the device supports it (MaxAnisotropy > 1 = supported).
-            // Never for a volume: anisotropic filtering of a 3D noise field buys nothing and is not
-            // guaranteed for VK_IMAGE_TYPE_3D.
-            const float deviceMaxAniso = Graphic::RenderConfig::MaxAnisotropy.load();
-            const bool  useAniso =
-                 !forceLinear && mode == static_cast<int>( FM::Anisotropic ) && deviceMaxAniso > 1.0f;
-            // User-selected level (4/8/16x), clamped to what the device supports.
-            const float requestedAniso = static_cast<float>( Graphic::RenderConfig::AnisotropyLevel.load() );
-            const float maxAniso =
-                 useAniso ? ( requestedAniso < deviceMaxAniso ? requestedAniso : deviceMaxAniso ) : 1.0f;
+            // Anisotropy: the resolved level, used as is — Scalability::Resolve already narrowed it to
+            // CapabilityCatalog::AnisotropyLevels, which is {1} on a device without samplerAnisotropy, so a
+            // level above 1 means the device runs it. Never for a volume: anisotropic filtering of a 3D noise
+            // field buys nothing and is not guaranteed for VK_IMAGE_TYPE_3D.
+            const int   anisoLevel = Graphic::RenderConfig::AnisotropyLevel.load();
+            const bool  useAniso   = !forceLinear && mode == static_cast<int>( FM::Anisotropic ) && anisoLevel > 1;
+            const float maxAniso   = useAniso ? static_cast<float>( anisoLevel ) : 1.0f;
 
             VkSamplerCreateInfo info = {
                  .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
