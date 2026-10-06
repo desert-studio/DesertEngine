@@ -12,6 +12,7 @@
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 
 namespace Desert::ShaderResources
 {
@@ -100,6 +101,15 @@ namespace Desert::Graphic
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
                     uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel );
+
+        // RDG-FAULT1 - what a pass's SETUP declares its binding blocks against (RenderPassDeclaration::Bindings,
+        // RDG::PassBuilder::Bindings), so a block that does not match its shader faults the pass before anything
+        // is recorded. GetBindingLayout: the resource slots and push-constant range @p shader reflects (names and
+        // kinds only). GetPipelineRouteFill: the slots a compute pipeline's own setters (asset textures,
+        // out-of-graph buffers) hold, by shader name - the other route of DispatchCompute. A graphics draw's
+        // other route is its material's (MaterialExecutor::GetRouteFill).
+        [[nodiscard]] RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader ) const;
+        [[nodiscard]] RDG::OtherRouteFill      GetPipelineRouteFill( const ComputePipeline& pipeline ) const;
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).

@@ -67,6 +67,11 @@ namespace Desert::Graphic::RDG
         Common::ResultStr<TextureDesc> GetTextureDesc( TextureRef texture ) const;
 
         std::string_view GetPassName() const;
+        // RDG-FAULT1. The @p index-th binding block this pass's setup declared (PassBuilder::Bindings, in
+        // declaration order; RenderPassDeclaration::Bindings returns that index). The exec opens it with
+        // PassBindings( context, context.GetBindingBlock( index ) ); an index the setup never declared is refused
+        // there, naming the pass.
+        BindingBlockRef GetBindingBlock( uint32_t index ) const;
         // RDG-CONTRACTS B(1). The pipe this pass records on (CompiledPass::OnPipe). For labels and profiling rows
         // only: an exec lambda records the same work on either pipe.
         Pipe GetPipe() const;

@@ -213,6 +213,8 @@ namespace Desert::Graphic
         aoDesc.Layers                  = 1;
         aoDesc.Samples                 = 1;
         const RDG::TextureRef ao       = graph.CreateTexture( aoDesc, "SSAO" );
+        // A lost SSAO term is "no occlusion": the composite goes on lit, unoccluded (RDG-FAULT1).
+        graph.SetFaultDefault( ao, RDG::FaultDefault::White );
         const RDG::TextureRef worldPos = gbuffer[2]; // GBufferC
         const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
         textures.Transients.SSAO       = ao;         // -> Deferred: Composite (u_SSAO)
@@ -261,6 +263,8 @@ namespace Desert::Graphic
         gatherDesc.Layers             = 1;
         gatherDesc.Samples            = 1;
         const RDG::TextureRef gather  = graph.CreateTexture( gatherDesc, "GI.Gather" );
+        // A lost GI gather adds no bounce light (RDG-FAULT1).
+        graph.SetFaultDefault( gather, RDG::FaultDefault::Black );
         const RDG::TextureRef accum   = textures.Import( gi->GetAccumImage(), "GI" );
         const RDG::TextureRef history = textures.Import( gi->GetHistoryImage(), "GI.History" );
         textures.Transients.GIResolve = gather;
@@ -444,6 +448,9 @@ namespace Desert::Graphic
         // Transients of this graph, sized from this frame's view: written by the trace, read by the tiled passes.
         const RDG::TextureRef          trace   = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
         const RDG::TextureRef          tiles   = graph.CreateTexture( traceTargets->TileMask, "SSR.TileMask" );
+        // A lost trace reflects nothing; a lost tile mask marks no tile (RDG-FAULT1).
+        graph.SetFaultDefault( trace, RDG::FaultDefault::Black );
+        graph.SetFaultDefault( tiles, RDG::FaultDefault::Black );
         const RDG::TextureRef          accum   = textures.Import( ssr->GetAccumImage(), "SSR" );
         const RDG::TextureRef          history = textures.Import( ssr->GetHistoryImage(), "SSR.History" );
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: SSRComposite" );

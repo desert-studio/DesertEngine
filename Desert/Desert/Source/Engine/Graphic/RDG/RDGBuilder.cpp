@@ -524,6 +524,11 @@ namespace Desert::Graphic::RDG
         return m_Builder.m_Passes[m_Pass].Name;
     }
 
+    BindingBlockRef PassContext::GetBindingBlock( const uint32_t index ) const
+    {
+        return BindingBlockRef{ m_Pass, index };
+    }
+
     Pipe PassContext::GetPipe() const
     {
         for ( const CompiledPass& pass : m_Result.Passes )

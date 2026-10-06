@@ -459,6 +459,28 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
+    RDG::ShaderBindingLayout VulkanRendererAPI::GetBindingLayout( const Shader& shader ) const
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
+        const auto& vulkan = static_cast<const VulkanShader&>( shader );
+        return MakeShaderBindingLayout( vulkan.GetReflectionData(), vulkan.GetName() );
+    }
+
+    RDG::OtherRouteFill VulkanRendererAPI::GetPipelineRouteFill( const ComputePipeline& pipeline ) const
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
+        const auto& compute = static_cast<const VulkanPipelineCompute&>( pipeline );
+        const auto* shader  = static_cast<const VulkanShader*>( compute.GetShader().get() );
+        if ( shader == nullptr )
+            return {};
+        // The same set-0 keys DispatchCompute hands ResolveRdgPassBindings as the other route.
+        RdgOtherRoute other;
+        for ( const uint32_t binding : compute.GetBoundBindings() )
+            other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
+        other.PushConstants = !compute.GetBoundPushConstants().empty();
+        return MakeOtherRouteFill( shader->GetReflectionData(), other );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::DispatchCompute( const RDG::PassBindings& bindings,
                                                               const ComputePipeline&   pipeline,
                                                               uint32_t groupCountX, uint32_t groupCountY,

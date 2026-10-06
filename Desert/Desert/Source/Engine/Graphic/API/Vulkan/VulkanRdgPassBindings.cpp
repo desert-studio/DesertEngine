@@ -84,6 +84,19 @@ namespace Desert::Graphic::API::Vulkan
         return layout;
     }
 
+    RDG::OtherRouteFill MakeOtherRouteFill( const ShaderResource::ReflectionData& reflection,
+                                            const RdgOtherRoute&                  other )
+    {
+        RDG::OtherRouteFill fill;
+        fill.PushConstants = other.PushConstants;
+        for ( const ReflectedSlot& slot : CollectSlots( reflection ) )
+        {
+            if ( std::find( other.Filled.begin(), other.Filled.end(), slot.Slot ) != other.Filled.end() )
+                fill.Slots.emplace_back( slot.Name );
+        }
+        return fill;
+    }
+
     Common::ResultStr<std::vector<RdgResolvedEntry>>
     ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, std::string_view shaderName,
                             const RDG::PassBindings& bindings, const RdgOtherRoute& other )

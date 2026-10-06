@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Graphic/RDG/RDGCompileResult.hpp> // ResourceKind
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <cstdint>

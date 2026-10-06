@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 
@@ -88,6 +89,24 @@ namespace Desert::Graphic
              { return uniformManager->GetUniformImage2D( n ); }, [&]( const std::string& n, const auto& r )
              { return std::make_shared<Texture2DProperty>( r, parameterFor( n, false )->DefaultTexture ); },
              m_Texture2DPropertiesStorage, m_Texture2DPropertiesLookup, "image2D" );
+    }
+
+    RDG::OtherRouteFill MaterialExecutor::GetRouteFill() const
+    {
+        RDG::OtherRouteFill fill;
+        fill.PushConstants = m_PushConstantBuffer.Size != 0u;
+        const auto add     = [&fill]( const auto& lookup )
+        {
+            for ( const auto& [name, index] : lookup )
+                fill.Slots.push_back( name );
+        };
+        add( m_UniformBufferPropertiesLookup );
+        add( m_StorageBufferPropertiesLookup );
+        add( m_Texture2DPropertiesLookup );
+        add( m_TextureCubePropertiesLookup );
+        // Deterministic, so a validation message does not depend on hash-map order.
+        std::sort( fill.Slots.begin(), fill.Slots.end() );
+        return fill;
     }
 
     void MaterialExecutor::Apply() const

@@ -189,6 +189,7 @@ namespace Desert::Graphic
             return;
         // A transient of this graph, sized from this frame's view; the tonemap reads its mip 0.
         const RDG::TextureRef chain = graph.CreateTexture( *desc, "Bloom" );
+        graph.SetFaultDefault( chain, RDG::FaultDefault::Black ); // lost bloom adds nothing (RDG-FAULT1)
         const RDG::TextureRef scene = sceneColor.front();
         textures.Transients.Bloom   = chain;
 
@@ -264,6 +265,9 @@ namespace Desert::Graphic
         const RDG::TextureRef scene = sceneColor.front();
         const RDG::TextureRef ping  = graph.CreateTexture( *desc, "LightShaft.Ping" );
         const RDG::TextureRef pong  = graph.CreateTexture( *desc, "LightShaft.Pong" );
+        // Lost light shafts add nothing to the scene (RDG-FAULT1).
+        graph.SetFaultDefault( ping, RDG::FaultDefault::Black );
+        graph.SetFaultDefault( pong, RDG::FaultDefault::Black );
         const glm::vec2       sunUv = sun.Uv;
 
         graph.AddPass(
@@ -323,6 +327,7 @@ namespace Desert::Graphic
         const RDG::TextureRef scene  = sceneColor.front();
         const RDG::TextureRef source = graph.CreateTexture( *sourceDesc, "LensFlare.Source" );
         const RDG::TextureRef image  = graph.CreateTexture( *flareDesc, "LensFlare" );
+        graph.SetFaultDefault( image, RDG::FaultDefault::Black ); // a lost flare adds nothing (RDG-FAULT1)
         const glm::vec2       sunUv  = sun.Uv;
 
         // Bright pass: scene -> source mip 0 (thresholded), then mip i-1 -> mip i. One node per dispatch, each

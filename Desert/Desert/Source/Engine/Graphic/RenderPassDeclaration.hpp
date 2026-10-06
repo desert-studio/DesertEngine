@@ -4,11 +4,14 @@
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -84,6 +87,116 @@ namespace Desert::Graphic
             m_Buffers.push_back( { buffer, access, true } );
         }
 
+        // RDG-FAULT1. One parameter block of a draw / dispatch the node records (UE: the pass parameter struct),
+        // declared against the shader it records with: ShaderBindingLayout from Renderer::GetBindingLayout, the
+        // other route from MaterialExecutor::GetRouteFill / Renderer::GetPipelineRouteFill. Each entry IS the
+        // declaration of its access (no separate Read for it). The graph validates the block before anything is
+        // recorded (RDG::ValidatePassBindings): a broken block faults the node, the frame goes on without it.
+        // The exec opens it with RDG::PassBindings( context, context.GetBindingBlock( <index> ) ), where <index>
+        // is the value Bindings returned (blocks are numbered in declaration order).
+        struct BlockEntry
+        {
+            std::string                     ShaderName;
+            RDG::ShaderResourceKind         Kind = RDG::ShaderResourceKind::SampledTexture;
+            RDG::TextureRef                 Texture;
+            RDG::BufferRef                  Buffer;
+            RDG::Access                     Access = RDG::Access::None;
+            RDG::SubresourceRange           Range  = RDG::SubresourceRange::All();
+            std::optional<RDG::SamplerDesc> Sampler;
+        };
+        struct BlockUse
+        {
+            RDG::ShaderBindingLayout Layout;
+            RDG::OtherRouteFill      Other;
+            std::vector<BlockEntry>  Entries;
+            uint32_t                 PushConstantBytes = 0;
+        };
+        // Fills the block Bindings opened; mirrors RDG::BindingBlockBuilder. Holds the declaration and the index,
+        // not the block, so a later Bindings call (which may grow the list) does not invalidate it.
+        class BlockDeclaration
+        {
+        public:
+            BlockDeclaration( RenderPassDeclaration& declaration, uint32_t index )
+                 : m_Declaration( declaration ), m_Index( index )
+            {
+            }
+            BlockDeclaration& Sampled( std::string_view shaderName, RDG::TextureRef texture, RDG::Access access,
+                                       RDG::SubresourceRange range, RDG::SamplerDesc sampler )
+            {
+                Block().Entries.push_back( { std::string( shaderName ),
+                                             RDG::ShaderResourceKind::SampledTexture,
+                                             texture,
+                                             {},
+                                             access,
+                                             range,
+                                             sampler } );
+                return *this;
+            }
+            BlockDeclaration& Storage( std::string_view shaderName, RDG::TextureRef texture, RDG::Access access,
+                                       uint32_t mip = 0 )
+            {
+                Block().Entries.push_back( { std::string( shaderName ),
+                                             RDG::ShaderResourceKind::StorageTexture,
+                                             texture,
+                                             {},
+                                             access,
+                                             RDG::SubresourceRange::Mip( mip ),
+                                             std::nullopt } );
+                return *this;
+            }
+            BlockDeclaration& Uniform( std::string_view shaderName, RDG::BufferRef buffer )
+            {
+                Block().Entries.push_back( { std::string( shaderName ),
+                                             RDG::ShaderResourceKind::UniformBuffer,
+                                             {},
+                                             buffer,
+                                             RDG::Access::UniformRead,
+                                             RDG::SubresourceRange::All(),
+                                             std::nullopt } );
+                return *this;
+            }
+            BlockDeclaration& Storage( std::string_view shaderName, RDG::BufferRef buffer, RDG::Access access )
+            {
+                Block().Entries.push_back( { std::string( shaderName ),
+                                             RDG::ShaderResourceKind::StorageBuffer,
+                                             {},
+                                             buffer,
+                                             access,
+                                             RDG::SubresourceRange::All(),
+                                             std::nullopt } );
+                return *this;
+            }
+            BlockDeclaration& PushConstantBytes( uint32_t bytes )
+            {
+                Block().PushConstantBytes = bytes;
+                return *this;
+            }
+            // The index the exec passes to PassContext::GetBindingBlock.
+            uint32_t GetIndex() const
+            {
+                return m_Index;
+            }
+
+        private:
+            BlockUse& Block()
+            {
+                return m_Declaration.m_Blocks[m_Index];
+            }
+
+            RenderPassDeclaration& m_Declaration;
+            uint32_t               m_Index;
+        };
+        BlockDeclaration Bindings( RDG::ShaderBindingLayout layout, RDG::OtherRouteFill other )
+        {
+            m_Blocks.push_back( { std::move( layout ), std::move( other ), {}, 0 } );
+            return BlockDeclaration( *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) );
+        }
+
+        const std::vector<BlockUse>& Blocks() const
+        {
+            return m_Blocks;
+        }
+
         const std::vector<ImageUse>& Images() const
         {
             return m_Images;
@@ -101,6 +214,7 @@ namespace Desert::Graphic
         std::vector<ImageUse>   m_Images;
         std::vector<TextureUse> m_Textures;
         std::vector<BufferUse>  m_Buffers;
+        std::vector<BlockUse>   m_Blocks;
     };
 
     // The body of a frame-graph node, whatever registered it: it records into the node's command buffer with
@@ -132,6 +246,17 @@ namespace Desert::Graphic
         for ( const RenderPassDeclaration::BufferUse& use : declared.Buffers() )
             if ( !use.Buffer.IsValid() )
                 return "a buffer the frame graph was not given";
+        for ( const RenderPassDeclaration::BlockUse& block : declared.Blocks() )
+        {
+            for ( const RenderPassDeclaration::BlockEntry& entry : block.Entries )
+            {
+                const bool texture = entry.Kind == RDG::ShaderResourceKind::SampledTexture ||
+                                     entry.Kind == RDG::ShaderResourceKind::StorageTexture;
+                if ( texture ? !entry.Texture.IsValid() : !entry.Buffer.IsValid() )
+                    return texture ? "a bound graph texture this frame did not produce"
+                                   : "a bound buffer the frame graph was not given";
+            }
+        }
         return nullptr;
     }
 
@@ -152,6 +277,32 @@ namespace Desert::Graphic
                 pass.Write( use.Buffer, use.Access );
             else
                 pass.Read( use.Buffer, use.Access );
+        }
+        // In declaration order, so block i of the declaration is block i of the pass
+        // (PassContext::GetBindingBlock).
+        for ( const RenderPassDeclaration::BlockUse& block : declared.Blocks() )
+        {
+            RDG::BindingBlockBuilder bindings = pass.Bindings( block.Layout, block.Other );
+            for ( const RenderPassDeclaration::BlockEntry& entry : block.Entries )
+            {
+                switch ( entry.Kind )
+                {
+                    case RDG::ShaderResourceKind::SampledTexture:
+                        bindings.Sampled( entry.ShaderName, entry.Texture, entry.Access, entry.Range,
+                                          entry.Sampler.value_or( RDG::SamplerDesc::LinearClamp() ) );
+                        break;
+                    case RDG::ShaderResourceKind::StorageTexture:
+                        bindings.Storage( entry.ShaderName, entry.Texture, entry.Access, entry.Range.BaseMip );
+                        break;
+                    case RDG::ShaderResourceKind::UniformBuffer:
+                        bindings.Uniform( entry.ShaderName, entry.Buffer );
+                        break;
+                    case RDG::ShaderResourceKind::StorageBuffer:
+                        bindings.Storage( entry.ShaderName, entry.Buffer, entry.Access );
+                        break;
+                }
+            }
+            bindings.PushConstantBytes( block.PushConstantBytes );
         }
     }
 } // namespace Desert::Graphic

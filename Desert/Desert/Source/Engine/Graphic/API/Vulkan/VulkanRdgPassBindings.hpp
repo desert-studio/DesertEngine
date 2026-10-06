@@ -53,6 +53,12 @@ namespace Desert::Graphic::API::Vulkan
     RDG::ShaderBindingLayout MakeShaderBindingLayout( const ShaderResource::ReflectionData& reflection,
                                                       std::string_view                      shaderName );
 
+    // RDG-FAULT1. @p other (slot keys) as the shader names of those slots, for a setup-time block's
+    // OtherRouteFill. A key the reflection does not declare is left out: the record-time resolve still checks the
+    // real route.
+    RDG::OtherRouteFill MakeOtherRouteFill( const ShaderResource::ReflectionData& reflection,
+                                            const RdgOtherRoute&                  other );
+
     Common::ResultStr<std::vector<RdgResolvedEntry>>
     ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, std::string_view shaderName,
                             const RDG::PassBindings& bindings, const RdgOtherRoute& other );
