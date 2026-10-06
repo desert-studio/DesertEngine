@@ -161,7 +161,10 @@ namespace Desert::Graphic::System
             return { m_HistoryImage[m_ResolvedIndex], m_HistoryGuideImage[m_ResolvedIndex], m_ResolvedIndex };
         }
         // The cloud volumes a dispatch samples (modelling, authored atlas), declared SampledCompute.
-        void DeclareVolumeReads( RenderPassDeclaration& declared ) const;
+        // The noise, modelling and atlas volumes as entries of a cloud compute node's block (shadow, sky
+        // occlusion, march).
+        RenderPassDeclaration::BlockDeclaration
+        SampledVolumes( RenderPassDeclaration::BlockDeclaration block ) const;
 
         /**
          * @brief Stage SM — the cloud shadow map. Must be called outside any render pass, and EARLY:
@@ -553,7 +556,7 @@ namespace Desert::Graphic::System
 
         // CO-OWNED, like m_AuthoredAtlas: Runtime::CloudNoiseService owns every noise volume and shares one
         // upload across all views, and this renderer holds the service's handle (AssetRef::Share) for as long
-        // as it binds the image. The render graph imports each distinct volume (DeclareVolumeReads) and keeps
+        // as it binds the image. The render graph imports each distinct volume (SampledVolumes) and keeps
         // a view of it for the frames in flight, which a borrowed pointer cannot promise across a hot reload
         // or an unload. Refreshed from the service every frame, so a reload swaps the image with no state of
         // its own to go stale.

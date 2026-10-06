@@ -1159,27 +1159,14 @@ namespace Desert::Graphic::System
         // (SceneRenderer::DeclareShadowReads).
         ComputeNodeDeclaration shadow;
         shadow.Name = "Clouds: ShadowMap";
-        DeclareVolumeReads( shadow.Access );
         // SETUP: the shadow map it writes is a block entry (the graph imports, orders and barriers it); the
         // volumes and buffers it samples are the renderer's own, bound by the pipeline's setters here, so the
         // node's block is complete when it is declared; the exec only records.
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowParamsBinding, m_ShadowParamsBuffer.get() );
-        for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-            m_ShadowMapPipeline->SetInput( kCloudShadowNoiseBindings[slot], m_NoiseVolume[slot].get(),
-                                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        m_ShadowMapPipeline->SetInput( kCloudShadowModellingBinding, m_ModellingVolume.get(),
-                                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowAuthoredBinding, m_ShadowAuthoredBuffer.get() );
-        // ALWAYS bound, fallback included — see the note at the march's own binding of it.
-        m_ShadowMapPipeline->SetInput(
-             kCloudShadowAuthoredAtlasBinding,
-             m_AuthoredAtlas
-                  ? m_AuthoredAtlas.get()
-                  : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
-             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         BindMedium( m_ShadowMapPipeline.get(), m_ShadowMediumParamsBuffer.get() );
-        DeclareComputeBlock( shadow.Access, *m_ShadowMapPipeline,
-                             static_cast<uint32_t>( sizeof( CloudShadowPush ) ) )
+        SampledVolumes( DeclareComputeBlock( shadow.Access, *m_ShadowMapPipeline,
+                                             static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) )
              .Storage( "u_CloudShadowMap", m_ShadowMapImage, RDG::Access::StorageWrite, "Clouds.ShadowMap" );
         shadow.Record = [this, push, resolution]( RDG::PassContext& context,
                                                   const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -1869,28 +1856,15 @@ namespace Desert::Graphic::System
 
             ComputeNodeDeclaration occlusion;
             occlusion.Name = "Clouds: SkyOcclusion";
-            DeclareVolumeReads( occlusion.Access );
             // SETUP: the pipeline route (the renderer's own sampled volumes and buffers) and the node's block over
             // it; the volume it writes is the block's entry.
             m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionParamsBinding, m_ParamsBuffer.get() );
-            for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionNoiseBindings[slot], m_NoiseVolume[slot].get(),
-                                                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionModellingBinding, m_ModellingVolume.get(),
-                                              RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionAuthoredBinding, m_AuthoredBuffer.get() );
             // The same buffer the march binds, and legitimately so: this dispatch is issued inside
             // ExecuteInFrame between the march's own upload and the march itself, which is exactly the
             // window m_ParamsBuffer is already shared across.
             BindMedium( m_SkyOcclusionPipeline.get(), m_MediumParamsBuffer.get() );
-            // ALWAYS bound, fallback included — see the note at the march's own binding of it.
-            m_SkyOcclusionPipeline->SetInput(
-                 kCloudSkyOcclusionAuthoredAtlasBinding,
-                 m_AuthoredAtlas
-                      ? m_AuthoredAtlas.get()
-                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
-                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            DeclareComputeBlock( occlusion.Access, *m_SkyOcclusionPipeline, 0 )
+            SampledVolumes( DeclareComputeBlock( occlusion.Access, *m_SkyOcclusionPipeline, 0 ) )
                  .Storage( "u_CloudSkyOcclusion", m_SkyOcclusionVolume, RDG::Access::StorageWrite,
                            "Clouds.SkyOcclusion" );
             occlusion.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -1959,19 +1933,11 @@ namespace Desert::Graphic::System
         const RDG::TextureRef  traceGuide = graph.CreateTexture( traceDesc, "Clouds.TraceGuide" );
         ComputeNodeDeclaration march;
         march.Name = "Clouds: March";
-        DeclareVolumeReads( march.Access );
         m_SceneRenderer->DeclareAtmosphereReads( march.Access, RDG::Access::SampledCompute );
         // SETUP: everything but the graph's two transients is the renderer's own (or the sky's), bound by the
         // pipeline's setters here; the two transients are the block's entries, each the declaration of its write.
         m_MarchPipeline->SetStorageBuffer( kCloudParamsBinding, m_ParamsBuffer.get() );
-        // ALL FOUR, always, whatever the layer needs — an unbound sampler is an invalid descriptor set and
-        // this backend answers one by skipping the dispatch. Slots past the distinct count repeat slot 0's
-        // image, which is what ResolveCloudNoiseVolumes filled them with.
-        for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-            m_MarchPipeline->SetInput( kCloudNoiseBindings[slot], m_NoiseVolume[slot].get(),
-                                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        m_MarchPipeline->SetInput( kCloudModellingBinding, m_ModellingVolume.get(), RDG::Access::SampledCompute,
-                                   RDG::SubresourceRange::All() );
+        // The noise, modelling and atlas volumes are the block's entries (SampledVolumes).
 
         // ALWAYS bound, even when the payload's gate says it will not be read: a declared sampler with no
         // image is an invalid descriptor set, not an unused one, and this backend answers an invalid set
@@ -2000,12 +1966,6 @@ namespace Desert::Graphic::System
         // nothing in the log, which is a rake this subsystem has already stood on.
         m_MarchPipeline->SetStorageBuffer( kCloudAuthoredBinding, m_AuthoredBuffer.get() );
         BindMedium( m_MarchPipeline.get(), m_MediumParamsBuffer.get() );
-        m_MarchPipeline->SetInput(
-             kCloudAuthoredAtlasBinding,
-             m_AuthoredAtlas
-                  ? m_AuthoredAtlas.get()
-                  : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
-             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
         // The atmosphere's transmittance LUT, again always bound and for the fourth time for the same
         // reason. The handle is the sky's — a scene on the artistic gradient, or one whose LUTs have not
@@ -2024,7 +1984,8 @@ namespace Desert::Graphic::System
              skyOcclusionReady
                   ? std::shared_ptr<Image>( m_SkyOcclusionVolume )
                   : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
-        DeclareComputeBlock( march.Access, *m_MarchPipeline, static_cast<uint32_t>( sizeof( CloudPush ) ) )
+        SampledVolumes(
+             DeclareComputeBlock( march.Access, *m_MarchPipeline, static_cast<uint32_t>( sizeof( CloudPush ) ) ) )
              .Storage( "u_CloudScatter", trace, RDG::Access::StorageWrite )
              .Storage( "u_CloudGuide", traceGuide, RDG::Access::StorageWrite )
              .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
@@ -2153,15 +2114,26 @@ namespace Desert::Graphic::System
         m_HasFrameResult = true;
     }
 
-    void VolumetricCloudRenderer::DeclareVolumeReads( RenderPassDeclaration& declared ) const
+    RenderPassDeclaration::BlockDeclaration
+    VolumetricCloudRenderer::SampledVolumes( RenderPassDeclaration::BlockDeclaration block ) const
     {
-        declared.Read( m_ModellingVolume, RDG::Access::SampledCompute, "Clouds.Modelling" );
-        declared.Read( m_AuthoredAtlas, RDG::Access::SampledCompute, "Clouds.AuthoredAtlas" );
-        // The noise volumes: the first m_NoiseNeeded slots are the distinct images, the rest repeat slot 0
-        // and are one graph resource already, so each image is declared once.
-        for ( uint32_t slot = 0; slot < m_NoiseNeeded && slot < kCloudSpeciesSlots; ++slot )
-            declared.Read( m_NoiseVolume[slot], RDG::Access::SampledCompute,
+        // ALL FOUR noise slots, always, whatever the layer needs: slots past the distinct count repeat slot 0's
+        // image (ResolveCloudNoiseVolumes), which the frame imports once, so two entries read one graph texture
+        // in one state. The atlas is ALWAYS an entry, the 3D fallback while there is none -- a declared sampler
+        // with no image is an invalid descriptor set. Each with the sampler the volume carries as its own.
+        static constexpr const char* kNoiseNames[kCloudSpeciesSlots] = { "u_CloudNoise", "u_CloudNoise1",
+                                                                         "u_CloudNoise2", "u_CloudNoise3" };
+        for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
+            block.Sampled( kNoiseNames[slot], m_NoiseVolume[slot], RDG::Access::SampledCompute, VolumeSampler(),
                            std::format( "Clouds.Noise{}", slot ) );
+        const std::shared_ptr<Image> atlas =
+             m_AuthoredAtlas ? std::shared_ptr<Image>( m_AuthoredAtlas )
+                             : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
+        block.Sampled( "u_CloudModelling", m_ModellingVolume, RDG::Access::SampledCompute, VolumeSampler(),
+                       "Clouds.Modelling" )
+             .Sampled( "u_CloudAuthoredAtlas", atlas, RDG::Access::SampledCompute, VolumeSampler(),
+                       m_AuthoredAtlas ? "Clouds.AuthoredAtlas" : "Clouds.AuthoredAtlasFallback" );
+        return block;
     }
 
     void VolumetricCloudRenderer::RegisterPasses( RenderGraphBuilder& builder )

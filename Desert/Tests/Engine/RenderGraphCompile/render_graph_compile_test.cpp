@@ -2870,12 +2870,13 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "Storage(\"u_SkyViewLut\",m_SkyViewLut,RDG::Access::StorageWrite",
              "Storage(\"u_AerialPerspectiveLut\",m_AerialPerspectiveLut,RDG::Access::StorageWrite",
              "Storage(\"u_DistantSkyLight\",m_DistantLight,RDG::Access::StorageWrite",
-             "Sampled(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::SampledCompute",
+             "Sampled(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::SampledCompute,"
+             "GlobalTextureFilterSampler()",
              "declareBlock(transmittance.Access,*m_TransmittanceLutPipeline,0)",
              "sampledLuts(declareBlock(distant.Access,*m_DistantLightPipeline,0))" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
-           { "DeclareVolumeReads(shadow.Access)", "DeclareComputeBlock(shadow.Access,*m_ShadowMapPipeline,",
+           { "SampledVolumes(DeclareComputeBlock(shadow.Access,*m_ShadowMapPipeline,",
              "Storage(\"u_CloudShadowMap\",m_ShadowMapImage,RDG::Access::StorageWrite,\"Clouds.ShadowMap\")" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
@@ -2885,12 +2886,14 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "transients.HeightFog=fogImage" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareFrameNodes(",
-           { "Write(m_SkyOcclusionVolume,RDG::Access::StorageWrite", "Read(depth,RDG::Access::SampledCompute",
+           { "Storage(\"u_CloudSkyOcclusion\",m_SkyOcclusionVolume,RDG::Access::StorageWrite",
+             "Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
+             "SampledVolumes(DeclareComputeBlock(march.Access,*m_MarchPipeline,",
              // The trace pair: block entries of the march (written) and of the resolve (sampled).
              ".Storage(\"u_CloudScatter\",trace,RDG::Access::StorageWrite)",
              ".Sampled(\"u_CloudTrace\",trace,RDG::Access::SampledCompute",
              "graph.CreateTexture(traceDesc,\"Clouds.Trace\")",
-             "Write(m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
+             "Storage(\"u_ReconstructedScatter\",m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
     for ( const Declares& d : declares )
     {
         const std::string body = FunctionBody( source( d.File ), d.Function );
