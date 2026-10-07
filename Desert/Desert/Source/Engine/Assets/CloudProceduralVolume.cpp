@@ -1774,8 +1774,8 @@ namespace Desert::Assets
                             const size_t at = index( x, y, z );
                             if ( feature[at] < 0 )
                                 continue;
-                            const float rank = rankField[static_cast<size_t>( feature[at] )] +
-                                               risePerKm * std::sqrt( cost[at] );
+                            const float rank =
+                                 rankField[static_cast<size_t>( feature[at] )] + risePerKm * std::sqrt( cost[at] );
                             grown[at] = std::min( grown[at], rank );
                         }
             }

@@ -358,7 +358,7 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
 // as out of that body's band, and stayed rankless: a hole no Coverage could fill.
 TEST( CloudProceduralField, TwoSpeciesInOneColumnLeaveNoVoxelOfEitherBandWithoutARank )
 {
-    CloudProceduralFieldParams params = MakeParams();
+    CloudProceduralFieldParams params           = MakeParams();
     params.Species.front().CellKm               = 6.0f;
     params.Species.front().Shape.BaseAltitudeKm = 1.8f;
     params.Species.front().Shape.TopAltitudeKm  = 2.6f;
@@ -373,7 +373,7 @@ TEST( CloudProceduralField, TwoSpeciesInOneColumnLeaveNoVoxelOfEitherBandWithout
     ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
 
     // Each species' band as rows, the bake's own rule.
-    const float rowKm = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
+    const float rowKm    = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
     const auto  clampRow = [&]( float r )
     { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( kCloudProceduralVolumeHeight ) ) ); };
     std::vector<glm::uvec2> bands;
@@ -396,10 +396,10 @@ TEST( CloudProceduralField, TwoSpeciesInOneColumnLeaveNoVoxelOfEitherBandWithout
         for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
             for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
             {
-                const bool solid = baked.GetValue().Voxels[VoxelIndex( x, y, z )] != 0u;
-                const bool inLower  = y >= bands[0].x && y < bands[0].y;
-                const bool inUpper  = y >= bands[1].x && y < bands[1].y;
-                const unsigned char rank = baked.GetValue().Ranks[VoxelIndex( x, y, z ) / 4u];
+                const bool          solid   = baked.GetValue().Voxels[VoxelIndex( x, y, z )] != 0u;
+                const bool          inLower = y >= bands[0].x && y < bands[0].y;
+                const bool          inUpper = y >= bands[1].x && y < bands[1].y;
+                const unsigned char rank    = baked.GetValue().Ranks[VoxelIndex( x, y, z ) / 4u];
                 if ( ( inLower || inUpper || solid ) && rank == kCloudProceduralNoRank )
                 {
                     ++holes;
