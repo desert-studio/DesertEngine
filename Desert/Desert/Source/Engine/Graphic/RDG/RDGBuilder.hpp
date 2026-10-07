@@ -249,6 +249,8 @@ namespace Desert::Graphic::RDG
     private:
         friend class PassBuilder;
         friend class PassContext;
+        // Compile's working state and its phases (RDGCompile.cpp; UE FRDGBuilder::Compile).
+        class Compiler;
 
         Common::BoolResultStr RecordExternalStates( std::span<const Barrier> barriers );
 
