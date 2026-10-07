@@ -281,7 +281,9 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                 // outside the band with a rank is cloud grown up to the layer's ceiling at a high cover —
                 // the 1048576 voxels this used to call holes are exactly the 16 rows of 65536 columns the
                 // band leaves out, and they are empty on purpose.
-                const unsigned char rank   = baked.GetValue().Ranks[VoxelIndex( x, y, z ) / 4u];
+                const unsigned char rank =
+                     baked.GetValue()
+                          .Ranks[VoxelIndex( x, y, z ) / 4u * Desert::Assets::kCloudProceduralRankChannels];
                 const bool          inBand = y >= bandLo && y < bandHi;
                 if ( ( inBand || solid ) && rank == kCloudProceduralNoRank )
                     ++rankMismatches;
@@ -400,7 +402,9 @@ TEST( CloudProceduralField, TwoSpeciesInOneColumnLeaveNoVoxelOfEitherBandWithout
                 const bool          solid   = baked.GetValue().Voxels[VoxelIndex( x, y, z )] != 0u;
                 const bool          inLower = y >= bands[0].x && y < bands[0].y;
                 const bool          inUpper = y >= bands[1].x && y < bands[1].y;
-                const unsigned char rank    = baked.GetValue().Ranks[VoxelIndex( x, y, z ) / 4u];
+                const unsigned char rank =
+                     baked.GetValue()
+                          .Ranks[VoxelIndex( x, y, z ) / 4u * Desert::Assets::kCloudProceduralRankChannels];
                 if ( ( inLower || inUpper || solid ) && rank == kCloudProceduralNoRank )
                 {
                     ++holes;
@@ -736,7 +740,9 @@ namespace
                     unsigned char& lowest = minima[static_cast<size_t>( z ) * side + x];
                     lowest                = std::min(
                          lowest,
-                         bake.Ranks[( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x] );
+                         bake.Ranks[( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side +
+                                      x ) *
+                                    Desert::Assets::kCloudProceduralRankChannels] );
                 }
         return minima;
     }
@@ -1309,7 +1315,10 @@ TEST( CloudProceduralRankGrowth, TheRankIsContinuousAcrossTheBisectorOfTwoBodies
     for ( size_t at = 0; at < rank.size(); ++at )
         body[at] = std::isfinite( rank[at] );
 
-    Desert::Assets::CloudProceduralGrowRankIntoAir( rank, owner, { glm::uvec2( 0u, h ) }, w, h, d, voxelKm, rise );
+    // The slabs are their own cores (no softness term in this synthetic field); the air takes its source's.
+    std::vector<float> core = rank;
+    Desert::Assets::CloudProceduralGrowRankIntoAir( rank, core, owner, { glm::uvec2( 0u, h ) }, w, h, d, voxelKm,
+                                                    rise );
 
     size_t walls = 0;
     for ( uint32_t z = 0; z < d; ++z )
@@ -1334,4 +1343,14 @@ TEST( CloudProceduralRankGrowth, TheRankIsContinuousAcrossTheBisectorOfTwoBodies
     // 0.1 km from the low slab's edge (x 12) to x 29: 0.425 < 0.9 + 0.025.
     EXPECT_FLOAT_EQ( rank[index( 30, 3, 5 )], 0.9f );
     EXPECT_NEAR( rank[index( 29, 3, 5 )], rise * 1.7f, 1e-4f );
+
+    // THE CORE TRAVELS WITH THE CONE (FARWX-b12): the air before the high slab grew from the LOW slab, so it
+    // carries the low slab's core 0 — the march measures the cover's run past THAT cluster, not past 0.9 —
+    // and no voxel's core is above its own rank (the pair the march's remap divides).
+    EXPECT_FLOAT_EQ( core[index( 29, 3, 5 )], 0.0f );
+    EXPECT_FLOAT_EQ( core[index( 30, 3, 5 )], 0.9f );
+    size_t inverted = 0;
+    for ( size_t at = 0; at < rank.size(); ++at )
+        inverted += core[at] > rank[at] + 1e-6f ? 1u : 0u;
+    EXPECT_EQ( inverted, 0u ) << "a voxel's core rank sits above its own rank";
 }

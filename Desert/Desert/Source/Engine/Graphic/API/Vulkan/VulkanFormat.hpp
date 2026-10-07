@@ -38,6 +38,8 @@ namespace Desert::Graphic::API::Vulkan
                     return VK_FORMAT_R16_UNORM;
                 case Core::Formats::ImageFormat::R8_UNORM:
                     return VK_FORMAT_R8_UNORM;
+                case Core::Formats::ImageFormat::RG8_UNORM:
+                    return VK_FORMAT_R8G8_UNORM;
                 case Core::Formats::ImageFormat::R32F:
                     return VK_FORMAT_R32_SFLOAT;
                 case Core::Formats::ImageFormat::DEPTH24STENCIL8:

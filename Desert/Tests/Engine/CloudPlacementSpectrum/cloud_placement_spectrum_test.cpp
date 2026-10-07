@@ -142,7 +142,9 @@ namespace
                     unsigned char& lowest = minima[static_cast<size_t>( z ) * side + x];
                     lowest                = std::min(
                          lowest,
-                         bake.Ranks[( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x] );
+                         bake.Ranks[( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side +
+                                      x ) *
+                                    Desert::Assets::kCloudProceduralRankChannels] );
                 }
         return minima;
     }

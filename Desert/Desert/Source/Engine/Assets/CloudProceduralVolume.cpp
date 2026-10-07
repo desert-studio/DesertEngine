@@ -1700,7 +1700,8 @@ namespace Desert::Assets
     /// Y runs over the whole column (a source a few rows outside its band still reaches into it); X and
     /// Z then only over the band's rows, because those passes never mix rows and the rows outside the
     /// band are never read.
-    void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, const std::vector<uint8_t>& ownerSlot,
+    void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, std::vector<float>& coreField,
+                                         const std::vector<uint8_t>&    ownerSlot,
                                          const std::vector<glm::uvec2>& bandRows, uint32_t width, uint32_t height,
                                          uint32_t depth, const glm::vec3& voxelKm, float risePerKm )
     {
@@ -1714,6 +1715,7 @@ namespace Desert::Assets
         };
 
         std::vector<float> grown( count, std::numeric_limits<float>::infinity() );
+        std::vector<float> grownCore( count, std::numeric_limits<float>::infinity() );
         std::vector<float> cost( count );
         std::vector<int>   feature( count );
 
@@ -1866,7 +1868,12 @@ namespace Desert::Assets
                         const size_t at = index( x, y, z );
                         if ( feature[at] < 0 )
                             continue;
-                        grown[at] = std::min( grown[at], coneAt( feature[at], x, y, z ) );
+                        const float cone = coneAt( feature[at], x, y, z );
+                        if ( cone < grown[at] )
+                        {
+                            grown[at]     = cone;
+                            grownCore[at] = coreField[static_cast<size_t>( feature[at] )];
+                        }
                     }
         }
 
@@ -1879,7 +1886,10 @@ namespace Desert::Assets
         // so a fused cluster has no wall inside it.
         for ( size_t at = 0; at < count; ++at )
             if ( !std::isfinite( rankField[at] ) )
+            {
                 rankField[at] = grown[at];
+                coreField[at] = grownCore[at];
+            }
         }
 
         namespace
@@ -1901,6 +1911,7 @@ namespace Desert::Assets
             /// minima are packed, F stretches them, every kept body sat a whole ramp past its threshold and
             /// was drawn at profile 1 — a flat, featureless mass with only its halo for an edge.
             std::vector<unsigned char> CloudProceduralRankColumnCdf( const std::vector<float>& rankField,
+                                                                     const std::vector<float>& coreField,
                                                                      uint32_t width, uint32_t height,
                                                                      uint32_t depth, float softness,
                                                                      float& riseOut )
@@ -1933,15 +1944,25 @@ namespace Desert::Assets
                                                                          static_cast<double>( minima.size() ) ),
                                                      1.0f / 255.0f );
 
-                std::vector<unsigned char> ranks( rankField.size(), kCloudProceduralNoRank );
+                // BOTH RANKS THROUGH THE ONE MAP: the core is a rank of the same field (the cell rank a body's
+                // voxels rise from), so F is monotone across the pair and byte 1 never exceeds byte 0.
+                const auto toByte = [&]( float rank )
+                {
+                    const size_t below = static_cast<size_t>(
+                         std::lower_bound( minima.begin(), minima.end(), rank ) - minima.begin() );
+                    const double fraction = static_cast<double>( below ) / static_cast<double>( columns );
+                    return static_cast<unsigned char>( std::min( 254.0, std::floor( fraction * 255.0 ) ) );
+                };
+                std::vector<unsigned char> ranks( rankField.size() * kCloudProceduralRankChannels,
+                                                  kCloudProceduralNoRank );
                 for ( size_t at = 0; at < rankField.size(); ++at )
                 {
                     if ( !std::isfinite( rankField[at] ) )
                         continue;
-                    const size_t below = static_cast<size_t>(
-                         std::lower_bound( minima.begin(), minima.end(), rankField[at] ) - minima.begin() );
-                    const double fraction = static_cast<double>( below ) / static_cast<double>( columns );
-                    ranks[at] = static_cast<unsigned char>( std::min( 254.0, std::floor( fraction * 255.0 ) ) );
+                    const unsigned char own                  = toByte( rankField[at] );
+                    ranks[at * kCloudProceduralRankChannels] = own;
+                    ranks[at * kCloudProceduralRankChannels + 1u] =
+                         std::isfinite( coreField[at] ) ? std::min( own, toByte( coreField[at] ) ) : own;
                 }
                 return ranks;
             }
@@ -1988,6 +2009,9 @@ namespace Desert::Assets
         // Which species set each finite rank — the band the growth into air may fill (see
         // CloudProceduralGrowRankIntoAir). Written beside rankField, by the same thread.
         std::vector<uint8_t> rankOwner( rankField.size(), 0u );
+        // The CLUSTER's rank beside each voxel's own (the cell rank before the softness term) — what the
+        // march measures the cover's run past (CloudRankProfile, FARWX-b12). Written beside rankField.
+        std::vector<float> coreField( rankField.size(), std::numeric_limits<float>::infinity() );
 
         // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
         // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
@@ -2270,6 +2294,7 @@ namespace Desert::Assets
                                  {
                                      rankField[at / kCloudProceduralBytesPerVoxel] =
                                           nearestRank + rankSoftness * ( 1.0f - profile );
+                                     coreField[at / kCloudProceduralBytesPerVoxel] = nearestRank;
                                      rankOwner[at / kCloudProceduralBytesPerVoxel] = static_cast<uint8_t>( slot );
                                  }
                              }
@@ -2301,10 +2326,11 @@ namespace Desert::Assets
             { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( height ) ) ); };
             bandRows[slot] = glm::uvec2( row( std::floor( lo ) ), row( std::ceil( hi ) ) );
         }
-        CloudProceduralGrowRankIntoAir( rankField, rankOwner, bandRows, width, height, depth,
+        CloudProceduralGrowRankIntoAir( rankField, coreField, rankOwner, bandRows, width, height, depth,
                                         glm::vec3( voxelXKm, voxelYKm, voxelZKm ),
                                         rankSoftness / params.ProfileDepthKm );
-        out.Ranks = CloudProceduralRankColumnCdf( rankField, width, height, depth, rankSoftness, out.RankRise );
+        out.Ranks = CloudProceduralRankColumnCdf( rankField, coreField, width, height, depth, rankSoftness,
+                                                  out.RankRise );
         return Common::MakeSuccess( std::move( out ) );
     }
 

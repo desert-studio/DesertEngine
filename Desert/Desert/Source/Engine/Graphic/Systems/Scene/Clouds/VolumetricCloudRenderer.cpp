@@ -561,7 +561,7 @@ namespace Desert::Graphic::System
                  .Width      = bakedSide,
                  .Height     = Assets::kCloudProceduralVolumeHeight,
                  .Depth      = bakedSide,
-                 .Format     = Core::Formats::ImageFormat::R8_UNORM,
+                 .Format     = Core::Formats::ImageFormat::RG8_UNORM,
                  .Data       = baked.GetValue().Ranks,
                  .Properties = Core::Formats::Sample,
             };

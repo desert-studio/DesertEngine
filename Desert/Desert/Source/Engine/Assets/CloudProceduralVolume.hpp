@@ -207,10 +207,15 @@ namespace Desert::Assets
     /// was, fmod(world, region)) closed every horizon gap with the gap's own copy one region further out.
     inline constexpr float kCloudFarWeatherPeriodKm = 997.0f;
 
-    /// The size of the R8 rank block beside the RGBA8 profile block: one byte per voxel.
+    /// The rank block is RG8: per voxel its OWN rank (byte 0, what CloudProceduralKeep compares) and the CORE
+    /// rank of the cluster it belongs to or grew from (byte 1, never above byte 0) — FARWX-b12.
+    inline constexpr uint32_t kCloudProceduralRankChannels = 2u;
+
+    /// The size of the RG8 rank block beside the RGBA8 profile block: two bytes per voxel.
     inline constexpr uint64_t CloudProceduralRankBytes( uint32_t sideVoxels )
     {
-        return static_cast<uint64_t>( sideVoxels ) * sideVoxels * kCloudProceduralVolumeHeight;
+        return static_cast<uint64_t>( sideVoxels ) * sideVoxels * kCloudProceduralVolumeHeight *
+               kCloudProceduralRankChannels;
     }
 
     /// The exact size of the byte block @ref BakeCloudProceduralVolume returns for a grid of @p sideVoxels.
@@ -756,11 +761,11 @@ namespace Desert::Assets
     using CloudProceduralBakeProgressFn = std::function<bool( float fraction )>;
 
     /// The bake's two blocks: the RGBA8 Dimensional Profile per species (the bytes it always returned) and
-    /// the R8 RANK of the cloud each voxel belongs to, remapped by the region's column CDF so that the
-    /// fraction of columns CloudProceduralKeep keeps at a cover c is c. AIR HAS A RANK TOO: the profile's
-    /// falloff past the nearest body's edge (the march grows the clouds into it as the cover rises, so
-    /// Coverage 1 is the whole sky) — but only within the altitudes of the species that owns that body;
-    /// air above or below its band, and every voxel of a bake with no cloud at all, holds
+    /// the RG8 RANK PAIR (kCloudProceduralRankChannels: the voxel's own rank, then its cluster's core rank),
+    /// remapped by the region's column CDF so that the fraction of columns CloudProceduralKeep keeps at a cover c
+    /// is c. AIR HAS A RANK TOO: the profile's falloff past the nearest body's edge (the march grows the clouds
+    /// into it as the cover rises, so Coverage 1 is the whole sky) — but only within the altitudes of the species
+    /// that owns that body; air above or below its band, and every voxel of a bake with no cloud at all, holds
     /// kCloudProceduralNoRank.
     struct CloudProceduralVolumeBake
     {
@@ -784,7 +789,11 @@ namespace Desert::Assets
     /// and keeps the lowest over the species whose band holds its row; voxels outside every band stay as
     /// they were (infinite in air). The result is continuous — risePerKm-Lipschitz inside a band — which is
     /// what keeps the march's cut from drawing a straight wall where the nearest body changes.
-    void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, const std::vector<uint8_t>& ownerSlot,
+    /// `coreField` is the CLUSTER rank beside it (a body voxel's own cell rank, before the softness term): an
+    /// air voxel that takes a cone takes the core rank of that cone's source with it (FARWX-b12), so the march
+    /// knows how far the cover has run past the cluster the voxel's cloud grew from.
+    void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, std::vector<float>& coreField,
+                                         const std::vector<uint8_t>&    ownerSlot,
                                          const std::vector<glm::uvec2>& bandRows, uint32_t width, uint32_t height,
                                          uint32_t depth, const glm::vec3& voxelKm, float risePerKm );
 
@@ -849,7 +858,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000008ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000009ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
@@ -870,7 +879,7 @@ namespace Desert::Assets
     struct CloudProceduralCachedBake
     {
         std::vector<unsigned char> Voxels;
-        /// The R8 rank block, CloudProceduralRankBytes long (CloudProceduralVolumeBake::Ranks).
+        /// The RG8 rank block, CloudProceduralRankBytes long (CloudProceduralVolumeBake::Ranks).
         std::vector<unsigned char> Ranks;
         /// CloudProceduralVolumeBake::RankRise, stored after the rank block (deriver v8).
         float                      RankRise  = 1.0f;

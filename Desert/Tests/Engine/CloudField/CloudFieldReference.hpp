@@ -418,11 +418,12 @@ namespace Desert::Tests::CloudFieldRef
             state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks, &state.RankRise );
         }
 
-        // THE R8 RANK, read as the device reads an R8_UNORM volume: trilinear, REPEAT, byte / 255.
-        float CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
+        // THE RG8 RANK PAIR, read as the device reads an RG8_UNORM volume: trilinear, REPEAT, byte / 255 —
+        // x the voxel's own rank, y its cluster's core rank (Assets::kCloudProceduralRankChannels).
+        vec2 CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
         {
             if ( ranks.empty() )
-                return 1.0f;
+                return vec2( 1.0f );
 
             constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
             constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
@@ -450,7 +451,11 @@ namespace Desert::Tests::CloudFieldRef
             const int z1 = ( z0 + 1 ) % depth;
 
             const auto texel = [&]( int ix, int iy, int iz )
-            { return ranks[( static_cast<size_t>( iz ) * height + iy ) * width + ix] / 255.0f; };
+            {
+                const size_t at = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
+                                  Desert::Assets::kCloudProceduralRankChannels;
+                return vec2( ranks[at] / 255.0f, ranks[at + 1u] / 255.0f );
+            };
 
             const auto plane = [&]( int iz )
             {
@@ -519,10 +524,10 @@ namespace Desert::Tests::CloudFieldRef
         // The bound rank, BY REFERENCE. A conditional between `*Ranks` and a temporary vector is a prvalue,
         // so the earlier spelling copied the whole R8 volume on every sample — the reason the coverage
         // sweeps never finished.
-        float CloudSampleBoundRank( vec3 uvw )
+        vec2 CloudSampleBoundRank( vec3 uvw )
         {
             const ModellingVoxels& ranks = ModellingVolume().Ranks;
-            return ranks ? CloudSampleRankBytes( *ranks, uvw ) : 1.0f;
+            return ranks ? CloudSampleRankBytes( *ranks, uvw ) : vec2( 1.0f );
         }
 
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleModellingTexture( p )

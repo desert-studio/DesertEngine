@@ -2536,7 +2536,8 @@ TEST( CloudFieldCut, TheShadersCutIsCloudProceduralKeepAgainstTheLocalCover )
             {
                 const vec3          uvw( ( ix + 0.5f ) / side, ( iy + 0.5f ) / height, ( iz + 0.5f ) / side );
                 const unsigned char rank =
-                     ( *state.Ranks )[( static_cast<size_t>( iz ) * height + iy ) * side + ix];
+                     ( *state.Ranks )[( ( static_cast<size_t>( iz ) * height + iy ) * side + ix ) *
+                                      Desert::Assets::kCloudProceduralRankChannels];
 
                 const bool gpuKeeps =
                      CloudRankProfile( CLOUD_SAMPLE_MODELLING_RANK( uvw ), gpuCover, weather.z ) > 0.0f;
@@ -2552,6 +2553,37 @@ TEST( CloudFieldCut, TheShadersCutIsCloudProceduralKeepAgainstTheLocalCover )
     EXPECT_GT( kept, 0 ) << "nothing was kept, so the comparison is vacuous";
     EXPECT_LT( kept, compared ) << "everything was kept, so the comparison is vacuous";
     EXPECT_EQ( mismatched, 0 ) << "of " << compared << " voxels the shader's cut and CloudProceduralKeep disagree";
+}
+
+// THE CUT IS NUBIS'S COVERAGE REMAP ON THE SIGNED PROFILE, NOT A RAMP THAT SATURATES (FARWX-b12). A cluster the
+// cover has overrun by many rises must keep a gradient across its kept extent — core 1, cut surface 0, the
+// voxel halfway along its rank run at one half — where the b11 ramp (cover - rank) / rise clamped the whole
+// body to one and drew a flat, edgeless mass. A cluster just past its threshold still erodes to its core.
+TEST( CloudFieldCut, AnOverrunClusterKeepsItsGradientAndAJustKeptOneErodesToItsCore )
+{
+    constexpr float h     = 0.5f / 255.0f;
+    constexpr float rise  = 0.05f;
+    constexpr float cover = 0.9f;
+    constexpr float core  = 0.1f;
+
+    // Overrun: the run past the core is 16 rises.
+    EXPECT_NEAR( CloudRankProfile( vec2( core, core ), cover, rise ), 1.0f, 1e-6f );
+    EXPECT_NEAR( CloudRankProfile( vec2( 0.5f * ( cover - h + core ), core ), cover, rise ), 0.5f, 1e-4f )
+         << "the halfway voxel of an overrun cluster saturated: the ramp is back";
+    EXPECT_EQ( CloudRankProfile( vec2( cover, core ), cover, rise ), 0.0f );
+
+    // Just kept: the run is half a rise, so the core sits at half and the profile is the old erosion ramp.
+    const float justCore = cover - h - 0.5f * rise;
+    EXPECT_NEAR( CloudRankProfile( vec2( justCore, justCore ), cover, rise ), 0.5f, 1e-4f );
+
+    // The keep set is the one CloudProceduralKeep makes, whatever the core says.
+    for ( int byte = 0; byte < 255; ++byte )
+    {
+        const float rank = static_cast<float>( byte ) / 255.0f;
+        EXPECT_EQ( CloudRankProfile( vec2( rank, 0.0f ), cover, rise ) > 0.0f,
+                   Desert::Assets::CloudProceduralKeep( static_cast<unsigned char>( byte ), cover ) )
+             << "byte " << byte;
+    }
 }
 
 int main( int argc, char** argv )

@@ -37,8 +37,9 @@
 //     CLOUD_SAMPLE_MODELLING( vec3 uvw )           ->  vec4, the procedural MODELLING VOLUME — ONE CHANNEL
 //                                                      PER SPECIES, in the order of the layer's slots,
 //                                                      each of them that species' Dimensional Profile
-//     CLOUD_SAMPLE_MODELLING_RANK( vec3 uvw )      ->  float, the R8 RANK of the same bake (unorm): the
-//                                                      column-CDF rank of the cloud each voxel belongs to
+//     CLOUD_SAMPLE_MODELLING_RANK( vec3 uvw )      ->  vec2, the RG8 RANK PAIR of the same bake (unorm):
+//                                                      x the column-CDF rank of the voxel itself, y the
+//                                                      core rank of the cluster it belongs to or grew from
 //     CLOUD_SAMPLE_WEATHER( vec2 uv )              ->  float, the world weather W (standard normal) at
 //                                                      uv = windPos.xz / its period, REPEAT
 //     CLOUD_SAMPLE_AUTHORED( vec3 uvw )            ->  vec4, four channels of the sculpted-body ATLAS
@@ -371,13 +372,26 @@ float CloudLocalCover( vec4 weather, vec2 windPosXz )
     return CloudNormalCdf( ( quantile - rho * w ) / residual );
 }
 
-// THE CUT ITSELF: how far past the keep threshold a voxel's rank sits, over the rank's rise across
-// ProfileDepth — so zero EXACTLY where Assets::CloudProceduralKeep is false ((rank + 0.5) / 255 < cover),
-// one a ProfileDepth inside the kept body, and a cloud near the threshold erodes to its core instead of
-// vanishing whole. `rank` is the unorm read, rank byte / 255.
-float CloudRankProfile( float rank, float localCover, float rankRise )
+// THE CUT ITSELF: the coverage remap of Nubis (Schneider, "Nubis, Evolved", SIGGRAPH 2022 —
+// ValueRemap(profile, 1 - coverage, 1, 0, 1); UE ships the same shape in its sample cloud material, a
+// content graph and not engine source) read on the SIGNED profile the rank carries. Along a cloud the voxel
+// rank rises from the cluster's core rank (rank.y) by the softness per ProfileDepth, through the body and on
+// into the air it grew into, so 1 - (rank.x - rank.y) / rankRise IS the body's own form extended past its
+// surface; the cover's run past the core, cover - rank.y, is how far the remap's threshold has moved down it.
+//
+//     Profile = (cover - rank.x) / max(cover - rank.y, rankRise)
+//
+// is that remap normalised to the kept extent: zero EXACTLY where Assets::CloudProceduralKeep is false
+// ((rank + 0.5) / 255 < cover — the keep set and therefore the column-CDF sky fraction are unchanged), one
+// at the core, and in between the cloud's own gradient. A cluster just past its threshold (run under one
+// rise) erodes to its core as before; one the cover has overrun keeps a gradient across ALL of its kept
+// extent instead of saturating — FARWX-b11 measured the old (cover - rank.x) / rankRise clamped at one over
+// the whole body as soon as the run exceeded a rise, which drew flat, edgeless masses over the camera.
+float CloudRankProfile( vec2 rank, float localCover, float rankRise )
 {
-    return clamp( ( localCover - rank - 0.5f / 255.0f ) / max( rankRise, 1e-4f ), 0.0f, 1.0f );
+    float excess = localCover - rank.x - 0.5f / 255.0f;
+    float run    = localCover - min( rank.y, rank.x ) - 0.5f / 255.0f;
+    return clamp( excess / max( run, max( rankRise, 1e-4f ) ), 0.0f, 1.0f );
 }
 
 // The procedural producer — ONE FETCH, four species.

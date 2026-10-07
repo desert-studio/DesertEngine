@@ -279,7 +279,7 @@ namespace Desert::Graphic
     // (Graphic::kSkyTransmittanceLutBinding), so it applies this feature through that descriptor and only
     // its gate travels — see CloudBakeBinding::PerSampleSunTransmittance.
     inline constexpr uint32_t kCloudSunTransmittanceLutBinding = 14;
-    // THE R8 RANK beside the modelling volume (Assets::CloudProceduralVolumeBake::Ranks), same extent and
+    // THE RG8 RANK PAIR beside the modelling volume (Assets::CloudProceduralVolumeBake::Ranks), same extent and
     // region: the column-CDF rank of the cloud each voxel belongs to. The march keeps a voxel where this is
     // under the local cover (CloudGpuPayload::Weather), which is where the Coverage slider and the world
     // weather act now that the bake keeps every cell.

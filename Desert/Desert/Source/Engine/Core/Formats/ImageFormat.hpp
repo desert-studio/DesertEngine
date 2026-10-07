@@ -96,6 +96,10 @@ namespace Desert::Core::Formats
         /// hands it over (Engine/Media/MediaTexture.hpp), converted to RGB on the GPU. APPENDED for the
         /// same renumbering reason as R16_UNORM.
         R8_UNORM,
+        /// `VK_FORMAT_R8G8_UNORM`. Two 8-bit channels: the cloud modelling volume's rank pair (a voxel's own
+        /// rank and its cluster's core rank, Assets::CloudProceduralVolumeBake::Ranks), read in ONE fetch.
+        /// APPENDED for the same renumbering reason as R16_UNORM.
+        RG8_UNORM,
 
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
@@ -195,6 +199,8 @@ namespace Desert::Core::Formats
                 return { 1, 1, 2 }; // one channel, 16 bits
             case ImageFormat::R8_UNORM:
                 return { 1, 1, 1 }; // one channel, 8 bits
+            case ImageFormat::RG8_UNORM:
+                return { 1, 1, 2 }; // two channels, 8 bits each
             case ImageFormat::R32F:
                 return { 1, 1, 4 }; // one channel, 32-bit float
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
@@ -257,6 +263,8 @@ namespace Desert::Core::Formats
             case ImageFormat::R8_UNORM:
             case ImageFormat::R32F:
                 return 1;
+            case ImageFormat::RG8_UNORM:
+                return 2;
             case ImageFormat::BC6H_UFLOAT:
                 return 3; // radiance; the format has no alpha at all
             case ImageFormat::BC5_UNORM:
@@ -334,6 +342,7 @@ namespace Desert::Core::Formats
             case ImageFormat::BGRA8F:
             case ImageFormat::R16_UNORM:
             case ImageFormat::R8_UNORM:
+            case ImageFormat::RG8_UNORM:
             case ImageFormat::R32F:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:

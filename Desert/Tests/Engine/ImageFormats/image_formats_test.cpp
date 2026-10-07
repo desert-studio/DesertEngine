@@ -111,6 +111,10 @@ TEST( ImageFormatBytesPerPixel, R8IsOneColourChannelOfOneByte )
     EXPECT_EQ( GetImageAspect( ImageFormat::R8_UNORM ), Formats::ImageAspect_Colour );
     EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::R8_UNORM ) );
     EXPECT_EQ( CalculateImageSize( 160, 90, ImageFormat::R8_UNORM ), 160u * 90u );
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::RG8_UNORM ), 2u );
+    EXPECT_EQ( GetImageAspect( ImageFormat::RG8_UNORM ), Formats::ImageAspect_Colour );
+    EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::RG8_UNORM ) );
+    EXPECT_EQ( CalculateImageSize( 160, 90, ImageFormat::RG8_UNORM ), 160u * 90u * 2u );
 }
 
 // The property the deleted `return 0U;` used to violate: no declared format answers zero. A zero here

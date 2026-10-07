@@ -264,11 +264,12 @@ namespace Desert::Tests::CloudAuthoredRef
             return plane( z0 ) * ( 1.0f - fz ) + plane( z1 ) * fz;
         }
 
-        // THE R8 RANK, read as the device reads an R8_UNORM volume: trilinear, REPEAT, byte / 255.
-        float CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
+        // THE RG8 RANK PAIR, read as the device reads an RG8_UNORM volume: trilinear, REPEAT, byte / 255 —
+        // x the voxel's own rank, y its cluster's core rank (Assets::kCloudProceduralRankChannels).
+        vec2 CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
         {
             if ( ranks.empty() )
-                return 1.0f;
+                return vec2( 1.0f );
 
             constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
             constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
@@ -296,7 +297,11 @@ namespace Desert::Tests::CloudAuthoredRef
             const int z1 = ( z0 + 1 ) % depth;
 
             const auto texel = [&]( int ix, int iy, int iz )
-            { return ranks[( static_cast<size_t>( iz ) * height + iy ) * width + ix] / 255.0f; };
+            {
+                const size_t at = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
+                                  Desert::Assets::kCloudProceduralRankChannels;
+                return vec2( ranks[at] / 255.0f, ranks[at + 1u] / 255.0f );
+            };
 
             const auto plane = [&]( int iz )
             {
