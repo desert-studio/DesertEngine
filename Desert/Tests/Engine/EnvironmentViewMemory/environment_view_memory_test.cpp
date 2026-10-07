@@ -355,9 +355,3 @@ TEST( EnvironmentViewMemory, TheCubeSlotWritesEvenWhenItHasNothing )
     EXPECT_EQ( body.find( "if ( m_Texture )" ), std::string::npos )
          << "TextureCubeProperty::Apply is guarding its descriptor write on having a texture again";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

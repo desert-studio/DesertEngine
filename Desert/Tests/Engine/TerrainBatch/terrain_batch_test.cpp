@@ -191,9 +191,3 @@ TEST( TerrainTextureKey, APaintedTileIsItsOwnMaterialAndStaysOneWhileItsWeightma
     EXPECT_EQ( painted, TerrainTextureKey( WithTextures( {} ), &height, &weights ) );
     EXPECT_NE( painted, TerrainTextureKey( WithTextures( {} ), &height, &other ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

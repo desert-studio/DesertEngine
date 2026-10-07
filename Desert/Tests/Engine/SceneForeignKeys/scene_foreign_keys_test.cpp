@@ -642,9 +642,3 @@ TEST( SceneDocumentCensus, EveryLoadParsesTheSceneTextOnce )
              << file << " asks the gate and then hands the TEXT to the loader, which parses it again";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

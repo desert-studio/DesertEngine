@@ -219,9 +219,3 @@ TEST( ToolbarLayout, LabelsStayWhileThereIsRoomForThem )
     row.ContentMaxX = 8.0f + 1644.0f;
     EXPECT_EQ( Layout::ChooseLeftLabels( row ), Layout::LeftLabels::IconsOnly );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

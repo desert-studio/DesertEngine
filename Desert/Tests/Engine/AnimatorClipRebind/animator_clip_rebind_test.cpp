@@ -157,9 +157,3 @@ TEST( AnimatorClipRebind, AnUnchangedClipKeepsItsBinding )
              << "frame " << frame << ": a clip whose tracks never moved changed its answer";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

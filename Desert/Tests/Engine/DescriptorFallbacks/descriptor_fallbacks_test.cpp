@@ -156,9 +156,3 @@ TEST( DescriptorFallbacks, AShaderWithNoImagesEnumeratesNothing )
     const ShaderResource::ShaderDescriptorSet empty;
     EXPECT_TRUE( ShaderResource::CollectImageBindings( empty ).empty() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

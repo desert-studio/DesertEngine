@@ -39,6 +39,7 @@
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 using Common::Utils::AssetRegistry;
 using Common::Utils::AssetRegistryEntry;
@@ -524,14 +525,6 @@ TEST( CookedAssetRegistry, AKindOrASizeThatDisagreesIsReportedAndTheRowIsStillFo
     EXPECT_EQ( problems.size(), 2u ) << "one row, two independent faults, two sentences";
 }
 
-int main( int argc, char** argv )
-{
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── AF7: THE HEADER COLUMN ────────────────────────────────────────────────────────────────────────
 //
 // The registry records what each file's OWN HEADER states - GUID and subsystem versions - read without
@@ -820,3 +813,9 @@ TEST( CookedAssetRegistry, AVersionSixCacheIsRefusedBecauseItsClipRowsHaveNoRig 
     ASSERT_FALSE( old ) << "a version-6 registry cache was read";
     EXPECT_NE( old.GetError().find( "DesertAssetRegistryCache 6" ), std::string::npos ) << old.GetError();
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

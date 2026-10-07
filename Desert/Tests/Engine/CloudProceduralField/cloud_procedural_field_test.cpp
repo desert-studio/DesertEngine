@@ -954,13 +954,6 @@ TEST( CloudProceduralBudget, ACancelledBakeStopsEarlyAndSaysSoRatherThanReturnin
     EXPECT_FALSE( cancelled ) << "a cancelled bake returned a volume";
     EXPECT_EQ( calls, 1 ) << "the bake carried on past a callback that said stop";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // -------------------------------------------------------------------------------------------------------
 // THE DDC KEY OF THE MODELLING VOLUME — every input the bake reads, and nothing it does not
 // -------------------------------------------------------------------------------------------------------

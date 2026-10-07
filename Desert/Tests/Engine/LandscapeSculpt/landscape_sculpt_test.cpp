@@ -953,13 +953,6 @@ TEST( LandscapeSculpt, BadErosionSettingsAreRefused )
     EXPECT_FALSE( ValidateLandscapeHydroErosion( hydro ).IsSuccess() );
     EXPECT_FALSE( stroke.Touched() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ---- Mirror and Copy/Paste (L7, ported from UE 5.8 LandscapeEdModeMirrorTool.cpp and
 // LandscapeEdModeComponentTools.cpp) ----
 

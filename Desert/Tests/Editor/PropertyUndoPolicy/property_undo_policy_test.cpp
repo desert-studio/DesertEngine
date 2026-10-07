@@ -350,9 +350,3 @@ TEST( PropertyUndoPolicy, AStringEntryRestoresTheValueIncludingHeapAllocatedOnes
     ASSERT_TRUE( history.Redo() );
     EXPECT_EQ( field, longNew );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

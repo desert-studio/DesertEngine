@@ -480,9 +480,3 @@ TEST( WorldPartitionResidency, TheSameRunTwiceAndReportsInAnotherOrderGiveTheSam
     EXPECT_EQ( flat( once ), flat( run( false ) ) );
     EXPECT_EQ( flat( once ), flat( run( true ) ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

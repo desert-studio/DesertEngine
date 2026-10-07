@@ -253,9 +253,3 @@ TEST( CrashReportParse, ThePlayerViewDrawsOnlyThePlayersRows )
         EXPECT_EQ( line.value.find( "DESKTOP" ), std::string::npos ) << line.label;
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

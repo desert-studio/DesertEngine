@@ -315,9 +315,3 @@ TEST( AnimationClipCorpus, Generation3IsRefusedByName )
     EXPECT_NE( read.GetError().find( "generation 3" ), std::string::npos ) << read.GetError();
     EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

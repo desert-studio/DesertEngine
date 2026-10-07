@@ -277,9 +277,3 @@ TEST( DeviceCapsCensus, TheDeviceIsBuiltFromTheProbedObject )
     EXPECT_EQ( device.find( "enabledExtensionCount" ), std::string::npos );
     EXPECT_EQ( device.find( "pEnabledFeatures" ), std::string::npos );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

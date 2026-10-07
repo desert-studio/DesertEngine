@@ -1974,6 +1974,14 @@ namespace Desert::Tests::PointerCensus
           "the edge that won this texel's channel, inside the Shape the caller owns for the whole "
           "generation; the EdgePoint itself dies at the end of the texel" },
         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+          "UIViewContext", "m_Resources", Guard::ObservedContainsUs,
+          "where this view's sprites, frames, themes, fonts and icons come from, as an IUICanvasResources. "
+          "Bound by the constructor and never null. Q1: nobody destroys the pointee through this member -- "
+          "the engine's RegistryUICanvasResources is a BY-VALUE member declared BEFORE the view in the same "
+          "host (EditorUIPass, UIEditorPanel, RuntimeLayer), so it is constructed first and destroyed last; a "
+          "test's mock is a file-scope object that outlives every view. Q2: a copy (the introspection probe) "
+          "lives inside one call of the host that owns both" },
+        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
           "UIViewContext", "Registry", Guard::FrameScoped,
           "the scene registry, handed to the UI pass for one frame and never stored past it" },
         { "Desert/Common/Source/Common/Core/Events/EventTree.hpp",

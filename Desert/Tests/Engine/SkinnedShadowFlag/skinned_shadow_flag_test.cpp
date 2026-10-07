@@ -239,9 +239,3 @@ TEST( SkinnedShadowFlag, TheRegistryWritesTheFlagOnlyWhenOffAndAppliesItWithTheC
     EXPECT_GE( occurrences( src, "smc.CastShadows=meshData.CastShadows.value_or(smc.CastShadows)" ), 2u )
          << "fewer than two mesh deserializers apply CastShadows from the payload";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

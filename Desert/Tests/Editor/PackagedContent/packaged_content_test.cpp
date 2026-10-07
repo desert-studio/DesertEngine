@@ -76,6 +76,7 @@
 #include "../../TestSupport/result_assert.hpp"
 #include "../../TestSupport/pe_image.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace fs = std::filesystem;
 
@@ -1845,14 +1846,6 @@ TEST( PackagedContent, EachConfigurationPackagesExactlyTheShaderProgramsItsRunti
         EXPECT_TRUE( runtimePrograms.contains( std::string( name ) ) )
              << name << " is listed as developer-only and no such program is in the engine shader tree";
 }
-
-int main( int argc, char** argv )
-{
-    Desert::TestSupport::SetSuiteEngineDir();
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ---- THE TEXTURES A PACKAGE CARRIES ARE COOKED INSIDE IT (PK1) ------------------------------------------
 //
 // The runtime holds no image decoder (T3.3 removed the last one, the sky panorama's), so a texture reaches
@@ -2433,3 +2426,9 @@ TEST( PackagedContent, ThePackagedGameReadsItsShadingModelsFromThePakAndWritesNo
     EXPECT_EQ( onDisk, std::vector<std::string>{ "Content.dpak" } )
          << "the packaged game wrote into its package directory";
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

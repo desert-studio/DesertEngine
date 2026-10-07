@@ -192,7 +192,7 @@ TEST( CloudNoiseVolumeRelation, TheVolumeTILESTheWayTheSamplerAssumesItDoes )
 // The container.
 // ---------------------------------------------------------------------------------------------------
 
-TEST( CloudNoiseContainer, ARoundTripReturnsEverythingItWasGiven )
+TEST( CloudNoiseVolumeContainer, ARoundTripReturnsEverythingItWasGiven )
 {
     CloudNoiseVolumeData original = Generate( SmallParams() );
     original.Guid                 = Common::Content::AssetGuid::Generate();
@@ -217,7 +217,7 @@ TEST( CloudNoiseContainer, ARoundTripReturnsEverythingItWasGiven )
     EXPECT_EQ( read.Voxels, original.Voxels );
 }
 
-TEST( CloudNoiseContainer, TheEnvelopeStatesKindGuidAndTheContainerVersionUnderDcnv )
+TEST( CloudNoiseVolumeContainer, TheEnvelopeStatesKindGuidAndTheContainerVersionUnderDcnv )
 {
     // A volume never written has a null GUID; the encoder mints one, and a re-encode of what it decoded
     // keeps it - the property every reference to the volume leans on.
@@ -243,7 +243,7 @@ TEST( CloudNoiseContainer, TheEnvelopeStatesKindGuidAndTheContainerVersionUnderD
     EXPECT_EQ( second.GetValue(), first.GetValue() ) << "a decode/encode round trip must be byte-identical";
 }
 
-TEST( CloudNoiseContainer, ABareContainerIsRefusedByNameAndNamesTheMigrator )
+TEST( CloudNoiseVolumeContainer, ABareContainerIsRefusedByNameAndNamesTheMigrator )
 {
     // The version-2 shape: magic, container version 2, then the payload. It has no GUID to give the volume.
     std::vector<unsigned char> bare( kCloudNoiseMagic, kCloudNoiseMagic + sizeof( kCloudNoiseMagic ) );
@@ -258,7 +258,7 @@ TEST( CloudNoiseContainer, ABareContainerIsRefusedByNameAndNamesTheMigrator )
     EXPECT_NE( decoded.GetError().find( "SceneMigrator" ), std::string::npos ) << decoded.GetError();
 }
 
-TEST( CloudNoiseContainer, ThePayloadCarriesTheDeckSChannelOrder )
+TEST( CloudNoiseVolumeContainer, ThePayloadCarriesTheDeckSChannelOrder )
 {
     const std::vector<unsigned char> payload = EncodeCloudNoisePayload( Generate( SmallParams() ) );
 
@@ -273,7 +273,7 @@ TEST( CloudNoiseContainer, ThePayloadCarriesTheDeckSChannelOrder )
                   "Alligator HF (billowy, fine)" );
 }
 
-TEST( CloudNoiseContainer, ATruncatedPayloadIsRefusedAndSaysSo )
+TEST( CloudNoiseVolumeContainer, ATruncatedPayloadIsRefusedAndSaysSo )
 {
     std::vector<unsigned char> payload = EncodeCloudNoisePayload( Generate( SmallParams() ) );
 
@@ -285,7 +285,7 @@ TEST( CloudNoiseContainer, ATruncatedPayloadIsRefusedAndSaysSo )
     EXPECT_NE( decoded.GetError().find( "truncated" ), std::string::npos ) << decoded.GetError();
 }
 
-TEST( CloudNoiseContainer, APayloadShorterThanItsOwnHeaderIsRefused )
+TEST( CloudNoiseVolumeContainer, APayloadShorterThanItsOwnHeaderIsRefused )
 {
     std::vector<unsigned char> payload = EncodeCloudNoisePayload( Generate( SmallParams() ) );
     payload.resize( kCloudNoiseHeaderSize - 1u );
@@ -295,7 +295,7 @@ TEST( CloudNoiseContainer, APayloadShorterThanItsOwnHeaderIsRefused )
     EXPECT_NE( decoded.GetError().find( "header" ), std::string::npos ) << decoded.GetError();
 }
 
-TEST( CloudNoiseContainer, ACORRUPTEDPayloadIsRefusedByItsChecksum )
+TEST( CloudNoiseVolumeContainer, ACORRUPTEDPayloadIsRefusedByItsChecksum )
 {
     // The failure the length check cannot see, and the expensive one: a file whose middle was damaged
     // renders as clouds with a wrong edge rather than as an error, which is the least diagnosable thing
@@ -310,7 +310,7 @@ TEST( CloudNoiseContainer, ACORRUPTEDPayloadIsRefusedByItsChecksum )
     EXPECT_NE( decoded.GetError().find( "checksum" ), std::string::npos ) << decoded.GetError();
 }
 
-TEST( CloudNoiseContainer, AFileThatIsNotAVolumeAtAllIsRefused )
+TEST( CloudNoiseVolumeContainer, AFileThatIsNotAVolumeAtAllIsRefused )
 {
     std::vector<unsigned char> notAVolume( kCloudNoiseHeaderSize + 64u, 0u );
     notAVolume[0] = 'P';
@@ -323,7 +323,7 @@ TEST( CloudNoiseContainer, AFileThatIsNotAVolumeAtAllIsRefused )
          << decoded.GetError();
 }
 
-TEST( CloudNoiseContainer, AFutureContainerVersionIsRefusedByNumberRatherThanMisread )
+TEST( CloudNoiseVolumeContainer, AFutureContainerVersionIsRefusedByNumberRatherThanMisread )
 {
     // Written by hand at a version this build does not know; the envelope reader refuses the tag's version.
     namespace CC                             = Common::Content;
@@ -346,7 +346,7 @@ TEST( CloudNoiseContainer, AFutureContainerVersionIsRefusedByNumberRatherThanMis
          << decoded.GetError();
 }
 
-TEST( CloudNoiseContainer, AHeaderWhoseResolutionDisagreesWithItsPayloadIsRefused )
+TEST( CloudNoiseVolumeContainer, AHeaderWhoseResolutionDisagreesWithItsPayloadIsRefused )
 {
     // Two statements of one fact, which is the class of defect this programme keeps meeting. Caught here,
     // once, rather than trusted into an out-of-bounds upload later.
@@ -358,7 +358,7 @@ TEST( CloudNoiseContainer, AHeaderWhoseResolutionDisagreesWithItsPayloadIsRefuse
     EXPECT_NE( decoded.GetError().find( "payload bytes" ), std::string::npos ) << decoded.GetError();
 }
 
-TEST( CloudNoiseContainer, AnUnknownPixelFormatIsRefusedRatherThanReadAsBytes )
+TEST( CloudNoiseVolumeContainer, AnUnknownPixelFormatIsRefusedRatherThanReadAsBytes )
 {
     std::vector<unsigned char> payload = EncodeCloudNoisePayload( Generate( SmallParams() ) );
     payload[8]                         = 3u; // some future half-float format
@@ -368,7 +368,7 @@ TEST( CloudNoiseContainer, AnUnknownPixelFormatIsRefusedRatherThanReadAsBytes )
     EXPECT_NE( decoded.GetError().find( "format" ), std::string::npos ) << decoded.GetError();
 }
 
-TEST( CloudNoiseContainer, TheShippedSizeIsTheOneTheBudgetWasWrittenFor )
+TEST( CloudNoiseVolumeContainer, TheShippedSizeIsTheOneTheBudgetWasWrittenFor )
 {
     // A test on the RELATION between the deck's number, the engine's format and the memory budget: 128^3
     // in RGBA8 is 8 MiB, and D-9 allows this subsystem 64. Stated here so a resolution changed on a whim
@@ -381,10 +381,4 @@ TEST( CloudNoiseContainer, TheShippedSizeIsTheOneTheBudgetWasWrittenFor )
     EXPECT_LT( bytes * 2u, 64ull * 1024ull * 1024ull ) << "two volumes at once must still fit the budget";
 
     EXPECT_TRUE( ValidateCloudNoiseVolumeParams( params ) ) << ValidateCloudNoiseVolumeParams( params ).GetError();
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

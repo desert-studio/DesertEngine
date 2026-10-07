@@ -20,7 +20,7 @@
 #include <Engine/UI/UIIntrospection.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <TestSupport/ui_canvas_resources_mock.hpp>
 
 #include <gtest/gtest.h>
 
@@ -29,7 +29,13 @@
 #include <string>
 #include <vector>
 
-// One handle the animated-image stub below answers for, and the fake image it hands back. The draw list
+// The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
+namespace
+{
+    TestSupport::MockUICanvasResources s_Resources;
+} // namespace
+
+// One handle the mock's animated-image answer is armed for, and the fake image it hands back. The draw list
 // treats a texture as an OPAQUE id — it stores the pointer and never dereferences it — so a fixed address
 // is a complete stand-in for a GPU image here, and it is what lets the canvas-background draw be asserted
 // without a device. Only this handle resolves; everything else still gets nothing, so a button with no
@@ -39,108 +45,12 @@ namespace
     constexpr uint64_t kBackgroundHandle = 0xB00B5;
 
     // Never dereferenced. Taken as an address so it is a real, unique object rather than a made-up number.
-    int                       g_FakeImageStorage       = 0;
-    bool                      g_BackgroundServiceArmed = false;
+    int                       g_FakeImageStorage = 0;
     Desert::Graphic::Image2D* FakeImage()
     {
         return reinterpret_cast<Desert::Graphic::Image2D*>( &g_FakeImageStorage );
     }
 } // namespace
-
-// The renderer resolves sprites, fonts, icons and video through these. Every one of them owns GPU objects,
-// and every draw helper already copes with the service being absent — a sprite that will not resolve falls
-// back to its flat colour, text and icons draw nothing. That is exactly the path a headless walk wants, so
-// the suite supplies the accessors itself and returns nothing.
-namespace Desert::Runtime
-{
-    TextureService* ResourceRegistry::GetTextureService()
-    {
-        return nullptr;
-    }
-    ImageService* ResourceRegistry::GetImageService()
-    {
-        return nullptr;
-    }
-    FontService* ResourceRegistry::GetFontService()
-    {
-        return nullptr;
-    }
-    // Ю13's theme service. Absent like the rest, which is a MEANINGFUL state and not a hole: a canvas
-    // with no theme service behind it resolves every slot from the elements' own authored fields, which
-    // is exactly what a canvas with no theme does and what every scene authored before themes existed
-    // does. The walk copes with the accessor being null and never dereferences it.
-    UIThemeService* ResourceRegistry::GetUIThemeService()
-    {
-        return nullptr;
-    }
-    IconService* ResourceRegistry::GetIconService()
-    {
-        return nullptr;
-    }
-    // The one service the suite can stand up, because the only thing the renderer does with what it
-    // returns is put the pointer in a draw command. It is armed by a single test and otherwise absent.
-    AnimatedImageService* ResourceRegistry::GetAnimatedImageService()
-    {
-        static AnimatedImageService stub;
-        return g_BackgroundServiceArmed ? &stub : nullptr;
-    }
-    VideoService* ResourceRegistry::GetVideoService()
-    {
-        return nullptr;
-    }
-
-    // The service METHODS the walk calls on whatever those accessors hand back. Every accessor above
-    // returns nullptr, so none of these can run — they exist because the linker still wants the symbols,
-    // and each fails the test outright rather than returning a plausible value, so a future change that
-    // manages to reach one is a loud failure instead of a quiet stub.
-    Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& ) const
-    {
-        ADD_FAILURE() << "TextureService::Get reached with no texture service";
-        return nullptr;
-    }
-    Graphic::Image* ImageService::Resolve( const ImageHandle& ) const
-    {
-        ADD_FAILURE() << "ImageService::Resolve reached with no image service";
-        return nullptr;
-    }
-    // Answers for exactly one handle. Every other sprite in the walk keeps resolving to nothing, so a
-    // button or panel with no image of its own draws its flat colour as it does everywhere else.
-    Graphic::Image2D* AnimatedImageService::Resolve( const Assets::AssetHandle& handle )
-    {
-        return static_cast<uint64_t>( handle ) == kBackgroundHandle ? FakeImage() : nullptr;
-    }
-    Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
-    {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service (instance "
-                      << static_cast<const void*>( this ) << ")";
-        return nullptr;
-    }
-    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "UIThemeService::Get reached with no theme service";
-        return nullptr;
-    }
-    Font* FontService::Get( uint64_t, float )
-    {
-        ADD_FAILURE() << "FontService::Get reached with no font service";
-        return nullptr;
-    }
-    uint64_t FontService::DefaultFontHandle()
-    {
-        ADD_FAILURE() << "FontService::DefaultFontHandle reached with no font service";
-        return 0;
-    }
-    bool FontService::RequestGlyphs( uint64_t, const std::vector<uint32_t>& )
-    {
-        ADD_FAILURE() << "FontService::RequestGlyphs reached with no font service";
-        return false;
-    }
-    Icon* IconService::Get( uint64_t )
-    {
-        ADD_FAILURE() << "IconService::Get reached with no icon service";
-        return nullptr;
-    }
-} // namespace Desert::Runtime
 
 using Desert::UI::BatchBreak;
 using Desert::UI::Rect;
@@ -293,7 +203,7 @@ TEST( UIIntrospectionBatches, GeometryCountsAreTheDrawListsOwn )
 {
     Scene           scene;
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     UIFrameProbe probe;
@@ -321,7 +231,7 @@ TEST( UIIntrospectionBatches, EveryRecordedBatchIsSubmitted )
     scene.Layout( scene.Panels[2] ).ClipContents = true;
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     UIFrameProbe probe;
@@ -343,7 +253,7 @@ TEST( UIIntrospectionBatches, NoTwoAdjacentBatchesCouldHaveMerged )
     scene.Registry.get<ECS::UIPanelComponent>( scene.Panels[4] ).Data.BackdropBlur = 1.0f;
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     const auto& cmds = dl.GetCommands();
@@ -365,7 +275,7 @@ TEST( UIIntrospectionWalk, CountsAddUp )
     scene.Layout( scene.Panels[1] ).Visibility = ECS::UIVisibility::Hidden;
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     UIFrameProbe probe;
@@ -388,7 +298,7 @@ TEST( UIIntrospectionWalk, OwnAndInheritedAreDifferentAnswers )
     scene.Layout( scene.Panels[0] ).Visibility = ECS::UIVisibility::Hidden;
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     UIFrameProbe probe;
     ASSERT_TRUE( UI::CaptureFrame( ctx, scene.Registry, { scene.Canvas }, dl, kViewport, probe ).IsSuccess() );
@@ -417,7 +327,7 @@ TEST( UIIntrospectionWalk, ABindingThatSaysHiddenIsItsOwnReason )
     UI::UIDataStore::Get().Set( "hud.visible", false );
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     UIFrameProbe probe;
     ASSERT_TRUE( UI::CaptureFrame( ctx, scene.Registry, { scene.Canvas }, dl, kViewport, probe ).IsSuccess() );
@@ -437,7 +347,7 @@ TEST( UIIntrospectionWalk, AScreenThatIsNotCurrentIsItsOwnReason )
     scene.Registry.emplace<ECS::UIScreenComponent>( scene.Panels[1] ).Data.Name = "Settings";
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     UIFrameProbe probe;
     ASSERT_TRUE( UI::CaptureFrame( ctx, scene.Registry, { scene.Canvas }, dl, kViewport, probe ).IsSuccess() );
@@ -465,7 +375,7 @@ TEST( UIIntrospectionWalk, HidingASkippedElementChangesNothing )
     (void)underHidden;
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     UIFrameProbe probe;
     ASSERT_TRUE( UI::CaptureFrame( ctx, scene.Registry, { scene.Canvas }, dl, kViewport, probe ).IsSuccess() );
@@ -483,7 +393,7 @@ TEST( UIIntrospectionWalk, HidingASkippedElementChangesNothing )
         field                         = ECS::UIVisibility::Hidden;
 
         R2D::DrawList2D again;
-        UIViewContext   ctx2;
+        UIViewContext   ctx2{ s_Resources };
         ASSERT_TRUE( Walk( scene, again, ctx2 ) );
         EXPECT_EQ( Fingerprint( again ), baseline )
              << "entity " << static_cast<std::uint32_t>( n.Entity )
@@ -511,7 +421,7 @@ TEST( UIIntrospectionWalk, AnElementScrolledOutOfItsListIsCountedAsClipped )
     const entt::entity belowTheFold = scene.AddPanel( scene.Panels[0], 0.0f, 200.0f, 40.0f, 20.0f );
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     UIFrameProbe probe;
     ASSERT_TRUE( UI::CaptureFrame( ctx, scene.Registry, { scene.Canvas }, dl, kViewport, probe ).IsSuccess() );
@@ -554,7 +464,7 @@ TEST( UIIntrospectionWalk, ARotatedClipperCountsWhatItCutEvenThoughTheBoxesOverl
     const entt::entity inTheCorner = scene.AddPanel( clipper, -90.0f, 80.0f, 40.0f, 40.0f );
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     UIFrameProbe probe;
     ASSERT_TRUE( UI::CaptureFrame( ctx, scene.Registry, { scene.Canvas }, dl, kViewport, probe ).IsSuccess() );
@@ -578,7 +488,7 @@ TEST( UIIntrospectionWalk, DrawOrderIsTheOrderTheWalkEmitsIn )
     const entt::entity child = scene.AddPanel( scene.Panels[0], 0.0f, 0.0f, 20.0f, 20.0f );
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     UIFrameProbe probe;
     ASSERT_TRUE( UI::CaptureFrame( ctx, scene.Registry, { scene.Canvas }, dl, kViewport, probe ).IsSuccess() );
@@ -596,7 +506,7 @@ TEST( UIIntrospectionWalk, ARefusalIsNotAnEmptyFrame )
     const entt::entity notACanvas = scene.Panels[0];
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     UIFrameProbe    probe;
     const auto      result = UI::CaptureFrame( ctx, scene.Registry, { notACanvas }, dl, kViewport, probe );
     EXPECT_FALSE( result.IsSuccess() );
@@ -613,7 +523,7 @@ TEST( UIIntrospectionSink, DisarmedItTouchesNothing )
 {
     Scene           scene( 4 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     UIFrameProbeSink sink;
@@ -633,7 +543,7 @@ TEST( UIIntrospectionSink, ArmedItCapturesAndDisarmingDropsTheFrame )
 {
     Scene           scene( 4 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     UIFrameProbeSink sink;
@@ -660,16 +570,16 @@ TEST( UIIntrospectionCost, AnElementBetweenTwoTexturesIsTheOneThatOpensABatch )
     Scene scene( 3 );
     scene.Registry.get<ECS::UIPanelComponent>( scene.Panels[1] ).Data.Sprite =
          Desert::Assets::AssetHandle( kBackgroundHandle );
-    g_BackgroundServiceArmed = true;
+    s_Resources.AnswerAnimatedFrame( kBackgroundHandle, FakeImage() );
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     ASSERT_EQ( dl.GetCommands().size(), 3u ) << "the sprite panel should split the flat run in two";
 
     const UI::UIElementCost cost =
          UI::ProbeElementCost( ctx, scene.Registry, scene.Canvas, scene.Panels[1], kViewport );
-    g_BackgroundServiceArmed = false;
+    s_Resources.ForgetAnimatedFrames();
 
     ASSERT_TRUE( cost.Valid ) << cost.Refusal;
     EXPECT_EQ( cost.BatchesWith, 3u );
@@ -688,7 +598,7 @@ TEST( UIIntrospectionCost, AFlatPanelBetweenFlatPanelsOpensNothing )
     // The negative control. Without it "OpensBatch" could be true for everything and still pass above.
     Scene           scene( 3 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     const UI::UIElementCost cost =
@@ -703,13 +613,13 @@ TEST( UIIntrospectionCost, RefusesByNameWhenItCannotMeasure )
 {
     Scene scene( 1 );
 
-    const UI::UIElementCost noLayout =
-         UI::ProbeElementCost( UIViewContext{}, scene.Registry, scene.Canvas, scene.Canvas, kViewport );
+    const UI::UIElementCost noLayout = UI::ProbeElementCost( UIViewContext{ s_Resources }, scene.Registry,
+                                                             scene.Canvas, scene.Canvas, kViewport );
     EXPECT_FALSE( noLayout.Valid );
     EXPECT_FALSE( noLayout.Refusal.empty() );
 
     const UI::UIElementCost nothing =
-         UI::ProbeElementCost( UIViewContext{}, scene.Registry, scene.Canvas, entt::null, kViewport );
+         UI::ProbeElementCost( UIViewContext{ s_Resources }, scene.Registry, scene.Canvas, entt::null, kViewport );
     EXPECT_FALSE( nothing.Valid );
     EXPECT_FALSE( nothing.Refusal.empty() );
 }
@@ -760,10 +670,4 @@ TEST( UIIntrospectionBatches, ACanvasWithNoMaterialReportsNoneOfIt )
     EXPECT_EQ( probe.Batches[0].Material, nullptr );
     EXPECT_EQ( probe.Stats.UniqueMaterials, 0u );
     EXPECT_EQ( probe.Stats.PipelineSwitches, 0u );
-}
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

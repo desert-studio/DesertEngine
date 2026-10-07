@@ -383,8 +383,3 @@ TEST( DynamicMesh3Render, UnsetOverlayTriangleIsRefusedByName )
     ASSERT_FALSE( render.IsSuccess() );
     EXPECT_NE( render.GetError().find( "triangle 3" ), std::string::npos );
 }
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -12,6 +12,8 @@
 
 #include <gtest/gtest.h>
 
+#include "TestSupport/repo_root.hpp"
+
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
 
@@ -60,7 +62,8 @@ namespace
     std::vector<CorpusMesh> Corpus()
     {
         std::vector<CorpusMesh> out;
-        for ( const auto& entry : std::filesystem::recursive_directory_iterator( DESERT_SCENES_DIR ) )
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator(
+                   Desert::TestSupport::RepoRoot() / "Projects/Desert/Content/Scenes" ) )
         {
             if ( entry.path().extension() != ".desce" )
                 continue;
@@ -361,10 +364,4 @@ TEST( DynamicMeshSerialization, BrokenDataIsRefusedByEntityName )
     EditMeshSer ragged = good;
     ragged.Positions.pop_back();
     EXPECT_NE( RefusalOf( ragged ).find( "not a whole number of vertices" ), std::string::npos );
-}
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

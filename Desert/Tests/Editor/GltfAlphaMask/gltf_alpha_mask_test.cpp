@@ -228,9 +228,3 @@ TEST( GltfAlphaMask, AGenericTextureReferenceIsNotChanged )
     EXPECT_EQ( Desert::Editor::NormalizeTextureReference( "..\\t\\x.jpg" ),
                std::filesystem::path( "../t/x.jpg" ) );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -322,9 +322,3 @@ TEST( PaletteCommands, TheDictionaryIsAskedForExactlyOncePerOpening )
     EXPECT_TRUE( palette.TakeJustOpened() ) << "the NEXT opening must ask again, or it would show the "
                                                "previous session's list";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

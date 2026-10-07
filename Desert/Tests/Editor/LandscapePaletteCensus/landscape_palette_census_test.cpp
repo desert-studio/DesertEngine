@@ -181,9 +181,3 @@ TEST( LandscapePaletteCensus, EveryRowStillHasItsEntry )
              << "the census names the Landscape palette entry '" << row.Label
              << "' and LandscapeCommands.cpp no longer builds it; remove the row with the entry";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

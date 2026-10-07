@@ -588,13 +588,6 @@ TEST( AuthoredComponentRoundTrip, ALandscapeTileCoordinateThatDoesNotFitIsRefuse
     EXPECT_EQ( tile.TileX, 5 );
     EXPECT_EQ( tile.TileZ, 6 );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // THE SILENT READS THE OLD READERS MADE (JS1c S3). Each of these values was accepted by
 // AuthoredIO::ReadUUID/ReadFloat without a word: `std::stoull` reads "12abc" as 12 and "-1" as UINT64_MAX (a
 // socket re-targeted at an entity nobody named), and a double cast to float turns 1e300 into infinity. The

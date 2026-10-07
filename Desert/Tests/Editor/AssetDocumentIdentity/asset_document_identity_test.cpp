@@ -524,13 +524,6 @@ TEST( PendingViewBytes, AStaticMeshViewerIsAClaimantUntilItsPreviewHoldsTheView 
     raw->BuildPreview();
     EXPECT_EQ( PendingViewBytes( panels ), 0u );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // --- What is spoken for, in bytes (RT2i) ----------------------------------------------------------------
 
 TEST( PendingViewBytes, AnUndrawnClaimantCountsItsForecastAndNothingElseDoes )

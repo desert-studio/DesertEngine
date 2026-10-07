@@ -285,9 +285,3 @@ TEST( SplashLayout, AFileThatIsNotACookedTextureIsRefusedNotDrawn )
     std::ofstream( file, std::ios::binary ) << "this is a jpeg, honestly";
     EXPECT_FALSE( Splash::LoadSplashPixels( file ).IsSuccess() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

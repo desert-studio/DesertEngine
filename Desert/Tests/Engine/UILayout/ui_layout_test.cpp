@@ -186,9 +186,3 @@ TEST( UILayout, TwoInstancesUnderIdenticalParentsResolveIdentically )
     EXPECT_EQ( a.W, b.W );
     EXPECT_EQ( a.H, b.H );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

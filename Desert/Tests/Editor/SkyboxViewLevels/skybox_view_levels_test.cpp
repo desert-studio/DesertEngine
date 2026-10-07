@@ -211,9 +211,3 @@ TEST( SkyboxViewLevels, EverySampledFieldChangesTheFingerprintSoTheGateRendersAg
     ASSERT_TRUE( RunViewAction( turned, "Rotate +90 deg", 8u ) );
     EXPECT_NEAR( turned.RotationDegrees, -90.0f, 1e-4f );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

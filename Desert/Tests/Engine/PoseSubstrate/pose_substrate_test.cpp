@@ -447,9 +447,3 @@ TEST( PoseSubstrate, ABoneRefDistinguishesUnauthoredFromUnresolvable )
     EXPECT_TRUE( good.Resolve( skeleton ) );
     EXPECT_EQ( good.GetIndex(), 0U );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

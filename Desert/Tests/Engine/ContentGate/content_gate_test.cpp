@@ -195,9 +195,3 @@ TEST( ContentGate, TheWaitIsMeasuredAndFreezesWhenItOpens )
     std::this_thread::sleep_for( std::chrono::milliseconds( 12 ) );
     EXPECT_DOUBLE_EQ( gate.ElapsedMs(), settled ) << "the wait kept running after the gate opened";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

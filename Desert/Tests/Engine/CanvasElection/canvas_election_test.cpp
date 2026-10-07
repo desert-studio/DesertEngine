@@ -274,9 +274,3 @@ TEST( CanvasElection, TheMatcherFindsTheFormItBansAndLeavesEnumerationAlone )
     EXPECT_FALSE( banned( "auto c = *reg.view<ECS::MeshComponent>().begin();" ) )
          << "this gate is about canvases; other singleton questions have their own answers";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

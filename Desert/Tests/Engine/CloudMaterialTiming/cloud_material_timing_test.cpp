@@ -369,9 +369,3 @@ TEST( CloudMaterialTiming, EveryCategoryIsWhollyBakeOrWhollyMarch )
     EXPECT_EQ( categories, ( std::set<std::string>{ "Cloud Types", "Weather", "Placement", "Layout", "Detail",
                                                     "Lighting", "Medium" } ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

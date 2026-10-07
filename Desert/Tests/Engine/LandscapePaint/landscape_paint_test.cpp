@@ -408,13 +408,6 @@ TEST( LandscapePaint, UnknownTargetLayerIsRefused )
     ASSERT_FALSE( result.IsSuccess() );
     EXPECT_NE( result.GetError().find( "Snow" ), std::string::npos );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── The weightmap on the GPU ──────────────────────────────────────────────────────────────────────────────
 
 namespace

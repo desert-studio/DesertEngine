@@ -660,9 +660,3 @@ TEST( CloudStagesCensus, TheCloudsWindowReadsTheHandleTheTypeAlreadyBound )
          << "CloudsPanel.cpp no longer reads the handle CloudTypeAsset resolved, so stage 5 of the rail "
             "resolves to nothing whatever the type names";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -8,6 +8,7 @@
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 // AL1-11 / owner decision V2: the startup cook never blocks the reveal. Since AF4h a static mesh's cook is a DDC
 // entry keyed by the source's bytes, so fresh loads now and stale == missing == Pending until the worker's
@@ -76,10 +77,8 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

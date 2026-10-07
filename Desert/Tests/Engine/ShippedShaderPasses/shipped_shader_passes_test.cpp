@@ -18,6 +18,7 @@
 
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -778,15 +779,6 @@ TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )
             " commit.";
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    // The engine resources (the shader root and its shading models) hang off the engine directory the build baked
-    // in; the working directory is never consulted.
-    const Desert::TestSupport::EngineDirScope engineDir;
-    return RUN_ALL_TESTS();
-}
-
 // ── THE PBR ROW IS THE GENERIC ROW (MAT1a-T1) ────────────────────────────────────────────────────────────
 // The six PBR passes read ONE Materials[] row per object, written from the FORWARD material: glass and the
 // RSM/GBuffer pass consume the forward row as it is. So their `Properties Binding(2)` blocks must declare the
@@ -1006,3 +998,9 @@ TEST( ShippedShaderPasses, MeshRendererSlotLookupAgreesWithTheCellLayoutForEvery
     }
     EXPECT_GT( checked, 0u );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

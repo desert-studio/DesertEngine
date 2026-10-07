@@ -921,12 +921,6 @@ TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartit
     }
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ---------------------------------------------------------------------------------------------------
 // 8. THE CORPUS PRESET (WP14) - a world furnished with REAL tracked assets, the streaming-memory instrument
 // ---------------------------------------------------------------------------------------------------

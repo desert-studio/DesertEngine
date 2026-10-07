@@ -552,9 +552,3 @@ TEST( CornellSymmetry, TheSunIsOffAxisOnPurposeAndOnlyReachesOneWall )
     EXPECT_GT( onRight, 0.0f );
     EXPECT_NEAR( onLeft, -onRight, 1e-5f ) << "the two walls face opposite ways; the cosines must too";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

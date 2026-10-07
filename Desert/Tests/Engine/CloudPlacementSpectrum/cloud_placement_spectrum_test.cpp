@@ -3027,9 +3027,3 @@ TEST( CloudPlacementSpectrum, TheShellHoldsNoAltitudeTheBakeCannotFill )
     // shell must still be taken up to it.
     check( 0.85f, 1.80f, "the shipped cumulonimbus' canopy" );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

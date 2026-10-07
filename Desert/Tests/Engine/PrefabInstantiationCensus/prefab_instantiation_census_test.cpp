@@ -329,9 +329,3 @@ TEST( PrefabInstantiationCensus, ASaveWithTheFilesIdentityStatesThatGuidAndNotAN
     EXPECT_FALSE( Desert::Assets::PrefabStatedGuid( freshTree.GetValue() ).IsNull() );
     EXPECT_NE( Desert::Assets::PrefabStatedGuid( freshTree.GetValue() ), stated );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

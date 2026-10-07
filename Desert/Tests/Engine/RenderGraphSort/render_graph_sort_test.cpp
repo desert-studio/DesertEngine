@@ -354,9 +354,3 @@ TEST( PassOrder, APassInAnUnorderedPhaseIsDrawnLastRatherThanLost )
     const std::vector<std::string> expected = { "Mesh", "Stray" };
     EXPECT_EQ( SortNames( passes, phaseOrder ), expected );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

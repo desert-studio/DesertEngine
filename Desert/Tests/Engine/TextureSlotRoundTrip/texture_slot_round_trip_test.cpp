@@ -373,9 +373,3 @@ TEST( TextureSlotRoundTrip, AHandleWithNoRegisteredTextureSaysSoRatherThanWritin
     EXPECT_NE( text.find( std::to_string( kProbeHandle ) ), std::string::npos )
          << "the slot was written out empty without a word about the handle it lost.\nlogged: " << text;
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

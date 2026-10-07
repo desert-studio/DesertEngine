@@ -860,13 +860,6 @@ TEST( DrawList2D, AnObliqueClipDoesNotOpenADrawCallOfItsOwn )
 
     EXPECT_EQ( dl.GetCommands().size(), 1u ) << "an oblique clip opened a draw call of its own";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // --- Ю11: a UI-domain material is a FILL, and what it costs the batcher ------------------------------
 //
 // The whole design rests on one claim — a material adds nothing to the batch key that a texture does not

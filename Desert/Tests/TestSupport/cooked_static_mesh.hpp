@@ -71,7 +71,11 @@ namespace Desert::TestSupport
 
     // A cooked mesh's render form lives in the DDC, and none of the suites that write one opens a project, so
     // the cache would have no root and Put refuses (it used to land in <cwd>/DerivedDataCache — the tree root
-    // under handoff_check). Including this header gives the whole run one throwaway cache.
+    // under handoff_check). A suite that includes this header registers the environment for its own run
+    // (TestSupport/runner.hpp, SuiteEnvironment), which gives it one throwaway cache:
+    //
+    //     namespace { const Desert::TestSupport::SuiteEnvironment kCookedMeshDdc{
+    //     &Desert::TestSupport::MakeCookedMeshDerivedDataEnvironment }; }
     class CookedMeshDerivedDataEnvironment final : public ::testing::Environment
     {
     public:
@@ -89,6 +93,8 @@ namespace Desert::TestSupport
     };
 
     // gtest owns the environment it is handed.
-    inline ::testing::Environment* const g_CookedMeshDerivedData = ::testing::AddGlobalTestEnvironment(
-         new CookedMeshDerivedDataEnvironment ); // NOLINT(cppcoreguidelines-owning-memory)
+    inline ::testing::Environment* MakeCookedMeshDerivedDataEnvironment()
+    {
+        return new CookedMeshDerivedDataEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+    }
 } // namespace Desert::TestSupport

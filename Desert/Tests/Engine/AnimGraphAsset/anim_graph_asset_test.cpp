@@ -351,12 +351,6 @@ TEST( AnimGraphAsset, AGraphWithNoHeaderIsRefusedByNameAndPointsAtTheMigrator )
     EXPECT_NE( loaded.GetError().find( "SceneMigrator" ), std::string::npos ) << loaded.GetError();
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // The linked-layer half of a graph (ANIM-I14) survives the file; a file without it is a graph without layers.
 TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
 {

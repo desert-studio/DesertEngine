@@ -268,9 +268,3 @@ TEST( ScenePathOnlyMeshGuidMigration, AnEnvelopeOfAnotherKindRefuses )
     ASSERT_FALSE( report.Refused.empty() );
     EXPECT_NE( report.Refused.find( "is not a mesh" ), std::string::npos ) << report.Refused;
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

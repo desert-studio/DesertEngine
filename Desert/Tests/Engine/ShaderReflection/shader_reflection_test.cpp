@@ -651,9 +651,3 @@ void main() { gl_Position = vec4(a_Position, 1.0) + a_Unfed; }
                                                           kStreamsVertex, shaderc_glsl_vertex_shader ) ) ) );
     EXPECT_FALSE( clean.has_value() ) << clean.value_or( std::string() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

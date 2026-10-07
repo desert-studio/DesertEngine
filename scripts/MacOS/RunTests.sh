@@ -5,15 +5,11 @@
 # to list this script in `postbuildcommands` and that line never executed once — see the note in
 # Desert/Tests/premake5.lua where it was removed.
 #
-# THIS RUNNER GLOBS; THE WINDOWS ONE DOES NOT. It runs whatever executables it finds in $TEST_DIR,
-# so a suite that stopped LINKING is silently not run rather than reported. The Windows side reads
-# build/TestManifest.txt — the list of suites premake generated projects for — and fails on a name
-# with no binary behind it. Closing the gap here means deciding what a manifest entry means on a
-# platform where a suite may legitimately not be built, which is a separate change with its own
-# verdict; until then this asymmetry is a known hole and not an oversight. What this runner DOES do
-# is compare the two counts and say so (see "manifest" below) — not a gate, but the silence is gone,
-# and it is load-bearing for the timings: a suite that stops linking makes the sweep FASTER, and a
-# faster sweep with no explanation is indistinguishable from an optimisation that worked.
+# THE LIST OF SUITES IS build/TestManifest.txt, AS ON WINDOWS (BUILD1). Each line is `<Executable> <Suite>`:
+# the layer's runner (one process per suite, `--desert-suite=<Suite>`) or, for a suite not converted to a
+# runner yet, its own binary, which ignores that flag. This runner used to glob the output directory, so a
+# suite that stopped LINKING was silently not run; now a manifest suite with no binary has no result and
+# fails the run, the same verdict RunTests.ps1 gives.
 #
 # ── WHY THIS RUNS SUITES CONCURRENTLY, WITH THE NUMBERS ────────────────────────────────────────────
 #
@@ -78,7 +74,8 @@ if [ "${1:-}" = "--one" ]; then
     W_ROOT="$1"
     W_CONFIG="$2"
     W_NAME="$3"
-    W_BIN="$W_ROOT/build/Bin/Tests/$W_CONFIG/$W_NAME"
+    W_EXE="$(awk -v s="$W_NAME" '$2 == s { print $1 }' "$W_ROOT/build/TestManifest.txt")"
+    W_BIN="$W_ROOT/build/Bin/Tests/$W_CONFIG/${W_EXE:-$W_NAME}"
     W_REPORTS="$W_ROOT/build/TestReports"
     W_LOG="$W_REPORTS/logs/$W_NAME.log"
     W_STATUS="$W_REPORTS/status/$W_NAME"
@@ -99,10 +96,10 @@ if [ "${1:-}" = "--one" ]; then
     # It is the cheapest honest answer to "can this many of these run at once", which is the question
     # concurrency raises on a sanitizer build. Guarded because a Unix without it is still a Unix.
     if [ -x /usr/bin/time ]; then
-        /usr/bin/time -l "$W_BIN" --gtest_output="xml:$W_REPORTS/$W_NAME.xml" >"$W_LOG" 2>&1
+        /usr/bin/time -l "$W_BIN" --desert-suite="$W_NAME" --gtest_output="xml:$W_REPORTS/$W_NAME.xml" >"$W_LOG" 2>&1
         W_RC=$?
     else
-        "$W_BIN" --gtest_output="xml:$W_REPORTS/$W_NAME.xml" >"$W_LOG" 2>&1
+        "$W_BIN" --desert-suite="$W_NAME" --gtest_output="xml:$W_REPORTS/$W_NAME.xml" >"$W_LOG" 2>&1
         W_RC=$?
     fi
     W_END="$(date +%s)"
@@ -164,16 +161,21 @@ if [ -n "${TEST_LIST:-}" ]; then
         COUNT=$((COUNT + 1))
     done <"$TEST_LIST"
 else
-    for test_bin in "$TEST_DIR"/*; do
-        [ -f "$test_bin" ] && [ -x "$test_bin" ] || continue
-        NAMES="$NAMES$(basename "$test_bin")
+    [ -f "$MANIFEST" ] || { echo "[ERROR] test manifest not found: $MANIFEST (run premake)"; exit 1; }
+    while read -r exe name extra || [ -n "${exe:-}" ]; do
+        [ -n "${exe:-}" ] || continue
+        if [ -z "${name:-}" ] || [ -n "${extra:-}" ]; then
+            echo "[ERROR] malformed manifest line (want '<Executable> <Suite>'): $exe ${name:-} ${extra:-}"
+            exit 1
+        fi
+        NAMES="$NAMES$name
 "
         COUNT=$((COUNT + 1))
-    done
+    done <"$MANIFEST"
 fi
 
 if [ "$COUNT" -eq 0 ]; then
-    echo "[ERROR] no test binaries in $TEST_DIR"
+    echo "[ERROR] no suites listed (build/TestManifest.txt or the shard list)"
     exit 1
 fi
 
@@ -261,26 +263,10 @@ for name in $NAMES; do
 done | sort -rn | head -15 | awk '{ printf "  %6ss  %s\n", $1, $2 }'
 echo
 
-# The manifest cross-check. NOT a gate — see the header — but the counts are printed on every run so
-# that a suite quietly leaving the sweep is a visible event rather than a faster job.
 if [ -n "${TEST_LIST:-}" ]; then
-    # A shard is compared against the whole glob by TestShards.py (plan and verify), not here.
     echo "suites run: $RAN of $COUNT in shard list $TEST_LIST"
-elif [ -f "$MANIFEST" ]; then
-    EXPECTED="$(grep -c '[^[:space:]]' "$MANIFEST")"
-    echo "suites run: $RAN of $COUNT found ($EXPECTED in build/TestManifest.txt)"
-    if [ "$COUNT" -ne "$EXPECTED" ]; then
-        MSG="$COUNT binaries in $TEST_DIR but $EXPECTED projects in build/TestManifest.txt — a suite is not linking, or the manifest is stale"
-        # The ::workflow command:: form is an annotation on CI and line noise in a terminal, so the
-        # same fact is said in whichever dialect the reader is actually in.
-        if [ -n "${GITHUB_ACTIONS:-}" ]; then
-            echo "::warning title=Test suite count::$MSG"
-        else
-            echo "[WARN] $MSG"
-        fi
-    fi
 else
-    echo "suites run: $RAN of $COUNT found (no build/TestManifest.txt to compare against)"
+    echo "suites run: $RAN of $COUNT in build/TestManifest.txt"
 fi
 
 if [ -n "$MISSING" ]; then

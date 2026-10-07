@@ -286,9 +286,3 @@ TEST( PickerRegistryRows, AnInPlaceEditRedescribesTheRowThroughUpdate )
 
     fs::remove_all( project );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

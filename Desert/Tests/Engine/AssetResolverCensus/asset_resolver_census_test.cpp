@@ -35,6 +35,7 @@
 
 #include <gtest/gtest.h>
 #include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -259,9 +260,8 @@ TEST( AssetResolverCensus, TheEngineResourceTreesAreDeliberatelyNotProjectCensus
     EXPECT_FALSE( Common::AssetHandle::AssetsTag().empty() );
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::OpenSuiteProject();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .Project = true } };
+} // namespace

@@ -884,9 +884,3 @@ TEST( ThumbnailRequesters, DetailsBuildsNoRenderViewOfItsOwn )
                  << file << " names " << creator << ": Details shows thumbnails, a live view is an asset window's";
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

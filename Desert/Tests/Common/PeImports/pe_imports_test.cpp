@@ -195,9 +195,3 @@ TEST( AppLocalRuntime, AnEmptyOrMissingRedistDirectoryIsRefused )
     EXPECT_FALSE( AppLocalRuntimeClosure( exe, dir.Crt() ) );
     EXPECT_FALSE( AppLocalRuntimeClosure( exe, dir.Crt() / "absent" ) );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

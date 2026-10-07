@@ -370,9 +370,3 @@ TEST( ImageDiffMath, EveryNEIGHBOUR_PAIR_ENTERS_THE_GRADIENT_INCLUDING_THE_FIRST
     EXPECT_NEAR( d.MeanAbsLuma, 8.0 * ( kW - 1 ) / kW, 1e-9 );
     EXPECT_NEAR( d.Coherence, d.MeanAbsLuma / expectedGrad, 1e-9 );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

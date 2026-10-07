@@ -392,15 +392,15 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-sanitizers-macos14-${{ github.sha }}
 
-      # The expected list is what the unsharded runner ran: the executables in the test directory, minus
-      # the suites that declare `test_needs_vulkan_device` (build/TestNeedsVulkanDevice.txt) while the
-      # shards run on macos-14, a VM with no Metal device for MoltenVK. The plan names them in a ::notice.
+      # The expected list is build/TestManifest.txt, the same list the unsharded runner runs from (BUILD1),
+      # minus the suites Desert/Tests/premake5.lua names in `vulkan_device_suites`
+      # (build/TestNeedsVulkanDevice.txt) while the shards run on macos-14, a VM with no Metal device for
+      # MoltenVK. The plan names them in a ::notice.
       - name: Plan test shards
         env:
           DESERT_MACOS_VULKAN_RUNNER: ${{ vars.DESERT_MACOS_VULKAN_RUNNER }}
         run: >-
-          python3 scripts/CI/TestShards.py plan --expected-dir build/Bin/Tests/Debug
-          --compare-manifest build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
+          python3 scripts/CI/TestShards.py plan --expected build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
           --column asan --shards 3 --out build/TestPlan
           --vulkan-device-suites build/TestNeedsVulkanDevice.txt --vulkan-runner-var DESERT_MACOS_VULKAN_RUNNER
 
@@ -1054,7 +1054,7 @@ jobs:
       # packaging below still run. The expected list is build/TestManifest.txt, the list RunTests.ps1
       # has always failed against; TestShards.py refuses a plan whose union is not exactly that list.
       # The comment above `Run tests` in the shard job says why Shipping has no tests at all.
-      # windows-2022 has no Vulkan device: the suites that declare `test_needs_vulkan_device` leave the plan
+      # windows-2022 has no Vulkan device: the suites in `vulkan_device_suites` leave the plan
       # with a ::notice unless DESERT_WINDOWS_VULKAN_RUNNER is 'true' (the same switch as the smoke-run below).
       - name: Plan test shards
         if: matrix.shards > 0

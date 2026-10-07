@@ -862,12 +862,6 @@ TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
     EXPECT_EQ( checked, links.size() );
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // A rig that names no skeleton, or the null GUID, is refused by name: the binding is part of the asset
 // (ANIM-SKELREF).
 TEST( ControlRigAssetTest, ARigWithoutATargetSkeletonGuidIsRefusedByName )

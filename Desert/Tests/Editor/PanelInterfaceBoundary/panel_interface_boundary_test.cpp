@@ -19,15 +19,14 @@
 // Desert/Tests/Engine/ImGuiBoundary says "the engine and the runtime contain no toolkit at all". That
 // statement is false of this tree: the editor DRAWS with Dear ImGui and must go on naming it in the
 // files that draw. What is asserted here is narrower and is about one header -- the interface panels
-// are declared through -- plus the build rows that prove the header can be compiled without the
-// toolkit anywhere in sight. A census that said both things would be a census whose red means two
-// different repairs.
+// are declared through -- plus every repository header it opens, transitively -- the half a scan of one file
+// cannot see. A census that said both things would be a census whose red means two different repairs.
 //
-// THE COMPILE IS HALF THE GATE AND IT IS THIS FILE ITSELF. This suite includes IPanel.hpp and its own
-// premake5.lua puts NO ThirdParty root on the include path, so restoring `#include <ImGui/imgui.h>`
-// to the header does not merely redden a row below -- it stops this suite building. The rows below
-// exist because a build proves TODAY's include path: they are what fires on the day somebody puts the
-// path back into a premake to "fix" that failure.
+// THE WALK REPLACES THE BUILD ROWS. Four suites used to compile IPanel.hpp from premakes that carried no
+// ThirdParty root, so a toolkit include arriving through any header the interface opens stopped them
+// building. The suites now build inside the EditorTests runner, whose include path holds the toolkit for
+// the editor sources it compiles, so no build can say this any more; the walk over the headers the
+// interface opens says it instead, for the whole chain and not only the first file.
 //
 // COMMENTS AND STRING LITERALS ARE STRIPPED BEFORE ANYTHING IS SEARCHED FOR. This repository has twice
 // switched off a census that reddened on its own prose, once losing a real finding with it -- and
@@ -44,6 +43,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -55,19 +55,6 @@ namespace
 {
     // The one header this census is about.
     constexpr const char* kInterfaceHeader = "Editor/Source/Editor/Panels/IPanel.hpp";
-
-    // THE SUITES THAT COMPILE IT, AS NAMED ROWS RATHER THAN AS A COUNT. A gate pinning a NUMBER can be
-    // satisfied by editing the number; each row here is one premake that must go on building IPanel.hpp
-    // with no toolkit on its include path. Add a suite that includes the header and add it here.
-    // CloudStages is on the list because it compiles Editor/Core/SubjectEditorRegistry.cpp, whose header
-    // opens IPanel.hpp -- the interface arrives TRANSITIVELY there, which is the spelling a reader looking
-    // for `#include <Editor/Panels/IPanel.hpp>` in the test source would miss.
-    constexpr const char* kToolkitFreeConsumers[] = {
-         "Desert/Tests/Editor/PanelInterfaceBoundary/premake5.lua",
-         "Desert/Tests/Editor/AssetDocumentIdentity/premake5.lua",
-         "Desert/Tests/Editor/DocumentOwnership/premake5.lua",
-         "Desert/Tests/Editor/CloudStages/premake5.lua",
-    };
 
     // THE CONVERSION SITE -- where a panel's glm::vec2 becomes the toolkit's ImVec2, which is the other
     // end of this change and the only place that may still name it. It doubles as the negative control:
@@ -172,42 +159,42 @@ namespace
         return found;
     }
 
-    // Lua `--` comments and `--[[ ]]` blocks removed, quoted strings kept: the premake rows this census
-    // reads ARE quoted strings, and the scripts talk in prose about the path they must not carry.
-    std::string StripLuaComments( const std::string& src )
+    // Every header IPanel.hpp opens that lives in this repository, transitively, as repository-relative
+    // paths, the interface itself first. An include is resolved the way the editor's own include path
+    // resolves it -- next to the including file first, then under the three source roots -- and one that
+    // resolves nowhere here (the standard library, glm) is not the repository's to police.
+    std::vector<fs::path> RepoHeadersOpenedBy( const fs::path& root, const fs::path& header )
     {
-        std::string out;
-        for ( std::size_t i = 0; i < src.size(); )
+        static const std::regex kInclude( R"(^\s*#\s*include\s*[<"]([^>"]+)[>"])" );
+        const fs::path          kRoots[] = { "Editor/Source", "Desert/Desert/Source", "Desert/Common/Source" };
+
+        std::vector<fs::path> order{ header };
+        for ( std::size_t next = 0; next < order.size(); ++next )
         {
-            if ( src[i] == '"' || src[i] == '\'' )
+            const fs::path     current = order[next];
+            std::istringstream in( CT::StripComments( ReadAll( root / current ) ) );
+            std::string        line;
+            std::smatch        match;
+            while ( std::getline( in, line ) )
             {
-                const char quote = src[i];
-                out += src[i++];
-                while ( i < src.size() && src[i] != quote )
+                if ( !std::regex_search( line, match, kInclude ) )
+                    continue;
+                const fs::path        named = match[1].str();
+                std::vector<fs::path> candidates{ current.parent_path() / named };
+                for ( const fs::path& base : kRoots )
+                    candidates.push_back( base / named );
+                for ( const fs::path& candidate : candidates )
                 {
-                    if ( src[i] == '\\' && i + 1 < src.size() )
-                        out += src[i++];
-                    out += src[i++];
+                    const fs::path normal = candidate.lexically_normal();
+                    if ( !fs::is_regular_file( root / normal ) )
+                        continue;
+                    if ( std::ranges::find( order, normal ) == order.end() )
+                        order.push_back( normal );
+                    break;
                 }
-                if ( i < src.size() )
-                    out += src[i++];
-                continue;
             }
-            if ( src.compare( i, 4, "--[[" ) == 0 )
-            {
-                const std::size_t end = src.find( "]]", i + 4 );
-                i                     = end == std::string::npos ? src.size() : end + 2;
-                continue;
-            }
-            if ( src.compare( i, 2, "--" ) == 0 )
-            {
-                while ( i < src.size() && src[i] != '\n' )
-                    ++i;
-                continue;
-            }
-            out += src[i++];
         }
-        return out;
+        return order;
     }
 
     std::string Join( const std::vector<std::string>& lines )
@@ -272,39 +259,29 @@ TEST( PanelInterfaceBoundary, TheInterfaceHeaderNamesNoToolkitTypeInCode )
 }
 
 // ----------------------------------------------------------------------------------------------------
-// 2. THE BUILD ROWS -- the half a header scan cannot see
+// 2. THE HEADERS IT OPENS -- the half a scan of one file cannot see
 // ----------------------------------------------------------------------------------------------------
 
-TEST( PanelInterfaceBoundary, TheSuitesThatCompileItCarryNoToolkitIncludePath )
+TEST( PanelInterfaceBoundary, NoHeaderTheInterfaceOpensIncludesTheToolkit )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // TWO SPELLINGS, BECAUSE THE PATH ARRIVES TWO WAYS. The literal is the ThirdParty ROOT -- the only
-    // directory from which `<ImGui/imgui.h>` resolves; the loop over `deps.DesertSpecific.IncludeDir`
-    // carries that same root in its `base` entry, so a premake that dropped the literal and added the
-    // loop would have changed nothing while looking repaired.
-    const std::string literalRoot = "\"%{wks.location}/ThirdParty\"";
-    const std::string depsLoop    = "deps.DesertSpecific.IncludeDir";
+    const std::vector<fs::path> opened = RepoHeadersOpenedBy( root, kInterfaceHeader );
+    // The walk itself is checked: an interface that opened nothing of the repository's would make this
+    // row vacuous, and IPanel.hpp does open engine headers today.
+    ASSERT_GT( opened.size(), 1u ) << kInterfaceHeader << " resolved to no repository header at all";
 
-    for ( const char* script : kToolkitFreeConsumers )
+    for ( const fs::path& header : opened )
     {
-        const std::string text = StripLuaComments( ReadAll( root / script ) );
-        ASSERT_FALSE( text.empty() ) << script
-                                     << " could not be read; a build row naming a missing file is a row "
-                                        "that passes without checking anything";
-
-        EXPECT_EQ( text.find( literalRoot ), std::string::npos )
-             << script
-             << " puts the ThirdParty ROOT back on this suite's include path. That directory exists on "
-                "the path of a test for exactly one reason -- to resolve <ImGui/imgui.h> -- and a suite "
-                "that compiles IPanel.hpp must not need it. If a NEW third-party header is wanted here, "
-                "name its own directory, not the root.";
-
-        EXPECT_EQ( text.find( depsLoop ), std::string::npos )
-             << script
-             << " loops over deps.DesertSpecific.IncludeDir, whose `base` entry IS the ThirdParty root "
-                "(Desert/Dependencies.lua). That is the same path arriving under a different name.";
+        const std::vector<std::string> offenders =
+             ToolkitIncludesIn( CT::StripComments( ReadAll( root / header ) ) );
+        EXPECT_TRUE( offenders.empty() )
+             << header.generic_string() << " is opened by " << kInterfaceHeader
+             << " and includes the toolkit, so every suite and panel that names the interface needs Dear "
+                "ImGui on its include path again -- the cost the interface was cleared of, arriving one "
+                "header further down."
+             << Join( offenders );
     }
 }
 
@@ -350,14 +327,6 @@ TEST( PanelInterfaceBoundary, ProseAndStringLiteralsAreNotCode )
     EXPECT_FALSE( ToolkitIncludesIn( CT::StripComments( "#include \"ImGui/imgui.h\"\n" ) ).empty() )
          << "the quoted spelling of an include is a STRING LITERAL: a scan run over text whose literals "
             "were blanked cannot see it, which is why this scan keeps them";
-
-    // The premake scan's own stripper, both ways round.
-    EXPECT_EQ( StripLuaComments( "-- \"%{wks.location}/ThirdParty\" used to be here\n" )
-                    .find( "%{wks.location}/ThirdParty" ),
-               std::string::npos );
-    EXPECT_NE( StripLuaComments( "externalincludedirs { \"%{wks.location}/ThirdParty\" }\n" )
-                    .find( "%{wks.location}/ThirdParty" ),
-               std::string::npos );
 }
 
 TEST( PanelInterfaceBoundary, TheInterfaceHeaderStillExplainsTheRuleAndTheEditorStillDraws )
@@ -389,10 +358,4 @@ TEST( PanelInterfaceBoundary, TheInterfaceHeaderStillExplainsTheRuleAndTheEditor
             "conversion in it is a loop that stopped applying them.";
     EXPECT_NE( drawingCode.find( "GetWindowPadding" ), std::string::npos )
          << kConversionSite << " no longer asks a panel for its padding at all.";
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

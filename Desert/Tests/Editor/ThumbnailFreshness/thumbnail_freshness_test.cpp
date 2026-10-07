@@ -195,12 +195,6 @@ TEST( ThumbnailFreshness, ThePlaceholderIsOnlyForNoPictureAtAll )
             }
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // THM1n-3: a capture ends only by the renderer's answer. However long it runs, it stays outstanding, and
 // the picture it writes carries the hash taken at DISPATCH, or the next session re-renders it.
 TEST( ThumbnailFreshness, ASlowCaptureStaysOutstandingUntilItsPictureLandsAndIsRecorded )

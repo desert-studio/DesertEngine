@@ -23,6 +23,8 @@
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
+#include <Common/Utilities/FileSystem.hpp>
+#include "../../TestSupport/runner.hpp"
 
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -75,7 +77,7 @@ namespace
     // The engine resolves `#include <...>` against Common::Constants::Path::ShaderDir(), derived from the engine
     // directory the host sets. The suite is that host: it sets the checkout's Editor/ and reads every shader
     // path off ShaderDir(), never off the working directory.
-    struct ShaderRootFixture : ::testing::Test
+    struct ShaderCacheKeyShaderRoot : ::testing::Test
     {
         static void SetUpTestSuite()
         {
@@ -92,7 +94,7 @@ namespace
         static std::filesystem::path s_RepoRoot;
     };
 
-    std::filesystem::path ShaderRootFixture::s_RepoRoot;
+    std::filesystem::path ShaderCacheKeyShaderRoot::s_RepoRoot;
 
     std::string ReadFile( const std::filesystem::path& path )
     {
@@ -330,7 +332,7 @@ namespace
 
 // ---- The cache key ----------------------------------------------------------------------------------
 
-TEST_F( ShaderRootFixture, TheKeyIsStableForUnchangedInput )
+TEST_F( ShaderCacheKeyShaderRoot, TheKeyIsStableForUnchangedInput )
 {
     const std::string source = "#version 450\nvoid main() {}\n";
     const auto        path   = ShaderPath( "Fog/HeightFog.shader" );
@@ -339,7 +341,7 @@ TEST_F( ShaderRootFixture, TheKeyIsStableForUnchangedInput )
                ComputeShaderCacheKey( ShaderStage::Compute, source, path ) );
 }
 
-TEST_F( ShaderRootFixture, EditingTheStageSourceMovesTheKey )
+TEST_F( ShaderCacheKeyShaderRoot, EditingTheStageSourceMovesTheKey )
 {
     const auto path = ShaderPath( "Fog/HeightFog.shader" );
 
@@ -347,7 +349,7 @@ TEST_F( ShaderRootFixture, EditingTheStageSourceMovesTheKey )
                ComputeShaderCacheKey( ShaderStage::Compute, "#version 450\nvoid main() { }\n", path ) );
 }
 
-TEST_F( ShaderRootFixture, TheStageIsPartOfTheKey )
+TEST_F( ShaderCacheKeyShaderRoot, TheStageIsPartOfTheKey )
 {
     const std::string source = "#version 450\nvoid main() {}\n";
     const auto        path   = ShaderPath( "Fog/HeightFog.shader" );
@@ -358,7 +360,7 @@ TEST_F( ShaderRootFixture, TheStageIsPartOfTheKey )
                ComputeShaderCacheKey( ShaderStage::Fragment, source, path ) );
 }
 
-TEST_F( ShaderRootFixture, EditingAnIncludedHeaderMovesTheKey )
+TEST_F( ShaderCacheKeyShaderRoot, EditingAnIncludedHeaderMovesTheKey )
 {
     // THE property the cache rests on. The stage source does not change at all here — only a file it
     // includes does, which is exactly the case a naive key gets wrong.
@@ -384,7 +386,7 @@ TEST_F( ShaderRootFixture, EditingAnIncludedHeaderMovesTheKey )
     EXPECT_EQ( ComputeShaderCacheKey( ShaderStage::Compute, source, path ), before );
 }
 
-TEST_F( ShaderRootFixture, AnIncludeThatDoesNotResolveIsNotFatal )
+TEST_F( ShaderCacheKeyShaderRoot, AnIncludeThatDoesNotResolveIsNotFatal )
 {
     const std::string source = "#version 450\n#include <Common/NoSuchHeaderAnywhere.glslh>\nvoid main() {}\n";
     const auto        path   = ShaderPath( "Fog/HeightFog.shader" );
@@ -402,7 +404,7 @@ TEST_F( ShaderRootFixture, AnIncludeThatDoesNotResolveIsNotFatal )
 // cache is a directory. The symptom would be "my cloud graph does nothing", which names neither a cache
 // nor a key.
 
-TEST_F( ShaderRootFixture, TheVariantSeparatesTwoBodiesUnderOneIncludeName )
+TEST_F( ShaderCacheKeyShaderRoot, TheVariantSeparatesTwoBodiesUnderOneIncludeName )
 {
     // THE MUTATION THIS AXIS EXISTS FOR: same stage, same file, same headers on disk, same include NAME —
     // only the substituted body differs.
@@ -424,7 +426,7 @@ TEST_F( ShaderRootFixture, TheVariantSeparatesTwoBodiesUnderOneIncludeName )
                     Desert::Core::ShaderVariant{ { { "Generated/CloudMedium.glslh", "// medium A\n" } } } ) );
 }
 
-TEST_F( ShaderRootFixture, MovingTextBetweenTwoSubstitutedNamesIsADifferentVariant )
+TEST_F( ShaderCacheKeyShaderRoot, MovingTextBetweenTwoSubstitutedNamesIsADifferentVariant )
 {
     // The hash is order-independent, and the cheap way to get that is to XOR a hash per entry. Hashing
     // the name and the body SEPARATELY would make these two variants equal — the bodies swapped between
@@ -447,7 +449,7 @@ TEST_F( ShaderRootFixture, MovingTextBetweenTwoSubstitutedNamesIsADifferentVaria
                ComputeShaderCacheKey( ShaderStage::Compute, source, path, swapped ) );
 }
 
-TEST_F( ShaderRootFixture, TheDefaultVariantLeavesTheKeyExactlyWhereItWas )
+TEST_F( ShaderCacheKeyShaderRoot, TheDefaultVariantLeavesTheKeyExactlyWhereItWas )
 {
     // Every SPIR-V artifact already on disk was keyed before this axis existed. A default variant that
     // mixed anything at all would invalidate the whole cache — hundreds of cold compiles on the next
@@ -460,7 +462,7 @@ TEST_F( ShaderRootFixture, TheDefaultVariantLeavesTheKeyExactlyWhereItWas )
                ComputeShaderCacheKey( ShaderStage::Compute, source, path, Desert::Core::ShaderVariant{} ) );
 }
 
-TEST_F( ShaderRootFixture, ASubstitutingVariantNeverHashesToTheDefaultsValue )
+TEST_F( ShaderCacheKeyShaderRoot, ASubstitutingVariantNeverHashesToTheDefaultsValue )
 {
     // Zero means "no substitution" everywhere it is read. A variant that substituted something and
     // reported zero would be invisible to the key and to every diagnostic that prints it.
@@ -469,7 +471,7 @@ TEST_F( ShaderRootFixture, ASubstitutingVariantNeverHashesToTheDefaultsValue )
     EXPECT_FALSE( substituting.IsDefault() );
 }
 
-TEST_F( ShaderRootFixture, TheClosureFollowsASubstitutedBodyRatherThanTheFileOnDisk )
+TEST_F( ShaderCacheKeyShaderRoot, TheClosureFollowsASubstitutedBodyRatherThanTheFileOnDisk )
 {
     // A generated medium may include a header of its own. Walking the FILE instead would leave that
     // header out of the key and out of the hot-reload watch list, so editing it would change nothing
@@ -496,7 +498,7 @@ TEST_F( ShaderRootFixture, TheClosureFollowsASubstitutedBodyRatherThanTheFileOnD
             "reachable only through the substitution is invisible to the key and to hot reload.";
 }
 
-TEST_F( ShaderRootFixture, SubstitutingTheShippedMediumMovesTheKeyOfTheRealCloudMarch )
+TEST_F( ShaderCacheKeyShaderRoot, SubstitutingTheShippedMediumMovesTheKeyOfTheRealCloudMarch )
 {
     // Not a synthetic source: the compute stage of the program the camera actually marches, whose include
     // closure reaches Generated/CloudMedium.glslh through Common/CloudField.glslh and names it nowhere.
@@ -534,8 +536,11 @@ TEST_F( ShaderRootFixture, SubstitutingTheShippedMediumMovesTheKeyOfTheRealCloud
 
 namespace
 {
-
-    constexpr const char* kPrintKeysFlag = "--print-shader-keys";
+    // The child is this runner again, entered through `--desert-child=shader-cache-keys` (TestSupport/
+    // runner.hpp): it runs the one printing test below with the printer switched on.
+    constexpr const char* kPrintKeysChild = "shader-cache-keys";
+    constexpr const char* kPrinterTest    = "ShaderCacheKeyShaderRoot.PrintsTheKeysForAnotherProcess";
+    bool                  g_PrintKeys     = false;
     constexpr const char* kKeyLinePrefix = "SHADERKEY ";
 
     // Real shipped programs, both debug-info profiles, and one substituting variant: each input the
@@ -580,20 +585,26 @@ namespace
 
     bool AskedToPrintKeys()
     {
-        const auto& argv = ::testing::internal::GetArgvs();
-        return std::find( argv.begin(), argv.end(), std::string( kPrintKeysFlag ) ) != argv.end();
+        return g_PrintKeys;
     }
+
+    int PrintKeysChild( int argc, char** argv )
+    {
+        g_PrintKeys = true;
+        ::testing::InitGoogleTest( &argc, argv );
+        GTEST_FLAG_SET( filter, kPrinterTest );
+        return RUN_ALL_TESTS();
+    }
+
+    const Desert::TestSupport::ChildEntry kPrintKeys{ kPrintKeysChild, &PrintKeysChild, { .EngineDir = true } };
 
     // Runs this binary as a child that prints the keys; returns the key lines in order.
     std::vector<std::string> KeysFromAnotherProcess()
     {
-        std::filesystem::path self( ::testing::internal::GetArgvs().at( 0 ) );
-        if ( self.is_relative() )
-            self = std::filesystem::absolute( self );
+        std::filesystem::path self = Common::Utils::FileSystem::ExecutablePath();
         // Double quotes: cmd.exe does not treat single quotes as quoting, POSIX sh accepts both.
         const std::string command =
-             std::format( "\"{}\" --gtest_filter=ShaderRootFixture.PrintsTheKeysForAnotherProcess {} 2>&1",
-                          self.make_preferred().string(), kPrintKeysFlag );
+             std::format( "\"{}\" --desert-child={} 2>&1", self.make_preferred().string(), kPrintKeysChild );
 #ifdef _WIN32
         // cmd /c strips the outer pair of quotes when the line starts with one; a second pair survives it.
         FILE* pipe = _popen( ( "\"" + command + "\"" ).c_str(), "r" );
@@ -628,7 +639,7 @@ namespace
 
 // The child half. Run without the flag it computes nothing and passes; it exists to be the process the
 // test below starts.
-TEST_F( ShaderRootFixture, PrintsTheKeysForAnotherProcess )
+TEST_F( ShaderCacheKeyShaderRoot, PrintsTheKeysForAnotherProcess )
 {
     if ( !AskedToPrintKeys() )
         return;
@@ -636,7 +647,7 @@ TEST_F( ShaderRootFixture, PrintsTheKeysForAnotherProcess )
         std::cout << kKeyLinePrefix << line << std::endl;
 }
 
-TEST_F( ShaderRootFixture, TwoProcessesComputeTheSameKeyForTheSameShader )
+TEST_F( ShaderCacheKeyShaderRoot, TwoProcessesComputeTheSameKeyForTheSameShader )
 {
     if ( AskedToPrintKeys() )
         return;
@@ -653,7 +664,7 @@ TEST_F( ShaderRootFixture, TwoProcessesComputeTheSameKeyForTheSameShader )
 
 // ---- The include closure ----------------------------------------------------------------------------
 
-TEST_F( ShaderRootFixture, TheClosureOfTheFogPassListsEveryHeaderItNames )
+TEST_F( ShaderCacheKeyShaderRoot, TheClosureOfTheFogPassListsEveryHeaderItNames )
 {
     const auto path     = ShaderPath( "Fog/HeightFog.shader" );
     const auto source   = StageSource( path, ShaderStage::Compute );
@@ -673,7 +684,7 @@ TEST_F( ShaderRootFixture, TheClosureOfTheFogPassListsEveryHeaderItNames )
     EXPECT_TRUE( contains( "SkyScattering.glslh" ) );
 }
 
-TEST_F( ShaderRootFixture, TheClosureFollowsAHeaderThatIncludesAnother )
+TEST_F( ShaderCacheKeyShaderRoot, TheClosureFollowsAHeaderThatIncludesAnother )
 {
     // The TRANSITIVE step, which is what makes the walk worth having over a single grep of the stage
     // source: UIMatError's vertex stage names Common/UIVertex.glslh, and only UIVertex names
@@ -694,7 +705,7 @@ TEST_F( ShaderRootFixture, TheClosureFollowsAHeaderThatIncludesAnother )
     EXPECT_TRUE( contains( "MaterialTransport.glslh" ) );
 }
 
-TEST_F( ShaderRootFixture, AProgramIsMadeOfItsFileAndTheClosureOfItsTextOnDisk )
+TEST_F( ShaderCacheKeyShaderRoot, AProgramIsMadeOfItsFileAndTheClosureOfItsTextOnDisk )
 {
     // THE HOT-RELOAD DEPENDENCY RULE (SHM1-hr). Editing DefaultLit.shadingmodel rewrote the generated include and
     // recompiled nothing: the reloader walked the ShaderAsset's in-memory text, which an unloaded asset no longer
@@ -720,7 +731,7 @@ TEST_F( ShaderRootFixture, AProgramIsMadeOfItsFileAndTheClosureOfItsTextOnDisk )
     EXPECT_EQ( missing.size(), 1u ) << "a missing file is just itself; the reload reports it";
 }
 
-TEST_F( ShaderRootFixture, TheClosureListsEachFileOnce )
+TEST_F( ShaderCacheKeyShaderRoot, TheClosureListsEachFileOnce )
 {
     const auto path     = ShaderPath( "Fog/HeightFog.shader" );
     const auto includes = CollectShaderIncludes( StageSource( path, ShaderStage::Compute ), path );
@@ -737,7 +748,7 @@ TEST_F( ShaderRootFixture, TheClosureListsEachFileOnce )
 
 // ---- The descriptor count a pipeline layout and a bound set have to agree on ------------------------
 
-TEST_F( ShaderRootFixture, TheFogEvaluationDeclaresFiveDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheFogEvaluationDeclaresFiveDescriptorsInSetZero )
 {
     // The regression guard for the failure this test file exists for: a pipeline built before a shader
     // gained a binding and a set allocated after it cannot be bound together. Five is not a magic number
@@ -754,7 +765,7 @@ TEST_F( ShaderRootFixture, TheFogEvaluationDeclaresFiveDescriptorsInSetZero )
     EXPECT_TRUE( HasBinding( bindings, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // distant sky light
 }
 
-TEST_F( ShaderRootFixture, TheDistantSkyLightDeclaresFourDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheDistantSkyLightDeclaresFourDescriptorsInSetZero )
 {
     // A second pass through the same reflection, and the one that would notice the sky's LUT chain
     // gaining or losing an input: the fill reads the cached transmittance and multi-scatter pair and
@@ -769,7 +780,7 @@ TEST_F( ShaderRootFixture, TheDistantSkyLightDeclaresFourDescriptorsInSetZero )
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // multi-scatter LUT
 }
 
-TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresNineDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresNineDescriptorsInSetZero )
 {
     // THE PRODUCER OF THE CLOUD SHADOW MAP, and the reason it is pinned here rather than trusted: its
     // inputs are bound by NUMBER and not by reflection (ComputePipeline::SetInput takes the binding
@@ -812,7 +823,7 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresNineDescriptorsInSetZero )
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the hero cloud instances
 }
 
-TEST_F( ShaderRootFixture, TheCloudMarchDeclaresFifteenDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheCloudMarchDeclaresFifteenDescriptorsInSetZero )
 {
     // THE VIEW MARCH, pinned on the same terms and for the same reason, and it was NOT pinned before slot
     // A landed — which is precisely why it is worth doing now: two of its ten descriptors are new, both
@@ -854,7 +865,7 @@ TEST_F( ShaderRootFixture, TheCloudMarchDeclaresFifteenDescriptorsInSetZero )
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the hero cloud instances
 }
 
-TEST_F( ShaderRootFixture, TheSkyOcclusionVolumesProducerAndConsumerAgreeAboutTheFieldTheyIntegrate )
+TEST_F( ShaderCacheKeyShaderRoot, TheSkyOcclusionVolumesProducerAndConsumerAgreeAboutTheFieldTheyIntegrate )
 {
     // THE RELATION THAT MAKES THE VOLUME MEAN ANYTHING. A column is integrated by one shader and read by
     // another, and what makes the number correct is that BOTH sampled the same field: the same four noise
@@ -884,7 +895,7 @@ TEST_F( ShaderRootFixture, TheSkyOcclusionVolumesProducerAndConsumerAgreeAboutTh
     EXPECT_EQ( bytes, sizeof( Desert::Graphic::CloudGpuPayload ) );
 }
 
-TEST_F( ShaderRootFixture, TheCloudParameterBlockIsTheSameNumberOfBytesOnBothSidesOfTheWire )
+TEST_F( ShaderCacheKeyShaderRoot, TheCloudParameterBlockIsTheSameNumberOfBytesOnBothSidesOfTheWire )
 {
     // THE RELATION THE static_asserts IN CloudPayload.hpp CANNOT REACH. They pin the C++ struct's offsets
     // against themselves, which catches half a move inside one file and nothing at all about the GLSL
@@ -913,7 +924,7 @@ TEST_F( ShaderRootFixture, TheCloudParameterBlockIsTheSameNumberOfBytesOnBothSid
     }
 }
 
-TEST_F( ShaderRootFixture, TheDeferredLightingPassDeclaresTwentyOneDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyOneDescriptorsInSetZero )
 {
     // THE CONSUMER, and the pass this repository shares most widely — every deferred scene draws it, and
     // it is the one file the cloud work was told to touch as little as possible. Pinning its descriptor
@@ -951,7 +962,7 @@ TEST_F( ShaderRootFixture, TheDeferredLightingPassDeclaresTwentyOneDescriptorsIn
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );
 }
 
-TEST_F( ShaderRootFixture, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteActuallyReads )
+TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteActuallyReads )
 {
     // WHAT THIS REPLACED, because the change is the interesting part. Until the deferred pass got a
     // material of its own, this file asserted the OPPOSITE relation — that StaticMeshGBuffer's set 0 was
@@ -1002,7 +1013,7 @@ TEST_F( ShaderRootFixture, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteActually
     EXPECT_TRUE( HasBinding( forward, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
 }
 
-TEST_F( ShaderRootFixture, TheBindingsComeOutSortedAndCountedTheWayTheLayerCounts )
+TEST_F( ShaderCacheKeyShaderRoot, TheBindingsComeOutSortedAndCountedTheWayTheLayerCounts )
 {
     // The layer reports "N total descriptors", which is the SUM of descriptorCount, not the number of
     // bindings. They agree here only because every binding this engine builds has a count of one — the
@@ -1016,7 +1027,7 @@ TEST_F( ShaderRootFixture, TheBindingsComeOutSortedAndCountedTheWayTheLayerCount
     EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), bindings.size() );
 }
 
-TEST_F( ShaderRootFixture, TheEnvironmentBakeReadsTheSkyAndTheCloudsOnTwoDIFFERENTDESCRIPTORS )
+TEST_F( ShaderCacheKeyShaderRoot, TheEnvironmentBakeReadsTheSkyAndTheCloudsOnTwoDIFFERENTDESCRIPTORS )
 {
     // THE MINE THIS TEST EXISTS FOR, and it is one line of arithmetic rather than a rendering failure.
     // Graphic::kSkyPayloadBinding is 1, and Common/CloudParams.glslh's CLOUD_PARAMS_BINDING defaults to 1
@@ -1038,7 +1049,7 @@ TEST_F( ShaderRootFixture, TheEnvironmentBakeReadsTheSkyAndTheCloudsOnTwoDIFFERE
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the cloud payload
 }
 
-TEST_F( ShaderRootFixture, TheEnvironmentBakeMarchesTheSameFIELDTheScreenMarchDoes )
+TEST_F( ShaderCacheKeyShaderRoot, TheEnvironmentBakeMarchesTheSameFIELDTheScreenMarchDoes )
 {
     // THE RELATION, not the count. What makes the baked environment agree with the visible sky is that
     // both marches sample the SAME field: the same four noise volumes, the same modelling volume, the
@@ -1106,7 +1117,7 @@ namespace
     }
 } // namespace
 
-TEST_F( ShaderRootFixture, ALitGraphSurfaceCompilesEverySharedShadingTextTheMeshShaderDoes )
+TEST_F( ShaderCacheKeyShaderRoot, ALitGraphSurfaceCompilesEverySharedShadingTextTheMeshShaderDoes )
 {
     // THE RELATION Д16 exists to assert, and it is deliberately not "the graph calls AmbientIBL".
     //
@@ -1156,7 +1167,7 @@ TEST_F( ShaderRootFixture, ALitGraphSurfaceCompilesEverySharedShadingTextTheMesh
     EXPECT_GE( shared, 7 ) << "the mesh shader's closure no longer names the shared shading texts";
 }
 
-TEST_F( ShaderRootFixture, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH )
+TEST_F( ShaderCacheKeyShaderRoot, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH )
 {
     // The other half of the same relation: compiling the shared texts is worth nothing if the descriptors
     // they read are not in the set. Each of these is a resource the graph's generated shader could not
@@ -1238,7 +1249,7 @@ namespace
     }
 } // namespace
 
-TEST_F( ShaderRootFixture, AMaterialParameterSitsAtSixteenTimesItsIndexInTheCompiledSpirv )
+TEST_F( ShaderCacheKeyShaderRoot, AMaterialParameterSitsAtSixteenTimesItsIndexInTheCompiledSpirv )
 {
     const auto shaders = ShadersWithAGeneratedMaterialRow();
     ASSERT_FALSE( shaders.empty() ) << "no shipped shader carries a generated material row — either the "
@@ -1313,7 +1324,7 @@ TEST_F( ShaderRootFixture, AMaterialParameterSitsAtSixteenTimesItsIndexInTheComp
 // count then comes from the DECLARATION (three parameters were written, so three slots) instead of
 // from the SPIR-V being examined. That is the whole point: with the count fixed by construction, a
 // row that shrinks fails on the count before it ever reaches the boundary loop.
-TEST_F( ShaderRootFixture, TwoSmallParametersInARowStillLandOnTheirOwnSlots )
+TEST_F( ShaderCacheKeyShaderRoot, TwoSmallParametersInARowStillLandOnTheirOwnSlots )
 {
     // Three parameters, and the first two are the adjacent small pair the shipped set never forms.
     const std::string source = R"(Shader "RowPackingProbe"
@@ -1398,7 +1409,7 @@ TEST_F( ShaderRootFixture, TwoSmallParametersInARowStillLandOnTheirOwnSlots )
     }
 }
 
-TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceIsShadedThroughTheSamePassesAsEveryModel )
+TEST_F( ShaderCacheKeyShaderRoot, AnUnlitGraphSurfaceIsShadedThroughTheSamePassesAsEveryModel )
 {
     // SHM1 moved this boundary. It used to be that an unlit graph was a different DOMAIN, compiled with no
     // lighting text and no lighting descriptor; that pinned the pre-registry design, where "unlit" was a pass
@@ -1428,7 +1439,7 @@ TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceIsShadedThroughTheSamePassesAsEver
          << "the unlit graph's forward cell does not compile";
 }
 
-TEST_F( ShaderRootFixture, TheUnlitTemplateIsLitThroughTheSamePassesAsEveryModel )
+TEST_F( ShaderCacheKeyShaderRoot, TheUnlitTemplateIsLitThroughTheSamePassesAsEveryModel )
 {
     // SHM1: Unlit is a shading model FILE (ShadingModels/Unlit.shadingmodel) whose two functions return zero, not
     // a pass of its own. So its cells are the passes every template's are — the forward cell compiles the forward
@@ -1470,7 +1481,7 @@ TEST_F( ShaderRootFixture, TheUnlitTemplateIsLitThroughTheSamePassesAsEveryModel
 
 // ---- The terrain's per-draw data rides beside the draw, not in the shared block --------------------
 
-TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock )
+TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock )
 {
     // The terrain pass records EVERY draw of a frame before the GPU executes any of them, and a
     // material's descriptors are written at most once per frame — so anything per-terrain that lives
@@ -1567,7 +1578,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
 //     a block that drifted would read a param at another offset than it was written at, in Deferred only;
 //   - the shadow program binds only what a caster reads — TerrainInstances[] (whose row carries the main
 //     camera's LOD) and the heightmap — and no Materials[] row or TerrainUB it is never given.
-TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyPatchAndHoles )
+TEST_F( ShaderCacheKeyShaderRoot, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyPatchAndHoles )
 {
     const auto parse = [&]( const char* file )
     { return Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( file ) ) ); };
@@ -1702,7 +1713,7 @@ namespace
     }
 } // namespace
 
-TEST_F( ShaderRootFixture, BothParticleStagesIndexTheStateByTheStrideTheEngineAllocates )
+TEST_F( ShaderCacheKeyShaderRoot, BothParticleStagesIndexTheStateByTheStrideTheEngineAllocates )
 {
     // THE RELATION, stated against BOTH readers of the storage because the engine writes only one of the
     // two numbers it needs to be right about. ParticleRenderer allocates MaxParticles * kParticleStride
@@ -1731,7 +1742,7 @@ TEST_F( ShaderRootFixture, BothParticleStagesIndexTheStateByTheStrideTheEngineAl
     EXPECT_EQ( simulate, billboard ) << "the two particle stages read one storage with two layouts";
 }
 
-TEST_F( ShaderRootFixture, TheParticleStructIsCompiledFromOneTextByBothStages )
+TEST_F( ShaderCacheKeyShaderRoot, TheParticleStructIsCompiledFromOneTextByBothStages )
 {
     // WHY THE EQUALITY ABOVE IS NOT ENOUGH. Two independent declarations that happen to be the same size
     // pass it — which was exactly the state Д26 left behind, one copy having gained a meaning for Age.yzw
@@ -1753,7 +1764,7 @@ TEST_F( ShaderRootFixture, TheParticleStructIsCompiledFromOneTextByBothStages )
          << "the billboard draw declares the particle layout itself again";
 }
 
-TEST_F( ShaderRootFixture, TheParticleDispatchDividesByTheWorkgroupTheShaderDeclares )
+TEST_F( ShaderCacheKeyShaderRoot, TheParticleDispatchDividesByTheWorkgroupTheShaderDeclares )
 {
     // The second of the two numbers, and the one whose failure is the quietest of any in this file: too
     // large a group size in C++ and Simulate launches too few groups, so the tail of every emitter
@@ -1975,7 +1986,7 @@ namespace
     }
 } // namespace
 
-TEST_F( ShaderRootFixture, NoShippedShaderClaimsOneDescriptorSlotTwice )
+TEST_F( ShaderCacheKeyShaderRoot, NoShippedShaderClaimsOneDescriptorSlotTwice )
 {
     const auto files = ShippedShaderFiles();
     ASSERT_GE( files.size(), 60u ) << "found " << files.size()
@@ -2091,7 +2102,7 @@ TEST_F( ShaderRootFixture, EveryShippedProgramsPushBlockFitsTheEngineCap )
 // fixture sat in the shipped shader tree, so `AssetPreloader` compiled it at every editor start and put
 // two errors in every clean log (measured on Desert_Sandbox: exactly two, both this file). The fixture
 // is now reached HERE and only here, and it is reached by being COMPILED: repair it and this goes red.
-TEST_F( ShaderRootFixture, TheBrokenShaderFixtureStillDoesNotCompile )
+TEST_F( ShaderCacheKeyShaderRoot, TheBrokenShaderFixtureStillDoesNotCompile )
 {
     const std::filesystem::path fixture =
          s_RepoRoot / "Desert" / "Tests" / "Engine" / "ShaderCacheKey" / "Fixtures" / "MatBroken.shader";
@@ -2148,7 +2159,7 @@ TEST_F( ShaderRootFixture, TheBrokenShaderFixtureStillDoesNotCompile )
 // SET 0 ONLY, because that is the set a graph declares into: the DSL's `TextureBinding(n)` emits
 // `layout(binding = n)` with no set qualifier, which is set 0, and the runtime binds a material's
 // resources there. A shader that puts something at set 1, binding 24 has not touched the window.
-TEST_F( ShaderRootFixture, NoShippedProgramDeclaresABindingInTheGraphsReservedWindow )
+TEST_F( ShaderCacheKeyShaderRoot, NoShippedProgramDeclaresABindingInTheGraphsReservedWindow )
 {
     const auto files = ShippedShaderFiles();
     ASSERT_GE( files.size(), 60u ) << "found " << files.size()
@@ -2355,7 +2366,7 @@ namespace
     }
 } // namespace
 
-TEST_F( ShaderRootFixture, AMediumThatTakesAnOccupiedBindingIsRefusedByNameInEveryConsumer )
+TEST_F( ShaderCacheKeyShaderRoot, AMediumThatTakesAnOccupiedBindingIsRefusedByNameInEveryConsumer )
 {
     // Binding 1 is the cloud parameter block in three of the four consumers and the SKY payload in the
     // fourth, which is why the collision is asserted per consumer rather than once: the four do not have
@@ -2382,7 +2393,7 @@ TEST_F( ShaderRootFixture, AMediumThatTakesAnOccupiedBindingIsRefusedByNameInEve
     }
 }
 
-TEST_F( ShaderRootFixture, AMediumsWholeCapacityLandsAtTheNumbersTheRUNTIMEBinds )
+TEST_F( ShaderCacheKeyShaderRoot, AMediumsWholeCapacityLandsAtTheNumbersTheRUNTIMEBinds )
 {
     // О1-G ASKED "IS THERE A SAFE PLACE"; THIS ASKS "IS IT THE PLACE THE C++ WRITES TO". The renderer and
     // the sky bake call SetStorageBuffer/SetInput with an explicit number and never consult reflection —
@@ -2433,7 +2444,7 @@ TEST_F( ShaderRootFixture, AMediumsWholeCapacityLandsAtTheNumbersTheRUNTIMEBinds
     }
 }
 
-TEST_F( ShaderRootFixture, AMediumMaySampleTheLayersOwnNoiseVolumeInEveryConsumer )
+TEST_F( ShaderCacheKeyShaderRoot, AMediumMaySampleTheLayersOwnNoiseVolumeInEveryConsumer )
 {
     // O1-H. THE Cloud Noise Volume NODE COSTS NO BINDING AND NO RUNTIME PLUMBING — it reaches the `.dcnv`
     // volumes the scene has ALREADY bound, through the CLOUD_SAMPLE_NOISE macro — and that is a claim
@@ -2477,7 +2488,7 @@ TEST_F( ShaderRootFixture, AMediumMaySampleTheLayersOwnNoiseVolumeInEveryConsume
 
 // ---- The shader map (warm start without a parse) ------------------------------------------------------
 
-TEST_F( ShaderRootFixture, TheShaderMapKeyMovesWhenAHeaderTheRawTextIncludesChanges )
+TEST_F( ShaderCacheKeyShaderRoot, TheShaderMapKeyMovesWhenAHeaderTheRawTextIncludesChanges )
 {
     const auto dir = std::filesystem::temp_directory_path() / "desert_shadermap_key";
     std::filesystem::create_directories( dir );
@@ -2500,7 +2511,7 @@ TEST_F( ShaderRootFixture, TheShaderMapKeyMovesWhenAHeaderTheRawTextIncludesChan
     std::filesystem::remove_all( dir );
 }
 
-TEST_F( ShaderRootFixture, TheShaderMapKeyHashesTheHeaderTheParserInjects )
+TEST_F( ShaderCacheKeyShaderRoot, TheShaderMapKeyHashesTheHeaderTheParserInjects )
 {
     // The text names no header at all; MaterialTransport.glslh is written in by the parser. It must be in
     // the closure the key hashes, or editing it would leave every material program on its old binary.
@@ -2511,7 +2522,7 @@ TEST_F( ShaderRootFixture, TheShaderMapKeyHashesTheHeaderTheParserInjects )
     ASSERT_FALSE( closure.empty() ) << "the injected header does not resolve from the shader root";
 }
 
-TEST_F( ShaderRootFixture, EveryShippedProgramsMetadataIsTheSameAfterTheShaderMap )
+TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsMetadataIsTheSameAfterTheShaderMap )
 {
     namespace PP    = Desert::Core::Preprocess;
     size_t programs = 0;
@@ -2553,13 +2564,6 @@ TEST_F( ShaderRootFixture, EveryShippedProgramsMetadataIsTheSameAfterTheShaderMa
     }
     std::cout << "[ShaderMap] round-tripped " << programs << " program(s)\n";
     EXPECT_GE( programs, 70u ) << "the shader walk found too few programs to be the shipped set";
-}
-
-int main( int argc, char** argv )
-{
-    Desert::TestSupport::SetSuiteEngineDir();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }
 
 namespace
@@ -2620,7 +2624,7 @@ namespace
 // RQ1. A compute stage that traces a ray query, written in the DSL: the parser has to put the extension
 // right under the version line, glslang has to accept it at the engine's own target, and the reflection
 // has to hand the pipeline layout an ACCELERATION_STRUCTURE_KHR binding at the declared set and binding.
-TEST_F( ShaderRootFixture, ARayQueryStageCompilesAndReflectsAnAccelerationStructureBinding )
+TEST_F( ShaderCacheKeyShaderRoot, ARayQueryStageCompilesAndReflectsAnAccelerationStructureBinding )
 {
     const char* kProbe = R"(
 Shader "RayQueryProbe"
@@ -2676,7 +2680,7 @@ Shader "RayQueryProbe"
 // them: each shipped .shader, its default program and every named pass (the set PackageCook cooks and
 // ShaderService registers), compiled at the engine's target with warnings as errors, reflected with no
 // refusal. The count is printed so a run says how much it covered.
-TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
+TEST_F( ShaderCacheKeyShaderRoot, EveryShippedShaderStageCompilesAndReflects )
 {
     namespace Preprocess = Desert::Core::Preprocess;
     size_t      files = 0, stages = 0;
@@ -2730,7 +2734,7 @@ TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
 // types would otherwise keep serving maps the OLD code produced — on every machine with a warm cache and
 // nowhere the change was tested. The recorded fingerprint is part of the deriver's version: re-recording it
 // is what moves the keys, so the only way to make this test green again is also the migration.
-TEST_F( ShaderRootFixture, TheShaderMapProducerFingerprintIsRecorded )
+TEST_F( ShaderCacheKeyShaderRoot, TheShaderMapProducerFingerprintIsRecorded )
 {
     std::string    missing;
     const uint64_t actual = ProducerFingerprint( s_RepoRoot, missing );
@@ -2752,7 +2756,7 @@ TEST( ShaderMapProducerFingerprint, LineEndingsWhitespaceAndCommentsDoNotCount )
     EXPECT_NE( ProducerCodeOnly( unixText ), ProducerCodeOnly( "int a = 2; // one\nint b;\n" ) );
 }
 
-TEST_F( ShaderRootFixture, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
+TEST_F( ShaderCacheKeyShaderRoot, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
 {
     // THE RELATION (SHM1): the index a G-buffer writer stores (GBufferC.w, low four bits) and the index the
     // lighting passes dispatch on come from ONE place — the registry's generated header, which numbers the
@@ -2795,7 +2799,7 @@ TEST_F( ShaderRootFixture, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
     }
 }
 
-TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
+TEST_F( ShaderCacheKeyShaderRoot, TheGeneratedShadingModelIndicesAreTheRegistrys )
 {
     // THE RELATION: the index a G-buffer writer packs and the index the dispatch switches on are the SAME number —
     // the registry's (Unlit 0, the rest by Guid), written by the registry into SHADING_MODEL_INDEX_<NAME> of the
@@ -2833,3 +2837,9 @@ TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
     }
     EXPECT_EQ( defined["SHADING_MODEL_INDEX_UNLIT"], 0 ) << "a writer that forgets the index must read as Unlit";
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

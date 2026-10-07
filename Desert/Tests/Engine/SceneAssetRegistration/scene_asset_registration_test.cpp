@@ -433,9 +433,3 @@ TEST( SceneAssetRegistration, NoTwoReadinessStatesShareASentence )
     EXPECT_EQ( ExplainMeshReadiness( MeshReadiness::NotRegistered, "m" ).find( "skinned mesh" ),
                std::string::npos );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

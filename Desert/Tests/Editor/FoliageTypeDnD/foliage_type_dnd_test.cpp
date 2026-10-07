@@ -258,9 +258,3 @@ TEST_F( FoliageTypeDnD, AnItemWhoseMeshDoesNotResolveRefusesNamingIt )
     ASSERT_FALSE( dropped );
     EXPECT_NE( dropped.GetError().find( "Src/missing.fbx" ), std::string::npos ) << dropped.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -1076,12 +1076,6 @@ TEST( DShaderImportContract, AnUnclosedImportBlockIsRefusedByTheManifestReader )
     EXPECT_NE( manifest.GetError().find( "not closed" ), std::string::npos ) << manifest.GetError();
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // MAT1s: `Sampler(WrapU, WrapV, Filter)` on a Texture2D is the template's sampling state; a property without
 // it keeps Repeat/Repeat/Linear (the state every sampler had before), and a misspelling or a non-texture is
 // refused by name at parse time.

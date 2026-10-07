@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/ImageFactory.hpp>
 #include <filesystem>
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
@@ -31,6 +32,20 @@ namespace Desert::Graphic
                 bytes += level.ByteSize;
             return bytes;
         }
+    };
+
+    /// What a Texture2D needs in order to exist: where its image is MADE and where it is REGISTERED. Passed to
+    /// every factory rather than reached for, so a texture's ownership of its image slot is a relation between
+    /// three explicit objects. `Device()` is the engine's pair -- the device image factory and the process
+    /// ImageService -- and is what every production caller gets by default; a test passes a mock factory and
+    /// its own service and reads both sides of the relation.
+    struct TextureBackend
+    {
+        const IImageFactory&   Images;
+        Runtime::ImageService& Registry;
+
+        /// The device factory and ResourceRegistry's ImageService.
+        static TextureBackend Device();
     };
 
     class Texture
@@ -101,32 +116,35 @@ namespace Desert::Graphic
         /// The refusal names the file and the reason — a stale JSON manifest, a truncated container, a
         /// level table that does not describe the file — because "the texture is missing" with no
         /// sentence attached is the most expensive kind of missing.
-        static Common::ResultStr<std::shared_ptr<Texture2D>> CreateFromAsset( const std::filesystem::path& asset );
+        static Common::ResultStr<std::shared_ptr<Texture2D>>
+        CreateFromAsset( const std::filesystem::path& asset,
+                         const TextureBackend&        backend = TextureBackend::Device() );
 
         /// `CreateFromAsset` in its two halves (AM2), so the on-demand path can put them on different threads.
         /// `ReadCooked` is CPU only -- the DDC read, and the cook on a DDC miss, then the container decode -- and
         /// is safe on a worker. `CreateFromCooked` creates the GPU image and uploads it, on the main thread.
         static Common::ResultStr<CookedTexture2D>            ReadCooked( const std::filesystem::path& cookedPath );
-        static Common::ResultStr<std::shared_ptr<Texture2D>> CreateFromCooked( CookedTexture2D cooked );
+        static Common::ResultStr<std::shared_ptr<Texture2D>>
+        CreateFromCooked( CookedTexture2D cooked, const TextureBackend& backend = TextureBackend::Device() );
 
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
         // BRDF LUT. `data` layout must match `format` (RGBA32F -> vector<float>, RGBA8F -> vector<uchar>).
-        static Common::ResultStr<std::shared_ptr<Texture2D>> Create( const std::string& tag, uint32_t width,
-                                                                     uint32_t                        height,
-                                                                     Core::Formats::ImageFormat      format,
-                                                                     Core::Formats::ImagePixelData&& data );
+        static Common::ResultStr<std::shared_ptr<Texture2D>>
+        Create( const std::string& tag, uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
+                Core::Formats::ImagePixelData&& data, const TextureBackend& backend = TextureBackend::Device() );
 
     private:
-        // Registers `image` and records WHERE, so the destructor releases it from the same service.
-        void AdoptImage( std::shared_ptr<Image2D>&& image );
+        // Registers `image` in @p registry and records WHERE, so the destructor releases it from the same service.
+        void AdoptImage( std::shared_ptr<Image2D>&& image, Runtime::ImageService& registry );
         // Unregisters the image from the service AdoptImage recorded; nothing when none was registered.
         void ReleaseImage();
 
         Runtime::ImageHandle m_Handle;
         // The service the image was registered in; null only while no image has been registered (a
         // factory that refused before the upload), which is the one case with nothing to release.
-        // Not owned: the ImageService is a ResourceRegistry static constructed before any service that
-        // can hold a texture, so it outlives them all (ResourceRegistry.cpp, "CONSTRUCTED FIRST").
+        // Not owned: the factory's TextureBackend named it. The engine's is a ResourceRegistry static
+        // constructed before any service that can hold a texture, so it outlives them all (ResourceRegistry.cpp,
+        // "CONSTRUCTED FIRST"); a test's service outlives the textures the test makes.
         Runtime::ImageService* m_Service = nullptr;
         uint32_t               m_Width = 0, m_Height = 0;
     };

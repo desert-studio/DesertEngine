@@ -237,9 +237,3 @@ TEST_F( ViewResourcesTest, HeldBytesSumsEveryCopyOverEveryFrameAndDropsWithIt )
     view.Clear();
     EXPECT_EQ( view.HeldBytes(), 0u );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

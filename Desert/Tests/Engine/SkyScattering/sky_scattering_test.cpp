@@ -1331,9 +1331,3 @@ TEST( CloudAerialPerspective, TheRampFadesTheATMOSPHERE_NotTheResultTowardNothin
     EXPECT_FLOAT_EQ( none.g, cloudLuminance.g );
     EXPECT_FLOAT_EQ( none.b, cloudLuminance.b );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

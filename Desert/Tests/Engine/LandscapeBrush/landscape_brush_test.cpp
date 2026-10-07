@@ -272,9 +272,3 @@ TEST( LandscapeBrush, RefusesSettingsItCannotHonour )
     ASSERT_TRUE( none.IsSuccess() );
     EXPECT_TRUE( none.GetValue().Empty() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

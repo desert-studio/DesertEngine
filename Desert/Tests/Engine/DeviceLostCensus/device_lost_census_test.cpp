@@ -623,13 +623,6 @@ TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )
     EXPECT_NE( begin.find( "== VK_NULL_HANDLE" ), std::string::npos )
          << "BeginRenderPass must refuse a framebuffer whose attachments failed to create";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ONE FRAME SUBMISSION PATH (FRAME-OUT1). A window is an output of the frame, not a second way to submit it: the
 // renderer submits only through VulkanFrameLoop::Submit, which is the frame's only vkQueueSubmit route, and no
 // frame function waits for the whole device -- CPU/GPU sync is the slot fence. Mutations: put a

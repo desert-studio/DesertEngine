@@ -586,9 +586,3 @@ TEST( ClipSections, RemovingASectionShowsThePoseUnderneathAndAMissingIndexIsRefu
     ExpectExactlyEqual( Played( clip, "arm", At( 10 ), Rest() ), Rest(),
                         "a track with no section contributes nothing: the pose under it plays" );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -870,9 +870,3 @@ TEST( AnimGraphValidation, TheClipListIsDerivedOnceForThePickerAndForTheValidato
          << "the one derivation no longer asks the library by the mesh's skeleton reference, the way "
             "AnimationECSSystem does (IdentifyMeshHandle -> GetForMesh)";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

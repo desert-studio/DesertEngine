@@ -475,9 +475,3 @@ TEST( StartupLayout, BothPackagersBuildTheLayoutTheDerivationsLookFor )
     AssertPackagerPutsTheDropTogether( root / "scripts" / "Windows" / "Package.bat",
                                        "scripts\\Windows\\Package.bat" );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

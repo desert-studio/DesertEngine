@@ -1373,9 +1373,3 @@ TEST( RigGraphTest, EveryRigThisBuildShipsParsesAndAtLeastOneOfThemCarriesAGraph
     // content is the whole reason the `.derig` half of it was in scope at all.
     EXPECT_GE( graphed, 1U ) << "no shipped rig carries a graph, so nothing on disk runs T5.5";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

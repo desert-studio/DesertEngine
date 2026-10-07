@@ -34,8 +34,10 @@
 
 #include <GLFW/glfw3.h>
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <array>
 #include <cstring>
 #include <functional>
@@ -124,14 +126,29 @@ Shader "EngineHostFill"
     class HostEnvironment final : public ::testing::Environment
     {
     public:
+        // The suite's shaders compile through the DDC: a throwaway cache for the whole process, so a run
+        // leaves nothing in the project; it outlives the renderer, which may still write to it.
+        void SetUp() override
+        {
+            m_Cache.emplace( "EngineHost" );
+        }
+
         void TearDown() override
         {
             Host& host = GetHost();
             if ( host.Device )
+            {
                 host.Device->WaitIdle();
+            }
             if ( host.Error.empty() )
+            {
                 Renderer::GetInstance().Shutdown();
+            }
+            m_Cache.reset();
         }
+
+    private:
+        std::optional<Desert::TestSupport::DerivedDataSandbox> m_Cache;
     };
 
     Common::ResultStr<std::shared_ptr<ComputePipeline>> MakeFillPipeline()
@@ -561,13 +578,18 @@ TEST( EngineHost, AnUnwrittenMaterialStorageBufferIsNotAmongTheMaterialsWrittenS
          << "the never-written storage buffer (binding 0) is among the material's written slots";
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    // The suite's shaders compile through the DDC: a throwaway cache, so a run leaves nothing in the project.
-    const Desert::TestSupport::DerivedDataSandbox cache( "EngineHost" );
-    ::testing::InitGoogleTest( &argc, argv );
-    ::testing::AddGlobalTestEnvironment( new HostEnvironment );
-    return RUN_ALL_TESTS();
-}
+    // The host's device is made by the first test that asks for it and shut down once, after the suite.
+    const Desert::TestSupport::SuiteEnvironment kHost{
+         +[]() -> ::testing::Environment*
+         {
+             return new HostEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
+} // namespace
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

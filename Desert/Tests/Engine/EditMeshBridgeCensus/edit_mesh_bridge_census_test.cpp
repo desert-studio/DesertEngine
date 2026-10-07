@@ -275,9 +275,3 @@ TEST( EditMeshBridgeCensus, NoSourceOutsideTheBridgeIncludesAnEditMeshHeader )
             "Engine/Geometry/EditMeshBridge.hpp and go through Geometry::Bridge instead:"
          << list;
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

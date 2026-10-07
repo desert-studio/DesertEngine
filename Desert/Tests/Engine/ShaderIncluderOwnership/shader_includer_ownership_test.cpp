@@ -220,9 +220,3 @@ TEST( ShaderIncluderOwnership, ReleasingANullResultIsSafe )
     includer.ReleaseInclude( nullptr );
     EXPECT_EQ( includer.LiveIncludeResults(), 0u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

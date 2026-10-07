@@ -634,9 +634,3 @@ TEST_F( BufferFill, AGrownStorageBufferReseedsEveryViewAtTheNewSizeFromTheLastCo
     EXPECT_EQ( *previewCopy, Bytes( { 5, 6, 7, 8 } ) )
          << "the preview's re-made copy did not start from the contents written before the growth";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

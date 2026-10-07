@@ -204,9 +204,3 @@ TEST( SceneInitDeferral, EveryWorldReplacementDropsTheOldWorldsSelection )
              << path.Function << " replaces the world without dropping the old world's selection";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

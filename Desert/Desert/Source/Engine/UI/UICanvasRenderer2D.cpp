@@ -6,7 +6,8 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/Image.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Font/FontService.hpp>
+#include <Engine/Runtime/Services/Icon/IconService.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/Text/FontBaker.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
@@ -529,20 +530,11 @@ namespace Desert::UI
 
         // Resolve a sprite AssetHandle to its runtime GPU Image2D (non-owning; the image service owns it and
         // Render2D keys its per-texture executor by the raw pointer). nullptr when unset / unresolvable.
-        Graphic::Image2D* ResolveSpriteImage( const Assets::AssetHandle& handle )
+        Graphic::Image2D* ResolveSpriteImage( IUICanvasResources& res, const Assets::AssetHandle& handle )
         {
             if ( !HandleSet( handle ) )
                 return nullptr;
-            auto* texService = Runtime::ResourceRegistry::GetTextureService();
-            if ( !texService )
-                return nullptr;
-            auto* tex = texService->Get( handle );
-            if ( !tex )
-                return nullptr;
-            auto* imgService = Runtime::ResourceRegistry::GetImageService();
-            if ( !imgService )
-                return nullptr;
-            return static_cast<Graphic::Image2D*>( imgService->Resolve( tex->GetImageHandle() ) );
+            return res.SpriteImage( handle );
         }
 
         // Resolve an element's UI-material slot to the entry Render2D will draw it with, or nullptr when
@@ -615,28 +607,27 @@ namespace Desert::UI
 
         // An animated (GIF) sprite's current frame — a pure function of wall-clock time. Non-GIF handles
         // resolve to nullptr here, so ordinary textures fall through to ResolveSpriteImage.
-        Graphic::Image2D* ResolveAnimatedFrame( const Assets::AssetHandle& handle )
+        Graphic::Image2D* ResolveAnimatedFrame( IUICanvasResources& res, const Assets::AssetHandle& handle )
         {
-            auto* animService = Runtime::ResourceRegistry::GetAnimatedImageService();
-            return animService ? animService->Resolve( handle ) : nullptr;
+            return res.AnimatedFrame( handle );
         }
 
         // Draw a filled UI box: a sprite (tinted by `color`) when one is bound + resolvable, else a flat
         // colour. `srcBorder` (L,T,R,B in SOURCE pixels) enables 9-slice — corners stay unstretched (x
         // scale), edges/centre stretch — so image panels/buttons resize without distorting their borders.
         // Mirrors the ImGui DrawBox so both render paths look identical.
-        void DrawBox( Graphic::Render2D::DrawList2D& dl, const glm::vec2& mn, const glm::vec2& mx,
-                      const glm::vec4& color, const Assets::AssetHandle& sprite, const glm::vec4& srcBorder,
-                      float scale, float rounding )
+        void DrawBox( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const glm::vec2& mn,
+                      const glm::vec2& mx, const glm::vec4& color, const Assets::AssetHandle& sprite,
+                      const glm::vec4& srcBorder, float scale, float rounding )
         {
             // An animated sprite plays stretched to the box; static sprites / 9-slice keep the path below.
-            if ( Graphic::Image2D* frame = ResolveAnimatedFrame( sprite ) )
+            if ( Graphic::Image2D* frame = ResolveAnimatedFrame( res, sprite ) )
             {
                 dl.AddImage( frame, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f }, color );
                 return;
             }
 
-            Graphic::Image2D* img = ResolveSpriteImage( sprite );
+            Graphic::Image2D* img = ResolveSpriteImage( res, sprite );
             if ( !img )
             {
                 dl.AddRectFilled( mn, mx, color, rounding );
@@ -857,24 +848,21 @@ namespace Desert::UI
         // @p viewSeconds is the view's UI time (UIViewContext::Time) — the marquee's phase, so it scrolls
         // by frame steps the host handed in rather than by a wall clock, and frame N of a fixed-step run
         // draws the same scroll every run.
-        void DrawText2D( Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t, const Rect& rect,
-                         float scale, const glm::vec4& tint, double viewSeconds )
+        void DrawText2D( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const ECS::UITextData& t,
+                         const Rect& rect, float scale, const glm::vec4& tint, double viewSeconds )
         {
             if ( t.Text.empty() )
                 return;
 
-            auto* fontService = Runtime::ResourceRegistry::GetFontService();
-            if ( !fontService )
-                return;
             // Font is an asset handle on the element (drag-drop / preloaded); unset falls back to the default.
-            const uint64_t fontHandle = static_cast<uint64_t>( t.Font ) != 0 ? static_cast<uint64_t>( t.Font )
-                                                                             : fontService->DefaultFontHandle();
+            const uint64_t fontHandle =
+                 static_cast<uint64_t>( t.Font ) != 0 ? static_cast<uint64_t>( t.Font ) : res.DefaultFontHandle();
             // Non-ASCII (Cyrillic, CJK, …) is only in the atlas if it was asked for: request this string's
             // codepoints first, so a re-bake — if any — happens before the font is resolved and the text
             // draws correctly on its very first frame instead of a frame late.
-            fontService->RequestGlyphs( fontHandle, Text::Utf8Decode( t.Text ) );
+            res.RequestGlyphs( fontHandle, Text::Utf8Decode( t.Text ) );
 
-            Runtime::Font* font = fontService->Get( fontHandle, Text::kDefaultBakePixelHeight );
+            Runtime::Font* font = res.Font( fontHandle, Text::kDefaultBakePixelHeight );
             if ( !font || !font->Atlas || !font->Baked.Valid() || font->Baked.PixelHeight <= 0.0f )
                 return;
 
@@ -1117,12 +1105,9 @@ namespace Desert::UI
         }
 
         // Width in px of `text` at `fontSizePx` in the default font (for the input caret). 0 if no font.
-        float MeasureTextPx( const std::string& text, float fontSizePx )
+        float MeasureTextPx( IUICanvasResources& res, const std::string& text, float fontSizePx )
         {
-            auto* fs = Runtime::ResourceRegistry::GetFontService();
-            if ( !fs )
-                return 0.0f;
-            Runtime::Font* font = fs->Get( fs->DefaultFontHandle(), Text::kDefaultBakePixelHeight );
+            Runtime::Font* font = res.Font( res.DefaultFontHandle(), Text::kDefaultBakePixelHeight );
             if ( !font || !font->Baked.Valid() )
                 return 0.0f;
             const Text::BakedFont& bf = font->Baked;
@@ -1181,14 +1166,12 @@ namespace Desert::UI
         // imported into an SDF once (Runtime::IconService), so this is a single quad through the very same
         // shader as text — crisp at any size, and outline/glow/shadow come along for free.
         // @p tint as in DrawText2D: the caller's accumulated element tint, an argument rather than a global.
-        void DrawIcon( Graphic::Render2D::DrawList2D& dl, const ECS::UIIconData& ic, const Rect& rect,
-                       const glm::vec4& tint )
+        void DrawIcon( IUICanvasResources& res, Graphic::Render2D::DrawList2D& dl, const ECS::UIIconData& ic,
+                       const Rect& rect, const glm::vec4& tint )
         {
-            auto* icons = Runtime::ResourceRegistry::GetIconService();
-            if ( !icons )
-                return;
-            Runtime::Icon* icon = icons->Get( static_cast<uint64_t>( ic.Icon ) );
-            if ( !icon || !icon->Valid() || !icons->Atlas() ) // unset/unreadable: draw nothing, no placeholder
+            Runtime::Icon*          icon  = res.Icon( static_cast<uint64_t>( ic.Icon ) );
+            const Graphic::Image2D* atlas = res.IconAtlas();
+            if ( !icon || !icon->Valid() || !atlas ) // unset/unreadable: draw nothing, no placeholder
                 return;
 
             const float box = std::min( rect.W, rect.H ) * std::clamp( ic.Scale, 0.1f, 1.0f );
@@ -1202,7 +1185,6 @@ namespace Desert::UI
             // One quad per colour run, painted back-to-front in document order. A monochrome icon is a
             // single white layer, so Color tints it outright; a multi-colour one keeps the fills the .svg
             // authored and Color multiplies them (white = exactly as drawn).
-            const void* atlas = icons->Atlas().get();
             for ( const Runtime::IconLayer& layer : icon->Layers )
             {
                 const glm::vec4 fill( static_cast<float>( ( layer.RGBA >> 24 ) & 0xFF ) / 255.0f,
@@ -1600,8 +1582,9 @@ namespace Desert::UI
                         spr = b.PressedSprite;
                     else if ( hover && HandleSet( b.HoverSprite ) )
                         spr = b.HoverSprite;
-                    DrawBox( dl, mn, mx, Tinted( ctx, glm::vec4( c, b.Disabled ? 0.6f : 1.0f ) ), spr,
-                             b.SpriteBorder, scale, 6.0f * scale );
+                    DrawBox( ctx.View.Resources(), dl, mn, mx,
+                             Tinted( ctx, glm::vec4( c, b.Disabled ? 0.6f : 1.0f ) ), spr, b.SpriteBorder, scale,
+                             6.0f * scale );
 
                     // Selected accent: a rounded bar hugging the left edge (the "you are here" marker).
                     if ( b.Selected && !b.Disabled )
@@ -1697,11 +1680,10 @@ namespace Desert::UI
 
                     // A streamed video fills the panel (its stable texture is updated outside the pass by the
                     // VideoService); it takes precedence over the sprite/gradient fill while a path is set.
-                    Graphic::Image2D* video = HandleSet( p.Video )
-                                                   ? Runtime::ResourceRegistry::GetVideoService()->Resolve(
-                                                          static_cast<uint64_t>( p.Video ),
-                                                          { .Volume = p.VideoVolume, .Muted = p.VideoMuted } )
-                                                   : nullptr;
+                    Graphic::Image2D* video = HandleSet( p.Video ) ? ctx.View.Resources().VideoFrame(
+                                                                          static_cast<uint64_t>( p.Video ),
+                                                                          p.VideoVolume, p.VideoMuted )
+                                                                    : nullptr;
                     // Frosted glass: the fill IS the blurred scene behind the panel, tinted by Color/Opacity.
                     // Checked before the sprite/video fills — a glass panel is defined by what is behind it,
                     // so an image on top of it would be a different element (draw one as a child).
@@ -1724,8 +1706,8 @@ namespace Desert::UI
                              mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ),
                              glm::vec4( st.Color( StyleSlot::PanelGradient, p.GradientColor ), op ) );
                     else
-                        DrawBox( dl, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ), p.Sprite, p.SpriteBorder,
-                                 scale, rounding );
+                        DrawBox( ctx.View.Resources(), dl, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ),
+                                 p.Sprite, p.SpriteBorder, scale, rounding );
 
                     // Gradient ring hugging the edge (avatar / status / progress ring).
                     if ( p.RingWidth > 0.0f )
@@ -1883,10 +1865,11 @@ namespace Desert::UI
                     td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
                     td.Align    = ECS::UITextAlign::Left;
                     dl.PushClipRect( mn, mx );
-                    DrawText2D( dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
+                    DrawText2D( ctx.View.Resources(), dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
                     if ( isFocused )
                     {
-                        const float caretX = rect.X + 6.0f + MeasureTextPx( f.Text, fieldSize * scale );
+                        const float caretX =
+                             rect.X + 6.0f + MeasureTextPx( ctx.View.Resources(), f.Text, fieldSize * scale );
                         dl.AddRectFilled( { caretX, rect.Y + rect.H * 0.2f },
                                           { caretX + std::max( 1.0f, scale ), rect.Y + rect.H * 0.8f },
                                           glm::vec4( fieldText, 1.0f ) );
@@ -1925,7 +1908,7 @@ namespace Desert::UI
                     td.Color    = listText;
                     td.Font     = st.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                     td.Align    = ECS::UITextAlign::Left;
-                    DrawText2D( dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
+                    DrawText2D( ctx.View.Resources(), dl, td, rect, scale, ctx.View.Tint, ctx.View.Time );
 
                     // Down-arrow on the right edge.
                     const float ax = mx.x - rect.H * 0.5f, ay = ( mn.y + mx.y ) * 0.5f, aw = rect.H * 0.16f;
@@ -1960,14 +1943,14 @@ namespace Desert::UI
                     // (ResolveLabel already subsumes `binding.Text` — see its own comment).
                     ECS::UITextData text = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
                     text.Text            = ResolveLabel( text.Text, binding );
-                    DrawText2D( dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
+                    DrawText2D( ctx.View.Resources(), dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
                 }
 
                 if ( reg.has<ECS::UIIconComponent>( e ) )
                 {
                     ECS::UIIconData icon = reg.get<ECS::UIIconComponent>( e ).Data;
                     icon.Color           = st.Color( StyleSlot::IconColor, icon.Color );
-                    DrawIcon( dl, icon, rect, ctx.View.Tint );
+                    DrawIcon( ctx.View.Resources(), dl, icon, rect, ctx.View.Tint );
                 }
 
                 if ( reg.has<ECS::UIImageComponent>( e ) )
@@ -1976,7 +1959,7 @@ namespace Desert::UI
                     // With no sprite bound it draws nothing (an empty Image is invisible, not a solid box).
                     const auto& im = reg.get<ECS::UIImageComponent>( e ).Data;
                     if ( HandleSet( im.Sprite ) )
-                        DrawBox( dl, mn, mx,
+                        DrawBox( ctx.View.Resources(), dl, mn, mx,
                                  Tinted( ctx, glm::vec4( st.Color( StyleSlot::ImageTint, im.Tint ), im.Opacity ) ),
                                  im.Sprite, im.SpriteBorder, scale, 0.0f );
                 }
@@ -2386,9 +2369,8 @@ namespace Desert::UI
         // invalidation to remember. An empty slot answers nullptr and every element then draws the colours
         // its author typed, which is the state of every canvas authored before themes existed.
         {
-            auto* themes = Runtime::ResourceRegistry::GetUIThemeService();
-            ctx.Style    = CanvasStyle( themes != nullptr ? themes->Get( canvasData.Theme ) : nullptr,
-                                     canvasData.FontScale, canvasData.HighContrast );
+            ctx.Style = CanvasStyle( view.Resources().Theme( canvasData.Theme ), canvasData.FontScale,
+                                     canvasData.HighContrast );
 
             // The refusals below are accumulated against ONE theme. Pointing the slot at another one must
             // let the same name be reported again — it may be a typo against this theme and a real style in
@@ -2478,9 +2460,9 @@ namespace Desert::UI
         // scene. It draws only what it can resolve, and says so once when it cannot.
         if ( HandleSet( canvasData.Sprite ) )
         {
-            Graphic::Image2D* bg = ResolveAnimatedFrame( canvasData.Sprite );
+            Graphic::Image2D* bg = ResolveAnimatedFrame( view.Resources(), canvasData.Sprite );
             if ( !bg )
-                bg = ResolveSpriteImage( canvasData.Sprite );
+                bg = ResolveSpriteImage( view.Resources(), canvasData.Sprite );
             if ( bg )
             {
                 dl.AddImage( bg, { canvasRect.X, canvasRect.Y },
@@ -2680,7 +2662,7 @@ namespace Desert::UI
                 td.Color    = pi.Style.Color( StyleSlot::DropdownText, d.TextColor );
                 td.Font     = pi.Style.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                 td.Align    = ECS::UITextAlign::Left;
-                DrawText2D( dl, td, row, pi.Scale, ctx.View.Tint, ctx.View.Time );
+                DrawText2D( ctx.View.Resources(), dl, td, row, pi.Scale, ctx.View.Tint, ctx.View.Time );
                 if ( hover && input->MouseReleased )
                 {
                     d.SelectedIndex = static_cast<int>( i );
@@ -2917,11 +2899,9 @@ namespace Desert::UI
                     if ( ghostCanvas != entt::null && reg.has<ECS::UICanvasComponent>( ghostCanvas ) )
                     {
                         const auto& ghostCanvasData = reg.get<ECS::UICanvasComponent>( ghostCanvas ).Data;
-                        auto*       themes          = Runtime::ResourceRegistry::GetUIThemeService();
-                        WalkCtx     ghostCtx{
-                             view, view.CanvasState( ghostCanvas ),
-                             CanvasStyle( themes != nullptr ? themes->Get( ghostCanvasData.Theme ) : nullptr,
-                                          ghostCanvasData.FontScale, ghostCanvasData.HighContrast ) };
+                        WalkCtx     ghostCtx{ view, view.CanvasState( ghostCanvas ),
+                                          CanvasStyle( view.Resources().Theme( ghostCanvasData.Theme ),
+                                                           ghostCanvasData.FontScale, ghostCanvasData.HighContrast ) };
                         ghostStyle = StyleFor( ghostCtx, reg, view.Drag.Source );
                     }
                 }
