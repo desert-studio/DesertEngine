@@ -528,7 +528,7 @@ TEST( Pak, AnUnwritablePathIsRefusedAtOpenRatherThanAtFinalize )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-// v3: integrity, compression, migration, appending and mount provenance.
+// v3: integrity, compression, version refusal, appending and mount provenance.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 namespace
@@ -560,44 +560,24 @@ namespace
         out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
     }
 
-    template <typename T>
-    void PushPod( std::string& out, T value )
+    // A real archive written by the one writer there is, with the version digit of its magic
+    // replaced. The reader reads ONE version and refuses every other by its number, so the only
+    // thing that varies between a "DPK1" left over from an old cook and a "DPK7" from a newer build is
+    // that digit — and a test that builds the rest of the bytes by hand would be pinning a layout the
+    // reader no longer knows.
+    std::string ArchiveWithMagicDigit( const fs::path& dir, char digit )
     {
-        out.append( reinterpret_cast<const char*>( &value ), sizeof( T ) );
-    }
-
-    // A v1 or v2 archive, built by hand. There is no writer for either any more — the tree keeps ONE
-    // way to write an archive and it writes v3 — so the only honest way to prove the reader still
-    // reads them is to lay out their bytes here, which is also the only place the OLD layouts are
-    // now written down.
-    std::string LegacyArchive( int version, const std::vector<std::pair<std::string, std::string>>& entries )
-    {
-        std::string out;
-        out += version == 1 ? "DPK1" : "DPK2";
-        PushPod<uint32_t>( out, static_cast<uint32_t>( entries.size() ) );
-        const size_t indexOffsetField = out.size();
-        PushPod<uint64_t>( out, 0 );
-
-        std::vector<uint64_t> offsets;
-        for ( const auto& [key, data] : entries )
+        const fs::path written = dir / "written.dpak";
         {
-            (void)key;
-            offsets.push_back( out.size() );
-            out += data;
+            Common::Utils::PakWriter writer( written );
+            EXPECT_TRUE( writer.IsOpen() );
+            EXPECT_TRUE( writer.AddData( "a.txt", "alpha", 5 ) );
+            EXPECT_EQ( writer.Finalize(), 1u );
         }
-        const uint64_t indexOffset = out.size();
-        for ( size_t i = 0; i < entries.size(); ++i )
-        {
-            PushPod<uint32_t>( out, static_cast<uint32_t>( entries[i].first.size() ) );
-            out += entries[i].first;
-            PushPod<uint64_t>( out, offsets[i] );
-            PushPod<uint64_t>( out, entries[i].second.size() );
-            if ( version == 2 )
-                PushPod<uint64_t>(
-                     out, Common::Utils::PakContentHash( entries[i].second.data(), entries[i].second.size() ) );
-        }
-        std::memcpy( out.data() + indexOffsetField, &indexOffset, sizeof( indexOffset ) );
-        return out;
+        std::string bytes = Slurp( written );
+        EXPECT_EQ( bytes.substr( 0, 4 ), "DPK3" );
+        bytes[3] = digit;
+        return bytes;
     }
 } // namespace
 
@@ -861,7 +841,6 @@ TEST( Pak, EveryKindOfContentInTheTreeSurvivesPackAndReadByteForByte )
 
     Common::Utils::PakReader reader( pak );
     ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
-    EXPECT_EQ( reader.Version(), Common::Utils::PakVersion::V3 );
 
     size_t compressed = 0;
     size_t stored     = 0;
@@ -969,16 +948,15 @@ TEST( Pak, AFlippedBitIsRefusedAndTheFAILURENamesTheEntry )
 
 TEST( Pak, AnArchiveFromAFutureVersionIsRefusedByItsName )
 {
-    const fs::path dir   = MakeTempDir();
-    const fs::path pak   = dir / "future.dpak";
-    std::string    bytes = LegacyArchive( 2, { { "a", "b" } } );
-    bytes[3]             = '7'; // DPK7: a version this build cannot know about
-    Spit( pak, bytes );
+    const fs::path dir = MakeTempDir();
+    const fs::path pak = dir / "future.dpak";
+    Spit( pak, ArchiveWithMagicDigit( dir, '7' ) ); // DPK7: a version this build cannot know about
 
     Common::Utils::PakReader reader( pak );
     EXPECT_FALSE( reader.IsOpen() );
     // "Corrupt" and "newer than this build" have opposite remedies — re-download against upgrade —
     // and the magic is the only place the difference is legible.
+    EXPECT_NE( reader.OpenError().find( "version 7" ), std::string::npos ) << reader.OpenError();
     EXPECT_NE( reader.OpenError().find( "DPK7" ), std::string::npos ) << reader.OpenError();
     EXPECT_NE( reader.OpenError().find( "newer" ), std::string::npos ) << reader.OpenError();
 
@@ -991,41 +969,27 @@ TEST( Pak, AnArchiveFromAFutureVersionIsRefusedByItsName )
     EXPECT_NE( other.OpenError().find( "not a Desert archive" ), std::string::npos ) << other.OpenError();
 }
 
-// MIGRATION IS "IT STILL READS", stated as a test rather than as a promise. There is no writer for
-// either old version any more, so these bytes are the only remaining definition of their layouts.
-TEST( Pak, ArchivesFromEveryEarlierVersionStillRead )
+// THE READER KNOWS ONE VERSION. An archive in an earlier one (no release ever shipped one) does not
+// open, and the refusal carries its version number and the remedy — cook it again — instead of being
+// read on a best-effort basis or reported as corrupt.
+TEST( Pak, AnArchiveFromAnEarlierVersionIsRefusedByItsNumber )
 {
-    const fs::path    dir   = MakeTempDir();
-    const fs::path    v1    = dir / "old1.dpak";
-    const fs::path    v2    = dir / "old2.dpak";
-    const std::string alpha = "content of alpha";
-    const std::string beta  = "content of beta";
-    Spit( v1, LegacyArchive( 1, { { "a.txt", alpha }, { "b.txt", beta } } ) );
-    Spit( v2, LegacyArchive( 2, { { "a.txt", alpha }, { "b.txt", beta } } ) );
+    const fs::path dir = MakeTempDir();
+    for ( const char digit : { '1', '2' } )
+    {
+        const fs::path pak = dir / ( std::string( "old" ) + digit + ".dpak" );
+        Spit( pak, ArchiveWithMagicDigit( dir, digit ) );
 
-    Common::Utils::PakReader r1( v1 );
-    ASSERT_TRUE( r1.IsOpen() ) << r1.OpenError();
-    EXPECT_EQ( r1.Version(), Common::Utils::PakVersion::V1 );
-    EXPECT_EQ( r1.Read( "a.txt" ), alpha );
-    EXPECT_EQ( r1.EntryHash( "a.txt" ).value_or( 1 ), 0u ); // v1 carries no identity column
-    EXPECT_EQ( r1.EntryCodec( "a.txt" ), Common::Utils::PakCodec::Store );
-    EXPECT_EQ( r1.EntryStoredSize( "a.txt" ).value_or( 0 ), alpha.size() );
-
-    Common::Utils::PakReader r2( v2 );
-    ASSERT_TRUE( r2.IsOpen() ) << r2.OpenError();
-    EXPECT_EQ( r2.Version(), Common::Utils::PakVersion::V2 );
-    EXPECT_EQ( r2.Read( "b.txt" ), beta );
-    EXPECT_EQ( r2.EntryHash( "b.txt" ).value_or( 0 ), Common::Utils::PakContentHash( beta.data(), beta.size() ) );
-
-    // AND A v2 ARCHIVE IS STILL VERIFIED, at v2's price. An archive already sitting on a disk must
-    // not become LESS checked because a newer format arrived.
-    std::string damaged = LegacyArchive( 2, { { "a.txt", alpha } } );
-    damaged[18]         = static_cast<char>( damaged[18] ^ 0x01 );
-    const fs::path bad  = dir / "old2bad.dpak";
-    Spit( bad, damaged );
-    Common::Utils::PakReader r2bad( bad );
-    ASSERT_TRUE( r2bad.IsOpen() ) << r2bad.OpenError();
-    EXPECT_FALSE( r2bad.Read( "a.txt" ).has_value() );
+        Common::Utils::PakReader reader( pak );
+        EXPECT_FALSE( reader.IsOpen() ) << digit;
+        const std::string& why = reader.OpenError();
+        EXPECT_NE( why.find( std::string( "version " ) + digit ), std::string::npos ) << why;
+        EXPECT_NE( why.find( std::string( "\"DPK" ) + digit + "\"" ), std::string::npos ) << why;
+        EXPECT_NE( why.find( "reads only version 3" ), std::string::npos ) << why;
+        EXPECT_NE( why.find( "cook and pack it again" ), std::string::npos ) << why;
+        EXPECT_EQ( reader.EntryCount(), 0u ) << why;
+        EXPECT_FALSE( reader.Read( "a.txt" ).has_value() ) << why;
+    }
 }
 
 TEST( Pak, AppendAddsWithoutMovingOrRewritingWhatWasAlreadyThere )
@@ -1136,9 +1100,9 @@ TEST( Pak, AppendRefusesTheArchivesItWouldHaveToRewrite )
 {
     const fs::path dir = MakeTempDir();
 
-    // A v2 archive: appending would write a v3 index into a file whose own header says v2.
+    // An archive in an earlier version: it does not open, so there is nothing to append to.
     const fs::path legacy = dir / "legacy.dpak";
-    Spit( legacy, LegacyArchive( 2, { { "a.txt", "alpha" } } ) );
+    Spit( legacy, ArchiveWithMagicDigit( dir, '2' ) );
     Common::Utils::PakWriter onLegacy( legacy, Common::Utils::PakWriter::Mode::Append );
     EXPECT_FALSE( onLegacy.IsOpen() );
 
