@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <span>
 #include <vector>
 

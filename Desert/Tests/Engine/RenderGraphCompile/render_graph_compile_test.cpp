@@ -1908,14 +1908,14 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
     EXPECT_EQ( nodes, 18u );
 
     // The frame's post-FX recorder (already read above) and every renderer in the PostProcessing folder.
-    const std::filesystem::path dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing";
+    constexpr std::string_view dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing";
     for ( const std::string_view file :
           { "SceneRendererFramePostFX.cpp", "JumpFloodOutlineRenderer.cpp", "LensFlareRenderer.cpp",
             "BackdropBlurRenderer.hpp", "BloomRenderer.cpp", "AutoExposureRenderer.cpp", "LightShaftRenderer.cpp",
             "TonemapRenderer.cpp", "FXAARenderer.cpp", "SMAARenderer.cpp" } )
     {
         const std::string text =
-             file == "SceneRendererFramePostFX.cpp" ? postFx : read( ( dir / file ).generic_string() );
+             file == "SceneRendererFramePostFX.cpp" ? postFx : read( std::format( "{}/{}", dir, file ) );
         ASSERT_FALSE( text.empty() ) << file << " is gone";
         for ( const char* manual : { "ComputeImageBeginWrite(", "ComputeImageEndWrite(", "TransitionLayout(",
                                      "BeginRenderPass(", "EndRenderPass(", "RenderPass::Create(" } )
