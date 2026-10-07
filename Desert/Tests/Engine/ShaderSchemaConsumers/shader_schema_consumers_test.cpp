@@ -382,7 +382,8 @@ namespace
          { "ShaderProgramMeta", "MediumSource", kShaderSvc, nullptr },
          // A VFX MODULE's body (Particle domain) — a program FRAGMENT spliced into the emitter's
          // simulation program; the stack compiler takes it module by module.
-         { "ShaderProgramMeta", "ParticleSource", "Desert/Desert/Source/Engine/VFX/VFXStackCompiler.cpp", nullptr },
+         { "ShaderProgramMeta", "ParticleSource", "Desert/Desert/Source/Engine/VFX/VFXStackCompiler.cpp",
+           nullptr },
          // Binding(n)/TextureBinding(n): BuildMaterialLayout derives the row and texture layout from them,
          // on a shader-map cache hit as on a parse (MAT1h-2).
          { "ShaderProgramMeta", "LayoutBindings", "Desert/Desert/Source/Engine/Core/Formats/MaterialLayout.hpp",

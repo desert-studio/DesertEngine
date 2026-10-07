@@ -455,9 +455,9 @@ TEST( DeviceLostCensus, TheDroppedResultCensusStillHoldsAndCanOnlyShrink )
 
     // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Four VkResults
     // are dropped in the whole Vulkan backend (eighteen, then eleven, then five, then six, now four: the
-    // present-mode enumeration left the swapchain for the capability probe, which reads its results; VKF1 moved the six startup
-    // enumerations of instance layers, devices and extensions into vk-bootstrap; RDG-ALIAS A1 added the
-    // descriptor pool reset), and every survivor is either a startup enumeration whose caller refuses on
+    // present-mode enumeration left the swapchain for the capability probe, which reads its results; VKF1 moved
+    // the six startup enumerations of instance layers, devices and extensions into vk-bootstrap; RDG-ALIAS A1
+    // added the descriptor pool reset), and every survivor is either a startup enumeration whose caller refuses on
     // the count, a teardown wait that is already behind the gate, or vkResetDescriptorPool, whose only
     // return code is VK_SUCCESS.
     int droppedResults = 0;

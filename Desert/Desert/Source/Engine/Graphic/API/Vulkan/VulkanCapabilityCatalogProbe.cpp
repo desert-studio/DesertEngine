@@ -66,10 +66,12 @@ namespace Desert::Graphic::API::Vulkan
             // Both enumerations READ their VkResult: a surface the driver cannot answer for offers nothing,
             // rather than a list sized by a count the failed call never wrote. VK_INCOMPLETE (the list grew
             // between the two calls) keeps what was written.
-            const auto answered = []( VkResult result ) { return result == VK_SUCCESS || result == VK_INCOMPLETE; };
+            const auto answered = []( VkResult result )
+            { return result == VK_SUCCESS || result == VK_INCOMPLETE; };
 
             uint32_t formatCount = 0;
-            if ( answered( vkGetPhysicalDeviceSurfaceFormatsKHR( physicalDevice, surface, &formatCount, nullptr ) ) )
+            if ( answered(
+                      vkGetPhysicalDeviceSurfaceFormatsKHR( physicalDevice, surface, &formatCount, nullptr ) ) )
             {
                 probe.SurfaceFormats.resize( formatCount );
                 if ( answered( vkGetPhysicalDeviceSurfaceFormatsKHR( physicalDevice, surface, &formatCount,
@@ -80,7 +82,8 @@ namespace Desert::Graphic::API::Vulkan
             }
 
             uint32_t modeCount = 0;
-            if ( answered( vkGetPhysicalDeviceSurfacePresentModesKHR( physicalDevice, surface, &modeCount, nullptr ) ) )
+            if ( answered(
+                      vkGetPhysicalDeviceSurfacePresentModesKHR( physicalDevice, surface, &modeCount, nullptr ) ) )
             {
                 probe.PresentModes.resize( modeCount );
                 if ( answered( vkGetPhysicalDeviceSurfacePresentModesKHR( physicalDevice, surface, &modeCount,
