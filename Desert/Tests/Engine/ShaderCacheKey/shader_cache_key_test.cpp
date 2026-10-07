@@ -1107,7 +1107,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudParameterBlockIsTheSameNumberOfBytesOn
     }
 }
 
-TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyOneDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyTwoDescriptorsInSetZero )
 {
     // THE CONSUMER, and the pass this repository shares most widely — every deferred scene draws it, and
     // it is the one file the cloud work was told to touch as little as possible. Pinning its descriptor
@@ -1121,9 +1121,14 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyOneDescri
     // the same baked environment the forward mesh shaders read. Twenty-one since 2026-09-24 (ENV1): the
     // sky's look (20, SkyLookUB) is applied where the environment cubes are sampled instead of being
     // baked into them, so the composite reads the rotation and gain the backdrop is drawn with.
+    // Twenty-two since GBUF1: the world-position target (u_GBufferC, RGBA32F, slot 1) is gone; slot 1 is the
+    // R32_UINT shading word (usampler2D, read by texelFetch) and the position is rebuilt from the depth
+    // attachment at slot 21 (Common/ReconstructPosition.glslh).
     const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 21u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 22u );
+    EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_GBufferShadingWord
+    EXPECT_TRUE( HasBinding( bindings, 21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_GBufferDepth
     EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) ); // SkyLookUB
 
     EXPECT_TRUE( HasBinding( bindings, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
