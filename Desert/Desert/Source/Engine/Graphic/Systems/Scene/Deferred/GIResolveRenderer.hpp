@@ -134,10 +134,13 @@ namespace Desert::Graphic::System
         // gather. Its textures are block 0, declared by DeclareGatherBindings.
         [[nodiscard]] Common::BoolResultStr RecordGather( const RDG::PassContext& context,
                                                           const glm::mat4&        rsmViewProj,
-                                                          const glm::vec4& sunColorIntensity, float giIntensity )
+                                                          const glm::vec4& sunColorIntensity, float giIntensity,
+                                                          int samples )
         {
+            // @p samples: VPL gather taps per pixel (GlobalIllumination.Samples, Scalability), a uniform like
+            // every other cost knob so one pipeline serves every level.
             m_Material->BindInputs( rsmViewProj, sunColorIntensity, giIntensity,
-                                    static_cast<float>( m_FrameIndex % 1024u ) );
+                                    static_cast<float>( m_FrameIndex % 1024u ), samples );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );

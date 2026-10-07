@@ -1,21 +1,23 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // THE CAPABILITY CATALOG — WHAT THIS DEVICE OFFERS, PER SETTING, AS A LIST (SCAL1).
 //
 // WHY A LIST AND NOT A CHECK. Until SCAL1 every selector asked the device at the moment of choice — the
-// Scalability panel reads RenderConfig::MaxMSAASamples to trim its MSAA combo, SceneRenderer clamps the sample
-// count again when it builds its framebuffers, the swapchain walks IMMEDIATE -> MAILBOX -> FIFO on its own, the
+// Scalability panel read a device MSAA maximum to trim its MSAA combo, SceneRenderer clamped the sample
+// count again when it built its framebuffers, the swapchain walks IMMEDIATE -> MAILBOX -> FIFO on its own, the
 // GPU profiler switches itself off. Four places, four answers to one question, and two of them silent. UE has
 // the same shape scattered across RHI feature flags and per-CVar clamps. The catalog is the better shape: built
 // ONCE when the device is created, it is the only source of "what this device can do", every selector (editor
 // UI, game menu, the console, the scalability resolver) OFFERS its list, and a saved value the list does not
-// contain is resolved ONCE by Scalability::Resolve with one logged fallback (the MachineSettings::ResolveAA
-// pattern, generalised).
+// contain is resolved ONCE by Scalability::Resolve with one logged fallback (the pattern the retired
+// per-setting AA resolver had, generalised).
 //
 // WHY IT LIVES IN COMMON. It is engine-core DATA — no Vulkan, no ImGui, no Editor type. The resolver that turns
 // a saved choice into an effective one lives in Common/Settings next to machine.json (the packaged Runtime runs
@@ -140,6 +142,20 @@ namespace Common::Scalability
 
         bool operator==( const RenderScaleRange& ) const = default;
     };
+
+    // The written names of the three enums a quality parameter stores, indexed by the enum's value: the
+    // Scalability.json loader reads them, the catalog log line and the editor's labels print them. One list per
+    // enum so a name can never differ between the data file and the log.
+    inline constexpr std::array<std::string_view, 7> kAntiAliasingMethodNames{ "None", "FXAA",      "SMAA", "MSAA",
+                                                                               "TAA",  "FSRNative", "DLAA" };
+    inline constexpr std::array<std::string_view, 6> kUpscalerNames{ "None", "TAAU", "FSR",
+                                                                     "DLSS", "XeSS", "MetalFX" };
+    inline constexpr std::array<std::string_view, 3> kRayTracingModeNames{ "None", "RayQuery",
+                                                                           "RayTracingPipeline" };
+    static_assert( static_cast<std::size_t>( AntiAliasingMethod::DLAA ) + 1 == kAntiAliasingMethodNames.size() );
+    static_assert( static_cast<std::size_t>( Upscaler::MetalFX ) + 1 == kUpscalerNames.size() );
+    static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
+                   kRayTracingModeNames.size() );
 
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order

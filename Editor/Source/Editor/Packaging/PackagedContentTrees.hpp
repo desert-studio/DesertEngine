@@ -61,6 +61,8 @@ namespace Desert::Editor
              { &P::FONTS_PATH, "Resources/Fonts", false },
              // Icons/Gizmo is the viewport's light/camera billboards (Editor/Core/GizmoIconSet.hpp) — editor only.
              { &P::ICONS_PATH, "Resources/Icons", false, "Gizmo" },
+             // Engine data tables (Scalability.json) — the Runtime reads them as well as the editor.
+             { &P::CONFIG_PATH, "Resources/Config", false },
         } };
     }
 

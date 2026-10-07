@@ -31,7 +31,7 @@
 // call the same QualityState API; the renderer READS ResolvedQuality and never sees a group or a level. No
 // renderer reads a Level — if one does, the table has a missing parameter.
 //
-// MIGRATION OF THE EXISTING MachineSettings FIELDS (done by the implementation step, no legacy bridge, §4):
+// MIGRATION OF THE FORMER MachineSettings FIELDS (DONE in SCAL1-S2, no legacy bridge, §4; MigrateRetiredKeys):
 //     MachineSettings field   -> Parameter                 (Group)
 //     AAMethod                -> AntiAliasingMethod        (AntiAliasing)
 //     MSAASamples             -> AntiAliasingSamples       (AntiAliasing)
@@ -40,21 +40,19 @@
 //     MeshLOD                 -> MeshLOD                   (ViewDistance)
 //     CloudQualityTier        -> CloudQuality              (Effects; UE puts volumetric clouds under
 //     sg.EffectsQuality)
-//   The five fields are DELETED from MachineSettings and its JSON; MachineSettings gains one field,
-//   `QualitySelection Quality`. MachineSettings::MigrateRetiredKeys gains one pass: when machine.json carries any
-//   of the retired keys, each becomes an Override on a selection whose levels are all High — EXCEPT a retired
-//   value equal to the High table value, which writes no override (so a machine that never touched a knob comes
-//   out with zero overrides). The keys are removed; the next save writes only `Quality`. Logged once: file, how
-//   many keys moved, how many became overrides. MachineSettings::EffectiveAA / ResolveAA / CommitAntiAliasing
-//   and Graphic::RenderConfig::TextureFilter / AnisotropyLevel / MaxMSAASamples are replaced by ResolvedQuality
-//   and QualityState::Apply (RenderConfig keeps only the atomic push the sampler thread reads, written by Apply's
-//   listener, nothing else). The old AntiAliasingMethod enum in MachineSettings.hpp is deleted in favour of
-//   Common::Scalability::AntiAliasingMethod (same leading values, so a stored int keeps its meaning).
+//   The six fields were DELETED from MachineSettings and its JSON; MachineSettings gained
+//   `std::optional<QualitySelection> Quality`. MachineSettings::MigrateRetiredKeys turns each retired key a
+//   machine.json still carries into an Override on an all-High selection — except a value equal to the High table
+//   value, which writes no override (an untouched machine comes out with zero overrides) — removes the keys and
+//   logs once. The former per-setting AA resolvers and RenderConfig's device maxima were replaced by
+//   ResolvedQuality and QualityState::Apply (RenderConfig keeps only the atomic TextureFilter / AnisotropyLevel
+//   push the sampler path reads, written by QualityBoot's listener). The old AntiAliasingMethod enum in
+//   MachineSettings.hpp was deleted in favour of Common::Scalability::AntiAliasingMethod (same leading values).
 namespace Common::Scalability
 {
     // The groups — UE's sg.* set plus AntiAliasing and ResolutionScale, which UE keeps as sg.AntiAliasingQuality
-    // and sg.ResolutionQuality. Order is the UI order and the YAML order.
-    enum class Group : uint8_t
+    // and sg.ResolutionQuality. Order is the UI order and the JSON order.
+    enum class Group : int
     {
         Textures = 0, // sg.TextureQuality — streaming pool, mip bias, cooked-size cap
         Filtering,    // texture filter + anisotropy (UE folds this into Textures; split because players tune it
@@ -73,7 +71,7 @@ namespace Common::Scalability
     inline constexpr std::size_t kGroupCount = static_cast<std::size_t>( Group::Count );
 
     // Levels — UE's 0..4. Cinematic is a real level (offline / screenshots), not a synonym of Epic.
-    enum class Level : uint8_t
+    enum class Level : int
     {
         Low = 0,
         Medium,
@@ -85,21 +83,45 @@ namespace Common::Scalability
     inline constexpr std::size_t kLevelCount = static_cast<std::size_t>( Level::Count );
 
     // EVERY QUALITY VALUE A RENDERER READS. A row exists only when a reader exists (contract §1.3): the comment
-    // names it. Groups without a row yet (Textures, Shadows, GlobalIllumination, Reflections, PostProcess) get
-    // their rows in the implementation step from the parameters SCAL1 moves out of SceneSettings/RenderConfig
-    // constants (REMAINDER-SCAL1-C0.md lists the candidates); until a group has a row the table loader REFUSES a
-    // data file that gives it levels, and the UI does not show it — a group slider that moves nothing is a dead
-    // setting.
-    enum class Parameter : uint8_t
+    // names it. A group whose rows are all placeholders (Textures today) is HIDDEN: IsGroupListed() is false, so
+    // no UI or game API shows a slider for it, and a group with no row at all is refused by the loader when the
+    // data file gives it levels - a group slider that moves nothing is a dead setting.
+    //
+    // PLACEHOLDERS (owner, 2026-10-06). A row whose spec says `Reader = std::nullopt` reserves a parameter for a
+    // feature the engine does not have yet (TAA quality, ray-traced shadows/reflections/GI, upscaler sharpening,
+    // texture streaming). The loader validates it like any row, Resolve passes it through (range + catalog), but
+    // nothing applies it: ListedParameters() and IsGroupListed() leave it out of every UI and of the game API, and
+    // QualityState::SetOverride refuses it. The day its feature lands the row gains its reader and appears. A
+    // contract test pins both directions: every placeholder is hidden, every listed row names its reader.
+    enum class Parameter : int
     {
         AntiAliasingMethod = 0, // SceneRenderer framebuffer setup + post AA pass. Values: AntiAliasingMethod
-        AntiAliasingSamples,    // SceneRenderer framebuffer sample count; only under MSAA. Values: 2/4/8
+        AntiAliasingSamples,    // SceneRenderer framebuffer sample count; read only under MSAA. Values: 1/2/4/8
         RenderScalePercent,     // view-target size (RDG) and the upscaler pass. Values: RenderScaleRange
         Upscaler,               // upscaler pass. Values: Upscaler
         TextureFilter,          // sampler cache (RenderConfig push). Values: MachineSettings TextureFilter 0..3
         Anisotropy,             // sampler cache. Values: CapabilityCatalog::AnisotropyLevels
         MeshLOD,                // mesh LOD selection. Values: 0/1
         CloudQuality,           // Graphic::CloudQualityScale. Values: CloudQuality 0..2
+        // The three shadow rows: a level's viewport re-allocates its cascade maps when they change.
+        ShadowCascades, // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
+        ShadowMapSize,  // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
+        ShadowDistance, // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km
+        // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
+        // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
+        ReflectionMaxSteps,        // SSR trace march steps (SSRRenderer push constant). 8..64
+        GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
+        AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
+        BloomMips, // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
+        // ---- placeholders (Reader = nullopt) ----
+        TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
+        TextureStreamingPoolMiB,      // Textures: resident texture budget
+        ShadowRayTracing,             // Shadows: RayTracingMode
+        GlobalIlluminationRayTracing, // GlobalIllumination: RayTracingMode
+        ReflectionRayTracing,         // Reflections: RayTracingMode
+        TemporalAAQuality,            // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
+                                      // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
+        UpscalerSharpness,            // ResolutionScale: percent
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
@@ -111,7 +133,7 @@ namespace Common::Scalability
     using ParameterValue = int32_t;
 
     // Which catalog list a parameter's values are checked against, if any.
-    enum class CatalogList : uint8_t
+    enum class CatalogList : int
     {
         None = 0, // a closed range in the spec is the whole truth (MeshLOD, TextureFilter, CloudQuality)
         AntiAliasingMethods,
@@ -122,22 +144,33 @@ namespace Common::Scalability
         RayTracingModes,
     };
 
-    // ONE ROW PER PARAMETER, the single list every check is driven by: the YAML key, its group, its legal range
+    // ONE ROW PER PARAMETER, the single list every check is driven by: the JSON key, its group, its legal range
     // (before the device), and which catalog list narrows it. The census in ScalabilityContract asserts one row
     // per enum value, in enum order, with unique keys.
     struct ParameterSpec
     {
         Parameter        Id;
         Group            Owner;
-        std::string_view Key; // YAML / machine.json / console name, e.g. "AntiAliasing.Method"
+        std::string_view Key; // JSON / machine.json / console name, e.g. "AntiAliasing.Method"
         ParameterValue   Min;
         ParameterValue   Max;
         CatalogList      NarrowedBy;
+        // WHO READS THE RESOLVED VALUE (file / system), or std::nullopt for a placeholder: a reserved parameter
+        // with no reader, hidden from every selector (see PLACEHOLDERS above).
+        std::optional<std::string_view> Reader;
     };
+    [[nodiscard]] constexpr bool IsPlaceholder( const ParameterSpec& spec )
+    {
+        return !spec.Reader.has_value();
+    }
     [[nodiscard]] std::span<const ParameterSpec> ParameterSpecs();
     [[nodiscard]] const ParameterSpec&           SpecOf( Parameter parameter );
     [[nodiscard]] std::string_view               GroupKey( Group group ); // "Shadows", "AntiAliasing", ...
     [[nodiscard]] std::string_view               LevelKey( Level level ); // "Low" ... "Cinematic"
+    // What a selector (editor panel, palette, game menu, console listing) may show: the parameters that have a
+    // reader, and the groups owning at least one of them.
+    [[nodiscard]] std::vector<Parameter> ListedParameters();
+    [[nodiscard]] bool                   IsGroupListed( Group group );
 
     // A full set of values, one per parameter, indexed by Parameter. Unset slots do not exist: the table loader
     // refuses a level that does not set every parameter of its group.
@@ -145,23 +178,23 @@ namespace Common::Scalability
 
     // ---- The data file (UE BaseScalability.ini) ----------------------------------------------------------
     //
-    // `Editor/Resources/Config/Scalability.yaml`, shipped by the packager next to the shaders. Shape:
+    // `Editor/Resources/Config/Scalability.json`, shipped by the packager in its Config tree, read with the
+    // engine's own Common/Json (no third-party parser). Shape:
     //
-    //   Version: 1
-    //   Groups:
-    //     AntiAliasing:
-    //       Low:       { AntiAliasing.Method: FXAA, AntiAliasing.Samples: 2 }
-    //       ...
-    //       Cinematic: { AntiAliasing.Method: TAA,  AntiAliasing.Samples: 8 }
-    //   Recommend:
-    //     Thresholds:        # GPU perf-index boundaries, UE PerfIndexThresholds_<Group>
-    //       Shadows: [ 40, 110, 250 ]       # index >= t[i] -> level i+1 (Low..Epic); Cinematic never recommended
-    //     MinVideoMemoryMiB:  # per level; a level the machine's VRAM does not reach is never recommended
-    //       Textures: [ 0, 2048, 4096, 6144, 8192 ]
-    //     DeviceClass: { Unknown: 10, Integrated: 15, AppleUnified: 60, Discrete: 80 } # untimed stand-in index
+    //   { "Version": 1,
+    //     "Groups": {
+    //       "AntiAliasing": {
+    //         "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 1, ... },   // Samples > 1
+    //         only under MSAA
+    //         ...
+    //         "Cinematic": { "AntiAliasing.Method": "MSAA", "AntiAliasing.Samples": 8, ... } }, ... },
+    //     "Recommend": {
+    //       "Thresholds": { "Shadows": [ 40, 110, 250 ] },   // index >= t[i] -> level i+1; never Cinematic
+    //       "MinVideoMemoryMiB": { "Textures": [ 0, 2048, 4096, 6144, 8192 ] }, // per level; VRAM gate
+    //       "DeviceClass": { "Unknown": 10, "Integrated": 15, "AppleUnified": 60, "Discrete": 80 } } }
     //
-    // Enum values are written by name. The table is DATA, not code: changing what "Medium shadows" means is a YAML
-    // edit, never a recompile.
+    // Enum values are written by name. Every error names its JSON path and all of them are reported together. The
+    // table is DATA, not code: changing what "Medium shadows" means is a data edit, never a recompile.
     struct ScalabilityTable
     {
         uint32_t Version = 0;
@@ -182,7 +215,7 @@ namespace Common::Scalability
         // parameters; a level missing one of its group's parameters; a value outside the spec range; an enum
         // name that is not a value; a group WITHOUT parameters given levels (dead group); thresholds not strictly
         // ascending; a DeviceClass entry missing. Every error found, not the first.
-        [[nodiscard]] static Common::ResultStr<ScalabilityTable> Parse( std::string_view yamlText );
+        [[nodiscard]] static Common::ResultStr<ScalabilityTable> Parse( std::string_view jsonText );
 
         [[nodiscard]] ParameterValue ValueAt( Parameter parameter, Level level ) const;
     };
@@ -223,7 +256,7 @@ namespace Common::Scalability
     };
 
     // How axis 2 renders this frame.
-    enum class ScaleMode : uint8_t
+    enum class ScaleMode : int
     {
         Upscale,     // RenderScalePercent < 100: the Upscaler (never None) reconstructs output size
         Native,      // == 100
@@ -309,9 +342,14 @@ namespace Common::Scalability
     {
     public:
         // Once, after the device exists (the catalog) and machine.json is loaded (the selection). The table is
-        // parsed by the host from Scalability.yaml; a parse failure stops the host — there is no built-in table to
+        // parsed by the host from Scalability.json; a parse failure stops the host — there is no built-in table to
         // fall back to (a second copy of the levels in code would be the two-sources defect).
-        static void Initialize( ScalabilityTable table, CapabilityCatalog catalog, QualitySelection saved );
+        //
+        // `save` persists a selection (the host's machine.json writer); Apply calls it after publishing. Injected
+        // so the one apply point does not depend on how the host stores machine settings, and so tests mock it.
+        using Saver = Common::BoolResultStr ( * )( const QualitySelection& selection );
+        static void Initialize( ScalabilityTable table, CapabilityCatalog catalog, QualitySelection saved,
+                                Saver save );
         // A device loss / new device: same selection, new catalog -> re-resolve, report what changed.
         static void ReplaceCatalog( CapabilityCatalog catalog );
 
@@ -322,6 +360,7 @@ namespace Common::Scalability
             std::vector<Fallback> NewFallbacks; // fallbacks not present in the previous resolution
             bool                  ValuesChanged = false;
             bool                  Saved         = false;
+            std::string_view      Refused; // non-empty: nothing was applied, and why (logged at ERROR)
         };
         // THE apply point: resolve, log each NEW fallback once, publish ResolvedQuality (Generation + 1 when
         // values changed), notify listeners, save machine.json. Every setter below is this with an edited

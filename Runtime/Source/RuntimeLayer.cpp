@@ -23,6 +23,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Project/ProjectContext.hpp>
+#include <Engine/Graphic/QualityBoot.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
@@ -157,6 +158,10 @@ namespace Desert::Player
         // skinned character in a packaged game stood in its bind pose (BootContentCensus holds both hosts).
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
         Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
+        // The machine's quality, from this player's own directory (per PRODUCT: two games are two budgets), BEFORE
+        // the renderer: SceneRenderer::Init bakes the MSAA sample count into its pipelines.
+        m_QualityStart = Graphic::QualityBoot::Start(
+             Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "machine.json" );
         // The game's view IS the window, so here — and only here — the window's size is the view's.
         const auto window = EngineContext::GetInstance().GetWindow();
         m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(
@@ -168,6 +173,8 @@ namespace Desert::Player
 
     Common::BoolResultStr RuntimeLayer::OnAttach()
     {
+        if ( !m_QualityStart )
+            return m_QualityStart;
         // The runtime presents the frame + draws UI/splash with the engine's own Render2D (set up lazily on
         // the first present, once the swapchain framebuffer exists).
 
@@ -904,7 +911,7 @@ namespace Desert::Player
         // only place the answer existed was a `.desce` shipped inside the game's content archive. They
         // are in the machine store now, loaded at startup from this player's own directory
         // (Runtime/Source/Main.cpp), and this is the line that makes the dial reach the renderer.
-        m_SceneRenderer->SetQuality( Common::Settings::MachineSettings::Get() );
+        m_SceneRenderer->SetQuality( Common::Scalability::QualityState::Resolved() );
 
         // THE WORLDS INSIDE UI RENDER-TEXTURE ELEMENTS (Ю16), advanced before the game world opens its
         // pass. A capture records a whole scene render and Vulkan has no nested render pass — and the walk

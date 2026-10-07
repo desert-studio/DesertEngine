@@ -28,11 +28,17 @@ namespace Desert::Graphic::API::Vulkan
     {
         const auto& caps = EngineContext::GetInstance().GetCapabilities();
 
-        if ( !caps.SupportsTimestampQueries )
+        // CapabilityCatalog::Timing is the one answer to "can this device time GPU work" (the benchmark asks
+        // it too). EncoderBounds (MoltenVK on Apple GPUs) still times each scope, but a timestamp lands at the
+        // enclosing encoder's boundary, so a scope inside one encoder reads as zero or as its whole encoder.
+        if ( caps.Catalog.Timing == Common::Scalability::GpuTiming::None )
         {
             LOG_WARN( "[GpuProfiler] Device reports no timestamp queries — the profiler stays CPU-only." );
             return;
         }
+        if ( caps.Catalog.Timing == Common::Scalability::GpuTiming::EncoderBounds )
+            LOG_INFO( "[GpuProfiler] GPU timestamps land at encoder boundaries on this device: a scope inside "
+                      "one render/compute encoder reads its encoder's time, not its own." );
         if ( caps.TimestampPeriodNs <= 0.0f )
         {
             LOG_WARN( "[GpuProfiler] timestampPeriod is {} — without it a tick cannot be turned into a "

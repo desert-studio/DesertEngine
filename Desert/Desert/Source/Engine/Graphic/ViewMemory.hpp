@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,12 +38,17 @@ namespace Desert::Graphic
         bool          VolumetricClouds       = true;
         bool          ScreenSpaceReflections = true;
         bool          GlobalIllumination     = true;
+        // The shadow budget follows the machine's Shadows quality level (Scalability) instead of staying
+        // `Shadows`. Only a level's viewport does: a preview or a thumbnail keeps its own small budget at
+        // every level, because what it shows is one asset, not the world the level is about.
+        bool ShadowsFollowQuality = false;
 
         bool operator==( const ViewProfile& ) const = default;
     };
 
-    // A viewport of a level: every feature may be switched on by the scene.
-    inline constexpr ViewProfile kSceneViewProfile{ kSceneShadowQuality, true, true, true };
+    // A viewport of a level: every feature may be switched on by the scene, and its shadow budget is the
+    // Shadows quality level's (kSceneShadowQuality until QualityState has published one — it is the High row).
+    inline constexpr ViewProfile kSceneViewProfile{ kSceneShadowQuality, true, true, true, true };
 
     // A live preview (Details ball, mesh preview, UI render texture): one 1024 cascade, no SSR and no RSM-GI.
     // Clouds stay ON: a cloud material's preview IS its clouds (RT1b: with them off, all 53 cloud-material
@@ -51,6 +58,32 @@ namespace Desert::Graphic
 
     // A one-shot capture (asset thumbnails, photogrammetry preview): the preview profile without the sun.
     inline constexpr ViewProfile kThumbnailViewProfile{ kNoShadowQuality, true, false, false };
+
+    // THE SHADOW BUDGET OF A QUALITY RESOLUTION — the three Shadows rows of the Scalability table, in the units
+    // ShadowQuality holds them (centimetres for the distance, like the table).
+    [[nodiscard]] inline ShadowQuality ShadowQualityOf( const Common::Scalability::ResolvedQuality& quality )
+    {
+        using Common::Scalability::Parameter;
+        return ShadowQuality{ quality.As<uint32_t>( Parameter::ShadowCascades ),
+                              quality.As<uint32_t>( Parameter::ShadowMapSize ),
+                              quality.As<float>( Parameter::ShadowDistance ) };
+    }
+
+    // THE RE-ALLOCATION RULE (UE re-creates its shadow depth targets when r.Shadow.* changes): the budget a
+    // view must re-allocate its cascade maps to, or nullopt when what it holds is already right. A view whose
+    // profile does not follow quality never re-allocates; a resolution QualityState never published
+    // (Generation 0: a tool or test host that did not initialise it) is not a level, so the view keeps its own.
+    // Pure, so the rule is tested without a device; SceneRenderer calls it when the quality generation moves.
+    [[nodiscard]] inline std::optional<ShadowQuality>
+    ShadowReallocation( const ViewProfile& profile, const Common::Scalability::ResolvedQuality& quality )
+    {
+        if ( !profile.ShadowsFollowQuality || quality.Generation == 0 )
+            return std::nullopt;
+        const ShadowQuality wanted = ShadowQualityOf( quality );
+        if ( wanted == profile.Shadows )
+            return std::nullopt;
+        return wanted;
+    }
 
     /**
      * @brief THE EXTENT A VIEW BUILDS ITS TARGETS AT — its own surface's, never the window's.
