@@ -478,17 +478,17 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanPipeline::CreateColorBlendState()
     {
         m_ColorBlendAttachments.clear();
-        // Per attachment, by its format: an integer target never blends (ColourAttachmentBlends).
-        const std::vector<Core::Formats::ImageFormat> formats = ColourAttachmentFormats( m_Specification );
+        // Per attachment, by its format: an integer target never blends (ColourAttachmentBlendEnables).
+        const std::vector<bool> blends =
+             ColourAttachmentBlendEnables( ColourAttachmentFormats( m_Specification ), m_Specification.BlendEnable );
 
         const VkBlendFactor  srcCol = ConvertBlendFactor( m_Specification.SrcColorBlendFactor );
         const VkBlendFactor  dstCol = ConvertBlendFactor( m_Specification.DstColorBlendFactor );
 
-        m_ColorBlendAttachments.resize( formats.size() );
-        for ( size_t slot = 0; slot < formats.size(); ++slot )
+        m_ColorBlendAttachments.resize( blends.size() );
+        for ( size_t slot = 0; slot < blends.size(); ++slot )
         {
-            const bool blend                = ColourAttachmentBlends( m_Specification.BlendEnable, formats[slot] );
-            m_ColorBlendAttachments[slot] = { .blendEnable  = blend ? VK_TRUE : VK_FALSE,
+            m_ColorBlendAttachments[slot] = { .blendEnable         = blends[slot] ? VK_TRUE : VK_FALSE,
                            .srcColorBlendFactor = srcCol,
                            .dstColorBlendFactor = dstCol,
                            .colorBlendOp        = VK_BLEND_OP_ADD,

@@ -9,6 +9,8 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <optional>
+#include <span>
+#include <vector>
 #include <Engine/Graphic/VertexBuffer.hpp>
 
 #include <Common/Core/Memory/Buffer.hpp>
@@ -291,6 +293,19 @@ namespace Desert::Graphic
     [[nodiscard]] constexpr bool ColourAttachmentBlends( bool pipelineBlend, Core::Formats::ImageFormat format )
     {
         return pipelineBlend && !Core::Formats::IsIntegerFormat( format );
+    }
+
+    // The blend switch of every colour attachment, by colour slot: @p formats (ColourAttachmentFormats) under a
+    // pipeline that asked for @p requested. The ONE rule pipeline creation obeys (VulkanPipeline::
+    // CreateColorBlendState takes its blendEnable from here and from nowhere else - PipelineBlendState census).
+    [[nodiscard]] inline std::vector<bool>
+    ColourAttachmentBlendEnables( std::span<const Core::Formats::ImageFormat> formats, bool requested )
+    {
+        std::vector<bool> blends;
+        blends.reserve( formats.size() );
+        for ( const Core::Formats::ImageFormat format : formats )
+            blends.push_back( ColourAttachmentBlends( requested, format ) );
+        return blends;
     }
 
     /**

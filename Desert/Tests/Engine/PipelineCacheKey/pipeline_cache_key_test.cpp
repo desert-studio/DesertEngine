@@ -17,6 +17,14 @@
 
 #include <Engine/Graphic/PipelineCache.hpp>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <fstream>
+#include <iterator>
+#include <string>
+
 using namespace Desert::Graphic;
 
 namespace
@@ -484,12 +492,34 @@ TEST( PipelineBlendState, AnIntegerAttachmentNeverBlendsWhateverTheMaterialAsks 
 
     const std::vector<ImageFormat> formats = ColourAttachmentFormats( spec );
     ASSERT_EQ( formats.size(), 4u );
-    std::vector<bool> blends;
-    for ( const ImageFormat format : formats )
-        blends.push_back( ColourAttachmentBlends( spec.BlendEnable, format ) );
-    EXPECT_EQ( blends, ( std::vector<bool>{ true, true, false, true } ) );
+    EXPECT_EQ( ColourAttachmentBlendEnables( formats, spec.BlendEnable ),
+               ( std::vector<bool>{ true, true, false, true } ) );
+    EXPECT_EQ( ColourAttachmentBlendEnables( formats, false ), ( std::vector<bool>( 4, false ) ) );
+}
 
-    spec.BlendEnable = false;
-    for ( const ImageFormat format : formats )
-        EXPECT_FALSE( ColourAttachmentBlends( spec.BlendEnable, format ) );
+// The function above is only the rule if pipeline creation obeys it: VulkanPipeline::CreateColorBlendState
+// takes every blendEnable from ColourAttachmentBlendEnables and never reads the requested blend itself.
+// Mutation: the loop sets `.blendEnable = m_Specification.BlendEnable` again -> red.
+TEST( PipelineBlendState, PipelineCreationTakesEveryBlendSwitchFromTheRule )
+{
+    std::ifstream file( Desert::TestSupport::RepositoryRoot() /
+                        "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipeline.cpp" );
+    ASSERT_TRUE( file );
+    std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+    text.erase( std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+                text.end() );
+    const size_t begin = text.find( "voidVulkanPipeline::CreateColorBlendState()" );
+    ASSERT_NE( begin, std::string::npos );
+    const size_t      end  = text.find( "voidVulkanPipeline::", begin + 1 );
+    const std::string body = text.substr( begin, end - begin );
+    EXPECT_NE( body.find( "ColourAttachmentBlendEnables(ColourAttachmentFormats(m_Specification),"
+                          "m_Specification.BlendEnable)" ),
+               std::string::npos );
+    EXPECT_NE( body.find( ".blendEnable=blends[slot]?VK_TRUE:VK_FALSE" ), std::string::npos );
+    // The requested blend reaches the attachments only through the rule: named once, as its argument.
+    size_t uses = 0;
+    for ( size_t at = body.find( "m_Specification.BlendEnable" ); at != std::string::npos;
+          at = body.find( "m_Specification.BlendEnable", at + 1 ) )
+        ++uses;
+    EXPECT_EQ( uses, 1u );
 }
