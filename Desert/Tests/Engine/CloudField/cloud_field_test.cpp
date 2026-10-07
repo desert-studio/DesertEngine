@@ -1722,9 +1722,9 @@ TEST( CloudFieldSpecies, TheWinningSpeciesEdgeIsCutFromItsOwnNoiseVolume )
             // so the mirror does too. The tower's DensityFactor is 1.15, and since the rank cut a kept body
             // reaches a profile of one a ProfileDepth inside — the 620 samples at a gap of exactly 0.15 were
             // this clamp, not the slot.
-            const double gap = std::abs(
-                 static_cast<double>( fromSeam ) -
-                 static_cast<double>( std::clamp( fromMirror * sample.DensityScale, 0.0f, 1.0f ) ) );
+            const double gap =
+                 std::abs( static_cast<double>( fromSeam ) -
+                           static_cast<double>( std::clamp( fromMirror * sample.DensityScale, 0.0f, 1.0f ) ) );
             worstDisagreement = std::max( worstDisagreement, gap );
             if ( gap > 1e-6 )
                 ++densityWrong;

@@ -250,8 +250,8 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     // CloudTypeTopKm]). The fixture has ONE species, so inside this band every air voxel's nearest body is
     // that species' and must carry a rank; outside it no air voxel may.
     const Desert::Graphic::CloudTypeShape& bandShape = params.Species.front().Shape;
-    const float           rowKm     = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
-    const auto            bandRow   = [&]( float r )
+    const float rowKm   = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
+    const auto  bandRow = [&]( float r )
     { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( kCloudProceduralVolumeHeight ) ) ); };
     const uint32_t bandLo =
          bandRow( std::floor( ( Desert::Graphic::CloudTypeBaseKm( bandShape ) - params.LayerBottomKm ) / rowKm ) );
