@@ -160,7 +160,7 @@ namespace Desert::Graphic::RDG
         // Copied at the call: the exec runs after the caller's storage is gone.
         auto payload = std::make_shared<const std::vector<std::byte>>( bytes.begin(), bytes.end() );
         AddPass(
-             "Upload: " + name, PassFlags::Copy,
+             std::format( "Upload: {}", name ), PassFlags::Copy,
              [&]( PassBuilder& pass )
              {
                  // Declared even when the upload is refused: the faulted pass's write is what makes its readers

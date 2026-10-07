@@ -198,13 +198,13 @@ namespace Desert::VFX
                 if ( !IsIdentifier( name ) )
                     return Common::MakeFormattedError<ResolvedModule>(
                          "{}: engine module name '{}' is not an identifier", where, name );
-                const std::filesystem::path path = engineModuleDir / ( name + ".shader" );
+                const std::filesystem::path path = engineModuleDir / std::format( "{}.shader", name );
                 auto                        read = ReadText( path );
                 if ( !read.IsSuccess() )
                     return Common::MakeFormattedError<ResolvedModule>( "{}: engine module '{}' has no file — {}",
                                                                        where, name, read.GetError() );
                 text   = read.ExtractValue();
-                suffix = "E_" + name;
+                suffix = std::format( "E_{}", name );
             }
             else if ( ref.starts_with( S::kVFXLocalPrefix ) )
             {
@@ -217,7 +217,7 @@ namespace Desert::VFX
                 if ( it == system.LocalModules.end() )
                     return Common::MakeFormattedError<ResolvedModule>( "{}: no LocalModules row '{}'", where, id );
                 text   = it->Source;
-                suffix = "L_" + id;
+                suffix = std::format( "L_{}", id );
             }
             else
                 return Common::MakeFormattedError<ResolvedModule>(
@@ -227,8 +227,8 @@ namespace Desert::VFX
             if ( !parsed.IsSuccess() )
                 return Common::MakeError<ResolvedModule>( parsed.GetError() );
             ResolvedModule resolved;
-            resolved.Function = "VFXMod_" + suffix;
-            resolved.Inputs   = "VFXIn_" + suffix;
+            resolved.Function = std::format( "VFXMod_{}", suffix );
+            resolved.Inputs   = std::format( "VFXIn_{}", suffix );
             resolved.Module   = parsed.ExtractValue();
             return Common::MakeSuccess( std::move( resolved ) );
         }
@@ -513,7 +513,7 @@ namespace Desert::VFX
                                 expr = ParamExpr( it->second, d.Type );
                             }
                             else
-                                expr = "p." + in.Binding->substr( S::kVFXParticlesPrefix.size() );
+                                expr = std::format( "p.{}", in.Binding->substr( S::kVFXParticlesPrefix.size() ) );
                             break;
                         case S::VFXInputSource::Curve:
                             compiled.Slots.push_back( { VFXParamSlot::Kind::Curve, group, index, d.Name, {} } );
@@ -582,7 +582,7 @@ namespace Desert::VFX
                                     a.FloatStart + c, a.Name, kLane[c] );
                 }
         }
-        body += read + "    return p;\n}\n" + write + "}\n" + zero + "    return p;\n}\n";
+        std::format_to( std::back_inserter( body ), "{}    return p;\n}}\n{}}}\n{}    return p;\n}}\n", read, write, zero );
         std::format_to( std::back_inserter( body ),
                         "\nvoid VFX_SimulateParticle( uint particle, inout VFXSim sim )\n{{\n"
                         "    ParticleCtx p = sim.Spawned ? VFX_ZeroParticle() : VFX_ReadParticle( particle );\n"
@@ -593,13 +593,18 @@ namespace Desert::VFX
         // 5. The key is the body's hash: the body is a function of the stack's structure and the layout only (no
         //    value reaches it), so equal structures share one program and any structural change moves it. The
         //    included contract is covered by the shader cache key when the program compiles.
-        compiled.Key        = Fnv1a64( std::string( kGeneratorTag ) + "\n" + body );
+        compiled.Key        = Fnv1a64( std::format( "{}\n{}", kGeneratorTag, body ) );
         compiled.ShaderName = std::format( "VFX/Emitter/{:016x}", compiled.Key );
 
         std::string        indented;
         std::istringstream lines( body );
         for ( std::string line; std::getline( lines, line ); )
-            indented += line.empty() ? "\n" : "        " + line + "\n";
+        {
+            if ( line.empty() )
+                indented += '\n';
+            else
+                std::format_to( std::back_inserter( indented ), "        {}\n", line );
+        }
         compiled.ShaderText =
              std::format( "Shader \"{}\"\n{{\n    Domain Particle\n    Particle\n    {{\n{}    }}\n}}\n",
                           compiled.ShaderName, indented );

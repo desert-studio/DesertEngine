@@ -292,7 +292,7 @@ namespace
         const CompileResult result = CompileOrFail( builder );
         if ( result.Faults.size() != 1 || result.Faults[0].Stage != PassFaultStage::Declaration )
             return {};
-        return result.Faults[0].PassName + ": " + result.Faults[0].Reason;
+        return std::format( "{}: {}", result.Faults[0].PassName, result.Faults[0].Reason );
     }
 
     std::vector<Barrier> BarriersOn( const CompiledPass* pass, uint32_t resource )
@@ -3345,7 +3345,7 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
         EXPECT_GT( records, 0u ) << renderer.File << " has no " << record;
     }
 
-    const std::string tonemap = SqueezedSource( root, ( dir + "TonemapRenderer.cpp" ).c_str() );
+    const std::string tonemap = SqueezedSource( root, std::format( "{}TonemapRenderer.cpp", dir ).c_str() );
     EXPECT_NE(
          FunctionBody( tonemap, "voidTonemapRenderer::FillMaterial(" ).find( "m_MaterialTonemap->BindValues(" ),
          std::string::npos )
@@ -3363,7 +3363,7 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
     EXPECT_LT( declare, exec ) << "both in the setup, before the exec";
 
     // The jump-flood composite's uniforms (outline colour, width, smoothness) the same way.
-    const std::string jfa = SqueezedSource( root, ( dir + "JumpFloodOutlineRenderer.cpp" ).c_str() );
+    const std::string jfa = SqueezedSource( root, std::format( "{}JumpFloodOutlineRenderer.cpp", dir ).c_str() );
     EXPECT_NE( FunctionBody( jfa, "voidJumpFloodOutlineRenderer::FillFinalMaterial(" )
                     .find( "m_MaterialComposite->SetParams(" ),
                std::string::npos )
@@ -4381,8 +4381,8 @@ TEST( RenderGraphCompile, TheNameTakingExecBindingApiStaysDeleted )
          << "the block constructor is the one way to open a PassBindings";
     // A PassContext parameter of any name, then either the end of the list or only defaulted parameters.
     const std::string context = R"(\((const)?(RDG::)?PassContext(&|\*)\w*(=[^,()]*)?(,[^,()]*=[^,()]*)*\))";
-    const std::regex  contextAloneDecl( "PassBindings" + context );
-    const std::regex  contextAloneDef( "PassBindings::PassBindings" + context );
+    const std::regex  contextAloneDecl( std::format( "PassBindings{}", context ) );
+    const std::regex  contextAloneDef( std::format( "PassBindings::PassBindings{}", context ) );
     EXPECT_FALSE( std::regex_search( header, contextAloneDecl ) )
          << "a PassBindings constructor callable with the context alone is back in RDGPassBindings.hpp";
     EXPECT_FALSE( std::regex_search( body, contextAloneDef ) )

@@ -1282,7 +1282,7 @@ namespace Desert::Player
                            executed.GetError() );
                 m_MovieFrameDrawn = false;
                 m_Application->Close( 1 );
-                return Common::MakeError( "[Runtime] present graph: " + executed.GetError() );
+                return Common::MakeFormattedError( "[Runtime] present graph: {}", executed.GetError() );
             }
 #endif
             // A FrameFault (logged by the graph backend) is a frame: ExecuteGraph cleared the back buffer to black

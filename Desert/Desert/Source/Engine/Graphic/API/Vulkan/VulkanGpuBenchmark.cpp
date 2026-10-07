@@ -43,27 +43,24 @@ namespace Desert::Graphic::API::Vulkan
 
         std::string AluSource()
         {
-            return "#version 450\n"
-                   "layout(local_size_x = " +
-                   std::to_string( kGroupSize ) +
-                   ") in;\n"
-                   "layout(std430, set = 0, binding = 1) writeonly buffer Out { vec4 Values[]; } o;\n"
-                   "void main()\n"
-                   "{\n"
-                   "    float seed = float(gl_GlobalInvocationID.x) * 1.0e-6;\n"
-                   "    vec4 a = vec4(seed, seed + 0.1, seed + 0.2, seed + 0.3);\n"
-                   "    vec4 b = a + 0.5, c = a + 0.25, d = a + 0.75;\n"
-                   "    for (uint i = 0u; i < " +
-                   std::to_string( kAluIterations ) +
-                   "u; ++i)\n"
-                   "    {\n"
-                   "        a = fma(a, vec4(0.9999), vec4(1.0e-4));\n"
-                   "        b = fma(b, vec4(0.9998), vec4(2.0e-4));\n"
-                   "        c = fma(c, vec4(0.9997), vec4(3.0e-4));\n"
-                   "        d = fma(d, vec4(0.9996), vec4(4.0e-4));\n"
-                   "    }\n"
-                   "    o.Values[gl_GlobalInvocationID.x] = a + b + c + d;\n"
-                   "}\n";
+            return std::format( "#version 450\n"
+                                "layout(local_size_x = {}) in;\n"
+                                "layout(std430, set = 0, binding = 1) writeonly buffer Out {{ vec4 Values[]; }} o;\n"
+                                "void main()\n"
+                                "{{\n"
+                                "    float seed = float(gl_GlobalInvocationID.x) * 1.0e-6;\n"
+                                "    vec4 a = vec4(seed, seed + 0.1, seed + 0.2, seed + 0.3);\n"
+                                "    vec4 b = a + 0.5, c = a + 0.25, d = a + 0.75;\n"
+                                "    for (uint i = 0u; i < {}u; ++i)\n"
+                                "    {{\n"
+                                "        a = fma(a, vec4(0.9999), vec4(1.0e-4));\n"
+                                "        b = fma(b, vec4(0.9998), vec4(2.0e-4));\n"
+                                "        c = fma(c, vec4(0.9997), vec4(3.0e-4));\n"
+                                "        d = fma(d, vec4(0.9996), vec4(4.0e-4));\n"
+                                "    }}\n"
+                                "    o.Values[gl_GlobalInvocationID.x] = a + b + c + d;\n"
+                                "}}\n",
+                                kGroupSize, kAluIterations );
         }
         // kAluChains vec4 FMAs per iteration: 4 lanes x 2 FLOPs each.
         constexpr double kAluFlopsPerDispatch =
@@ -71,13 +68,13 @@ namespace Desert::Graphic::API::Vulkan
 
         std::string BandwidthSource()
         {
-            return "#version 450\n"
-                   "layout(local_size_x = " +
-                   std::to_string( kGroupSize ) +
-                   ") in;\n"
-                   "layout(std430, set = 0, binding = 0) readonly buffer In { vec4 Values[]; } i;\n"
-                   "layout(std430, set = 0, binding = 1) writeonly buffer Out { vec4 Values[]; } o;\n"
-                   "void main() { o.Values[gl_GlobalInvocationID.x] = i.Values[gl_GlobalInvocationID.x]; }\n";
+            return std::format(
+                 "#version 450\n"
+                 "layout(local_size_x = {}) in;\n"
+                 "layout(std430, set = 0, binding = 0) readonly buffer In {{ vec4 Values[]; }} i;\n"
+                 "layout(std430, set = 0, binding = 1) writeonly buffer Out {{ vec4 Values[]; }} o;\n"
+                 "void main() {{ o.Values[gl_GlobalInvocationID.x] = i.Values[gl_GlobalInvocationID.x]; }}\n",
+                 kGroupSize );
         }
         constexpr uint32_t kBandwidthGroups = static_cast<uint32_t>( kBandwidthBytes / 16 / kGroupSize );
         static_assert( kBandwidthBytes % ( 16ull * kGroupSize ) == 0 );
@@ -112,7 +109,7 @@ namespace Desert::Graphic::API::Vulkan
 
         Result Fail( const std::string& what )
         {
-            return Common::MakeError<Common::Scalability::BenchmarkResult>( "GPU benchmark: " + what );
+            return Common::MakeFormattedError<Common::Scalability::BenchmarkResult>( "GPU benchmark: {}", what );
         }
 
         Result VulkanGpuBenchmark::Run( Engine::Device& engineDevice )
@@ -232,7 +229,7 @@ namespace Desert::Graphic::API::Vulkan
                                               2.0 * static_cast<double>( kBandwidthBytes ) } };
             for ( Pass& pass : passes )
             {
-                const std::string path  = std::string( "<GpuBenchmark:" ) + pass.Name + ">";
+                const std::string path  = std::format( "<GpuBenchmark:{}>", pass.Name );
                 auto              spirv = ::Desert::Core::ShaderCompiler::CompileGLSLToSPIRV(
                      ::Desert::Core::Formats::ShaderStage::Compute, pass.Source, path );
                 if ( !spirv.IsSuccess() )
@@ -277,7 +274,7 @@ namespace Desert::Graphic::API::Vulkan
             auto& commands = CommandBufferAllocator::GetInstance();
             auto  cmdOr    = commands.RT_AllocateCommandBufferGraphic( true );
             if ( !cmdOr.IsSuccess() )
-                return Fail( "no command buffer: " + cmdOr.GetError() );
+                return Fail( std::format( "no command buffer: {}", cmdOr.GetError() ) );
             const VkCommandBuffer cmd = cmdOr.GetValue();
 
             vkCmdResetQueryPool( cmd, queries, 0, queryCount );
@@ -314,7 +311,7 @@ namespace Desert::Graphic::API::Vulkan
 
             auto flushed = commands.RT_FlushCommandBufferGraphic( cmd );
             if ( !flushed.IsSuccess() )
-                return Fail( "the submit failed: " + flushed.GetError() );
+                return Fail( std::format( "the submit failed: {}", flushed.GetError() ) );
             if ( flushed.GetValue() != VK_SUCCESS )
                 return Fail( std::format( "the submit returned {}", static_cast<int>( flushed.GetValue() ) ) );
 

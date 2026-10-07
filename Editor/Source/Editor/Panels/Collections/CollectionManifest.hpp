@@ -86,10 +86,9 @@ namespace Desert::Editor
             return read;
         const std::optional<int> version = read.GetValue().Version;
         if ( version != kCollectionManifestVersion )
-            return Common::MakeError<CollectionManifest>(
-                 "collection.json Version " + ( version ? std::to_string( *version ) : std::string( "(none)" ) ) +
-                 " is not " +
-                 std::to_string( kCollectionManifestVersion ) + "; re-run FbxMeshSplitter on the pack" );
+            return Common::MakeFormattedError<CollectionManifest>(
+                 "collection.json Version {} is not {}; re-run FbxMeshSplitter on the pack",
+                 version ? std::to_string( *version ) : std::string( "(none)" ), kCollectionManifestVersion );
         return read;
     }
 } // namespace Desert::Editor
