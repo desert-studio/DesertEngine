@@ -351,6 +351,73 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
             "not one anybody would look at";
 }
 
+// TWO SPECIES IN ONE COLUMN, BANDS OVERLAPPING AND NOT EQUAL (FARWX-b5). The rank grows into the air
+// per species — from that species' own bodies, inside its own band — and an air voxel keeps the lowest of
+// those ranks. With one shared nearest body the air just under the dense upper species' base, inside the
+// sparse lower species' band but outside its own, took the upper species as its nearest body, was dropped
+// as out of that body's band, and stayed rankless: a hole no Coverage could fill.
+TEST( CloudProceduralField, TwoSpeciesInOneColumnLeaveNoVoxelOfEitherBandWithoutARank )
+{
+    CloudProceduralFieldParams params = MakeParams();
+    params.Species.front().CellKm               = 6.0f;
+    params.Species.front().Shape.BaseAltitudeKm = 1.8f;
+    params.Species.front().Shape.TopAltitudeKm  = 2.6f;
+    CloudProceduralSpecies upper                = params.Species.front();
+    upper.CellKm                                = 3.0f;
+    upper.Shape.BaseAltitudeKm                  = 2.2f;
+    upper.Shape.TopAltitudeKm                   = 3.4f;
+    params.Species.push_back( upper );
+
+    const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+    const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
+    ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
+
+    // Each species' band as rows, the bake's own rule.
+    const float rowKm = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
+    const auto  clampRow = [&]( float r )
+    { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( kCloudProceduralVolumeHeight ) ) ); };
+    std::vector<glm::uvec2> bands;
+    for ( const CloudProceduralSpecies& species : params.Species )
+        bands.emplace_back(
+             clampRow( std::floor( ( Desert::Graphic::CloudTypeBaseKm( species.Shape ) - params.LayerBottomKm ) /
+                                   rowKm ) ),
+             clampRow( std::ceil( ( Desert::Graphic::CloudTypeTopKm( species.Shape ) - params.LayerBottomKm ) /
+                                  rowKm ) ) );
+    ASSERT_LT( bands[0].x, bands[1].x ) << "the lower species' band does not start below the upper's";
+    ASSERT_LT( bands[0].y, bands[1].y ) << "the upper species' band does not end above the lower's";
+    ASSERT_GT( bands[0].y, bands[1].x ) << "the bands do not overlap, so the column holds one species per row";
+    ASSERT_TRUE( bands[0].x > 0u || bands[1].y < kCloudProceduralVolumeHeight )
+         << "the bands fill the whole layer, so the ceiling half of this test is vacuous";
+
+    size_t holes        = 0;
+    size_t lowerOnly    = 0;
+    size_t ceilingRanks = 0;
+    for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
+        for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
+            {
+                const bool solid = baked.GetValue().Voxels[VoxelIndex( x, y, z )] != 0u;
+                const bool inLower  = y >= bands[0].x && y < bands[0].y;
+                const bool inUpper  = y >= bands[1].x && y < bands[1].y;
+                const unsigned char rank = baked.GetValue().Ranks[VoxelIndex( x, y, z ) / 4u];
+                if ( ( inLower || inUpper || solid ) && rank == kCloudProceduralNoRank )
+                {
+                    ++holes;
+                    if ( inLower && !inUpper )
+                        ++lowerOnly;
+                }
+                if ( !inLower && !inUpper && !solid && rank != kCloudProceduralNoRank )
+                    ++ceilingRanks;
+            }
+
+    EXPECT_EQ( holes, 0u ) << holes << " voxels of the two bands have no rank (" << lowerOnly
+                           << " of them in the lower species' rows below the upper's base), so Coverage 1 "
+                              "is not the whole sky";
+    EXPECT_EQ( ceilingRanks, 0u ) << ceilingRanks
+                                  << " air voxels outside both bands carry a rank, so a high Coverage grows "
+                                     "cloud where neither type can stand";
+}
+
 // ---------------------------------------------------------------------------------------------------
 // 3. NO LUMP IS THINNER THAN THE MARCH CAN FIND — AT EVERY TIER
 // ---------------------------------------------------------------------------------------------------

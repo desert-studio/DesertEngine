@@ -1676,40 +1676,38 @@ namespace Desert::Assets
         /// must be as seamless as the profile — a line is unrolled three times and its middle copy read —
         /// and Y does not. Body voxels are the sources and keep the rank they have.
         ///
-        /// THE GROWTH STAYS INSIDE ITS SPECIES' BAND. An air voxel takes its nearest body's rank only when
-        /// its row lies within the altitudes of the species that owns that body (`ownerSlot` per voxel,
-        /// `bandRows[slot]` the half-open row range from CloudTypeBaseKm to CloudTypeTopKm) — Nubis's
-        /// height gradient per cloud type, which is what keeps the coverage remap a statement about how
-        /// WIDE the clouds are and not about how high the sky is. Without it a layer taller than its types
-        /// grew cloud straight up to its ceiling at a high cover (731 of 2304 columns at the top of an 8 km
-        /// layer whose cumulus spans 0.9-1.9 km, cloud_field_test TheLayersCeilingDoesNotWrapOntoItsFloor).
+        /// THE GROWTH STAYS INSIDE ITS SPECIES' BAND, ONE DISTANCE PER SPECIES. Each species (`ownerSlot`
+        /// per body voxel) grows from its own bodies only, and only into the rows of its own altitudes
+        /// (`bandRows[slot]`, the half-open row range from CloudTypeBaseKm to CloudTypeTopKm) — Nubis's
+        /// height gradient per cloud type, which keeps the coverage remap a statement about how WIDE the
+        /// clouds are and not about how high the sky is. An air voxel takes the LOWEST rank over the species
+        /// whose band holds its row. Without the band a layer taller than its types grew cloud straight up
+        /// to its ceiling at a high cover (cloud_field_test TheLayersCeilingDoesNotWrapOntoItsFloor); with
+        /// one shared nearest body instead of one per species, an air voxel in A's band whose nearest body
+        /// was B's got no rank at all, a hole at Coverage 1 (cloud_procedural_field_test
+        /// TwoSpeciesInOneColumn...).
+        ///
+        /// Y runs over the whole column (a source a few rows outside its band still reaches into it); X and
+        /// Z then only over the band's rows, because those passes never mix rows and the rows outside the
+        /// band are never read.
         void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, const std::vector<uint8_t>& ownerSlot,
                                              const std::vector<glm::uvec2>& bandRows, uint32_t width,
                                              uint32_t height, uint32_t depth, const glm::vec3& voxelKm,
                                              float risePerKm )
         {
             const size_t       count = rankField.size();
-            std::vector<float> cost( count, std::numeric_limits<float>::infinity() );
-            std::vector<int>   feature( count, -1 );
-            bool               anySource = false;
-            for ( size_t at = 0; at < count; ++at )
-                if ( std::isfinite( rankField[at] ) )
-                {
-                    cost[at]    = 0.0f;
-                    feature[at] = static_cast<int>( at );
-                    anySource   = true;
-                }
-            if ( !anySource )
-                return;
-
-            const int    w      = static_cast<int>( width );
-            const int    h      = static_cast<int>( height );
-            const int    d      = static_cast<int>( depth );
-            const size_t stride = static_cast<size_t>( width ) * height; // one z slice
-            auto         index  = [&]( int x, int y, int z ) {
+            const int          w      = static_cast<int>( width );
+            const int          h      = static_cast<int>( height );
+            const int          d      = static_cast<int>( depth );
+            const size_t       stride = static_cast<size_t>( width ) * height; // one z slice
+            auto               index  = [&]( int x, int y, int z ) {
                 return static_cast<size_t>( z ) * stride + static_cast<size_t>( y ) * width +
                        static_cast<size_t>( x );
             };
+
+            std::vector<float> grown( count, std::numeric_limits<float>::infinity() );
+            std::vector<float> cost( count );
+            std::vector<int>   feature( count );
 
             // ONE AXIS AT A TIME, lines independent of each other: Y and X inside a z slice, Z across them.
             auto axis = [&]( int lines, int length, bool wraps, double spacingKm,
@@ -1744,21 +1742,47 @@ namespace Desert::Assets
                      } );
             };
 
-            axis( w * d, h, false, voxelKm.y, [&]( int line, int i ) { return index( line % w, i, line / w ); } );
-            axis( h * d, w, true, voxelKm.x, [&]( int line, int i ) { return index( i, line % h, line / h ); } );
-            axis( w * h, d, true, voxelKm.z, [&]( int line, int i ) { return index( line % w, line / w, i ); } );
+            for ( size_t slot = 0; slot < bandRows.size(); ++slot )
+            {
+                const int bandLo = static_cast<int>( bandRows[slot].x );
+                const int bandHi = static_cast<int>( bandRows[slot].y );
+                if ( bandHi <= bandLo )
+                    continue;
+                bool anySource = false;
+                for ( size_t at = 0; at < count; ++at )
+                {
+                    const bool source = std::isfinite( rankField[at] ) && ownerSlot[at] == slot;
+                    cost[at]          = source ? 0.0f : std::numeric_limits<float>::infinity();
+                    feature[at]       = source ? static_cast<int>( at ) : -1;
+                    anySource         = anySource || source;
+                }
+                if ( !anySource )
+                    continue;
+
+                const int rows = bandHi - bandLo;
+                axis( w * d, h, false, voxelKm.y,
+                      [&]( int line, int i ) { return index( line % w, i, line / w ); } );
+                axis( rows * d, w, true, voxelKm.x,
+                      [&]( int line, int i ) { return index( i, bandLo + line % rows, line / rows ); } );
+                axis( w * rows, d, true, voxelKm.z,
+                      [&]( int line, int i ) { return index( line % w, bandLo + line / w, i ); } );
+
+                for ( int z = 0; z < d; ++z )
+                    for ( int y = bandLo; y < bandHi; ++y )
+                        for ( int x = 0; x < w; ++x )
+                        {
+                            const size_t at = index( x, y, z );
+                            if ( feature[at] < 0 )
+                                continue;
+                            const float rank = rankField[static_cast<size_t>( feature[at] )] +
+                                               risePerKm * std::sqrt( cost[at] );
+                            grown[at] = std::min( grown[at], rank );
+                        }
+            }
 
             for ( size_t at = 0; at < count; ++at )
-            {
-                if ( std::isfinite( rankField[at] ) || feature[at] < 0 )
-                    continue;
-                const size_t     source = static_cast<size_t>( feature[at] );
-                const uint32_t   row    = static_cast<uint32_t>( ( at % stride ) / width );
-                const glm::uvec2 band   = bandRows[ownerSlot[source]];
-                if ( row < band.x || row >= band.y )
-                    continue;
-                rankField[at] = rankField[source] + risePerKm * std::sqrt( cost[at] );
-            }
+                if ( !std::isfinite( rankField[at] ) )
+                    rankField[at] = grown[at];
         }
 
         /// The column CDF of the rank field, as bytes. Every column's rank is the MINIMUM over its voxels
