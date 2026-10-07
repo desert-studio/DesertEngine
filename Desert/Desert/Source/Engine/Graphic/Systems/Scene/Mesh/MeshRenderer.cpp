@@ -2,6 +2,7 @@
 #include "MeshRendererInternal.hpp"
 
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -509,11 +510,11 @@ namespace Desert::Graphic::System
                                                    bytes, wrote.GetError() );
             return BOOLSUCCESS;
         };
-        if ( const auto uploaded = upload( m_ObjectMotions, kObjectMotionsName, Core::kObjectMotionsBinding,
+        if ( const auto uploaded = upload( m_ObjectMotions, SceneResources::kObjectMotionsName, Core::kObjectMotionsBinding,
                                            rows.data(), rows.size() * sizeof( GpuObjectMotion ) );
              !uploaded )
             return uploaded;
-        return upload( m_ObjectBones, kObjectBonesName, Core::kObjectBonesBinding, palettes.data(),
+        return upload( m_ObjectBones, SceneResources::kObjectBonesName, Core::kObjectBonesBinding, palettes.data(),
                        palettes.size() * sizeof( glm::mat4 ) );
     }
 

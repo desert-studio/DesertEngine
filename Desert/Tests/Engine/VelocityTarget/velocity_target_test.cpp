@@ -389,10 +389,10 @@ TEST( VelocityTarget, EveryMeshDrawCarriesItsOwningEntityToTheRenderData )
     const std::string scene = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
     EXPECT_TRUE( std::regex_search( scene, std::regex( R"(\.Entity\s*=\s*extra\.Entity)" ) ) )
          << "SceneRenderer::SubmitMesh drops RenderSubmissionExtra::Entity";
-    EXPECT_EQ( std::distance(
-                    std::sregex_iterator( scene.begin(), scene.end(), std::regex( R"(\.Entity\s*=\s*entity\b)" ) ),
-                    std::sregex_iterator() ),
-               2 )
+    const std::regex entityCopy( R"(\.Entity\s*=\s*entity\b)" );
+    EXPECT_EQ(
+         std::distance( std::sregex_iterator( scene.begin(), scene.end(), entityCopy ), std::sregex_iterator() ),
+         2 )
          << "SubmitGenericMesh / SubmitSlotMaterialMesh must both copy the entity onto GenericMeshRenderData";
 }
 
@@ -457,10 +457,8 @@ namespace VelocityTargetTest
         const auto begin = source.find( head );
         if ( begin == std::string::npos )
             return {};
-        const auto end = source.find( "
-    }
-    ", begin );
-         return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+        const auto end = source.find( "\n    }\n", begin );
+        return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
 }
 } // namespace VelocityTargetTest
 
