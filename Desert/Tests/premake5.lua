@@ -242,6 +242,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/LandscapeHeightmapIO.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MeshDeriver.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/GamePackager.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/PackageCook.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",

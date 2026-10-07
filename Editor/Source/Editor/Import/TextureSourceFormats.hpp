@@ -21,7 +21,11 @@
 //      but with unreliable alpha and near-certain to be a conversion artifact when a sibling exists.
 //   2. Lossy after: `.jpg`, `.jpeg`. Acceptable when they are all that ships (photo-scanned albedo
 //      often is), never preferred over a lossless twin.
-//   3. Extended-range last, as its own group: `.exr`, `.hdr`. These are float-range DATA, not a drop-in
+//   3. `.dds` closes the LDR side. What it holds is almost always GPU blocks (BC1-BC7) — a lossy EXPORT of
+//      something else, and a second lossy step after a JPEG's own — so any sibling is the better source.
+//      It is listed so that packs shipping ONLY `.dds` (Bistro: 622 textures) import at all; the decode
+//      (top mip, to RGBA8 or, for BC6H/half/float, RGBA32F) is `Import/DdsSource.cpp`.
+//   4. Extended-range last, as its own group: `.exr`, `.hdr`. These are float-range DATA, not a drop-in
 //      LDR replacement — the cook keeps them RGBA32F and uncompressed (16 bytes a texel, and no block
 //      format is offered to a float source), so for a material slot an LDR sibling is always the better
 //      pick. They are still listed so that a stem shipping ONLY as `.exr`/`.hdr` is found, and so that the
@@ -40,7 +44,7 @@
 namespace Desert::Editor
 {
     inline constexpr const char* kTextureSourceExtensions[] = {
-         ".tga", ".png", ".bmp", ".jpg", ".jpeg", ".exr", ".hdr",
+         ".tga", ".png", ".bmp", ".jpg", ".jpeg", ".dds", ".exr", ".hdr",
     };
 
     inline constexpr std::size_t kTextureSourceExtensionCount =

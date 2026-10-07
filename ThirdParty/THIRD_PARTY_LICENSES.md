@@ -11,3 +11,4 @@ licence text). The licence text itself stays with the library, at the path given
 | Imath (Academy Software Foundation) | v3.2.3 (submodule `ThirdParty/Imath`) | BSD-3-Clause | `ThirdParty/Imath/LICENSE.md` | header-only `half.h` for OpenEXRCore |
 | dav1d (VideoLAN) | 1.5.1 (submodule `ThirdParty/dav1d`) | BSD-2-Clause | `ThirdParty/dav1d/COPYING` | AV1 video decoding in `Engine/Media` (`MediaCodecs.cpp`), built by `BuildScripts/ThirdParty/Dav1d.lua` (C path, no assembly) |
 | libopus (Xiph.Org) | v1.5.2 (submodule `ThirdParty/opus`) | BSD-3-Clause | `ThirdParty/opus/COPYING` | Opus audio decoding in `Engine/Media` (`MediaCodecs.cpp`), built by `BuildScripts/ThirdParty/Opus.lua` |
+| bcdec (Sergii Kudlai) | v0.985, commit 80859ed3 (vendored `ThirdParty/bcdec/bcdec.h`) | MIT (dual with Unlicense; MIT chosen) | `ThirdParty/bcdec/LICENSE` | BC1-BC7 block decode of `.dds` texture sources (`Editor/Source/Editor/Import/DdsSource.cpp`, its only translation unit) |
