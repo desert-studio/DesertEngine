@@ -265,7 +265,8 @@ struct CloudFieldParams
 // so the volume is exactly periodic — and REPEAT sampling of a periodic volume is the DEGENERATE FAR PATH
 // of §3 point 3: past the region the sky is the region again, at a distance where a cloud's angular size is
 // already below what the march resolves (§4.5). Clamping instead would put a smear of the edge column
-// across everything beyond 24 km.
+// across everything beyond 24 km. What the sky past the region IS — not the region again — is the far
+// weather's decision (CloudFarSurfaceLift below), taken on top of this fetch rather than inside it.
 //
 // VERTICALLY IT IS CLAMPED TO THE TEXEL CENTRES, and that is not symmetry-breaking for its own sake: the
 // volume spans the shell exactly, every sampler in this engine is REPEAT, and without the clamp a height
@@ -281,6 +282,99 @@ vec3 CloudProceduralVolumeUvw( CloudFieldParams params, float heightFraction, ve
 }
 
 #if defined( CLOUD_SAMPLE_NOISE ) && defined( CLOUD_SAMPLE_MODELLING ) && defined( CLOUD_SAMPLE_AUTHORED )
+
+// ---------------------------------------------------------------------------------------------------
+// THE FAR WEATHER: what the sky is past the region, since it cannot be the region again
+// ---------------------------------------------------------------------------------------------------
+//
+// WHAT WAS WRONG. Past the region the REPEAT fetch above shows the region again, and from a camera near
+// the ground a ray toward the horizon runs 30-100 km through the shell — one to two periods of a 48 km
+// region. Every such ray crosses a full region's worth of lumps, so the horizon was a solid band (the
+// "carpet") whatever the Coverage slider said, and the same cloud stood in it twice. The bake's own patch
+// field cannot help: it is folded into a periodic volume, so its largest gap is bounded by the region.
+//
+// WHAT IS HERE INSTEAD is Unreal's arrangement for the same job — coverage is a WORLD-ANCHORED weather
+// field sampled per point by the cloud material (UE VolumetricCloud.usf has no coverage term of its own;
+// the material's weather texture is read at the sample's world position, VolumetricCloudMaterialPixelCommon
+// .ush), layered at a scale the near detail cannot express. Ours is two octaves of hashed value noise on
+// an UNBOUNDED lattice, so it has no period at all, at TWICE THE REGION'S SIDE (96 km at 48 km), so it is
+// always a scale the region cannot carry. It is the bake's PatchField pattern (two octaves, the second at
+// 0.47 of the period and rotated 31.7 degrees) moved to the one scale the bake cannot hold.
+//
+// IT ONLY REMOVES, AND ONLY PAST THE REGION. Inside 0.75 of the half-region the weight is exactly zero and
+// the march returns the baked volume bit for bit — which is what keeps `Coverage` meaning the fraction of
+// sky with cloud in the column (Desert/Tests/Engine/CloudProceduralField §6b measures that over the bake,
+// and the bake is untouched). From 0.75 to the edge it fades in, so the region's wrap seam is already
+// under the far field when it is reached. Removing is the only direction available to the march: outside
+// a body the profile is zero, and no remap of zero grows a cloud.
+//
+// IT REMOVES BY RAISING THE SURFACE, not by scaling. The profile is a normalised distance field, so
+// `(p - t) / (1 - t)` shrinks every body toward its core and lets the small ones vanish first — what
+// thinning weather does — where a product would have left the same silhouettes at lower density.
+#define CLOUD_FAR_WEATHER_TILE_REGIONS 2.0f // the far weather's period in region sides: 96 km at 48 km
+#define CLOUD_FAR_WEATHER_FADE_START 0.75f  // fraction of the half-region where the far field starts
+#define CLOUD_FAR_WEATHER_CLEAR 0.35f       // weather at or below this clears the sky completely
+#define CLOUD_FAR_WEATHER_KEEP 0.60f        // weather at or above this keeps the region's cloud whole
+#define CLOUD_FAR_WEATHER_MAX_LIFT 0.999f   // the surface never reaches the core, so the remap never divides by 0
+
+// One octave of value noise on an unbounded integer lattice, in [0, 1]. The lattice index is taken
+// through `int` first because a negative float converted straight to `uint` is undefined in GLSL; the
+// two's-complement wrap of `uint( int )` is defined in both languages and the hash does not care.
+float CloudFarValueNoise( vec2 position, uint seed )
+{
+    vec2  cell = floor( position );
+    vec2  f    = position - cell;
+    uint  x0   = uint( int( cell.x ) );
+    uint  z0   = uint( int( cell.y ) );
+    float inv  = 1.0f / 16777216.0f; // the hash's top 24 bits, which is all a float holds exactly
+
+    float c00 = float( CloudHashCell( x0, z0, 0u, seed ) >> 8u ) * inv;
+    float c10 = float( CloudHashCell( x0 + 1u, z0, 0u, seed ) >> 8u ) * inv;
+    float c01 = float( CloudHashCell( x0, z0 + 1u, 0u, seed ) >> 8u ) * inv;
+    float c11 = float( CloudHashCell( x0 + 1u, z0 + 1u, 0u, seed ) >> 8u ) * inv;
+
+    float u = CloudFade( f.x );
+    float v = CloudFade( f.y );
+    return mix( mix( c00, c10, u ), mix( c01, c11, u ), v );
+}
+
+// The far weather at a wind-shifted world position, in [0, 1] with a mean near a half.
+float CloudFarWeather( vec2 worldKm, float tileKm )
+{
+    // cos/sin of 31.7 degrees — the bake's PatchField rotation, for the reason it gives there: one octave
+    // of value noise is a lattice too, and a second one at an angle keeps its extrema off the first's grid.
+    vec2 rotated = vec2( worldKm.x * 0.85072f - worldKm.y * 0.52561f, worldKm.x * 0.52561f + worldKm.y * 0.85072f );
+
+    return 0.65f * CloudFarValueNoise( worldKm / tileKm, 0xFA12C0u ) +
+           0.35f * CloudFarValueNoise( rotated / ( tileKm * 0.47f ), 0xFA12C1u );
+}
+
+// How far the region's surface is lifted at this point, in [0, CLOUD_FAR_WEATHER_MAX_LIFT]. Zero inside
+// the near field, so the march there is the bake exactly.
+float CloudFarSurfaceLift( CloudFieldParams params, vec3 windPos )
+{
+    float regionKm = 1.0f / params.InvRegionSizeKm;
+    float halfKm   = 0.5f * regionKm;
+
+    // Chebyshev distance from the region's centre in half-sides: the region is a square, and its wrap
+    // seam is the square's edge at 1.
+    vec2  fromCentre = vec2( windPos.x - params.RegionOriginKm.x - halfKm, windPos.z - params.RegionOriginKm.y - halfKm );
+    float reach      = max( abs( fromCentre.x ), abs( fromCentre.y ) ) / halfKm;
+    float weight     = smoothstep( CLOUD_FAR_WEATHER_FADE_START, 1.0f, reach );
+    if ( weight <= 0.0f )
+        return 0.0f;
+
+    float weather = CloudFarWeather( vec2( windPos.x, windPos.z ), CLOUD_FAR_WEATHER_TILE_REGIONS * regionKm );
+    float clear   = 1.0f - smoothstep( CLOUD_FAR_WEATHER_CLEAR, CLOUD_FAR_WEATHER_KEEP, weather );
+    return min( weight * clear, CLOUD_FAR_WEATHER_MAX_LIFT );
+}
+
+// Lifts a profile's surface by @p lift: the body shrinks toward its core and anything shallower than the
+// lift is gone. The identity at a lift of zero, exactly.
+float CloudLiftProfile( float profile, float lift )
+{
+    return max( profile - lift, 0.0f ) / ( 1.0f - lift );
+}
 
 // The procedural producer — ONE FETCH, four species.
 //
@@ -325,9 +419,13 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
 
     int speciesCount = min( params.SpeciesCount, CLOUD_SPECIES_SLOTS );
 
+    // Past the region the volume is the region again; the far weather decides how much of it is there.
+    // Monotone in the profile, so it cannot change which species wins — only whether any does.
+    float farLift = CloudFarSurfaceLift( params, windPos );
+
     for ( int slot = 0; slot < speciesCount; ++slot )
     {
-        float speciesProfile = clamp( volume[slot], 0.0f, 1.0f );
+        float speciesProfile = CloudLiftProfile( clamp( volume[slot], 0.0f, 1.0f ), farLift );
         if ( speciesProfile <= result.Profile )
             continue;
 

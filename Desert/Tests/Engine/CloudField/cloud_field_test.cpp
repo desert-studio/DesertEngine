@@ -2469,6 +2469,92 @@ TEST( CloudField, TheShippedErosionAndAGraphReadTheVolumeAtTheSameCOORDINATE )
          << "a Detail Tile Size of zero produced a non-finite noise coordinate";
 }
 
+// ---------------------------------------------------------------------------------------------------
+// THE FAR WEATHER — past the region the sky is not the region again (CLOUD-CARPET)
+// ---------------------------------------------------------------------------------------------------
+//
+// From the ground a ray toward the horizon crosses 30-100 km of shell, one to two periods of the 48 km
+// region, so with the REPEAT fetch alone the horizon was a solid band of the same clouds twice. The far
+// weather is a world-anchored, unbounded field at twice the region's side that only REMOVES cloud and
+// only past the region. These three tests pin the three halves of that sentence.
+namespace
+{
+    constexpr float kFarRegionKm = 48.0f;
+
+    CloudFieldParams FarWeatherParams()
+    {
+        CloudFieldParams p{};
+        p.RegionOriginKm  = vec2( -0.5f * kFarRegionKm, -0.5f * kFarRegionKm );
+        p.InvRegionSizeKm = 1.0f / kFarRegionKm;
+        p.WindOffsetKm    = vec3( 0.0f );
+        p.ShadowRay       = CLOUD_RAY_VIEW;
+        return p;
+    }
+} // namespace
+
+// INSIDE THE NEAR FIELD THE MARCH IS THE BAKE, BIT FOR BIT. That is the whole of the Coverage invariant's
+// side of this change: CloudProceduralField measures the slider over the bake, and the bake reaches the
+// eye unaltered everywhere within 0.75 of the half-region.
+TEST( CloudFarWeather, TheNearFieldIsTheBakeExactly )
+{
+    const CloudFieldParams params = FarWeatherParams();
+    const float            nearKm = 0.75f * 0.5f * kFarRegionKm;
+
+    for ( float x = -nearKm; x <= nearKm; x += 0.5f )
+        for ( float z = -nearKm; z <= nearKm; z += 0.5f )
+            ASSERT_EQ( CloudFarSurfaceLift( params, vec3( x, 2.0f, z ) ), 0.0f )
+                 << "the far weather reached the near field at (" << x << ", " << z << ") km";
+
+    for ( float profile = 0.0f; profile <= 1.0f; profile += 1.0f / 64.0f )
+        ASSERT_EQ( CloudLiftProfile( profile, 0.0f ), profile ) << "a lift of zero changed the profile";
+}
+
+// PAST THE REGION THE SKY IS NO LONGER THE REGION AGAIN. With the REPEAT fetch alone the field at x and at
+// x + region is identical; the lift is what makes them differ, so it must differ between them.
+TEST( CloudFarWeather, PastTheRegionTheSkyIsNoLongerTheRegionAgain )
+{
+    const CloudFieldParams params = FarWeatherParams();
+
+    int samples = 0, differing = 0, cleared = 0, whole = 0;
+    for ( float x = 30.0f; x < 400.0f; x += 1.5f )
+        for ( float z = -200.0f; z < 200.0f; z += 7.0f )
+        {
+            const float here = CloudFarSurfaceLift( params, vec3( x, 2.0f, z ) );
+            const float next = CloudFarSurfaceLift( params, vec3( x + kFarRegionKm, 2.0f, z ) );
+            ++samples;
+            differing += std::abs( here - next ) > 0.05f ? 1 : 0;
+            cleared += here > 0.99f ? 1 : 0;
+            whole += here == 0.0f ? 1 : 0;
+        }
+
+    const double differ = double( differing ) / samples;
+    const double clear  = double( cleared ) / samples;
+    const double kept   = double( whole ) / samples;
+    std::printf( "[CloudFarWeather] past the region: %.3f differ from one period on, %.3f cleared, %.3f kept\n",
+                 differ, clear, kept );
+
+    EXPECT_GT( differ, 0.25 ) << "the far sky still repeats the region";
+    EXPECT_GT( clear, 0.05 ) << "the far weather never clears the sky, so the horizon is still a band";
+    EXPECT_GT( kept, 0.10 ) << "the far weather never keeps the region's cloud whole, so the horizon is empty";
+}
+
+// ITS GAPS ARE LARGER THAN THE BAKE CAN HOLD. The bake's own patch field is folded into a 48 km periodic
+// volume, so no gap it makes can be wider than the region; the far weather exists for the gaps it cannot.
+TEST( CloudFarWeather, ItsGapsAreLargerThanTheRegionCanHold )
+{
+    const CloudFieldParams params = FarWeatherParams();
+
+    float longest = 0.0f, run = 0.0f;
+    for ( float x = 30.0f; x < 3000.0f; x += 1.0f )
+    {
+        run     = CloudFarSurfaceLift( params, vec3( x, 2.0f, 137.0f ) ) >= 0.5f ? run + 1.0f : 0.0f;
+        longest = std::max( longest, run );
+    }
+
+    std::printf( "[CloudFarWeather] longest run with at least half of every body gone: %.0f km\n", longest );
+    EXPECT_GE( longest, 30.0f ) << "the far weather's gaps are no wider than the bake's own patches";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
