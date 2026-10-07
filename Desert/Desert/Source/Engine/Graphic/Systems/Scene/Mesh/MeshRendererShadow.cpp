@@ -51,9 +51,9 @@ namespace Desert::Graphic::System
         // COMBINED light view-projection, so (exactly like the shadow pass does with SetLightMatrix) it goes in as
         // the projection against an identity view: the vertex shader forms Projection * View * Transform, so the
         // product is unchanged.
-        const ViewFrame   sunView =
+        const ViewFrame sunView =
              MakeStillViewFrame( glm::mat4( 1.0f ), m_RSMViewProj, m_RSMEye, m_WorldTimeSeconds );
-        MaterialInstance* ri      = m_RSMInstance.get();
+        MaterialInstance* ri = m_RSMInstance.get();
         CaptureFrameState( &sunView ).ApplyTo( ri );
 
         // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM). The

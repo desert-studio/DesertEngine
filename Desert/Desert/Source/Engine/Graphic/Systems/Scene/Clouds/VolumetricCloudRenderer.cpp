@@ -1783,7 +1783,8 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame )
+    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder&    graph,
+                                                                                    const ViewFrame& frame )
     {
         std::vector<ComputeNodeDeclaration> nodes;
         m_HasFrameResult = false;
@@ -2027,7 +2028,7 @@ namespace Desert::Graphic::System
         // written last frame is still intact to be read. Both are real allocations from the first frame
         // onwards; what changes is whether their CONTENT means anything, and that is m_History, decided here at
         // build time.
-        bool historyReadable = m_History.ReadableIn( frame );
+        bool           historyReadable = m_History.ReadableIn( frame );
         const uint32_t writeIndex = m_FrameIndex & 1u;
         const uint32_t readIndex  = 1u - writeIndex;
 

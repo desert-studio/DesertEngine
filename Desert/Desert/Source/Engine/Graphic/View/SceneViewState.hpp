@@ -56,7 +56,8 @@ namespace Desert::Graphic
     // A reload — same Scene object, same entity ids, new generation — is a different camera, and so is switching
     // between two editor cameras: SceneViewState resets with CameraCut. An object address never enters it.
     // Generations repeat only after 2^31 scene loads.
-    [[nodiscard]] constexpr uint64_t MakeViewCameraIdentity( const uint64_t sceneGeneration, const uint64_t sourceId )
+    [[nodiscard]] constexpr uint64_t MakeViewCameraIdentity( const uint64_t sceneGeneration,
+                                                             const uint64_t sourceId )
     {
         return ( ( sceneGeneration & 0x7FFFFFFFull ) << 33u ) | ( sourceId & 0x1FFFFFFFFull );
     }

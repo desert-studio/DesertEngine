@@ -89,7 +89,7 @@ namespace Desert::Core
         glm::mat4 m_ProjectionMatrix = glm::mat4( 1.0f );
         glm::mat4 m_ViewMatrix       = glm::mat4( 1.0f );
         glm::vec3 m_Position         = glm::vec3( 0.0f );
-        uint32_t  m_SourceEntity     = kNoSourceEntity;
+        uint32_t           m_SourceEntity     = kNoSourceEntity;
         CameraSourceTicket m_SourceTicket; // this object's issued id (GetSourceId when no entity drives it)
 
         float          m_FOV            = 45.0f;

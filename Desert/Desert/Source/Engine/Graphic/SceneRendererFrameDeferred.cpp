@@ -248,8 +248,8 @@ namespace Desert::Graphic
     RDG::TextureRef SceneRenderer::AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
                                                       const std::vector<RDG::TextureRef>& gbuffer,
                                                       const std::vector<RDG::TextureRef>& rsm,
-                                                      System::MeshRenderer*               meshRenderer,
-                                                      const ViewFrame& frame, const glm::vec4& lightColor )
+                                                      System::MeshRenderer* meshRenderer, const ViewFrame& frame,
+                                                      const glm::vec4& lightColor )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* gi = UNIQUE_GET_AS( System::GIResolveRenderer, m_RenderSystems["GISystem"] );
@@ -484,8 +484,8 @@ namespace Desert::Graphic
              },
              // The trace marches the depth the G-buffer was rasterised with: the jittered matrix.
              [this, ssr, viewProj = frame.JitteredViewProjection,
-              cameraPos = glm::vec4( frame.CameraPosition, 1.0f )]( RDG::PassContext& context )
-                  -> Common::BoolResultStr
+              cameraPos =
+                   glm::vec4( frame.CameraPosition, 1.0f )]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
                  return ssr->RecordTrace( context, viewProj, cameraPos, m_SSRMaxSteps, m_SSRMaxDistance,

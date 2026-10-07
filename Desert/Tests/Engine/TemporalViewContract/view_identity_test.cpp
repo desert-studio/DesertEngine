@@ -173,14 +173,18 @@ TEST( ViewIdentityCensus, TheViewIsKeyedByTheCameraSourceId )
 {
     const std::string camera = ReadText( EngineSource() / "Core" / "Camera.hpp" );
     EXPECT_TRUE( std::regex_search(
-         camera, std::regex( R"(GetSourceId\s*\(\s*\)\s*const[\s\S]*?\?\s*EntityCameraSource\s*\(\s*m_SourceEntity\s*\)\s*:\s*m_SourceTicket\s*\.\s*Get\s*\(\s*\))" ) ) )
+         camera,
+         std::regex(
+              R"(GetSourceId\s*\(\s*\)\s*const[\s\S]*?\?\s*EntityCameraSource\s*\(\s*m_SourceEntity\s*\)\s*:\s*m_SourceTicket\s*\.\s*Get\s*\(\s*\))" ) ) )
          << "Camera::GetSourceId must fall back to the camera object's issued ticket";
     // Every census here matches tokens with \s* / \s+ between them, so a clang-format re-wrap cannot turn it red.
     EXPECT_TRUE( std::regex_search( camera, std::regex( R"(CameraSourceTicket\s+m_SourceTicket\s*;)" ) ) );
 
     const std::string renderer = ReadText( EngineSource() / "Graphic" / "SceneRenderer.cpp" );
     EXPECT_TRUE( std::regex_search(
-         renderer, std::regex( R"(MakeViewCameraIdentity\s*\(\s*m_SceneGeneration\s*,\s*cam\s*->\s*GetSourceId\s*\(\s*\)\s*\))" ) ) )
+         renderer,
+         std::regex(
+              R"(MakeViewCameraIdentity\s*\(\s*m_SceneGeneration\s*,\s*cam\s*->\s*GetSourceId\s*\(\s*\)\s*\))" ) ) )
          << "SceneRenderer must key the view by (scene generation, camera source id)";
 }
 

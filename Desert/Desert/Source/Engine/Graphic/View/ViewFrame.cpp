@@ -198,8 +198,8 @@ namespace Desert::Graphic
         return glm::translate( glm::mat4( 1.0f ), glm::vec3( ndc.x, ndc.y, 0.0f ) ) * projection;
     }
 
-    ViewFrame MakeStillViewFrame( const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPosition,
-                                  const double timeSeconds )
+    ViewFrame MakeStillViewFrame( const glm::mat4& view, const glm::mat4& projection,
+                                  const glm::vec3& cameraPosition, const double timeSeconds )
     {
         ViewFrame f;
         f.View                      = view;

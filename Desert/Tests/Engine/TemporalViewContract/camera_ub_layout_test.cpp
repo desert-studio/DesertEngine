@@ -190,17 +190,18 @@ TEST( CameraUBLayout, AStillViewFrameHasNoJitterAndNoHistory )
     EXPECT_FALSE( f.HistoryValid() );
 }
 
-// THE ONE WRITER (TAA1 step 3): nothing under the engine or editor sources builds a camera block by hand. The struct
-// is constructed only inside MakeCameraUB (ShaderProtocols/Camera.hpp), and MakeCameraUB is called only by
+// THE ONE WRITER (TAA1 step 3): nothing under the engine or editor sources builds a camera block by hand. The
+// struct is constructed only inside MakeCameraUB (ShaderProtocols/Camera.hpp), and MakeCameraUB is called only by
 // SceneCameraBind (Materials/SceneLightingBinding.hpp), the single write of CameraUB into a material. Mutation: a
-// writer filling `ShaderProtocols::Camera cam; cam.View = ...` again, or calling MakeCameraUB itself, goes red here.
+// writer filling `ShaderProtocols::Camera cam; cam.View = ...` again, or calling MakeCameraUB itself, goes red
+// here.
 TEST( CameraUBLayout, NothingButMakeCameraUBFillsTheCameraBlock )
 {
-    namespace fs           = std::filesystem;
-    const fs::path   root  = Desert::TestSupport::RepositoryRoot();
-    const fs::path   owner = fs::path( "Desert" ) / "Desert" / "Source" / "Engine" / "Graphic" / "ShaderProtocols" /
-                           "Camera.hpp";
-    const fs::path   binder = fs::path( "Desert" ) / "Desert" / "Source" / "Engine" / "Graphic" / "Materials" /
+    namespace fs        = std::filesystem;
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
+    const fs::path owner =
+         fs::path( "Desert" ) / "Desert" / "Source" / "Engine" / "Graphic" / "ShaderProtocols" / "Camera.hpp";
+    const fs::path binder = fs::path( "Desert" ) / "Desert" / "Source" / "Engine" / "Graphic" / "Materials" /
                             "SceneLightingBinding.hpp";
     const std::regex declared( R"((ShaderProtocols\s*::\s*)Camera\s+[A-Za-z_]\w*\s*(;|\{|=|\())" );
     const std::regex called( R"(\bMakeCameraUB\s*\()" );
@@ -223,7 +224,8 @@ TEST( CameraUBLayout, NothingButMakeCameraUBFillsTheCameraBlock )
             if ( rel != owner )
                 EXPECT_FALSE( std::regex_search( source, declared ) )
                      << rel.generic_string() << " builds a ShaderProtocols::Camera by hand; fill CameraUB through "
-                     << "SceneCameraBind( material, ViewFrame ) (MakeStillViewFrame for a camera that is not a view)";
+                     << "SceneCameraBind( material, ViewFrame ) (MakeStillViewFrame for a camera that is not a "
+                        "view)";
             if ( rel != owner && rel != binder )
                 EXPECT_FALSE( std::regex_search( source, called ) )
                      << rel.generic_string() << " calls MakeCameraUB itself; SceneCameraBind is the one writer";

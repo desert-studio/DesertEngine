@@ -581,7 +581,7 @@ namespace Desert::Core
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
-        uint64_t                      m_Generation     = NextSceneGeneration(); // see GetGeneration
+        uint64_t                      m_Generation         = NextSceneGeneration(); // see GetGeneration
         bool                          m_PlayFromHere   = false;
 
         // One command buffer PER system (index-matched to m_Systems): parallel systems record without

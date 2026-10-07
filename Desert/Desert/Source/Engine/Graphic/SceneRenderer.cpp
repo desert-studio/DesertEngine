@@ -871,13 +871,13 @@ namespace Desert::Graphic
             inputs.FarPlane       = cam->GetFar();
             inputs.CameraIdentity = MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceId() );
         }
-        inputs.CameraCut          = m_CameraCutPending;
-        inputs.SceneIdentity      = m_SceneGeneration;
-        inputs.Output             = m_ViewExtent;
-        inputs.RenderScalePercent = 100;
-        inputs.AntiAliasing       = m_RenderedAntiAliasing;
-        inputs.Upscaler           = Common::Scalability::Upscaler::None;
-        inputs.TimeSeconds        = m_SceneTimeSeconds;
+        inputs.CameraCut                         = m_CameraCutPending;
+        inputs.SceneIdentity                     = m_SceneGeneration;
+        inputs.Output                            = m_ViewExtent;
+        inputs.RenderScalePercent                = 100;
+        inputs.AntiAliasing                      = m_RenderedAntiAliasing;
+        inputs.Upscaler                          = Common::Scalability::Upscaler::None;
+        inputs.TimeSeconds                       = m_SceneTimeSeconds;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, nullptr );
         if ( !begun )
         {
