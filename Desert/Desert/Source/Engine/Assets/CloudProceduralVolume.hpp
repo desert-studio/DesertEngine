@@ -378,9 +378,12 @@ namespace Desert::Assets
 
         /// The size of a WEATHER SYSTEM, kilometres: the wavelength the large-scale modulation of coverage is
         /// centred on. Its spectrum spans two octaves around it — half the tile up to twice it, clamped to
-        /// what the region's torus can hold — so at the shipped 21 km the sky has busy regions and clear
-        /// gaps from about ten to forty kilometres across, the scale real cumulus fields cluster at.
-        float PatchTileKm = 21.0f;
+        /// what the region's torus can hold — so at the shipped 30 km the sky has busy regions and clear
+        /// gaps from about fifteen kilometres to the region's own width, the scale real cumulus fields
+        /// cluster at. NOT 21 km, which it was: its gaps were ten to twenty kilometres, and between 10 and
+        /// 25 km from the eye — 4 to 8 degrees above the owner's horizon — a sight line crosses that much
+        /// sky inside the layer, so every gap there was closed by the cloud behind it.
+        float PatchTileKm = 30.0f;
 
         /// How much of the sky's arrangement the weather decides, 0..1 — the fraction of the variance of a
         /// cell's alive draw that comes from the weather rather than from the cell's own hash (a Gaussian
@@ -388,7 +391,10 @@ namespace Desert::Assets
         /// owner described as "the whole sky is cloud"; one is weather alone, with the busy regions solid
         /// and the gaps between them EMPTY. At every setting the fraction of the sky covered is the
         /// Coverage slider exactly, in expectation: the weather redistributes cloud, it never adds any.
-        float PatchStrength = 0.60f;
+        /// 0.8 AND NOT 0.6: at the default cover 0.45, a clear region one deviation deep kept 0.077 of its
+        /// sky as cloud at 0.6 (rho 0.77) — every thirteenth cell, enough for a long sight line to meet one —
+        /// and keeps 0.011 at 0.8 (rho 0.89), so a gap reads as open sky rather than as thinner cloud.
+        float PatchStrength = 0.80f;
 
         /// The horizontal wind direction the lattice's anisotropy is measured against, world XZ. Need not
         /// be normalized; a zero vector means east, which is what CloudSpeciesPlacementBasis also does.
