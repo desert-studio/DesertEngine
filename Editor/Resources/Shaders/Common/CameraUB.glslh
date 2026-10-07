@@ -1,5 +1,22 @@
+// The shader view of the per-frame ViewFrame (TAA1 step 3). C++ twin: Graphic/ShaderProtocols/Camera.hpp,
+// offsets held by Desert/Tests/Engine/TemporalViewContract/camera_ub_layout_test.cpp.
+// Raster geometry: JitteredViewProjection. World position from depth: InvJitteredViewProjection.
+// Reprojection: PrevViewProjection vs ViewProjection (unjittered). Projection / View: the camera's, unjittered.
 Uniform(0) CameraUB {
     mat4 Projection;
     mat4 View;
-	vec3 CameraPos;
+    mat4 JitteredViewProjection;
+    mat4 ViewProjection;
+    mat4 PrevViewProjection;
+    mat4 InvJitteredViewProjection;
+    vec2 JitterNdc;
+    vec2 PrevJitterNdc;
+    vec3 CameraPos;
+    float Time;
+    vec3 PrevCameraPos;
+    float PrevTime;
+    float MaterialMipBias;
+    float CameraPad0;
+    float CameraPad1;
+    float CameraPad2;
 } cameraUB;
