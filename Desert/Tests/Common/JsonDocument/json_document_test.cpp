@@ -16,9 +16,10 @@
 #include <string>
 #include <vector>
 
-// In an anonymous namespace: every suite of the layer links into one runner, and two suites'
-// namespace-scope types of one name would be an ODR violation the linker resolves silently.
-namespace
+// Named after the suite: every suite of the layer links into one runner, and two suites'
+// namespace-scope types of one name would be an ODR violation the linker resolves silently. Not an
+// anonymous namespace — reflect-cpp cannot name the enumerators of an enum declared in one.
+namespace JsonDocumentTest
 {
     enum class Mode
     {
@@ -97,8 +98,9 @@ namespace
         Nested                     Deep   = { { 0.7f }, { 5, "five", 0.3f } };
         std::vector<Block>         Blocks = { Block{}, Block{ 2, "c", 1e-3f } };
     };
-} // namespace
+} // namespace JsonDocumentTest
 
+using namespace JsonDocumentTest;
 namespace Json = Common::Json;
 
 namespace
