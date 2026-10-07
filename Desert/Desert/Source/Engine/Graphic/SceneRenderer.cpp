@@ -904,7 +904,8 @@ namespace Desert::Graphic
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, cameraPos );
+            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, cameraPos,
+                               viewProj );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 

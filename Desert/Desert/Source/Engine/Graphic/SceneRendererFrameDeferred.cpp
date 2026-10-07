@@ -318,7 +318,8 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const glm::vec4& cameraPos )
+                                           const glm::vec4& lightColor, const glm::vec4& cameraPos,
+                                           const glm::mat4& viewProj )
     {
         // LOAD/STORE on every scene-target attachment. The depth is declared written because the passes after
         // this one that are not graph nodes yet (forward meshes, glass, fog, clouds, overlays) begin their own
@@ -340,7 +341,8 @@ namespace Desert::Graphic
         System::DeferredCompositeInputs inputs;
         inputs.GBufferA        = gbuffer[0];
         inputs.GBufferB        = gbuffer[1];
-        inputs.GBufferC        = gbuffer[2];
+        inputs.GBufferShadingWord = gbuffer[2];
+        inputs.GBufferDepth       = textures.Depth( m_GBuffer, "GBuffer" );
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
@@ -388,7 +390,7 @@ namespace Desert::Graphic
              "Deferred: Composite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 deferred->FillMaterial( lightDir, lightColor, cameraPos,
+                 deferred->FillMaterial( lightDir, lightColor, cameraPos, viewProj,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
                                          shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ),
                                          cloudShadow, environment );

@@ -2758,7 +2758,7 @@ TEST( ShaderMapProducerFingerprint, LineEndingsWhitespaceAndCommentsDoNotCount )
 
 TEST_F( ShaderCacheKeyShaderRoot, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
 {
-    // THE RELATION (SHM1): the index a G-buffer writer stores (GBufferC.w, low four bits) and the index the
+    // THE RELATION (SHM1): the index a G-buffer writer stores (the shading word, low four bits) and the index the
     // lighting passes dispatch on come from ONE place — the registry's generated header, which numbers the
     // ShadingModels/*.shadingmodel files. Writers store the template's index (DESERT_SHADING_MODEL_INDEX, set by
     // the parser) or, for the hand-written terrain, DefaultLit's generated define; both lighting passes call the

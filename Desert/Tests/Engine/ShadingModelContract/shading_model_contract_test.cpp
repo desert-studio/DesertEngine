@@ -2,7 +2,7 @@
 // ShadingModels/ShadingModelContract.glslh).
 //
 // Two halves. The shading-word tests pin the TABLE — where the index, the texture count and the two payload floats
-// live in GBufferC.w — on both sides of the C++/GLSL boundary; they hold from the contract alone. The registry
+// live in the G-buffer shading word (R32_UINT) — on both sides of the C++/GLSL boundary; they hold from the contract alone. The registry
 // tests pin the RULES — Guid identity, Unlit = 0, at most 16, at most two payload floats, Inputs within
 // SurfaceOutput, a Guid-stable index — over the shipped files and over built-up manifests; they need the
 // implementation (ShadingModels/*.cpp, compiled in by the premake match).

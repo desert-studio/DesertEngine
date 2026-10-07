@@ -6,6 +6,7 @@ Shader "DeferredLighting"
     Vertex
     {
         #include <Common/FullscreenTriangle.glslh>
+        #include <Common/ReconstructPosition.glslh>
 
         Out(0) vec2 v_TexCoord;
 
@@ -37,8 +38,11 @@ Shader "DeferredLighting"
 
         In(0) vec2 v_TexCoord;
 
-        // The G-buffer's layout and the shading-model ids it carries (C.w, Emissive.a).
-        Uniform(1) sampler2D u_GBufferC; // rgb = world position, a = ShadingModelID | texture count (packed)
+        // The G-buffer's layout and the shading-model ids it carries (the shading word, Emissive.a).
+        // The shading word (ShadingModels/ShadingModelContract.glslh): an R32_UINT target, read ONLY by texelFetch.
+        Uniform(1) usampler2D u_GBufferShadingWord;
+        // Device depth (nearest sampler: DEPTH32F is not filtered); world position = ReconstructWorldPosition.
+        Uniform(21) sampler2D u_GBufferDepth;
         Uniform(2) sampler2D u_GBufferA; // rgb = albedo, a = metallic
         Uniform(3) sampler2D u_GBufferB; // rgb = world normal, a = roughness
         Uniform(8) sampler2D u_SSAO;     // r = ambient-occlusion factor (1 = lit)
@@ -94,6 +98,7 @@ Shader "DeferredLighting"
         	vec4 u_LightColor; // rgb = colour, a = intensity
         	vec4 u_Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
         	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w unused
+        	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         };
 
         float ssgiHash(vec2 p)
@@ -161,7 +166,7 @@ Shader "DeferredLighting"
         		if (dot(nb.rgb, nb.rgb) <= 0.001) continue; // sky texel -> no bounce
 
         		vec4  na   = texture(u_GBufferA, suv);
-        		vec3  nPos = texture(u_GBufferC, suv).rgb;
+        		vec3  nPos = ReconstructWorldPosition(suv, texture(u_GBufferDepth, suv).r, u_InvJitteredViewProjection);
         		vec3  nF0  = mix(Fdielectric, na.rgb, na.a);
 
         		indirect += EvaluateBounceSample(worldPos, N, nPos, normalize(nb.rgb), na.rgb, nF0, na.a,
@@ -216,13 +221,13 @@ Shader "DeferredLighting"
         {
         	vec4 ga = texture(u_GBufferA, v_TexCoord);
         	vec4 gb = texture(u_GBufferB, v_TexCoord);
-        	vec4 gc = texture(u_GBufferC, v_TexCoord);
 
         	vec3  albedo    = ga.rgb;
         	float metallic  = ga.a;
         	vec3  normal    = gb.rgb;
         	float roughness = max(gb.a, 0.04);
-        	vec3  worldPos  = gc.rgb;
+        	vec3  worldPos  = ReconstructWorldPosition(v_TexCoord, texture(u_GBufferDepth, v_TexCoord).r,
+        	                                           u_InvJitteredViewProjection);
 
         	const int dbg = int(u_Params.x + 0.5);
 
@@ -235,7 +240,7 @@ Shader "DeferredLighting"
         	}
 
         	const vec4          ge           = texture(u_GBufferEmissive, v_TexCoord);
-        	const float         word         = DesertShadingWordMagnitude(gc.w);
+        	const uint          word         = texelFetch(u_GBufferShadingWord, ivec2(gl_FragCoord.xy), 0).r;
         	const int           shadingModel = DesertShadingModelIndex(word);
         	const DesertPayload payload      = DesertUnpackPayload(word);
 
@@ -270,7 +275,7 @@ Shader "DeferredLighting"
         		return;
         	}
 
-        	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in GBufferC.w's upper bits
+        	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in the shading word's TEXTURES field
         	// (0..3). Heat-map it as a proxy for per-pixel shading cost (UE-style shader/material complexity).
         	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(word) / 3.0), 1.0); return; }
 
@@ -291,9 +296,9 @@ Shader "DeferredLighting"
         	// debug modes are a different, G-buffer-driven set. Read and dropped rather than given a second
         	// ShadowFactor overload, because a second overload is how the four copies started.
         	int   cascade  = -1;
-        	// The cascades skip a surface whose material does not receive them (the shading word's sign), then the
+        	// The cascades skip a surface whose material does not receive them (the shading word's NO_SUN_SHADOWS bit), then the
         	// cloud layer — the cloud factor AFTER the toggle, exactly as the forward pass assembles it.
-        	float shadow   = DesertReceivesSunShadows(gc.w) ? ShadowFactor(worldPos, N, L, cascade) : 1.0;
+        	float shadow   = DesertReceivesSunShadows(word) ? ShadowFactor(worldPos, N, L, cascade) : 1.0;
         	shadow        *= CloudShadowFactor(worldPos);
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 

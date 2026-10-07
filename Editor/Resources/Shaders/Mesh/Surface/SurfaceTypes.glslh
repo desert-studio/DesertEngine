@@ -43,7 +43,7 @@ struct SurfaceOutput
     float SampledTextureCount;
     float Refraction; // index of refraction (UE's Refraction pin), read only by the translucency pass
     // The shading model's payload (UE's CustomData0/1 pins), in [0, 1]: the floats a model's `Payload` block names
-    // (ShadingModels/ShadingModelContract.glslh). They reach the model as DesertPayload, through GBufferC.w's
+    // (ShadingModels/ShadingModelContract.glslh). They reach the model as DesertPayload, through the G-buffer shading word's
     // 8-bit fields in the deferred path and quantized the same way in the forward one.
     float CustomData0;
     float CustomData1;

@@ -76,6 +76,7 @@ namespace Desert::Graphic
         // the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world pos (view vector);
         // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spotCount = the uploaded lights' counts.
         void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
+                         const glm::mat4& viewProj,
                          int debugMode, uint32_t pointCount, uint32_t spotCount, const DeferredShadowInput& shadow,
                          float giIntensity, bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
                          const DeferredEnvironmentInput& environment )
@@ -90,6 +91,8 @@ namespace Desert::Graphic
             SetLightDir( lightDir );
             SetLightColor( lightColor );
             SetCameraPos( cameraPos );
+            // World position is rebuilt from the G-buffer depth (Common/ReconstructPosition.glslh).
+            SetInvJitteredViewProjection( glm::inverse( viewProj ) );
             // u_Params: x = debug mode, y = GI intensity (0 = off), z = SSAO enabled (else shader uses AO=1),
             // w = GI mode (0 = off, 1 = screen-space gather, 2 = RSM buffer). Mode picks WHERE the indirect
             // light comes from; intensity scales it (the RSM path pre-applies it in GIResolve).
@@ -153,6 +156,7 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, LightColor, "u_LightColor", ( glm::vec4( 1.0f, 1.0f, 1.0f, 3.0f ) ) )
         MPROPERTY( glm::vec4, Params,     "u_Params",     ( glm::vec4( 0.0f ) ) )
         MPROPERTY( glm::vec4, CameraPos,  "u_CameraPos",  ( glm::vec4( 0.0f ) ) )
+        MPROPERTY( glm::mat4, InvJitteredViewProjection, "u_InvJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
 
     private:
     };
