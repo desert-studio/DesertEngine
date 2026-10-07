@@ -236,6 +236,39 @@ namespace Desert::Core::Formats
         return block.Width > 1 || block.Height > 1;
     }
 
+    /// Whether texels of @p format are INTEGERS (a *_UINT / *_SINT format): read as usampler/isampler with
+    /// texelFetch, written by a uint/int fragment output, never filtered and never BLENDED (Vulkan forbids
+    /// blending into one; the pipeline's per-attachment blend state asks this, Pipeline.hpp
+    /// ColourAttachmentBlends). Every enumerator has a case, so a new integer format has to say so here.
+    constexpr bool IsIntegerFormat( ImageFormat format )
+    {
+        switch ( format )
+        {
+            case ImageFormat::R32_UINT:
+                return true;
+            case ImageFormat::RGBA8F:
+            case ImageFormat::RGBA16F:
+            case ImageFormat::RGBA32F:
+            case ImageFormat::BGRA8F:
+            case ImageFormat::DEPTH24STENCIL8:
+            case ImageFormat::DEPTH32F:
+            case ImageFormat::BC7_UNORM:
+            case ImageFormat::BC6H_UFLOAT:
+            case ImageFormat::BC4_UNORM:
+            case ImageFormat::BC5_UNORM:
+            case ImageFormat::R16_UNORM:
+            case ImageFormat::R32F:
+            case ImageFormat::R8_UNORM:
+            case ImageFormat::RG16F:
+                return false;
+            case ImageFormat::Count:
+                break; // the sentinel is not a format
+        }
+
+        LOG_ERROR( "IsIntegerFormat: ImageFormat value {} is outside the enumeration", static_cast<uint32_t>( format ) );
+        DESERT_VERIFY( false, "ImageFormat outside the enumeration" );
+    }
+
     /// HOW MANY CHANNELS SURVIVE THIS FORMAT, counted from red. Four for every uncompressed format in
     /// this table and for BC7; three for BC6H, which has no alpha; two for BC5 and one for BC4.
     ///
@@ -394,6 +427,9 @@ namespace Desert::Core::Formats
                 // every encode as perfect. Asked for every enumerator, so a format added without a
                 // case falls off the end of a constexpr function here.
                 if ( PreservedChannelCount( format ) == 0 )
+                    return false;
+                // Asked for every enumerator for the same reason: a format without a case is a compile error.
+                if ( IsIntegerFormat( format ) && IsBlockCompressed( format ) )
                     return false;
 
                 // GetBytesPerPixel IS ASKED ONLY WHERE A PIXEL HAS A SIZE, and where it does, the two

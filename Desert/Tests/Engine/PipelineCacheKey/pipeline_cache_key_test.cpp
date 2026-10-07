@@ -465,3 +465,31 @@ TEST( PipelineCacheKey, EveryFieldOfTheSpecificationIsAccountedFor )
     EXPECT_EQ( "Baseline", debugName );
     EXPECT_FALSE( useLoadRenderPass );
 }
+
+// GBUF1d: Vulkan forbids blending into an integer colour attachment (VUID-...-renderPass-06041). The per-slot
+// blend state is decided by the attachment's FORMAT: a blended material drawn into the G-buffer (slot 2 =
+// R32_UINT shading word) blends its float slots and never the integer one. Mutation: ColourAttachmentBlends
+// returns pipelineBlend alone (blend left on for the integer slot) -> red.
+TEST( PipelineBlendState, AnIntegerAttachmentNeverBlendsWhateverTheMaterialAsks )
+{
+    using Desert::Core::Formats::ImageFormat;
+    EXPECT_TRUE( Desert::Core::Formats::IsIntegerFormat( ImageFormat::R32_UINT ) );
+    EXPECT_FALSE( Desert::Core::Formats::IsIntegerFormat( ImageFormat::R32F ) );
+
+    GraphicsPipelineSpecification spec = Baseline();
+    spec.Framebuffer.reset();
+    spec.TargetLayout = RenderTargetLayout{ .ColorFormats = { ImageFormat::RGBA16F, ImageFormat::RGBA16F,
+                                                              ImageFormat::R32_UINT, ImageFormat::RGBA16F } };
+    spec.BlendEnable  = true;
+
+    const std::vector<ImageFormat> formats = ColourAttachmentFormats( spec );
+    ASSERT_EQ( formats.size(), 4u );
+    std::vector<bool> blends;
+    for ( const ImageFormat format : formats )
+        blends.push_back( ColourAttachmentBlends( spec.BlendEnable, format ) );
+    EXPECT_EQ( blends, ( std::vector<bool>{ true, true, false, true } ) );
+
+    spec.BlendEnable = false;
+    for ( const ImageFormat format : formats )
+        EXPECT_FALSE( ColourAttachmentBlends( spec.BlendEnable, format ) );
+}

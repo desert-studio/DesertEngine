@@ -258,6 +258,41 @@ namespace Desert::Graphic
         std::string DebugName;
     };
 
+    // The colour attachment formats @p spec is built against, by colour slot: the TargetLayout's, or the
+    // Framebuffer's own colour attachments in order (depth left out) followed by its external colour
+    // attachments (VulkanFramebuffer::GetColorAttachmentCount counts own + external in that order).
+    [[nodiscard]] inline std::vector<Core::Formats::ImageFormat>
+    ColourAttachmentFormats( const GraphicsPipelineSpecification& spec )
+    {
+        if ( spec.TargetLayout )
+            return spec.TargetLayout->ColorFormats;
+        std::vector<Core::Formats::ImageFormat> formats;
+        if ( !spec.Framebuffer )
+            return formats;
+        const FramebufferSpecification framebuffer = spec.Framebuffer->GetSpecification();
+        for ( const auto& attachment : framebuffer.Attachments.Attachments )
+            if ( !Utils::IsDepthFormat( attachment.Format ) )
+                formats.push_back( attachment.Format );
+        for ( const ExternalAttachment& external : framebuffer.ExternalAttachments.ColorAttachments )
+        {
+            // The source's own attachment list, indexed as the external attachment names it.
+            const auto& source = external.SourceFramebuffer->GetSpecification().Attachments.Attachments;
+            DESERT_VERIFY( external.AttachmentIndex < source.size(), "external colour attachment out of range" );
+            formats.push_back( source[external.AttachmentIndex].Format );
+        }
+        return formats;
+    }
+
+    // Whether the colour attachment of @p format blends under a pipeline whose blend state is
+    // @p pipelineBlend. An INTEGER attachment never does, whatever the material asked: Vulkan forbids
+    // blending into one (VUID-VkGraphicsPipelineCreateInfo-renderPass-06041 /
+    // VUID-VkGraphicsPipelineCreateInfo-renderPass-06062) - the G-buffer's R32_UINT shading word drawn by a
+    // blended material is the case. Decided by the format alone, so any future *_UINT / *_SINT target is covered.
+    [[nodiscard]] constexpr bool ColourAttachmentBlends( bool pipelineBlend, Core::Formats::ImageFormat format )
+    {
+        return pipelineBlend && !Core::Formats::IsIntegerFormat( format );
+    }
+
     /**
      * Whether a graphics pipeline may be built from @p spec at all — the same arrangement, and for the
      * same reasons, as CheckComputePipelineSpecification below: one rule, asked in one place, so that
