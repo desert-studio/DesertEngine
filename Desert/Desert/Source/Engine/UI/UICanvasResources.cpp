@@ -10,7 +10,7 @@ namespace Desert::UI
         const Graphic::Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( sprite );
         if ( texture == nullptr )
             return nullptr;
-        return static_cast<Graphic::Image2D*>(
+        return dynamic_cast<Graphic::Image2D*>(
              Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) );
     }
 

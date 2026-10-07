@@ -506,7 +506,7 @@ TEST( UIIntrospectionWalk, ARefusalIsNotAnEmptyFrame )
     const entt::entity notACanvas = scene.Panels[0];
 
     R2D::DrawList2D dl;
-    UIViewContext   ctx{ s_Resources };
+    const UIViewContext ctx{ s_Resources };
     UIFrameProbe    probe;
     const auto      result = UI::CaptureFrame( ctx, scene.Registry, { notACanvas }, dl, kViewport, probe );
     EXPECT_FALSE( result.IsSuccess() );

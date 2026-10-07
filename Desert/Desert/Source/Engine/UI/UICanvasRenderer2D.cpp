@@ -60,8 +60,8 @@ namespace Desert::UI
             Graphic::Render2D::DrawList2D*                 Root        = nullptr;
             entt::entity                                   Retaining   = entt::null;
             entt::entity                                   MaskCapture = entt::null;
-            std::unordered_map<entt::entity, entt::entity> MaskOf;
-            std::unordered_set<entt::entity>               MaskTargets;
+            std::unordered_map<entt::entity, entt::entity> MaskOf{};
+            std::unordered_set<entt::entity>               MaskTargets{};
         };
 
         // Resolve every retainer's Mask Element NAME to an element, once per walk. A name that matches no
@@ -1171,7 +1171,8 @@ namespace Desert::UI
         {
             Runtime::Icon*          icon  = res.Icon( static_cast<uint64_t>( ic.Icon ) );
             const Graphic::Image2D* atlas = res.IconAtlas();
-            if ( !icon || !icon->Valid() || !atlas ) // unset/unreadable: draw nothing, no placeholder
+            // unset/unreadable: draw nothing, no placeholder
+            if ( icon == nullptr || !icon->Valid() || atlas == nullptr )
                 return;
 
             const float box = std::min( rect.W, rect.H ) * std::clamp( ic.Scale, 0.1f, 1.0f );

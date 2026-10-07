@@ -432,7 +432,7 @@ namespace Desert::Tests::ConsumerText
                         break;
                     continue;
                 }
-                if ( !( ( c == '(' && depth == 1 ) || ( c == ',' && depth == 1 ) ) )
+                if ( depth != 1 || ( c != '(' && c != ',' ) )
                     continue;
 
                 const std::size_t argAt = SkipSpace( s, a + 1 );

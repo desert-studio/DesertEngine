@@ -155,7 +155,7 @@ namespace
             ASSERT_FALSE( m_Root.empty() ) << "repository root not found from the test's working directory";
         }
 
-        std::string Code( const std::string& relative ) const
+        [[nodiscard]] std::string Code( const std::string& relative ) const
         {
             const std::string text = ReadFile( m_Root + relative );
             EXPECT_FALSE( text.empty() ) << "could not read " << relative;

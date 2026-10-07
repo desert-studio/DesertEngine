@@ -171,7 +171,8 @@ TEST( UICanvasContext, TheHotElectionOfOneViewDoesNotReachAnother )
     Fixture a, b;
     ASSERT_EQ( a.Button, b.Button ) << "the two registries must hand out the same id for this to test anything";
 
-    UIViewContext ctxA{ s_Resources }, ctxB{ s_Resources };
+    UIViewContext ctxA{ s_Resources };
+    UIViewContext ctxB{ s_Resources };
 
     // Frame 1 elects: A's pointer is on its button, B's is far away. Controls react to the PREVIOUS frame's
     // winner, so nothing is pressed yet in either.
@@ -215,7 +216,8 @@ TEST( UICanvasContext, AnInertPreviewDoesNotClearTheInteractiveViewsElection )
 TEST( UICanvasContext, APerEntityClockIsKeyedInsideItsOwnView )
 {
     Fixture         a, b;
-    UIViewContext   ctxA{ s_Resources }, ctxB{ s_Resources };
+    UIViewContext   ctxA{ s_Resources };
+    UIViewContext   ctxB{ s_Resources };
 
     Frame( ctxA, a, At( 10.0f, 10.0f, /*down=*/false ) );
     Frame( ctxB, b, At( 900.0f, 900.0f, /*down=*/false ) );
@@ -240,7 +242,8 @@ TEST( UICanvasContext, APerEntityClockIsKeyedInsideItsOwnView )
 TEST( UICanvasContext, EveryViewMeasuresItsOwnFrameDelta )
 {
     Fixture         a, b;
-    UIViewContext   ctxA{ s_Resources }, ctxB{ s_Resources };
+    UIViewContext   ctxA{ s_Resources };
+    UIViewContext   ctxB{ s_Resources };
 
     Frame( ctxA, a, At( 10.0f, 10.0f, /*down=*/false ) ); // seed both clocks
     Frame( ctxB, b, At( 10.0f, 10.0f, /*down=*/false ) );
@@ -304,7 +307,8 @@ TEST( UICanvasContext, ScreenNavigationBelongsToTheViewThatDidIt )
     button.Action         = ECS::UIButtonAction::ShowScreen;
     button.OnClickMessage = "Settings";
 
-    UIViewContext viewport{ s_Resources }, second{ s_Resources };
+    UIViewContext viewport{ s_Resources };
+    UIViewContext second{ s_Resources };
 
     // Seed both views, then release the pointer over the button in ONE of them.
     Frame( viewport, f, At( 10.0f, 10.0f ) );
@@ -505,7 +509,8 @@ TEST( UICanvasContext, AnUnresolvableCanvasBackgroundDrawsNothingRatherThanAWhit
     withSprite.Registry.get<ECS::UICanvasComponent>( withSprite.Canvas ).Data.Sprite =
          Desert::Assets::AssetHandle( 0x1234u );
 
-    UIViewContext   c1{ s_Resources }, c2{ s_Resources };
+    UIViewContext   c1{ s_Resources };
+    UIViewContext   c2{ s_Resources };
     R2D::DrawList2D dlBare, dlSprite;
     Draw( c1, bare.Registry, bare.Canvas, dlBare );
     Draw( c2, withSprite.Registry, withSprite.Canvas, dlSprite );
@@ -1197,7 +1202,8 @@ TEST( UICanvasSelection, TheCanvasThatWasAskedForIsTheOneDrawn )
 {
     TwoCanvases t;
 
-    UIViewContext   ctxA{ s_Resources }, ctxB{ s_Resources };
+    UIViewContext   ctxA{ s_Resources };
+    UIViewContext   ctxB{ s_Resources };
     R2D::DrawList2D a, b;
     EXPECT_TRUE( Draw( ctxA, t.Registry, t.CanvasA, a ) );
     EXPECT_TRUE( Draw( ctxB, t.Registry, t.CanvasB, b ) );
@@ -1991,7 +1997,8 @@ namespace
 TEST( UICanvasContextPair, HoverInOneCellMovesNoOtherCellOfTheTable )
 {
     TwoCanvasFixture f;
-    UIViewContext    viewA{ s_Resources }, viewB{ s_Resources };
+    UIViewContext    viewA{ s_Resources };
+    UIViewContext    viewB{ s_Resources };
 
     const UIInput onLower = At( 10.0f, 10.0f, /*down=*/false );  // inside LowerButton only
     const UIInput onUpper = At( 210.0f, 10.0f, /*down=*/false ); // inside UpperButton only
@@ -2044,7 +2051,8 @@ TEST( UICanvasContextPair, EachCanvasNavigatesItsOwnScreensInsideOneView )
     button.Action         = ECS::UIButtonAction::ShowScreen;
     button.OnClickMessage = "Settings";
 
-    UIViewContext view{ s_Resources }, untouched{ s_Resources };
+    UIViewContext view{ s_Resources };
+    UIViewContext untouched{ s_Resources };
 
     f.Frame( view, At( 10.0f, 10.0f ) );        // elect the lower canvas's button
     f.Frame( untouched, At( 900.0f, 900.0f ) ); // a second view of the same scene, pointing at nothing

@@ -52,8 +52,8 @@ namespace
 
     std::string ReadFile( const fs::path& file )
     {
-        std::ifstream      in( file, std::ios::binary );
-        std::ostringstream text;
+        const std::ifstream in( file, std::ios::binary );
+        std::ostringstream  text;
         text << in.rdbuf();
         return text.str();
     }
@@ -170,7 +170,7 @@ namespace
             }
             else if ( m[2].matched )
             {
-                const size_t            start      = static_cast<size_t>( m.position( 0 ) );
+                const auto              start      = static_cast<size_t>( m.position( 0 ) );
                 const size_t            lookBehind = std::min<size_t>( start, 12 );
                 static const std::regex kEnum( R"(\benum\s*$)" );
                 const bool isEnum = std::regex_search( stripped.substr( start - lookBehind, lookBehind ), kEnum );
@@ -178,7 +178,7 @@ namespace
                      std::all_of( stack.begin(), stack.end(), []( Scope s ) { return s == Scope::Named; } );
                 if ( exposed && !isEnum )
                 {
-                    const auto line = std::count( stripped.begin(), stripped.begin() + start, '\n' ) + 1;
+                    const auto line = std::count( stripped.begin(), stripped.begin() + m.position( 0 ), '\n' ) + 1;
                     found.push_back( std::format( "{}: {} {}", line, m[2].str(), m[3].str() ) );
                 }
                 if ( m[5].str() == "{" )
@@ -218,7 +218,7 @@ namespace
         std::string           name;
         fs::path              dir;
         bool                  ownProject = false; // has its own premake5.lua (refused: rule 1)
-        std::vector<fs::path> sources;            // *.cpp directly in the suite directory
+        std::vector<fs::path> sources{};          // *.cpp directly in the suite directory
     };
 
     std::vector<Suite> Suites( const fs::path& root )
