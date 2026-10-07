@@ -157,10 +157,29 @@ namespace Desert::Runtime
             return nullptr;
         }
 
-        const auto handleIt = m_NameToHandleMap.find( name );
+        // A NAMED PASS ("<Shader>/<Pass>", as GetByName answers it) is compiled from its shader's asset with
+        // that pass selected — the RSM draws the G-buffer CELL of the default surface under its own macro.
+        // A surface template's default cell IS the default program, so it is compiled with no pass name,
+        // exactly as RegisterShader built it.
+        std::string programName = name;
+        std::string passName;
+        if ( !m_NameToHandleMap.contains( name ) )
+        {
+            const auto passIt = m_PassShaders.find( name );
+            const auto slash  = name.rfind( '/' );
+            if ( passIt != m_PassShaders.end() && slash != std::string::npos )
+            {
+                programName                = name.substr( 0, slash );
+                const auto programHandleIt = m_NameToHandleMap.find( programName );
+                if ( programHandleIt != m_NameToHandleMap.end() && Get( programHandleIt->second ) != passIt->second )
+                    passName = name.substr( slash + 1 );
+            }
+        }
+
+        const auto handleIt = m_NameToHandleMap.find( programName );
         if ( handleIt == m_NameToHandleMap.end() )
         {
-            LOG_ERROR( "[ShaderService] AcquireVariant: no program named '{}' is registered.", name );
+            LOG_ERROR( "[ShaderService] AcquireVariant: no program or pass named '{}' is registered.", name );
             return nullptr;
         }
 
@@ -200,7 +219,7 @@ namespace Desert::Runtime
             }
         }
 
-        auto program = Graphic::Shader::Create( asset, variant );
+        auto program = Graphic::Shader::Create( asset, variant, passName );
         program->ClaimOwnership( Graphic::ResourceOwner::AssetService, handleIt->second );
         if ( !program->IsCompiled() )
         {
