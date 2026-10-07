@@ -3,7 +3,7 @@
 // the rate first decays by this step's rotational drag (engine:Drag, above this module), then turns the sprite by
 // rate times RateScale times the step. RateScale is UE's RateScaleParameters — a Curve over the normalised age
 // (VFX-05) or a Value. The angle is kept in [0, 360) so a long life does not lose float precision. Update group.
-Shader "VFX/Modules/UpdateRotation"
+Shader "UpdateRotation"
 {
     Domain Particle
     Particle

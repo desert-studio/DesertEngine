@@ -241,6 +241,13 @@ namespace
          // specification gives vkResetDescriptorPool no failure code: it always returns VK_SUCCESS.
          { "VulkanRenderGraph.cpp", "vkResetDescriptorPool", 1, "dropped: always VK_SUCCESS" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFormatProperties", 3, "void" },
+         // The capability catalog's driver probe (VulkanCapabilityCatalogProbe.cpp): void queries, each read.
+         { "VulkanCapabilityCatalogProbe.cpp", "vkGetPhysicalDeviceProperties", 1, "void" },
+         { "VulkanCapabilityCatalogProbe.cpp", "vkGetPhysicalDeviceMemoryProperties", 1, "void" },
+         { "VulkanCapabilityCatalogProbe.cpp", "vkGetPhysicalDeviceFormatProperties", 1, "void" },
+         { "VulkanCapabilityCatalogProbe.cpp", "vkGetPhysicalDeviceQueueFamilyProperties", 2, "void" },
+         // The GPU benchmark binds its two storage buffers once per run.
+         { "VulkanGpuBenchmark.cpp", "vkUpdateDescriptorSets", 1, "void" },
          // В2, шаг 2 программы по миру: чтение бюджета памяти устройства. Возвращает void — результат
          // приходит через цепочку `pNext` (`VkPhysicalDeviceMemoryBudgetPropertiesEXT`), которую
          // вызывающий и читает, так что «выброшенного результата» здесь нет. Строка нужна для полноты
@@ -253,12 +260,11 @@ namespace
          // RDG-A2: PassBindings copies the material's value/asset slots into the pass's set 0 (copy writes only).
          { "VulkanRenderer.cpp", "vkUpdateDescriptorSets", 1, "void" },
 
-         // ---- returns VkResult and the result is DROPPED. Five, each with its reason --------------
+         // ---- returns VkResult and the result is DROPPED. Four, each with its reason --------------
          // The count-then-fill enumeration idiom, at startup. Both halves can only fail with
          // OUT_OF_HOST_MEMORY or an unusable driver, and in every case the caller's next line already
          // refuses on the count being zero -- GetImageFormatAndColorSpace's "null format count" error.
          // Worth checking one day; not worth pretending it is this task.
-         { "VulkanSwapChain.cpp", "vkGetPhysicalDeviceSurfacePresentModesKHR", 2, "dropped: startup enumeration" },
          { "VulkanSwapChain.cpp", "vkGetPhysicalDeviceSurfaceFormatsKHR", 2, "dropped: startup enumeration" },
 
          // The device's own teardown wait. It is already behind DeviceLost::AllowWork(), so on a lost device
@@ -447,8 +453,9 @@ TEST( DeviceLostCensus, TheDroppedResultCensusStillHoldsAndCanOnlyShrink )
              << ", and it does not any more. Delete the row -- a census that pins nothing passes silently.";
     }
 
-    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Six VkResults
-    // are dropped in the whole Vulkan backend (eighteen, then eleven, then five; VKF1 moved the six startup
+    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Four VkResults
+    // are dropped in the whole Vulkan backend (eighteen, then eleven, then five, then six, now four: the
+    // present-mode enumeration left the swapchain for the capability probe, which reads its results; VKF1 moved the six startup
     // enumerations of instance layers, devices and extensions into vk-bootstrap; RDG-ALIAS A1 added the
     // descriptor pool reset), and every survivor is either a startup enumeration whose caller refuses on
     // the count, a teardown wait that is already behind the gate, or vkResetDescriptorPool, whose only
@@ -457,7 +464,7 @@ TEST( DeviceLostCensus, TheDroppedResultCensusStillHoldsAndCanOnlyShrink )
     for ( const auto& row : k_Census )
         if ( std::string( row.Verdict ) != "void" )
             droppedResults += row.Count;
-    EXPECT_EQ( droppedResults, 6 )
+    EXPECT_EQ( droppedResults, 4 )
          << "the number of Vulkan calls whose result nobody reads has changed. Up is a regression; down is "
             "welcome, and this line moves with it.";
 }

@@ -3,7 +3,7 @@
 // InitializeParticle.ush): the newborn's linear RGBA colour. A Random-source range is UE's colour min/max. It also
 // keeps the colour as InitialColor, the base ColorOverLife scales — a stateful particle cannot re-derive it the way
 // a stateless one does. Spawn group.
-Shader "VFX/Modules/InitializeColor"
+Shader "InitializeColor"
 {
     Domain Particle
     Particle

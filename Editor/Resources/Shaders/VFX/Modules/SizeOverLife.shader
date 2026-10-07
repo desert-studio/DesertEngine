@@ -2,7 +2,7 @@
 // Engine VFX module `engine:SizeOverLife` (port of UE NiagaraStatelessModule_ScaleSpriteSize.ush:6-16): the sprite
 // size is the initial size times Scale, a Curve over the normalised age (VFX-05) or a Value — UE's CurveScale is
 // folded into the curve's keys. Recomputed from InitialSpriteSize every step, so it never compounds. Update group.
-Shader "VFX/Modules/SizeOverLife"
+Shader "SizeOverLife"
 {
     Domain Particle
     Particle

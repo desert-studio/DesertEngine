@@ -336,8 +336,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             // compile time, by name and size, so it never reaches a device that may not hold it.
             if ( declaredSize > ShaderResources::ShaderLayout::kMaxPushBlockBytes )
             {
+                // The block is named by its TYPE: `uniform PastTheCap { ... };` has no instance name, and
+                // res.name is the instance name, empty for every anonymous push block.
                 diagnostics.push_back( std::format( "push block '{}' is {} bytes; the engine cap is {} bytes",
-                                                    res.name, declaredSize,
+                                                    compiler.get_name( res.base_type_id ), declaredSize,
                                                     ShaderResources::ShaderLayout::kMaxPushBlockBytes ) );
                 return diagnostics;
             }

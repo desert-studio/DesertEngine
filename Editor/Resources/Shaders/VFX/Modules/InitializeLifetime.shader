@@ -2,7 +2,7 @@
 // Engine VFX module `engine:InitializeLifetime` (UE InitializeParticle's Lifetime, NiagaraStatelessModule_
 // InitializeParticle.ush:20-37 + the emitter's lifetime range): the newborn's age is zero and its lifetime is the
 // Lifetime input, seconds — a Random-source range is UE's lifetime min/max. Spawn group; UpdateAge retires it.
-Shader "VFX/Modules/InitializeLifetime"
+Shader "InitializeLifetime"
 {
     Domain Particle
     Particle

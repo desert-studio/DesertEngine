@@ -398,8 +398,10 @@ namespace Desert::Graphic::System
         // material's cell, compiled on demand (AL1-12) and drawn only once ChooseCellDraw says it is Ready.
         const bool content  = shader != spec.Shader;
         spec.Shader         = shader;
-        auto&      cache    = m_SceneRenderer->GetPipelineCache();
-        const auto pipeline = content ? cache.GetOrCreateMaterial( spec ) : cache.GetOrCreate( spec );
+        // Reached through the one spelling the tree uses for the pipeline cache, which is how the shipping
+        // pipeline register (ShippingPipelines suite) recognises a creation site.
+        const auto pipeline = content ? m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec )
+                                      : m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !pipeline )
         {
             LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': {}", key.CellShader,

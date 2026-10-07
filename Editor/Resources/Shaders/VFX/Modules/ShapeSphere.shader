@@ -3,7 +3,7 @@
 // uniformly random direction (RandomUnitFloat3) times Radius. Radius is an ordinary input, so UE's
 // RandomScaleBiasFloat(SphereScale, SphereBias) is a Random-source range on it (Min = inner, Max = outer radius),
 // a Value is a shell. Centimetres. Spawn group.
-Shader "VFX/Modules/ShapeSphere"
+Shader "ShapeSphere"
 {
     Domain Particle
     Particle

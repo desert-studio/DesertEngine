@@ -9,7 +9,7 @@
 //   2 Linear       the range once over the particle's life
 //   3 Random       a new frame in the range every RandomChangeInterval seconds of age (0: one frame for life)
 // Update group.
-Shader "VFX/Modules/SubUVAnimation"
+Shader "SubUVAnimation"
 {
     Domain Particle
     Particle

@@ -63,17 +63,32 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( surface != VK_NULL_HANDLE )
         {
+            // Both enumerations READ their VkResult: a surface the driver cannot answer for offers nothing,
+            // rather than a list sized by a count the failed call never wrote. VK_INCOMPLETE (the list grew
+            // between the two calls) keeps what was written.
+            const auto answered = []( VkResult result ) { return result == VK_SUCCESS || result == VK_INCOMPLETE; };
+
             uint32_t formatCount = 0;
-            vkGetPhysicalDeviceSurfaceFormatsKHR( physicalDevice, surface, &formatCount, nullptr );
-            probe.SurfaceFormats.resize( formatCount );
-            vkGetPhysicalDeviceSurfaceFormatsKHR( physicalDevice, surface, &formatCount,
-                                                  probe.SurfaceFormats.data() );
+            if ( answered( vkGetPhysicalDeviceSurfaceFormatsKHR( physicalDevice, surface, &formatCount, nullptr ) ) )
+            {
+                probe.SurfaceFormats.resize( formatCount );
+                if ( answered( vkGetPhysicalDeviceSurfaceFormatsKHR( physicalDevice, surface, &formatCount,
+                                                                     probe.SurfaceFormats.data() ) ) )
+                    probe.SurfaceFormats.resize( formatCount );
+                else
+                    probe.SurfaceFormats.clear();
+            }
 
             uint32_t modeCount = 0;
-            vkGetPhysicalDeviceSurfacePresentModesKHR( physicalDevice, surface, &modeCount, nullptr );
-            probe.PresentModes.resize( modeCount );
-            vkGetPhysicalDeviceSurfacePresentModesKHR( physicalDevice, surface, &modeCount,
-                                                       probe.PresentModes.data() );
+            if ( answered( vkGetPhysicalDeviceSurfacePresentModesKHR( physicalDevice, surface, &modeCount, nullptr ) ) )
+            {
+                probe.PresentModes.resize( modeCount );
+                if ( answered( vkGetPhysicalDeviceSurfacePresentModesKHR( physicalDevice, surface, &modeCount,
+                                                                          probe.PresentModes.data() ) ) )
+                    probe.PresentModes.resize( modeCount );
+                else
+                    probe.PresentModes.clear();
+            }
         }
         return probe;
     }

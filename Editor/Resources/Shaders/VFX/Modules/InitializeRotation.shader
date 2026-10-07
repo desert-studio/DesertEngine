@@ -3,7 +3,7 @@
 // NiagaraStatelessModule_SpriteRotationRate.ush:8-21): the newborn's sprite rotation (degrees) and its rotation
 // rate (degrees per second). A Random-source range on either is UE's RandomScaleBiasFloat — drawn once, here, so
 // it stays the particle's own. Spawn group; UpdateRotation turns it.
-Shader "VFX/Modules/InitializeRotation"
+Shader "InitializeRotation"
 {
     Domain Particle
     Particle

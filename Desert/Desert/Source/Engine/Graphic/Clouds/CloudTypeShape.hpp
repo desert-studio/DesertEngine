@@ -305,9 +305,13 @@ namespace Desert::Graphic
         float AnvilThicknessKm; // half-height of that lobe
         float AnvilStrength;    // how dense the anvil is against the tower that feeds it
         float DetailCharacter;  // 0 = wispy erosion, 1 = billowy — the type's edge, not its silhouette
-        float DetailFactor;     // multiplies the layer's Detail Strength: how deeply the erosion cuts
-        float DensityFactor;    // multiplies the layer's Density Scale: how much matter this type is
-        float ExtinctionFactor; // multiplies the layer's Extinction Scale: how opaque that matter is
+        // The three multipliers default to 1 — "this type as it is", the neutral the paragraph above names —
+        // because a .cloudtype that does not state one reads this initialiser (Common/Json/Json.hpp: the
+        // member initialiser IS the format's default, owner decision 2026-10-07); 0 would be a cloud with
+        // no matter that nobody chose.
+        float DetailFactor     = 1.0f; // multiplies the layer's Detail Strength: how deeply the erosion cuts
+        float DensityFactor    = 1.0f; // multiplies the layer's Density Scale: how much matter this type is
+        float ExtinctionFactor = 1.0f; // multiplies the layer's Extinction Scale: how opaque that matter is
 
         // ---- WHERE THIS TYPE IS, which is a different question from what shape it is -----------------
         //

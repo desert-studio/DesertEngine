@@ -2,7 +2,7 @@
 // Engine VFX module `engine:InitializeSpriteSize` (UE Initialize Particle's Sprite Size): the newborn's sprite width
 // and height in centimetres. A Random-source range is UE's size min/max (non-uniform; a uniform range is the same
 // value in both). Kept as InitialSpriteSize, the base SizeOverLife scales. Spawn group.
-Shader "VFX/Modules/InitializeSpriteSize"
+Shader "InitializeSpriteSize"
 {
     Domain Particle
     Particle
