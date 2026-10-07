@@ -343,9 +343,3 @@ TEST( PlayInEditorTravel, OutsidePlayATravelIsRefusedWithItsTargetAndNothingIsLo
     EXPECT_EQ( w.Played, "authored" );
     EXPECT_FALSE( Travel::Get().HasPending() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
