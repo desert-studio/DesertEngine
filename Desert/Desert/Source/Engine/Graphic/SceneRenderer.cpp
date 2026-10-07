@@ -199,9 +199,8 @@ namespace Desert::Graphic
 
         // Deferred G-buffer (populated only when SceneSettings::RenderPath == Deferred; allocated always so the
         // toggle is live). GBufferA = Albedo.rgb + Metallic.a (RGBA8F); GBufferB = Normal.rgb + Roughness.a
-        // (RGBA32F for banding-free normals — the format enum has no RGBA16F yet); GBufferC = world position.xyz
-        // (RGBA32F) so the lighting pass gets point/spot-light distances directly (bulletproof vs depth
-        // reconstruction, which is error-prone under the GL-on-Vulkan depth conventions); shared depth.
+        // (kGBufferB); slot 2 = the shading word (R32_UINT, ShadingModelContract.glslh). World position is not
+        // stored: readers rebuild it from the depth attachment (Common/ReconstructPosition.glslh); shared depth.
         FramebufferSpecification gbufferSpec;
         gbufferSpec.DebugName = "GBuffer";
         gbufferSpec.Attachments.Attachments.emplace_back(
@@ -209,7 +208,7 @@ namespace Desert::Graphic
         gbufferSpec.Attachments.Attachments.emplace_back(
              ViewTargetFormats::kGBufferB ); // GBufferB Normal+Roughness
         gbufferSpec.Attachments.Attachments.emplace_back(
-             ViewTargetFormats::kGBufferC ); // GBufferC WorldPosition.xyz
+             ViewTargetFormats::kGBufferShadingWord ); // shading word (uint)
         gbufferSpec.Attachments.Attachments.emplace_back(
              ViewTargetFormats::kGBufferEmissive ); // GBufferEmissive (HDR self-illum)
         // DEPTH32F for the same reason as the forward target above — and it is this attachment the
@@ -1070,7 +1069,7 @@ namespace Desert::Graphic
         rsmSpec.DebugName = "RSM";
         rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMAlbedo );   // Albedo (flux colour)
         rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMNormal );   // Normal
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMPosition ); // WorldPos
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMShadingWord ); // shading word (unused; positions from depth)
         rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMEmissive ); // Emissive (unused)
         // Matches the G-buffer's depth format because "mirror m_GBuffer" includes the depth attachment:
         // the RSM pipeline is created from the G-buffer's spec, and a differing depth format makes the

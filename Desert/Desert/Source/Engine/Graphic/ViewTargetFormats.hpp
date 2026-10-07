@@ -24,7 +24,10 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kSceneColorCopy  = kSceneColor; // snapshot of the scene target, same texel
     inline constexpr ImageFormat kGBufferA        = ImageFormat::RGBA8F;  // albedo.rgb + metallic
     inline constexpr ImageFormat kGBufferB        = ImageFormat::RGBA16F; // normal.xyz + roughness
-    inline constexpr ImageFormat kGBufferC        = ImageFormat::RGBA32F; // world position.xyz
+    // The shading word (ShadingModels/ShadingModelContract.glslh): model index, payload, texture count and the
+    // no-sun-shadows bit, as a uint. World position is NOT stored: every reader rebuilds it from kGBufferDepth
+    // (Common/ReconstructPosition.glslh).
+    inline constexpr ImageFormat kGBufferShadingWord = ImageFormat::R32_UINT;
     inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGBufferDepth    = ImageFormat::DEPTH32F;
     inline constexpr ImageFormat kSSAO            = ImageFormat::RGBA8F;
@@ -60,7 +63,9 @@ namespace Desert::Graphic::ViewTargetFormats
     // attachments are the G-buffer's formats by construction rather than a second spelling of them.
     inline constexpr ImageFormat kRSMAlbedo   = kGBufferA;
     inline constexpr ImageFormat kRSMNormal   = kGBufferB;
-    inline constexpr ImageFormat kRSMPosition = kGBufferC;
+    // Written by the shared G-buffer pipeline only for render-pass compatibility; the RSM permutation
+    // (DESERT_GBUFFER_RSM) writes no word into it and GI reads nothing from it — VPL positions come from kRSMDepth.
+    inline constexpr ImageFormat kRSMShadingWord = kGBufferShadingWord;
     inline constexpr ImageFormat kRSMEmissive = kGBufferEmissive;
     inline constexpr ImageFormat kRSMDepth    = kGBufferDepth;
 

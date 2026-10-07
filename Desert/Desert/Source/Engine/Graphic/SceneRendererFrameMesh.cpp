@@ -1,5 +1,6 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -137,6 +138,10 @@ namespace Desert::Graphic
             return;
         // ZERO, not the default 0.1 grey: empty texels need a zero normal, the lighting pass tells geometry from
         // sky by dot(normal, normal).
+        // The shading word target (slot 2, R32_UINT) takes the same clear: the bits of 0.0f are uint 0, which is
+        // the contract's clear value (Unlit, receives sun shadows).
+        static_assert( Core::ShadingModels::kShadingWordClearValue == 0u,
+                       "the G-buffer clear writes 0.0f bits into the uint shading word" );
         AddRaster( graph, "Deferred: GBuffer", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                    RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
                    [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr

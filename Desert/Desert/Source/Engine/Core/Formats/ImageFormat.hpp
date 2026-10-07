@@ -100,6 +100,11 @@ namespace Desert::Core::Formats
         /// View/SceneViewState.hpp kVelocityFormat) — an NDC delta, where half's 2^-11 relative step is about
         /// 1/1000 of a pixel at 4K for any motion under a screen. APPENDED for the renumbering reason above.
         RG16F,
+        /// `VK_FORMAT_R32_UINT`. One 32-bit unsigned integer channel: the G-buffer's shading word (GBUF1,
+        /// ViewTargetFormats.hpp kGBufferShadingWord; ShadingModels/ShadingModelContract.glslh). An INTEGER
+        /// format: written as `out uint`, read with `usampler2D` + texelFetch, never filtered or blended.
+        /// APPENDED for the renumbering reason above.
+        R32_UINT,
 
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
@@ -198,6 +203,8 @@ namespace Desert::Core::Formats
                 return { 1, 1, 4 }; // one channel, 32-bit float
             case ImageFormat::RG16F:
                 return { 1, 1, 4 }; // 2 channels, 16 bits each
+            case ImageFormat::R32_UINT:
+                return { 1, 1, 4 }; // one channel, 32-bit unsigned integer
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
             // number is a column of this table and not a constant beside it. The comment here used to
             // say "both BC formats in this engine are the same shape"; BC4 made that sentence false,
@@ -257,6 +264,7 @@ namespace Desert::Core::Formats
             case ImageFormat::R16_UNORM:
             case ImageFormat::R8_UNORM:
             case ImageFormat::R32F:
+            case ImageFormat::R32_UINT:
                 return 1;
             case ImageFormat::BC6H_UFLOAT:
                 return 3; // radiance; the format has no alpha at all
@@ -339,6 +347,7 @@ namespace Desert::Core::Formats
             case ImageFormat::R8_UNORM:
             case ImageFormat::R32F:
             case ImageFormat::RG16F:
+            case ImageFormat::R32_UINT:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:
             case ImageFormat::BC4_UNORM:

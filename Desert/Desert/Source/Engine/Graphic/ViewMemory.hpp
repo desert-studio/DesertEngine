@@ -270,6 +270,8 @@ namespace Desert::Graphic
                     return "R32F";
                 case ImageFormat::RG16F:
                     return "RG16F";
+                case ImageFormat::R32_UINT:
+                    return "R32UI";
                 case ImageFormat::DEPTH24STENCIL8:
                     return "D24S8";
                 case ImageFormat::DEPTH32F:
@@ -315,7 +317,7 @@ namespace Desert::Graphic
         add( { "SceneTarget.Depth", "SceneRenderer.cpp", F::kSceneDepth, width, height } );
         add( { "GBufferA.AlbedoMetallic", "SceneRenderer.cpp", F::kGBufferA, width, height } );
         add( { "GBufferB.NormalRoughness", "SceneRenderer.cpp", F::kGBufferB, width, height } );
-        add( { "GBufferC.WorldPosition", "SceneRenderer.cpp", F::kGBufferC, width, height } );
+        add( { "GBuffer.ShadingWord", "SceneRenderer.cpp", F::kGBufferShadingWord, width, height } );
         add( { "GBuffer.Emissive", "SceneRenderer.cpp", F::kGBufferEmissive, width, height } );
         add( { "GBuffer.Depth", "SceneRenderer.cpp", F::kGBufferDepth, width, height } );
         // Graph transients still cost their pooled memory while the view is open (like SMAA / Bloom below).
@@ -368,7 +370,7 @@ namespace Desert::Graphic
             // which need not all be the same.
             for ( ViewTarget rsm : { ViewTarget{ "RSM.Albedo", "SceneRenderer.cpp", F::kRSMAlbedo, 512, 512 },
                                      ViewTarget{ "RSM.Normal", "SceneRenderer.cpp", F::kRSMNormal, 512, 512 },
-                                     ViewTarget{ "RSM.Position", "SceneRenderer.cpp", F::kRSMPosition, 512, 512 },
+                                     ViewTarget{ "RSM.ShadingWord", "SceneRenderer.cpp", F::kRSMShadingWord, 512, 512 },
                                      ViewTarget{ "RSM.Emissive", "SceneRenderer.cpp", F::kRSMEmissive, 512, 512 },
                                      ViewTarget{ "RSM.Depth", "SceneRenderer.cpp", F::kRSMDepth, 512, 512 } } )
             {

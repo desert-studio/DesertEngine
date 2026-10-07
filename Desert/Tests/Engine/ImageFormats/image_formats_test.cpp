@@ -93,6 +93,17 @@ TEST( ImageFormatBytesPerPixel, R32FIsOneColourChannelOfFourBytes )
     EXPECT_EQ( CalculateImageSize( 2048, 2048, ImageFormat::R32F ), 2048u * 2048u * 4u );
 }
 
+// The G-buffer shading word is one 32-bit unsigned integer, sampled as colour (texelFetch .r): an aspect,
+// channel count or size of anything else would make its barrier, its ViewMemory row or its attachment wrong.
+TEST( ImageFormatBytesPerPixel, R32UintIsOneColourChannelOfFourBytes )
+{
+    EXPECT_EQ( GetBytesPerPixel( ImageFormat::R32_UINT ), 4u );
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::R32_UINT ), 1u );
+    EXPECT_EQ( GetImageAspect( ImageFormat::R32_UINT ), Formats::ImageAspect_Colour );
+    EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::R32_UINT ) );
+    EXPECT_EQ( CalculateImageSize( 1920, 1080, ImageFormat::R32_UINT ), 1920u * 1080u * 4u );
+}
+
 // The landscape heightmap is one 16-bit channel, sampled as colour: an aspect or channel count of anything
 // else would make its barrier or its staging size wrong.
 TEST( ImageFormatBytesPerPixel, R16IsOneColourChannelOfTwoBytes )
