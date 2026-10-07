@@ -2,6 +2,9 @@
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
+#include <array>
+#include <optional>
+
 namespace Desert::Graphic::ViewTargetFormats
 {
     /**
@@ -59,15 +62,18 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kSSRTileMask = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA16F;
-    // The RSM render pass MUST stay compatible with the G-buffer's (it reuses the G-buffer pipeline), so its
-    // attachments are the G-buffer's formats by construction rather than a second spelling of them.
+    // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output locations,
+    // so its attachments are the G-buffer's formats by construction rather than a second spelling of them.
     inline constexpr ImageFormat kRSMAlbedo   = kGBufferA;
     inline constexpr ImageFormat kRSMNormal   = kGBufferB;
-    // Written by the shared G-buffer pipeline only for render-pass compatibility; the RSM permutation
-    // (DESERT_GBUFFER_RSM) writes no word into it and GI reads nothing from it — VPL positions come from kRSMDepth.
-    inline constexpr ImageFormat kRSMShadingWord = kGBufferShadingWord;
     inline constexpr ImageFormat kRSMEmissive = kGBufferEmissive;
     inline constexpr ImageFormat kRSMDepth    = kGBufferDepth;
+    // The RSM's colour slots, by location — read by the framebuffer (SceneRenderer::EnsureGIResources) AND by the
+    // RSM pipeline's target layout (MeshRenderer::SetupGBufferPass). Slot 2 is an UNUSED colour slot
+    // (std::nullopt; FramebufferAttachment::UnusedColourSlot): the permutation writes no shading word and GI reads
+    // VPL positions from kRSMDepth, so it has no image.
+    inline constexpr std::array<std::optional<ImageFormat>, 4> kRSMColourSlots = { kRSMAlbedo, kRSMNormal,
+                                                                                    std::nullopt, kRSMEmissive };
 
     // MeshRenderer::SetupShadowPass, one of each per cascade.
     inline constexpr ImageFormat kShadowColor = ImageFormat::R32F;

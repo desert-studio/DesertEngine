@@ -43,8 +43,9 @@ TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 {
     // 52 scene targets (GBUF1: the shading word R32UI replaced the RGBA32F world position, -12) + 72 post stack + 17.8 half/quarter chains and fog + 9 clouds + 24 SSR + 24 GI.
     EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 198.83, 0.01 );
-    // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (7 MiB: its slot 2 is the R32UI word, no RGBA32F position).
-    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 141557760u );
+    // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (6 MiB: its slot 2 is an unused colour slot with no
+    // image — the DESERT_GBUFFER_RSM permutation writes no shading word — and there is no RGBA32F position).
+    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 140509184u );
 }
 
 TEST( ViewMemory, PreviewViewBytesPerPixelIsPinned )
@@ -59,8 +60,8 @@ TEST( ViewMemory, PreviewIsSmallerThanMainByTheMeasuredAmount )
     const uint64_t main    = SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).Total();
     const uint64_t preview = SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).Total();
     ASSERT_GT( main, preview );
-    // 96 B/px (SSR 48, GI 48) over 1920x1080 + (128 MiB - 8 MiB) of cascades + the 7 MiB RSM (the G-buffer's -12 B/px is in both).
-    EXPECT_EQ( main - preview, 232701952u ) << "main " << main << " preview " << preview;
+    // 96 B/px (SSR 48, GI 48) over 1920x1080 + (128 MiB - 8 MiB) of cascades + the 6 MiB RSM (the G-buffer's -12 B/px is in both).
+    EXPECT_EQ( main - preview, 231653376u ) << "main " << main << " preview " << preview;
 }
 
 TEST( ViewMemory, ShadowRowsAgreeWithTheShadowBudgetSpelling )

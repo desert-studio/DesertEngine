@@ -396,7 +396,9 @@ namespace Desert::Graphic::API::Vulkan
         std::optional<Core::Formats::ImageFormat> depth;
         for ( const auto& attachment : spec.Attachments.Attachments )
         {
-            if ( Graphic::Utils::IsDepthFormat( attachment.Format ) )
+            if ( attachment.Unused )
+                colourFormats.push_back( VK_FORMAT_UNDEFINED ); // an unused colour slot: VK_ATTACHMENT_UNUSED
+            else if ( Graphic::Utils::IsDepthFormat( attachment.Format ) )
                 depth = attachment.Format;
             else
                 colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( attachment.Format ) );
@@ -528,8 +530,9 @@ namespace Desert::Graphic::API::Vulkan
             const RenderTargetLayout& layout = *m_Specification.TargetLayout;
             std::vector<VkFormat>     colourFormats;
             colourFormats.reserve( layout.ColorFormats.size() );
-            for ( const Core::Formats::ImageFormat format : layout.ColorFormats )
-                colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( format ) );
+            // An unused colour slot is VK_FORMAT_UNDEFINED: CreateRdgRenderPass references it as VK_ATTACHMENT_UNUSED.
+            for ( const std::optional<Core::Formats::ImageFormat>& format : layout.ColorFormats )
+                colourFormats.push_back( format ? API::Vulkan::GetImageVulkanFormat( *format ) : VK_FORMAT_UNDEFINED );
             VkFormat depthFormat = VK_FORMAT_UNDEFINED;
             if ( layout.DepthFormat.has_value() )
                 depthFormat = API::Vulkan::GetImageVulkanFormat( layout.DepthFormat.value() );

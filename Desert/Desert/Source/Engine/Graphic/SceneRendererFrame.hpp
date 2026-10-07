@@ -67,10 +67,18 @@ namespace Desert::Graphic
             if ( !framebuffer )
                 return refs;
             for ( uint32_t i = 0; i < framebuffer->GetColorAttachmentCount(); ++i )
-                if ( const RDG::TextureRef ref = Import( framebuffer->GetColorAttachmentImage( i ),
-                                                         std::format( "{}.Color{}", name, i ) );
-                     ref.IsValid() )
+            {
+                // An unused colour slot (FramebufferAttachment::UnusedColourSlot) has no image: an invalid ref
+                // keeps the slots after it at their locations, and AddRaster declares no target for it.
+                const std::shared_ptr<Image2D>& image = framebuffer->GetColorAttachmentImage( i );
+                if ( !image )
+                {
+                    refs.emplace_back();
+                    continue;
+                }
+                if ( const RDG::TextureRef ref = Import( image, std::format( "{}.Color{}", name, i ) ); ref.IsValid() )
                     refs.push_back( ref );
+            }
             return refs;
         }
 

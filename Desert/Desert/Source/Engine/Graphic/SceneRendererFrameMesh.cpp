@@ -58,8 +58,11 @@ namespace Desert::Graphic
                  {
                      for ( const RDG::TextureRef read : sampled )
                          pass.Read( read, RDG::Access::SampledGraphics );
+                     // An invalid colour is an unused slot (FrameTextures::Colors): no target, so the backend's
+                     // render pass references it as VK_ATTACHMENT_UNUSED (CreateRdgRenderPass).
                      for ( uint32_t slot = 0; slot < targets.Colors.size(); ++slot )
-                         pass.ColorTarget( slot, targets.Colors[slot], color );
+                         if ( targets.Colors[slot].IsValid() )
+                             pass.ColorTarget( slot, targets.Colors[slot], color );
                      if ( targets.Depth.IsValid() )
                          pass.DepthTarget( targets.Depth, depth );
                      for ( uint32_t slot = 0; slot < targets.Resolves.size(); ++slot )

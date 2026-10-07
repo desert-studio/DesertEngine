@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <Engine/Graphic/PipelineCache.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
 
@@ -23,6 +24,7 @@
 #include <cctype>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 
 using namespace Desert::Graphic;
@@ -490,11 +492,77 @@ TEST( PipelineBlendState, AnIntegerAttachmentNeverBlendsWhateverTheMaterialAsks 
                                                               ImageFormat::R32_UINT, ImageFormat::RGBA16F } };
     spec.BlendEnable  = true;
 
-    const std::vector<ImageFormat> formats = ColourAttachmentFormats( spec );
+    const std::vector<std::optional<ImageFormat>> formats = ColourAttachmentFormats( spec );
     ASSERT_EQ( formats.size(), 4u );
     EXPECT_EQ( ColourAttachmentBlendEnables( formats, spec.BlendEnable ),
                ( std::vector<bool>{ true, true, false, true } ) );
     EXPECT_EQ( ColourAttachmentBlendEnables( formats, false ), ( std::vector<bool>( 4, false ) ) );
+}
+
+// GBUF1g: an UNUSED colour slot (the RSM's slot 2: RenderTargetLayout std::nullopt / FramebufferAttachment::
+// UnusedColourSlot) keeps the slots after it at their locations, still gets a blend entry (Vulkan wants one per
+// colour reference) that never blends, and separates the pipeline key from a layout with an image there.
+// Mutations: the unused entry dropped from ColourAttachmentBlendEnables (3 entries, slot 3 shifted) -> red; the
+// key mixing an unused slot as format 0 (no +1 in PipelineCache::MakeKey) -> red.
+TEST( PipelineBlendState, AnUnusedColourSlotKeepsItsPlaceAndNeverBlends )
+{
+    using Desert::Core::Formats::ImageFormat;
+    GraphicsPipelineSpecification spec = Baseline();
+    spec.Framebuffer.reset();
+    spec.TargetLayout = RenderTargetLayout{
+         .ColorFormats = { ImageFormat::RGBA8F, ImageFormat::RGBA16F, std::nullopt, ImageFormat::RGBA16F } };
+    spec.BlendEnable  = true;
+    const std::vector<std::optional<ImageFormat>> formats = ColourAttachmentFormats( spec );
+    ASSERT_EQ( formats.size(), 4u );
+    EXPECT_FALSE( formats[2].has_value() );
+    EXPECT_EQ( ColourAttachmentBlendEnables( formats, true ), ( std::vector<bool>{ true, true, false, true } ) );
+
+    GraphicsPipelineSpecification filled = spec;
+    // RGBA8F is enumerator 0: the key must not mix an unused slot as the first format.
+    filled.TargetLayout->ColorFormats[2] = ImageFormat::RGBA8F;
+    EXPECT_FALSE( PipelineCache::SharesPipeline( spec, filled ) )
+         << "an unused colour slot and an image in that slot produced one pipeline key.";
+
+    // The framebuffer route reports the same: the slot is in the list, without a format.
+    FramebufferAttachment unused = FramebufferAttachment::UnusedColourSlot();
+    EXPECT_TRUE( unused.Unused );
+    EXPECT_FALSE( unused.ColourSlotFormat().has_value() );
+    EXPECT_EQ( FramebufferAttachment( ImageFormat::RGBA8F ).ColourSlotFormat(), ImageFormat::RGBA8F );
+}
+
+// The RSM's colour slots are one list (ViewTargetFormats::kRSMColourSlots) read by the framebuffer and by the
+// RSM pipeline's target layout; slot 2 is unused (no shading-word image: the DESERT_GBUFFER_RSM permutation
+// writes none) and the others keep the G-buffer's locations. Mutation: the RSM framebuffer or pipeline spelled
+// from its own list (or kRSMShadingWord back in slot 2) -> red.
+TEST( PipelineBlendState, TheRSMSlotsAreOneListWithSlotTwoUnused )
+{
+    namespace F = Desert::Graphic::ViewTargetFormats;
+    ASSERT_EQ( F::kRSMColourSlots.size(), 4u );
+    EXPECT_EQ( F::kRSMColourSlots[0], F::kGBufferA );
+    EXPECT_EQ( F::kRSMColourSlots[1], F::kGBufferB );
+    EXPECT_FALSE( F::kRSMColourSlots[2].has_value() );
+    EXPECT_EQ( F::kRSMColourSlots[3], F::kGBufferEmissive );
+
+    const auto read = []( const char* relative )
+    {
+        std::ifstream in( Desert::TestSupport::RepositoryRoot() / relative, std::ios::binary );
+        std::string   text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+        return text;
+    };
+    const std::string scene = read( "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+    EXPECT_NE( scene.find( "for(conststd::optional<Core::Formats::ImageFormat>&slot:ViewTargetFormats::kRSMColourSlots)"
+                           "rsmSpec.Attachments.Attachments.push_back(slot?FramebufferAttachment(*slot):"
+                           "FramebufferAttachment::UnusedColourSlot());" ),
+               std::string::npos )
+         << "the RSM framebuffer is not built from kRSMColourSlots.";
+    const std::string mesh = read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDeferred.cpp" );
+    EXPECT_NE( mesh.find( "rsmSpec.Framebuffer.reset();rsmSpec.TargetLayout=RenderTargetLayout{.ColorFormats="
+                          "std::vector<std::optional<Core::Formats::ImageFormat>>(ViewTargetFormats::kRSMColourSlots"
+                          ".begin(),ViewTargetFormats::kRSMColourSlots.end()),.DepthFormat=ViewTargetFormats::"
+                          "kRSMDepth};" ),
+               std::string::npos )
+         << "the RSM pipeline is not built against kRSMColourSlots.";
 }
 
 // The function above is only the rule if pipeline creation obeys it: VulkanPipeline::CreateColorBlendState

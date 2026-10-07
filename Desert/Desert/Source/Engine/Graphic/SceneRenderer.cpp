@@ -1062,19 +1062,16 @@ namespace Desert::Graphic
 
         Renderer::GetInstance().WaitDeviceIdle();
 
-        // Reflective Shadow Map: a G-buffer rendered from the sun. The attachment layout MUST mirror
-        // m_GBuffer (including the emissive target) — the RSM pass reuses the G-buffer pipeline, and that
-        // only works while the two render passes stay compatible. Fixed light-space resolution, so it does
-        // NOT resize with the viewport.
+        // Reflective Shadow Map: a G-buffer rendered from the sun by the G-buffer program's DESERT_GBUFFER_RSM
+        // permutation. Its colour slots are ViewTargetFormats::kRSMColourSlots — the one list the RSM pipeline's
+        // target layout is built from too (MeshRenderer::SetupGBufferPass) — albedo (flux colour), normal, an
+        // UNUSED slot 2 (no image: the permutation writes no shading word, VPL positions come from the depth) and
+        // emissive. Fixed light-space resolution, so it does NOT resize with the viewport.
         FramebufferSpecification rsmSpec;
         rsmSpec.DebugName = "RSM";
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMAlbedo );   // Albedo (flux colour)
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMNormal );   // Normal
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMShadingWord ); // shading word (unused; positions from depth)
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMEmissive ); // Emissive (unused)
-        // Matches the G-buffer's depth format because "mirror m_GBuffer" includes the depth attachment:
-        // the RSM pipeline is created from the G-buffer's spec, and a differing depth format makes the
-        // two render passes incompatible.
+        for ( const std::optional<Core::Formats::ImageFormat>& slot : ViewTargetFormats::kRSMColourSlots )
+            rsmSpec.Attachments.Attachments.push_back( slot ? FramebufferAttachment( *slot )
+                                                            : FramebufferAttachment::UnusedColourSlot() );
         rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMDepth );
         m_RSMBuffer = Graphic::Framebuffer::Create( rsmSpec );
         m_RSMBuffer->Resize( kRSMResolution, kRSMResolution );
