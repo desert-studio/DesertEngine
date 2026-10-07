@@ -553,7 +553,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            const std::ifstream probe( prefix + "Editor/Resources/Config/Scalability.json" );
+            const std::ifstream probe( std::filesystem::path( prefix ) / "Editor/Resources/Config/Scalability.json" );
             if ( probe )
                 return prefix;
             prefix += "../";

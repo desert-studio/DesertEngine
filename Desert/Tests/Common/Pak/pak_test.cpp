@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -977,14 +978,14 @@ TEST( Pak, AnArchiveFromAnEarlierVersionIsRefusedByItsNumber )
     const fs::path dir = MakeTempDir();
     for ( const char digit : { '1', '2' } )
     {
-        const fs::path pak = dir / ( std::string( "old" ) + digit + ".dpak" );
+        const fs::path pak = dir / std::format( "old{}.dpak", digit );
         Spit( pak, ArchiveWithMagicDigit( dir, digit ) );
 
         Common::Utils::PakReader reader( pak );
         EXPECT_FALSE( reader.IsOpen() ) << digit;
         const std::string& why = reader.OpenError();
-        EXPECT_NE( why.find( std::string( "version " ) + digit ), std::string::npos ) << why;
-        EXPECT_NE( why.find( std::string( "\"DPK" ) + digit + "\"" ), std::string::npos ) << why;
+        EXPECT_NE( why.find( std::format( "version {}", digit ) ), std::string::npos ) << why;
+        EXPECT_NE( why.find( std::format( "\"DPK{}\"", digit ) ), std::string::npos ) << why;
         EXPECT_NE( why.find( "reads only version 3" ), std::string::npos ) << why;
         EXPECT_NE( why.find( "cook and pack it again" ), std::string::npos ) << why;
         EXPECT_EQ( reader.EntryCount(), 0u ) << why;

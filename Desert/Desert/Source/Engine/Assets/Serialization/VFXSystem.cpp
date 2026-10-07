@@ -61,9 +61,9 @@ namespace Desert::Assets::Serialization
             {
                 if ( in.Type == VFXValueType::Bool )
                     return Common::MakeFormattedError<bool>( "{}: a Bool has no random range", what );
-                if ( auto ok = CheckValue( in.Random->Min, in.Type, what + " Min" ); !ok )
+                if ( auto ok = CheckValue( in.Random->Min, in.Type, std::format( "{} Min", what ) ); !ok )
                     return ok;
-                if ( auto ok = CheckValue( in.Random->Max, in.Type, what + " Max" ); !ok )
+                if ( auto ok = CheckValue( in.Random->Max, in.Type, std::format( "{} Max", what ) ); !ok )
                     return ok;
                 for ( int i = 0; i < 4; ++i )
                     if ( in.Random->Min[i] > in.Random->Max[i] )
@@ -216,11 +216,11 @@ namespace Desert::Assets::Serialization
             if ( l.Loop == VFXLoopBehavior::Multiple && l.LoopCount == 0 )
                 return Common::MakeFormattedError<bool>( "emitter '{}' loops Multiple with LoopCount 0", e.Name );
             const std::string at = std::format( "emitter '{}'", e.Name );
-            if ( auto ok = CheckGroup( e.Stack.EmitterUpdate, data, at + " EmitterUpdate" ); !ok )
+            if ( auto ok = CheckGroup( e.Stack.EmitterUpdate, data, std::format( "{} EmitterUpdate", at ) ); !ok )
                 return ok;
-            if ( auto ok = CheckGroup( e.Stack.ParticleSpawn, data, at + " ParticleSpawn" ); !ok )
+            if ( auto ok = CheckGroup( e.Stack.ParticleSpawn, data, std::format( "{} ParticleSpawn", at ) ); !ok )
                 return ok;
-            if ( auto ok = CheckGroup( e.Stack.ParticleUpdate, data, at + " ParticleUpdate" ); !ok )
+            if ( auto ok = CheckGroup( e.Stack.ParticleUpdate, data, std::format( "{} ParticleUpdate", at ) ); !ok )
                 return ok;
         }
         return BOOLSUCCESS;

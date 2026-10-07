@@ -177,7 +177,7 @@ namespace
              compiler.CompileGlslToSpv( host, shaderc_compute_shader, path.string().c_str(), options );
         if ( result.GetCompilationStatus() == shaderc_compilation_status_success )
             return {};
-        return result.GetErrorMessage() + "\n" + host;
+        return std::format( "{}\n{}", result.GetErrorMessage(), host );
     }
 
     std::string Refusal( const S::VFXSystemData& system )
@@ -446,7 +446,7 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
                                    "InitializeLifetime", "UpdateAge", "Gravity", "SolveForcesAndVelocity", "Drag",
                                    "CurlNoiseForce", "InitializeColor", "ColorOverLife", "InitializeSpriteSize",
                                    "SizeOverLife", "InitializeRotation", "UpdateRotation", "SubUVAnimation" } )
-        EXPECT_NE( std::find( paths.begin(), paths.end(), VFX::EngineModuleDir() / ( std::string( expected ) + ".shader" ) ),
+        EXPECT_NE( std::find( paths.begin(), paths.end(), VFX::EngineModuleDir() / std::format( "{}.shader", expected ) ),
                    paths.end() )
              << expected;
 
@@ -461,7 +461,7 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
         std::vector<S::VFXModuleInput> inputs;
         for ( const auto& d : module.GetValue().Inputs )
             inputs.push_back( ValueInput( d.Name, d.Type, glm::vec4( 1.0f, 0, 0, 0 ) ) );
-        const std::string name = "engine:" + path.stem().string();
+        const std::string name = std::format( "engine:{}", path.stem().string() );
 
         S::VFXSystemData  system;
         S::VFXEmitterData emitter;
@@ -517,7 +517,7 @@ TEST( VFXStackCompile, EveryOverLifeAndForceModuleWritesItsAttributes )
          { "SolveForcesAndVelocity", { { "PhysicsDrag", T::Float }, { "PhysicsRotationalDrag", T::Float } } } };
     for ( const Row& row : rows )
     {
-        const auto         path = VFX::EngineModuleDir() / ( std::string( row.Module ) + ".shader" );
+        const auto         path = VFX::EngineModuleDir() / std::format( "{}.shader", row.Module );
         std::ifstream      in( path );
         std::ostringstream text;
         text << in.rdbuf();
@@ -538,7 +538,7 @@ TEST( VFXStackCompile, EveryOverLifeAndForceModuleWritesItsAttributes )
             const auto* attribute = compiled.Layout.Find( name );
             ASSERT_NE( attribute, nullptr ) << row.Module << " does not declare " << name;
             EXPECT_EQ( attribute->FloatCount, S::ComponentCount( type ) ) << row.Module << " " << name;
-            EXPECT_NE( compiled.ShaderText.find( "p." + name ), std::string::npos ) << row.Module << " " << name;
+            EXPECT_NE( compiled.ShaderText.find( std::format( "p.{}", name ) ), std::string::npos ) << row.Module << " " << name;
         }
     }
 }

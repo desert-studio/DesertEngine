@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -40,8 +41,10 @@ namespace
         fs::remove_all( dir );
         Touch( dir / "Content/Scenes/Menu.desce" );
         Touch( dir / "Content/Scenes/Arena.desce" );
-        Touch( dir / "Game.deproj", R"({"FileVersion":1,"Name":"Game","AssetsRoot":"Content","DefaultScene":")" +
-                                         defaultScene + R"(","Description":"","EngineVersion":""})" );
+        Touch( dir / "Game.deproj",
+               std::format( R"({{"FileVersion":1,"Name":"Game","AssetsRoot":"Content","DefaultScene":"{}",)"
+                            R"("Description":"","EngineVersion":""}})",
+                            defaultScene ) );
         EXPECT_TRUE( Project_::Open( ( dir / "Game.deproj" ).string(), Project_::RecordInRecent::No ) );
         Travel::Get().Cancel();
         return dir;

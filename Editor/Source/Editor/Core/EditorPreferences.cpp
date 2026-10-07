@@ -15,6 +15,7 @@
 #include <array>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <iterator>
 #include <optional>
 #include <sstream>
@@ -262,7 +263,7 @@ namespace Desert::Editor
 
     static std::string QualifiedKey( std::string_view block, const std::string& key )
     {
-        return block.empty() ? key : std::string( block ) + "." + key;
+        return block.empty() ? key : std::format( "{}.{}", block, key );
     }
 
     // Drops the retired keys from every carrier of `p`, naming each in `raised` when one is given.
@@ -291,8 +292,8 @@ namespace Desert::Editor
                     continue;
                 }
                 if ( raised != nullptr )
-                    raised->push_back( "retired key '" + QualifiedKey( carrier.Block, key ) +
-                                       "' dropped (this build does not declare it)" );
+                    raised->push_back( std::format( "retired key '{}' dropped (this build does not declare it)",
+                                                    QualifiedKey( carrier.Block, key ) ) );
             }
             *carrier.Keys = std::move( kept );
         }

@@ -13,6 +13,7 @@
 #include <bit>
 #include <charconv>
 #include <cmath>
+#include <format>
 
 namespace Common::Utils
 {
@@ -684,7 +685,7 @@ namespace Common::Utils
         // ONE FORM IS READ: the one this build writes. An older form lacks columns (the tags, before 4) that
         // its rows would then silently serve as empty — a picker listing file stems for names the files state.
         // A registry is derived state; the answer to an old one is the gather that rewrites it.
-        const std::string expected = std::string( kRegistryMagic ) + " " + std::to_string( kRegistryFormatVersion );
+        const std::string expected = std::format( "{} {}", kRegistryMagic, kRegistryFormatVersion );
         if ( header != expected )
         {
             if ( header.starts_with( kRegistryMagic ) )

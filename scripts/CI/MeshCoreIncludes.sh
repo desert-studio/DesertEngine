@@ -14,6 +14,7 @@ set -u
 cd "$(dirname "$0")/../.." || exit 2
 
 G=Desert/Desert/Source/Engine/Geometry
+D=Desert/Desert/Source/Engine/Destruction
 # path | reason
 ALLOW=(
     "$G/EditMeshBridge.hpp|the bridge between EditMesh and DynamicMesh3: its API converts one into the other"
@@ -29,6 +30,8 @@ ALLOW=(
     "$G/MeshPlaneOperation.hpp|adapter: Plane Cut / Mirror on a DynamicMesh3 (P14)"
     "$G/MeshPlaneOperation.cpp|adapter: drives the ported MeshPlaneCut/MeshMirror (P14)"
     "$G/MeshBooleanOperation.hpp|adapter: RunMeshBoolean takes and returns DynamicMesh3 around the ported MeshBoolean (P17c)"
+    "$D/FractureBake.hpp|fracture operation (UE PlanarCut's place): BakeFracture takes the source as a DynamicMesh3"
+    "$D/FractureBake.cpp|fracture operation: builds cell meshes with attribute overlays, Intersect-cuts them (MeshBoolean) and splits islands (MeshConnectedComponents)"
 )
 
 status=0
