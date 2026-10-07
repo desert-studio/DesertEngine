@@ -1663,258 +1663,254 @@ namespace Desert::Assets
         }
     } // namespace
 
-        /// THE PROFILE PAST THE BODY'S EDGE, carried in the rank. Inside a body the rank is the nearest
-        /// lump's cell rank plus `softness x (1 - profile)`, so it rises at `softness / ProfileDepth` per
-        /// kilometre toward the surface; this continues that rise outward at the same rate, as the LOWEST
-        /// cone over the body voxels (min_s rank_s + rise |v - s|, not the nearest body's — that one jumps on
-        /// the bisector), into every air voxel of the region and into the bodies themselves. It is Nubis's coverage remap read from the other
-        /// side: the bodies are the shape at the cover where a cell is just alive, and a higher cover keeps
-        /// the falloff around them, lowest rank first, until at Coverage 1 the column CDF hands out the
-        /// whole sky — without one body growing in the bake, so the sizes, the size law and the lattice are
-        /// the same at every cover.
-        ///
-        /// THE EXACT EUCLIDEAN DISTANCE with its nearest source, separable over the three axes, in
-        /// kilometres (the voxel is not a cube). X and Z WRAP because the region is periodic and the rank
-        /// must be as seamless as the profile — a line is unrolled three times and its middle copy read —
-        /// and Y does not. Body voxels are the sources and keep the rank they have.
-        ///
-        /// THE GROWTH STAYS INSIDE ITS SPECIES' BAND, ONE DISTANCE PER SPECIES. Each species (`ownerSlot`
-        /// per body voxel) grows from its own bodies only, and only into the rows of its own altitudes
-        /// (`bandRows[slot]`, the half-open row range from CloudTypeBaseKm to CloudTypeTopKm) — Nubis's
-        /// height gradient per cloud type, which keeps the coverage remap a statement about how WIDE the
-        /// clouds are and not about how high the sky is. An air voxel takes the LOWEST rank over the species
-        /// whose band holds its row. Without the band a layer taller than its types grew cloud straight up
-        /// to its ceiling at a high cover (cloud_field_test TheLayersCeilingDoesNotWrapOntoItsFloor); with
-        /// one shared nearest body instead of one per species, an air voxel in A's band whose nearest body
-        /// was B's got no rank at all, a hole at Coverage 1 (cloud_procedural_field_test
-        /// TwoSpeciesInOneColumn...).
-        ///
-        /// Y runs over the whole column (a source a few rows outside its band still reaches into it); X and
-        /// Z then only over the band's rows, because those passes never mix rows and the rows outside the
-        /// band are never read.
-        void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, const std::vector<uint8_t>& ownerSlot,
-                                             const std::vector<glm::uvec2>& bandRows, uint32_t width,
-                                             uint32_t height, uint32_t depth, const glm::vec3& voxelKm,
-                                             float risePerKm )
+    /// THE PROFILE PAST THE BODY'S EDGE, carried in the rank. Inside a body the rank is the nearest
+    /// lump's cell rank plus `softness x (1 - profile)`, so it rises at `softness / ProfileDepth` per
+    /// kilometre toward the surface; this continues that rise outward at the same rate, as the LOWEST
+    /// cone over the body voxels (min_s rank_s + rise |v - s|, not the nearest body's — that one jumps on
+    /// the bisector), into every air voxel of the region and into the bodies themselves. It is Nubis's coverage
+    /// remap read from the other side: the bodies are the shape at the cover where a cell is just alive, and a
+    /// higher cover keeps the falloff around them, lowest rank first, until at Coverage 1 the column CDF hands out
+    /// the whole sky — without one body growing in the bake, so the sizes, the size law and the lattice are the
+    /// same at every cover.
+    ///
+    /// THE EXACT EUCLIDEAN DISTANCE with its nearest source, separable over the three axes, in
+    /// kilometres (the voxel is not a cube). X and Z WRAP because the region is periodic and the rank
+    /// must be as seamless as the profile — a line is unrolled three times and its middle copy read —
+    /// and Y does not. Body voxels are the sources and keep the rank they have.
+    ///
+    /// THE GROWTH STAYS INSIDE ITS SPECIES' BAND, ONE DISTANCE PER SPECIES. Each species (`ownerSlot`
+    /// per body voxel) grows from its own bodies only, and only into the rows of its own altitudes
+    /// (`bandRows[slot]`, the half-open row range from CloudTypeBaseKm to CloudTypeTopKm) — Nubis's
+    /// height gradient per cloud type, which keeps the coverage remap a statement about how WIDE the
+    /// clouds are and not about how high the sky is. An air voxel takes the LOWEST rank over the species
+    /// whose band holds its row. Without the band a layer taller than its types grew cloud straight up
+    /// to its ceiling at a high cover (cloud_field_test TheLayersCeilingDoesNotWrapOntoItsFloor); with
+    /// one shared nearest body instead of one per species, an air voxel in A's band whose nearest body
+    /// was B's got no rank at all, a hole at Coverage 1 (cloud_procedural_field_test
+    /// TwoSpeciesInOneColumn...).
+    ///
+    /// Y runs over the whole column (a source a few rows outside its band still reaches into it); X and
+    /// Z then only over the band's rows, because those passes never mix rows and the rows outside the
+    /// band are never read.
+    void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, const std::vector<uint8_t>& ownerSlot,
+                                         const std::vector<glm::uvec2>& bandRows, uint32_t width, uint32_t height,
+                                         uint32_t depth, const glm::vec3& voxelKm, float risePerKm )
+    {
+        const size_t count  = rankField.size();
+        const int    w      = static_cast<int>( width );
+        const int    h      = static_cast<int>( height );
+        const int    d      = static_cast<int>( depth );
+        const size_t stride = static_cast<size_t>( width ) * height; // one z slice
+        auto         index  = [&]( int x, int y, int z ) {
+            return static_cast<size_t>( z ) * stride + static_cast<size_t>( y ) * width + static_cast<size_t>( x );
+        };
+
+        std::vector<float> grown( count, std::numeric_limits<float>::infinity() );
+        std::vector<float> cost( count );
+        std::vector<int>   feature( count );
+
+        // ONE AXIS AT A TIME, lines independent of each other: Y and X inside a z slice, Z across them.
+        auto axis = [&]( int lines, int length, bool wraps, double spacingKm,
+                         const std::function<size_t( int line, int i )>& at )
         {
-            const size_t       count = rankField.size();
-            const int          w      = static_cast<int>( width );
-            const int          h      = static_cast<int>( height );
-            const int          d      = static_cast<int>( depth );
-            const size_t       stride = static_cast<size_t>( width ) * height; // one z slice
-            auto               index  = [&]( int x, int y, int z ) {
-                return static_cast<size_t>( z ) * stride + static_cast<size_t>( y ) * width +
-                       static_cast<size_t>( x );
+            const int unrolled = wraps ? 3 * length : length;
+            Common::JobSystem::Get().ParallelRanges(
+                 static_cast<size_t>( lines ), 16u,
+                 [&]( size_t begin, size_t end )
+                 {
+                     EnvelopeScratch    scratch;
+                     std::vector<float> lineCost( static_cast<size_t>( unrolled ) );
+                     std::vector<int>   lineFeature( static_cast<size_t>( unrolled ) );
+                     for ( size_t line = begin; line < end; ++line )
+                     {
+                         for ( int i = 0; i < unrolled; ++i )
+                         {
+                             const size_t from                     = at( static_cast<int>( line ), i % length );
+                             lineCost[static_cast<size_t>( i )]    = cost[from];
+                             lineFeature[static_cast<size_t>( i )] = feature[from];
+                         }
+                         SquaredDistanceLine( lineCost.data(), lineFeature.data(), unrolled, spacingKm * spacingKm,
+                                              scratch );
+                         const int offset = wraps ? length : 0;
+                         for ( int i = 0; i < length; ++i )
+                         {
+                             const size_t to = at( static_cast<int>( line ), i );
+                             cost[to]        = lineCost[static_cast<size_t>( offset + i )];
+                             feature[to]     = lineFeature[static_cast<size_t>( offset + i )];
+                         }
+                     }
+                 } );
+        };
+
+        for ( size_t slot = 0; slot < bandRows.size(); ++slot )
+        {
+            const int bandLo = static_cast<int>( bandRows[slot].x );
+            const int bandHi = static_cast<int>( bandRows[slot].y );
+            if ( bandHi <= bandLo )
+                continue;
+            bool anySource = false;
+            for ( size_t at = 0; at < count; ++at )
+            {
+                const bool source = std::isfinite( rankField[at] ) && ownerSlot[at] == slot;
+                cost[at]          = source ? 0.0f : std::numeric_limits<float>::infinity();
+                feature[at]       = source ? static_cast<int>( at ) : -1;
+                anySource         = anySource || source;
+            }
+            if ( !anySource )
+                continue;
+
+            const int rows = bandHi - bandLo;
+            axis( w * d, h, false, voxelKm.y, [&]( int line, int i ) { return index( line % w, i, line / w ); } );
+            axis( rows * d, w, true, voxelKm.x,
+                  [&]( int line, int i ) { return index( i, bandLo + line % rows, line / rows ); } );
+            axis( w * rows, d, true, voxelKm.z,
+                  [&]( int line, int i ) { return index( line % w, bandLo + line / w, i ); } );
+
+            // THE LOWEST CONE, NOT THE NEAREST BODY'S. The distance transform hands every voxel its
+            // NEAREST source, and `rank[nearest] + rise x distance` jumps on the bisector between two
+            // bodies by the difference of their ranks — a flat vertical wall in the air (and through a
+            // fused body), which the march's cut drew as a straight-edged slab of cloud (FARWX-b7: the
+            // Showcase/Demo frames from the horizon). The rank a voxel needs is the lowest cone over the
+            // species' sources, min_s(rank_s + rise |v - s|), which is continuous by construction (rise-
+            // Lipschitz). A source can only beat the nearest one within (rank range) / rise, so jump
+            // flooding from the nearest feature at steps from that reach down to one voxel, evaluating
+            // each candidate's cone exactly, finds it.
+            float lowest  = std::numeric_limits<float>::infinity();
+            float highest = -std::numeric_limits<float>::infinity();
+            for ( size_t at = 0; at < count; ++at )
+                if ( std::isfinite( rankField[at] ) && ownerSlot[at] == slot )
+                {
+                    lowest  = std::min( lowest, rankField[at] );
+                    highest = std::max( highest, rankField[at] );
+                }
+            const float minVoxelKm  = std::min( { voxelKm.x, voxelKm.y, voxelKm.z } );
+            const float reachVoxels = risePerKm > 0.0f ? ( highest - lowest ) / ( risePerKm * minVoxelKm ) : 0.0f;
+            const int   reach       = static_cast<int>(
+                 std::min( std::ceil( reachVoxels ), static_cast<float>( std::max( { w, h, d } ) ) ) );
+
+            auto coneAt = [&]( int source, int x, int y, int z )
+            {
+                const int sx   = source % w;
+                const int sy   = ( source / w ) % h;
+                const int sz   = source / static_cast<int>( stride );
+                int       dx   = std::abs( x - sx );
+                int       dz   = std::abs( z - sz );
+                dx             = std::min( dx, w - dx );
+                dz             = std::min( dz, d - dz );
+                const float ex = static_cast<float>( dx ) * voxelKm.x;
+                const float ey = static_cast<float>( y - sy ) * voxelKm.y;
+                const float ez = static_cast<float>( dz ) * voxelKm.z;
+                return rankField[static_cast<size_t>( source )] +
+                       risePerKm * std::sqrt( ex * ex + ey * ey + ez * ez );
             };
 
-            std::vector<float> grown( count, std::numeric_limits<float>::infinity() );
-            std::vector<float> cost( count );
-            std::vector<int>   feature( count );
+            std::vector<int> steps;
+            for ( int step = reach > 1 ? static_cast<int>( std::bit_ceil( static_cast<unsigned>( reach ) ) ) : 1;
+                  step >= 1; step /= 2 )
+                steps.push_back( step );
+            steps.push_back( 1 );
 
-            // ONE AXIS AT A TIME, lines independent of each other: Y and X inside a z slice, Z across them.
-            auto axis = [&]( int lines, int length, bool wraps, double spacingKm,
-                             const std::function<size_t( int line, int i )>& at )
+            std::vector<int> next;
+            for ( const int step : steps )
             {
-                const int unrolled = wraps ? 3 * length : length;
+                next = feature;
                 Common::JobSystem::Get().ParallelRanges(
-                     static_cast<size_t>( lines ), 16u,
+                     static_cast<size_t>( d ), 1u,
                      [&]( size_t begin, size_t end )
                      {
-                         EnvelopeScratch    scratch;
-                         std::vector<float> lineCost( static_cast<size_t>( unrolled ) );
-                         std::vector<int>   lineFeature( static_cast<size_t>( unrolled ) );
-                         for ( size_t line = begin; line < end; ++line )
-                         {
-                             for ( int i = 0; i < unrolled; ++i )
-                             {
-                                 const size_t from                  = at( static_cast<int>( line ), i % length );
-                                 lineCost[static_cast<size_t>( i )] = cost[from];
-                                 lineFeature[static_cast<size_t>( i )] = feature[from];
-                             }
-                             SquaredDistanceLine( lineCost.data(), lineFeature.data(), unrolled,
-                                                  spacingKm * spacingKm, scratch );
-                             const int offset = wraps ? length : 0;
-                             for ( int i = 0; i < length; ++i )
-                             {
-                                 const size_t to = at( static_cast<int>( line ), i );
-                                 cost[to]        = lineCost[static_cast<size_t>( offset + i )];
-                                 feature[to]     = lineFeature[static_cast<size_t>( offset + i )];
-                             }
-                         }
-                     } );
-            };
-
-            for ( size_t slot = 0; slot < bandRows.size(); ++slot )
-            {
-                const int bandLo = static_cast<int>( bandRows[slot].x );
-                const int bandHi = static_cast<int>( bandRows[slot].y );
-                if ( bandHi <= bandLo )
-                    continue;
-                bool anySource = false;
-                for ( size_t at = 0; at < count; ++at )
-                {
-                    const bool source = std::isfinite( rankField[at] ) && ownerSlot[at] == slot;
-                    cost[at]          = source ? 0.0f : std::numeric_limits<float>::infinity();
-                    feature[at]       = source ? static_cast<int>( at ) : -1;
-                    anySource         = anySource || source;
-                }
-                if ( !anySource )
-                    continue;
-
-                const int rows = bandHi - bandLo;
-                axis( w * d, h, false, voxelKm.y,
-                      [&]( int line, int i ) { return index( line % w, i, line / w ); } );
-                axis( rows * d, w, true, voxelKm.x,
-                      [&]( int line, int i ) { return index( i, bandLo + line % rows, line / rows ); } );
-                axis( w * rows, d, true, voxelKm.z,
-                      [&]( int line, int i ) { return index( line % w, bandLo + line / w, i ); } );
-
-                // THE LOWEST CONE, NOT THE NEAREST BODY'S. The distance transform hands every voxel its
-                // NEAREST source, and `rank[nearest] + rise x distance` jumps on the bisector between two
-                // bodies by the difference of their ranks — a flat vertical wall in the air (and through a
-                // fused body), which the march's cut drew as a straight-edged slab of cloud (FARWX-b7: the
-                // Showcase/Demo frames from the horizon). The rank a voxel needs is the lowest cone over the
-                // species' sources, min_s(rank_s + rise |v - s|), which is continuous by construction (rise-
-                // Lipschitz). A source can only beat the nearest one within (rank range) / rise, so jump
-                // flooding from the nearest feature at steps from that reach down to one voxel, evaluating
-                // each candidate's cone exactly, finds it.
-                float lowest  = std::numeric_limits<float>::infinity();
-                float highest = -std::numeric_limits<float>::infinity();
-                for ( size_t at = 0; at < count; ++at )
-                    if ( std::isfinite( rankField[at] ) && ownerSlot[at] == slot )
-                    {
-                        lowest  = std::min( lowest, rankField[at] );
-                        highest = std::max( highest, rankField[at] );
-                    }
-                const float minVoxelKm = std::min( { voxelKm.x, voxelKm.y, voxelKm.z } );
-                const float reachVoxels =
-                     risePerKm > 0.0f ? ( highest - lowest ) / ( risePerKm * minVoxelKm ) : 0.0f;
-                const int reach = static_cast<int>(
-                     std::min( std::ceil( reachVoxels ), static_cast<float>( std::max( { w, h, d } ) ) ) );
-
-                auto coneAt = [&]( int source, int x, int y, int z )
-                {
-                    const int sx   = source % w;
-                    const int sy   = ( source / w ) % h;
-                    const int sz   = source / static_cast<int>( stride );
-                    int       dx   = std::abs( x - sx );
-                    int       dz   = std::abs( z - sz );
-                    dx             = std::min( dx, w - dx );
-                    dz             = std::min( dz, d - dz );
-                    const float ex = static_cast<float>( dx ) * voxelKm.x;
-                    const float ey = static_cast<float>( y - sy ) * voxelKm.y;
-                    const float ez = static_cast<float>( dz ) * voxelKm.z;
-                    return rankField[static_cast<size_t>( source )] +
-                           risePerKm * std::sqrt( ex * ex + ey * ey + ez * ez );
-                };
-
-                std::vector<int> steps;
-                for ( int step = reach > 1 ? static_cast<int>( std::bit_ceil( static_cast<unsigned>( reach ) ) )
-                                           : 1;
-                      step >= 1; step /= 2 )
-                    steps.push_back( step );
-                steps.push_back( 1 );
-
-                std::vector<int> next;
-                for ( const int step : steps )
-                {
-                    next = feature;
-                    Common::JobSystem::Get().ParallelRanges(
-                         static_cast<size_t>( d ), 1u,
-                         [&]( size_t begin, size_t end )
-                         {
-                             for ( int z = static_cast<int>( begin ); z < static_cast<int>( end ); ++z )
-                                 for ( int y = bandLo; y < bandHi; ++y )
-                                     for ( int x = 0; x < w; ++x )
-                                     {
-                                         const size_t at       = index( x, y, z );
-                                         int          best     = feature[at];
-                                         float        bestCone = best >= 0 ? coneAt( best, x, y, z )
-                                                                           : std::numeric_limits<float>::infinity();
-                                         for ( int oz = -1; oz <= 1; ++oz )
-                                             for ( int oy = -1; oy <= 1; ++oy )
-                                                 for ( int ox = -1; ox <= 1; ++ox )
+                         for ( int z = static_cast<int>( begin ); z < static_cast<int>( end ); ++z )
+                             for ( int y = bandLo; y < bandHi; ++y )
+                                 for ( int x = 0; x < w; ++x )
+                                 {
+                                     const size_t at       = index( x, y, z );
+                                     int          best     = feature[at];
+                                     float        bestCone = best >= 0 ? coneAt( best, x, y, z )
+                                                                       : std::numeric_limits<float>::infinity();
+                                     for ( int oz = -1; oz <= 1; ++oz )
+                                         for ( int oy = -1; oy <= 1; ++oy )
+                                             for ( int ox = -1; ox <= 1; ++ox )
+                                             {
+                                                 const int ny = y + oy * step;
+                                                 if ( ( ox | oy | oz ) == 0 || ny < bandLo || ny >= bandHi )
+                                                     continue;
+                                                 const int nx        = ( ( x + ox * step ) % w + w ) % w;
+                                                 const int nz        = ( ( z + oz * step ) % d + d ) % d;
+                                                 const int candidate = feature[index( nx, ny, nz )];
+                                                 if ( candidate < 0 || candidate == best )
+                                                     continue;
+                                                 const float cone = coneAt( candidate, x, y, z );
+                                                 if ( cone < bestCone )
                                                  {
-                                                     const int ny = y + oy * step;
-                                                     if ( ( ox | oy | oz ) == 0 || ny < bandLo || ny >= bandHi )
-                                                         continue;
-                                                     const int nx        = ( ( x + ox * step ) % w + w ) % w;
-                                                     const int nz        = ( ( z + oz * step ) % d + d ) % d;
-                                                     const int candidate = feature[index( nx, ny, nz )];
-                                                     if ( candidate < 0 || candidate == best )
-                                                         continue;
-                                                     const float cone = coneAt( candidate, x, y, z );
-                                                     if ( cone < bestCone )
-                                                     {
-                                                         best     = candidate;
-                                                         bestCone = cone;
-                                                     }
+                                                     best     = candidate;
+                                                     bestCone = cone;
                                                  }
-                                         next[at] = best;
-                                     }
-                         } );
-                    feature.swap( next );
-                }
-
-                for ( int z = 0; z < d; ++z )
-                    for ( int y = bandLo; y < bandHi; ++y )
-                        for ( int x = 0; x < w; ++x )
-                        {
-                            const size_t at = index( x, y, z );
-                            if ( feature[at] < 0 )
-                                continue;
-                            grown[at] = std::min( grown[at], coneAt( feature[at], x, y, z ) );
-                        }
+                                             }
+                                     next[at] = best;
+                                 }
+                     } );
+                feature.swap( next );
             }
 
-            // A BODY VOXEL TAKES THE LOWEST CONE TOO, not only air: two fused lumps of different cell ranks
-            // otherwise keep the wall between them inside the body (the nearest lump's rank, jumping on their
-            // bisector). Its own rank is one of the cones, so a lone body is unchanged.
-            for ( size_t at = 0; at < count; ++at )
-                rankField[at] = std::min( rankField[at], grown[at] );
+            for ( int z = 0; z < d; ++z )
+                for ( int y = bandLo; y < bandHi; ++y )
+                    for ( int x = 0; x < w; ++x )
+                    {
+                        const size_t at = index( x, y, z );
+                        if ( feature[at] < 0 )
+                            continue;
+                        grown[at] = std::min( grown[at], coneAt( feature[at], x, y, z ) );
+                    }
         }
 
-    namespace
-    {
+        // A BODY VOXEL TAKES THE LOWEST CONE TOO, not only air: two fused lumps of different cell ranks
+        // otherwise keep the wall between them inside the body (the nearest lump's rank, jumping on their
+        // bisector). Its own rank is one of the cones, so a lone body is unchanged.
+        for ( size_t at = 0; at < count; ++at )
+            rankField[at] = std::min( rankField[at], grown[at] );
+        }
 
-        /// The column CDF of the rank field, as bytes. Every column's rank is the MINIMUM over its voxels
-        /// (the first cloud a sight line straight up meets is the one with the lowest rank), and the byte a
-        /// voxel stores is the fraction of the region's columns whose minimum lies strictly below the
-        /// voxel's own rank. The map is monotone, so the column minimum of the bytes is the byte of the
-        /// column minimum, and the fraction of columns that CloudProceduralKeep keeps at a cover c is c to
-        /// within one 255th — for any density, size spread, scatter, species mix or seed. That is what the
-        /// pow(cover, 0.68) and the packing gain used to fake, and why neither exists any more.
-        std::vector<unsigned char> CloudProceduralRankColumnCdf( const std::vector<float>& rankField,
-                                                                 uint32_t width, uint32_t height, uint32_t depth )
+        namespace
         {
-            const size_t       columns = static_cast<size_t>( width ) * depth;
-            std::vector<float> minima;
-            minima.reserve( columns );
-            for ( uint32_t z = 0; z < depth; ++z )
-                for ( uint32_t x = 0; x < width; ++x )
-                {
-                    float lowest = std::numeric_limits<float>::infinity();
-                    for ( uint32_t y = 0; y < height; ++y )
-                        lowest =
-                             std::min( lowest, rankField[( static_cast<size_t>( z ) * height + y ) * width + x] );
-                    if ( std::isfinite( lowest ) )
-                        minima.push_back( lowest );
-                }
-            std::sort( minima.begin(), minima.end() );
 
-            std::vector<unsigned char> ranks( rankField.size(), kCloudProceduralNoRank );
-            for ( size_t at = 0; at < rankField.size(); ++at )
+            /// The column CDF of the rank field, as bytes. Every column's rank is the MINIMUM over its voxels
+            /// (the first cloud a sight line straight up meets is the one with the lowest rank), and the byte a
+            /// voxel stores is the fraction of the region's columns whose minimum lies strictly below the
+            /// voxel's own rank. The map is monotone, so the column minimum of the bytes is the byte of the
+            /// column minimum, and the fraction of columns that CloudProceduralKeep keeps at a cover c is c to
+            /// within one 255th — for any density, size spread, scatter, species mix or seed. That is what the
+            /// pow(cover, 0.68) and the packing gain used to fake, and why neither exists any more.
+            std::vector<unsigned char> CloudProceduralRankColumnCdf( const std::vector<float>& rankField,
+                                                                     uint32_t width, uint32_t height,
+                                                                     uint32_t depth )
             {
-                if ( !std::isfinite( rankField[at] ) )
-                    continue;
-                const size_t below = static_cast<size_t>(
-                     std::lower_bound( minima.begin(), minima.end(), rankField[at] ) - minima.begin() );
-                const double fraction = static_cast<double>( below ) / static_cast<double>( columns );
-                ranks[at] = static_cast<unsigned char>( std::min( 254.0, std::floor( fraction * 255.0 ) ) );
+                const size_t       columns = static_cast<size_t>( width ) * depth;
+                std::vector<float> minima;
+                minima.reserve( columns );
+                for ( uint32_t z = 0; z < depth; ++z )
+                    for ( uint32_t x = 0; x < width; ++x )
+                    {
+                        float lowest = std::numeric_limits<float>::infinity();
+                        for ( uint32_t y = 0; y < height; ++y )
+                            lowest = std::min( lowest,
+                                               rankField[( static_cast<size_t>( z ) * height + y ) * width + x] );
+                        if ( std::isfinite( lowest ) )
+                            minima.push_back( lowest );
+                    }
+                std::sort( minima.begin(), minima.end() );
+
+                std::vector<unsigned char> ranks( rankField.size(), kCloudProceduralNoRank );
+                for ( size_t at = 0; at < rankField.size(); ++at )
+                {
+                    if ( !std::isfinite( rankField[at] ) )
+                        continue;
+                    const size_t below = static_cast<size_t>(
+                         std::lower_bound( minima.begin(), minima.end(), rankField[at] ) - minima.begin() );
+                    const double fraction = static_cast<double>( below ) / static_cast<double>( columns );
+                    ranks[at] = static_cast<unsigned char>( std::min( 254.0, std::floor( fraction * 255.0 ) ) );
+                }
+                return ranks;
             }
-            return ranks;
-        }
-    } // namespace
+        } // namespace
 
     Common::ResultStr<std::vector<unsigned char>>
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
