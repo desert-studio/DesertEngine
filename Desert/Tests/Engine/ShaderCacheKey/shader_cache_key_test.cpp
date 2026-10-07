@@ -492,7 +492,8 @@ TEST_F( ShaderCacheKeyShaderRoot, ADefineSeparatesTheKeyOfOneProgramText )
                ComputeShaderCacheKey( ShaderStage::Fragment, source, path, rsm ) )
          << "the DESERT_GBUFFER_RSM permutation and the plain program produced ONE cache key, so whichever "
             "compiled first would be served to the other.";
-    EXPECT_NE( ComputeShaderMapKey( source, path, "", false ), ComputeShaderMapKey( source, path, "", false, rsm ) )
+    EXPECT_NE( ComputeShaderMapKey( source, path, "", false ),
+               ComputeShaderMapKey( source, path, "", false, rsm ) )
          << "the shader-map key does not separate the permutation either.";
 
     // A define's value is part of it, and a define is not a virtual source of the same spelling.
@@ -526,7 +527,7 @@ TEST( ShaderVariantDefines, EveryDefineOfTheVariantReachesTheCompileOptions )
 {
     const auto file = Desert::TestSupport::RepositoryRoot() /
                       "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp";
-    std::ifstream     in( file, std::ios::binary );
+    std::ifstream in( file, std::ios::binary );
     ASSERT_TRUE( in ) << file.string();
     std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
     std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );

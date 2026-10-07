@@ -114,7 +114,7 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "DebugLinePipeline";
         spec.Shader            = m_DebugLineShader;
-        spec.TargetLayout = SceneTargetLayout();
+        spec.TargetLayout      = SceneTargetLayout();
         spec.Topology          = PrimitiveTopology::Lines;
         spec.LineWidth         = 1.0f; // dynamic line width is set to 1.0 in SubmitLines (no wideLines feature)
         spec.DepthTestEnabled  = true;
@@ -182,7 +182,7 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification rspec;
         rspec.DebugName            = "OverdrawResolvePipeline";
         rspec.Shader               = m_OverdrawResolveShader;
-        rspec.TargetLayout = SceneTargetLayout();
+        rspec.TargetLayout         = SceneTargetLayout();
         rspec.DepthTestEnabled     = false;
         rspec.DepthWriteEnabled    = false;
         const auto overdrawResolve = GraphicsPipeline::Create( rspec );

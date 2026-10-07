@@ -164,7 +164,8 @@ namespace Desert::Graphic
     };
     static_assert( sizeof( GpuObjectMotion ) == 144, "std430 twin in Common/ObjectMotion.glslh" );
     static_assert( offsetof( GpuObjectMotion, BoneOffset ) == 128, "std430 twin in Common/ObjectMotion.glslh" );
-    static_assert( offsetof( GpuObjectMotion, PrevBoneOffset ) == 132, "std430 twin in Common/ObjectMotion.glslh" );
+    static_assert( offsetof( GpuObjectMotion, PrevBoneOffset ) == 132,
+                   "std430 twin in Common/ObjectMotion.glslh" );
 
     // ---- Velocity --------------------------------------------------------------------------------------------
     //

@@ -129,7 +129,7 @@ namespace Desert::Graphic::System
     struct MeshRenderData
     {
         // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
-        uint32_t Entity = 0;
+        uint32_t    Entity = 0;
         class Mesh* Mesh;
         glm::mat4   Transform;
 
@@ -158,9 +158,9 @@ namespace Desert::Graphic::System
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
             uint32_t Entity = 0;
-            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read the
-            // primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
-            uint32_t MotionRow = 0;
+            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
+            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                  MotionRow = 0;
             class Desert::StaticMesh* Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
@@ -179,9 +179,9 @@ namespace Desert::Graphic::System
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
             uint32_t Entity = 0;
-            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read the
-            // primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
-            uint32_t MotionRow = 0;
+            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
+            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                   MotionRow = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
             glm::mat4                  Transform = glm::mat4( 1.0f );
             // The (surface x Skinned) material. It is SHARED with every other entity using the same
@@ -225,9 +225,9 @@ namespace Desert::Graphic::System
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
             uint32_t Entity = 0;
-            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read the
-            // primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
-            uint32_t MotionRow = 0;
+            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
+            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                   MotionRow = 0;
             class Mesh*               Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             std::string               ShaderName;
@@ -615,7 +615,8 @@ namespace Desert::Graphic::System
         // Material pipelines on demand (AL1-12). The spec a data-driven material draws with in this renderer;
         // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,
         // which is what a draw uses until its own pipeline is Ready.
-        [[nodiscard]] static GraphicsPipelineSpecification GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
+        [[nodiscard]] static GraphicsPipelineSpecification
+             GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
@@ -984,9 +985,9 @@ namespace Desert::Graphic::System
         // BuildObjectMotions' output: the rows and both frames' palettes (CPU scratch, capacity kept) and the
         // per-(frame x view) buffers they are uploaded into (StorageBuffer::Create non-persistent: one copy per
         // frame in flight). Created on the first frame, grown by SetData.
-        std::vector<MotionRecord>                                 m_ScratchMotionRecords;
-        ObjectMotionRows                                          m_ScratchMotionRows;
-        std::shared_ptr<ShaderResources::StorageBuffer>           m_ObjectMotions;
-        std::shared_ptr<ShaderResources::StorageBuffer>           m_ObjectBones;
+        std::vector<MotionRecord>                       m_ScratchMotionRecords;
+        ObjectMotionRows                                m_ScratchMotionRows;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectMotions;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBones;
     };
 } // namespace Desert::Graphic::System

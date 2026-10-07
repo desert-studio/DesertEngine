@@ -85,7 +85,7 @@ namespace Desert::Graphic::System
 
             GraphicsPipelineSpecification compSpec;
             compSpec.DebugName         = "SSRComposite";
-            compSpec.TargetLayout = SceneTargetLayout();
+            compSpec.TargetLayout      = SceneTargetLayout();
             compSpec.Shader            = m_CompositeShader;
             compSpec.DepthTestEnabled  = false;
             compSpec.DepthWriteEnabled = false;

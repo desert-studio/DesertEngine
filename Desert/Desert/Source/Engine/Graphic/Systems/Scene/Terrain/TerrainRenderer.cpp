@@ -131,8 +131,8 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<GraphicsPipeline> CreateTerrainPipeline( SceneRenderer* sceneRenderer,
                                                                  const char* shaderName, const char* debugName,
-                                                                 const RenderTargetLayout&           layout,
-                                                                 std::string&                        error )
+                                                                 const RenderTargetLayout& layout,
+                                                                 std::string&              error )
         {
             const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
             if ( !shader )
@@ -164,8 +164,8 @@ namespace Desert::Graphic::System
     Common::BoolResultStr TerrainRenderer::Initialize()
     {
         std::string error;
-        m_Pipeline = CreateTerrainPipeline( m_SceneRenderer, "Terrain", "TerrainPipeline",
-                                            SceneTargetLayout(), error );
+        m_Pipeline =
+             CreateTerrainPipeline( m_SceneRenderer, "Terrain", "TerrainPipeline", SceneTargetLayout(), error );
         if ( !m_Pipeline )
             return Common::MakeError( "TerrainRenderer: " + error );
 
@@ -333,9 +333,9 @@ namespace Desert::Graphic::System
         ub.View       = camera->GetViewMatrix();
         ub.Projection = camera->GetProjectionMatrix();
         GetSun( m_SceneRenderer, ub.SunDir, ub.SunColor );
-        const auto*      viewFrame = m_SceneRenderer->GetViewFrame();
-        ub.ViewProjection          = viewFrame->ViewProjection;
-        ub.PrevViewProjection      = viewFrame->PrevViewProjection;
+        const auto* viewFrame = m_SceneRenderer->GetViewFrame();
+        ub.ViewProjection     = viewFrame->ViewProjection;
+        ub.PrevViewProjection = viewFrame->PrevViewProjection;
 
         for ( const auto& group : m_FrameGroups )
         {

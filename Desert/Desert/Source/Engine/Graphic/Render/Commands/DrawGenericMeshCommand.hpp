@@ -20,7 +20,7 @@ namespace Desert::Graphic::Render
     {
         // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
         // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
-        uint32_t Entity;
+        uint32_t                   Entity;
         Desert::Mesh*            Mesh;
         glm::mat4                Transform;
         std::string              ShaderName;
@@ -36,8 +36,8 @@ namespace Desert::Graphic::Render
         // shadow pass has no alpha test. Mesh producers opt in.
         bool CastShadows = false;
 
-        DrawGenericMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform, std::string shaderName,
-                                Graphic::MaterialOverrides overrides, bool outlined,
+        DrawGenericMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,
+                                std::string shaderName, Graphic::MaterialOverrides overrides, bool outlined,
                                 Graphic::Image2D* directTexture = nullptr, std::string directTextureSampler = {},
                                 bool castShadows = false )
              : Entity( entity ), Mesh( mesh ), Transform( transform ), ShaderName( std::move( shaderName ) ),

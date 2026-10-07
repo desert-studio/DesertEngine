@@ -495,8 +495,8 @@ namespace Desert::Graphic::System
             if ( bytes == 0 )
                 return BOOLSUCCESS;
             if ( const auto wrote = buffer->SetData( data, static_cast<uint32_t>( bytes ) ); !wrote )
-                return Common::MakeFormattedError( "the view's {} ({} bytes) could not be uploaded: {}", name, bytes,
-                                                   wrote.GetError() );
+                return Common::MakeFormattedError( "the view's {} ({} bytes) could not be uploaded: {}", name,
+                                                   bytes, wrote.GetError() );
             return BOOLSUCCESS;
         };
         if ( const auto uploaded = upload( m_ObjectMotions, kObjectMotionsName, Core::kObjectMotionsBinding,
@@ -519,7 +519,7 @@ namespace Desert::Graphic::System
             case MeshType::Static:
             {
                 StaticMeshRenderData staticData;
-                staticData.Entity          = data.Entity;
+                staticData.Entity                   = data.Entity;
                 staticData.Mesh            = static_cast<StaticMesh*>( data.Mesh );
                 staticData.Transform       = data.Transform;
                 staticData.MaterialSlots   = data.MaterialSlots;

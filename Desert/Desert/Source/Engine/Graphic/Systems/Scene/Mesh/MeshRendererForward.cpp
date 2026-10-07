@@ -346,8 +346,8 @@ namespace Desert::Graphic::System
         for ( const auto& d : draws )
         {
             const auto& g = *d.Data;
-            list.Add( { .Pipeline          = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() ),
-                        .Mesh              = g.Mesh,
+            list.Add( { .Pipeline = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() ),
+                        .Mesh     = g.Mesh,
                         // View pass: World / PrevWorld from the motion row; the push is the submesh transform
                         // relative to it (identity, RenderMesh multiplies the submesh's in).
                         .Transform         = glm::mat4( 1.0f ),
@@ -402,7 +402,8 @@ namespace Desert::Graphic::System
             auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
             if ( !shader || !shader->IsCompiled() )
                 continue;
-            const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( GenericPipelineSpec( shader ) );
+            const auto built =
+                 m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( GenericPipelineSpec( shader ) );
             if ( built )
                 TrackMaterialPipeline( name, *built.GetValue() );
             else
@@ -577,17 +578,16 @@ namespace Desert::Graphic::System
             const auto*         obj      = draw.Object;
             DataDrivenMaterial* material = draw.State->Material.get();
             MaterialInstance*   instance = draw.State->Instance.get();
-            m_GlassDraws.Add( { .Pipeline          = draw.State->Pipeline.get(),
-                                .Mesh              = obj->Mesh,
+            m_GlassDraws.Add( { .Pipeline = draw.State->Pipeline.get(),
+                                .Mesh     = obj->Mesh,
                                 // View pass: World / PrevWorld come from the object's motion row
                                 // (Common/ObjectMotion.glslh); the push carries the submesh transform RELATIVE
                                 // to it (identity here, RenderMesh multiplies the submesh's in).
                                 .Transform         = glm::mat4( 1.0f ),
                                 .Material          = material->GetMaterialExecutor(),
                                 .HiddenSubmeshMask = obj->HiddenSubmeshes,
-                                .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                .BindState =
-                                     [material, instance, motionRow = obj->MotionRow, row = draw.Row]
+                                .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                                .BindState = [material, instance, motionRow = obj->MotionRow, row = draw.Row]
                                 {
                                     material->SetPushMatrix( glm::mat4( 1.0f ) );
                                     material->SetPrimitiveIndex( motionRow );
@@ -1043,8 +1043,8 @@ namespace Desert::Graphic::System
                             .Transform         = glm::mat4( 1.0f ),
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj->HiddenSubmeshes,
-                            .LodLevel          = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .BindState         = [drawMat, inst, motionRow = obj->MotionRow, i]
+                            .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                            .BindState = [drawMat, inst, motionRow = obj->MotionRow, i]
                             {
                                 DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
                                 drawMat->SetPushMatrix( glm::mat4( 1.0f ) );
@@ -1132,7 +1132,7 @@ namespace Desert::Graphic::System
                     d.MaterialIndex = materialIndex;
                     d.LodLevel      = level;
                     // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
-                    d.Wind          = PackViewInstanceWind( ism.Wind, m_PrevWorldTimeSeconds );
+                    d.Wind = PackViewInstanceWind( ism.Wind, m_PrevWorldTimeSeconds );
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
                             ismSet->Transforms.push_back( visible[i] );
@@ -1322,7 +1322,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_GeometryShader;
-        spec.TargetLayout = SceneTargetLayout();
+        spec.TargetLayout   = SceneTargetLayout();
 
         // Pipelines come from the shared cache (deduped by shader + target + state). The mesh keeps its
         // explicit state for now; PBR's render-state moves to the shader's #pragma state in Phase 2.
@@ -1364,7 +1364,7 @@ namespace Desert::Graphic::System
             ispec.DepthCompareOp = DepthCompare::CloserOrEqual;
             ispec.CullMode       = CullMode::Back;
             ispec.Shader         = m_InstancedGeometryShader;
-            ispec.TargetLayout = SceneTargetLayout();
+            ispec.TargetLayout   = SceneTargetLayout();
             if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
                 m_StaticInstancedPipeline = instanced.GetValue();
             else
@@ -1393,7 +1393,7 @@ namespace Desert::Graphic::System
         spec.DebugName         = cellShader;
         spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
         spec.Shader            = shader;
-        spec.TargetLayout = SceneTargetLayout();
+        spec.TargetLayout      = SceneTargetLayout();
         spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
         spec.DepthWriteEnabled = false; // translucent: don't occlude later fragments / itself
         spec.CullMode          = CullMode::Back;
@@ -1441,7 +1441,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_SkinnedShader;
-        spec.TargetLayout = SceneTargetLayout();
+        spec.TargetLayout   = SceneTargetLayout();
 
         const auto skinned = GraphicsPipeline::Create( spec );
         if ( !skinned )

@@ -194,7 +194,7 @@ namespace Desert::Graphic
         const std::vector<GraphColor>* colors = textures.GraphColorsOf( m_TargetFramebuffer.get() );
         if ( colors == nullptr )
             return;
-        const auto found = m_RenderSystems.find( "GraphColorResolveSystem" );
+        const auto                         found   = m_RenderSystems.find( "GraphColorResolveSystem" );
         System::GraphColorResolveRenderer* resolve = nullptr;
         if ( found != m_RenderSystems.end() )
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -208,7 +208,7 @@ namespace Desert::Graphic
              },
              [resolve, &graph]( const GraphColor& color )
              {
-                 const auto desc = graph.GetTextureDesc( color.Color );
+                 const auto                                      desc = graph.GetTextureDesc( color.Color );
                  const std::optional<Core::Formats::ImageFormat> format =
                       desc.IsSuccess() ? std::optional( desc.GetValue().Format ) : std::nullopt;
                  return [resolve, format]( RDG::PassContext& context ) -> Common::BoolResultStr

@@ -43,8 +43,8 @@ namespace Desert::Graphic
     {
         if ( speed <= 0.0f )
             return 0.0f;
-        return static_cast<float>(
-             std::fmod( gameplaySeconds, static_cast<double>( kWindPeriodCycles ) / static_cast<double>( speed ) ) );
+        return static_cast<float>( std::fmod( gameplaySeconds, static_cast<double>( kWindPeriodCycles ) /
+                                                                    static_cast<double>( speed ) ) );
     }
 
     /// The wind of a type from its authored numbers (cm, Hz, cm, degrees) at @p gameplaySeconds.
@@ -108,8 +108,9 @@ namespace Desert::Graphic
      * B = (Speed, Seconds, PrevSeconds, 0). PrevSeconds is the wind clock at the VIEW's previous frame
      * (ViewFrame::PrevTimeSeconds, wrapped like Seconds): a view pass evaluates the wind at both times for the
      * instance's velocity (Mesh/Surface/Vertex_Instanced.glslh). It is a view quantity, so the renderer writes it
-     * per view (PackViewInstanceWind); a light view (shadow depth) has no velocity and leaves it 0. Pushed for EVERY instanced draw, zeros for one that does not sway: a push
-     * block keeps its bytes between draws, so skipping the push would lend the last field's wind to a wall.
+     * per view (PackViewInstanceWind); a light view (shadow depth) has no velocity and leaves it 0. Pushed for
+     * EVERY instanced draw, zeros for one that does not sway: a push block keeps its bytes between draws, so
+     * skipping the push would lend the last field's wind to a wall.
      */
     struct InstanceWindPush
     {

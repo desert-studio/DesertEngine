@@ -25,7 +25,7 @@ namespace Desert::Editor::Render
         Graphic::GraphicsPipelineSpecification spec;
         spec.DebugName         = "EditorGridPipeline";
         spec.Shader            = shader;
-        spec.TargetLayout = Desert::Graphic::SceneTargetLayout();
+        spec.TargetLayout      = Desert::Graphic::SceneTargetLayout();
         spec.DepthTestEnabled  = true;  // occluded by opaque geometry
         spec.DepthWriteEnabled = false; // overlay; don't write depth
         spec.DepthCompareOp    = Graphic::DepthCompare::Closer;

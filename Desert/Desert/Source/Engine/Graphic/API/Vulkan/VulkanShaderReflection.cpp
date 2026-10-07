@@ -418,18 +418,18 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         std::vector<VkPipelineColorBlendAttachmentState> attachments( colorAttachmentCount );
         for ( uint32_t slot = 0; slot < colorAttachmentCount; ++slot )
         {
-            const bool written =
-                 std::binary_search( writtenLocations.begin(), writtenLocations.end(), slot );
-            attachments[slot] = { .blendEnable         = ( written && blend ) ? VK_TRUE : VK_FALSE,
-                                  .srcColorBlendFactor = srcColor,
-                                  .dstColorBlendFactor = dstColor,
-                                  .colorBlendOp        = VK_BLEND_OP_ADD,
-                                  .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                                  .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                                  .alphaBlendOp        = VK_BLEND_OP_ADD,
-                                  .colorWriteMask      = written ? ( VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT )
-                                                                 : VkColorComponentFlags{ 0 } };
+            const bool written = std::binary_search( writtenLocations.begin(), writtenLocations.end(), slot );
+            attachments[slot]  = { .blendEnable         = ( written && blend ) ? VK_TRUE : VK_FALSE,
+                                   .srcColorBlendFactor = srcColor,
+                                   .dstColorBlendFactor = dstColor,
+                                   .colorBlendOp        = VK_BLEND_OP_ADD,
+                                   .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+                                   .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                                   .alphaBlendOp        = VK_BLEND_OP_ADD,
+                                   .colorWriteMask      = written
+                                                               ? ( VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT )
+                                                               : VkColorComponentFlags{ 0 } };
         }
         return attachments;
     }

@@ -16,9 +16,8 @@ namespace Desert::Graphic
     // MERGE NOTE (GBUF1): slot 2 is kGBufferShadingWord on task/GBUF1 - take GBUF1's name there.
     inline RenderTargetLayout SceneTargetLayout()
     {
-        return RenderTargetLayout{ { ViewTargetFormats::kSceneColor, ViewTargetFormats::kVelocity },
-                                   ViewTargetFormats::kSceneDepth,
-                                   1 };
+        return RenderTargetLayout{
+             { ViewTargetFormats::kSceneColor, ViewTargetFormats::kVelocity }, ViewTargetFormats::kSceneDepth, 1 };
     }
 
     inline RenderTargetLayout GBufferLayout()

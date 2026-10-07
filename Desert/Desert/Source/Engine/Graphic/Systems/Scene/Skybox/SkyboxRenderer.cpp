@@ -82,7 +82,7 @@ namespace Desert::Graphic::System
         {
             Graphic::GraphicsPipelineSpecification skySpec;
             skySpec.DebugName         = "ProceduralSky";
-            skySpec.TargetLayout = SceneTargetLayout();
+            skySpec.TargetLayout      = SceneTargetLayout();
             skySpec.Shader            = m_ProceduralShader;
             skySpec.CullMode          = CullMode::None;
             skySpec.DepthTestEnabled  = false;

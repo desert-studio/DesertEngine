@@ -41,7 +41,8 @@ TEST( ViewMemory, PrintsTheCensusForMainAndPreview )
 
 TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 {
-    // 64 scene targets + 4 velocity (TAA1, RG16F) + 72 post stack + 17.8 half/quarter chains and fog + 9 clouds + 24 SSR + 24 GI.
+    // 64 scene targets + 4 velocity (TAA1, RG16F) + 72 post stack + 17.8 half/quarter chains and fog + 9 clouds +
+    // 24 SSR + 24 GI.
     EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 214.83, 0.01 );
     // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (10 MiB).
     EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 144703488u );

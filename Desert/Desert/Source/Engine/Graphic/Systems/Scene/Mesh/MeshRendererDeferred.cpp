@@ -44,7 +44,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_StaticGBufferShader;
-        spec.TargetLayout = GBufferLayout();
+        spec.TargetLayout   = GBufferLayout();
 
         const auto gbufferPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !gbufferPipeline )
@@ -116,7 +116,7 @@ namespace Desert::Graphic::System
             ispec.DepthCompareOp = DepthCompare::CloserOrEqual;
             ispec.CullMode       = CullMode::Back;
             ispec.Shader         = m_InstancedGBufferShader;
-            ispec.TargetLayout = GBufferLayout();
+            ispec.TargetLayout   = GBufferLayout();
 
             if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
             {

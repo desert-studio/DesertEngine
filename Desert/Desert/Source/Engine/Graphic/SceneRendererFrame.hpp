@@ -248,8 +248,8 @@ namespace Desert::Graphic
         std::map<const Image*, RDG::TextureRef>            m_Refs;
         std::map<const Image*, RDG::ExternalTexture*>      m_Externals; // Import's registrations, for Extract
         std::vector<std::pair<uint32_t, std::function<void()>>> m_Histories; // MarkHistory: external index, reset
-        std::map<const Framebuffer*, std::vector<GraphColor>>   m_GraphColors;   // AddGraphColor
-        std::set<uint32_t>                                      m_StartedColors; // ColorLoads: slots already written
+        std::map<const Framebuffer*, std::vector<GraphColor>>   m_GraphColors; // AddGraphColor
+        std::set<uint32_t> m_StartedColors;                                    // ColorLoads: slots already written
     };
 
     // A target the graph cannot declare whole is refused with its pass, never half-declared: a render pass
@@ -273,7 +273,7 @@ namespace Desert::Graphic
         // The graph's own colours on this target (the view's velocity), after the framebuffer's.
         const std::vector<GraphColor>* graphColors = textures.GraphColorsOf( framebuffer.get() );
         const uint32_t                 provided    = graphColors ? uint32_t( graphColors->size() ) : 0u;
-        const uint32_t colours  = framebuffer->GetColorAttachmentCount() + provided;
+        const uint32_t                 colours     = framebuffer->GetColorAttachmentCount() + provided;
         const bool     hasDepth = framebuffer->GetDepthAttachmentCount() != 0;
         if ( graphColors && targets.Colors.size() + provided == colours &&
              !AppendGraphColors( targets, *graphColors, multisampled ) )

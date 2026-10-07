@@ -63,7 +63,7 @@ namespace Desert::Graphic::System
 
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "DeferredLighting";
-            spec.TargetLayout = SceneTargetLayout();
+            spec.TargetLayout      = SceneTargetLayout();
             spec.Shader            = m_Shader;
             // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
             // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are

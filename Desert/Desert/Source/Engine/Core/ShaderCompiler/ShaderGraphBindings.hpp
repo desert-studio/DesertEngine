@@ -29,9 +29,10 @@ namespace Desert::Core
      * added tomorrow reddens it whatever spelled the number.
      *
      * 24 WAS ONE ABOVE THE HIGHEST BINDING THE TREE DECLARED, and that was not comfortable headroom —
-     * it was none; the window now opens at 27, above the scene-read range below. The lit shader-graph surface layout reaches 23 (the fourth cascade shadow map in
-     * Programs/Graph/MatLitConst.shader), so the next binding that layout grows lands here. That is what
-     * the census is for: the collision becomes a red test rather than a wrong picture.
+     * it was none; the window now opens at 27, above the scene-read range below. The lit shader-graph surface
+     * layout reaches 23 (the fourth cascade shadow map in Programs/Graph/MatLitConst.shader), so the next binding
+     * that layout grows lands here. That is what the census is for: the collision becomes a red test rather than a
+     * wrong picture.
      *
      * MOVING THIS VALUE IS NOT FREE. The DSL spells a texture base as a literal inside the GENERATED
      * `.shader` (`Properties ... TextureBinding(24)`), so a `.shader` generated before a move keeps the
@@ -54,10 +55,10 @@ namespace Desert::Core
      * Tests/Engine/VelocityTarget asserts that over the whole shipped tree nothing but the two scene-read
      * resources is declared at these numbers, and that ObjectMotion.glslh spells exactly these numbers.
      */
-    inline constexpr uint32_t kSceneReadBindingFirst  = 25u;
-    inline constexpr uint32_t kObjectMotionsBinding   = kSceneReadBindingFirst;      // Common/ObjectMotion.glslh
-    inline constexpr uint32_t kObjectBonesBinding     = kSceneReadBindingFirst + 1u; // Common/ObjectMotion.glslh
-    inline constexpr uint32_t kSceneReadBindingCount  = 2u;
+    inline constexpr uint32_t kSceneReadBindingFirst = 25u;
+    inline constexpr uint32_t kObjectMotionsBinding  = kSceneReadBindingFirst;      // Common/ObjectMotion.glslh
+    inline constexpr uint32_t kObjectBonesBinding    = kSceneReadBindingFirst + 1u; // Common/ObjectMotion.glslh
+    inline constexpr uint32_t kSceneReadBindingCount = 2u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {

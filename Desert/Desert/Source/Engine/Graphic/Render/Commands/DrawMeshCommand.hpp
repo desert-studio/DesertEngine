@@ -13,7 +13,7 @@ namespace Desert::Graphic::Render
     {
         // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
         // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
-        uint32_t Entity;
+        uint32_t      Entity;
         Desert::Mesh* Mesh;
         // A CO-OWNED handle on the entity's material slots, not a pointer into the component that authored
         // them. A command is recorded by MeshECSSystem, survives every later system — ScriptSystem among

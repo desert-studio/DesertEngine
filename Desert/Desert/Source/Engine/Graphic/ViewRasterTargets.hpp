@@ -26,9 +26,10 @@ namespace Desert::Graphic
     // HOW A MULTISAMPLED GRAPH COLOUR IS RESOLVED. Average: the render pass's own resolve attachment (the hardware
     // box filter) — right for colour, wrong for VECTOR DATA: the average of an edge's two motions is a motion no
     // surface has (UE resolves velocity by picking a sample, never by averaging). Vulkan resolves a float or unorm
-    // colour attachment only by averaging (VK_RESOLVE_MODE_SAMPLE_ZERO is for depth/stencil and integer colour), so
-    // SampleZero is a SHADER resolve: the slot gets no resolve attachment in the passes that draw it, and the graph
-    // adds one "<Color>: Resolve" raster node (AddGraphColorResolves) that writes sample 0 of @p Multisample into
+    // colour attachment only by averaging (VK_RESOLVE_MODE_SAMPLE_ZERO is for depth/stencil and integer colour),
+    // so SampleZero is a SHADER resolve: the slot gets no resolve attachment in the passes that draw it, and the
+    // graph adds one "<Color>: Resolve" raster node (AddGraphColorResolves) that writes sample 0 of @p Multisample
+    // into
     // @p Color — the pattern of "Scene: DepthResolve" for the multisampled scene depth.
     enum class GraphColorResolve : uint8_t
     {
@@ -52,9 +53,9 @@ namespace Desert::Graphic
     };
 
     // Appends @p colors after the framebuffer's colours (at MSAA: the multisampled attachment as the colour, the
-    // single-sample one as its resolve — or, for a SampleZero colour, NO resolve: an invalid ref at the slot, which
-    // DeclareResolves skips; Resolves stays indexed by colour slot). False, nothing appended, when a multisampled
-    // target lacks a multisampled attachment or a single-sample one is given one.
+    // single-sample one as its resolve — or, for a SampleZero colour, NO resolve: an invalid ref at the slot,
+    // which DeclareResolves skips; Resolves stays indexed by colour slot). False, nothing appended, when a
+    // multisampled target lacks a multisampled attachment or a single-sample one is given one.
     inline bool AppendGraphColors( RasterTargets& targets, std::span<const GraphColor> colors, bool multisampled )
     {
         for ( const GraphColor& color : colors )
@@ -66,7 +67,7 @@ namespace Desert::Graphic
             targets.Colors.push_back( multisampled ? color.Multisample : color.Color );
             if ( multisampled )
                 targets.Resolves.push_back( color.Resolve == GraphColorResolve::Average ? color.Color
-                                                                                         : RDG::TextureRef{} );
+                                                                                        : RDG::TextureRef{} );
             targets.OwnClears.emplace_back( color.Clear );
         }
         return true;
@@ -74,7 +75,8 @@ namespace Desert::Graphic
 
     // Every in-pass resolve of @p resolves (by colour slot) on @p pass; a slot whose ref is invalid has none (a
     // SampleZero graph colour, resolved by its own node). Every raster node on an engine target declares its
-    // resolves through this (DeferredFrameNodes::LoadTarget, which cannot include this header, skips the same way).
+    // resolves through this (DeferredFrameNodes::LoadTarget, which cannot include this header, skips the same
+    // way).
     inline void DeclareResolves( RDG::PassBuilder& pass, std::span<const RDG::TextureRef> resolves )
     {
         for ( uint32_t slot = 0; slot < resolves.size(); ++slot )

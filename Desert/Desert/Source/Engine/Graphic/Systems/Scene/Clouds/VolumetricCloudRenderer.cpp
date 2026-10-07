@@ -836,7 +836,6 @@ namespace Desert::Graphic::System
         spec.SrcColorBlendFactor = BlendFactor::One;
         spec.DstColorBlendFactor = BlendFactor::SrcAlpha;
 
-
         const auto composite = GraphicsPipeline::Create( spec );
         if ( !composite )
         {

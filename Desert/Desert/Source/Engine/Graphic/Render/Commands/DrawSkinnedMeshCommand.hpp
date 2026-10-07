@@ -13,7 +13,7 @@ namespace Desert::Graphic::Render
     {
         // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
         // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
-        uint32_t Entity;
+        uint32_t             Entity;
         Desert::SkinnedMesh* Mesh;
         // CO-OWNED, not a copy of bare pointers: the copy this used to make kept the ARRAY safe and left
         // every MaterialInstance in it owned by an ECS component that Lua can destroy before this command
@@ -24,9 +24,10 @@ namespace Desert::Graphic::Render
         bool                            Outlined    = false;
         bool                            CastShadows = true;
 
-        DrawSkinnedMeshCommand( uint32_t entity, Desert::SkinnedMesh* mesh, Graphic::MaterialSlotBindingPtr materialSlot,
-                                const glm::mat4& transform, const std::vector<glm::mat4>& bones,
-                                bool outlined = false, bool castShadows = true )
+        DrawSkinnedMeshCommand( uint32_t entity, Desert::SkinnedMesh* mesh,
+                                Graphic::MaterialSlotBindingPtr materialSlot, const glm::mat4& transform,
+                                const std::vector<glm::mat4>& bones, bool outlined = false,
+                                bool castShadows = true )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
                BoneMatrices( bones ), Outlined( outlined ), CastShadows( castShadows )
         {
@@ -37,9 +38,11 @@ namespace Desert::Graphic::Render
             // CastShadows must survive this hop: the flag is consumed three links away (the cascade pass
             // skips !CastShadows on SkinnedMeshRenderData), and a default here would silently re-enable
             // the shadow for every skinned mesh whose component turned it off.
-            renderer.SubmitMesh(
-                 Mesh, MaterialSlot, Transform,
-                 { .Entity = Entity, .BoneMatrices = BoneMatrices, .Outlined = Outlined, .CastShadows = CastShadows } );
+            renderer.SubmitMesh( Mesh, MaterialSlot, Transform,
+                                 { .Entity       = Entity,
+                                   .BoneMatrices = BoneMatrices,
+                                   .Outlined     = Outlined,
+                                   .CastShadows  = CastShadows } );
         }
     };
 } // namespace Desert::Graphic::Render

@@ -22,7 +22,7 @@ namespace Desert::Graphic::Render
     {
         // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
         // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
-        uint32_t Entity;
+        uint32_t           Entity;
         Desert::Mesh*      Mesh;
         glm::mat4          Transform;
         Graphic::Material* SlotMaterial;
@@ -33,8 +33,9 @@ namespace Desert::Graphic::Render
         // the shadow pass draws the mesh whole, so a second caster would be the same silhouette twice.
         bool CastShadows = false;
 
-        DrawSlotMaterialMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform, Graphic::Material* material,
-                                     uint64_t visibleSubmeshMask, bool outlined, bool castShadows = false )
+        DrawSlotMaterialMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,
+                                     Graphic::Material* material, uint64_t visibleSubmeshMask, bool outlined,
+                                     bool castShadows = false )
              : Entity( entity ), Mesh( mesh ), Transform( transform ), SlotMaterial( material ),
                VisibleSubmeshMask( visibleSubmeshMask ), Outlined( outlined ), CastShadows( castShadows )
         {

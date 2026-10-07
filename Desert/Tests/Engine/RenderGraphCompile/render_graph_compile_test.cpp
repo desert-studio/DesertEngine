@@ -2064,7 +2064,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     declares( "AddFrameClearMainFramebuffer", { "PassFlags::Raster", "ColorTarget(", "LoadOp::ClearDepth(" } );
     declares( "AddFrameSSAO", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,ao," } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
-    declares( "AddFrameComposite", { "PassFlags::Raster", "Access::SampledGraphics", "LoadTarget(pass,target,loads)" } );
+    declares( "AddFrameComposite",
+              { "PassFlags::Raster", "Access::SampledGraphics", "LoadTarget(pass,target,loads)" } );
     declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
     // RDG-A2-W4: the SSR passes sample the G-buffer as graph refs by name, never a framebuffer image.
     declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target,loads)",
@@ -2391,8 +2392,8 @@ TEST( RenderGraphCompile, DepthResolveCopyPlansTransferBarriersAndCompositeTakes
          "Deferred: DepthResolve", PassFlags::Copy,
          [&]( PassBuilder& pass ) { Nodes::DeclareDepthResolve( pass, sourceRef, target.Depth ); }, Ok );
     graph.AddPass(
-         "Deferred: Composite", PassFlags::Raster, [&]( PassBuilder& pass ) { Nodes::LoadTarget( pass, target, loads ); },
-         Ok );
+         "Deferred: Composite", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { Nodes::LoadTarget( pass, target, loads ); }, Ok );
     const CompileResult result = CompileOrFail( graph );
     ASSERT_EQ( result.Passes.size(), 2u );
     const CompiledPass* copy      = result.FindPass( "Deferred: DepthResolve" );
@@ -2523,17 +2524,17 @@ TEST( RenderGraphCompile, SampleZeroGraphColourGetsAResolveNodeAndNoHardwareReso
     using Desert::Graphic::RasterTargets;
     using Desert::Graphic::VelocityColor;
     using Desert::Graphic::ViewVelocity;
-    Builder          graph( "velocity-resolve" );
-    TextureDesc      msColour = Tex2D( 64, 64, ImageFormat::RGBA16F );
-    msColour.Samples          = 4;
-    const TextureRef sceneMs  = graph.CreateTexture( msColour, "SceneColor.MSAA" );
-    const TextureRef scene    = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "SceneColor" );
+    Builder     graph( "velocity-resolve" );
+    TextureDesc msColour        = Tex2D( 64, 64, ImageFormat::RGBA16F );
+    msColour.Samples            = 4;
+    const TextureRef   sceneMs  = graph.CreateTexture( msColour, "SceneColor.MSAA" );
+    const TextureRef   scene    = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "SceneColor" );
     const ViewVelocity velocity = CreateViewVelocity( graph, Extent3D{ 64, 64, 1 }, 4 );
     ASSERT_TRUE( velocity.Multisample.IsValid() );
 
     RasterTargets targets;
-    targets.Colors   = { sceneMs };
-    targets.Resolves = { scene };
+    targets.Colors            = { sceneMs };
+    targets.Resolves          = { scene };
     const GraphColor colors[] = { VelocityColor( velocity, 4 ) };
     ASSERT_TRUE( AppendGraphColors( targets, colors, true ) );
     graph.AddPass(
@@ -2546,9 +2547,8 @@ TEST( RenderGraphCompile, SampleZeroGraphColourGetsAResolveNodeAndNoHardwareReso
          },
          Ok );
     AddGraphColorResolves(
-         graph, colors,
-         []( PassBuilder& pass, const GraphColor& color ) { pass.Read( color.Multisample, Access::SampledGraphics ); },
-         []( const GraphColor& ) { return Ok; } );
+         graph, colors, []( PassBuilder& pass, const GraphColor& color )
+         { pass.Read( color.Multisample, Access::SampledGraphics ); }, []( const GraphColor& ) { return Ok; } );
     ExternalTexture sceneOut( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
     ExternalTexture velOut( Tex2D( 64, 64, ImageFormat::RG16F ), Access::None );
     graph.Extract( scene, sceneOut, Access::SampledGraphics );
@@ -2570,8 +2570,9 @@ TEST( RenderGraphCompile, SampleZeroGraphColourGetsAResolveNodeAndNoHardwareReso
     EXPECT_TRUE( HasFlag( resolve->Flags, PassFlags::Raster ) );
     bool writesVelocity = false;
     for ( const AttachmentDecision& attachment : resolve->Attachments )
-        writesVelocity = writesVelocity || ( !attachment.IsDepth && !attachment.IsResolve && attachment.Slot == 0 &&
-                                             attachment.Resource == velocity.Resolved.Index );
+        writesVelocity =
+             writesVelocity || ( !attachment.IsDepth && !attachment.IsResolve && attachment.Slot == 0 &&
+                                 attachment.Resource == velocity.Resolved.Index );
     EXPECT_TRUE( writesVelocity ) << "the resolve node does not write the single-sample velocity";
     const std::vector<Barrier> intoRead = BarriersOn( resolve, velocity.Multisample.Index );
     ASSERT_EQ( intoRead.size(), 1u );

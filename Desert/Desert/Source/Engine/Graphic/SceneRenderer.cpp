@@ -343,7 +343,8 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
                        resolveInit.GetError() );
 
-        // The sample-0 shader resolve of the scene target's SampleZero graph colours (the view's velocity at MSAA).
+        // The sample-0 shader resolve of the scene target's SampleZero graph colours (the view's velocity at
+        // MSAA).
         RegisterSystem<System::GraphColorResolveRenderer>( "GraphColorResolveSystem", this, m_TargetFramebuffer,
                                                            m_RenderGraphBuilder );
         if ( const auto colorResolveInit =
@@ -862,9 +863,9 @@ namespace Desert::Graphic
         // A target at another extent than the view's is refused by name: the frame is not drawn.
         if ( m_TargetFramebuffer )
         {
-            const FramebufferSpecification& target   = m_TargetFramebuffer->GetSpecification();
-            std::string                     mismatch = ViewTargetExtentMismatch(
-                 m_ViewExtent.Width, m_ViewExtent.Height, "scene target", target.Width, target.Height );
+            const FramebufferSpecification& target = m_TargetFramebuffer->GetSpecification();
+            std::string mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height,
+                                                             "scene target", target.Width, target.Height );
             if ( mismatch.empty() && m_GBuffer )
                 mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height, "G-buffer",
                                                      m_GBuffer->GetSpecification().Width,
@@ -883,7 +884,8 @@ namespace Desert::Graphic
         const auto values = std::make_shared<FrameValues>();
 
         // The view's per-primitive motion rows (current + previous world, both bone palettes) from the view's
-        // MotionHistory, built once before any pass is declared: every view pass of this frame reads the same rows.
+        // MotionHistory, built once before any pass is declared: every view pass of this frame reads the same
+        // rows.
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
@@ -1301,7 +1303,8 @@ namespace Desert::Graphic
                                     .DirectTextureSampler = directTextureSampler } );
     }
 
-    void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, const Mesh* mesh, const glm::mat4& transform, Material* material,
+    void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, const Mesh* mesh,
+                                                const glm::mat4& transform, Material* material,
                                                 uint64_t visibleSubmeshMask, bool outlined, bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )

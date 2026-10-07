@@ -142,8 +142,8 @@ TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
 // pass a velocity output -> red.
 TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
 {
-    const auto root   = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Mesh/Surface";
-    const auto noWs   = []( std::string s )
+    const auto root = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Mesh/Surface";
+    const auto noWs = []( std::string s )
     {
         s.erase( std::remove_if( s.begin(), s.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
                  s.end() );
@@ -153,7 +153,8 @@ TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
     {
         const std::string src = noWs( ReadFile( root / vertex ) );
         ASSERT_FALSE( src.empty() ) << vertex;
-        EXPECT_NE( src.find( "objectMotions.Motions[m_PushConstants.PrimitiveIndex]" ), std::string::npos ) << vertex;
+        EXPECT_NE( src.find( "objectMotions.Motions[m_PushConstants.PrimitiveIndex]" ), std::string::npos )
+             << vertex;
         EXPECT_NE( src.find( "row.World*m_PushConstants.Transform" ), std::string::npos ) << vertex;
         EXPECT_NE( src.find( "row.PrevWorld*m_PushConstants.Transform" ), std::string::npos ) << vertex;
         EXPECT_NE( src.find( "v_Surface.Clip=cameraUB.ViewProjection*" ), std::string::npos ) << vertex;
@@ -207,8 +208,8 @@ namespace VelocityTargetTest
 // Mutation: delete the IsSceneReadBinding refusal in DShaderParser::Parse -> red.
 TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange )
 {
-    using Desert::Core::Preprocess::DShaderParser;
     using Desert::Core::kSceneReadBindingFirst;
+    using Desert::Core::Preprocess::DShaderParser;
 
     const auto textures = []( uint32_t first )
     {
@@ -222,9 +223,9 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
     EXPECT_NE( intoRange.GetError().find( "scene-read" ), std::string::npos ) << intoRange.GetError();
     EXPECT_NE( intoRange.GetError().find( "u_Second" ), std::string::npos ) << intoRange.GetError();
 
-    const auto row = DShaderParser::Parse( ProbeWithProperties(
-         "Properties Binding(" + std::to_string( kSceneReadBindingFirst ) +
-         ")\n    {\n        Color Tint (\"Tint\") = (1, 1, 1, 1)\n    }\n" ) );
+    const auto row = DShaderParser::Parse(
+         ProbeWithProperties( "Properties Binding(" + std::to_string( kSceneReadBindingFirst ) +
+                              ")\n    {\n        Color Tint (\"Tint\") = (1, 1, 1, 1)\n    }\n" ) );
     ASSERT_FALSE( row.IsSuccess() );
     EXPECT_NE( row.GetError().find( "scene-read" ), std::string::npos ) << row.GetError();
 
@@ -239,10 +240,11 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
 // C++ numbers PBRSceneFrame's resources are reserved under. Text, not reflection, because a resource that only
 // collides inside one cell would need that cell compiled to be seen; the after-compile half is
 // ShaderReflection::ReflectStage, which refuses a slot claimed twice by name.
-// Mutation: move SpotLightsUB (or any texture) to 25 / spell ObjectMotions at 16 (where SpotLightsUB lives) -> red.
+// Mutation: move SpotLightsUB (or any texture) to 25 / spell ObjectMotions at 16 (where SpotLightsUB lives) ->
+// red.
 TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
 {
-    const auto shaders = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders";
+    const auto       shaders = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders";
     const std::regex declaration(
          R"(binding\s*=\s*(\d+)\s*\)\s*(?:readonly\s+|writeonly\s+)?(?:uniform|buffer)\s+(?:\w+\s+)?(\w+))"
          R"(|\b(?:Uniform|Buffer|ReadBuffer|WriteBuffer)\s*\(\s*(\d+)\s*\)\s*(?:\w+\s+)?(\w+))" );
@@ -258,9 +260,9 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         const std::string text = ReadFile( entry.path() );
         for ( std::sregex_iterator it( text.begin(), text.end(), declaration ), end; it != end; ++it )
         {
-            const auto&       m       = *it;
-            const uint32_t    binding = static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) );
-            const std::string name    = m[2].matched ? m[2].str() : m[4].str();
+            const auto&    m       = *it;
+            const uint32_t binding = static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) );
+            const std::string name = m[2].matched ? m[2].str() : m[4].str();
             if ( entry.path().filename() == "ObjectMotion.glslh" )
                 sceneRead[name] = binding;
             else
@@ -337,10 +339,10 @@ TEST( VelocityTarget, AnObjectNotDrawnLastFrameMovesOnlyWithTheCamera )
 }
 
 // The owning entity is the MotionHistory key of a draw's previous transform, and it crosses three hops before the
-// geometry pass reads it: the ECS emplace names it, the command's Execute forwards it, SceneRenderer copies it onto
-// the render data. A hop that drops it keys every object of the scene under one id — each draw then reads another
-// object's previous transform, which is a wrong velocity with no error anywhere. Mutation that turns this red:
-// remove `Entity` from any command's Execute, or pass anything but `entity` first in an emplace.
+// geometry pass reads it: the ECS emplace names it, the command's Execute forwards it, SceneRenderer copies it
+// onto the render data. A hop that drops it keys every object of the scene under one id — each draw then reads
+// another object's previous transform, which is a wrong velocity with no error anywhere. Mutation that turns this
+// red: remove `Entity` from any command's Execute, or pass anything but `entity` first in an emplace.
 TEST( VelocityTarget, EveryMeshDrawCarriesItsOwningEntityToTheRenderData )
 {
     using VelocityTargetTest::ReadFile;
@@ -374,7 +376,8 @@ TEST( VelocityTarget, EveryMeshDrawCarriesItsOwningEntityToTheRenderData )
         const std::regex emplace(
              R"(Emplace<Graphic::Render::Draw(Static|Skinned|SlotMaterial|Generic)Mesh(Command)?>\(\s*([^,]*),)" );
         int seen = 0;
-        for ( auto it = std::sregex_iterator( src.begin(), src.end(), emplace ); it != std::sregex_iterator(); ++it )
+        for ( auto it = std::sregex_iterator( src.begin(), src.end(), emplace ); it != std::sregex_iterator();
+              ++it )
         {
             ++seen;
             EXPECT_EQ( ( *it )[3].str(), "static_cast<uint32_t>( entity )" )
@@ -386,16 +389,16 @@ TEST( VelocityTarget, EveryMeshDrawCarriesItsOwningEntityToTheRenderData )
     const std::string scene = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
     EXPECT_TRUE( std::regex_search( scene, std::regex( R"(\.Entity\s*=\s*extra\.Entity)" ) ) )
          << "SceneRenderer::SubmitMesh drops RenderSubmissionExtra::Entity";
-    EXPECT_EQ( std::distance( std::sregex_iterator( scene.begin(), scene.end(),
-                                                    std::regex( R"(\.Entity\s*=\s*entity\b)" ) ),
-                              std::sregex_iterator() ),
+    EXPECT_EQ( std::distance(
+                    std::sregex_iterator( scene.begin(), scene.end(), std::regex( R"(\.Entity\s*=\s*entity\b)" ) ),
+                    std::sregex_iterator() ),
                2 )
          << "SubmitGenericMesh / SubmitSlotMaterialMesh must both copy the entity onto GenericMeshRenderData";
 }
 
-// Step C: the instanced view pass evaluates the wind at the view's previous frame (Vertex_Instanced reads WindB.z);
-// the renderer writes it per view. Mutation: drop the B.z write in PackViewInstanceWind -> red; the light-view
-// pack writing a previous time -> red.
+// Step C: the instanced view pass evaluates the wind at the view's previous frame (Vertex_Instanced reads
+// WindB.z); the renderer writes it per view. Mutation: drop the B.z write in PackViewInstanceWind -> red; the
+// light-view pack writing a previous time -> red.
 TEST( VelocityTarget, InstancedViewPushCarriesTheWindAtThePreviousFrame )
 {
     using namespace Desert::Graphic;
@@ -432,7 +435,8 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
     EXPECT_LT( build, first ) << "the rows must be final before the first pass is declared";
     EXPECT_LT( prev, first );
 
-    const auto meshes = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+    const auto meshes =
+         ReadFile( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
     const auto capture = meshes.find( "PBRSceneFrame MeshRenderer::CaptureFrameState(" );
     ASSERT_NE( capture, std::string::npos );
     const auto end = meshes.find( "return frame;", capture );
@@ -444,7 +448,8 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
 
 namespace VelocityTargetTest
 {
-    // The body of `<head>` in a source (CR stripped): from the head to the next top-level `    }` line of the namespace.
+    // The body of `<head>` in a source (CR stripped): from the head to the next top-level `    }` line of the
+    // namespace.
     std::string FunctionBody( const std::string& crlfOrLf, const std::string& head )
     {
         std::string source = crlfOrLf;
@@ -454,23 +459,23 @@ namespace VelocityTargetTest
             return {};
         const auto end = source.find( "
     }
-", begin );
-        return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
-    }
+    ", begin );
+         return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+}
 } // namespace VelocityTargetTest
 
-// Step B: every view-pass draw builder indexes the object's motion row and pushes the submesh transform RELATIVE to
-// it (identity), and the skinned view path skins from the row's ObjectBones slices instead of uploading its own
+// Step B: every view-pass draw builder indexes the object's motion row and pushes the submesh transform RELATIVE
+// to it (identity), and the skinned view path skins from the row's ObjectBones slices instead of uploading its own
 // palette. Mutations: drop a SetPrimitiveIndex (static / generic / glass / skinned) -> red; push obj->Transform or
-// g.Transform again (as `.Transform` or SetPushMatrix) -> red; restore UploadSkinnedBones or SetSkinnedBoneOffset in
-// BuildSkinnedDraws -> red.
+// g.Transform again (as `.Transform` or SetPushMatrix) -> red; restore UploadSkinnedBones or SetSkinnedBoneOffset
+// in BuildSkinnedDraws -> red.
 TEST( VelocityTarget, EveryViewPassDrawIndexesItsMotionRowAndPushesARelativeTransform )
 {
     using VelocityTargetTest::FunctionBody;
     using VelocityTargetTest::ReadFile;
-    const auto        root    = Desert::TestSupport::RepositoryRoot();
-    const std::string forward = ReadFile(
-         root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
+    const auto        root = Desert::TestSupport::RepositoryRoot();
+    const std::string forward =
+         ReadFile( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
     const std::vector<std::string> builders = {
          "void MeshRenderer::BuildGenericDraws(",
          "void MeshRenderer::DeclareGlassBindings(",
@@ -492,7 +497,8 @@ TEST( VelocityTarget, EveryViewPassDrawIndexesItsMotionRowAndPushesARelativeTran
                  << head << " draws with a world transform in the push (`.Transform = " << value
                  << "`): the cell reads World from the row, so the push must be relative to it";
         }
-        for ( auto it = std::sregex_iterator( body.begin(), body.end(), pushed ); it != std::sregex_iterator(); ++it )
+        for ( auto it = std::sregex_iterator( body.begin(), body.end(), pushed ); it != std::sregex_iterator();
+              ++it )
             EXPECT_EQ( ( *it )[1].str(), "glm::mat4( 1.0f )" ) << head << " SetPushMatrix with a world transform";
     }
     const std::string skinned = FunctionBody( forward, "void MeshRenderer::BuildSkinnedDraws(" );
@@ -542,7 +548,8 @@ TEST( VelocityTarget, RowsCarryEachPrimitivesOwnPreviousWorldAcrossFrames )
     MotionHistory    motion;
     ObjectMotionRows out;
     {
-        const std::vector<MotionRecord> rigid = { { .Entity = 5, .World = At( 0 ) }, { .Entity = 6, .World = At( 7 ) } };
+        const std::vector<MotionRecord> rigid = { { .Entity = 5, .World = At( 0 ) },
+                                                  { .Entity = 6, .World = At( 7 ) } };
         BuildObjectMotionRows( motion, rigid, {}, out );
         motion.EndFrame();
     }
@@ -565,12 +572,12 @@ TEST( VelocityTarget, EverySkinnedSlotGetsItsOwnRowAndItsOwnPreviousPalette )
 {
     using namespace Desert::Graphic;
     using VelocityTargetTest::At;
-    const std::vector<glm::mat4> poseA0 = { At( 1 ), At( 2 ) };
-    const std::vector<glm::mat4> poseB0 = { At( 5 ), At( 6 ), At( 7 ) };
-    const std::vector<glm::mat4> poseA1 = { At( 11 ), At( 12 ) };
-    const std::vector<glm::mat4> poseB1 = { At( 15 ), At( 16 ), At( 17 ) };
-    MotionHistory                motion;
-    ObjectMotionRows             out;
+    const std::vector<glm::mat4>    poseA0 = { At( 1 ), At( 2 ) };
+    const std::vector<glm::mat4>    poseB0 = { At( 5 ), At( 6 ), At( 7 ) };
+    const std::vector<glm::mat4>    poseA1 = { At( 11 ), At( 12 ) };
+    const std::vector<glm::mat4>    poseB1 = { At( 15 ), At( 16 ), At( 17 ) };
+    MotionHistory                   motion;
+    ObjectMotionRows                out;
     const std::vector<MotionRecord> rigid = { { .Entity = 2, .World = At( 0 ) } };
     BuildObjectMotionRows( motion, rigid,
                            std::vector<MotionRecord>{ { .Entity = 2, .World = At( 0 ), .Bones = poseA0 },
@@ -583,9 +590,9 @@ TEST( VelocityTarget, EverySkinnedSlotGetsItsOwnRowAndItsOwnPreviousPalette )
 
     ASSERT_EQ( out.RecordRows.size(), 3u );
     EXPECT_EQ( out.Rows.size(), 3u ) << "the rigid record and both skinned slots are three primitives";
-    const GpuObjectMotion& a = out.Rows[out.RecordRows[1]];
-    const GpuObjectMotion& b = out.Rows[out.RecordRows[2]];
-    const auto slice = [&]( const uint32_t offset, const std::size_t count )
+    const GpuObjectMotion& a     = out.Rows[out.RecordRows[1]];
+    const GpuObjectMotion& b     = out.Rows[out.RecordRows[2]];
+    const auto             slice = [&]( const uint32_t offset, const std::size_t count )
     { return std::vector<glm::mat4>( out.Palettes.begin() + offset, out.Palettes.begin() + offset + count ); };
     EXPECT_EQ( slice( a.BoneOffset, 2 ), poseA1 );
     EXPECT_EQ( slice( a.PrevBoneOffset, 2 ), poseA0 );
@@ -601,9 +608,8 @@ TEST( VelocityTarget, RowIndicesAreStableWithinTheFrame )
     using namespace Desert::Graphic;
     using VelocityTargetTest::At;
     const std::vector<glm::mat4>    pose  = { At( 1 ) };
-    const std::vector<MotionRecord> rigid = { { .Entity = 1, .World = At( 0 ) },
-                                              { .Entity = 2, .World = At( 3 ) },
-                                              { .Entity = 1, .World = At( 0 ) } };
+    const std::vector<MotionRecord> rigid = {
+         { .Entity = 1, .World = At( 0 ) }, { .Entity = 2, .World = At( 3 ) }, { .Entity = 1, .World = At( 0 ) } };
     const std::vector<MotionRecord> skinned = { { .Entity = 8, .World = At( 4 ), .Bones = pose } };
     MotionHistory                   motion;
     ObjectMotionRows                first;
@@ -737,9 +743,9 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     // (RenderGraphCompile.SampleZeroGraphColourGetsAResolveNodeAndNoHardwareResolve).
     const ViewVelocity msaa = CreateViewVelocity( graph, RDG::Extent3D{ 64, 32, 1 }, 4 );
     ASSERT_TRUE( msaa.Multisample.IsValid() );
-    RasterTargets      multisampled;
-    multisampled.Colors   = { graph.CreateTexture( colour, "SceneColor.MS" ) };
-    multisampled.Resolves = { graph.CreateTexture( colour, "SceneColor.Resolved" ) };
+    RasterTargets multisampled;
+    multisampled.Colors       = { graph.CreateTexture( colour, "SceneColor.MS" ) };
+    multisampled.Resolves     = { graph.CreateTexture( colour, "SceneColor.Resolved" ) };
     const GraphColor onMsaa[] = { VelocityColor( msaa, 4 ) };
     ASSERT_TRUE( AppendGraphColors( multisampled, onMsaa, true ) );
     EXPECT_EQ( multisampled.Colors[1], msaa.Multisample );
@@ -754,12 +760,13 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
 
 // Step E: LoadOp PER SLOT. A node clearing scene colour to the sky grey clears velocity to ZERO (its own clear
 // value), not to the grey; the next node on the target loads velocity even when it clears colour again.
-// Mutations: ColorLoads applies the pass's LoadOp to every slot / clears the own-clear slot on every writer -> red.
+// Mutations: ColorLoads applies the pass's LoadOp to every slot / clears the own-clear slot on every writer ->
+// red.
 TEST( VelocityTarget, EachColourSlotTakesItsOwnClearOnItsFirstWriter )
 {
     using namespace Desert::Graphic;
     RasterTargets targets;
-    targets.Colors    = { RDG::TextureRef{ 0 } };
+    targets.Colors              = { RDG::TextureRef{ 0 } };
     const GraphColor velocity[] = { GraphColor{ RDG::TextureRef{ 7 }, {}, RDG::ClearValue{} } };
     ASSERT_TRUE( AppendGraphColors( targets, velocity, false ) );
 
@@ -805,7 +812,8 @@ TEST( VelocityTarget, NoViewTargetPipelineNamesAFramebuffer )
          { "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp", 1 },
          { "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp", 1 },
     };
-    const std::regex layout( R"(\.TargetLayout\s*=\s*(Desert::Graphic::)?(SceneTargetLayout|GBufferLayout)\(\)|\.TargetLayout\s*=\s*layout;)" );
+    const std::regex layout(
+         R"(\.TargetLayout\s*=\s*(Desert::Graphic::)?(SceneTargetLayout|GBufferLayout)\(\)|\.TargetLayout\s*=\s*layout;)" );
     // A view target named as a pipeline's Framebuffer (the names those sites held before).
     const std::regex framebuffer(
          R"(\.Framebuffer\s*=\s*(target|targetFb|compositeFramebuffer|gbuffer|framebuffer|scene->GetTargetFramebuffer\(\))\s*;)" );
@@ -813,10 +821,11 @@ TEST( VelocityTarget, NoViewTargetPipelineNamesAFramebuffer )
     {
         const std::string text = ReadFile( root / file );
         ASSERT_FALSE( text.empty() ) << file;
-        const auto count = std::distance( std::sregex_iterator( text.begin(), text.end(), layout ),
-                                          std::sregex_iterator() );
+        const auto count =
+             std::distance( std::sregex_iterator( text.begin(), text.end(), layout ), std::sregex_iterator() );
         EXPECT_EQ( count, expected ) << file << ": a view-target pipeline is not built against its target layout";
-        EXPECT_FALSE( std::regex_search( text, framebuffer ) ) << file << ": a view-target pipeline names a Framebuffer";
+        EXPECT_FALSE( std::regex_search( text, framebuffer ) )
+             << file << ": a view-target pipeline names a Framebuffer";
     }
     const std::string terrain = ReadFile( root / ( E + "Terrain/TerrainRenderer.cpp" ) );
     EXPECT_NE( terrain.find( "GBufferLayout(), error" ), std::string::npos ) << "terrain G-buffer pipeline";
@@ -825,12 +834,13 @@ TEST( VelocityTarget, NoViewTargetPipelineNamesAFramebuffer )
 
 // The view's velocity is created ONCE per view graph, inside CreateViewVelocity, before the first node, and is a
 // colour of the scene target and the G-buffer only: never of a light view (RSM, cascades). Mutation: a second
-// CreateViewVelocity, the call moved after AddFrameClearMainFramebuffer, or AddGraphColor( m_RSMBuffer ... ) -> red.
+// CreateViewVelocity, the call moved after AddFrameClearMainFramebuffer, or AddGraphColor( m_RSMBuffer ... ) ->
+// red.
 TEST( VelocityTarget, VelocityIsCreatedOncePerViewAndNeverOnALightView )
 {
     using VelocityTargetTest::ReadFile;
-    const auto  root  = Desert::TestSupport::RepositoryRoot();
-    const auto  count = []( const std::string& text, const std::string& what )
+    const auto root  = Desert::TestSupport::RepositoryRoot();
+    const auto count = []( const std::string& text, const std::string& what )
     {
         std::size_t n = 0;
         for ( std::size_t at = text.find( what ); at != std::string::npos; at = text.find( what, at + 1 ) )
@@ -854,7 +864,8 @@ TEST( VelocityTarget, VelocityIsCreatedOncePerViewAndNeverOnALightView )
 
 namespace VelocityTargetTest
 {
-    // The fragment stage of a shipped program, by its `Shader "<name>"`: the default pass, else the first pass with one.
+    // The fragment stage of a shipped program, by its `Shader "<name>"`: the default pass, else the first pass
+    // with one.
     struct FragmentOf
     {
         std::filesystem::path File;
@@ -901,16 +912,16 @@ namespace VelocityTargetTest
     }
 } // namespace VelocityTargetTest
 
-// The passes that draw INTO the view's scene target but must NOT write its velocity: sky, fog, clouds, the deferred
-// and SSR composites, debug lines, the overdraw view, particles and the editor overlays. They have no motion of a
-// surface of their own (a fullscreen composite has no surface), so the velocity the depth writers left must survive
-// them. What keeps it is the colour-write MASK the pipeline gets from the FRAGMENT-OUTPUT REFLECTION
+// The passes that draw INTO the view's scene target but must NOT write its velocity: sky, fog, clouds, the
+// deferred and SSR composites, debug lines, the overdraw view, particles and the editor overlays. They have no
+// motion of a surface of their own (a fullscreen composite has no surface), so the velocity the depth writers left
+// must survive them. What keeps it is the colour-write MASK the pipeline gets from the FRAGMENT-OUTPUT REFLECTION
 // (ShaderReflection::ReflectFragmentOutputLocations -> BuildColorBlendAttachments, the path VulkanPipeline takes):
 // a slot the fragment stage has no output at gets mask 0. So each named program is compiled from its shipped
-// source and reflected, and the velocity slot of SceneTargetLayout must come out unwritten with mask 0; and the C++
-// site that builds its pipeline must load it by that name against SceneTargetLayout. Mutation: give Skybox.shader
-// (or any named program) an `Out(1) vec2 oVelocity` -> red; rename a site's shader -> red.
-// ONE extent source (lead decision): the scene target, the G-buffer and the velocity transient all take the view
+// source and reflected, and the velocity slot of SceneTargetLayout must come out unwritten with mask 0; and the
+// C++ site that builds its pipeline must load it by that name against SceneTargetLayout. Mutation: give
+// Skybox.shader (or any named program) an `Out(1) vec2 oVelocity` -> red; rename a site's shader -> red. ONE
+// extent source (lead decision): the scene target, the G-buffer and the velocity transient all take the view
 // extent. ViewTargetExtentMismatch names a target at another extent; SceneRenderer::OnUpdate refuses that frame,
 // creates the velocity from m_ViewExtent, and Resize resizes both targets at the one extent. Mutations: make the
 // mismatch check compare only widths / create the velocity from the target spec again / drop the G-buffer check
@@ -924,20 +935,21 @@ TEST( VelocityTarget, SceneTargetGBufferAndVelocityShareTheViewExtent )
     EXPECT_NE( height.find( "1920x1080" ), std::string::npos ) << height;
     EXPECT_FALSE( ViewTargetExtentMismatch( 1920, 1080, "scene target", 1280, 1080 ).empty() );
 
-    const std::string scene = VelocityTargetTest::ReadFile( Desert::TestSupport::RepositoryRoot() /
-                                                            "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+    const std::string scene = VelocityTargetTest::ReadFile(
+         Desert::TestSupport::RepositoryRoot() / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
     const auto velocity = scene.find( "CreateViewVelocity(" );
     ASSERT_NE( velocity, std::string::npos );
     const std::string call = scene.substr( velocity, 160 );
     EXPECT_NE( call.find( "m_ViewExtent.Width, m_ViewExtent.Height" ), std::string::npos )
          << "the velocity is not created at the view extent: " << call;
-    const auto refusal = scene.find( "ViewTargetExtentMismatch(", scene.rfind( "if ( m_TargetFramebuffer )", velocity ) );
+    const auto refusal =
+         scene.find( "ViewTargetExtentMismatch(", scene.rfind( "if ( m_TargetFramebuffer )", velocity ) );
     ASSERT_LT( refusal, velocity ) << "the extent check must run before the velocity is created";
     EXPECT_NE( scene.find( "\"G-buffer\",", refusal ), std::string::npos ) << "the G-buffer extent is not checked";
     EXPECT_NE( scene.find( "\"scene target\"", refusal ), std::string::npos );
     const auto resize = scene.find( "void SceneRenderer::Resize(" );
     ASSERT_NE( resize, std::string::npos );
-    const auto targetResize = scene.find( "m_TargetFramebuffer->Resize( width, height );", resize );
+    const auto targetResize  = scene.find( "m_TargetFramebuffer->Resize( width, height );", resize );
     const auto gbufferResize = scene.find( "m_GBuffer->Resize( width, height );", resize );
     ASSERT_NE( targetResize, std::string::npos );
     ASSERT_NE( gbufferResize, std::string::npos );
