@@ -129,31 +129,67 @@ namespace
     /// What fraction of the region's columns carry any cloud at all, measured on the REAL bake. The same
     /// quantity TheCoverageSliderStillMeansTheSkyAtTheShippedPlacement measures, lifted out of it so the
     /// zero-mean relation can measure the same thing rather than something like it.
-    double SkyCover( const CloudProceduralFieldParams& params )
+    // THE SKY THE MARCH KEEPS (FARWX-a): the bake holds every cell with its rank, and a column has cloud
+    // when its lowest rank is under the local cover at the column's WORLD site. Measured at many whole-region
+    // shifts, because the weather is a world field and one region holds only a couple of its systems.
+    std::vector<unsigned char> ColumnMinRanks( const CloudProceduralVolumeBake& bake, uint32_t side )
+    {
+        std::vector<unsigned char> minima( static_cast<size_t>( side ) * side, kCloudProceduralNoRank );
+        for ( uint32_t z = 0; z < side; ++z )
+            for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+                for ( uint32_t x = 0; x < side; ++x )
+                {
+                    unsigned char& lowest = minima[static_cast<size_t>( z ) * side + x];
+                    lowest = std::min( lowest, bake.Ranks[( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x] );
+                }
+        return minima;
+    }
+
+    glm::vec2 RegionShiftKm( const CloudProceduralFieldParams& params, int shift )
+    {
+        // Whole regions, so the bake's column index is unchanged; scattered so the weather is not.
+        return glm::vec2( static_cast<float>( ( shift * 7 ) % 41 ), static_cast<float>( ( shift * 13 ) % 37 ) ) *
+               params.RegionSizeKm * static_cast<float>( 1 + shift / 41 );
+    }
+
+    std::vector<float> KeptColumns( const CloudProceduralFieldParams& params, const std::vector<unsigned char>& minima,
+                                    const glm::vec2& origin, int shift )
+    {
+        const uint32_t     side  = params.VolumeSideVoxels;
+        const float        voxel = params.RegionSizeKm / static_cast<float>( side );
+        const glm::vec2    base  = origin + RegionShiftKm( params, shift );
+        std::vector<float> map( minima.size(), 0.0f );
+        for ( uint32_t z = 0; z < side; ++z )
+            for ( uint32_t x = 0; x < side; ++x )
+            {
+                const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
+                                                          ( static_cast<float>( z ) + 0.5f ) * voxel );
+                const size_t at = static_cast<size_t>( z ) * side + x;
+                map[at] = CloudProceduralKeep( minima[at], CloudProceduralLocalCover( params, world ) ) ? 1.0f : 0.0f;
+            }
+        return map;
+    }
+
+    double KeptCover( const CloudProceduralFieldParams& params, int shifts )
     {
         const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        const auto      baked  = BakeCloudProceduralVolume( params, origin );
+        const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
         if ( !baked )
             return -1.0;
+        const std::vector<unsigned char> minima = ColumnMinRanks( baked.GetValue(), params.VolumeSideVoxels );
+        double sum = 0.0;
+        for ( int shift = 0; shift < shifts; ++shift )
+        {
+            const std::vector<float> map = KeptColumns( params, minima, origin, shift );
+            for ( float v : map )
+                sum += v;
+        }
+        return sum / ( static_cast<double>( shifts ) * static_cast<double>( minima.size() ) );
+    }
 
-        size_t columns = 0;
-        for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
-            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
-                for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-                {
-                    const size_t at = ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) *
-                                             kCloudProceduralVolumeSide +
-                                        x ) *
-                                      kCloudProceduralBytesPerVoxel;
-                    if ( baked.GetValue()[at] != 0u )
-                    {
-                        ++columns;
-                        break;
-                    }
-                }
-
-        return static_cast<double>( columns ) /
-               static_cast<double>( kCloudProceduralVolumeSide * kCloudProceduralVolumeSide );
+    double SkyCover( const CloudProceduralFieldParams& params )
+    {
+        return KeptCover( params, 64 );
     }
 
     /// The lumps of one region, rasterised into the top-down column integral described in the file note.
@@ -289,9 +325,7 @@ namespace
 
     double CoverOfPlacement( const CloudProceduralFieldParams& params )
     {
-        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        return CoverOf(
-             RasteriseColumns( GenerateCloudProceduralBlobs( params, 0u, origin ), origin, params.RegionSizeKm ) );
+        return KeptCover( params, 64 );
     }
 } // namespace
 
@@ -487,7 +521,10 @@ TEST( CloudPlacementSpectrum, TheShippedPlacementHasNoLatticeAndConfiningItAgain
 {
     constexpr int kRegions = 8;
 
-    const CloudProceduralFieldParams shipped = ShippedParams();
+    // THE PLACEMENT, WEATHER APART: the weather is a world layer applied at the march now (FARWX-a), so
+    // it is not part of the lattice the placement makes and would only add its own noise to both arms.
+    CloudProceduralFieldParams shipped = ShippedParams();
+    shipped.PatchStrength              = 0.0f;
 
     CloudProceduralFieldParams confined = shipped;
     confined.PlacementScatter           = 0.0f;
@@ -618,28 +655,8 @@ TEST( CloudPlacementSpectrum, TheCoverageSliderStillMeansTheSkyAtTheShippedPlace
         CloudProceduralFieldParams params = ShippedParams();
         params.Coverage                   = wanted;
 
-        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        const auto      baked  = BakeCloudProceduralVolume( params, origin );
-        ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
-
-        size_t columns = 0;
-        for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
-            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
-                for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-                {
-                    const size_t at = ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) *
-                                             kCloudProceduralVolumeSide +
-                                        x ) *
-                                      kCloudProceduralBytesPerVoxel;
-                    if ( baked.GetValue()[at] != 0u )
-                    {
-                        ++columns;
-                        break;
-                    }
-                }
-
-        const double measured = static_cast<double>( columns ) /
-                                static_cast<double>( kCloudProceduralVolumeSide * kCloudProceduralVolumeSide );
+        const double measured = KeptCover( params, 64 );
+        ASSERT_GE( measured, 0.0 ) << "the ranked bake failed";
 
         std::printf( "[CloudPlacementSpectrum] coverage %.2f -> %.3f of the sky (%+.3f)\n", wanted, measured,
                      measured - wanted );
@@ -3151,7 +3168,16 @@ namespace
 
         for ( uint32_t seed = 1; seed <= seeds; ++seed )
         {
-            const std::vector<float> map = ColumnsOfSeed( params, seed );
+            CloudProceduralFieldParams seeded = params;
+            seeded.Seed                       = seed;
+            const glm::vec2 origin = CloudProceduralRegionOriginKm( seeded, 0.0f, 0.0f );
+            const auto      baked  = BakeCloudProceduralVolumeRanked( seeded, origin, {} );
+            if ( !baked )
+                continue;
+            const std::vector<unsigned char> minima = ColumnMinRanks( baked.GetValue(), seeded.VolumeSideVoxels );
+            for ( int shift = 0; shift < 4; ++shift )
+            {
+            const std::vector<float> map = KeptColumns( seeded, minima, origin, shift );
             for ( int bz = 0; bz < blocks; ++bz )
                 for ( int bx = 0; bx < blocks; ++bx )
                 {
@@ -3165,6 +3191,7 @@ namespace
                     covers.push_back( static_cast<double>( touched ) /
                                       static_cast<double>( blockPixels * blockPixels ) );
                 }
+            }
         }
 
         Clustering out;
@@ -3311,6 +3338,81 @@ TEST( CloudPlacementSpectrum, TheWeatherRedistributesTheCellsCoverWithoutMovingI
                                  << coverage;
         EXPECT_GT( spread, 0.15 ) << "the weather barely varies the cells' cover at a slider of " << coverage;
     }
+}
+
+// THE HORIZON'S GAPS ARE NOT CLOSED BY THE REGION'S OWN REPEAT (FARWX-a). The bake tiles with the region,
+// so the weather must not: a weather periodic with the region (WeatherGaussian's fmod(world, region)) put
+// every gap's copy one region further out along the sight line, and at 2 degrees above the owner's horizon
+// a sight line crosses the layer for a hundred kilometres. Two measurements: the weather's own
+// autocorrelation along a 2-degree heading at a lag of one region, and the fraction of the columns a
+// 2-degree sight line crosses inside the layer that the march keeps CLEAR at Coverage 0.55.
+// MUTATION: kCloudFarWeatherPeriodKm = RegionSizeKm (48) makes the correlation 1 and this test red.
+TEST( CloudPlacementSpectrum, TheHorizonGapsAreNotClosedByTheRegionsRepeat )
+{
+    CloudProceduralFieldParams params = ShippedParams();
+    params.Coverage                   = 0.55f;
+
+    constexpr float kElevation = 2.0f * 0.017453292519943295f;
+
+    double sxy = 0.0, sxx = 0.0, syy = 0.0;
+    for ( uint32_t seed = 1; seed <= 8u; ++seed )
+    {
+        CloudProceduralFieldParams seeded = params;
+        seeded.Seed                       = seed;
+        const uint32_t weatherSeed        = CloudFarWeatherSeed( seeded );
+        for ( int ray = 0; ray < 64; ++ray )
+        {
+            const float     azimuth = kElevation + static_cast<float>( ray ) * 0.0982f;
+            const glm::vec2 heading( std::cos( azimuth ), std::sin( azimuth ) );
+            const glm::vec2 start = glm::vec2( 131.0f, 77.0f ) * static_cast<float>( ray + 64 * static_cast<int>( seed ) );
+            for ( int d = 0; d < 300; ++d )
+            {
+                const float a = CloudFarWeather( weatherSeed, start + heading * static_cast<float>( d ), seeded.PatchTileKm );
+                const float b = CloudFarWeather( weatherSeed, start + heading * ( static_cast<float>( d ) + seeded.RegionSizeKm ),
+                                                 seeded.PatchTileKm );
+                sxy += a * b;
+                sxx += a * a;
+                syy += b * b;
+            }
+        }
+    }
+    const double correlation = sxy / std::sqrt( std::max( sxx * syy, 1e-30 ) );
+
+    const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+    const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
+    ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
+    const std::vector<unsigned char> minima = ColumnMinRanks( baked.GetValue(), params.VolumeSideVoxels );
+
+    const int   side  = static_cast<int>( params.VolumeSideVoxels );
+    const float voxel = params.RegionSizeKm / static_cast<float>( side );
+    size_t      clear = 0, crossed = 0;
+    for ( int ray = 0; ray < 32; ++ray )
+    {
+        const float     azimuth = static_cast<float>( ray ) * 0.19635f;
+        const glm::vec2 heading( std::cos( azimuth ), std::sin( azimuth ) );
+        for ( float d = 0.0f; d < 300.0f; d += 0.25f )
+        {
+            const float altitude = d * std::tan( kElevation );
+            if ( altitude < params.LayerBottomKm || altitude > params.LayerBottomKm + params.LayerThicknessKm )
+                continue;
+            const glm::vec2 world = heading * d;
+            int x = static_cast<int>( std::floor( ( world.x - origin.x ) / voxel ) ) % side;
+            int z = static_cast<int>( std::floor( ( world.y - origin.y ) / voxel ) ) % side;
+            x = ( x + side ) % side;
+            z = ( z + side ) % side;
+            ++crossed;
+            if ( !CloudProceduralKeep( minima[static_cast<size_t>( z ) * side + x], CloudProceduralLocalCover( params, world ) ) )
+                ++clear;
+        }
+    }
+    const double clearFraction = static_cast<double>( clear ) / static_cast<double>( std::max<size_t>( crossed, 1 ) );
+
+    std::printf( "[CloudPlacementSpectrum] 2-degree sight lines: %.3f of %zu crossed columns clear; weather "
+                 "autocorrelation at one region (%.0f km) %.3f\n",
+                 clearFraction, crossed, params.RegionSizeKm, correlation );
+
+    EXPECT_LT( correlation, 0.3 ) << "the weather repeats with the region, so every horizon gap is closed by its copy";
+    EXPECT_GE( clearFraction, 0.15 ) << "a 2-degree sight line meets cloud in almost every column it crosses";
 }
 
 int main( int argc, char** argv )

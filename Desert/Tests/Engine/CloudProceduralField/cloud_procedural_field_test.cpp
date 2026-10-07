@@ -738,6 +738,68 @@ TEST( CloudProceduralField, TheCostOfRebakingTheRegionIsMeasured )
 // cloud somewhere in the column. That is the TOP-DOWN PROJECTION of the volume, and it is what this
 // measures — against the slider, at five settings, with the deviation printed so a recalibration is a
 // number rather than an opinion.
+namespace
+{
+
+    // THE SKY THE MARCH KEEPS (FARWX-a): the bake holds every cell with its rank, and a column has cloud
+    // when its lowest rank is under the local cover at the column's WORLD site. Measured at many whole-region
+    // shifts, because the weather is a world field and one region holds only a couple of its systems.
+    std::vector<unsigned char> ColumnMinRanks( const CloudProceduralVolumeBake& bake, uint32_t side )
+    {
+        std::vector<unsigned char> minima( static_cast<size_t>( side ) * side, kCloudProceduralNoRank );
+        for ( uint32_t z = 0; z < side; ++z )
+            for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+                for ( uint32_t x = 0; x < side; ++x )
+                {
+                    unsigned char& lowest = minima[static_cast<size_t>( z ) * side + x];
+                    lowest = std::min( lowest, bake.Ranks[( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x] );
+                }
+        return minima;
+    }
+
+    glm::vec2 RegionShiftKm( const CloudProceduralFieldParams& params, int shift )
+    {
+        // Whole regions, so the bake's column index is unchanged; scattered so the weather is not.
+        return glm::vec2( static_cast<float>( ( shift * 7 ) % 41 ), static_cast<float>( ( shift * 13 ) % 37 ) ) *
+               params.RegionSizeKm * static_cast<float>( 1 + shift / 41 );
+    }
+
+    std::vector<float> KeptColumns( const CloudProceduralFieldParams& params, const std::vector<unsigned char>& minima,
+                                    const glm::vec2& origin, int shift )
+    {
+        const uint32_t     side  = params.VolumeSideVoxels;
+        const float        voxel = params.RegionSizeKm / static_cast<float>( side );
+        const glm::vec2    base  = origin + RegionShiftKm( params, shift );
+        std::vector<float> map( minima.size(), 0.0f );
+        for ( uint32_t z = 0; z < side; ++z )
+            for ( uint32_t x = 0; x < side; ++x )
+            {
+                const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
+                                                          ( static_cast<float>( z ) + 0.5f ) * voxel );
+                const size_t at = static_cast<size_t>( z ) * side + x;
+                map[at] = CloudProceduralKeep( minima[at], CloudProceduralLocalCover( params, world ) ) ? 1.0f : 0.0f;
+            }
+        return map;
+    }
+
+    double KeptCover( const CloudProceduralFieldParams& params, int shifts )
+    {
+        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+        const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
+        if ( !baked )
+            return -1.0;
+        const std::vector<unsigned char> minima = ColumnMinRanks( baked.GetValue(), params.VolumeSideVoxels );
+        double sum = 0.0;
+        for ( int shift = 0; shift < shifts; ++shift )
+        {
+            const std::vector<float> map = KeptColumns( params, minima, origin, shift );
+            for ( float v : map )
+                sum += v;
+        }
+        return sum / ( static_cast<double>( shifts ) * static_cast<double>( minima.size() ) );
+    }
+} // namespace
+
 TEST( CloudProceduralField, CoverageIsTheFractionOfSkyThatHasCloudInTheColumn )
 {
     double worst = 0.0;
@@ -747,26 +809,8 @@ TEST( CloudProceduralField, CoverageIsTheFractionOfSkyThatHasCloudInTheColumn )
         CloudProceduralFieldParams params = MakeParams();
         params.Coverage                   = wanted;
 
-        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        const auto      baked  = BakeCloudProceduralVolume( params, origin );
-        ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
-
-        size_t columns = 0;
-        for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
-            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
-            {
-                for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-                {
-                    if ( baked.GetValue()[VoxelIndex( x, y, z )] != 0u )
-                    {
-                        ++columns;
-                        break;
-                    }
-                }
-            }
-
-        const double measured = static_cast<double>( columns ) /
-                                static_cast<double>( kCloudProceduralVolumeSide * kCloudProceduralVolumeSide );
+        const double measured = KeptCover( params, 64 );
+        ASSERT_GE( measured, 0.0 ) << "the ranked bake failed";
 
         std::printf( "[CloudProceduralField] coverage %.2f -> %.3f of the sky has cloud in the column "
                      "(%+.3f)\n",
