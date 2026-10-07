@@ -923,10 +923,10 @@ namespace Desert::Graphic::RDG
                          anyWritten || writtenSoFar[subBase[attachment.Resource] +
                                                     record.Texture.SubresourceIndex( attachment.Mip, layer )];
                 AttachmentDecision decision;
-                decision.Slot                 = attachment.Slot;
-                decision.IsDepth              = attachment.IsDepth;
-                decision.IsResolve            = attachment.IsResolve;
-                const auto attachmentIndex    = static_cast<int32_t>( &attachment - pass.Attachments.data() );
+                decision.Slot              = attachment.Slot;
+                decision.IsDepth           = attachment.IsDepth;
+                decision.IsResolve         = attachment.IsResolve;
+                const auto attachmentIndex = static_cast<int32_t>( &attachment - pass.Attachments.data() );
                 for ( const ResourceUse& use : pass.Uses )
                 {
                     if ( use.Attachment == attachmentIndex )

@@ -36,7 +36,7 @@ namespace Desert::Graphic::API::Vulkan
         // The current frame slot's wait (the acquired image, at the stage the back buffer is first written)
         // and signal (render complete, waited by Present).
         [[nodiscard]] VulkanFrameOutput GetFrameOutput() const;
-        void              Present();
+        void                            Present();
 
         Common::ResultStr<VkResult> Init();
 

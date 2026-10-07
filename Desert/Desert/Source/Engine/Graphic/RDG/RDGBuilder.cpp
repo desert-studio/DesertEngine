@@ -720,7 +720,7 @@ namespace Desert::Graphic::RDG
                 views[use.Resource].Used = true;
         }
 
-        const GraphView       graph{ m_Name, views, &result };
+        const GraphView             graph{ m_Name, views, &result };
         const Common::BoolResultStr begun = backend.BeginGraph( graph );
         if ( !begun )
             return Common::MakeFormattedError( "graph '{}': {}", m_Name, begun.GetError() );
@@ -752,7 +752,7 @@ namespace Desert::Graphic::RDG
                                                        started.GetError() );
                 }
             }
-            PassContext           context( *this, result, backend, compiledPass.Pass );
+            PassContext                 context( *this, result, backend, compiledPass.Pass );
             const Common::BoolResultStr outcome = m_Passes[compiledPass.Pass].Exec( context );
             if ( !outcome )
             {
@@ -771,9 +771,9 @@ namespace Desert::Graphic::RDG
         for ( const PipeSegment& segment : result.Segments )
         {
             // Amendment B: the prologue has no passes; it records the releases of a fork from the start.
-            const bool            prologue     = segment.FirstPosition == CrossPipeSync::kForkAtGraphStart;
-            const std::string     segmentName  = prologue ? std::string( "the graph start" )
-                                                          : std::string( result.Passes[segment.FirstPosition].Name );
+            const bool                  prologue     = segment.FirstPosition == CrossPipeSync::kForkAtGraphStart;
+            const std::string           segmentName  = prologue ? std::string( "the graph start" )
+                                                                : std::string( result.Passes[segment.FirstPosition].Name );
             const Common::BoolResultStr segmentBegun = backend.BeginPipeSegment( segment );
             if ( !segmentBegun )
             {

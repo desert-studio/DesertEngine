@@ -110,7 +110,7 @@ namespace Desert::Graphic::RDG
                                                                                   uint32_t          accessMask,
                                                                                   std::string_view  name )  = 0;
         // The graph released its hold; placed resources stay alive until the slot is re-begun.
-        virtual void                    EndGraph( std::string_view graph ) = 0;
+        virtual void                                  EndGraph( std::string_view graph ) = 0;
         [[nodiscard]] virtual TransientAllocatorStats GetStats() const                   = 0;
     };
 
@@ -129,7 +129,7 @@ namespace Desert::Graphic::RDG
 
         // @p passNames: the names of the demoted passes of this compile. Returns true only on the call that
         // logged.
-        bool     Report( std::span<const std::string_view> passNames );
+        bool                   Report( std::span<const std::string_view> passNames );
         [[nodiscard]] uint32_t GetLinesLogged() const;
 
     private:

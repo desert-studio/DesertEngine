@@ -93,7 +93,7 @@ namespace Desert::Graphic::API::Vulkan
 
         static void                           Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
         void                                  Destroy( GraphHeaps& graph ) const;
-        static void                    DestroyRetired( VmaAllocator allocator, Slot& slot );
+        static void                           DestroyRetired( VmaAllocator allocator, Slot& slot );
         [[nodiscard]] Common::ResultStr<Heap> AllocateHeap( const RDG::TransientHeapDesc& desc ) const;
         [[nodiscard]] Common::ResultStr<const Heap*>
         OpenHeap( const RDG::Allocation& allocation, RDG::MemoryClass memoryClass, std::string_view name ) const;

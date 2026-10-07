@@ -55,8 +55,8 @@ namespace Desert::Graphic::API::Vulkan
 
     // The Vulkan translation of the graph's own state enums; one table each, no second copy.
     // RdgVulkanStages is declared in VulkanRdgQueues.hpp (included above).
-    VkAccessFlags        RdgVulkanAccess( RDG::MemoryAccessFlags access );
-    VkImageLayout        RdgVulkanLayout( RDG::ImageLayout layout );
+    VkAccessFlags RdgVulkanAccess( RDG::MemoryAccessFlags access );
+    VkImageLayout RdgVulkanLayout( RDG::ImageLayout layout );
     // The inverse of RdgVulkanLayout, for an image imported from its own layout record. A layout the graph
     // has no name for is refused rather than mapped to a near neighbour.
     std::optional<RDG::ImageLayout> RdgLayoutFromVulkan( VkImageLayout layout );

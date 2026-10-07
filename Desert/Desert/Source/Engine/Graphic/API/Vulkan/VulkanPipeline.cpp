@@ -383,7 +383,7 @@ namespace Desert::Graphic::API::Vulkan
             samples = m_Specification.Framebuffer->GetSpecification().Samples;
         else if ( m_Specification.TargetLayout.has_value() )
             samples = m_Specification.TargetLayout->Samples;
-        m_BuiltSamples         = samples > 1 ? samples : 1;
+        m_BuiltSamples                       = samples > 1 ? samples : 1;
         m_Multisampling                      = {};
         m_Multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         m_Multisampling.rasterizationSamples = static_cast<VkSampleCountFlagBits>( m_BuiltSamples );
@@ -409,8 +409,8 @@ namespace Desert::Graphic::API::Vulkan
 
     VkPipeline VulkanPipeline::GetVkPipelineFor( const RdgRenderPassKey& openPass )
     {
-        VkPipeline       base    = GetVkPipeline();
-        const uint32_t   samples = std::max( 1u, openPass.Samples );
+        VkPipeline     base    = GetVkPipeline();
+        const uint32_t samples = std::max( 1u, openPass.Samples );
         if ( base == VK_NULL_HANDLE || samples == m_BuiltSamples )
             return base;
         if ( const auto found = m_PassVariants.find( openPass ); found != m_PassVariants.end() )

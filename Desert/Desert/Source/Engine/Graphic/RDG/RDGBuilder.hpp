@@ -311,7 +311,7 @@ namespace Desert::Graphic::RDG
 
         PassBuilder BeginPass( std::string_view name, PassFlags flags );
         // Keeps the FIRST declaration error: later ones are usually its consequences.
-        void                  RecordError( std::string message );
+        void                                RecordError( std::string message );
         [[nodiscard]] const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
 
         std::string                 m_Name;

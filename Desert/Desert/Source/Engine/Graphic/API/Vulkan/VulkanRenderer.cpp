@@ -645,8 +645,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( const auto& layout = pipeline.GetSpecification().Layout;
              graphics->HasVertexStreams() && layout.has_value() )
         {
-            const auto&    own = mesh.GetStreamBuffer();
-            VkBuffer       sbuffer =
+            const auto& own = mesh.GetStreamBuffer();
+            VkBuffer    sbuffer =
                  sp_cast<API::Vulkan::VulkanVertexBuffer>(
                       own != nullptr ? own
                                      : DefaultVertexStreams(
@@ -744,7 +744,7 @@ namespace Desert::Graphic::API::Vulkan
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
-        auto*       shader   = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
+        auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
         if ( shader == nullptr )
             return Common::MakeFormattedError( "{}: pipeline '{}' has no shader", pass,
                                                pipeline.GetSpecification().DebugName );

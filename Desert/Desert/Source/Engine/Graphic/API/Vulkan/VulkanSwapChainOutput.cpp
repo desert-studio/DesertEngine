@@ -77,7 +77,7 @@ namespace Desert::Graphic::API::Vulkan
             return;
 
         const uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
-        const auto& queue =
+        const auto&    queue =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetGraphicsQueue();
 
         const auto& queuePresent =

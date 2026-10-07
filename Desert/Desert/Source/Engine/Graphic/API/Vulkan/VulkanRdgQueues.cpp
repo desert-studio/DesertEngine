@@ -108,8 +108,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( slot.SemaphoresUsed == slot.Semaphores.size() )
         {
             VkSemaphoreCreateInfo info{};
-            info.sType                            = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-            VkSemaphore                 semaphore = VK_NULL_HANDLE;
+            info.sType            = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            VkSemaphore semaphore = VK_NULL_HANDLE;
             if ( vkCreateSemaphore( m_Device, &info, nullptr, &semaphore ) != VK_SUCCESS )
                 return Common::MakeError<VkSemaphore>( "RDG queue objects: vkCreateSemaphore failed" );
             slot.Semaphores.push_back( semaphore );

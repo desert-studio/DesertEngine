@@ -45,7 +45,7 @@ namespace Desert::Graphic
         static void                  EndRenderPass();
 
         // Named region in the current command buffer (RenderDoc pass tree). Pair Begin/End.
-        void                  BeginDebugLabel( const char* name );
+        void                         BeginDebugLabel( const char* name );
         static Common::BoolResultStr ExecuteGraph( RDG::Builder& graph );
         static Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image,
                                                   RDG::ExternalTexture&         into );
@@ -53,7 +53,7 @@ namespace Desert::Graphic
         static Common::BoolResultStr ImportBackBuffer( RDG::ExternalTexture& into );
         static Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                                    RDG::ExternalBuffer&                                   into );
-        void                  EndDebugLabel();
+        void                         EndDebugLabel();
         // Vertexless line draw: the pipeline (Lines topology) pulls vertices from a storage buffer by index.
         static void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                  const MaterialExecutor* materialExecutor );
