@@ -48,6 +48,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Common/Core/Math/Ray.hpp>
+#include <Common/Settings/Scalability.hpp>
 
 #include <ImGuizmo.h>
 // ImGuiContext::WindowsFocusOrder — the editor's one record of where the user has been. See
@@ -1317,10 +1318,16 @@ namespace Desert::Editor
                 // "Scene" is what this heading said until К3, and it was wrong about the one control
                 // under it: distance LOD is what a MACHINE can afford (LOD0 is byte-identical geometry
                 // near the camera), not what the level is. It saves to the machine store on the click,
-                // like the Show flags above save to editor.json.
+                // like the Show flags above save to editor.json. Since SCAL1 it is the ViewDistance group's MeshLOD
+                // parameter: the box shows the RESOLVED value and a click is an override through the one apply
+                // point (QualityState logs, publishes and saves machine.json).
                 ImGui::TextDisabled( "This machine" );
-                if ( ImGui::Checkbox( "Mesh LOD (auto)", &Common::Settings::MachineSettings::Get().MeshLOD ) )
-                    Common::Settings::MachineSettings::Save();
+                {
+                    namespace SC     = Common::Scalability;
+                    bool     meshLod = SC::QualityState::Resolved().As<int>( SC::Parameter::MeshLOD ) != 0;
+                    if ( ImGui::Checkbox( "Mesh LOD (auto)", &meshLod ) )
+                        (void)SC::QualityState::SetOverride( SC::Parameter::MeshLOD, meshLod ? 1 : 0 );
+                }
                 ImGui::PopStyleVar();
                 ImGui::EndPopup();
             }

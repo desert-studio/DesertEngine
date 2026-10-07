@@ -42,7 +42,7 @@ namespace Desert::Graphic::RDG
             KeepFirstError( m_FirstError, pass, shaderName, handle,
                             fmt::format( "a sampled entry is declared as {}, not SampledCompute / SampledGraphics",
                                          GetAccessName( declared ) ) );
-            return *this;
+            return;
         }
         const bool taken = std::any_of( m_Textures.begin(), m_Textures.end(),
                                         [&]( const BoundTexture& t ) { return t.ShaderName == shaderName; } ) ||
@@ -51,13 +51,13 @@ namespace Desert::Graphic::RDG
         if ( taken )
         {
             KeepFirstError( m_FirstError, pass, shaderName, handle, "the slot is already bound in this block" );
-            return *this;
+            return;
         }
         const Common::ResultStr<TextureBinding> resolved = m_Context.GetTexture( texture, declared, range );
         if ( !resolved.IsSuccess() )
         {
             KeepFirstError( m_FirstError, pass, shaderName, handle, resolved.GetError() );
-            return *this;
+            return;
         }
         m_Textures.push_back( BoundTexture{
              .ShaderName = std::string( shaderName ),
@@ -81,7 +81,7 @@ namespace Desert::Graphic::RDG
             KeepFirstError( m_FirstError, pass, shaderName, handle,
                             fmt::format( "a storage image entry is declared as {}, not StorageRead / StorageWrite",
                                          GetAccessName( declared ) ) );
-            return *this;
+            return;
         }
         const bool taken = std::any_of( m_Textures.begin(), m_Textures.end(),
                                         [&]( const BoundTexture& t ) { return t.ShaderName == shaderName; } ) ||
@@ -90,14 +90,14 @@ namespace Desert::Graphic::RDG
         if ( taken )
         {
             KeepFirstError( m_FirstError, pass, shaderName, handle, "the slot is already bound in this block" );
-            return *this;
+            return;
         }
         const SubresourceRange                  range    = SubresourceRange::Mip( mip );
         const Common::ResultStr<TextureBinding> resolved = m_Context.GetTexture( texture, declared, range );
         if ( !resolved.IsSuccess() )
         {
             KeepFirstError( m_FirstError, pass, shaderName, handle, resolved.GetError() );
-            return *this;
+            return;
         }
         m_Textures.push_back( BoundTexture{ .ShaderName = std::string( shaderName ),
                                             .Kind       = ShaderResourceKind::StorageTexture,
@@ -105,7 +105,6 @@ namespace Desert::Graphic::RDG
                                             .Range      = range,
                                             .Declared   = declared,
                                             .Sampler    = std::nullopt } );
-        return *this;
     }
 
     // A declared uniform or storage buffer entry: the kind decides which accesses are legal.

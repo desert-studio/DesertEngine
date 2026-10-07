@@ -43,7 +43,7 @@ namespace Desert::Editor
 
     // Every tree is STAGED into Saved/Cooked/<Platform>/<PakKey>/ by the cook (GamePackager.cpp
     // StageShippedContent) and the archive is packed from that one tree only — never from these sources.
-    inline std::array<PackagedTree, 6> PackagedContentTrees()
+    inline std::array<PackagedTree, 7> PackagedContentTrees()
     {
         namespace P = Common::Constants::Path;
         return { {
