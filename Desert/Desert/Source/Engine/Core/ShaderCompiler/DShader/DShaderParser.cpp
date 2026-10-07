@@ -1450,6 +1450,31 @@ namespace Desert::Core::Preprocess
         return false;
     }
 
+    bool DShaderParser::MayDeclareParticle( const std::string_view source )
+    {
+        // "domain", whitespace, "particle" — any case. A Particle block is legal only under that line.
+        const auto lowerAt = [&]( size_t at, std::string_view word )
+        {
+            if ( at + word.size() > source.size() )
+                return false;
+            for ( size_t k = 0; k < word.size(); ++k )
+                if ( std::tolower( static_cast<unsigned char>( source[at + k] ) ) != word[k] )
+                    return false;
+            return true;
+        };
+        for ( size_t i = 0; i < source.size(); ++i )
+        {
+            if ( !lowerAt( i, "domain" ) )
+                continue;
+            size_t j = i + 6;
+            while ( j < source.size() && std::isspace( static_cast<unsigned char>( source[j] ) ) )
+                ++j;
+            if ( j > i + 6 && lowerAt( j, "particle" ) )
+                return true;
+        }
+        return false;
+    }
+
     bool DShaderParser::MayDeclareSurface( const std::string_view source )
     {
         constexpr std::string_view keyword = "surface";
@@ -1557,6 +1582,7 @@ namespace Desert::Core::Preprocess
         // names the error when those settings arrive without a block to shape.
         std::optional<RawBlock> surfaceBlock;
         uint32_t                surfaceLine        = 0;
+        uint32_t                particleLine       = 0;
         uint32_t                surfaceSettingLine = 0;
         std::string             shadingModelName; // `ShadingModel <Name>`; empty = DefaultLit
         uint32_t                shadingModelLine = 0;
@@ -1616,6 +1642,8 @@ namespace Desert::Core::Preprocess
                     result.Meta.Domain = ShaderDomain::Volume;
                 else if ( v == "ui" )
                     result.Meta.Domain = ShaderDomain::UI;
+                else if ( v == "particle" )
+                    result.Meta.Domain = ShaderDomain::Particle;
                 else
                 {
                     err = { line, "unknown Domain '" + v + "'" };
@@ -1697,6 +1725,33 @@ namespace Desert::Core::Preprocess
                     return fail();
                 }
                 result.Meta.MediumSource = std::move( medium.Content );
+            }
+            // THE SECOND PROGRAM FRAGMENT (VFX-04): a stack module or a compiled emitter stack, compiled INTO
+            // the particle simulation program. Same rules as the medium, for the same reasons.
+            else if ( lower == "particle" )
+            {
+                if ( !result.Meta.ParticleSource.empty() )
+                {
+                    err = { line, "duplicate Particle block" };
+                    return fail();
+                }
+                RawBlock particle;
+                if ( !ReadBlock( c, particle.Content, particle.StartLine, err ) )
+                    return fail();
+                if ( particle.Content.find( "#version" ) != std::string::npos )
+                {
+                    err = { particle.StartLine, "a Particle block must not declare #version — it is compiled "
+                                                "INTO the simulation program, which has already emitted one" };
+                    return fail();
+                }
+                if ( particle.Content.find_first_not_of( " \t\r\n" ) == std::string::npos )
+                {
+                    err = { particle.StartLine, "a Particle block must not be empty — an emitter naming it "
+                                                "would silently simulate nothing" };
+                    return fail();
+                }
+                particleLine               = line;
+                result.Meta.ParticleSource = std::move( particle.Content );
             }
             else if ( lower == "surface" )
             {
@@ -1862,7 +1917,31 @@ namespace Desert::Core::Preprocess
             return fail();
         }
 
-        if ( defaultPass.Blocks.empty() && namedPasses.empty() && !result.Meta.IsMediumProgram() && !surfaceBlock )
+        // A Particle fragment and its domain come together, and nothing else beside them: stages next to it
+        // would be a program no simulation ever selects.
+        if ( !result.Meta.ParticleSource.empty() )
+        {
+            if ( result.Meta.Domain != ShaderDomain::Particle )
+            {
+                err = { particleLine, "a Particle block needs 'Domain Particle'" };
+                return fail();
+            }
+            if ( !defaultPass.Blocks.empty() || !namedPasses.empty() || !result.Meta.MediumSource.empty() )
+            {
+                err = { particleLine, "a Particle fragment must not also declare stage, Pass or Medium blocks — "
+                                      "it is compiled into the simulation program" };
+                return fail();
+            }
+        }
+        else if ( result.Meta.Domain == ShaderDomain::Particle )
+        {
+            err = { c.Line, "'Domain Particle' needs a Particle { ... } block — the domain is a fragment, not "
+                            "a program" };
+            return fail();
+        }
+
+        if ( defaultPass.Blocks.empty() && namedPasses.empty() && !result.Meta.IsFragmentProgram() &&
+             !surfaceBlock )
         {
             err = { c.Line, "shader defines no stage blocks (Vertex/Fragment/Compute...)" };
             return fail();

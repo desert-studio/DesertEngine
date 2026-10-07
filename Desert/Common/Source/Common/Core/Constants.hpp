@@ -173,6 +173,7 @@ namespace Common::Constants
             LandscapeLayerInfo,
             Animation,
             LevelSequence,
+            VFX,
             Cooked,
             COUNT
         };
@@ -263,6 +264,9 @@ namespace Common::Constants
              // Level sequences (`.dseq`, UE ULevelSequence) get their own folder for the anim graph's reason: a
              // sequence component's slot offers only what is scanned from here.
              /* LevelSequence */ { "Sequences/", DirRoot::Assets },
+             // VFX systems (`.dfx`, UE UNiagaraSystem) get their own folder for the anim graph's reason: a VFX
+             // component's slot offers only what is scanned from here.
+             /* VFX           */ { "VFX/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -597,6 +601,7 @@ namespace Common::Constants
              Detail::Slot( ContentDir::LandscapeLayerInfo );
         inline const std::filesystem::path& ANIMATION_PATH      = Detail::Slot( ContentDir::Animation );
         inline const std::filesystem::path& LEVEL_SEQUENCE_PATH = Detail::Slot( ContentDir::LevelSequence );
+        inline const std::filesystem::path& VFX_PATH            = Detail::Slot( ContentDir::VFX );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
     } // namespace Path
 

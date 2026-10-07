@@ -49,6 +49,7 @@
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -178,6 +179,8 @@ namespace
              { AssetTypeID::LevelSequence, "LevelSequenceAsset", &HandleOf<Desert::Assets::LevelSequenceAsset>,
                &MetadataTypeOf<Desert::Assets::LevelSequenceAsset>,
                &DeclaredTypeOf<Desert::Assets::LevelSequenceAsset> },
+             { AssetTypeID::VFXSystem, "VFXSystemAsset", &HandleOf<Desert::Assets::VFXSystemAsset>,
+               &MetadataTypeOf<Desert::Assets::VFXSystemAsset>, &DeclaredTypeOf<Desert::Assets::VFXSystemAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1315,6 +1318,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::FoliageType,
          AssetTypeID::LandscapeLayerInfo,
          AssetTypeID::LevelSequence,
+         AssetTypeID::VFXSystem,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1489,6 +1493,21 @@ TEST( AssetHandleStability, ALandscapeLayerInfoHandleIsHandleForGuidOfItsHeader 
     ASSERT_TRUE( Desert::Assets::LandscapeLayerInfoAsset::Save( file, data ) );
     ExpectHeaderGuidIdentity<Desert::Assets::LandscapeLayerInfoAsset>(
          file, Common::Content::ContentKind::LandscapeLayerInfo );
+    fs::remove_all( dir );
+}
+
+// VFX-02: a VFX component will name its system by handle, so the handle must be the file's header GUID.
+TEST( AssetHandleStability, AVFXSystemHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "VFX02SystemHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path                               file = dir / "Sparks.dfx";
+    Desert::Assets::Serialization::VFXSystemData data;
+    data.Category = "Probe";
+    ASSERT_TRUE( Desert::Assets::VFXSystemAsset::Save( file, data ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::VFXSystemAsset>( file, Common::Content::ContentKind::VFXSystem );
     fs::remove_all( dir );
 }
 

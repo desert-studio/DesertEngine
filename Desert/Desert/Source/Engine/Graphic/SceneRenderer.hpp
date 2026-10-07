@@ -575,7 +575,7 @@ namespace Desert::Graphic
         void AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,
                           const glm::mat4& viewProj, const glm::vec4& cameraPos );
-        void AddFrameParticlesSimulate( RDG::Builder& graph, const UpdateInfo& sceneRenderInfo );
+        void AddFrameParticlesSimulate( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
         void ImportSceneViewTextures( FrameTextures& textures );

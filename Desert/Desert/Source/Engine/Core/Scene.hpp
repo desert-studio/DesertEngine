@@ -16,6 +16,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Subsystems/WorldSubsystems.hpp>
+#include <Engine/VFX/VFXWorld.hpp>
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/UUID.hpp>
 #include <glm/glm.hpp>
@@ -105,6 +106,17 @@ namespace Desert::Core
          * destructor, so an entry can never be dangling and nothing here extends a lifetime.
          */
         [[nodiscard]] static const std::vector<Scene*>& LiveScenes();
+
+        // The scene's effects world: the one clock and the per-instance administration every view of
+        // this scene simulates from (plan 02 §3.3-1). Ticked by OnUpdate.
+        [[nodiscard]] VFX::VFXWorld& GetVFXWorld()
+        {
+            return m_VFXWorld;
+        }
+        [[nodiscard]] const VFX::VFXWorld& GetVFXWorld() const
+        {
+            return m_VFXWorld;
+        }
 
         template <typename T>
         [[nodiscard]] T* GetSubsystem() const
@@ -586,6 +598,8 @@ namespace Desert::Core
         std::optional<Common::Json::TextDocument> m_LoadedDocument;
         // See GetWorldPartition().
         std::optional<WorldPartitionSerialized> m_WorldPartition;
+
+        VFX::VFXWorld m_VFXWorld; // see GetVFXWorld
 
         Common::WorldSubsystems<Scene> m_Subsystems{ *this };
     };

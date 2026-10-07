@@ -2003,7 +2003,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 
     const std::vector<std::string> frameOrder = {
          "ClearMainFramebuffer",
-         "Particles: Simulate",
+         "Particles: Simulate {}",
          "compute[clouds->DeclareShadowMapNodes()]",
          "phases[!RenderPhase::IsDeferredOverlay(phase)]",
          "Deferred: GBuffer",
@@ -2738,15 +2738,17 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     const size_t begin = text.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
-    EXPECT_NE(
-         body.find( "graph.AddPass(\"Particles:Simulate\",RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
-         std::string::npos );
+    // One node per fixed VFX step of the frame (VFXWorld), so step s+1 reads step s across a graph barrier.
+    EXPECT_NE( body.find( "for(uint32_tstep=0;step<steps;++step)graph.AddPass(std::format(\"Particles:Simulate{}\","
+                          "step),RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
+               std::string::npos );
+    EXPECT_NE( body.find( "constuint32_tsteps=particles->SimulationStepCount();" ), std::string::npos );
 
     // The node declares the emitters' buffers: imported through Renderer::ImportBuffer, written StorageWrite by
-    // the setup's binding blocks (ParticleRenderer::DeclareSimulateBindings, one per imported emitter).
+    // the setup's binding blocks (ParticleRenderer::DeclareSimulateBindings, one per imported emitter running the step).
     EXPECT_NE( body.find( "particles->ImportSimulationBuffers(graph)" ), std::string::npos )
          << "the simulation node does not import the emitters' buffers";
-    EXPECT_NE( body.find( "[particles](RDG::PassBuilder&pass){particles->DeclareSimulateBindings(pass);}" ),
+    EXPECT_NE( body.find( "[particles,step](RDG::PassBuilder&pass){particles->DeclareSimulateBindings(pass,step);}" ),
                std::string::npos )
          << "the simulation node does not declare its writes in its setup";
     EXPECT_EQ( body.find( "[](RDG::PassBuilder&){}" ), std::string::npos )
@@ -2766,23 +2768,24 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
          particleText.substr( importAt, particleText.find( "voidParticleRenderer::", importAt ) - importAt );
     EXPECT_NE( importBody.find( "renderer.ImportBuffer(fe.Gpu->Particles,fe.ParticlesImport)" ),
                std::string::npos );
-    EXPECT_NE( importBody.find( "renderer.ImportBuffer(fe.Gpu->Counter,fe.CounterImport)" ), std::string::npos );
+    EXPECT_NE( importBody.find( "renderer.ImportBuffer(fe.Gpu->Steps,fe.StepsImport)" ), std::string::npos );
     // An emitter the graph was not told about is not dispatched.
     const size_t simulateAt = particleText.find( "ParticleRenderer::Simulate(constRDG::PassContext&context," );
     ASSERT_NE( simulateAt, std::string::npos );
-    EXPECT_NE( particleText.find( "if(!fe.Declared)continue;", simulateAt ), std::string::npos );
+    EXPECT_NE( particleText.find( "if(!RunsStep(fe,step))continue;", simulateAt ), std::string::npos );
+    EXPECT_NE( particleText.find( "returnfe.Declared&&step<fe.StepCount;" ), std::string::npos );
     // The setup declares one block per imported emitter: this frame's graph handles of both buffers by their
     // shader names, StorageWrite, and the push bytes; the exec opens the n-th declared emitter's block n and
     // dispatches through DispatchCompute (no pipeline setter carries a graph buffer, no name is bound in it).
     const size_t declareAt =
-         particleText.find( "voidParticleRenderer::DeclareSimulateBindings(RDG::PassBuilder&pass)const" );
+         particleText.find( "voidParticleRenderer::DeclareSimulateBindings(RDG::PassBuilder&pass,constuint32_tstep)const" );
     ASSERT_NE( declareAt, std::string::npos );
     const std::string declareBody =
          particleText.substr( declareAt, particleText.find( "ParticleRenderer::", declareAt + 5 ) - declareAt );
-    EXPECT_NE( declareBody.find( "if(!fe.Declared)continue;" ), std::string::npos )
+    EXPECT_NE( declareBody.find( "if(!RunsStep(fe,step))continue;" ), std::string::npos )
          << "the setup declares an emitter Simulate skips: the block numbering drifts";
     EXPECT_NE( declareBody.find( ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageWrite)"
-                                 ".Storage(\"SpawnCounter\",fe.CounterRef,RDG::Access::StorageWrite)"
+                                 ".Storage(\"StepTable\",fe.StepsRef,RDG::Access::StorageWrite)"
                                  ".PushConstantBytes(static_cast<uint32_t>(sizeof(SimPush)))" ),
                std::string::npos );
     const std::string simulateBody = particleText.substr(
@@ -2793,7 +2796,7 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     EXPECT_NE( simulateBody.find( "renderer.DispatchCompute(bindings,*m_SimPipeline,groups,1,1)" ),
                std::string::npos );
     EXPECT_EQ( simulateBody.find( "SetStorageBuffer" ), std::string::npos );
-    EXPECT_NE( importBody.find( "fe.CounterRef=graph.RegisterExternal(fe.CounterImport," ), std::string::npos );
+    EXPECT_NE( importBody.find( "fe.StepsRef=graph.RegisterExternal(fe.StepsImport," ), std::string::npos );
     EXPECT_NE( importBody.find( "fe.Declared=true;" ), std::string::npos );
 
     // The same shape in a graph: two frames of a persistent buffer written by the node. The second frame's

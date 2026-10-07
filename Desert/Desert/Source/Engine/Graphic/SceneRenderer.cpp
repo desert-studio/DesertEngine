@@ -854,7 +854,7 @@ namespace Desert::Graphic
 
         AddFrameClearMainFramebuffer( graph, textures );
 
-        AddFrameParticlesSimulate( graph, sceneRenderInfo );
+        AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );
 

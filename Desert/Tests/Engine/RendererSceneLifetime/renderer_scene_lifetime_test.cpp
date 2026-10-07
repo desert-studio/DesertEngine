@@ -278,9 +278,10 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
            "SetFogSettings takes `present` and HeightFogECSSystem states the absent case explicitly" },
          { "VolumetricCloudSystem", "Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp", true, true,
            "the temporal reconstruction's history — everything else here is already content-keyed" },
-         { "ParticleSystem", "Graphic/Systems/Scene/Particles/ParticleRenderer.hpp", true, true,
+         { "ParticleSystem", "Graphic/Systems/Scene/Particles/ParticleRenderer.hpp", true, false,
            "per-emitter persistent SSBOs cached by the raw entt entity value, which a fresh registry "
-           "re-issues from zero" },
+           "re-issues from zero; a camera cut does not restart the simulation, which the scene's VFXWorld owns "
+           "(a reset there moves the instance generation and PrepareFrame zeroes the state)" },
          { "DeferredLightingSystem", "Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp", false, false,
            "a shade of this frame's G-buffer" },
          // The two LAZY ones. They are registered by EnsureGIResources / EnsureSSRResources on first use
@@ -490,27 +491,23 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
         ASSERT_FALSE( text.empty() ) << part << " is gone";
         renderer += StripComments( text );
     }
-    // The simulate node (RDG-LEG1-L3) reads the frame's timestep while the graph is built and hands that value to
-    // the particles when it executes.
-    EXPECT_NE( renderer.find( "seconds = sceneRenderInfo.Timestep.GetSeconds();" ), std::string::npos )
-         << "SceneRenderer no longer takes the particles' step from the frame's timestep.";
-    EXPECT_NE( renderer.find( "->Simulate( context, seconds )" ), std::string::npos )
-         << "SceneRenderer no longer hands the particles the frame's timestep.";
+    // The particles' time is the scene's VFXWorld (VFX-01: a fixed step ticked by the scene update, Scene.cpp),
+    // so the renderer hands them no timestep at all: the simulate nodes run the world's steps.
+    EXPECT_EQ( renderer.find( "Timestep.GetSeconds();" ), std::string::npos )
+         << "SceneRenderer reads the frame's timestep again: the particles run on the VFXWorld's fixed steps.";
+    EXPECT_NE( renderer.find( "->Simulate( context, step )" ), std::string::npos )
+         << "SceneRenderer no longer runs the particles' fixed steps one node each.";
 
     const std::string particles =
          StripComments( EngineSource( "Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" ) );
-    const std::string simulate = BodyAfter( particles, "ParticleRenderer::Simulate(" );
-    ASSERT_FALSE( simulate.empty() );
-    EXPECT_NE( simulate.find( "frameSeconds" ), std::string::npos ) << "Simulate ignores its timestep.";
-    EXPECT_NE( simulate.find( "m_SimSeconds += dt" ), std::string::npos )
-         << "the shader seed is not the accumulated simulated time.";
-    EXPECT_NE( simulate.find( "SpawnAccum += fe.SpawnRate * dt" ), std::string::npos )
-         << "the spawn budget is not integrated over the frame's timestep.";
-
-    // The reset restarts the simulation: the seed and every emitter's state.
-    const std::string reset = BodyAfter( particles, "ParticleRenderer::OnTemporalHistoryReset()" );
-    EXPECT_NE( reset.find( "m_SimSeconds = 0" ), std::string::npos );
-    EXPECT_NE( reset.find( "ClearEmitterState(" ), std::string::npos );
+    const std::string prepare = BodyAfter( particles, "ParticleRenderer::PrepareFrame(" );
+    ASSERT_FALSE( prepare.empty() );
+    EXPECT_NE( prepare.find( "scene.GetVFXWorld()" ), std::string::npos )
+         << "the particles' steps no longer come from the scene's VFXWorld.";
+    EXPECT_NE( prepare.find( "instance->Steps" ), std::string::npos )
+         << "the step table is not the world's steps.";
+    EXPECT_EQ( particles.find( "SpawnAccum" ), std::string::npos )
+         << "a spawn carry of the renderer's own integrates a second clock beside the VFXWorld.";
 
     // The wind: the scene's world clock step (TIME1's WorldTime, handed in through SetWorldTime), nothing else.
     const std::string wind = StripComments( EngineSource( "ECS/System/VolumetricCloudECSSystem.hpp" ) );
