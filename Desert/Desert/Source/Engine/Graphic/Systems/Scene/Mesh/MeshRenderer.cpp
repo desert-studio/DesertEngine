@@ -94,6 +94,15 @@ namespace Desert::Graphic::System
             return name ? Runtime::ResourceRegistry::GetShaderService()->GetByName( *name ) : nullptr;
         }
 
+        // The (path x pass) cell of the default surface compiled under @p variant (a permutation's defines). The
+        // caller holds the program (ShaderService::AcquireVariant keeps only a weak reference).
+        std::shared_ptr<Shader> DefaultSurfaceProgramVariant( MeshVertexPath path, MeshPass pass,
+                                                              const ShaderVariant& variant )
+        {
+            const auto name = DefaultSurfaceShaderName( path, pass );
+            return name ? Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( *name, variant ) : nullptr;
+        }
+
         // A renderer-owned material of one (path x pass) cell of the default surface template — the same
         // DataDrivenMaterial every `.demat` builds, with the cell's default row.
         std::shared_ptr<DataDrivenMaterial> CreateCellMaterial( MeshVertexPath path, MeshPass pass )
