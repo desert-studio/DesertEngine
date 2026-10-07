@@ -492,7 +492,7 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
     }
     // The simulate node (RDG-LEG1-L3) reads the frame's timestep while the graph is built and hands that value to
     // the particles when it executes.
-    EXPECT_NE( renderer.find( "static_cast<float>( sceneRenderInfo.Timestep.GetSeconds() )" ), std::string::npos )
+    EXPECT_NE( renderer.find( "seconds = sceneRenderInfo.Timestep.GetSeconds();" ), std::string::npos )
          << "SceneRenderer no longer takes the particles' step from the frame's timestep.";
     EXPECT_NE( renderer.find( "->Simulate( context, seconds )" ), std::string::npos )
          << "SceneRenderer no longer hands the particles the frame's timestep.";
