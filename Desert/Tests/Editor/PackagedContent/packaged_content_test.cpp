@@ -1584,7 +1584,7 @@ TEST( PackagedContent, TheShippedDescriptorRebasesTheStartupSceneAndKeepsEveryth
 // declares must either be covered by a tree in PackagedContentTrees() — itself or an ancestor of it —
 // or carry a written reason why it is not a thing a game contains.
 //
-// THE ROW THAT DOES THE WORK IS RESOURCE_PATH'S. The engine tree is NOT shipped wholesale; three named
+// THE ROW THAT DOES THE WORK IS RESOURCE_PATH'S. The engine tree is NOT shipped wholesale; four named
 // subtrees below it are. So `Resources/Videos/` added tomorrow, scanned by whoever adds it, has exactly
 // two ways past this suite: become a packed tree, or say in one sentence why a game does not need it.
 // Neither is something you do by accident, which is the whole point — the previous answer was "nothing
@@ -1620,6 +1620,7 @@ namespace
              { "SHADERDIR_PATH", &P::SHADERDIR_PATH, RootVerdict::Packaged, "" },
              { "FONTS_PATH", &P::FONTS_PATH, RootVerdict::Packaged, "" },
              { "ICONS_PATH", &P::ICONS_PATH, RootVerdict::Packaged, "" },
+             { "CONFIG_PATH", &P::CONFIG_PATH, RootVerdict::Packaged, "" },
              { "ENGINE_CONTENT_PATH", &P::ENGINE_CONTENT_PATH, RootVerdict::Packaged, "" },
 
              // --- project content: every row is derived from the assets or cooked root, and both of

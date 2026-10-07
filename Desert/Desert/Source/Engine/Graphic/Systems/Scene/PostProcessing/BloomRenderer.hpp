@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 
@@ -48,12 +49,16 @@ namespace Desert::Graphic::System
         {
             m_Threshold = threshold;
         }
+        // The chain's mip count cap, PostProcess.BloomMips (Scalability; High = 6, the former constant). Read per
+        // frame by GetChainDesc, so a change applies on the next frame's graph.
+        void SetMaxMips( uint32_t mips )
+        {
+            m_MaxMips = std::max( 1u, mips );
+        }
 
     private:
         bool CreatePipelines();
 
-        // Half-resolution chain; capped so the smallest mip stays a sane size.
-        static constexpr uint32_t kMaxBloomMips = 6;
         static constexpr float    kFilterRadius = 1.0f; // tent radius (source texels) for upsampling
 
         std::shared_ptr<ComputePipeline>  m_DownsamplePipeline;
@@ -61,6 +66,7 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache  m_DownsampleLayout; // the two shaders' layouts, kept between frames
         mutable ShaderBindingLayoutCache  m_UpsampleLayout;
 
-        float m_Threshold = 1.0f;
+        float    m_Threshold = 1.0f;
+        uint32_t m_MaxMips   = 6; // until the first SetMaxMips: the High table value
     };
 } // namespace Desert::Graphic::System

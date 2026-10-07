@@ -3,27 +3,122 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
+#include <Common/Settings/RecommendedQuality.hpp>
+#include <Common/Settings/Scalability.hpp>
 
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/GpuBenchmark.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneSettings.hpp>
-#include <Engine/Graphic/RenderConfig.hpp>
 
 #include <rflcpp/rfl/enums.hpp>
 
 #include <algorithm>
+#include <array>
+#include <iterator>
 #include <format>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include <ImGui/imgui.h>
 
 namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
+    namespace SC    = Common::Scalability;
 
-    // UE's Scalability / GameUserSettings: what THIS MACHINE can afford. Every control here writes
-    // Common::Settings::MachineSettings (machine.json) and nothing reaches a scene file. They lived in the
-    // Scene Settings panel, marked "(this machine)", until SET1 gave them their own window.
-    // Starts CLOSED, like the other tools in Window -> Tools (Localization): it is opened on purpose, and a
-    // default-visible floating window sat on top of the viewport at every start on a fresh profile.
+    namespace
+    {
+        // A combo over `count` labelled values; returns the picked index when the user changed it.
+        template <typename LabelOf>
+        std::optional<std::size_t> ValueCombo( const char* label, std::size_t selected, std::size_t count,
+                                               LabelOf&& labelOf )
+        {
+            std::optional<std::size_t> picked;
+            const std::string          preview = selected < count ? labelOf( selected ) : std::string( "-" );
+            if ( ImGui::BeginCombo( label, preview.c_str() ) )
+            {
+                for ( std::size_t i = 0; i < count; ++i )
+                {
+                    const bool isSelected = i == selected;
+                    if ( ImGui::Selectable( labelOf( i ).c_str(), isSelected ) && !isSelected )
+                        picked = i;
+                    if ( isSelected )
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            return picked;
+        }
+
+        template <typename T>
+        std::size_t IndexOf( const std::vector<T>& list, const T& value )
+        {
+            const auto it = std::find( list.begin(), list.end(), value );
+            return it == list.end() ? list.size() : static_cast<std::size_t>( it - list.begin() );
+        }
+
+        std::string LevelLabel( std::size_t level )
+        {
+            return std::string( SC::LevelKey( static_cast<SC::Level>( level ) ) );
+        }
+
+        // "High" when every listed group is recommended one level, else "Shadows Medium, Textures High, ...".
+        std::string RecommendedLabel( const std::array<SC::Level, SC::kGroupCount>& levels )
+        {
+            std::optional<SC::Level> uniform;
+            bool                     isUniform = true;
+            for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+            {
+                if ( !SC::IsGroupListed( static_cast<SC::Group>( g ) ) )
+                    continue;
+                if ( uniform && *uniform != levels[g] )
+                    isUniform = false;
+                uniform = levels[g];
+            }
+            if ( isUniform && uniform )
+                return std::string( SC::LevelKey( *uniform ) );
+            std::string text;
+            for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+            {
+                const auto group = static_cast<SC::Group>( g );
+                if ( !SC::IsGroupListed( group ) )
+                    continue;
+                std::format_to( std::back_inserter( text ), "{}{} {}", text.empty() ? "" : ", ",
+                                SC::GroupKey( group ), SC::LevelKey( levels[g] ) );
+            }
+            return text;
+        }
+
+        // Requested -> effective for one parameter, from the resolution's own fallback list.
+        void ShowFallback( const SC::ResolvedQuality& resolved, SC::Parameter parameter )
+        {
+            for ( const SC::Fallback& fallback : resolved.Fallbacks )
+                if ( fallback.Id == parameter )
+                    ImGui::TextDisabled( "%s", SC::FormatFallback( fallback ).c_str() );
+        }
+
+        // The value a person asked for: the override if one is set, else the group level's table value.
+        SC::ParameterValue Requested( SC::Parameter parameter )
+        {
+            const SC::QualitySelection& selection = SC::QualityState::Selection();
+            const SC::ParameterSpec&    spec      = SC::ParameterSpecs()[static_cast<std::size_t>( parameter )];
+            for ( const SC::ParameterOverride& entry : selection.Overrides )
+                if ( entry.Key == spec.Key )
+                    return entry.Value;
+            return SC::QualityState::Table().ValueAt( parameter,
+                                                      selection.Levels[static_cast<std::size_t>( spec.Owner )] );
+        }
+    } // namespace
+
+    // UE's Scalability / GameUserSettings: what THIS MACHINE can afford. Every control here goes through
+    // QualityState (the one apply point, which saves machine.json); nothing reaches a scene file. Group levels
+    // first (UE's sg.*), then the per-parameter overrides a person tunes alone. Every list a combo offers is the
+    // device's CapabilityCatalog list, and every value that does not run as asked shows the resolver's own
+    // "requested -> effective (reason)" line. Placeholder parameters and groups with only placeholders are not
+    // shown (IsGroupListed): a control that moves nothing is a dead setting.
+    // Starts CLOSED, like the other tools in Window -> Tools (Localization).
     ScalabilityPanel::ScalabilityPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
          : IPanel( "Scalability", /*showPanel=*/false ), m_Scene( scene )
     {
@@ -31,121 +126,127 @@ namespace Desert::Editor
 
     void ScalabilityPanel::OnUIRender()
     {
+        const SC::QualitySelection&  selection = SC::QualityState::Selection();
+        const SC::ResolvedQuality&   resolved  = SC::QualityState::Resolved();
+        const SC::CapabilityCatalog& catalog   = SC::QualityState::Catalog();
+
+        if ( Utils::ImGuiUtilities::SectionHeader( "Quality Levels" ) )
+        {
+            if ( const auto all = ValueCombo( "Overall", SC::kLevelCount, SC::kLevelCount, LevelLabel ) )
+                SC::QualityState::SetAllGroups( static_cast<SC::Level>( *all ) );
+            Utils::ImGuiUtilities::Tooltip( "Sets every group to one level and drops every override." );
+
+            for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+            {
+                const auto group = static_cast<SC::Group>( g );
+                if ( !SC::IsGroupListed( group ) )
+                    continue;
+                const std::string label( SC::GroupKey( group ) );
+                if ( const auto level = ValueCombo( label.c_str(), static_cast<std::size_t>( selection.Levels[g] ),
+                                                    SC::kLevelCount, LevelLabel ) )
+                    SC::QualityState::SetGroupLevel( group, static_cast<SC::Level>( *level ) );
+            }
+
+            // THE BENCHMARK'S ANSWER for this device, shown only while it is still valid here (same device,
+            // driver and table version — CacheValid). A machine with no saved selection already started on it
+            // (QualityBoot, MachineSettings::StartFrom); one with a saved selection is offered it.
+            const auto&                 recommended = Common::Settings::MachineSettings::Get().Recommended;
+            const SC::BenchmarkCacheKey device      = Engine::MakeBenchmarkCacheKey(
+                 EngineContext::GetInstance().GetCapabilities(), SC::QualityState::Table().Version );
+            if ( SC::CacheValid( recommended, device ) )
+            {
+                ImGui::TextUnformatted(
+                     std::format( "Recommended: {}", RecommendedLabel( recommended->Levels ) ).c_str() );
+                ImGui::SameLine();
+                if ( ImGui::Button( "Apply recommended" ) )
+                    SC::QualityState::ApplyRecommended( recommended->Levels );
+                Utils::ImGuiUtilities::Tooltip( "Sets every group to the level the GPU benchmark recommended for "
+                                                "this device and drops every override." );
+            }
+        }
+
         if ( Utils::ImGuiUtilities::SectionHeader( "Anti-Aliasing" ) )
         {
-            // ONE METHOD (AA1, UE's r.AntiAliasingMethod + r.MSAACount): None / FXAA / SMAA / MSAA are
-            // alternatives, and the sample count is a second control shown only under MSAA — a count that
-            // moves nothing in the current method would be a dead setting. Every change applies on the next
-            // frame: SceneRenderer recreates its target at the new count, so there is no restart note.
-            //
-            // MSAA ONLY WHERE IT WORKS (AA2, as UE): a deferred scene lists None / FXAA / SMAA, and a stored
-            // MSAA choice shows as what the frame runs there (FXAA, MachineSettings::ResolveAA) with a line
-            // "requested -> effective: reason". The stored choice is not rewritten by looking: it applies
-            // again in a forward scene. Both combos commit through MachineSettings::CommitAntiAliasing, the
-            // one place a change is applied and the downgrade is logged.
-            auto&     quality = Common::Settings::MachineSettings::Get();
-            const int maxMsaa = Graphic::RenderConfig::MaxMSAASamples.load();
+            // ONE METHOD (AA1, UE's r.AntiAliasingMethod + r.MSAACount) and a sample count shown only under
+            // MSAA. The list is the catalog's, minus the temporal methods (TAA / FSRNative / DLAA): no pass runs
+            // them yet (TAA1), so offering them would be a dead setting.
+            std::vector<SC::AntiAliasingMethod> methods;
+            for ( const SC::AntiAliasingMethod method : catalog.AntiAliasingMethods )
+                if ( method == SC::AntiAliasingMethod::None || method == SC::AntiAliasingMethod::FXAA ||
+                     method == SC::AntiAliasingMethod::SMAA || method == SC::AntiAliasingMethod::MSAA )
+                    methods.push_back( method );
 
+            const auto requestedMethod =
+                 static_cast<SC::AntiAliasingMethod>( Requested( SC::Parameter::AntiAliasingMethod ) );
+            if ( const auto picked = ValueCombo( "Anti-Aliasing Method", IndexOf( methods, requestedMethod ),
+                                                 methods.size(), [&methods]( std::size_t i )
+                                                 { return std::string( rfl::enum_to_string( methods[i] ) ); } ) )
+                SC::QualityState::SetOverride( SC::Parameter::AntiAliasingMethod,
+                                               static_cast<SC::ParameterValue>( methods[*picked] ) );
+            Utils::ImGuiUtilities::Tooltip( "FXAA and SMAA filter the finished image; MSAA renders the scene "
+                                            "at several samples per pixel (forward scenes only: deferred "
+                                            "lighting shades one sample per pixel). Applies on the next frame." );
+            ShowFallback( resolved, SC::Parameter::AntiAliasingMethod );
+
+            // What this scene's path runs: MSAA on a deferred scene runs FXAA (AA2), stated, not hidden.
             const auto scene = m_Scene.lock();
             const bool forwardScene =
                  !scene || Desert::Core::RenderPathSupportsMSAA( scene->GetSettings().RenderingPath );
-            const Common::Settings::AntiAliasingResolution resolved  = quality.ResolveAA( forwardScene );
-            const Common::Settings::EffectiveAntiAliasing& effective = resolved.Effective;
-
-            const char* methods[] = { "None", "FXAA", "SMAA", "MSAA" };
-            const int   offered   = forwardScene ? IM_ARRAYSIZE( methods ) : IM_ARRAYSIZE( methods ) - 1;
-            int         current =
-                 static_cast<int>( effective.MSAAUnavailableOnPath ? effective.Method : quality.AAMethod );
-            if ( ImGui::Combo( "Anti-Aliasing Method", &current, methods, offered ) )
-            {
-                Common::Settings::MachineSettings::CommitAntiAliasing(
-                     static_cast<Common::Settings::AntiAliasingMethod>( current ), 0 );
-            }
-            Utils::ImGuiUtilities::Tooltip(
-                 forwardScene ? "FXAA and SMAA filter the finished image; MSAA renders the scene "
-                                "at several samples per pixel. Applies on the next frame."
-                              : "FXAA and SMAA filter the finished image. MSAA is offered in "
-                                "forward scenes only: deferred lighting shades one sample per "
-                                "pixel, so MSAA would not smooth solid objects here." );
-            if ( effective.MSAAUnavailableOnPath )
-                ImGui::TextDisabled( "%s", std::format( "Requested MSAA {}x -> effective {}, {} sample: {}.",
-                                                        resolved.RequestedSamples,
-                                                        rfl::enum_to_string( effective.Method ), effective.Samples,
-                                                        resolved.Reason )
+            const SC::PathAntiAliasing path = SC::ResolveAntiAliasingForPath( resolved, forwardScene );
+            if ( !path.Reason.empty() )
+                ImGui::TextDisabled( "%s", std::format( "This scene runs {}: {}.",
+                                                        rfl::enum_to_string( path.Method ), path.Reason )
                                                 .c_str() );
 
-            if ( forwardScene && quality.AAMethod == Common::Settings::AntiAliasingMethod::MSAA )
+            if ( resolved.As<SC::AntiAliasingMethod>( SC::Parameter::AntiAliasingMethod ) ==
+                 SC::AntiAliasingMethod::MSAA )
             {
-                const char* levels[] = { "2x", "4x", "8x" };
-                const int   values[] = { 2, 4, 8 };
-                int         count    = 0; // the entries this device can run
-                int         selected = 0;
-                for ( int i = 0; i < IM_ARRAYSIZE( values ) && values[i] <= maxMsaa; ++i, ++count )
-                    if ( values[i] == quality.MSAASamples )
-                        selected = i;
-                if ( count == 0 )
-                    ImGui::TextDisabled( "This device has no multisampling (max %dx).", maxMsaa );
-                else if ( ImGui::Combo( "Samples", &selected, levels, count ) )
-                {
-                    Common::Settings::MachineSettings::CommitAntiAliasing(
-                         Common::Settings::AntiAliasingMethod::MSAA, values[selected] );
-                }
+                std::vector<int> counts;
+                for ( const int count : catalog.MSAACounts )
+                    if ( count > 1 )
+                        counts.push_back( count );
+                const int requestedSamples = Requested( SC::Parameter::AntiAliasingSamples );
+                if ( const auto picked =
+                          ValueCombo( "Samples", IndexOf( counts, requestedSamples ), counts.size(),
+                                      [&counts]( std::size_t i ) { return std::format( "{}x", counts[i] ); } ) )
+                    SC::QualityState::SetOverride( SC::Parameter::AntiAliasingSamples, counts[*picked] );
+                ShowFallback( resolved, SC::Parameter::AntiAliasingSamples );
             }
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Textures" ) )
         {
-            auto& quality = Common::Settings::MachineSettings::Get();
+            // Global sampler filter — applies live (QualityBoot's listener recreates the samplers).
+            static constexpr const char* kFilters[] = { "Nearest", "Bilinear", "Trilinear", "Anisotropic" };
+            const auto filter = static_cast<std::size_t>( Requested( SC::Parameter::TextureFilter ) );
+            if ( const auto picked = ValueCombo( "Filter", filter, std::size( kFilters ),
+                                                 []( std::size_t i ) { return std::string( kFilters[i] ); } ) )
+                SC::QualityState::SetOverride( SC::Parameter::TextureFilter,
+                                               static_cast<SC::ParameterValue>( *picked ) );
 
-            // Global sampler filter — applies live (samplers are recreated when this changes).
-            const char* items[] = { "Nearest", "Bilinear", "Trilinear", "Anisotropic" };
-            int         current = static_cast<int>( quality.TextureFilterMode );
-            if ( ImGui::Combo( "Filter (this machine)", &current, items, IM_ARRAYSIZE( items ) ) )
+            // Anisotropy moves nothing outside the Anisotropic filter, so it is shown only there.
+            if ( resolved.As<int>( SC::Parameter::TextureFilter ) == 3 )
             {
-                quality.TextureFilterMode = static_cast<Common::Settings::TextureFilter>( current );
-                Common::Settings::MachineSettings::Save();
-            }
-            Utils::ImGuiUtilities::Tooltip( "Sampler filter for every texture. The same picture, sharper "
-                                            "or blurrier — this machine's choice, not the level's." );
-
-            // Anisotropy level — only meaningful in Anisotropic mode. Shown only there for the reason
-            // White Point above is shown only under Reinhard: a control that moves nothing in the current
-            // mode is a dead setting.
-            if ( quality.TextureFilterMode == Common::Settings::TextureFilter::Anisotropic )
-            {
-                const char* levels[] = { "1x", "2x", "4x", "8x", "16x" };
-                const int   values[] = { 1, 2, 4, 8, 16 };
-                int         levelIdx = 3; // default 8x
-                for ( int i = 0; i < IM_ARRAYSIZE( values ); ++i )
-                    if ( values[i] == quality.Anisotropy )
-                        levelIdx = i;
-                if ( ImGui::Combo( "Anisotropy (this machine)", &levelIdx, levels, IM_ARRAYSIZE( levels ) ) )
-                {
-                    quality.Anisotropy = values[levelIdx];
-                    Common::Settings::MachineSettings::Save();
-                }
+                const std::vector<int>& levels = catalog.AnisotropyLevels;
+                if ( const auto picked = ValueCombo(
+                          "Anisotropy", IndexOf( levels, Requested( SC::Parameter::Anisotropy ) ), levels.size(),
+                          [&levels]( std::size_t i ) { return std::format( "{}x", levels[i] ); } ) )
+                    SC::QualityState::SetOverride( SC::Parameter::Anisotropy, levels[*picked] );
+                ShowFallback( resolved, SC::Parameter::Anisotropy );
             }
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Clouds" ) )
         {
-            auto&       quality        = Common::Settings::MachineSettings::Get();
-            const char* cloudQuality[] = { "Low", "Medium", "High" };
-            int         cloudCur       = static_cast<int>( quality.CloudQualityTier );
-            if ( ImGui::Combo( "Cloud Quality (this machine)", &cloudCur, cloudQuality,
-                               IM_ARRAYSIZE( cloudQuality ) ) )
-            {
-                quality.CloudQualityTier = static_cast<Common::Settings::CloudQuality>( cloudCur );
-                Common::Settings::MachineSettings::Save();
-            }
+            static constexpr const char* kCloud[] = { "Low", "Medium", "High" };
+            const auto cloud = static_cast<std::size_t>( Requested( SC::Parameter::CloudQuality ) );
+            if ( const auto picked = ValueCombo( "Cloud Quality", cloud, std::size( kCloud ),
+                                                 []( std::size_t i ) { return std::string( kCloud[i] ); } ) )
+                SC::QualityState::SetOverride( SC::Parameter::CloudQuality,
+                                               static_cast<SC::ParameterValue>( *picked ) );
             ImGui::TextDisabled( "High is the calibrated reference. Medium halves the cloud shadow map's\n"
                                  "reach on the ground (~15 km); Low also caps the sun-ray at 16 samples,\n"
                                  "which runs the sunward highlights bright." );
-
-            // The "Deferred Debug" combo that used to sit here is gone (К2): a G-buffer view is what the
-            // VIEWPORT is showing, not what the level is, and this combo was a second control over the
-            // same state as the viewport's View Mode dropdown — offering GI, which that one lacked, and
-            // lacking the three heat maps, which it had. GI was added there; this is the one control now.
         }
     }
 } // namespace Desert::Editor

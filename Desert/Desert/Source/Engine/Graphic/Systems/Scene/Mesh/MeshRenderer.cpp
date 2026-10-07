@@ -125,21 +125,10 @@ namespace Desert::Graphic::System
         if ( !targetFb )
             return Common::MakeError( "Target framebuffer is not available" );
 
-        // THE BUDGET, TAKEN ONCE AND HELD. Read before the first Setup* because SetupShadowPass allocates
-        // from it; from here on nothing may change it, and holding a copy is what makes that true rather
-        // than a rule somebody has to keep.
-        m_Shadow = m_SceneRenderer ? m_SceneRenderer->GetShadowQuality() : ShadowQuality{};
-        // CLAMPED ONCE, HERE. ShadowQuality is a plain aggregate, so `ShadowQuality{ 5, 2048, ... }`
-        // compiles; every loop below runs to this count while the arrays it indexes are [kMaxCascades].
-        // ComputeShadowCascades clamps its own copy, which made the fitter safe and left the allocation,
-        // the material arrays and the map gather writing one past the end.
-        if ( m_Shadow.CascadeCount > kMaxCascades )
-        {
-            LOG_WARN( "[Shadows] a budget of {} cascades was asked for; this renderer can hold {} and will "
-                      "use that.",
-                      m_Shadow.CascadeCount, kMaxCascades );
-            m_Shadow.CascadeCount = kMaxCascades;
-        }
+        // THE BUDGET, TAKEN AND HELD. Read before the first Setup* because SetupShadowPass allocates from it;
+        // from here on only RebudgetShadows may change it (a Shadows quality change), and holding a copy is
+        // what makes that true rather than a rule somebody has to keep.
+        TakeShadowBudget( m_SceneRenderer ? m_SceneRenderer->GetShadowQuality() : ShadowQuality{} );
 
         if ( !SetupGeometryPass() )
             return Common::MakeError( "Failed to setup static geometry pass" );
@@ -364,7 +353,7 @@ namespace Desert::Graphic::System
                        },
                        m_StaticPipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = []( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             // The frame's forward draw list - built HERE, before any command is recorded - and one binding block
             // per material of it, the scene/view inputs bound where its shader has slots for them. Forward path

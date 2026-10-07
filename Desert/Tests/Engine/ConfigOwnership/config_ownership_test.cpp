@@ -168,6 +168,7 @@
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <format>
 #include <fstream>
 #include <regex>
@@ -218,8 +219,7 @@ namespace
         const char* Where = nullptr;
 
         // The type's own member functions through which consumers read this field, when the field is
-        // never meant to be read raw (AAMethod/MSAASamples: MSAASamples means nothing unless the method is
-        // MSAA, so every reader goes through ResolveAA). A call of one of these on
+        // never meant to be read raw. A call of one of these on
         // a value of the census type in `Where` counts as the read ONLY because `ViaImpl`, the file that
         // defines them, is checked to read the field inside each getter's own body.
         std::array<const char*, 2> Via{};
@@ -389,30 +389,26 @@ namespace
     // Editor target and by nothing else; every field below is read by SceneRenderer, which the packaged
     // game also runs. One kind, two audiences, two files — and one SCHEMA, whose location is a parameter.
     //
-    // The consumer named is SceneRenderer.cpp for the fields the renderer reads per frame. AAMethod and
-    // MSAASamples reach it only through MachineSettings::ResolveAA (AA1/AA2/AA-LOG), the one
-    // place the pair is interpreted; the rows name that getter and the test checks their bodies.
+    // `Quality` is read by QualityBoot, which hands it to QualityState (SCAL1); renderers read only the
+    // ResolvedQuality that comes out, never this file.
     // ------------------------------------------------------------------------------------------------
 
     constexpr const char* kSceneRendererImpl = "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp";
     constexpr const char* kMachineSettingsImpl = "Desert/Common/Source/Common/Settings/MachineSettings.cpp";
 
     constexpr Row kMachineSettingsRows[] = {
-         // A per-machine cost (sample count of every scene target), which is exactly the property that
-         // makes it the machine's and not the level's. Applied on the next frame since AA1.
-         { "MSAASamples", Owner::Machine, kSceneRendererImpl, { "ResolveAA" }, kMachineSettingsImpl },
-
-         // The five К3 took out of the level file. Each passes the mis-authored/rendered-worse test on the
-         // "rendered worse" side: MeshLOD off is byte-identical geometry near the camera, Anisotropy 1 and
-         // Nearest filtering and AA None are the same picture blurrier or harsher, and CloudQuality High
-         // reproduces the calibrated constants to the digit.
-         { "AAMethod", Owner::Machine, kSceneRendererImpl, { "ResolveAA" }, kMachineSettingsImpl },
-         { "MeshLOD", Owner::Machine, kSceneRendererImpl },
-         { "TextureFilterMode", Owner::Machine, kSceneRendererImpl },
-         { "Anisotropy", Owner::Machine, kSceneRendererImpl },
+         // SCAL1: the six image-quality fields (AAMethod, MSAASamples, TextureFilterMode, Anisotropy, MeshLOD,
+         // CloudQualityTier) are one QualitySelection now - group levels plus per-parameter overrides -
+         // handed to QualityState, the one apply point every renderer's ResolvedQuality comes from. Each
+         // still passes the mis-authored/rendered-worse test on the "rendered worse" side.
+         { "Quality", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },
+         // The benchmark's stored recommendation for this device (SCAL1). Read by MachineSettings::StartFrom:
+         // a machine with no saved selection starts on it when its cache key is this device's.
+         { "Recommended", Owner::Machine, kMachineSettingsImpl },
+         // VSync (DisplaySettings): how frames reach this machine's monitor. QualityBoot hands it to the window.
+         { "Display", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },
          // AF5: which disk holds the rebuildable cache is a machine's answer, never the project's.
          { "DerivedDataCachePath", Owner::Machine, "Desert/Common/Source/Common/Content/DerivedDataCache.cpp" },
-         { "CloudQualityTier", Owner::Machine, kSceneRendererImpl },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -1218,6 +1214,19 @@ TEST( ConfigOwnershipCorpus, TheTrackedProjectDescriptorStatesNoMachineSpecificK
 // HOME IS NOT TOUCHED: the store is written to a temp file this test owns, through the path parameter
 // that exists precisely so a caller can say where. That parameter is why this assertion is runnable at
 // all — a store that computed its own location could only be tested against the developer's own config.
+namespace
+{
+    // The shipped level table: MachineSettings::Load needs the High values to migrate retired keys.
+    Common::Scalability::ScalabilityTable ShippedTable()
+    {
+        const std::string text = ReadAll( RepoRoot() + "Editor/Resources/Config/Scalability.json" );
+        EXPECT_FALSE( text.empty() ) << "Editor/Resources/Config/Scalability.json was not found";
+        auto table = Common::Scalability::ScalabilityTable::Parse( text );
+        EXPECT_TRUE( table.IsSuccess() );
+        return table.IsSuccess() ? table.ExtractValue() : Common::Scalability::ScalabilityTable{};
+    }
+} // namespace
+
 TEST( ConfigOwnershipCorpus, LoweringTheQualityOnThisMachineChangesNoByteOfAnySceneFile )
 {
     const std::string root = RepoRoot();
@@ -1238,15 +1247,13 @@ TEST( ConfigOwnershipCorpus, LoweringTheQualityOnThisMachineChangesNoByteOfAnySc
     const std::filesystem::path store =
          std::filesystem::temp_directory_path() / "desert_configownership_machine.json";
     std::filesystem::remove( store, ec );
-    Common::Settings::MachineSettings::Load( store );
+    Common::Settings::MachineSettings::Load( store, ShippedTable() );
 
-    auto& quality             = Common::Settings::MachineSettings::Get();
-    quality.MSAASamples       = 1;
-    quality.AAMethod          = Common::Settings::AntiAliasingMethod::None;
-    quality.MeshLOD           = false;
-    quality.TextureFilterMode = Common::Settings::TextureFilter::Nearest;
-    quality.Anisotropy        = 1;
-    quality.CloudQualityTier  = Common::Settings::CloudQuality::Low;
+    auto& quality = Common::Settings::MachineSettings::Get();
+    quality.Quality.emplace();
+    quality.Quality->Levels.fill( Common::Scalability::Level::Low );
+    quality.Quality->Overrides = { { "AntiAliasing.Method", 0 }, { "Filtering.Texture", 0 } };
+    quality.Display.VSync      = true;
     ASSERT_TRUE( Common::Settings::MachineSettings::Save() );
     ASSERT_TRUE( std::filesystem::exists( store ) ) << "the quality was not written anywhere at all";
 
@@ -1269,13 +1276,11 @@ TEST( ConfigOwnership, TheSerializedSettingsBlockDoesNotMoveWhenTheMachineQualit
     const Desert::Core::SceneSettings settings;
     const std::string before = Common::Json::Write( Desert::Reflection::SerializeReflected( *type, &settings ) );
 
-    auto& quality             = Common::Settings::MachineSettings::Get();
-    quality.MSAASamples       = 8;
-    quality.AAMethod          = Common::Settings::AntiAliasingMethod::MSAA;
-    quality.MeshLOD           = false;
-    quality.TextureFilterMode = Common::Settings::TextureFilter::Nearest;
-    quality.Anisotropy        = 16;
-    quality.CloudQualityTier  = Common::Settings::CloudQuality::Low;
+    auto& quality = Common::Settings::MachineSettings::Get();
+    quality.Quality.emplace();
+    quality.Quality->Levels.fill( Common::Scalability::Level::Cinematic );
+    quality.Quality->Overrides = { { "AntiAliasing.Method", 3 }, { "AntiAliasing.Samples", 8 } };
+    quality.Display.VSync      = false;
 
     EXPECT_EQ( Common::Json::Write( Desert::Reflection::SerializeReflected( *type, &settings ) ), before );
 }
@@ -1312,7 +1317,7 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     const Host hosts[] = {
          { "Editor/Source/EditorLayer.cpp", "ConfigDirectory",
            "the editor keeps its copy in ~/.desertengine, beside editor.json" },
-         { "Runtime/Source/Main.cpp", "GameUserDirectory",
+         { "Runtime/Source/RuntimeLayer.cpp", "GameUserDirectory",
            "a packaged game keeps its copy in the player's own per-product directory, because a shipped "
            "game has no engine installation to belong to" },
     };
@@ -1323,7 +1328,7 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
         const std::string text = StripCommentsAndLiterals( ReadAll( root + host.File ) );
         ASSERT_FALSE( text.empty() ) << "could not read " << host.File;
 
-        EXPECT_TRUE( CallsFunction( text, "MachineSettings", "Load" ) )
+        EXPECT_TRUE( CallsFunction( text, "QualityBoot", "Start" ) )
              << host.File
              << " never LOADS the machine store, so this host runs at the schema defaults "
                 "whatever its user chose — "
@@ -1332,6 +1337,12 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
              << host.File << " does not call " << host.Directory << "(): " << host.Why;
     }
 
+    // QualityBoot::Start is the one host start: it loads the store and hands the selection to QualityState.
+    const std::string boot =
+         StripCommentsAndLiterals( ReadAll( root + "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" ) );
+    EXPECT_TRUE( CallsFunction( boot, "MachineSettings", "Load" ) );
+    EXPECT_TRUE( CallsFunction( boot, "QualityState", "Initialize" ) );
+
     // And the game hands them on, or the file is read and thrown away. The editor's own push is covered
     // by the consumer census above (EditorLayer is named for DebugView and reaches the same renderer).
     const std::string layer = StripCommentsAndLiterals( ReadAll( root + "Runtime/Source/RuntimeLayer.cpp" ) );
@@ -1339,274 +1350,250 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     EXPECT_TRUE( CallsFunction( layer, {}, "SetQuality" ) )
          << "the packaged game loads the machine's quality and never gives it to a renderer";
 }
-// AA1: the retired pair `AA` + `MSAASamples` becomes the one method, in the loader, and only the new keys are
-// written back.
+// SCAL1: every retired quality key becomes an override on an all-High selection - unless it equals the
+// High table value, so a machine that never touched a knob comes out with zero overrides. One test per key.
 namespace
 {
-    Common::Settings::MachineSettings ReadMigrated( const std::string& raw )
+    using Common::Scalability::Parameter;
+
+    struct Migrated
+    {
+        Common::Settings::MachineSettings                      Settings;
+        Common::Settings::MachineSettings::RetiredKeyMigration Report;
+    };
+
+    const Common::Scalability::ScalabilityTable& Table()
+    {
+        static const Common::Scalability::ScalabilityTable table = ShippedTable();
+        return table;
+    }
+
+    Migrated Migrate( const std::string& raw )
     {
         auto parsed = Common::Json::Read<Common::Settings::MachineSettings>( raw );
-        EXPECT_TRUE( parsed.IsSuccess() );
-        Common::Settings::MachineSettings settings = parsed.ExtractValue();
-        EXPECT_TRUE( Common::Settings::MachineSettings::MigrateRetiredKeys( settings, raw ) );
-        return settings;
+        EXPECT_TRUE( parsed.IsSuccess() ) << raw;
+        Migrated out{ parsed.IsSuccess() ? parsed.ExtractValue() : Common::Settings::MachineSettings{}, {} };
+        out.Report = Common::Settings::MachineSettings::MigrateRetiredKeys( out.Settings, raw, Table() );
+        return out;
+    }
+
+    std::string KeyOf( Parameter parameter )
+    {
+        return std::string( Common::Scalability::ParameterSpecs()[static_cast<std::size_t>( parameter )].Key );
+    }
+
+    int HighOf( Parameter parameter )
+    {
+        return Table().ValueAt( parameter, Common::Scalability::Level::High );
+    }
+
+    bool HasOverride( const Migrated& m, Parameter parameter, int value )
+    {
+        const Common::Scalability::ParameterOverride wanted{ KeyOf( parameter ), value };
+        const auto&                                  overrides = m.Settings.Quality->Overrides;
+        return std::find( overrides.begin(), overrides.end(), wanted ) != overrides.end();
+    }
+
+    // The one override the migration wrote, or none.
+    void ExpectOnly( const Migrated& m, std::optional<Common::Scalability::ParameterOverride> expected )
+    {
+        ASSERT_TRUE( m.Settings.Quality.has_value() )
+             << "a migrated file must hold the selection it migrated into";
+        EXPECT_EQ( m.Settings.Quality->Levels, Common::Settings::MachineSettings::HighSelection().Levels );
+        EXPECT_TRUE( m.Settings.UnknownKeys.empty() ) << "a retired key was carried into the next save";
+        if ( !expected )
+        {
+            EXPECT_TRUE( m.Settings.Quality->Overrides.empty() );
+            EXPECT_EQ( m.Report.Overrides, 0 );
+            return;
+        }
+        ASSERT_EQ( m.Settings.Quality->Overrides.size(), 1u );
+        EXPECT_EQ( m.Settings.Quality->Overrides[0], *expected );
+        EXPECT_EQ( m.Report.Overrides, 1 );
+    }
+
+    const char* MethodName( int method )
+    {
+        constexpr const char* kNames[] = { "None", "FXAA", "SMAA", "MSAA" };
+        return kNames[method];
     }
 } // namespace
 
-TEST( ConfigOwnership, RetiredMsaaCountBecomesTheMsaaMethod )
+TEST( ConfigOwnership, RetiredAAMethodBecomesTheMethodOverride )
 {
-    const auto settings = ReadMigrated( R"({"MSAASamples":4,"AA":"None","MeshLOD":true})" );
-    EXPECT_EQ( settings.AAMethod, Common::Settings::AntiAliasingMethod::MSAA );
-    EXPECT_EQ( settings.MSAASamples, 4 );
-    EXPECT_EQ( settings.EffectiveAA( true ).Samples, 4 );
-    EXPECT_EQ( settings.EffectiveAA( true ).PostProcess, Common::Settings::AntiAliasingMethod::None );
-
-    const std::string written = Common::Json::Write( settings );
-    {
-        const auto parsed = Common::Json::Parse( written );
-        ASSERT_TRUE( parsed.IsSuccess() ) << written;
-        const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
-        EXPECT_FALSE( root.Find( "AA" ).has_value() ) << written;
-        const auto method = root.Find( "AAMethod" );
-        ASSERT_TRUE( method.has_value() ) << written;
-        const Common::Json::Node& methodNode = *method;
-        const auto                text       = methodNode.AsString();
-        ASSERT_TRUE( text.IsSuccess() ) << written;
-        EXPECT_EQ( text.GetValue(), "MSAA" ) << written;
-    }
-
-    // Round trip: the written text reads back as the same method and is not migrated again.
-    auto again = Common::Json::Read<Common::Settings::MachineSettings>( written );
-    ASSERT_TRUE( again.IsSuccess() );
-    Common::Settings::MachineSettings reread = again.ExtractValue();
-    EXPECT_FALSE( Common::Settings::MachineSettings::MigrateRetiredKeys( reread, written ) );
-    EXPECT_EQ( Common::Json::Write( reread ), written );
+    const int high  = HighOf( Parameter::AntiAliasingMethod );
+    const int other = high == 2 ? 0 : 2; // None or SMAA, never MSAA (that would pull Samples in)
+    ExpectOnly( Migrate( std::format( R"({{"AAMethod":"{}"}})", MethodName( other ) ) ),
+                Common::Scalability::ParameterOverride{ KeyOf( Parameter::AntiAliasingMethod ), other } );
+    ExpectOnly( Migrate( std::format( R"({{"AAMethod":"{}"}})", MethodName( high ) ) ), std::nullopt );
 }
 
-TEST( ConfigOwnership, RetiredPostAAWithoutMsaaBecomesThatMethod )
+TEST( ConfigOwnership, RetiredMSAASamplesMigratesOnlyUnderMsaa )
 {
-    const auto smaa = ReadMigrated( R"({"MSAASamples":1,"AA":"SMAA"})" );
-    EXPECT_EQ( smaa.AAMethod, Common::Settings::AntiAliasingMethod::SMAA );
-    EXPECT_EQ( smaa.EffectiveAA( true ).Samples, 1 );
-    EXPECT_EQ( smaa.EffectiveAA( true ).PostProcess, Common::Settings::AntiAliasingMethod::SMAA );
-    EXPECT_EQ( smaa.MSAASamples, 4 );
-
-    const auto none = ReadMigrated( R"({"MSAASamples":1,"AA":"None"})" );
-    EXPECT_EQ( none.AAMethod, Common::Settings::AntiAliasingMethod::None );
-    EXPECT_EQ( none.EffectiveAA( true ).Samples, 1 );
+    const int other = HighOf( Parameter::AntiAliasingSamples ) == 2 ? 4 : 2;
+    EXPECT_TRUE( HasOverride( Migrate( std::format( R"({{"AAMethod":"MSAA","MSAASamples":{}}})", other ) ),
+                              Parameter::AntiAliasingSamples, other ) );
+    // Under the High method (not MSAA) the count meant nothing, so it moves nothing.
+    const auto plain = Migrate( std::format( R"({{"AAMethod":"{}","MSAASamples":{}}})",
+                                             MethodName( HighOf( Parameter::AntiAliasingMethod ) ), other ) );
+    EXPECT_EQ( plain.Report.KeysMoved, 2 );
+    ExpectOnly( plain, std::nullopt );
 }
 
-TEST( ConfigOwnership, AnOlderBuildsRetiredKeyNeverOverridesTheMethod )
+TEST( ConfigOwnership, RetiredTextureFilterModeBecomesTheFilterOverride )
 {
-    const auto settings = ReadMigrated( R"({"AAMethod":"FXAA","MSAASamples":8,"AA":"SMAA"})" );
-    EXPECT_EQ( settings.AAMethod, Common::Settings::AntiAliasingMethod::FXAA );
-    // A count kept for MSAA is not a sample count under any other method.
-    EXPECT_EQ( settings.EffectiveAA( true ).Samples, 1 );
-    EXPECT_EQ( settings.UnknownKeys.size(), 0u );
+    constexpr const char* kNames[] = { "Nearest", "Bilinear", "Trilinear", "Anisotropic" };
+    const int             high     = HighOf( Parameter::TextureFilter );
+    const int             other    = high == 0 ? 1 : 0;
+    ExpectOnly( Migrate( std::format( R"({{"TextureFilterMode":"{}"}})", kNames[other] ) ),
+                Common::Scalability::ParameterOverride{ KeyOf( Parameter::TextureFilter ), other } );
+    ExpectOnly( Migrate( std::format( R"({{"TextureFilterMode":"{}"}})", kNames[high] ) ), std::nullopt );
 }
 
-// AA2: MSAA only where it works — the forward path. The whole table of stored method x render path.
-TEST( ConfigOwnership, EffectiveAntiAliasingFollowsTheRenderPath )
+TEST( ConfigOwnership, RetiredAnisotropyBecomesTheAnisotropyOverride )
 {
-    using Common::Settings::AntiAliasingMethod;
-    using Common::Settings::EffectiveAntiAliasing;
-
-    struct Case
-    {
-        AntiAliasingMethod    Stored;
-        bool                  Forward;
-        EffectiveAntiAliasing Expected;
-    };
-    const Case cases[] = {
-         { AntiAliasingMethod::None, true, { AntiAliasingMethod::None, 1, AntiAliasingMethod::None, false } },
-         { AntiAliasingMethod::None, false, { AntiAliasingMethod::None, 1, AntiAliasingMethod::None, false } },
-         { AntiAliasingMethod::FXAA, true, { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, false } },
-         { AntiAliasingMethod::FXAA, false, { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, false } },
-         { AntiAliasingMethod::SMAA, true, { AntiAliasingMethod::SMAA, 1, AntiAliasingMethod::SMAA, false } },
-         { AntiAliasingMethod::SMAA, false, { AntiAliasingMethod::SMAA, 1, AntiAliasingMethod::SMAA, false } },
-         { AntiAliasingMethod::MSAA, true, { AntiAliasingMethod::MSAA, 4, AntiAliasingMethod::None, false } },
-         { AntiAliasingMethod::MSAA, false, { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, true } },
-    };
-    for ( const Case& c : cases )
-    {
-        Common::Settings::MachineSettings settings;
-        settings.AAMethod    = c.Stored;
-        settings.MSAASamples = 4;
-        EXPECT_EQ( settings.EffectiveAA( c.Forward ), c.Expected )
-             << static_cast<int>( c.Stored ) << ( c.Forward ? " forward" : " deferred" );
-        // The stored choice is never rewritten by the fallback.
-        EXPECT_EQ( settings.AAMethod, c.Stored );
-        EXPECT_EQ( settings.MSAASamples, 4 );
-    }
-    EXPECT_TRUE( Desert::Core::RenderPathSupportsMSAA( Desert::Core::RenderPath::Forward ) );
-    EXPECT_FALSE( Desert::Core::RenderPathSupportsMSAA( Desert::Core::RenderPath::Deferred ) );
+    const int high  = HighOf( Parameter::Anisotropy );
+    const int other = high == 2 ? 4 : 2;
+    ExpectOnly( Migrate( std::format( R"({{"Anisotropy":{}}})", other ) ),
+                Common::Scalability::ParameterOverride{ KeyOf( Parameter::Anisotropy ), other } );
+    ExpectOnly( Migrate( std::format( R"({{"Anisotropy":{}}})", high ) ), std::nullopt );
 }
 
-// AA2: no multisampled scene target in a deferred scene, for every method and every count a machine can
-// store; and SceneRenderer sizes its target from EffectiveAA and from nothing else.
-TEST( ConfigOwnership, NoMultisampledSceneTargetOnTheDeferredPath )
+TEST( ConfigOwnership, RetiredMeshLODBecomesTheMeshLODOverride )
 {
-    using Common::Settings::AntiAliasingMethod;
-    for ( const AntiAliasingMethod method : { AntiAliasingMethod::None, AntiAliasingMethod::FXAA,
-                                              AntiAliasingMethod::SMAA, AntiAliasingMethod::MSAA } )
-        for ( const int samples : { 1, 2, 4, 8 } )
-        {
-            Common::Settings::MachineSettings settings;
-            settings.AAMethod    = method;
-            settings.MSAASamples = samples;
-            const auto deferred  = settings.EffectiveAA(
-                 Desert::Core::RenderPathSupportsMSAA( Desert::Core::RenderPath::Deferred ) );
-            EXPECT_EQ( deferred.Samples, 1 ) << static_cast<int>( method ) << " " << samples;
-            EXPECT_NE( deferred.Method, AntiAliasingMethod::MSAA );
-        }
-
-    const std::string text = ReadAll( RepoRoot() + kSceneRendererImpl );
-    ASSERT_FALSE( text.empty() );
-    // The initial target is single-sampled; the per-frame count comes from the EffectiveAA result.
-    EXPECT_TRUE( std::regex_search( text, std::regex( R"(fbSpec\.Samples\s*=\s*1;)" ) ) );
-    EXPECT_NE( text.find( "ApplySceneSampleCount( SupportedSceneSamples( aa.Samples ) );" ), std::string::npos );
-    size_t calls = 0;
-    for ( size_t at = text.find( "ApplySceneSampleCount(" ); at != std::string::npos;
-          at        = text.find( "ApplySceneSampleCount(", at + 1 ) )
-        ++calls;
-    // The definition and the one call.
-    EXPECT_EQ( calls, 2u );
+    const int high = HighOf( Parameter::MeshLOD );
+    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high ? "false" : "true" ) ),
+                Common::Scalability::ParameterOverride{ KeyOf( Parameter::MeshLOD ), high ? 0 : 1 } );
+    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high ? "true" : "false" ) ), std::nullopt );
 }
 
-namespace
+TEST( ConfigOwnership, RetiredCloudQualityTierBecomesTheCloudOverride )
 {
-    // Captures everything the engine's logger emits while alive, through spdlog's default logger — the
-    // sink LOG_INFO writes to — and restores the previous logger afterwards, so no test after it is muted.
-    class AALogCapture
-    {
-    public:
-        AALogCapture() : m_Previous( spdlog::default_logger() )
-        {
-            auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>( m_Stream );
-            spdlog::set_default_logger( std::make_shared<spdlog::logger>( "capture", std::move( sink ) ) );
-            spdlog::set_level( spdlog::level::trace );
-        }
-        ~AALogCapture()
-        {
-            spdlog::set_default_logger( m_Previous );
-        }
-        AALogCapture( const AALogCapture& )            = delete;
-        AALogCapture& operator=( const AALogCapture& ) = delete;
+    constexpr const char* kNames[] = { "Low", "Medium", "High" };
+    const int             high     = HighOf( Parameter::CloudQuality );
+    const int             other    = high == 0 ? 1 : 0;
+    ExpectOnly( Migrate( std::format( R"({{"CloudQualityTier":"{}"}})", kNames[other] ) ),
+                Common::Scalability::ParameterOverride{ KeyOf( Parameter::CloudQuality ), other } );
+    ExpectOnly( Migrate( std::format( R"({{"CloudQualityTier":"{}"}})", kNames[high] ) ), std::nullopt );
+}
 
-        // Lines naming the deferred-path fallback of an MSAA choice.
-        std::size_t DowngradeLines() const
-        {
-            const std::string text = m_Stream.str();
-            std::size_t       n    = 0;
-            for ( std::size_t at = text.find( "deferred scenes run FXAA" ); at != std::string::npos;
-                  at             = text.find( "deferred scenes run FXAA", at + 1 ) )
-                ++n;
-            return n;
-        }
-
-    private:
-        std::shared_ptr<spdlog::logger> m_Previous;
-        std::ostringstream              m_Stream;
-    };
-} // namespace
-
-// AA-LOG2: resolving is PURE — any number of readers, any number of frames, write nothing and agree — and
-// the downgrade is said where the choice is APPLIED: committing MSAA 4x writes one line, committing FXAA
-// none, committing MSAA 4x again one more. Counted through the engine's log sink, not a production counter.
-TEST( ConfigOwnership, ResolvingAntiAliasingIsPureAndCommittingMsaaLogsOnce )
+TEST( ConfigOwnership, RetiredPostAAStandsInForAAMethodOnlyWhenAAMethodIsAbsent )
 {
-    using Common::Settings::AntiAliasingMethod;
+    const int high  = HighOf( Parameter::AntiAliasingMethod );
+    const int other = high == 2 ? 0 : 2;
+    ExpectOnly( Migrate( std::format( R"({{"AA":"{}"}})", MethodName( other ) ) ),
+                Common::Scalability::ParameterOverride{ KeyOf( Parameter::AntiAliasingMethod ), other } );
+    // An older build's `AA` never overrides the AAMethod a newer build wrote beside it.
+    ExpectOnly(
+         Migrate( std::format( R"({{"AAMethod":"{}","AA":"{}"}})", MethodName( high ), MethodName( other ) ) ),
+         std::nullopt );
+    // `AA` with a count above one was MSAA.
+    EXPECT_TRUE( HasOverride( Migrate( R"({"AA":"None","MSAASamples":4})" ), Parameter::AntiAliasingMethod, 3 ) );
+}
+
+// FIRST RUN (UE auto-detect): no saved selection -> the benchmark's recommendation when its cache key is this
+// device's, else all High; a saved selection always wins over a recommendation.
+TEST( ConfigOwnership, AMachineWithNoSavedQualityStartsOnAValidRecommendationAndASavedOneWins )
+{
     using Common::Settings::MachineSettings;
+    const Common::Scalability::BenchmarkCacheKey device{ 0x10DE, 0x2684, 42, "Test GPU", 1 };
+    Common::Scalability::RecommendedQuality      recommended;
+    recommended.Key = device;
+    recommended.Levels.fill( Common::Scalability::Level::Medium );
+    const MachineSettings::StartingQuality allHigh{ MachineSettings::HighSelection(), false };
 
+    MachineSettings fresh;
+    EXPECT_EQ( MachineSettings::StartFrom( fresh, device ), allHigh );
+
+    fresh.Recommended = recommended;
+    const auto start  = MachineSettings::StartFrom( fresh, device );
+    EXPECT_TRUE( start.FromRecommended );
+    EXPECT_EQ( start.Selection.Levels, recommended.Levels );
+    EXPECT_TRUE( start.Selection.Overrides.empty() );
+
+    auto otherDriver          = device;
+    otherDriver.DriverVersion = 43;
+    EXPECT_EQ( MachineSettings::StartFrom( fresh, otherDriver ), allHigh )
+         << "a recommendation measured on another driver must not be applied";
+
+    MachineSettings chosen = fresh;
+    chosen.Quality.emplace();
+    chosen.Quality->Levels.fill( Common::Scalability::Level::Low );
+    const MachineSettings::StartingQuality saved{ *chosen.Quality, false };
+    EXPECT_EQ( MachineSettings::StartFrom( chosen, device ), saved )
+         << "the benchmark overwrote the player's choice";
+}
+
+// VSync is a machine.json value (Display section), default OFF, and OFF keeps the pre-SCAL1 editor walk.
+TEST( ConfigOwnership, VSyncIsSavedInMachineJsonAndDefaultsToTheLowestLatencyMode )
+{
+    using Common::Scalability::PresentMode;
+    using Common::Settings::MachineSettings;
     std::error_code             ec;
     const std::filesystem::path store =
-         std::filesystem::temp_directory_path() / "desert_configownership_aa_machine.json";
+         std::filesystem::temp_directory_path() / "desert_configownership_vsync.json";
     std::filesystem::remove( store, ec );
-    MachineSettings::Load( store ); // absent file: the defaults (FXAA), nothing to report
+    MachineSettings::Get() = {};
+    MachineSettings::Load( store, ShippedTable() );
+    EXPECT_FALSE( MachineSettings::Get().Display.VSync ) << "VSync must default off (UE r.VSync=0)";
 
-    MachineSettings msaa4;
-    msaa4.AAMethod    = AntiAliasingMethod::MSAA;
-    msaa4.MSAASamples = 4;
-    {
-        AALogCapture log;
-        for ( int frame = 0; frame < 100; ++frame )
-        {
-            const auto viewport = msaa4.ResolveAA( false );
-            const auto preview  = msaa4.ResolveAA( false );
-            EXPECT_EQ( viewport, preview );
-            EXPECT_EQ( viewport.RequestedMethod, AntiAliasingMethod::MSAA );
-            EXPECT_EQ( viewport.RequestedSamples, 4 );
-            EXPECT_EQ( viewport.Effective.Method, AntiAliasingMethod::FXAA );
-            EXPECT_EQ( viewport.Effective.Samples, 1 );
-            EXPECT_FALSE( viewport.Reason.empty() );
+    Common::Scalability::CapabilityCatalog catalog;
+    catalog.PresentModes = { PresentMode::Fifo, PresentMode::Mailbox, PresentMode::Immediate };
+    EXPECT_EQ( Common::Scalability::ResolvePresentMode( MachineSettings::Get().Display, catalog ).Mode,
+               PresentMode::Immediate );
 
-            const auto forward = msaa4.ResolveAA( true );
-            EXPECT_EQ( forward.Effective.Method, AntiAliasingMethod::MSAA );
-            EXPECT_EQ( forward.Effective.Samples, 4 );
-            EXPECT_TRUE( forward.Reason.empty() );
-        }
-        EXPECT_EQ( log.DowngradeLines(), 0u ) << "a read wrote a line";
-    }
-
-    {
-        AALogCapture log;
-        ASSERT_TRUE( MachineSettings::CommitAntiAliasing( AntiAliasingMethod::MSAA, 4 ) );
-        EXPECT_EQ( log.DowngradeLines(), 1u );
-        EXPECT_EQ( MachineSettings::Get().AAMethod, AntiAliasingMethod::MSAA );
-        EXPECT_EQ( MachineSettings::Get().MSAASamples, 4 );
-        for ( int frame = 0; frame < 100; ++frame )
-            EXPECT_EQ( MachineSettings::Get().ResolveAA( false ).Effective.Method, AntiAliasingMethod::FXAA );
-        EXPECT_EQ( log.DowngradeLines(), 1u );
-
-        ASSERT_TRUE( MachineSettings::CommitAntiAliasing( AntiAliasingMethod::FXAA, 0 ) );
-        EXPECT_EQ( log.DowngradeLines(), 1u );
-        EXPECT_EQ( MachineSettings::Get().MSAASamples, 4 ) << "the count is kept for the next MSAA choice";
-
-        ASSERT_TRUE( MachineSettings::CommitAntiAliasing( AntiAliasingMethod::MSAA, 4 ) );
-        EXPECT_EQ( log.DowngradeLines(), 2u );
-    }
-
-    // Loading a store that holds MSAA applies it, and says so once.
-    {
-        AALogCapture log;
-        MachineSettings::Load( store );
-        EXPECT_EQ( MachineSettings::Get().AAMethod, AntiAliasingMethod::MSAA );
-        EXPECT_EQ( log.DowngradeLines(), 1u );
-    }
+    MachineSettings::Get().Display.VSync = true;
+    ASSERT_TRUE( MachineSettings::Save() );
+    MachineSettings::Get() = {};
+    MachineSettings::Load( store, ShippedTable() );
+    EXPECT_TRUE( MachineSettings::Get().Display.VSync ) << "VSync did not survive machine.json";
+    EXPECT_EQ( Common::Scalability::ResolvePresentMode( MachineSettings::Get().Display, catalog ).Mode,
+               PresentMode::Fifo );
+    MachineSettings::Get() = {};
     std::filesystem::remove( store, ec );
-    MachineSettings::Get() = MachineSettings{}; // the store is process-wide: leave the defaults behind
+}
 
-    // The settings layer keeps no memory of what it said: no statics, no lock.
-    const std::string impl = Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll(
-         std::filesystem::path( RepoRoot() ) / "Desert/Common/Source/Common/Settings/MachineSettings.cpp" ) );
-    ASSERT_FALSE( impl.empty() );
-    EXPECT_EQ( impl.find( "std::mutex" ), std::string::npos );
-    EXPECT_EQ( impl.find( "AADowngrade" ), std::string::npos );
+TEST( ConfigOwnership, AFileThatAlreadyHasQualityOnlyDropsTheRetiredKeys )
+{
+    Common::Settings::MachineSettings written;
+    written.Quality.emplace();
+    written.Quality->Levels.fill( Common::Scalability::Level::Low );
+    std::string raw = Common::Json::Write( written );
+    ASSERT_EQ( raw.back(), '}' );
+    raw.pop_back();
+    raw += R"(,"AAMethod":"None","Anisotropy":2})";
 
-    // The renderer and the panel READ the resolution: neither interprets the pair nor words the downgrade.
-    for ( const char* reader :
-          { kSceneRendererImpl, "Editor/Source/Editor/Panels/Scalability/ScalabilityPanel.cpp" } )
-    {
-        SCOPED_TRACE( reader );
-        const std::string text =
-             Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + reader ) );
-        ASSERT_FALSE( text.empty() );
-        EXPECT_NE( text.find( ".ResolveAA(" ), std::string::npos );
-        EXPECT_EQ( text.find( "EffectiveAA(" ), std::string::npos );
-    }
-    const std::string renderer =
-         Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + kSceneRendererImpl ) );
-    EXPECT_EQ( renderer.find( "MSAAUnavailableOnPath" ), std::string::npos );
+    const auto m = Migrate( raw );
+    EXPECT_EQ( m.Report.KeysMoved, 2 );
+    EXPECT_EQ( m.Report.Overrides, 0 );
+    EXPECT_TRUE( m.Settings.UnknownKeys.empty() );
+    EXPECT_EQ( m.Settings.Quality, written.Quality );
+}
 
-    // The panel and the palette APPLY a change only through CommitAntiAliasing: neither writes the pair itself.
-    for ( const char* writer : { "Editor/Source/Editor/Panels/Scalability/ScalabilityPanel.cpp",
-                                 "Editor/Source/Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp" } )
-    {
-        SCOPED_TRACE( writer );
-        const std::string text =
-             Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + writer ) );
-        ASSERT_FALSE( text.empty() );
-        EXPECT_NE( text.find( "CommitAntiAliasing(" ), std::string::npos );
-        EXPECT_FALSE( std::regex_search( text, std::regex( R"(\b(AAMethod|MSAASamples)\s*=[^=])" ) ) );
-    }
+TEST( ConfigOwnership, AnUnreadableRetiredValueWritesNoOverride )
+{
+    const auto m = Migrate( R"({"TextureFilterMode":"Sharpest","MeshLOD":7})" );
+    EXPECT_EQ( m.Report.KeysMoved, 2 );
+    ExpectOnly( m, std::nullopt );
+}
+
+TEST( ConfigOwnership, AnUntouchedDefaultFileMigratesWithZeroOverrides )
+{
+    constexpr const char* kFilters[] = { "Nearest", "Bilinear", "Trilinear", "Anisotropic" };
+    constexpr const char* kClouds[]  = { "Low", "Medium", "High" };
+    const std::string     raw        = std::format(
+         R"({{"AAMethod":"{}","MSAASamples":{},"TextureFilterMode":"{}","Anisotropy":{},"MeshLOD":{},)"
+                    R"("CloudQualityTier":"{}"}})",
+         MethodName( HighOf( Parameter::AntiAliasingMethod ) ), HighOf( Parameter::AntiAliasingSamples ),
+         kFilters[HighOf( Parameter::TextureFilter )], HighOf( Parameter::Anisotropy ),
+         HighOf( Parameter::MeshLOD ) ? "true" : "false", kClouds[HighOf( Parameter::CloudQuality )] );
+    const auto m = Migrate( raw );
+    EXPECT_EQ( m.Report.KeysMoved, 6 );
+    ExpectOnly( m, std::nullopt );
+}
+
+TEST( ConfigOwnership, RenderPathSupportsMsaaOnlyOnForward )
+{
+    EXPECT_TRUE( Desert::Core::RenderPathSupportsMSAA( Desert::Core::RenderPath::Forward ) );
+    EXPECT_FALSE( Desert::Core::RenderPathSupportsMSAA( Desert::Core::RenderPath::Deferred ) );
 }

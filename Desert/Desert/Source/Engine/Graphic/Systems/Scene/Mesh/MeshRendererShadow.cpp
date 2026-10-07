@@ -71,7 +71,7 @@ namespace Desert::Graphic::System
 
         // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM). The
         // per-object transform, material row and instance bind are each draw's state, written right before it.
-        MaterialPBR* const rsmMaterial = m_RSMMaterial.get();
+        DataDrivenMaterial* const rsmMaterial = m_RSMMaterial.get();
         for ( uint32_t i = 0; i < static_cast<uint32_t>( objs.size() ); ++i )
         {
             const auto* obj = objs[i];
@@ -114,6 +114,45 @@ namespace Desert::Graphic::System
                   static_cast<double>( ShadowAttachmentBytes( m_Shadow ) ) / ( 1024.0 * 1024.0 ), allocMs,
                   static_cast<double>( ShadowAttachmentLease::LiveBytes() ) / ( 1024.0 * 1024.0 ),
                   ShadowAttachmentLease::LiveHolders() );
+    }
+
+    void MeshRenderer::TakeShadowBudget( const ShadowQuality& budget )
+    {
+        m_Shadow = budget;
+        // CLAMPED HERE, ON EVERY BUDGET TAKEN. ShadowQuality is a plain aggregate, so
+        // `ShadowQuality{ 5, 2048, ... }` compiles; every loop of the shadow pass runs to this count while the
+        // arrays it indexes are [kMaxCascades]. ComputeShadowCascades clamps its own copy, which made the
+        // fitter safe and left the allocation, the material arrays and the map gather writing one past the end.
+        if ( m_Shadow.CascadeCount > kMaxCascades )
+        {
+            LOG_WARN( "[Shadows] a budget of {} cascades was asked for; this renderer can hold {} and will "
+                      "use that.",
+                      m_Shadow.CascadeCount, kMaxCascades );
+            m_Shadow.CascadeCount = kMaxCascades;
+        }
+    }
+
+    bool MeshRenderer::RebudgetShadows( const ShadowQuality& budget )
+    {
+        // The maps, the caster materials (their light-matrix UBOs) and the pipelines (built against cascade
+        // 0's framebuffer) may all be referenced by a frame still in flight; a quality change is rare and
+        // user-driven, so the whole device is drained rather than each object's release deferred.
+        Renderer::GetInstance().WaitDeviceIdle();
+        for ( uint32_t i = 0; i < kMaxCascades; ++i )
+        {
+            m_CascadeFB[i].reset();
+            m_ShadowMaterial[i].reset();
+            m_ShadowInstancedMaterial[i].reset();
+            m_ShadowSkinnedMaterial[i].reset();
+        }
+        m_ShadowPipeline.reset();
+        m_ShadowInstancedPipeline.reset();
+        m_ShadowSkinnedPipeline.reset();
+        m_ShadowAttachments = ShadowAttachmentLease{};
+        m_FittedCascades    = 0;
+
+        TakeShadowBudget( budget );
+        return SetupShadowPass();
     }
 
     bool MeshRenderer::SetupShadowPass()

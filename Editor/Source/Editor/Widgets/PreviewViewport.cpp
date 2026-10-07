@@ -1171,8 +1171,9 @@ namespace Desert::Editor
         // reason it exists: a view's transient idea of what it needs must not become the user's permanent
         // one. Pushed every frame, like EditorLayer pushes the viewport's, so the pane follows a change
         // made in Scene Settings instead of holding whatever the machine said when the panel opened.
-        Common::Settings::MachineSettings quality = Common::Settings::MachineSettings::Get();
-        quality.CloudQualityTier                  = Common::Settings::CloudQuality::Low;
+        Common::Scalability::ResolvedQuality quality = Common::Scalability::QualityState::Resolved();
+        quality.Values[static_cast<std::size_t>( Common::Scalability::Parameter::CloudQuality )] =
+             static_cast<Common::Scalability::ParameterValue>( Common::Settings::CloudQuality::Low );
         m_Renderer->SetQuality( quality );
 
         ApplyCamera( m_Width, m_Height );

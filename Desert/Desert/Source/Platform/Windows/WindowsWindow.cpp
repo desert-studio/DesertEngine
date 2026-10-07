@@ -232,9 +232,6 @@ namespace Desert::Platform::Windows
                                     } );
 
         m_SwapChain = Graphic::SwapChain::Create( m_GLFWWindow );
-        // Hand the requested pacing over BEFORE CreateSwapChain picks a present mode. Without this the
-        // swapchain always paced itself to the display and WindowSpecification::VSync did nothing at all.
-        m_SwapChain->SetVSync( m_Data.Specification.VSync );
 
         return Common::MakeSuccess( true );
     }

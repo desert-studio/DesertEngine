@@ -53,9 +53,9 @@ namespace Desert::Core
         Deferred = 1,
     };
 
-    // WHETHER A PATH CAN MULTISAMPLE, the input MachineSettings::EffectiveAA takes (AA2). Forward shades
-    // every sample it rasterizes; Deferred shades one G-buffer sample per pixel, so MSAA there smooths
-    // only forward-drawn objects and is replaced by FXAA (see Common::Settings::EffectiveAntiAliasing).
+    // WHETHER A PATH CAN MULTISAMPLE, the input Scalability::ResolveAntiAliasingForPath takes (AA2). Forward
+    // shades every sample it rasterizes; Deferred shades one G-buffer sample per pixel, so MSAA there smooths
+    // only forward-drawn objects and is replaced by FXAA (see ResolveAntiAliasingForPath).
     constexpr bool RenderPathSupportsMSAA( const RenderPath path )
     {
         return path == RenderPath::Forward;

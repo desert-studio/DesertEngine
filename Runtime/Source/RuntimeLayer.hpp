@@ -92,6 +92,8 @@ namespace Desert::Player
 
         // The library the boot's "Indexing animation clips" stage fills (Assets::IndexAnimationClips).
         std::unique_ptr<Animation::AnimationLibrary> m_AnimationLibrary;
+        // QualityBoot::Start's answer, taken in the constructor (before the renderer) and returned by OnAttach.
+        Common::BoolResultStr                        m_QualityStart = Common::MakeSuccess( true );
         std::unique_ptr<Graphic::SceneRenderer>      m_SceneRenderer;
         std::shared_ptr<Core::Scene>                 m_Scene;
         // A partitioned world keeps only the camera's neighbourhood in the ECS (WorldStreamer.hpp); null for a

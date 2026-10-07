@@ -94,6 +94,7 @@
 #include <Common/Core/KeyCodes.hpp>
 #include <Common/Core/Version.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <Engine/Graphic/QualityBoot.hpp>
 #include "Editor/Core/ImGuiUtilities.hpp"
 #include <ImGui/imgui_internal.h>
 
@@ -247,8 +248,9 @@ namespace Desert::Editor
         // into the pipelines at SceneRenderer::Init, so a later load would apply one start behind; and a
         // renderer initialises its own copy of these values from this store, so one built before the load
         // would hold the schema defaults and push two of them into global sampler state.
-        Common::Settings::MachineSettings::Load( std::filesystem::path( ProjectContext::ConfigDirectory() ) /
-                                                 "machine.json" );
+        // The device exists here (the layer attaches after it), so the quality starts in one step.
+        m_QualityStart =
+             Graphic::QualityBoot::Start( std::filesystem::path( ProjectContext::ConfigDirectory() ) / "machine.json" );
 
         // Filled by the "Indexing animation clips" stage above, from the registry's clip rows.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
@@ -339,12 +341,15 @@ namespace Desert::Editor
 
     [[nodiscard]] Common::BoolResultStr EditorLayer::OnAttach()
     {
+        if ( !m_QualityStart )
+        {
+            return m_QualityStart;
+        }
         if ( Common::EventTree* events = Events() )
         {
             m_Panels.JoinEvents( *events, EventNode() );
             m_Subsystems.emplace( *this, *events, EventNode() );
         }
-
         // THE CONTROL CHANNEL, IF ONE WAS ASKED FOR. Before anything else, so a client that started this
         // editor can connect and watch the boot rather than guessing how long to wait for the socket.
         //
@@ -533,7 +538,7 @@ namespace Desert::Editor
                                  []( Out& out )
                                  {
                                      for ( PaletteCommand& command : AntiAliasingPaletteCommands(
-                                                Graphic::RenderConfig::MaxMSAASamples.load() ) )
+                                                Common::Scalability::QualityState::Catalog() ) )
                                      {
                                          out.push_back( std::move( command ) );
                                      }
@@ -1015,7 +1020,7 @@ namespace Desert::Editor
             // weak machine could not turn the picture down without editing a file that goes to everybody.
             // The offscreen preview renderers are not fed here either — the inspector preview pushes its
             // own copy with a cheaper cloud tier, and the other two keep the schema defaults.
-            sr->SetQuality( Common::Settings::MachineSettings::Get() );
+            sr->SetQuality( Common::Scalability::QualityState::Resolved() );
         }
 
         // THE WORLD'S CLOCK, set up for this frame before the scene ticks it (Core::WorldTime).

@@ -40,7 +40,7 @@ Shader "GIResolve"
         {
         	mat4 u_RSMViewProj;  // world -> RSM clip (project the fragment into the sun's view)
         	vec4 u_SunColor;     // rgb = colour, a = intensity
-        	vec4 u_Params;       // x = GI intensity, y = enabled (>0.5), z unused, w = per-frame jitter seed
+        	vec4 u_Params;       // x = GI intensity, y = enabled (>0.5), z = gather taps (GlobalIllumination.Samples, Scalability), w = per-frame jitter seed
         };
 
         float giHash(vec2 p)
@@ -64,7 +64,7 @@ Shader "GIResolve"
         	vec2 baseUV = clip.xy / clip.w * 0.5 + 0.5;
         	baseUV.y = 1.0 - baseUV.y; // RSM is rendered through the engine's Y-flipped viewport
 
-        	const int   SAMPLES = 32;
+        	int         SAMPLES = max(int(u_Params.z), 1);   // GlobalIllumination.Samples (MaterialGIResolve)
         	const float RADIUS  = 0.10;      // RSM-space gather radius
         	const float GOLDEN  = 2.3999632; // golden angle for an even spiral
 
