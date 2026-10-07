@@ -969,7 +969,7 @@ namespace Desert::Graphic
         AddFrameSceneDepthResolve( graph, textures );
         AddFrameSkyAtmosphereLuts( graph, textures );
         AddFrameAtmosphericFog( graph, textures );
-        AddFrameVolumetricClouds( graph, textures );
+        AddFrameVolumetricClouds( graph, textures, frame );
 
         // Particles (Transparency phase), debug lines and the UI canvas run AFTER the deferred lighting
         // composite so lit geometry does not paint over them, and as LOAD overlays so a CLEAR begin never

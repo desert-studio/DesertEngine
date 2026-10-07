@@ -594,7 +594,7 @@ namespace Desert::Graphic
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
-        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor );
