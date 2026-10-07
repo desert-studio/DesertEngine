@@ -246,8 +246,24 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     std::vector<glm::u32vec3> inside;
     std::vector<glm::u32vec3> outside;
 
+    // THE SPECIES' BAND AS ROWS, the bake's own rule (every row whose voxel overlaps [CloudTypeBaseKm,
+    // CloudTypeTopKm]). The fixture has ONE species, so inside this band every air voxel's nearest body is
+    // that species' and must carry a rank; outside it no air voxel may.
+    const Desert::Graphic::CloudTypeShape& bandShape = params.Species.front().Shape;
+    const float           rowKm     = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
+    const auto            bandRow   = [&]( float r )
+    { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( kCloudProceduralVolumeHeight ) ) ); };
+    const uint32_t bandLo =
+         bandRow( std::floor( ( Desert::Graphic::CloudTypeBaseKm( bandShape ) - params.LayerBottomKm ) / rowKm ) );
+    const uint32_t bandHi =
+         bandRow( std::ceil( ( Desert::Graphic::CloudTypeTopKm( bandShape ) - params.LayerBottomKm ) / rowKm ) );
+    ASSERT_LT( bandLo, bandHi ) << "the fixture's species occupies no row of the layer";
+    ASSERT_TRUE( bandLo > 0u || bandHi < kCloudProceduralVolumeHeight )
+         << "the band fills the whole layer, so the ceiling half of this test is vacuous";
+
     size_t filled         = 0;
     size_t rankMismatches = 0;
+    size_t ceilingRanks   = 0;
     for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
         for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
             for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
@@ -256,12 +272,20 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                 if ( solid )
                     ++filled;
 
-                // THE RANK BLOCK REACHES EVERY VOXEL: a body's own and the air's, which carries the
-                // falloff of its nearest body so that the march can grow the clouds into it. A voxel with
-                // no rank in a bake that has cloud is a hole no Coverage can fill.
-                const unsigned char rank = baked.GetValue().Ranks[VoxelIndex( x, y, z ) / 4u];
-                if ( rank == kCloudProceduralNoRank )
+                // THE RANK BLOCK REACHES EVERY VOXEL OF THE SPECIES' BAND: a body's own and the air's, which
+                // carries the falloff of its nearest body so that the march can grow the clouds into it. A
+                // voxel of the band with no rank is a hole no Coverage can fill.
+                //
+                // AND NOTHING ABOVE OR BELOW IT (FARWX-b3, Nubis's height gradient per type): an air voxel
+                // outside the band with a rank is cloud grown up to the layer's ceiling at a high cover —
+                // the 1048576 voxels this used to call holes are exactly the 16 rows of 65536 columns the
+                // band leaves out, and they are empty on purpose.
+                const unsigned char rank   = baked.GetValue().Ranks[VoxelIndex( x, y, z ) / 4u];
+                const bool          inBand = y >= bandLo && y < bandHi;
+                if ( ( inBand || solid ) && rank == kCloudProceduralNoRank )
                     ++rankMismatches;
+                if ( !inBand && !solid && rank != kCloudProceduralNoRank )
+                    ++ceilingRanks;
 
                 std::vector<glm::u32vec3>& bucket = solid ? inside : outside;
                 if ( bucket.size() < 200u && ( ( x * 7u + y * 13u + z * 31u ) % 97u ) == 0u )
@@ -277,6 +301,9 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     EXPECT_EQ( rankMismatches, 0u ) << rankMismatches
                                     << " voxels have no rank, so no Coverage can put cloud there and the "
                                        "slider's top end is not the whole sky";
+    EXPECT_EQ( ceilingRanks, 0u ) << ceilingRanks
+                                  << " air voxels outside the species' band carry a rank, so a high "
+                                     "Coverage grows cloud where the type cannot stand";
 
     ASSERT_GE( inside.size(), 50u ) << "the bake produced almost no cloud, so there is nothing to compare";
 

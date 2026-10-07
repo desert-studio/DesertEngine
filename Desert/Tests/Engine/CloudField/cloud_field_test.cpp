@@ -1213,8 +1213,17 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
     const float fraction   = FractionOfSetEnvelope( altitudeKm );
 
     int bothPresent = 0;
+    int bothKept    = 0;
     int unionWrong  = 0;
     int winnerWrong = 0;
+
+    // THE DEPTH IS THE RANK'S, NOT A SPECIES'. Since the rank copula (FARWX-b2) the bake keeps every cell
+    // and the march cuts it: Profile is CloudRankProfile of the voxel's rank against the cover the world
+    // weather leaves the column, ONE number for the point whichever species are present there. The
+    // channels only name the owner. So the union this test holds the producer to is: one cut, read through
+    // the same rank and weather macros the GPU defines — and never the larger of two species' depths, which
+    // is what it was while each channel was a profile of its own (8283 of 9216 columns differ from that now).
+    const vec4 weather = CLOUD_WEATHER;
 
     constexpr int kColumns = 96;
 
@@ -1233,13 +1242,24 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
 
             const CloudFieldSample united = SampleCloudField( params, fraction, position );
 
-            if ( std::abs( united.Profile - std::max( deck, tower ) ) > 1e-5f )
+            const float cut = CloudRankProfile(
+                 CLOUD_SAMPLE_MODELLING_RANK( CloudProceduralVolumeUvw( params, fraction, position ) ),
+                 CloudLocalCover( weather, vec2( position.x, position.z ) ), weather.z );
+            if ( std::abs( united.Profile - cut ) > 1e-5f )
                 ++unionWrong;
 
             if ( deck <= 0.0f || tower <= 0.0f )
                 continue;
 
             ++bothPresent;
+
+            // ONLY WHERE THE CUT KEEPS CLOUD does the sample name a winner at all: a point the cover has
+            // not reached is empty sky, and the producer returns the empty sample there (DetailType 0)
+            // however deep either channel is — 2326 of the 3386 shared columns at this cover.
+            if ( united.Profile <= 0.0f )
+                continue;
+
+            ++bothKept;
 
             // AND THE WINNER TAKES ITS OWN CHARACTER, unaveraged. This is the other half of D-14: a
             // stratocumulus edge on the tower, or an average of the two, is the smear the winner-take-all
@@ -1260,7 +1280,8 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
 
     EXPECT_GT( bothPresent, 0 ) << "no point of the sky held two kinds of cloud at once — which is what a "
                                    "partition of one field would produce, and what D-14 rejected";
-    EXPECT_EQ( unionWrong, 0 ) << "the union is not the max of the two profiles";
+    EXPECT_GT( bothKept, 0 ) << "no point both species share survived the cut, so the winner is untested";
+    EXPECT_EQ( unionWrong, 0 ) << "the union is not the one rank cut the march makes";
     EXPECT_EQ( winnerWrong, 0 ) << "the winning species did not keep its own edge character";
 }
 
@@ -1697,8 +1718,13 @@ TEST( CloudFieldSpecies, TheWinningSpeciesEdgeIsCutFromItsOwnNoiseVolume )
                  ErodedDensity( sample.Profile, ErosionNoiseAt( params, believed, position ),
                                 std::clamp( params.DetailStrength * sample.DetailFactor, 0.0f, 1.0f ) );
 
-            const double gap  = std::abs( static_cast<double>( fromSeam ) -
-                                          static_cast<double>( fromMirror ) * sample.DensityScale );
+            // THE SEAM CLAMPS AFTER THE SCALE (CloudDefaultDensity: clamp(density * DensityScale, 0, 1)),
+            // so the mirror does too. The tower's DensityFactor is 1.15, and since the rank cut a kept body
+            // reaches a profile of one a ProfileDepth inside — the 620 samples at a gap of exactly 0.15 were
+            // this clamp, not the slot.
+            const double gap = std::abs(
+                 static_cast<double>( fromSeam ) -
+                 static_cast<double>( std::clamp( fromMirror * sample.DensityScale, 0.0f, 1.0f ) ) );
             worstDisagreement = std::max( worstDisagreement, gap );
             if ( gap > 1e-6 )
                 ++densityWrong;

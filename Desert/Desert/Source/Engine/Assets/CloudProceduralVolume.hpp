@@ -759,7 +759,9 @@ namespace Desert::Assets
     /// the R8 RANK of the cloud each voxel belongs to, remapped by the region's column CDF so that the
     /// fraction of columns CloudProceduralKeep keeps at a cover c is c. AIR HAS A RANK TOO: the profile's
     /// falloff past the nearest body's edge (the march grows the clouds into it as the cover rises, so
-    /// Coverage 1 is the whole sky); only a bake with no cloud at all holds kCloudProceduralNoRank.
+    /// Coverage 1 is the whole sky) — but only within the altitudes of the species that owns that body;
+    /// air above or below its band, and every voxel of a bake with no cloud at all, holds
+    /// kCloudProceduralNoRank.
     struct CloudProceduralVolumeBake
     {
         std::vector<unsigned char> Voxels;
