@@ -131,7 +131,7 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<GraphicsPipeline> CreateTerrainPipeline( SceneRenderer* sceneRenderer,
                                                                  const char* shaderName, const char* debugName,
-                                                                 const std::shared_ptr<Framebuffer>& framebuffer,
+                                                                 const RenderTargetLayout&           layout,
                                                                  std::string&                        error )
         {
             const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
@@ -144,8 +144,8 @@ namespace Desert::Graphic::System
             GraphicsPipelineSpecification spec;
             spec.DebugName   = debugName;
             spec.Shader      = shader;
-            spec.Framebuffer = framebuffer;
-            spec.BlendEnable = false;
+            spec.TargetLayout = layout;
+            spec.BlendEnable  = false;
 
             // Render-state (topology, cull, depth) is declared by the shader's
             // `#pragma state` — no longer hardcoded here. The pipeline comes from the shared cache.
@@ -165,14 +165,14 @@ namespace Desert::Graphic::System
     {
         std::string error;
         m_Pipeline = CreateTerrainPipeline( m_SceneRenderer, "Terrain", "TerrainPipeline",
-                                            m_TargetFramebuffer.lock(), error );
+                                            SceneTargetLayout(), error );
         if ( !m_Pipeline )
             return Common::MakeError( "TerrainRenderer: " + error );
 
         // The deferred path's twin. Its absence leaves the terrain undrawn in Deferred, and says so; the
         // Forward path does not need it.
         m_GBufferPipeline = CreateTerrainPipeline( m_SceneRenderer, "TerrainGBuffer", "TerrainGBufferPipeline",
-                                                   m_SceneRenderer->GetGBuffer(), error );
+                                                   GBufferLayout(), error );
         if ( !m_GBufferPipeline )
             return Common::MakeError( "TerrainRenderer: the G-buffer pipeline: " + error );
 

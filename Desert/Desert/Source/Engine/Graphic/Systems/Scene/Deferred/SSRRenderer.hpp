@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
@@ -84,12 +85,11 @@ namespace Desert::Graphic::System
 
             GraphicsPipelineSpecification compSpec;
             compSpec.DebugName         = "SSRComposite";
-            compSpec.Framebuffer       = target;
+            compSpec.TargetLayout = SceneTargetLayout();
             compSpec.Shader            = m_CompositeShader;
             compSpec.DepthTestEnabled  = false;
             compSpec.DepthWriteEnabled = false;
             compSpec.BlendEnable       = true; // src-alpha: reflection replaces the scene by reflectance
-            compSpec.UseLoadRenderPass = true; // composite over the lit scene
             const auto compPipeline    = Graphic::GraphicsPipeline::Create( compSpec );
             if ( !compPipeline )
                 return Common::MakeError( compPipeline.GetError() );

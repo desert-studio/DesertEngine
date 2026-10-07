@@ -1,5 +1,6 @@
 // MeshRenderer's deferred half: the manual G-buffer pass and its pipeline.
 #include "MeshRendererInternal.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -43,7 +44,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_StaticGBufferShader;
-        spec.Framebuffer    = gbuffer; // 2 color attachments -> the shader's 2 MRT outputs
+        spec.TargetLayout = GBufferLayout();
 
         const auto gbufferPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !gbufferPipeline )
@@ -115,7 +116,7 @@ namespace Desert::Graphic::System
             ispec.DepthCompareOp = DepthCompare::CloserOrEqual;
             ispec.CullMode       = CullMode::Back;
             ispec.Shader         = m_InstancedGBufferShader;
-            ispec.Framebuffer    = gbuffer;
+            ispec.TargetLayout = GBufferLayout();
 
             if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
             {

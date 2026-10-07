@@ -1,4 +1,5 @@
 #include "EditorColliderPass.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp> // the view's own debug/show state
@@ -70,7 +71,7 @@ namespace Desert::Editor::Render
         Graphic::GraphicsPipelineSpecification spec;
         spec.DebugName         = "EditorColliderPipeline";
         spec.Shader            = shader;
-        spec.Framebuffer       = scene->GetTargetFramebuffer();
+        spec.TargetLayout = Desert::Graphic::SceneTargetLayout();
         spec.Topology          = Graphic::PrimitiveTopology::Lines;
         spec.LineWidth         = 1.0f; // no wideLines feature — width stays 1.0 in SubmitLines
         spec.DepthTestEnabled  = true; // colliders occlude behind geometry (the old ImGui gizmo didn't)

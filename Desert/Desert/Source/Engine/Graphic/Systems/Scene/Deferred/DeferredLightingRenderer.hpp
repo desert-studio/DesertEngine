@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
@@ -62,14 +63,13 @@ namespace Desert::Graphic::System
 
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "DeferredLighting";
-            spec.Framebuffer       = target;
+            spec.TargetLayout = SceneTargetLayout();
             spec.Shader            = m_Shader;
             // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
             // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are
             // preserved — the shader discards non-geometry texels so that scene shows through.
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
-            spec.UseLoadRenderPass = true;
             const auto pipeline    = Graphic::GraphicsPipeline::Create( spec );
             if ( !pipeline )
                 return Common::MakeError( pipeline.GetError() );

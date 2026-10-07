@@ -12,7 +12,7 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/ViewRasterTargets.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
-#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
@@ -696,9 +696,9 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
 {
     using namespace Desert::Graphic;
     static_assert( kVelocityFaultDefault == RDG::FaultDefault::Black );
-    EXPECT_EQ( SceneRenderer::SceneTargetLayout().ColorFormats.at( SceneRenderer::kSceneTargetVelocitySlot ),
+    EXPECT_EQ( Desert::Graphic::SceneTargetLayout().ColorFormats.at( Desert::Graphic::kSceneTargetVelocitySlot ),
                ViewTargetFormats::kVelocity );
-    EXPECT_EQ( SceneRenderer::GBufferLayout().ColorFormats.at( SceneRenderer::kGBufferVelocitySlot ),
+    EXPECT_EQ( Desert::Graphic::GBufferLayout().ColorFormats.at( Desert::Graphic::kGBufferVelocitySlot ),
                ViewTargetFormats::kVelocity );
 
     RDG::Builder       graph( "VelocityProbe" );
@@ -720,10 +720,10 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     const GraphColor onGBuffer[] = { VelocityColor( velocity, 1 ) };
     ASSERT_TRUE( AppendGraphColors( scene, onScene, false ) );
     ASSERT_TRUE( AppendGraphColors( gbuffer, onGBuffer, false ) );
-    ASSERT_EQ( scene.Colors.size(), SceneRenderer::SceneTargetLayout().ColorFormats.size() );
-    ASSERT_EQ( gbuffer.Colors.size(), SceneRenderer::GBufferLayout().ColorFormats.size() );
-    EXPECT_EQ( scene.Colors[SceneRenderer::kSceneTargetVelocitySlot], velocity.Resolved );
-    EXPECT_EQ( gbuffer.Colors[SceneRenderer::kGBufferVelocitySlot], velocity.Resolved );
+    ASSERT_EQ( scene.Colors.size(), Desert::Graphic::SceneTargetLayout().ColorFormats.size() );
+    ASSERT_EQ( gbuffer.Colors.size(), Desert::Graphic::GBufferLayout().ColorFormats.size() );
+    EXPECT_EQ( scene.Colors[Desert::Graphic::kSceneTargetVelocitySlot], velocity.Resolved );
+    EXPECT_EQ( gbuffer.Colors[Desert::Graphic::kGBufferVelocitySlot], velocity.Resolved );
 
     // At MSAA the scene target draws the multisampled twin and resolves it into the one transient.
     const ViewVelocity msaa = CreateViewVelocity( graph, RDG::Extent3D{ 64, 32, 1 }, 4 );
@@ -767,4 +767,76 @@ TEST( VelocityTarget, EachColourSlotTakesItsOwnClearOnItsFirstWriter )
     const auto loaded = ColorLoads( targets, RDG::LoadOp::Load(), started );
     EXPECT_EQ( loaded[0].Action, RDG::LoadAction::Load );
     EXPECT_EQ( loaded[1].Action, RDG::LoadAction::Load );
+}
+
+// Every pipeline drawing into a view target is built against the target LAYOUT (ViewTargetLayouts.hpp: the
+// graph owns the images, the velocity slot is a graph transient no Framebuffer has), never a Framebuffer: a
+// pipeline built for the framebuffer's own render pass lacks the velocity slot and is incompatible with the pass
+// the graph opens. Mutation: revert any one site to `.Framebuffer = target` -> red.
+TEST( VelocityTarget, NoViewTargetPipelineNamesAFramebuffer )
+{
+    using VelocityTargetTest::ReadFile;
+    const auto        root = Desert::TestSupport::RepositoryRoot();
+    const std::string E    = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/";
+    // file -> how many pipelines in it draw into a view target (scene target or G-buffer)
+    const std::map<std::string, int> sites = {
+         { E + "Skybox/SkyboxRenderer.cpp", 2 },
+         { E + "Mesh/MeshRendererForward.cpp", 5 },
+         { E + "Mesh/MeshRendererDebug.cpp", 2 },
+         { E + "Mesh/MeshRendererDeferred.cpp", 2 },
+         { E + "Deferred/DeferredLightingRenderer.hpp", 1 },
+         { E + "Deferred/SSRRenderer.hpp", 1 },
+         { E + "Clouds/VolumetricCloudRenderer.cpp", 1 },
+         { E + "Fog/HeightFogRenderer.cpp", 1 },
+         { E + "Particles/ParticleRenderer.cpp", 1 },
+         { E + "Terrain/TerrainRenderer.cpp", 1 }, // CreateTerrainPipeline, called with both layouts
+         { "Editor/Source/Editor/RenderSystems/Passes/EditorColliderPass.cpp", 1 },
+         { "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp", 1 },
+         { "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp", 1 },
+    };
+    const std::regex layout( R"(\.TargetLayout\s*=\s*(Desert::Graphic::)?(SceneTargetLayout|GBufferLayout)\(\)|\.TargetLayout\s*=\s*layout;)" );
+    // A view target named as a pipeline's Framebuffer (the names those sites held before).
+    const std::regex framebuffer(
+         R"(\.Framebuffer\s*=\s*(target|targetFb|compositeFramebuffer|gbuffer|framebuffer|scene->GetTargetFramebuffer\(\))\s*;)" );
+    for ( const auto& [file, expected] : sites )
+    {
+        const std::string text = ReadFile( root / file );
+        ASSERT_FALSE( text.empty() ) << file;
+        const auto count = std::distance( std::sregex_iterator( text.begin(), text.end(), layout ),
+                                          std::sregex_iterator() );
+        EXPECT_EQ( count, expected ) << file << ": a view-target pipeline is not built against its target layout";
+        EXPECT_FALSE( std::regex_search( text, framebuffer ) ) << file << ": a view-target pipeline names a Framebuffer";
+    }
+    const std::string terrain = ReadFile( root / ( E + "Terrain/TerrainRenderer.cpp" ) );
+    EXPECT_NE( terrain.find( "GBufferLayout(), error" ), std::string::npos ) << "terrain G-buffer pipeline";
+    EXPECT_NE( terrain.find( "SceneTargetLayout(), error" ), std::string::npos ) << "terrain scene pipeline";
+}
+
+// The view's velocity is created ONCE per view graph, inside CreateViewVelocity, before the first node, and is a
+// colour of the scene target and the G-buffer only: never of a light view (RSM, cascades). Mutation: a second
+// CreateViewVelocity, the call moved after AddFrameClearMainFramebuffer, or AddGraphColor( m_RSMBuffer ... ) -> red.
+TEST( VelocityTarget, VelocityIsCreatedOncePerViewAndNeverOnALightView )
+{
+    using VelocityTargetTest::ReadFile;
+    const auto  root  = Desert::TestSupport::RepositoryRoot();
+    const auto  count = []( const std::string& text, const std::string& what )
+    {
+        std::size_t n = 0;
+        for ( std::size_t at = text.find( what ); at != std::string::npos; at = text.find( what, at + 1 ) )
+            ++n;
+        return n;
+    };
+    const std::string targets = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/ViewRasterTargets.hpp" );
+    EXPECT_EQ( count( targets, "CreateTexture( desc, \"Velocity\" )" ), 1u );
+    const std::string scene = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+    EXPECT_EQ( count( scene, "CreateViewVelocity(" ), 1u );
+    const auto created = scene.find( "CreateViewVelocity(" );
+    const auto first   = scene.find( "AddFrameClearMainFramebuffer( graph" );
+    ASSERT_NE( created, std::string::npos );
+    ASSERT_NE( first, std::string::npos );
+    EXPECT_LT( created, first ) << "the velocity must exist before the first node of the frame";
+    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor( m_GBuffer" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor(" ), 2u ) << "velocity on any other target (RSM, cascades, overdraw)";
+    EXPECT_EQ( count( scene, "AddGraphColor( m_RSMBuffer" ), 0u );
 }

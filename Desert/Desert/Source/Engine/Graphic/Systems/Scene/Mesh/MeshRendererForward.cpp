@@ -1,6 +1,7 @@
 // MeshRenderer's forward geometry: the static / skinned / generic queue walkers (the deferred G-buffer
 // reuses the static one), the manual forward passes drawn over the deferred composite, and their pipelines.
 #include "MeshRendererInternal.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -369,7 +370,7 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification spec;
         spec.DebugName         = std::format( kGenericMeshNameFormat, shader->GetName() );
         spec.Shader            = shader;
-        spec.Framebuffer       = target;
+        spec.TargetLayout = SceneTargetLayout();
         spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
         spec.UseLoadRenderPass = useLoadPass; // deferred manual pass begins with LOAD
         ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
@@ -1351,7 +1352,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_GeometryShader;
-        spec.Framebuffer    = targetFb;
+        spec.TargetLayout = SceneTargetLayout();
 
         // Pipelines come from the shared cache (deduped by shader + target + state). The mesh keeps its
         // explicit state for now; PBR's render-state moves to the shader's #pragma state in Phase 2.
@@ -1393,7 +1394,7 @@ namespace Desert::Graphic::System
             ispec.DepthCompareOp = DepthCompare::CloserOrEqual;
             ispec.CullMode       = CullMode::Back;
             ispec.Shader         = m_InstancedGeometryShader;
-            ispec.Framebuffer    = targetFb;
+            ispec.TargetLayout = SceneTargetLayout();
             if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
                 m_StaticInstancedPipeline = instanced.GetValue();
             else
@@ -1422,12 +1423,11 @@ namespace Desert::Graphic::System
         spec.DebugName         = cellShader;
         spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
         spec.Shader            = shader;
-        spec.Framebuffer       = target;
+        spec.TargetLayout = SceneTargetLayout();
         spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
         spec.DepthWriteEnabled = false; // translucent: don't occlude later fragments / itself
         spec.CullMode          = CullMode::Back;
         spec.BlendEnable       = true; // src-alpha over the composited scene
-        spec.UseLoadRenderPass = true; // begun with clearFrame=false to preserve the opaque scene
 
         const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !pipeline )
@@ -1471,7 +1471,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_SkinnedShader;
-        spec.Framebuffer    = targetFb;
+        spec.TargetLayout = SceneTargetLayout();
 
         const auto skinned = GraphicsPipeline::Create( spec );
         if ( !skinned )

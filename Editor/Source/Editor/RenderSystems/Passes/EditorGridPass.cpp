@@ -1,4 +1,5 @@
 #include "EditorGridPass.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -24,7 +25,7 @@ namespace Desert::Editor::Render
         Graphic::GraphicsPipelineSpecification spec;
         spec.DebugName         = "EditorGridPipeline";
         spec.Shader            = shader;
-        spec.Framebuffer       = scene->GetTargetFramebuffer();
+        spec.TargetLayout = Desert::Graphic::SceneTargetLayout();
         spec.DepthTestEnabled  = true;  // occluded by opaque geometry
         spec.DepthWriteEnabled = false; // overlay; don't write depth
         spec.DepthCompareOp    = Graphic::DepthCompare::Closer;

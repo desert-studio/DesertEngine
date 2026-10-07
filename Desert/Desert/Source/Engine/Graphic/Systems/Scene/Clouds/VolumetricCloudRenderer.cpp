@@ -1,4 +1,5 @@
 #include "VolumetricCloudRenderer.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <utility>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -820,7 +821,7 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification spec;
         spec.DebugName   = kCompositeShaderName;
         spec.Shader      = compositeShader;
-        spec.Framebuffer = target;
+        spec.TargetLayout = SceneTargetLayout();
 
         // A fullscreen triangle has no meaningful depth of its own; occlusion was resolved inside the march,
         // which cut every ray at the distance the depth attachment reported.
@@ -835,9 +836,6 @@ namespace Desert::Graphic::System
         spec.SrcColorBlendFactor = BlendFactor::One;
         spec.DstColorBlendFactor = BlendFactor::SrcAlpha;
 
-        // Replayed by ExecuteTransparency with a LOAD begin, so the pipeline is built against the
-        // framebuffer's LOAD render pass.
-        spec.UseLoadRenderPass = true;
 
         const auto composite = GraphicsPipeline::Create( spec );
         if ( !composite )
