@@ -781,6 +781,24 @@ namespace Desert::Assets
     /// nothing shorter.
     float CloudFarWeather( uint32_t seed, const glm::vec2& worldKm, float tileKm );
 
+    /// The side of the GPU map of the world weather, texels over one kCloudFarWeatherPeriodKm: 1.95 km a
+    /// texel, so the shortest wave the weather holds (PatchTileKm, >= 5 km by the slider's range) spans at
+    /// least two and a half texels and the shipped 30 km fifteen — bilinear filtering of a cosine that
+    /// well sampled keeps its amplitude to half a percent.
+    inline constexpr uint32_t kCloudFarWeatherMapSide = 512u;
+
+    /// CloudFarWeather over the whole far torus, row-major (z outer), at texel CENTRES — the map the march
+    /// samples with REPEAT at `worldKm / kCloudFarWeatherPeriodKm`. The same waves as the point function
+    /// (one definition, CloudFarWeatherWaves in the .cpp), so the map IS the field and not a fit of it.
+    std::vector<float> BakeCloudFarWeatherMap( uint32_t seed, float tileKm );
+
+    /// What the march needs to turn a rank and a weather sample into a cut, as the GPU block carries it
+    /// (CloudGpuPayload::Weather / u_CloudWeather): x the slider's Coverage, y rho = sqrt(PatchStrength)
+    /// — ZERO when the weather stands down (no strength, or a painted pattern is the weather, exactly as
+    /// CloudProceduralLocalCover decides), z the rank's rise across ProfileDepth in CDF units
+    /// (kCloudRankSoftness / CoverageContrast), w 1 / kCloudFarWeatherPeriodKm.
+    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params );
+
     /// The cover the march compares a rank against at a world column: Coverage redistributed by the world
     /// weather (the Gaussian copula, mean exactly Coverage), or Coverage itself when a painted pattern is
     /// the weather.

@@ -2137,50 +2137,109 @@ namespace Desert::Assets
         return HashCombine( params.Seed, 0x9a71c4u );
     }
 
+    namespace
+    {
+        /// One wave of the far weather: whole wave numbers on the far torus and a phase.
+        struct CloudFarWeatherWave
+        {
+            double Kx    = 0.0;
+            double Kz    = 0.0;
+            double Phase = 0.0;
+        };
+
+        /// THE WAVES OF THE WORLD WEATHER — the one definition both the point function and the GPU map
+        /// read, so the two cannot drift.
+        std::vector<CloudFarWeatherWave> CloudFarWeatherWaves( uint32_t seed, float tileKm )
+        {
+            constexpr double kTau = 6.283185307179586;
+            constexpr double kPi  = 3.141592653589793;
+
+            const double period = static_cast<double>( kCloudFarWeatherPeriodKm );
+            const double centre = period / std::max( static_cast<double>( tileKm ), 1e-3 );
+
+            // ONE OCTAVE, FROM THE TILE UP TO TWICE IT, and not two around it. A gap is half a wavelength,
+            // so the octave below the tile (15-30 km at the shipped 30) opened 7.5-15 km gaps, which a
+            // 12 km piece of sky averages away and which the cloud behind closes along a low sight line.
+            // Measured on the 12 km blocks (FARWX-a4): the weather kept 0.55 of its variance there with
+            // the lower octave and 0.74 without it, and only the latter lets the weather outweigh the
+            // cells' own clustering two to one. In wavenumbers on the far torus the shortest wavelength is
+            // the HIGHEST number, hence `centre`.
+            const double lowest  = std::max( 1.0, 0.5 * centre );
+            const double highest = std::max( lowest, centre );
+
+            std::vector<CloudFarWeatherWave> waves;
+            waves.reserve( kCloudFarWeatherWaves );
+            for ( uint32_t wave = 0; wave < kCloudFarWeatherWaves; ++wave )
+            {
+                const uint32_t waveSeed = HashCombine( seed, 0xfa0000u + wave );
+
+                const double wavenumber =
+                     lowest * std::pow( highest / lowest, HashUnit( HashCombine( waveSeed, 1u ) ) );
+                const double heading = kPi * HashUnit( HashCombine( waveSeed, 2u ) );
+
+                // WHOLE WAVE NUMBERS ON THE FAR TORUS, so the field is exactly periodic with the far
+                // period (the GPU map tiles it seamlessly) and with nothing shorter.
+                const double kx = std::round( wavenumber * std::cos( heading ) );
+                const double kz = std::round( wavenumber * std::sin( heading ) );
+                if ( kx == 0.0 && kz == 0.0 )
+                    continue;
+
+                waves.push_back( { kx, kz, kTau * HashUnit( HashCombine( waveSeed, 3u ) ) } );
+            }
+            return waves;
+        }
+
+        /// The field at a torus fraction, normalised to unit variance.
+        float CloudFarWeatherAt( const std::vector<CloudFarWeatherWave>& waves, double fx, double fz )
+        {
+            constexpr double kTau = 6.283185307179586;
+            if ( waves.empty() )
+                return 0.0f;
+            double sum = 0.0;
+            for ( const CloudFarWeatherWave& wave : waves )
+                sum += std::cos( kTau * ( wave.Kx * fx + wave.Kz * fz ) + wave.Phase );
+            return static_cast<float>( sum / std::sqrt( 0.5 * static_cast<double>( waves.size() ) ) );
+        }
+    } // namespace
+
     float CloudFarWeather( uint32_t seed, const glm::vec2& worldKm, float tileKm )
     {
-        constexpr double kTau = 6.283185307179586;
-        constexpr double kPi  = 3.141592653589793;
-
         const double period = static_cast<double>( kCloudFarWeatherPeriodKm );
-        const double centre = period / std::max( static_cast<double>( tileKm ), 1e-3 );
-
-        // ONE OCTAVE, FROM THE TILE UP TO TWICE IT, and not two around it. A gap is half a wavelength, so
-        // the octave below the tile (15-30 km at the shipped 30) opened 7.5-15 km gaps, which a 12 km piece
-        // of sky averages away and which the cloud behind closes along a low sight line. Measured on the
-        // 12 km blocks (FARWX-a4): the weather kept 0.55 of its variance there with the lower octave and
-        // 0.74 without it, and only the latter lets the weather outweigh the cells' own clustering two to one.
-        // In wavenumbers on the far torus the shortest wavelength is the HIGHEST number, hence `centre`.
-        const double lowest  = std::max( 1.0, 0.5 * centre );
-        const double highest = std::max( lowest, centre );
 
         // fmod first, so a camera thousands of kilometres out keeps the phase's precision.
         const double fx = std::fmod( static_cast<double>( worldKm.x ), period ) / period;
         const double fz = std::fmod( static_cast<double>( worldKm.y ), period ) / period;
 
-        double sum   = 0.0;
-        double power = 0.0;
-        for ( uint32_t wave = 0; wave < kCloudFarWeatherWaves; ++wave )
-        {
-            const uint32_t waveSeed = HashCombine( seed, 0xfa0000u + wave );
+        return CloudFarWeatherAt( CloudFarWeatherWaves( seed, tileKm ), fx, fz );
+    }
 
-            const double wavenumber =
-                 lowest * std::pow( highest / lowest, HashUnit( HashCombine( waveSeed, 1u ) ) );
-            const double heading = kPi * HashUnit( HashCombine( waveSeed, 2u ) );
+    std::vector<float> BakeCloudFarWeatherMap( uint32_t seed, float tileKm )
+    {
+        const std::vector<CloudFarWeatherWave> waves = CloudFarWeatherWaves( seed, tileKm );
 
-            // WHOLE WAVE NUMBERS ON THE FAR TORUS, so the field is exactly periodic with the far period
-            // (the GPU map of FARWX-b tiles it seamlessly) and with nothing shorter.
-            const double kx = std::round( wavenumber * std::cos( heading ) );
-            const double kz = std::round( wavenumber * std::sin( heading ) );
-            if ( kx == 0.0 && kz == 0.0 )
-                continue;
+        constexpr uint32_t side = kCloudFarWeatherMapSide;
+        std::vector<float> map( static_cast<size_t>( side ) * side );
+        for ( uint32_t z = 0; z < side; ++z )
+            for ( uint32_t x = 0; x < side; ++x )
+                map[static_cast<size_t>( z ) * side + x] =
+                     CloudFarWeatherAt( waves, ( x + 0.5 ) / side, ( z + 0.5 ) / side );
+        return map;
+    }
 
-            const double phase = kTau * HashUnit( HashCombine( waveSeed, 3u ) );
-            sum += std::cos( kTau * ( kx * fx + kz * fz ) + phase );
-            power += 0.5;
-        }
+    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params )
+    {
+        const float cover = std::clamp( params.Coverage, 0.0f, 1.0f );
 
-        return power > 0.0 ? static_cast<float>( sum / std::sqrt( power ) ) : 0.0f;
+        // THE SAME STAND-DOWN CloudProceduralLocalCover makes, read as rho = 0: the march then keeps
+        // against Coverage itself.
+        const CloudLayoutData* patternSource = params.PatternSource.get();
+        const bool             painted       = patternSource != nullptr && patternSource->HasPattern() &&
+                                params.LayoutPlacement.PatternStrength > 1e-4f;
+        const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
+        const float rho      = ( painted || strength <= 1e-4f ) ? 0.0f : std::sqrt( strength );
+
+        return glm::vec4( cover, rho, kCloudRankSoftness / std::max( params.CoverageContrast, 1e-2f ),
+                          1.0f / kCloudFarWeatherPeriodKm );
     }
 
     float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )
