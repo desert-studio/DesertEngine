@@ -6,6 +6,8 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
+#include <Engine/Graphic/GraphImageImporter.hpp>
+#include <Engine/Graphic/ImageFactory.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -468,6 +470,9 @@ namespace Desert::Graphic
             if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
                 it->second->OnTemporalHistoryReset();
         }
+        // The view's own history (previous matrices, history textures, motion records) resets with the next
+        // frame: an explicit camera cut (ViewInputs::CameraCut), consumed by the BeginFrame that succeeds.
+        m_CameraCutPending = true;
         LOG_INFO( "[SceneRenderer] {}: temporal history reset over {} render system(s).",
                   m_ViewResources.GetName(), m_RenderSystemOrder.size() );
     }
@@ -506,7 +511,7 @@ namespace Desert::Graphic
     {
         return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
                     .Total() +
-               m_ViewResources.HeldBytes();
+               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes();
     }
 
     std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
@@ -575,6 +580,9 @@ namespace Desert::Graphic
         // first view's camera, and "several viewports" could only ever mean "several worlds". The scene
         // holds a LIST of views now and each one carries its own camera; the view says which.
         m_SceneInfo.ActiveCamera = camera;
+        // The world this frame draws and its clock (ViewInputs::SceneIdentity / TimeSeconds, OnUpdate).
+        m_SceneGeneration  = scene.GetGeneration();
+        m_SceneTimeSeconds = scene.GetWorldTime().GetGameTimeSeconds();
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
 
@@ -633,6 +641,14 @@ namespace Desert::Graphic
         const Common::Scalability::PathAntiAliasing aa = Common::Scalability::ResolveAntiAliasingForPath(
              quality, Core::RenderPathSupportsMSAA( sceneSettings.RenderingPath ) );
         m_AAMode = aa.PostProcess;
+        // What the frame renders, handed to SceneViewState::BeginFrame: this build has no temporal pass, so the
+        // method is MSAA or the post-process filter (TAA resolves to PostProcess None -> no temporal method) at
+        // 100 % scale with no upscaler. TAA1-B step 5 replaces this with the resolved method and upscaler when it
+        // adds the ITemporalUpscaler pass.
+        m_RenderedAntiAliasing        = aa;
+        m_RenderedAntiAliasing.Method = aa.Method == Common::Scalability::AntiAliasingMethod::MSAA
+                                             ? Common::Scalability::AntiAliasingMethod::MSAA
+                                             : aa.PostProcess;
         ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
@@ -841,6 +857,44 @@ namespace Desert::Graphic
         // which outlives Execute; everything else they need is captured by value.
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
+
+        // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
+        // previous-frame value reads `frame`; nothing reads the camera for them again. A refused frame builds no
+        // graph: SceneViewState treats it as never having happened.
+        ViewInputs inputs;
+        if ( const auto* cam = GetMainCamera() )
+        {
+            inputs.View           = cam->GetViewMatrix();
+            inputs.Projection     = cam->GetProjectionMatrix();
+            inputs.CameraPosition = cam->GetPosition();
+            inputs.NearPlane      = cam->GetNear();
+            inputs.FarPlane       = cam->GetFar();
+            inputs.CameraIdentity = MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceEntity() );
+        }
+        inputs.CameraCut          = m_CameraCutPending;
+        inputs.SceneIdentity      = m_SceneGeneration;
+        inputs.Output             = m_ViewExtent;
+        inputs.RenderScalePercent = 100;
+        inputs.AntiAliasing       = m_RenderedAntiAliasing;
+        inputs.Upscaler           = Common::Scalability::Upscaler::None;
+        inputs.TimeSeconds        = m_SceneTimeSeconds;
+        const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, nullptr );
+        if ( !begun )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the view refused this frame: {}", m_ViewResources.GetName(),
+                       begun.GetError() );
+            return;
+        }
+        m_CameraCutPending     = false;
+        const ViewFrame& frame = begun.GetValue();
+        if ( const Common::BoolResultStr physical =
+                  m_ViewState.History().AllocatePhysical( DeviceImageFactory{}, RendererGraphImageImporter{} );
+             !physical )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the view's temporal history has no images: {}",
+                       m_ViewResources.GetName(), physical.GetError() );
+            return;
+        }
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
         const auto values = std::make_shared<FrameValues>();
@@ -881,15 +935,7 @@ namespace Desert::Graphic
                 lightDir   = dl[0].Direction;
                 lightColor = dl[0].ColorIntensity;
             }
-            glm::vec4 cameraPos( 0.0f );
-            glm::mat4 viewProj( 1.0f );
-            if ( const auto* cam = GetMainCamera() )
-            {
-                cameraPos = glm::vec4( cam->GetPosition(), 1.0f );
-                viewProj  = cam->GetProjectionMatrix() * cam->GetViewMatrix();
-            }
-
-            AddFrameSSAO( graph, textures, gbuffer, viewProj, cameraPos );
+            AddFrameSSAO( graph, textures, gbuffer, frame );
 
             RDG::TextureRef giAccum;
 
@@ -900,12 +946,12 @@ namespace Desert::Graphic
                 AddFrameRSM( graph, textures, meshRenderer, sunDir );
                 m_RSMFrameCounter = ( m_RSMFrameCounter + 1 ) % kRSMRefreshEvery;
 
-                giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, viewProj, lightColor );
+                giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, frame, lightColor );
             }
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, cameraPos );
+            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
@@ -915,7 +961,7 @@ namespace Desert::Graphic
 
             // SSR traces the copy made by the pass above; without a copy target there is nothing to trace.
             if ( m_EnableSSR && sceneCopy.IsValid() && EnsureSSRResources() )
-                AddFrameSSR( graph, textures, gbuffer, sceneCopy, viewProj, cameraPos );
+                AddFrameSSR( graph, textures, gbuffer, sceneCopy, frame );
 
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
         }
@@ -988,7 +1034,10 @@ namespace Desert::Graphic
 
         // Its faults are logged by the graph backend and its own failures by ExecuteGraph; a FrameFault leaves
         // the final image black for this frame.
-        (void)Renderer::GetInstance().ExecuteGraph( graph );
+        // A FrameFault never reaches EndFrame: the next BeginFrame still sees the last committed frame as
+        // previous. A frame that executed commits as previous with what its report says it lost.
+        if ( Renderer::GetInstance().ExecuteGraph( graph ) )
+            m_ViewState.EndFrame( graph.GetExecuteReport() );
         textures.ResetInvalidatedHistories();
     }
 

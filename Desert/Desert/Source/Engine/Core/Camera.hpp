@@ -34,6 +34,16 @@ namespace Desert::Core
         [[nodiscard]] const glm::vec3& GetPosition() const { return m_Position; }
         [[nodiscard]] float            GetNear() const { return m_NearPlane; }
         [[nodiscard]] float            GetFar() const { return m_FarPlane; }
+
+        // The scene entity (entt id incl. version) whose CameraComponent drives this camera, or kNoSourceEntity
+        // for a camera driven from outside the scene's entities (EditorCamera, a preview's orbit). With the
+        // scene's generation it is the view's camera identity (Graphic::MakeViewCameraIdentity): a view that
+        // starts following another entity is a camera cut.
+        static constexpr uint32_t kNoSourceEntity = 0xFFFFFFFFu; // entt::null's id
+        [[nodiscard]] uint32_t    GetSourceEntity() const
+        {
+            return m_SourceEntity;
+        }
         [[nodiscard]] float            GetFOV() const { return m_FOV; }
         [[nodiscard]] ProjectionType   GetProjectionType() const
         {
@@ -72,6 +82,7 @@ namespace Desert::Core
         glm::mat4 m_ProjectionMatrix = glm::mat4( 1.0f );
         glm::mat4 m_ViewMatrix       = glm::mat4( 1.0f );
         glm::vec3 m_Position         = glm::vec3( 0.0f );
+        uint32_t  m_SourceEntity     = kNoSourceEntity;
 
         float          m_FOV            = 45.0f;
         float          m_NearPlane      = kDefaultNearPlane;
@@ -245,7 +256,8 @@ namespace Desert::Core
         // Set from what the camera entity sees (CameraEntityViewOf) at the viewport's size. It used to
         // take Euler angles that Play mode derived with glm::quat_cast from a SCALED world matrix; the
         // view is now read from the matrix's normalised axes, the same function the editor's pilot uses.
-        void SetView( const CameraEntityView& view, uint32_t width, uint32_t height );
+        // @p sourceEntity: the camera entity the view was read from (kNoSourceEntity for a preview's orbit).
+        void SetView( const CameraEntityView& view, uint32_t width, uint32_t height, uint32_t sourceEntity );
 
         // The previews' spelling (an orbit given as Euler radians); builds the same view and calls SetView.
         void SetFromTransform( const glm::vec3& position, const glm::vec3& eulerRotation, float fovDegrees,

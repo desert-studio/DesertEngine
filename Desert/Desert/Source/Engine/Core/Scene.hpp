@@ -13,6 +13,7 @@
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 #include "WorldTime.hpp"
+#include "SceneGeneration.hpp"
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Subsystems/WorldSubsystems.hpp>
@@ -113,6 +114,15 @@ namespace Desert::Core
         }
 
         void Clear();
+
+        // Which world this object holds now: a fresh NextSceneGeneration() at construction and at every Clear()
+        // (a scene load / reload / new scene). Two values are equal iff they are the same world, whatever the
+        // addresses: a scene reloaded into the same object, or a new Scene allocated where a dead one lived, has
+        // a different generation. The renderer's view history is keyed by it (never by the Scene's address).
+        [[nodiscard]] uint64_t GetGeneration() const
+        {
+            return m_Generation;
+        }
 
         // THE SCENE'S WHOLE FRAME, IN ONE CALL. It was three calls — open, update, close — and every
         // host made them back to back anyway. They are one now because with a LIST of views the
@@ -571,6 +581,7 @@ namespace Desert::Core
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
+        uint64_t                      m_Generation     = NextSceneGeneration(); // see GetGeneration
         bool                          m_PlayFromHere   = false;
 
         // One command buffer PER system (index-matched to m_Systems): parallel systems record without
