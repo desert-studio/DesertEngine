@@ -1133,7 +1133,7 @@ namespace Desert::Graphic::API::Vulkan
             const uint32_t graphicsFamily = device->GetPhysicalDevice()->GetGraphicsFamily();
             const uint32_t computeFamily  = device->GetPhysicalDevice()->GetComputeFamily();
             const bool     separate       = computeFamily != graphicsFamily &&
-                                 EngineContext::GetInstance().GetCapabilities().Catalog.AsyncCompute;
+                                  EngineContext::GetInstance().GetCapabilities().Catalog.AsyncCompute;
             m_FrameLoop                   = std::make_unique<VulkanFrameLoop>(
                  m_RdgDevice.Device, graphicsFamily,
                  separate ? std::optional<uint32_t>( computeFamily ) : std::nullopt, slots );

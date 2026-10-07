@@ -473,15 +473,16 @@ namespace Desert::Core::Rules
 
     inline constexpr ComponentLoadingRow kComponentLoading[] = {
          // ── Global: seen from everywhere, or owns the frame rather than a place in it ──
-         { "Camera", ComponentLoading::Global },               // the view itself; brief O1: sun/sky/camera
-         { "DirectionLight", ComponentLoading::Global },       // the sun lights every cell at once
-         { "AnchorField", ComponentLoading::Spatial }, // DST-04: its box anchors the leaves inside it, where it stands
-         { "KillField", ComponentLoading::Spatial }, // DST-04: a field acts where it stands
-         { "RadialImpulseField", ComponentLoading::Spatial }, // DST-04: a field acts where it stands
+         { "Camera", ComponentLoading::Global },         // the view itself; brief O1: sun/sky/camera
+         { "DirectionLight", ComponentLoading::Global }, // the sun lights every cell at once
+         { "AnchorField",
+           ComponentLoading::Spatial }, // DST-04: its box anchors the leaves inside it, where it stands
+         { "KillField", ComponentLoading::Spatial },           // DST-04: a field acts where it stands
+         { "RadialImpulseField", ComponentLoading::Spatial },  // DST-04: a field acts where it stands
          { "Skybox", ComponentLoading::Global },               // at infinity
          { "SkyAtmosphere", ComponentLoading::Global },        // at infinity
          { "ExponentialHeightFog", ComponentLoading::Global }, // a world-wide medium, not a volume
-         { "StrainField", ComponentLoading::Spatial }, // DST-04: a field acts where it stands
+         { "StrainField", ComponentLoading::Spatial },         // DST-04: a field acts where it stands
          { "VolumetricCloud", ComponentLoading::Global },      // the cloud layer covers the planet
          // A hero cloud stands kilometres up and is seen from tens of kilometres away; no ground loading
          // range is that wide, so it would vanish while in plain view.
@@ -520,7 +521,7 @@ namespace Desert::Core::Rules
          { "CubeGridBlockout", ComponentLoading::Spatial }, // the voxels its own mesh was baked from
          // A fractured mesh is a placed body like StaticMesh + RigidBody; its pieces fall within its cell.
          { "Destructible", ComponentLoading::Spatial },
-         { "Folder", ComponentLoading::Spatial },           // an outliner grouping: its children decide
+         { "Folder", ComponentLoading::Spatial }, // an outliner grouping: its children decide
          { "Foliage", ComponentLoading::Spatial },
          // UE AProceduralFoliageVolume is an actor placed in a cell like any other: its box (translation +-
          // Extent) is its footprint, and what it grows lands in its own foliage fields, placed by theirs.
