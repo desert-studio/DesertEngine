@@ -62,7 +62,7 @@ namespace
                  [this]( const std::string& path )
                  {
                      Loaded.push_back( path );
-                     return Desert::Common::MakeSuccess( true );
+                     return Common::MakeSuccess( true );
                  } );
             EXPECT_TRUE( r ) << r.GetError();
             return r && r.GetValue();
@@ -132,7 +132,7 @@ TEST( LevelTravel, ATravelAskedForDuringTheLoadWaitsForTheNextBoundary )
          {
              loaded.push_back( path );
              EXPECT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Menu.desce" ) );
-             return Desert::Common::MakeSuccess( true );
+             return Common::MakeSuccess( true );
          } );
     ASSERT_TRUE( first );
     ASSERT_EQ( loaded.size(), 1u ) << "the travel requested during the load was applied inside it";
@@ -183,7 +183,7 @@ TEST( LevelTravel, ALoadFailureAtTheBoundaryIsReturnedToTheHost )
     (void)OpenProject( "Content/Scenes/Menu.desce" );
     ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
     const auto r = Travel::Get().TickTravel( []( const std::string& )
-                                             { return Desert::Common::MakeError<bool>( "teardown refused" ); } );
+                                             { return Common::MakeError<bool>( "teardown refused" ); } );
     ASSERT_FALSE( r );
     EXPECT_EQ( r.GetError(), "teardown refused" );
 }
