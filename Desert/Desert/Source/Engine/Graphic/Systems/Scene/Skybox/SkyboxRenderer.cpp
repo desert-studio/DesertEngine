@@ -563,11 +563,11 @@ namespace Desert::Graphic::System
     void SkyboxRenderer::DeclareAtmosphereReads( RenderPassDeclaration& declared, const RDG::Access access ) const
     {
         // The engine images behind the raw pointers AtmosphereEnv hands its consumers.
-        if ( m_Atmosphere.TransmittanceLut )
+        if ( m_Atmosphere.TransmittanceLut != nullptr )
             declared.Read( m_TransmittanceLut, access, "Sky.TransmittanceLut" );
-        if ( m_Atmosphere.AerialPerspectiveVolume )
+        if ( m_Atmosphere.AerialPerspectiveVolume != nullptr )
             declared.Read( m_AerialPerspectiveLut, access, "Sky.AerialPerspectiveLut" );
-        if ( m_Atmosphere.DistantSkyLight )
+        if ( m_Atmosphere.DistantSkyLight != nullptr )
             declared.Read( m_DistantLight, access, "Sky.DistantLight" );
     }
 

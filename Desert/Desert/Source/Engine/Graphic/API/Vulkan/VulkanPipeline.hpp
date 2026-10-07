@@ -169,7 +169,7 @@ namespace Desert::Graphic::API::Vulkan
         VkGraphicsPipelineCreateInfo          m_PipelineInfo{};
         // TargetLayout: the canonical render pass (formats and samples, load/store DONT_CARE) the pipeline
         // is built against; compatible with every render pass the graph builds for those formats.
-        VkRenderPass                          m_CompatibleRenderPass = VK_NULL_HANDLE;
+        VkRenderPass m_CompatibleRenderPass = VK_NULL_HANDLE;
         // The sample count m_Pipeline was built at, and the variants for every render pass at another count it
         // was bound in, by that pass's compatibility key.
         uint32_t                               m_BuiltSamples = 1;

@@ -38,7 +38,7 @@ namespace Desert::Graphic::System
     public:
         using RenderSystem::RenderSystem;
 
-        virtual Common::BoolResultStr Initialize() override
+        Common::BoolResultStr Initialize() override
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
@@ -87,7 +87,7 @@ namespace Desert::Graphic::System
         }
 
         // The scene target is multisampled and the resolve was built for it.
-        bool IsReady() const
+        [[nodiscard]] bool IsReady() const
         {
             return m_Resolved && m_Pipeline && m_Material;
         }
@@ -99,7 +99,7 @@ namespace Desert::Graphic::System
                 m_Resolved->Resize( width, height );
         }
 
-        const std::shared_ptr<Framebuffer>& GetFramebuffer() const
+        [[nodiscard]] const std::shared_ptr<Framebuffer>& GetFramebuffer() const
         {
             return m_Resolved;
         }

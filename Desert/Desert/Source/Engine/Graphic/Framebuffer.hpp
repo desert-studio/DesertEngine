@@ -127,7 +127,8 @@ namespace Desert::Graphic
         virtual const std::shared_ptr<Image2D>& GetDepthAttachmentImage() const                     = 0;
         // Samples > 1 only: the multisampled image colour @p index renders into. GetColorAttachmentImage returns
         // the single-sample image it resolves into, which is what every reader samples.
-        virtual const std::shared_ptr<Image2D>& GetMultisampleColorAttachmentImage( uint32_t index ) const = 0;
+        [[nodiscard]] virtual const std::shared_ptr<Image2D>&
+        GetMultisampleColorAttachmentImage( uint32_t index ) const = 0;
 
         static std::shared_ptr<Framebuffer> Create( const FramebufferSpecification& spec );
 

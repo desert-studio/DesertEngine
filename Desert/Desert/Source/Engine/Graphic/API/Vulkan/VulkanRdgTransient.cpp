@@ -30,11 +30,11 @@ namespace Desert::Graphic::API::Vulkan
         slot.RetiredHeaps.clear();
     }
 
-    void VulkanRdgTransientAllocator::Destroy( GraphHeaps& graph )
+    void VulkanRdgTransientAllocator::Destroy( GraphHeaps& graph ) const
     {
         graph.Textures.clear();
         graph.Buffers.clear();
-        for ( Heap& heap : graph.Heaps )
+        for ( const Heap& heap : graph.Heaps )
         {
             if ( heap.Memory != nullptr )
                 vmaFreeMemory( m_Device.Allocator, heap.Memory );
@@ -129,12 +129,13 @@ namespace Desert::Graphic::API::Vulkan
                                            { return entry.Graph == graph && !entry.UsedThisFrame; } );
         const size_t index = static_cast<size_t>( found - slot.Graphs.begin() );
         if ( found == slot.Graphs.end() )
-            slot.Graphs.push_back( GraphHeaps{ std::string( graph ) } );
+            slot.Graphs.push_back(
+                 GraphHeaps{ .Graph = std::string( graph ), .Heaps = {}, .Textures = {}, .Buffers = {} } );
         GraphHeaps& entry   = slot.Graphs[index];
         entry.UsedThisFrame = true;
 
         // Heaps the plan no longer has are retired with everything placed in them.
-        for ( uint32_t extra = static_cast<uint32_t>( heaps.size() ); extra < entry.Heaps.size(); ++extra )
+        for ( auto extra = static_cast<uint32_t>( heaps.size() ); extra < entry.Heaps.size(); ++extra )
             Retire( slot, entry, extra );
         entry.Heaps.resize( std::min( entry.Heaps.size(), heaps.size() ) );
         for ( uint32_t i = 0; i < heaps.size(); ++i )
@@ -154,7 +155,7 @@ namespace Desert::Graphic::API::Vulkan
                 // this slot, but it is retired, not freed, so no bound resource outlives its memory.
                 Retire( slot, entry, i );
             }
-            Common::ResultStr<Heap> allocated = AllocateHeap( want );
+            const Common::ResultStr<Heap> allocated = AllocateHeap( want );
             if ( !allocated )
                 return Common::MakeFormattedError( "graph '{}': {}", graph, allocated.GetError() );
             if ( i < entry.Heaps.size() )
@@ -208,7 +209,7 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeSuccess( Out( placed.Resource ) );
             }
         }
-        Common::ResultStr<std::shared_ptr<VulkanRdgTexture>> created = VulkanRdgTexture::CreatePlaced(
+        const Common::ResultStr<std::shared_ptr<VulkanRdgTexture>> created = VulkanRdgTexture::CreatePlaced(
              m_Device, desc, accessMask, heap.GetValue()->Memory, allocation.Offset, name );
         if ( !created )
             return Common::MakeFormattedError<Out>( "{}", created.GetError() );
@@ -235,7 +236,7 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeSuccess( Out( placed.Resource ) );
             }
         }
-        Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>> created = VulkanRdgBuffer::CreatePlaced(
+        const Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>> created = VulkanRdgBuffer::CreatePlaced(
              m_Device, desc, accessMask, heap.GetValue()->Memory, allocation.Offset, name );
         if ( !created )
             return Common::MakeFormattedError<Out>( "{}", created.GetError() );

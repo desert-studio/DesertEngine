@@ -4,6 +4,17 @@ os.mkdir(currentDir .. "/build/TestReports")
 
 local test_premake_files = os.matchfiles("./**/premake5.lua")
 
+-- A SUITE THAT NEEDS A VULKAN DEVICE SAYS SO ONCE, IN ITS OWN premake5.lua: `test_needs_vulkan_device(test_name)`.
+-- The names land in build/TestNeedsVulkanDevice.txt next to the manifest, and that file is the ONLY place the CI
+-- learns it from: scripts/CI/TestShards.py plan leaves these suites out of the shards (with a ::notice naming
+-- them) on a runner whose DESERT_*_VULKAN_RUNNER variable is not 'true' -- the hosted macos-14 VM and
+-- windows-2022 have no device -- and plans them like every other suite on one that is. The test itself never
+-- skips: on a deviceless machine it fails, as it should when someone runs it there by hand.
+local vulkan_device_suites = {}
+function test_needs_vulkan_device(test_name)
+    table.insert(vulkan_device_suites, test_name)
+end
+
 for _, premake_file in ipairs(test_premake_files) do
     include(path.getdirectory(premake_file))
 end
@@ -72,6 +83,9 @@ for _, premake_file in ipairs(test_premake_files) do
     table.insert(test_names, path.getname(path.getdirectory(premake_file)))
 end
 io.writefile(currentDir .. "/build/TestManifest.txt", table.concat(test_names, "\n") .. "\n")
+table.sort(vulkan_device_suites)
+io.writefile(currentDir .. "/build/TestNeedsVulkanDevice.txt",
+             table.concat(vulkan_device_suites, "\n") .. (#vulkan_device_suites > 0 and "\n" or ""))
 
 group "Tests"
     project "BuildAllTests"

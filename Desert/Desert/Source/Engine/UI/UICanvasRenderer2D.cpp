@@ -1315,7 +1315,8 @@ namespace Desert::UI
                 return;
 
             // UE Retainer Box: the element and its subtree are recorded into their own layer and shown
-            // through one composite with the element's effect. Render2D::AddRetainedPasses renders the layer as a graph pass.
+            // through one composite with the element's effect. Render2D::AddRetainedPasses renders the layer as a
+            // graph pass.
             if ( ctx.Retaining != e && reg.has<ECS::UIRetainerComponent>( e ) )
             {
                 const ECS::UIRetainerData& rd    = reg.get<ECS::UIRetainerComponent>( e ).Data;

@@ -119,7 +119,7 @@ namespace Desert::Graphic::RDG
     Common::ResultStr<TextureDesc> Builder::GetTextureDesc( TextureRef texture ) const
     {
         const ResourceRecord* resource = FindResource( texture.Index, ResourceKind::Texture );
-        if ( !resource )
+        if ( resource == nullptr )
             return Common::MakeFormattedError<TextureDesc>(
                  "graph '{}': GetTextureDesc of invalid texture handle {}", m_Name, texture.Index );
         return Common::MakeSuccess( resource->Texture );
@@ -168,21 +168,32 @@ namespace Desert::Graphic::RDG
 
     void Builder::Extract( TextureRef texture, ExternalTexture& into, Access final )
     {
-        if ( !FindResource( texture.Index, ResourceKind::Texture ) )
-            return RecordError(
+        if ( FindResource( texture.Index, ResourceKind::Texture ) == nullptr )
+        {
+            RecordError(
                  fmt::format( "graph '{}': Extract of invalid texture handle {}", m_Name, texture.Index ) );
+            return;
+        }
 
         ResourceRecord& record = m_Resources[texture.Index];
         if ( record.HasFinalAccess )
-            return RecordError(
-                 fmt::format( "graph '{}': texture '{}' is extracted twice", m_Name, record.Name ) );
+        {
+            RecordError( fmt::format( "graph '{}': texture '{}' is extracted twice", m_Name, record.Name ) );
+            return;
+        }
         if ( ( GetAccessInfo( final ).Targets & AccessTarget_Texture ) == 0 )
-            return RecordError( fmt::format( "graph '{}': texture '{}' extracted into {}, a buffer-only access",
-                                             m_Name, record.Name, GetAccessName( final ) ) );
-        if ( record.ExternalTex && record.ExternalTex != &into )
-            return RecordError( fmt::format( "graph '{}': external texture '{}' extracted into a different "
-                                             "ExternalTexture than it was registered from",
-                                             m_Name, record.Name ) );
+        {
+            RecordError( fmt::format( "graph '{}': texture '{}' extracted into {}, a buffer-only access", m_Name,
+                                      record.Name, GetAccessName( final ) ) );
+            return;
+        }
+        if ( record.ExternalTex != nullptr && record.ExternalTex != &into )
+        {
+            RecordError( fmt::format( "graph '{}': external texture '{}' extracted into a different "
+                                      "ExternalTexture than it was registered from",
+                                      m_Name, record.Name ) );
+            return;
+        }
         record.ExtractTex     = &into;
         record.HasFinalAccess = true;
         record.FinalAccess    = final;
@@ -190,20 +201,31 @@ namespace Desert::Graphic::RDG
 
     void Builder::Extract( BufferRef buffer, ExternalBuffer& into, Access final )
     {
-        if ( !FindResource( buffer.Index, ResourceKind::Buffer ) )
-            return RecordError(
-                 fmt::format( "graph '{}': Extract of invalid buffer handle {}", m_Name, buffer.Index ) );
+        if ( FindResource( buffer.Index, ResourceKind::Buffer ) == nullptr )
+        {
+            RecordError( fmt::format( "graph '{}': Extract of invalid buffer handle {}", m_Name, buffer.Index ) );
+            return;
+        }
 
         ResourceRecord& record = m_Resources[buffer.Index];
         if ( record.HasFinalAccess )
-            return RecordError( fmt::format( "graph '{}': buffer '{}' is extracted twice", m_Name, record.Name ) );
+        {
+            RecordError( fmt::format( "graph '{}': buffer '{}' is extracted twice", m_Name, record.Name ) );
+            return;
+        }
         if ( ( GetAccessInfo( final ).Targets & AccessTarget_Buffer ) == 0 )
-            return RecordError( fmt::format( "graph '{}': buffer '{}' extracted into {}, a texture-only access",
-                                             m_Name, record.Name, GetAccessName( final ) ) );
-        if ( record.ExternalBuf && record.ExternalBuf != &into )
-            return RecordError( fmt::format( "graph '{}': external buffer '{}' extracted into a different "
-                                             "ExternalBuffer than it was registered from",
-                                             m_Name, record.Name ) );
+        {
+            RecordError( fmt::format( "graph '{}': buffer '{}' extracted into {}, a texture-only access", m_Name,
+                                      record.Name, GetAccessName( final ) ) );
+            return;
+        }
+        if ( record.ExternalBuf != nullptr && record.ExternalBuf != &into )
+        {
+            RecordError( fmt::format( "graph '{}': external buffer '{}' extracted into a different "
+                                      "ExternalBuffer than it was registered from",
+                                      m_Name, record.Name ) );
+            return;
+        }
         record.ExtractBuf     = &into;
         record.HasFinalAccess = true;
         record.FinalAccess    = final;
@@ -228,7 +250,7 @@ namespace Desert::Graphic::RDG
         record.Name  = std::string( name );
         record.Flags = flags;
         m_Passes.push_back( std::move( record ) );
-        return PassBuilder( *this, static_cast<uint32_t>( m_Passes.size() - 1 ) );
+        return { *this, static_cast<uint32_t>( m_Passes.size() - 1 ) };
     }
 
     void Builder::RecordError( std::string message )
@@ -291,41 +313,61 @@ namespace Desert::Graphic::RDG
         Builder::PassRecord&           pass     = m_Builder.m_Passes[m_Pass];
         const Builder::ResourceRecord* resource = m_Builder.FindResource( texture.Index, ResourceKind::Texture );
         const std::string&             graph    = m_Builder.m_Name;
-        if ( !resource )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid texture handle {}",
-                                                       graph, pass.Name, call, texture.Index ) );
+        if ( resource == nullptr )
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid texture handle {}", graph,
+                                                pass.Name, call, texture.Index ) );
+            return;
+        }
         if ( RdgIsFinalOnlyAccess( access ) )
-            return m_Builder.RecordError( fmt::format(
-                 "graph '{}' pass '{}': {}('{}', {}) - {} is a state after the "
-                 "graph (Extract), not something a pass does",
-                 graph, pass.Name, call, resource->Name, GetAccessName( access ), GetAccessName( access ) ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) - {} is a state after the "
+                                                "graph (Extract), not something a pass does",
+                                                graph, pass.Name, call, resource->Name, GetAccessName( access ),
+                                                GetAccessName( access ) ) );
+            return;
+        }
         if ( ( GetAccessInfo( access ).Targets & AccessTarget_Texture ) == 0 )
-            return m_Builder.RecordError(
-                 fmt::format( "graph '{}' pass '{}': {}('{}', {}) - a buffer-only access on a "
-                              "texture",
-                              graph, pass.Name, call, resource->Name, GetAccessName( access ) ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) - a buffer-only access on a "
+                                                "texture",
+                                                graph, pass.Name, call, resource->Name,
+                                                GetAccessName( access ) ) );
+            return;
+        }
         if ( RdgIsAttachmentAccess( access ) )
-            return m_Builder.RecordError(
-                 fmt::format( "graph '{}' pass '{}': {}('{}', {}) - attachments are declared "
-                              "with ColorTarget()/DepthTarget(), which carry the load op",
-                              graph, pass.Name, call, resource->Name, GetAccessName( access ) ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) - attachments are declared "
+                                                "with ColorTarget()/DepthTarget(), which carry the load op",
+                                                graph, pass.Name, call, resource->Name,
+                                                GetAccessName( access ) ) );
+            return;
+        }
         if ( asWrite != IsWriteAccess( access ) )
-            return m_Builder.RecordError( fmt::format(
-                 "graph '{}' pass '{}': {}('{}', {}) - {} is a {} access", graph, pass.Name, call, resource->Name,
-                 GetAccessName( access ), GetAccessName( access ), asWrite ? "read" : "write" ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) - {} is a {} access", graph,
+                                                pass.Name, call, resource->Name, GetAccessName( access ),
+                                                GetAccessName( access ), asWrite ? "read" : "write" ) );
+            return;
+        }
         if ( !RdgPassKindAllows( pass.Flags, access ) )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) in a {} pass", graph,
-                                                       pass.Name, call, resource->Name, GetAccessName( access ),
-                                                       RdgPassKindName( pass.Flags ) ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) in a {} pass", graph,
+                                                pass.Name, call, resource->Name, GetAccessName( access ),
+                                                RdgPassKindName( pass.Flags ) ) );
+            return;
+        }
 
         const TextureDesc& desc     = resource->Texture;
         SubresourceRange   resolved = range;
         if ( resolved.BaseMip >= desc.Mips || resolved.BaseLayer >= desc.Layers )
-            return m_Builder.RecordError(
-                 fmt::format( "graph '{}' pass '{}': {}('{}') mip {} layer {} is outside {} "
-                              "mips x {} layers",
-                              graph, pass.Name, call, resource->Name, resolved.BaseMip, resolved.BaseLayer,
-                              desc.Mips, desc.Layers ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') mip {} layer {} is outside {} "
+                                                "mips x {} layers",
+                                                graph, pass.Name, call, resource->Name, resolved.BaseMip,
+                                                resolved.BaseLayer, desc.Mips, desc.Layers ) );
+            return;
+        }
         if ( resolved.MipCount == kAllRemaining )
             resolved.MipCount = desc.Mips - resolved.BaseMip;
         if ( resolved.LayerCount == kAllRemaining )
@@ -333,11 +375,14 @@ namespace Desert::Graphic::RDG
         if ( resolved.MipCount == 0 || resolved.LayerCount == 0 ||
              resolved.BaseMip + resolved.MipCount > desc.Mips ||
              resolved.BaseLayer + resolved.LayerCount > desc.Layers )
-            return m_Builder.RecordError(
-                 fmt::format( "graph '{}' pass '{}': {}('{}') mips [{}, +{}) layers [{}, +{}) "
-                              "do not fit {} mips x {} layers",
-                              graph, pass.Name, call, resource->Name, resolved.BaseMip, resolved.MipCount,
-                              resolved.BaseLayer, resolved.LayerCount, desc.Mips, desc.Layers ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') mips [{}, +{}) layers [{}, +{}) "
+                                                "do not fit {} mips x {} layers",
+                                                graph, pass.Name, call, resource->Name, resolved.BaseMip,
+                                                resolved.MipCount, resolved.BaseLayer, resolved.LayerCount,
+                                                desc.Mips, desc.Layers ) );
+            return;
+        }
 
         pass.Uses.push_back( { texture.Index, access, resolved, -1 } );
     }
@@ -347,27 +392,42 @@ namespace Desert::Graphic::RDG
         Builder::PassRecord&           pass     = m_Builder.m_Passes[m_Pass];
         const Builder::ResourceRecord* resource = m_Builder.FindResource( buffer.Index, ResourceKind::Buffer );
         const std::string&             graph    = m_Builder.m_Name;
-        if ( !resource )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid buffer handle {}",
-                                                       graph, pass.Name, call, buffer.Index ) );
+        if ( resource == nullptr )
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid buffer handle {}", graph,
+                                                pass.Name, call, buffer.Index ) );
+            return;
+        }
         if ( RdgIsFinalOnlyAccess( access ) )
-            return m_Builder.RecordError(
-                 fmt::format( "graph '{}' pass '{}': {}('{}', {}) - a state after the graph "
-                              "(Extract), not something a pass does",
-                              graph, pass.Name, call, resource->Name, GetAccessName( access ) ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) - a state after the graph "
+                                                "(Extract), not something a pass does",
+                                                graph, pass.Name, call, resource->Name,
+                                                GetAccessName( access ) ) );
+            return;
+        }
         if ( ( GetAccessInfo( access ).Targets & AccessTarget_Buffer ) == 0 )
-            return m_Builder.RecordError(
-                 fmt::format( "graph '{}' pass '{}': {}('{}', {}) - a texture-only access on a "
-                              "buffer",
-                              graph, pass.Name, call, resource->Name, GetAccessName( access ) ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) - a texture-only access on a "
+                                                "buffer",
+                                                graph, pass.Name, call, resource->Name,
+                                                GetAccessName( access ) ) );
+            return;
+        }
         if ( asWrite != IsWriteAccess( access ) )
-            return m_Builder.RecordError( fmt::format(
-                 "graph '{}' pass '{}': {}('{}', {}) - {} is a {} access", graph, pass.Name, call, resource->Name,
-                 GetAccessName( access ), GetAccessName( access ), asWrite ? "read" : "write" ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) - {} is a {} access", graph,
+                                                pass.Name, call, resource->Name, GetAccessName( access ),
+                                                GetAccessName( access ), asWrite ? "read" : "write" ) );
+            return;
+        }
         if ( !RdgPassKindAllows( pass.Flags, access ) )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) in a {} pass", graph,
-                                                       pass.Name, call, resource->Name, GetAccessName( access ),
-                                                       RdgPassKindName( pass.Flags ) ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}', {}) in a {} pass", graph,
+                                                pass.Name, call, resource->Name, GetAccessName( access ),
+                                                RdgPassKindName( pass.Flags ) ) );
+            return;
+        }
 
         pass.Uses.push_back( { buffer.Index, access, SubresourceRange{ 0, 1, 0, 1 }, -1 } );
     }
@@ -379,25 +439,39 @@ namespace Desert::Graphic::RDG
         Builder::PassRecord&           pass     = m_Builder.m_Passes[m_Pass];
         const Builder::ResourceRecord* resource = m_Builder.FindResource( texture.Index, ResourceKind::Texture );
         const std::string&             graph    = m_Builder.m_Name;
-        const std::string_view call = isResolve ? "ResolveTarget" : ( isDepth ? "DepthTarget" : "ColorTarget" );
-        if ( !resource )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid texture handle {}",
-                                                       graph, pass.Name, call, texture.Index ) );
+        std::string_view               call     = "ColorTarget";
+        if ( isResolve )
+            call = "ResolveTarget";
+        else if ( isDepth )
+            call = "DepthTarget";
+        if ( resource == nullptr )
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid texture handle {}", graph,
+                                                pass.Name, call, texture.Index ) );
+            return;
+        }
         if ( !HasFlag( pass.Flags, PassFlags::Raster ) )
-            return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') in a {} pass", graph,
-                                                       pass.Name, call, resource->Name,
-                                                       RdgPassKindName( pass.Flags ) ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') in a {} pass", graph, pass.Name,
+                                                call, resource->Name, RdgPassKindName( pass.Flags ) ) );
+            return;
+        }
         if ( access == Access::DepthRead && load.Action == LoadAction::Clear )
-            return m_Builder.RecordError(
-                 fmt::format( "graph '{}' pass '{}': DepthTarget('{}') clears a read-only "
-                              "depth attachment",
-                              graph, pass.Name, resource->Name ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': DepthTarget('{}') clears a read-only "
+                                                "depth attachment",
+                                                graph, pass.Name, resource->Name ) );
+            return;
+        }
         for ( const Builder::AttachmentRecord& existing : pass.Attachments )
         {
             if ( existing.IsDepth == isDepth && existing.IsResolve == isResolve &&
                  ( isDepth || existing.Slot == slot ) )
-                return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') binds slot {} twice",
-                                                           graph, pass.Name, call, resource->Name, slot ) );
+            {
+                m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') binds slot {} twice", graph,
+                                                    pass.Name, call, resource->Name, slot ) );
+                return;
+            }
         }
         // One render pass has one sample count: every colour and depth attachment shares it. A resolve target is
         // single-sample and matches the multisampled colour of its slot in format and size.
@@ -409,35 +483,46 @@ namespace Desert::Graphic::RDG
             if ( isResolve && !existing.IsResolve && !existing.IsDepth && existing.Slot == slot &&
                  ( other.Samples <= 1 || self.Samples != 1 || other.Format != self.Format ||
                    other.Size.Width != self.Size.Width || other.Size.Height != self.Size.Height ) )
-                return m_Builder.RecordError( fmt::format(
+            {
+                m_Builder.RecordError( fmt::format(
                      "graph '{}' pass '{}': ResolveTarget('{}') cannot resolve colour slot {} ('{}'): the colour "
                      "has {} sample(s), format {}, {}x{}; the resolve target {} sample(s), format {}, {}x{}",
                      graph, pass.Name, resource->Name, slot, otherRecord.Name, other.Samples,
                      static_cast<uint32_t>( other.Format ), other.Size.Width, other.Size.Height, self.Samples,
                      static_cast<uint32_t>( self.Format ), self.Size.Width, self.Size.Height ) );
+                return;
+            }
             if ( !isResolve && !existing.IsResolve && other.Samples != self.Samples )
-                return m_Builder.RecordError(
-                     fmt::format( "graph '{}' pass '{}': {}('{}') has {} sample(s), '{}' in the same pass has {}",
-                                  graph, pass.Name, call, resource->Name, self.Samples, otherRecord.Name,
-                                  other.Samples ) );
+            {
+                m_Builder.RecordError( fmt::format(
+                     "graph '{}' pass '{}': {}('{}') has {} sample(s), '{}' in the same pass has {}", graph,
+                     pass.Name, call, resource->Name, self.Samples, otherRecord.Name, other.Samples ) );
+                return;
+            }
         }
         if ( isResolve &&
              std::none_of( pass.Attachments.begin(), pass.Attachments.end(),
                            [slot]( const Builder::AttachmentRecord& existing )
                            { return !existing.IsDepth && !existing.IsResolve && existing.Slot == slot; } ) )
-            return m_Builder.RecordError(
+        {
+            m_Builder.RecordError(
                  fmt::format( "graph '{}' pass '{}': ResolveTarget('{}') for colour slot {}, which has no "
                               "ColorTarget declared before it",
                               graph, pass.Name, resource->Name, slot ) );
+            return;
+        }
 
         const TextureDesc& desc       = resource->Texture;
         const uint32_t     baseLayer  = layer == kAllRemaining ? 0 : layer;
         const uint32_t     layerCount = layer == kAllRemaining ? desc.Layers : 1;
         if ( mip >= desc.Mips || baseLayer >= desc.Layers )
-            return m_Builder.RecordError(
-                 fmt::format( "graph '{}' pass '{}': {}('{}') mip {} layer {} is outside {} "
-                              "mips x {} layers",
-                              graph, pass.Name, call, resource->Name, mip, baseLayer, desc.Mips, desc.Layers ) );
+        {
+            m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') mip {} layer {} is outside {} "
+                                                "mips x {} layers",
+                                                graph, pass.Name, call, resource->Name, mip, baseLayer, desc.Mips,
+                                                desc.Layers ) );
+            return;
+        }
 
         Builder::AttachmentRecord attachment;
         attachment.Slot       = slot;
@@ -481,7 +566,7 @@ namespace Desert::Graphic::RDG
     {
         const Builder::PassRecord&     pass     = m_Builder.m_Passes[m_Pass];
         const Builder::ResourceRecord* resource = m_Builder.FindResource( texture.Index, ResourceKind::Texture );
-        if ( !resource )
+        if ( resource == nullptr )
             return Common::MakeFormattedError<TextureBinding>(
                  "graph '{}' pass '{}': GetTexture of invalid handle {}", m_Builder.m_Name, pass.Name,
                  texture.Index );
@@ -515,7 +600,7 @@ namespace Desert::Graphic::RDG
         binding.Resource = texture.Index;
         binding.Name     = resource->Name;
         binding.Desc     = &resource->Texture;
-        binding.External = resource->ExternalTex ? resource->ExternalTex : resource->ExtractTex;
+        binding.External = resource->ExternalTex != nullptr ? resource->ExternalTex : resource->ExtractTex;
         binding.Memory   = m_Result.FindAllocation( texture.Index );
         binding.Physical = m_Backend.GetPhysicalTexture( texture.Index ).get();
         return Common::MakeSuccess( binding );
@@ -525,7 +610,7 @@ namespace Desert::Graphic::RDG
     {
         const Builder::PassRecord&     pass     = m_Builder.m_Passes[m_Pass];
         const Builder::ResourceRecord* resource = m_Builder.FindResource( buffer.Index, ResourceKind::Buffer );
-        if ( !resource )
+        if ( resource == nullptr )
             return Common::MakeFormattedError<BufferBinding>(
                  "graph '{}' pass '{}': GetBuffer of invalid handle {}", m_Builder.m_Name, pass.Name,
                  buffer.Index );
@@ -542,7 +627,7 @@ namespace Desert::Graphic::RDG
         binding.Resource = buffer.Index;
         binding.Name     = resource->Name;
         binding.Desc     = &resource->Buffer;
-        binding.External = resource->ExternalBuf ? resource->ExternalBuf : resource->ExtractBuf;
+        binding.External = resource->ExternalBuf != nullptr ? resource->ExternalBuf : resource->ExtractBuf;
         binding.Memory   = m_Result.FindAllocation( buffer.Index );
         binding.Physical = m_Backend.GetPhysicalBuffer( buffer.Index ).get();
         return Common::MakeSuccess( binding );
@@ -582,7 +667,7 @@ namespace Desert::Graphic::RDG
             const ResourceRecord& record = m_Resources[resource];
             if ( !record.ExternalTex->RecordStates )
                 continue;
-            Common::BoolResultStr recorded =
+            const Common::BoolResultStr recorded =
                  record.ExternalTex->RecordStates( record.ExternalTex->SubresourceStates, false );
             if ( !recorded )
                 return Common::MakeFormattedError( "texture '{}': {}", record.Name, recorded.GetError() );
@@ -597,7 +682,7 @@ namespace Desert::Graphic::RDG
                                                m_Name );
         m_Executed = true;
 
-        Common::ResultStr<CompileResult> compiled =
+        const Common::ResultStr<CompileResult> compiled =
              Compile( backend.GetMemoryRequirements(), backend.GetPipeCapabilities() );
         if ( !compiled )
             return Common::MakeError( compiled.GetError() );
@@ -607,7 +692,8 @@ namespace Desert::Graphic::RDG
         if ( !result.DemotedAsyncPasses.empty() )
         {
             std::vector<std::string_view> demoted;
-            for ( uint32_t pass : result.DemotedAsyncPasses )
+            demoted.reserve( result.DemotedAsyncPasses.size() );
+            for ( const uint32_t pass : result.DemotedAsyncPasses )
                 demoted.push_back( m_Passes[pass].Name );
             backend.GetAsyncComputeFallbackLog().Report( demoted );
         }
@@ -634,8 +720,8 @@ namespace Desert::Graphic::RDG
                 views[use.Resource].Used = true;
         }
 
-        const GraphView       graph{ m_Name, views, &result };
-        Common::BoolResultStr begun = backend.BeginGraph( graph );
+        const GraphView             graph{ m_Name, views, &result };
+        const Common::BoolResultStr begun = backend.BeginGraph( graph );
         if ( !begun )
             return Common::MakeFormattedError( "graph '{}': {}", m_Name, begun.GetError() );
 
@@ -646,7 +732,7 @@ namespace Desert::Graphic::RDG
             if ( !compiledPass.Barriers.empty() )
             {
                 backend.RecordBarriers( compiledPass.Barriers );
-                Common::BoolResultStr recorded = RecordExternalStates( compiledPass.Barriers );
+                const Common::BoolResultStr recorded = RecordExternalStates( compiledPass.Barriers );
                 if ( !recorded )
                 {
                     backend.AbandonGraph();
@@ -658,7 +744,7 @@ namespace Desert::Graphic::RDG
                  HasFlag( compiledPass.Flags, PassFlags::Raster ) && !compiledPass.Attachments.empty();
             if ( rendering && !compiledPass.ContinuesRenderPass )
             {
-                Common::BoolResultStr started = backend.BeginRenderPass( compiledPass );
+                const Common::BoolResultStr started = backend.BeginRenderPass( compiledPass );
                 if ( !started )
                 {
                     backend.AbandonGraph();
@@ -666,8 +752,8 @@ namespace Desert::Graphic::RDG
                                                        started.GetError() );
                 }
             }
-            PassContext           context( *this, result, backend, compiledPass.Pass );
-            Common::BoolResultStr outcome = m_Passes[compiledPass.Pass].Exec( context );
+            PassContext                 context( *this, result, backend, compiledPass.Pass );
+            const Common::BoolResultStr outcome = m_Passes[compiledPass.Pass].Exec( context );
             if ( !outcome )
             {
                 backend.AbandonGraph();
@@ -685,10 +771,10 @@ namespace Desert::Graphic::RDG
         for ( const PipeSegment& segment : result.Segments )
         {
             // Amendment B: the prologue has no passes; it records the releases of a fork from the start.
-            const bool            prologue     = segment.FirstPosition == CrossPipeSync::kForkAtGraphStart;
-            const std::string     segmentName  = prologue ? std::string( "the graph start" )
-                                                          : std::string( result.Passes[segment.FirstPosition].Name );
-            Common::BoolResultStr segmentBegun = backend.BeginPipeSegment( segment );
+            const bool                  prologue     = segment.FirstPosition == CrossPipeSync::kForkAtGraphStart;
+            const std::string           segmentName  = prologue ? std::string( "the graph start" )
+                                                                : std::string( result.Passes[segment.FirstPosition].Name );
+            const Common::BoolResultStr segmentBegun = backend.BeginPipeSegment( segment );
             if ( !segmentBegun )
             {
                 backend.AbandonGraph();
@@ -704,7 +790,7 @@ namespace Desert::Graphic::RDG
                 if ( !recorded )
                     return recorded;
             }
-            Common::BoolResultStr segmentEnded = backend.EndPipeSegment( segment );
+            const Common::BoolResultStr segmentEnded = backend.EndPipeSegment( segment );
             if ( !segmentEnded )
             {
                 backend.AbandonGraph();
@@ -727,7 +813,7 @@ namespace Desert::Graphic::RDG
                 extractedBuffers[final.Resource] = backend.GetPhysicalBuffer( final.Resource );
         }
 
-        Common::BoolResultStr ended = backend.EndGraph( result.FinalBarriers );
+        const Common::BoolResultStr ended = backend.EndGraph( result.FinalBarriers );
         if ( !ended )
             return Common::MakeFormattedError( "graph '{}': {}", m_Name, ended.GetError() );
 
@@ -737,14 +823,14 @@ namespace Desert::Graphic::RDG
             const ResourceRecord& record = m_Resources[final.Resource];
             if ( record.Kind == ResourceKind::Texture )
             {
-                ExternalTexture* target   = record.ExternalTex ? record.ExternalTex : record.ExtractTex;
+                ExternalTexture* target   = record.ExternalTex != nullptr ? record.ExternalTex : record.ExtractTex;
                 target->Desc              = record.Texture;
                 target->SubresourceStates = final.SubresourceStates;
                 // The layouts match the last barrier's (already recorded); the final states add the stages and
                 // accesses of the reads merged after it, and the owner checks the image can record them.
                 if ( target->RecordStates )
                 {
-                    Common::BoolResultStr recorded = target->RecordStates( target->SubresourceStates, true );
+                    const Common::BoolResultStr recorded = target->RecordStates( target->SubresourceStates, true );
                     if ( !recorded && recordError.empty() )
                         recordError = std::format( "graph '{}' texture '{}': {}", m_Name, record.Name,
                                                    recorded.GetError() );
@@ -754,12 +840,12 @@ namespace Desert::Graphic::RDG
             }
             else
             {
-                ExternalBuffer* target = record.ExternalBuf ? record.ExternalBuf : record.ExtractBuf;
+                ExternalBuffer* target = record.ExternalBuf != nullptr ? record.ExternalBuf : record.ExtractBuf;
                 target->Desc           = record.Buffer;
                 target->State          = final.SubresourceStates.front();
                 if ( target->RecordFinalState )
                 {
-                    Common::BoolResultStr recorded = target->RecordFinalState( target->State );
+                    const Common::BoolResultStr recorded = target->RecordFinalState( target->State );
                     if ( !recorded && recordError.empty() )
                         recordError =
                              std::format( "graph '{}' buffer '{}': {}", m_Name, record.Name, recorded.GetError() );

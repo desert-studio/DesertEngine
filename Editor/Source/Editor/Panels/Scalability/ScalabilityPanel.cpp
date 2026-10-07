@@ -120,7 +120,7 @@ namespace Desert::Editor
     // shown (IsGroupListed): a control that moves nothing is a dead setting.
     // Starts CLOSED, like the other tools in Window -> Tools (Localization).
     ScalabilityPanel::ScalabilityPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
-        : IPanel( "Scalability", /*showPanel=*/false ), m_Scene( scene )
+         : IPanel( "Scalability", /*showPanel=*/false ), m_Scene( scene )
     {
     }
 

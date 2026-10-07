@@ -332,8 +332,8 @@ namespace Desert::Graphic::System
 
         for ( uint32_t c = 0; c < n; ++c )
         {
-            m_CascadeVP[c]            = fits[c].ViewProj;
-            m_CascadeWorldPerTexel[c] = fits[c].WorldPerTexel;
+            m_CascadeVP[c]                                          = fits[c].ViewProj;
+            m_CascadeWorldPerTexel[static_cast<glm::length_t>( c )] = fits[c].WorldPerTexel;
 
             if ( c == rsmCascade )
             {

@@ -54,9 +54,9 @@ namespace Desert::Graphic::API::Vulkan
     VkBufferUsageFlags RdgBufferUsage( uint32_t accessMask );
 
     // The Vulkan translation of the graph's own state enums; one table each, no second copy.
-    VkPipelineStageFlags RdgVulkanStages( RDG::PipelineStageFlags stages );
-    VkAccessFlags        RdgVulkanAccess( RDG::MemoryAccessFlags access );
-    VkImageLayout        RdgVulkanLayout( RDG::ImageLayout layout );
+    // RdgVulkanStages is declared in VulkanRdgQueues.hpp (included above).
+    VkAccessFlags RdgVulkanAccess( RDG::MemoryAccessFlags access );
+    VkImageLayout RdgVulkanLayout( RDG::ImageLayout layout );
     // The inverse of RdgVulkanLayout, for an image imported from its own layout record. A layout the graph
     // has no name for is refused rather than mapped to a near neighbour.
     std::optional<RDG::ImageLayout> RdgLayoutFromVulkan( VkImageLayout layout );
@@ -141,7 +141,7 @@ namespace Desert::Graphic::API::Vulkan
             return m_Desc;
         }
         // The same description and usage: an image created for one can stand in for the other.
-        bool     Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const;
+        [[nodiscard]] bool     Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const;
         [[nodiscard]] uint32_t GetAccessMask() const
         {
             return m_AccessMask;
@@ -266,10 +266,10 @@ namespace Desert::Graphic::API::Vulkan
         };
         struct Slot
         {
-            std::vector<Entry<VulkanRdgTexture>> Textures;
-            std::vector<Entry<VulkanRdgBuffer>>  Buffers;
+            std::vector<Entry<VulkanRdgTexture>>                Textures;
+            std::vector<Entry<VulkanRdgBuffer>>                 Buffers;
             std::vector<std::shared_ptr<RDG::IPhysicalTexture>> Retired; // released at the slot's next BeginFrame
-            uint64_t                             PreviousFrame = 0; // frame counter of the slot's last BeginFrame
+            uint64_t PreviousFrame = 0; // frame counter of the slot's last BeginFrame
         };
 
         const VulkanRdgDevice& m_Device;
@@ -439,8 +439,8 @@ namespace Desert::Graphic::API::Vulkan
         const VulkanRdgDevice&      m_Device;
         VulkanRdgPool&              m_Pool;
         VulkanRdgMemoryRequirements m_Memory;
-        VkCommandBuffer              m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
-        RecordingListener            m_RecordingListener;
+        VkCommandBuffer             m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
+        RecordingListener           m_RecordingListener;
         // Every change of m_CommandBuffer goes through here, so the listener never records into a stale one.
         void                         SetRecording( VkCommandBuffer commandBuffer );
         VulkanRdgSegmentRecorder     m_Segments;    // B(3): segment command buffers, semaphores, submissions

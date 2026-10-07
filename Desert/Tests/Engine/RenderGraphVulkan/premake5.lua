@@ -5,6 +5,7 @@
 -- Needs a Vulkan device and the LunarG validation layer (VULKAN_SDK).
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 local test_name = path.getname(_SCRIPT_DIR)
+test_needs_vulkan_device(test_name)
 local test_files = os.matchfiles("*.cpp")
 
 project(test_name)

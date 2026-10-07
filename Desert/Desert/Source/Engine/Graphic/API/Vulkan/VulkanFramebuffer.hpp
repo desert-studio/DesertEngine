@@ -76,7 +76,8 @@ namespace Desert::Graphic::API::Vulkan
             return m_DepthAttachment;
         }
 
-        virtual const std::shared_ptr<Image2D>& GetMultisampleColorAttachmentImage( uint32_t index ) const override
+        [[nodiscard]] const std::shared_ptr<Image2D>&
+        GetMultisampleColorAttachmentImage( uint32_t index ) const override
         {
             return m_MultisampleColorAttachments.at( index );
         }

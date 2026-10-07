@@ -233,7 +233,7 @@ namespace Desert::Graphic::System
             // handle, so the two cannot disagree).
             m_FogPipeline->SetInput(
                  kFogDistantSkyLightBinding,
-                 atmosphere.DistantSkyLight
+                 atmosphere.DistantSkyLight != nullptr
                       ? atmosphere.DistantSkyLight
                       : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );

@@ -1229,8 +1229,8 @@ namespace Desert::ECS
     // (sized to what the subtree covers on screen, so DPI and canvas scale are already in it), and that
     // picture is composited back through ONE effect pass. Every effect of the layer goes through that pass
     // — a mask by another element's shape, a heat haze — rather than each being a special case of one
-    // primitive. Render2D::AddRetainedPasses renders the targets (graph passes); Engine/Graphic/Render2D/RetainerEffect.hpp
-    // is the effect's math, mirrored by UIRetainer.shader.
+    // primitive. Render2D::AddRetainedPasses renders the targets (graph passes);
+    // Engine/Graphic/Render2D/RetainerEffect.hpp is the effect's math, mirrored by UIRetainer.shader.
     struct UIRetainerData
     {
         REFLECT()

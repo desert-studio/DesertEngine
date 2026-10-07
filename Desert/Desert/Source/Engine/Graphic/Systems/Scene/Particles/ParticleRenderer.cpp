@@ -371,15 +371,15 @@ namespace Desert::Graphic::System
                        {
                            if ( m_FrameEmitters.empty() )
                                return BOOLSUCCESS;
-                           const auto camera = m_SceneRenderer->GetMainCamera();
-                           if ( !camera )
+                           auto* const camera = m_SceneRenderer->GetMainCamera();
+                           if ( camera == nullptr )
                                return BOOLSUCCESS;
 
                            auto& renderer = Renderer::GetInstance();
                            for ( auto& fe : m_FrameEmitters )
                            {
                                // An emitter the graph was not told about is neither simulated nor drawn.
-                               if ( !fe.Declared || !fe.Gpu || !fe.Gpu->Particles || !fe.Gpu->Material )
+                               if ( !fe.Declared || fe.Gpu == nullptr || !fe.Gpu->Particles || !fe.Gpu->Material )
                                    continue;
                                // Each emitter updates and draws ITS OWN material: a shared one here routed every
                                // emitter through one descriptor set, which is written at most once per frame — so

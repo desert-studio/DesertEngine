@@ -91,11 +91,11 @@ namespace Desert::Graphic::System
                                                            RDG::TextureRef sceneColor, RDG::TextureRef chain,
                                                            const RDG::TextureDesc& chainDesc, uint32_t mip )
     {
-        const bool     first  = ( mip == 0 );
-        const uint32_t bw     = chainDesc.Size.Width;
-        const uint32_t bh     = chainDesc.Size.Height;
-        uint32_t       srcW   = 0;
-        uint32_t       srcH   = 0;
+        const bool     first = ( mip == 0 );
+        const uint32_t bw    = chainDesc.Size.Width;
+        const uint32_t bh    = chainDesc.Size.Height;
+        uint32_t       srcW  = 0;
+        uint32_t       srcH  = 0;
         if ( first )
         {
             // Mip 0 samples the full-resolution scene colour.

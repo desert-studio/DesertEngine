@@ -71,8 +71,8 @@ namespace Desert::Graphic::Render2D
         // axis-aligned however the element is turned. Identity for an untransformed panel, and identity
         // maps gl_FragCoord onto itself EXACTLY, which is what keeps the untransformed picture unchanged.
         // Retained-layer composite (UE Retainer Box): the quad shows layer RetainedLayer of the SAME list,
-        // rendered offscreen (a graph pass Render2D::AddRetainedPasses adds) over RetainedRect, through Effect. RetainedMask is
-        // the key of a mask layer in the ROOT list (DrawList2D::MaskLayer), or -1.
+        // rendered offscreen (a graph pass Render2D::AddRetainedPasses adds) over RetainedRect, through Effect.
+        // RetainedMask is the key of a mask layer in the ROOT list (DrawList2D::MaskLayer), or -1.
         bool           Retained      = false;
         uint32_t       RetainedLayer = 0;
         int64_t        RetainedMask  = -1;

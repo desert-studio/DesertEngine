@@ -66,7 +66,7 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             const auto*    mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
             const uint32_t cascades =
-                 mesh ? std::min( mesh->GetValidCascadeCount(), kSceneViewShadowCascades ) : 0u;
+                 mesh != nullptr ? std::min( mesh->GetValidCascadeCount(), kSceneViewShadowCascades ) : 0u;
             for ( uint32_t c = 0; c < cascades; ++c )
                 view.ShadowCascades[c] =
                      textures.Import( mesh->GetCascadeShadowImage( c ), std::format( "CSM.Cascade{}", c ) );
@@ -85,7 +85,7 @@ namespace Desert::Graphic
         if ( const auto it = m_RenderSystems.find( "SkyboxSystem" ); it != m_RenderSystems.end() )
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             if ( const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
-                 sky && sky->SkyPassSamplesLuts() )
+                 sky != nullptr && sky->SkyPassSamplesLuts() )
             {
                 view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
                 view.SkyViewLut          = textures.Import( sky->GetSkyViewLut(), "Sky.SkyViewLut" );
@@ -107,9 +107,9 @@ namespace Desert::Graphic
                  if ( target.Depth.IsValid() )
                  {
                      const glm::vec2 depthStencil = RenderPassSpecification{}.ClearColor.DepthStencil;
-                     pass.DepthTarget( target.Depth,
-                                       RDG::LoadOp::ClearDepth( depthStencil.x,
-                                                                static_cast<uint32_t>( depthStencil.y ) ) );
+                     pass.DepthTarget(
+                          target.Depth,
+                          RDG::LoadOp::ClearDepth( depthStencil.x, static_cast<uint32_t>( depthStencil.y ) ) );
                  }
                  for ( uint32_t i = 0; i < target.Resolves.size(); ++i )
                      pass.ResolveTarget( i, target.Resolves[i] );
@@ -133,6 +133,7 @@ namespace Desert::Graphic
         const RDG::TextureRef          sourceRef =
              textures.Import( source, "GBuffer.Depth", DeferredFrameNodes::kGBufferDepthFinal );
         const RDG::TextureRef targetRef = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* expand = UNIQUE_GET_AS( System::DepthExpandRenderer, m_RenderSystems["DepthExpandSystem"] );
         DeferredFrameNodes::AddDepthToScene(
              graph, m_TargetFramebuffer->GetSpecification().Samples, sourceRef, targetRef,
@@ -140,7 +141,7 @@ namespace Desert::Graphic
              { return Renderer::GetInstance().CopyDepthImage( source.get(), target.get() ); },
              [expand, sourceRef]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 if ( !expand )
+                 if ( expand == nullptr )
                      return Common::MakeError( "Deferred: DepthExpand has no DepthExpandSystem" );
                  return expand->Record( context, sourceRef );
              } );
@@ -155,8 +156,10 @@ namespace Desert::Graphic
         const auto found = m_RenderSystems.find( "SceneDepthResolveSystem" );
         if ( found == m_RenderSystems.end() )
             return nullptr;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* resolve = UNIQUE_GET_AS( System::SceneDepthResolveRenderer, found->second );
-        return resolve && resolve->IsReady() ? resolve->GetFramebuffer()->GetDepthAttachmentImage() : nullptr;
+        return resolve != nullptr && resolve->IsReady() ? resolve->GetFramebuffer()->GetDepthAttachmentImage()
+                                                        : nullptr;
     }
 
     void SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures )
@@ -164,8 +167,9 @@ namespace Desert::Graphic
         if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
             return;
         auto* resolve =
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
              UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
-        if ( !resolve || !resolve->IsReady() )
+        if ( resolve == nullptr || !resolve->IsReady() )
             return;
         const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
         DeferredFrameNodes::AddSceneDepthResolve(
@@ -190,8 +194,9 @@ namespace Desert::Graphic
 
         if ( !m_EnableSSAO )
             return;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* ssao = UNIQUE_GET_AS( System::SSAORenderer, m_RenderSystems["SSAOSystem"] );
-        if ( !ssao )
+        if ( ssao == nullptr )
             return;
         if ( gbuffer.size() < 3 )
         {
@@ -238,8 +243,9 @@ namespace Desert::Graphic
                                                       System::MeshRenderer*               meshRenderer,
                                                       const glm::mat4& viewProj, const glm::vec4& lightColor )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* gi = UNIQUE_GET_AS( System::GIResolveRenderer, m_RenderSystems["GISystem"] );
-        if ( !gi || !gi->Prepare() )
+        if ( gi == nullptr || !gi->Prepare() )
             return {};
         if ( gbuffer.size() < 3 || rsm.size() < 3 )
         {
@@ -329,13 +335,13 @@ namespace Desert::Graphic
         // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not RSM, fewer cascades).
         const FrameGraphRefs            refs = textures.GraphRefs();
         System::DeferredCompositeInputs inputs;
-        inputs.GBufferA         = gbuffer[0];
-        inputs.GBufferB         = gbuffer[1];
-        inputs.GBufferC         = gbuffer[2];
-        inputs.GBufferEmissive  = gbuffer[3];
-        inputs.SSAO             = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
-        inputs.GI               = giAccum.IsValid() ? giAccum : refs.System.Black;
-        inputs.View                        = SceneViewInputsOf( refs );
+        inputs.GBufferA        = gbuffer[0];
+        inputs.GBufferB        = gbuffer[1];
+        inputs.GBufferC        = gbuffer[2];
+        inputs.GBufferEmissive = gbuffer[3];
+        inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
+        inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
+        inputs.View            = SceneViewInputsOf( refs );
         std::vector<RDG::TextureRef> reads = shadowReads;
         for ( const RDG::TextureRef ref : { inputs.GBufferA, inputs.GBufferB, inputs.GBufferC,
                                             inputs.GBufferEmissive, inputs.SSAO, inputs.GI } )
@@ -358,7 +364,7 @@ namespace Desert::Graphic
               cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  DeferredShadowInput shadow;
-                 if ( meshRenderer )
+                 if ( meshRenderer != nullptr )
                  {
                      shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
                      shadow.Count                = meshRenderer->GetValidCascadeCount();
@@ -377,18 +383,25 @@ namespace Desert::Graphic
                          environment.Look = env->Look;
                          if ( env->IrradianceMap.IsValid() )
                              environment.Irradiance =
+                                  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names
+                                  // this exact type
                                   static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
                          if ( env->PreFilteredMap.IsValid() )
                              environment.Prefiltered =
+                                  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names
+                                  // this exact type
                                   static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
                      }
                      if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
                           brdf && brdf->GetImageHandle().IsValid() )
                          environment.BrdfLut =
+                              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names
+                              // this exact type
                               static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
                  }
 
                  const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
+                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                  return UNIQUE_GET_AS( System::DeferredLightingRenderer,
                                        m_RenderSystems["DeferredLightingSystem"] )
                       ->Record( context, inputs, lightDir, lightColor, cameraPos,
@@ -402,7 +415,7 @@ namespace Desert::Graphic
                                                       const std::vector<RDG::TextureRef>& sceneColor,
                                                       System::CopyRenderer*               copy )
     {
-        if ( !copy || sceneColor.empty() )
+        if ( copy == nullptr || sceneColor.empty() )
             return {};
         // The snapshot lives within this graph (UE: a transient from the scene colour's desc): the scene
         // colour's size, the copy format, one mip, one layer, one sample (the scene colour ref is the
@@ -437,17 +450,18 @@ namespace Desert::Graphic
                                      const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,
                                      const glm::mat4& viewProj, const glm::vec4& cameraPos )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* ssr = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
-        if ( !ssr || !sceneCopy.IsValid() )
+        if ( ssr == nullptr || !sceneCopy.IsValid() )
             return;
         const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr->Prepare();
         if ( !traceTargets )
             return;
         // Transients of this graph, sized from this frame's view: written by the trace, read by the tiled passes.
-        const RDG::TextureRef          trace   = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
-        const RDG::TextureRef          tiles   = graph.CreateTexture( traceTargets->TileMask, "SSR.TileMask" );
-        const RDG::TextureRef          accum   = textures.Import( ssr->GetAccumImage(), "SSR" );
-        const RDG::TextureRef          history = textures.Import( ssr->GetHistoryImage(), "SSR.History" );
+        const RDG::TextureRef trace   = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
+        const RDG::TextureRef tiles   = graph.CreateTexture( traceTargets->TileMask, "SSR.TileMask" );
+        const RDG::TextureRef accum   = textures.Import( ssr->GetAccumImage(), "SSR" );
+        const RDG::TextureRef history = textures.Import( ssr->GetHistoryImage(), "SSR.History" );
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: SSRComposite" );
         if ( !targets )
             return;

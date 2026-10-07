@@ -84,15 +84,15 @@ namespace Desert::Graphic
             m_Buffers.push_back( { buffer, access, true } );
         }
 
-        const std::vector<ImageUse>& Images() const
+        [[nodiscard]] const std::vector<ImageUse>& Images() const
         {
             return m_Images;
         }
-        const std::vector<TextureUse>& Textures() const
+        [[nodiscard]] const std::vector<TextureUse>& Textures() const
         {
             return m_Textures;
         }
-        const std::vector<BufferUse>& Buffers() const
+        [[nodiscard]] const std::vector<BufferUse>& Buffers() const
         {
             return m_Buffers;
         }

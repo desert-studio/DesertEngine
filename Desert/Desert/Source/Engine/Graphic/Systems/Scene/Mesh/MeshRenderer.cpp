@@ -236,8 +236,8 @@ namespace Desert::Graphic::System
                                 m_StaticGBufferPipeline )
                                return BOOLSUCCESS;
 
-                           const auto camera = m_SceneRenderer->GetMainCamera();
-                           if ( !camera )
+                           auto* const camera = m_SceneRenderer->GetMainCamera();
+                           if ( camera == nullptr )
                                return BOOLSUCCESS;
 
                            // `UpdateGlobalUniforms( camera, points, directionals )` used to be called
@@ -256,7 +256,7 @@ namespace Desert::Graphic::System
                        },
                        m_StaticPipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+             .Declare = []( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             // The scene/view inputs the lit draws sample (SceneViewInputs: cascades, environment cubes, BRDF LUT,
             // cloud shadow map), each a pass parameter the body binds.
@@ -315,12 +315,17 @@ namespace Desert::Graphic::System
         {
             frame.EnvironmentLook = env->Look;
             if ( env->IrradianceMap.IsValid() )
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
+                // type
                 frame.IrradianceMap = static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
             if ( env->PreFilteredMap.IsValid() )
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
+                // type
                 frame.PrefilteredMap = static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
         }
         if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
              brdf && brdf->GetImageHandle().IsValid() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact type
             frame.BrdfLut = static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
 
         // The cloud layer's shadow, from the SAME gather the deferred composite reads
@@ -361,6 +366,8 @@ namespace Desert::Graphic::System
             case MeshType::Skinned:
             {
                 SkinnedMeshRenderData skinnedData;
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): MeshType::Skinned is set only
+                // for a SkinnedMesh
                 skinnedData.Mesh          = static_cast<SkinnedMesh*>( data.Mesh );
                 skinnedData.Transform     = data.Transform;
                 skinnedData.BoneMatrices  = data.BoneMatrices;

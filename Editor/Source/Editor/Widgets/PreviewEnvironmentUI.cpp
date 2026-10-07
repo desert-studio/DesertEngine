@@ -18,6 +18,7 @@
 
 #include <ImGui/imgui.h>
 
+#include <format>
 #include <functional>
 #include <string>
 #include <utility>
@@ -167,7 +168,8 @@ namespace Desert::Editor::PreviewEnvironment
         actions.push_back(
              { "Preview environment: preset sky", [] { Edit( []( Settings& s ) { s.Skybox.clear(); } ); } } );
         for ( Entry& entry : Skyboxes() )
-            actions.push_back( { "Preview environment: " + entry.Name, [key = std::move( entry.Key )]
+            actions.push_back( { std::format( "Preview environment: {}", entry.Name ),
+                                 [key = std::move( entry.Key )]
                                  { Edit( [&key]( Settings& s ) { s.Skybox = key; } ); } } );
 
         actions.push_back( { "Preview EV +1", []

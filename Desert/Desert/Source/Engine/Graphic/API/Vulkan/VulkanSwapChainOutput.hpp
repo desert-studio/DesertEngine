@@ -35,12 +35,12 @@ namespace Desert::Graphic::API::Vulkan
         void AcquireImage();
         // The current frame slot's wait (the acquired image, at the stage the back buffer is first written)
         // and signal (render complete, waited by Present).
-        VulkanFrameOutput GetFrameOutput() const;
-        void              Present();
+        [[nodiscard]] VulkanFrameOutput GetFrameOutput() const;
+        void                            Present();
 
         Common::ResultStr<VkResult> Init();
 
-        uint32_t GetImageIndex() const
+        [[nodiscard]] uint32_t GetImageIndex() const
         {
             return m_ImageIndex;
         }
@@ -50,7 +50,6 @@ namespace Desert::Graphic::API::Vulkan
 
         Common::ResultStr<VkResult> QueuePresent( VkQueue queue, uint32_t imageIndex, VkSemaphore waitSemaphore );
 
-    private:
         uint32_t m_ImageIndex = ~0;
 
         VulkanSwapChain* m_SwapChain;

@@ -134,7 +134,7 @@ namespace Desert::Graphic
                                  float bias, bool enabled, int debugMode, bool showNormals,
                                  const glm::vec4& cascadeWorldPerTexel, bool lightingDebug )
     {
-        if ( !material || !cascadeViewProj )
+        if ( material == nullptr || cascadeViewProj == nullptr )
             return;
 
         // The block's layout and its cascade count are NOT restated here. They are one mirror

@@ -32,7 +32,8 @@ namespace Desert::Graphic::System
             if ( fb )
                 spec.Framebuffer = fb;
             else
-                spec.TargetLayout = RenderTargetLayout{ .ColorFormats = { transientFormat } };
+                spec.TargetLayout =
+                     RenderTargetLayout{ .ColorFormats = { transientFormat }, .DepthFormat = std::nullopt };
             spec.Shader = shader;
             return Graphic::GraphicsPipeline::Create( spec );
         }

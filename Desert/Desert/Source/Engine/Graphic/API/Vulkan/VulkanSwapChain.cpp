@@ -531,8 +531,8 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( !m_BackBufferGraphTextures[index] )
         {
-            const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                         ->GetVulkanLogicalDevice();
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                   ->GetVulkanLogicalDevice();
             m_BackBufferGraphTextures[index] =
                  VulkanRdgTexture::Wrap( device, m_SwapChainImages.Images[index], m_ColorFormat, desc );
         }

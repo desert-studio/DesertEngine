@@ -197,7 +197,8 @@ namespace
            "const Common::Timestep gameplayTs( TicksGameplay() ? m_WorldTime.GetDeltaSeconds() : 0.0f )" },
          { "Desert/Desert/Source/Engine/Core/Scene.cpp",
            "editorTs( m_WorldTime.EditorPreviewSeconds( m_State == SceneState::Edit ) )" },
-         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp", "Animation::AnimationAdvanceSeconds(" },
+         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
+           "Animation::AnimationAdvanceSeconds(" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
            "AdvanceWind( data, m_WorldDeltaSeconds )" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
@@ -296,7 +297,8 @@ TEST( WorldTimeOneSource, OnlyTheMainSceneTakesTheViewportsRealtime )
     ASSERT_FALSE( root.empty() );
     std::vector<std::string> setters;
     std::size_t              scanned = 0;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root + "Editor/Source" ) )
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( std::filesystem::path( root ) / "Editor/Source" ) )
     {
         if ( !entry.is_regular_file() )
             continue;
