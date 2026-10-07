@@ -357,6 +357,10 @@ namespace Desert::Assets
     /// inputs arrived in sorts first. The key covers every authored number: two lumps differing only in
     /// rotation are different lumps, and a key that could not tell them apart would leave their order to
     /// `std::sort`'s internals — the very non-determinism the sort removes.
+    /// The canonical order SortCloudModellingBlobs applies, exposed so a list that carries something beside
+    /// each lump (the procedural bake's cell rank) sorts into exactly the same order.
+    bool CloudModellingBlobLess( const CloudModellingBlob& a, const CloudModellingBlob& b );
+
     void SortCloudModellingBlobs( std::vector<CloudModellingBlob>& blobs );
 
     /// One lump's term in the smooth minimum's sum, with the SHIFT already applied.

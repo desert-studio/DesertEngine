@@ -192,6 +192,26 @@ namespace Desert::Assets
 
     inline constexpr uint32_t kCloudProceduralBytesPerVoxel = 4u;
 
+    /// The rank a voxel with no cloud stores. CloudProceduralKeep never keeps it at any cover.
+    inline constexpr unsigned char kCloudProceduralNoRank = 255u;
+
+    /// How far the rank rises from a body's core to its surface, at CoverageContrast 1 (the rise is this
+    /// over the contrast). It is what makes a cloud near the slider's threshold ERODE to its core instead
+    /// of vanishing whole — the role the old per-cell `fill` radius played, now carried by the march.
+    inline constexpr float kCloudRankSoftness = 0.25f;
+
+    /// THE PERIOD OF THE WORLD WEATHER, kilometres. 997 is prime and shares no small factor with any
+    /// region an artist can author, so the weather does not repeat with the region: the least common
+    /// multiple with the shipped 48 km is 47 856 km. A weather periodic WITH the region (what WeatherGaussian
+    /// was, fmod(world, region)) closed every horizon gap with the gap's own copy one region further out.
+    inline constexpr float kCloudFarWeatherPeriodKm = 997.0f;
+
+    /// The size of the R8 rank block beside the RGBA8 profile block: one byte per voxel.
+    inline constexpr uint64_t CloudProceduralRankBytes( uint32_t sideVoxels )
+    {
+        return static_cast<uint64_t>( sideVoxels ) * sideVoxels * kCloudProceduralVolumeHeight;
+    }
+
     /// The exact size of the byte block @ref BakeCloudProceduralVolume returns for a grid of @p sideVoxels.
     /// A FUNCTION and not a constant, because the side is a parameter now: a constant would be the size of
     /// one particular volume being read as the size of every volume, which is how a caller ends up
@@ -733,6 +753,45 @@ namespace Desert::Assets
      */
     using CloudProceduralBakeProgressFn = std::function<bool( float fraction )>;
 
+    /// The bake's two blocks: the RGBA8 Dimensional Profile per species (the bytes it always returned) and
+    /// the R8 RANK of the cloud each voxel belongs to, remapped by the region's column CDF so that the
+    /// fraction of columns CloudProceduralKeep keeps at a cover c is c. Empty voxels hold kCloudProceduralNoRank.
+    struct CloudProceduralVolumeBake
+    {
+        std::vector<unsigned char> Voxels;
+        std::vector<unsigned char> Ranks;
+    };
+
+    /// THE bake; the vector-returning overloads below are its Voxels. EVERY cell of the lattice is baked —
+    /// the Coverage slider and the weather are applied at the march through the rank, not here.
+    Common::ResultStr<CloudProceduralVolumeBake>
+    BakeCloudProceduralVolumeRanked( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
+                                     const CloudProceduralBakeProgressFn& onProgress );
+
+    /// The seed of the layer's world weather — one per layer, since the march keeps per voxel after the
+    /// max over species.
+    uint32_t CloudFarWeatherSeed( const CloudProceduralFieldParams& params );
+
+    /// The world weather, a standard normal field over WORLD kilometres with its spectrum spanning two
+    /// octaves around @p tileKm, periodic with kCloudFarWeatherPeriodKm and with nothing shorter.
+    float CloudFarWeather( uint32_t seed, const glm::vec2& worldKm, float tileKm );
+
+    /// The cover the march compares a rank against at a world column: Coverage redistributed by the world
+    /// weather (the Gaussian copula, mean exactly Coverage), or Coverage itself when a painted pattern is
+    /// the weather.
+    float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm );
+
+    /// One cell's rank: its own hash, scaled by a bound painting so the painting's cover is respected.
+    float CloudProceduralCellRank( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t cellSeed,
+                                   const glm::vec2& centreKm );
+
+    /// THE CUT the march makes (the CPU mirror of the shader's): a voxel stays when its rank is under the
+    /// local cover. Half a byte of offset so that a cover of 0 keeps nothing and 1 keeps every cloud.
+    inline bool CloudProceduralKeep( unsigned char rank, float localCover )
+    {
+        return ( static_cast<float>( rank ) + 0.5f ) / 255.0f < localCover;
+    }
+
     /**
      * @brief The same bake, reporting progress and able to be abandoned.
      *
@@ -751,7 +810,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000002ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000003ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
@@ -772,6 +831,8 @@ namespace Desert::Assets
     struct CloudProceduralCachedBake
     {
         std::vector<unsigned char> Voxels;
+        /// The R8 rank block, CloudProceduralRankBytes long (CloudProceduralVolumeBake::Ranks).
+        std::vector<unsigned char> Ranks;
         bool                       FromCache = false;
         uint64_t                   Key       = 0;
         /// Why a fresh bake could not be stored (the file system's own reason), empty when it was — the
@@ -811,6 +872,26 @@ namespace Desert::Assets
 
     /// How many lumps the whole region holds, summed over the species — the quantity the bake's cost is
     /// linear in, exposed so the renderer can log it beside the milliseconds rather than guessing.
+    /// Which cells GenerateCloudProceduralLumps emits: every cell (what the bake needs — the cut is the
+    /// march's) or only those whose rank is under the local cover at the cell's site (the view a
+    /// rasterised placement measurement and the panels use).
+    enum class CloudProceduralLumpSet
+    {
+        EveryCell,
+        KeptCells
+    };
+
+    /// A lump and the rank of the cell it was born in.
+    struct CloudProceduralLump
+    {
+        CloudModellingBlob Blob;
+        float              Rank = 0.0f;
+    };
+
+    std::vector<CloudProceduralLump> GenerateCloudProceduralLumps( const CloudProceduralFieldParams& params,
+                                                                   uint32_t slot, const glm::vec2& regionOriginKm,
+                                                                   CloudProceduralLumpSet set );
+
     size_t CountCloudProceduralBlobs( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm );
 
     /**

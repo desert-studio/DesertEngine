@@ -365,20 +365,20 @@ namespace Desert::Assets
         return magnitude * blob.RadiiKm;
     }
 
+    bool CloudModellingBlobLess( const CloudModellingBlob& a, const CloudModellingBlob& b )
+    {
+        const auto key = []( const CloudModellingBlob& blob )
+        {
+            return std::tie( blob.CentreKm.x, blob.CentreKm.y, blob.CentreKm.z, blob.RadiiKm.x, blob.RadiiKm.y,
+                             blob.RadiiKm.z, blob.DetailType, blob.DensityScale, blob.RotationDeg.x,
+                             blob.RotationDeg.y, blob.RotationDeg.z, blob.Primitive, blob.Weight );
+        };
+        return key( a ) < key( b );
+    }
+
     void SortCloudModellingBlobs( std::vector<CloudModellingBlob>& blobs )
     {
-        std::sort( blobs.begin(), blobs.end(),
-                   []( const CloudModellingBlob& a, const CloudModellingBlob& b )
-                   {
-                       const auto key = []( const CloudModellingBlob& blob )
-                       {
-                           return std::tie( blob.CentreKm.x, blob.CentreKm.y, blob.CentreKm.z, blob.RadiiKm.x,
-                                            blob.RadiiKm.y, blob.RadiiKm.z, blob.DetailType, blob.DensityScale,
-                                            blob.RotationDeg.x, blob.RotationDeg.y, blob.RotationDeg.z,
-                                            blob.Primitive, blob.Weight );
-                       };
-                       return key( a ) < key( b );
-                   } );
+        std::sort( blobs.begin(), blobs.end(), CloudModellingBlobLess );
     }
 
     const char* CloudModellingChannelName( CloudModellingChannel channel )

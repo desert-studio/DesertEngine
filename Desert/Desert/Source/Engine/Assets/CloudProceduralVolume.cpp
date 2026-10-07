@@ -32,55 +32,6 @@ namespace Desert::Assets
         /// Desert/Tests/Engine/CloudProceduralField failing exactly where it was written to.
         constexpr float kJoinCutoffRadii = 14.0f;
 
-        /// HOW MUCH WIDER A CLUSTER IS MADE, per unit of coverage, to pay for the packing the free
-        /// placement costs.
-        ///
-        /// WHAT IT PAYS FOR, AND IT IS NOT A FUDGE. A jittered lattice packs EFFICIENTLY: one cluster per
-        /// cell, kept near its own site, so neighbours barely overlap and almost every square kilometre of
-        /// cluster is a square kilometre of sky. Letting a cluster wander a whole cell is the cure for the
-        /// grid — Tools/LatticePeak measures the lattice bump falling from 0.066 to 0.011 on that change
-        /// alone — and independently placed bodies overlap, so the same amount of cloud covers less sky.
-        /// Measured: at the shipped scene's coverage the sky went from 0.781 to 0.733 on the scatter
-        /// alone, and to 0.640 with the size spread and the patches as well.
-        ///
-        /// THE SHAPE IS A LINE THROUGH ONE AT ZERO, because at zero coverage there is nothing to overlap
-        /// and nothing to compensate, and the loss grows with how much cloud is in the sky.
-        ///
-        /// THE SLOPE IS MEASURED AT THE SHIPPED PLACEMENT AND NOWHERE ELSE, and saying so is the honest
-        /// part: it is fitted on the top-down projection of the baked volume at five settings of the
-        /// slider, with the density, the scatter and the size spread at the values this component ships.
-        /// At 0.08 the sky the slider asks for and the sky it delivers are
-        ///
-        ///     Coverage  0.15   0.24   0.35   0.50   0.75
-        ///     measured  0.169  0.249  0.357  0.519  0.741
-        ///
-        /// — out by at most 0.019, against the tenth Desert/Tests/Engine/CloudProceduralField allows and
-        /// against the 0.11 the free placement was out by before this line existed.
-        ///
-        /// IT DOES NOT DEPEND ON THE SIZE SPREAD, which is by construction: the size draw is a power law
-        /// whose mean AREA is one (CloudClusterSizeDraw). It depends only weakly on the density, which is what
-        /// kDensityCompensation is for. It DOES depend on the SCATTER, which is precisely what it is
-        /// compensating — an artist who returns the scatter to zero gets a sky a few points fuller than
-        /// the slider says, which is inside the suite's tenth and is stated on the knob's own tooltip.
-        ///
-        /// AND IT DOES NOT DEPEND ON THE CELL, WHICH WAS MEASURED RATHER THAN ASSUMED — §CB, and it is
-        /// recorded here because two phases in a row named the opposite as the cause of the cumulonimbus'
-        /// slider and neither tested it. Both this line and the alive exponent below are fitted at the
-        /// 3 km cell and neither carries a cell term, which LOOKS like the defect. It is not: the cover a
-        /// placement delivers is SCALE-FREE in the cell, because the clusters per unit area fall as the
-        /// cell's area exactly as fast as one cluster's footprint rises with it, so the cell cancels out of
-        /// the expected cover. Measured at `Coverage 0.5` on ONE genus with the cell the only thing that
-        /// changes — the shipped congestus at five settings of its Placement Scale, 8 realisations:
-        ///
-        ///     cell     1.500  2.400  3.000  6.000  12.000 km
-        ///     sky      0.502  0.505  0.512  0.532  0.503
-        ///
-        /// — eight times of cell for a spread of 0.030, and NOT MONOTONE: the widest cell in the library
-        /// is the second most accurate row. What is left is the estimator's own wobble on a region that
-        /// holds only four coarse cells across, not a law. Against it, the cumulonimbus was out by 0.356.
-        /// What its 6 km cell was carrying is its ANVIL, and that is priced by CloudClusterFootprintGain.
-        constexpr float kPackingCompensation = 0.08f;
-
         /// How fast a cluster narrows as a cell is given more of them, as the exponent of the count.
         ///
         /// A HALF IS THE ANSWER TO THE WRONG QUESTION, and the suite is what said so. A half preserves the
@@ -199,8 +150,8 @@ namespace Desert::Assets
         /// golden angle apart on a disc of `0.48 * (1 - 0.55 t)` cluster radii, each `(0.62 - 0.16 t)` wide
         /// and scaled by a wobble on [0.85, 1.15], each displaced by up to 0.18 radii — with the union taken
         /// in projection. NOTHING IN THEM IS FITTED TO A SKY: no coverage, no cell, no genus and no seed
-        /// enters the calculation, which is exactly the property `kPackingCompensation` beside them does not
-        /// have and is honest about not having.
+        /// enters the calculation. The packing gain that once stood beside them is gone: the slider is now held by
+        /// the rank's column CDF (BakeCloudProceduralVolumeRanked), not by a fitted widening.
         ///
         /// THE LAW BETWEEN THE ENDS IS LINEAR TO 0.2 PER CENT — the quadrature gives 0.9363 at a taper of
         /// 0.4 against the 0.9377 the line predicts, and 0.9254 at 0.6 against 0.9268 — so a table would be
@@ -276,77 +227,6 @@ namespace Desert::Assets
             return HashUnit( word ) - 0.5f;
         }
 
-        /// THE WEATHER: a stationary GAUSSIAN field over the world's XZ plane, zero mean and unit variance,
-        /// whose features are the size of a weather system (CLOUD-VARIETY).
-        ///
-        /// WHY IT REPLACED TWO OCTAVES OF VALUE NOISE. The value noise this was is bounded and concentrated:
-        /// two smoothstepped octaves of uniform corners put nearly all of the sky between 0.3 and 0.7, so
-        /// `base * (1 + s * (2p - 1))` moved a 0.55 slider between about 0.35 and 0.75 even at full strength
-        /// — and a sky whose local cover never drops under two thirds of its mean has no clear gaps. The
-        /// owner's frame (10-07, Clouds_Showcase from 0,200,0) is that sky: every patch equally busy, one
-        /// pattern to the horizon. CLOUD-HORIZON's sweep of every placement knob at its extreme could not
-        /// open a gap, because no setting of a bounded, concentrated field reaches empty.
-        ///
-        /// SPECTRAL SYNTHESIS ON THE REGION'S OWN TORUS. A sum of cosines whose wave vectors are INTEGER
-        /// multiples of the region's fundamental, each with a hashed phase. Three properties follow by
-        /// construction rather than by tuning:
-        ///   * PERIODIC WITH THE REGION, so a cell that leaves through one face and the cell that enters
-        ///     through the opposite one read the same weather. The bake is periodic (kWrapRange) and the
-        ///     sky repeats it; a weather field that was not would put a straight line between a clear patch
-        ///     and a busy one at every face of the region. Value noise on world axes had that seam too — it
-        ///     was merely too weak to see.
-        ///   * ISOTROPIC: the wave vectors point every way the integer lattice allows, so there is no grid
-        ///     of the noise's own to trade for the placement's.
-        ///   * UNIT VARIANCE EXACTLY, because the normalisation is the sum of the squared amplitudes over
-        ///     two, and with the thirty-odd waves the shipped tile gives the marginal is Gaussian by the
-        ///     central limit — which is what the copula below needs to preserve the slider.
-        ///
-        /// THE SPECTRUM SPANS TWO OCTAVES AROUND THE TILE, with amplitude falling as one over the
-        /// wavenumber: from twice the tile (wide clear gaps, broad busy regions) to half of it (clumps inside
-        /// the busy regions). Observed cumulus fields cluster at every scale from a few to fifty kilometres
-        /// (Nubis³, Docs/Clouds; the scale-free clustering in Benner & Curry 1998); one wavelength alone is a
-        /// regular polka-dot of patches, which is the very thing being removed.
-        float WeatherGaussian( uint32_t seed, const glm::vec2& worldKm, float tileKm, float regionKm )
-        {
-            const double region = std::max( static_cast<double>( regionKm ), 1e-3 );
-            const double centre = region / std::max( static_cast<double>( tileKm ), 1e-3 );
-
-            // AT LEAST THE FUNDAMENTAL: a tile wider than the region cannot be expressed on its torus, and
-            // the honest answer is the widest weather the region holds rather than none.
-            const double lowest  = std::max( 1.0, 0.5 * centre );
-            const double highest = std::max( lowest, 2.0 * centre );
-            const int    reach   = static_cast<int>( std::ceil( highest ) );
-
-            // The position as a fraction of the period, in double and reduced first: a world thousands of
-            // kilometres from its origin would otherwise spend a float's whole mantissa on the turns.
-            const double fx = std::fmod( static_cast<double>( worldKm.x ), region ) / region;
-            const double fz = std::fmod( static_cast<double>( worldKm.y ), region ) / region;
-
-            constexpr double kTau = 6.283185307179586;
-
-            double sum   = 0.0;
-            double power = 0.0;
-            for ( int kx = 0; kx <= reach; ++kx )
-                for ( int kz = -reach; kz <= reach; ++kz )
-                {
-                    // ONE OF EACH PAIR: k and -k are the same real wave.
-                    if ( kx == 0 && kz <= 0 )
-                        continue;
-
-                    const double wavenumber = std::sqrt( static_cast<double>( kx * kx + kz * kz ) );
-                    if ( wavenumber < lowest || wavenumber > highest )
-                        continue;
-
-                    const double amplitude = 1.0 / wavenumber;
-                    const double phase =
-                         kTau * HashUnit( HashCombine( HashCombine( seed, IndexWord( kx ) ), IndexWord( kz ) ) );
-
-                    sum += amplitude * std::cos( kTau * ( kx * fx + kz * fz ) + phase );
-                    power += 0.5 * amplitude * amplitude;
-                }
-
-            return power > 0.0 ? static_cast<float>( sum / std::sqrt( power ) ) : 0.0f;
-        }
 
         /// The standard normal's cumulative distribution.
         double NormalCdf( double x )
@@ -477,13 +357,13 @@ namespace Desert::Assets
             return HashCombine( params.Seed, slot + 0x51ed270bu );
         }
 
-        uint32_t CloudPatchSeed( uint32_t speciesSeed )
-        {
-            return HashCombine( speciesSeed, 0x9a71c4u );
-        }
+        /// How many waves the far weather sums. Ninety-six random-phase cosines are Gaussian to the eye by
+        /// the central limit and cost a CPU sample under a microsecond, which is what lets the suites keep
+        /// the march at every column of a region.
+        constexpr uint32_t kCloudFarWeatherWaves = 96u;
 
-        float CloudCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t patchSeed,
-                                 const glm::vec2& centreKm )
+        float CloudCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot, const glm::vec2& centreKm,
+                                 bool withWeather )
         {
             const float base = std::clamp( params.Coverage, 0.0f, 1.0f );
 
@@ -519,10 +399,10 @@ namespace Desert::Assets
                 // past its own documented range, and the caller that used to hold it is no longer the only
                 // one there is.
                 const float patchStrength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
-                if ( patchStrength > 1e-4f )
+                if ( withWeather && patchStrength > 1e-4f )
                 {
                     const float weather =
-                         WeatherGaussian( patchSeed, centreKm, params.PatchTileKm, params.RegionSizeKm );
+                         CloudFarWeather( CloudFarWeatherSeed( params ), centreKm, params.PatchTileKm );
                     modulated = WeatherLocalCover( base, patchStrength, weather );
                 }
             }
@@ -915,29 +795,35 @@ namespace Desert::Assets
 
         if ( auto hit = Common::DDC::Get( kCloudModellingDeriver, result.Key ); hit.has_value() )
         {
-            const uint64_t expected = CloudProceduralVoxelBytes( params.VolumeSideVoxels );
+            const uint64_t voxelBytes = CloudProceduralVoxelBytes( params.VolumeSideVoxels );
+            const uint64_t expected   = voxelBytes + CloudProceduralRankBytes( params.VolumeSideVoxels );
             if ( hit->size() != expected )
                 return Common::MakeFormattedError<CloudProceduralCachedBake>(
                      "the cached modelling volume '{}' holds {} bytes where a {}-voxel grid is {} — the entry is "
                      "damaged; delete it to re-bake",
                      Common::DDC::PathFor( kCloudModellingDeriver, result.Key ).string(), hit->size(),
                      params.VolumeSideVoxels, expected );
-            result.Voxels.assign( hit->begin(), hit->end() );
+            // ONE ENTRY, PROFILE THEN RANK: the two are one bake and must never be served from two keys.
+            result.Voxels.assign( hit->begin(), hit->begin() + static_cast<std::ptrdiff_t>( voxelBytes ) );
+            result.Ranks.assign( hit->begin() + static_cast<std::ptrdiff_t>( voxelBytes ), hit->end() );
             result.FromCache = true;
             return Common::MakeSuccess( std::move( result ) );
         }
 
-        auto baked = BakeCloudProceduralVolume( params, regionOriginKm, onProgress );
+        auto baked = BakeCloudProceduralVolumeRanked( params, regionOriginKm, onProgress );
         if ( !baked.IsSuccess() )
             return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
         // A copy: Result hands out a const reference only (ResultWithCodes.hpp), so a move would be one in name.
-        result.Voxels = baked.GetValue();
+        result.Voxels = baked.GetValue().Voxels;
+        result.Ranks  = baked.GetValue().Ranks;
+
+        std::vector<unsigned char> entry( result.Voxels );
+        entry.insert( entry.end(), result.Ranks.begin(), result.Ranks.end() );
 
         // The DDC stores bytes as chars; viewing uint8_t voxels through char is the one aliasing the language
         // permits, and a copy into a std::string would double an 8 MiB payload for nothing.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        const std::string_view bytes( reinterpret_cast<const char*>( result.Voxels.data() ),
-                                      result.Voxels.size() );
+        const std::string_view bytes( reinterpret_cast<const char*>( entry.data() ), entry.size() );
         if ( auto put = Common::DDC::Put( kCloudModellingDeriver, result.Key, bytes ); !put.IsSuccess() )
             result.CacheWriteError = put.GetError();
         return Common::MakeSuccess( std::move( result ) );
@@ -1188,10 +1074,11 @@ namespace Desert::Assets
         return glm::vec2( x, z );
     }
 
-    std::vector<CloudModellingBlob> GenerateCloudProceduralBlobs( const CloudProceduralFieldParams& params,
-                                                                  uint32_t slot, const glm::vec2& regionOriginKm )
+    std::vector<CloudProceduralLump> GenerateCloudProceduralLumps( const CloudProceduralFieldParams& params,
+                                                                   uint32_t slot, const glm::vec2& regionOriginKm,
+                                                                   CloudProceduralLumpSet set )
     {
-        std::vector<CloudModellingBlob> blobs;
+        std::vector<CloudProceduralLump> blobs;
 
         if ( slot >= params.Species.size() )
             return blobs;
@@ -1299,26 +1186,6 @@ namespace Desert::Assets
 
         const uint32_t speciesSeed = CloudSpeciesSeed( params, slot );
 
-        // ---------------------------------------------------------------------------------------------
-        // WHAT FRACTION OF THE CELLS IS ALIVE, WHICH IS NOT THE SLIDER
-        // ---------------------------------------------------------------------------------------------
-        //
-        // The slider means what a person looking up would measure: the fraction of the SKY with cloud
-        // somewhere in the column. A cell being alive is not that — a cluster does not fill its cell, two
-        // neighbouring clusters overlap, and how full a cluster is depends on how deep inside the
-        // threshold its own hash fell. Taken as the alive fraction directly, the slider under-delivered
-        // by a factor that grew with the setting: 0.24 gave 0.105 of the sky and 0.75 gave 0.450 — and
-        // the frame that came out of it had clouds on the horizon and an EMPTY ZENITH, which is the
-        // defect Docs/Clouds/REVIEW_622a01a6.md names and the one the owner found by looking up.
-        //
-        // 0.68 IS MEASURED, on the top-down projection of the baked volume at five settings, and
-        // Desert/Tests/Engine/CloudProceduralField re-measures it on every run and fails if the slider
-        // and the sky part company by more than a tenth. Being a power it keeps both ends EXACT, which is
-        // the property the ends were built to have: 0 stays empty and 1 stays full.
-        //
-        // IT IS EVALUATED INSIDE THE CELL LOOP AND NOT HERE, because the patch modulation moves the
-        // threshold from place to place: the whole point of that modulation is that the sky is not equally
-        // busy everywhere, so there is no single alive fraction for a region any more.
 
         // THE DENSITY DOES NOT ADD MATTER, IT REDISTRIBUTES IT. A cell that carries `d` clusters narrows
         // each of them by `d` to the power of kDensityCompensation, so the ground they cover between them
@@ -1330,8 +1197,6 @@ namespace Desert::Assets
 
         const float scatter = std::max( params.PlacementScatter, 0.0f );
         const float variety = std::clamp( params.PlacementSizeVariety, 0.0f, 1.0f );
-
-        const uint32_t patchSeed = CloudPatchSeed( speciesSeed );
 
         for ( int32_t iv = firstV; iv <= lastV; ++iv )
         {
@@ -1362,48 +1227,26 @@ namespace Desert::Assets
                 const uint32_t cellSeed =
                      HashCombine( HashCombine( speciesSeed, IndexWord( iu ) ), IndexWord( iv ) );
 
-                // WHERE THE WEATHER IS BUSY AND WHERE IT IS CLEAR. Sampled at the CELL's own site rather
-                // than per voxel, so it modulates whole clouds into and out of existence instead of eroding
-                // their edges — which is what a weather system does and what erosion does not.
-                //
-                // WHICH SOURCE DECIDES IT — the artist's painting or the procedural patch — is settled
-                // inside CloudCellCoverage, and it is settled in one place because two mechanisms setting
-                // one number is the second path the contract forbids. The choice is NOT made here and must
-                // not be: the moment this loop could apply both, the sky would answer to two sliders that
-                // do not know about each other.
-                const float cellCoverage = CloudCellCoverage( params, slot, patchSeed, centre );
-
-                const float aliveFraction = std::pow( cellCoverage, 0.68f );
-
-                // AND THE CLUSTER IS WIDENED TO PAY FOR THE PACKING THE FREE PLACEMENT COSTS. See
-                // kPackingCompensation: the 0.68 above was calibrated against a placement that kept every
-                // cluster near its own lattice site, which packs efficiently, and the whole cure for the
-                // grid is to stop doing that. Without this line the slider would be out by fourteen points
-                // at the shipped scene's setting and the suite's tenth would fail at 0.75.
-                const float radiusGain = 1.0f + kPackingCompensation * cellCoverage;
-
-                // COVERAGE ADDRESSES A FRACTION OF SKY DIRECTLY. A cell is alive when its own hash falls
-                // below the slider, so 0 is exactly empty and 1 is exactly full — for any seed, any cell
-                // size and any species, with no distribution to calibrate. That is the property the
-                // quantile map this replaces was built to fake on a field whose spread it had to measure.
-                const float draw = HashUnit( cellSeed );
-                if ( draw >= aliveFraction )
+                // EVERY CELL IS BAKED, AND THE SLIDER IS APPLIED AT THE MARCH (FARWX-a). The cell keeps its
+                // hash as a RANK, and the march keeps the cloud whose rank falls under the local cover —
+                // CloudProceduralKeep against CloudProceduralLocalCover, the weather read in WORLD space.
+                // Nothing here is calibrated: the bake's column CDF turns the rank into a fraction of sky,
+                // so the slider means the sky exactly and the density, the size spread and the scatter
+                // cannot move it. A painted pattern or mask still enters HERE, by scaling the rank, because
+                // a painting is a property of the region and not of the world.
+                const float cellRank = CloudProceduralCellRank( params, slot, cellSeed, centre );
+                if ( !( cellRank < 1.0f ) )
+                    continue;
+                if ( set == CloudProceduralLumpSet::KeptCells &&
+                     !( cellRank < CloudProceduralLocalCover( params, centre ) ) )
                     continue;
 
-                // AND CONTRAST IS THE WIDTH OF THE RAMP INTO IT. A cell that only just qualified grows a
-                // small cluster; one well inside the threshold grows a full one. Above 1 the sky is
-                // decisively cloud or decisively clear; below 1 the sizes spread out, which is what a
-                // broken deck looks like.
-                const float softness = ( 1.0f - std::clamp( params.Coverage, 0.0f, 1.0f ) ) /
-                                            std::max( params.CoverageContrast, 1e-2f ) +
-                                       0.02f;
-                const float fill =
-                     std::clamp( ( aliveFraction - draw ) / std::max( softness, 1e-4f ), 0.0f, 1.0f );
-
-                // EDGE TOP FRACTION IS WHAT A SHALLOW CLUSTER LOSES. The type says how tall it is where the
-                // patch has only just begun, and `fill` is how far inside the patch this cell is — so a
-                // rim cell is low and flat and a core cell is a tower. That is decision D-13's whole
-                // intent, carried by the placement instead of by a second axis of a table.
+                // EDGE TOP FRACTION IS WHAT A SMALL CLUSTER LOSES. The type says how tall the smallest
+                // cluster of the size law is, and the cluster's own size draw says how far from it this one
+                // is — so a small cloud is low and flat and a large one is a tower (decision D-13). The
+                // shrink near the slider's threshold is no longer a radius: it is the rank rising toward the
+                // edge of the body (BakeCloudProceduralVolumeRanked), so the march erodes a marginal cloud
+                // to its core instead of switching it off whole.
 
                 // EVERY CLUSTER GETS THE WHOLE STACK, and `fullness` shrinks the BAND it is spread over
                 // rather than the number of lobes in it. Cutting the count instead was measured and was
@@ -1440,12 +1283,12 @@ namespace Desert::Assets
 
                     // THE CLUSTER'S OVERALL HORIZONTAL HALF-EXTENT — the size of the CLOUD, not of a lobe.
                     const float clusterRadiusKm =
-                         baseRadiusKm * ( 0.60f + 0.40f * fill ) * size * densityScale * radiusGain;
+                         baseRadiusKm * size * densityScale;
 
                     // A SMALL CLOUD IS ALSO A FLAT ONE, which is what a cumulus field looks like and what
                     // keeps a quarter-width cluster from being a full-height tower on a narrow base. The
                     // type's own Edge Top Fraction is still the floor, so a stratus stays a sheet.
-                    const float shortening = std::clamp( fill * size, 0.0f, 1.0f );
+                    const float shortening = std::clamp( size, 0.0f, 1.0f );
                     const float fullness   = std::clamp( shape.EdgeTopFraction, 0.0f, 1.0f ) +
                                            ( 1.0f - std::clamp( shape.EdgeTopFraction, 0.0f, 1.0f ) ) * shortening;
 
@@ -1634,7 +1477,7 @@ namespace Desert::Assets
                         blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
                         blob.DensityScale = 1.0f;
 
-                        blobs.push_back( blob );
+                        blobs.push_back( CloudProceduralLump{ blob, cellRank } );
                     }
 
                     // THE ANVIL, and it is the shape no vertical curve could express: a lobe of cloud at the
@@ -1657,8 +1500,8 @@ namespace Desert::Assets
 
                         // Wider than the tower and much flatter, which is what spreading against a stable layer
                         // looks like. The strength decides how far it spreads and how much matter is in it.
-                        const float spread = baseRadiusKm * ( 0.60f + 0.40f * fill ) * size * densityScale *
-                                             radiusGain * ( 1.0f + kAnvilSpreadPerStrength * shape.AnvilStrength );
+                        const float spread = baseRadiusKm * size * densityScale *
+                                             ( 1.0f + kAnvilSpreadPerStrength * shape.AnvilStrength );
 
                         // THE CANOPY IS A LUMP AND IS FLOORED LIKE ONE, from the two floors the tower
                         // already uses rather than from a second copy of `0.5 * ResolvableChordKm` — which
@@ -1683,7 +1526,7 @@ namespace Desert::Assets
                         // per-voxel field over the crease between the anvil and the body.
                         anvil.DensityScale = std::clamp( shape.AnvilStrength, 0.0f, 1.0f );
 
-                        blobs.push_back( anvil );
+                        blobs.push_back( CloudProceduralLump{ anvil, cellRank } );
                     }
                 }
             }
@@ -1694,8 +1537,18 @@ namespace Desert::Assets
         // its lumps were emitted in sorts first. Here the emission order is a loop over a lattice, which is
         // stable — but it changes when the wind turns the frame, and a field that shifts by a 255th when
         // the wind direction is nudged is exactly the class of drift the sort removes.
-        SortCloudModellingBlobs( blobs );
+        std::sort( blobs.begin(), blobs.end(), []( const CloudProceduralLump& a, const CloudProceduralLump& b )
+                   { return CloudModellingBlobLess( a.Blob, b.Blob ); } );
+        return blobs;
+    }
 
+    std::vector<CloudModellingBlob> GenerateCloudProceduralBlobs( const CloudProceduralFieldParams& params,
+                                                                  uint32_t slot, const glm::vec2& regionOriginKm )
+    {
+        std::vector<CloudModellingBlob> blobs;
+        for ( const CloudProceduralLump& lump :
+              GenerateCloudProceduralLumps( params, slot, regionOriginKm, CloudProceduralLumpSet::KeptCells ) )
+            blobs.push_back( lump.Blob );
         return blobs;
     }
 
@@ -1733,6 +1586,47 @@ namespace Desert::Assets
         return total;
     }
 
+    namespace
+    {
+        /// The column CDF of the rank field, as bytes. Every column's rank is the MINIMUM over its voxels
+        /// (the first cloud a sight line straight up meets is the one with the lowest rank), and the byte a
+        /// voxel stores is the fraction of the region's columns whose minimum lies strictly below the
+        /// voxel's own rank. The map is monotone, so the column minimum of the bytes is the byte of the
+        /// column minimum, and the fraction of columns that CloudProceduralKeep keeps at a cover c is c to
+        /// within one 255th — for any density, size spread, scatter, species mix or seed. That is what the
+        /// pow(cover, 0.68) and the packing gain used to fake, and why neither exists any more.
+        std::vector<unsigned char> CloudProceduralRankColumnCdf( const std::vector<float>& rankField, uint32_t width,
+                                                                 uint32_t height, uint32_t depth )
+        {
+            const size_t        columns = static_cast<size_t>( width ) * depth;
+            std::vector<float> minima;
+            minima.reserve( columns );
+            for ( uint32_t z = 0; z < depth; ++z )
+                for ( uint32_t x = 0; x < width; ++x )
+                {
+                    float lowest = std::numeric_limits<float>::infinity();
+                    for ( uint32_t y = 0; y < height; ++y )
+                        lowest = std::min( lowest, rankField[( static_cast<size_t>( z ) * height + y ) * width + x] );
+                    if ( std::isfinite( lowest ) )
+                        minima.push_back( lowest );
+                }
+            std::sort( minima.begin(), minima.end() );
+
+            std::vector<unsigned char> ranks( rankField.size(), kCloudProceduralNoRank );
+            for ( size_t at = 0; at < rankField.size(); ++at )
+            {
+                if ( !std::isfinite( rankField[at] ) )
+                    continue;
+                const size_t below = static_cast<size_t>(
+                     std::lower_bound( minima.begin(), minima.end(), rankField[at] ) - minima.begin() );
+                const double fraction = static_cast<double>( below ) / static_cast<double>( columns );
+                ranks[at]             = static_cast<unsigned char>(
+                     std::min( 254.0, std::floor( fraction * 255.0 ) ) );
+            }
+            return ranks;
+        }
+    } // namespace
+
     Common::ResultStr<std::vector<unsigned char>>
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
     {
@@ -1743,8 +1637,18 @@ namespace Desert::Assets
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
                                const CloudProceduralBakeProgressFn& onProgress )
     {
+        auto baked = BakeCloudProceduralVolumeRanked( params, regionOriginKm, onProgress );
+        if ( !baked.IsSuccess() )
+            return Common::MakeError<std::vector<unsigned char>>( baked.GetError() );
+        return Common::MakeSuccess( std::move( baked.GetValue().Voxels ) );
+    }
+
+    Common::ResultStr<CloudProceduralVolumeBake>
+    BakeCloudProceduralVolumeRanked( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
+                                     const CloudProceduralBakeProgressFn& onProgress )
+    {
         if ( auto valid = ValidateCloudProceduralParams( params ); !valid )
-            return Common::MakeFormattedError<std::vector<unsigned char>>( "parameters are not usable: {}",
+            return Common::MakeFormattedError<CloudProceduralVolumeBake>( "parameters are not usable: {}",
                                                                            valid.GetError() );
 
         const uint32_t width  = params.VolumeSideVoxels;
@@ -1753,6 +1657,14 @@ namespace Desert::Assets
 
         std::vector<unsigned char> voxels(
              static_cast<size_t>( CloudProceduralVoxelBytes( params.VolumeSideVoxels ) ), 0u );
+
+        // THE RANK OF THE CLOUD EACH VOXEL BELONGS TO, before its column CDF: the cell rank of the nearest
+        // lump of the WINNING species (the same max over species the march takes, CloudField.glslh), plus
+        // a rise toward the body's edge so that a cloud near the slider's threshold erodes to its core.
+        // Infinity is "no cloud here".
+        const float           rankSoftness = kCloudRankSoftness / std::max( params.CoverageContrast, 1e-2f );
+        std::vector<float>    rankField( static_cast<size_t>( width ) * height * depth,
+                                         std::numeric_limits<float>::infinity() );
 
         // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
         // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
@@ -1794,8 +1706,8 @@ namespace Desert::Assets
 
         for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
         {
-            const std::vector<CloudModellingBlob> blobs =
-                 GenerateCloudProceduralBlobs( params, slot, regionOriginKm );
+            const std::vector<CloudProceduralLump> blobs =
+                 GenerateCloudProceduralLumps( params, slot, regionOriginKm, CloudProceduralLumpSet::EveryCell );
 
             if ( blobs.empty() )
             {
@@ -1811,13 +1723,15 @@ namespace Desert::Assets
                 CloudModellingPreparedBlob Blob;
                 glm::vec3                  MinKm;
                 glm::vec3                  MaxKm;
+                float                      Rank = 0.0f;
             };
 
             std::vector<Placed> placed;
             placed.reserve( blobs.size() * 2u );
 
-            for ( const CloudModellingBlob& blob : blobs )
+            for ( const CloudProceduralLump& lump : blobs )
             {
+                const CloudModellingBlob& blob = lump.Blob;
                 const glm::vec3 extent = CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm );
 
                 for ( int wz = -kWrapRange; wz <= kWrapRange; ++wz )
@@ -1841,7 +1755,7 @@ namespace Desert::Assets
                              minKm.y >= params.LayerBottomKm + params.LayerThicknessKm )
                             continue;
 
-                        placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm } );
+                        placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, lump.Rank } );
                     }
                 }
             }
@@ -1970,8 +1884,9 @@ namespace Desert::Assets
                                  // below the quantisation floor.
                                  distances.clear();
 
-                                 float nearest = 0.0f;
-                                 bool  any     = false;
+                                 float nearest     = 0.0f;
+                                 float nearestRank = 1.0f;
+                                 bool  any         = false;
 
                                  for ( uint32_t index : column )
                                  {
@@ -1986,8 +1901,12 @@ namespace Desert::Assets
                                      const float distance = CloudModellingBlobDistanceKm( item.Blob, point );
                                      distances.push_back( distance );
 
-                                     nearest = any ? std::min( nearest, distance ) : distance;
-                                     any     = true;
+                                     if ( !any || distance < nearest )
+                                     {
+                                         nearest     = distance;
+                                         nearestRank = item.Rank;
+                                     }
+                                     any = true;
                                  }
 
                                  if ( !any )
@@ -2015,7 +1934,17 @@ namespace Desert::Assets
                                  const size_t at = ( ( static_cast<size_t>( z ) * height + y ) * width + x ) *
                                                    kCloudProceduralBytesPerVoxel;
 
-                                 voxels[at + slot] = Common::Math::QuantiseUnitToByte( profile );
+                                 const unsigned char byte = Common::Math::QuantiseUnitToByte( profile );
+                                 voxels[at + slot]        = byte;
+
+                                 // THE WINNER SO FAR is the largest profile of the slots already written
+                                 // (they run in order, and each voxel is one thread's within a slot).
+                                 unsigned char best = 0u;
+                                 for ( uint32_t earlier = 0; earlier < slot; ++earlier )
+                                     best = std::max( best, voxels[at + earlier] );
+                                 if ( byte > best )
+                                     rankField[at / kCloudProceduralBytesPerVoxel] =
+                                          nearestRank + rankSoftness * ( 1.0f - profile );
                              }
                          }
                      }
@@ -2025,20 +1954,109 @@ namespace Desert::Assets
             // has finished, so this is the first moment at which "somebody said stop" is a settled fact
             // rather than a value another participant is still deciding.
             if ( cancelled )
-                return Common::MakeError<std::vector<unsigned char>>(
+                return Common::MakeError<CloudProceduralVolumeBake>(
                      "the procedural modelling bake was cancelled before it finished" );
         }
 
         if ( onProgress )
             onProgress( 1.0f );
 
-        return Common::MakeSuccess( std::move( voxels ) );
+        CloudProceduralVolumeBake out;
+        out.Voxels = std::move( voxels );
+        out.Ranks  = CloudProceduralRankColumnCdf( rankField, width, height, depth );
+        return Common::MakeSuccess( std::move( out ) );
     }
 
     float CloudProceduralCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot,
                                        const glm::vec2& centreKm )
     {
-        return CloudCellCoverage( params, slot, CloudPatchSeed( CloudSpeciesSeed( params, slot ) ), centreKm );
+        return CloudCellCoverage( params, slot, centreKm, true );
+    }
+
+    uint32_t CloudFarWeatherSeed( const CloudProceduralFieldParams& params )
+    {
+        return HashCombine( params.Seed, 0x9a71c4u );
+    }
+
+    float CloudFarWeather( uint32_t seed, const glm::vec2& worldKm, float tileKm )
+    {
+        constexpr double kTau = 6.283185307179586;
+        constexpr double kPi  = 3.141592653589793;
+
+        const double period = static_cast<double>( kCloudFarWeatherPeriodKm );
+        const double centre = period / std::max( static_cast<double>( tileKm ), 1e-3 );
+
+        const double lowest  = std::max( 1.0, 0.5 * centre );
+        const double highest = std::max( lowest, 2.0 * centre );
+
+        // fmod first, so a camera thousands of kilometres out keeps the phase's precision.
+        const double fx = std::fmod( static_cast<double>( worldKm.x ), period ) / period;
+        const double fz = std::fmod( static_cast<double>( worldKm.y ), period ) / period;
+
+        double sum   = 0.0;
+        double power = 0.0;
+        for ( uint32_t wave = 0; wave < kCloudFarWeatherWaves; ++wave )
+        {
+            const uint32_t waveSeed = HashCombine( seed, 0xfa0000u + wave );
+
+            const double wavenumber = lowest * std::pow( highest / lowest, HashUnit( HashCombine( waveSeed, 1u ) ) );
+            const double heading    = kPi * HashUnit( HashCombine( waveSeed, 2u ) );
+
+            // WHOLE WAVE NUMBERS ON THE FAR TORUS, so the field is exactly periodic with the far period
+            // (the GPU map of FARWX-b tiles it seamlessly) and with nothing shorter.
+            const double kx = std::round( wavenumber * std::cos( heading ) );
+            const double kz = std::round( wavenumber * std::sin( heading ) );
+            if ( kx == 0.0 && kz == 0.0 )
+                continue;
+
+            const double phase = kTau * HashUnit( HashCombine( waveSeed, 3u ) );
+            sum += std::cos( kTau * ( kx * fx + kz * fz ) + phase );
+            power += 0.5;
+        }
+
+        return power > 0.0 ? static_cast<float>( sum / std::sqrt( power ) ) : 0.0f;
+    }
+
+    float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )
+    {
+        const float base = std::clamp( params.Coverage, 0.0f, 1.0f );
+
+        // A PAINTED PATTERN IS THE WEATHER when one is bound — it enters the bake through the rank
+        // (CloudProceduralCellRank) — and two mechanisms deciding one number is the second path the
+        // contract forbids, so the world weather stands down exactly as it did in CloudCellCoverage.
+        const CloudLayoutData* patternSource = params.PatternSource.get();
+        if ( patternSource != nullptr && patternSource->HasPattern() && params.LayoutPlacement.PatternStrength > 1e-4f )
+            return base;
+
+        const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
+        if ( strength <= 1e-4f )
+            return base;
+
+        return WeatherLocalCover( base, strength,
+                                  CloudFarWeather( CloudFarWeatherSeed( params ), worldKm, params.PatchTileKm ) );
+    }
+
+    float CloudProceduralCellRank( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t cellSeed,
+                                   const glm::vec2& centreKm )
+    {
+        const float draw = HashUnit( cellSeed );
+
+        const CloudLayoutData* patternSource = params.PatternSource.get();
+        const CloudLayoutData* maskSource    = params.MaskSource.get();
+        const bool painted = ( patternSource != nullptr && patternSource->HasPattern() &&
+                               params.LayoutPlacement.PatternStrength > 1e-4f ) ||
+                             ( maskSource != nullptr && maskSource->HasMask() &&
+                               params.LayoutPlacement.MaskStrength > 1e-4f );
+        if ( !painted )
+            return draw;
+
+        // THE PAINTING SCALES THE RANK so that `rank < Coverage` holds exactly where the cell's painted
+        // cover admitted it: draw < painted  <=>  draw * Coverage / painted < Coverage.
+        const float base      = std::clamp( params.Coverage, 0.0f, 1.0f );
+        const float paintedAt = CloudCellCoverage( params, slot, centreKm, false );
+        if ( !( paintedAt > 1e-6f ) )
+            return std::numeric_limits<float>::infinity();
+        return draw * std::max( base, 1e-6f ) / paintedAt;
     }
 
     Common::ResultStr<CloudLayoutPreview> BuildCloudLayoutPreview( const CloudProceduralFieldParams& params,
