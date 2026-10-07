@@ -2145,8 +2145,14 @@ namespace Desert::Assets
         const double period = static_cast<double>( kCloudFarWeatherPeriodKm );
         const double centre = period / std::max( static_cast<double>( tileKm ), 1e-3 );
 
+        // ONE OCTAVE, FROM THE TILE UP TO TWICE IT, and not two around it. A gap is half a wavelength, so
+        // the octave below the tile (15-30 km at the shipped 30) opened 7.5-15 km gaps, which a 12 km piece
+        // of sky averages away and which the cloud behind closes along a low sight line. Measured on the
+        // 12 km blocks (FARWX-a4): the weather kept 0.55 of its variance there with the lower octave and
+        // 0.74 without it, and only the latter lets the weather outweigh the cells' own clustering two to one.
+        // In wavenumbers on the far torus the shortest wavelength is the HIGHEST number, hence `centre`.
         const double lowest  = std::max( 1.0, 0.5 * centre );
-        const double highest = std::max( lowest, 2.0 * centre );
+        const double highest = std::max( lowest, centre );
 
         // fmod first, so a camera thousands of kilometres out keeps the phase's precision.
         const double fx = std::fmod( static_cast<double>( worldKm.x ), period ) / period;

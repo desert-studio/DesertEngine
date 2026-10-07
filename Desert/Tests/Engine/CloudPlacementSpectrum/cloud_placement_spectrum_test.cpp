@@ -3327,12 +3327,17 @@ TEST( CloudPlacementSpectrum, TheWeatherOpensClearGapsTensOfKilometresAcrossAndK
             "the sky (decision D-20)";
 }
 
-// THE INVARIANT AT ITS SOURCE. The weather is a sum of cosines on the region's own torus, so over the
-// placement's cell lattice its mean is exactly zero and its variance exactly one (Parseval), and the copula
-// that turns it into a local cover then averages to the slider up to the field's higher moments. Measured
-// on the function the bake itself calls, at four settings of the slider and eight weathers.
+// THE INVARIANT AT ITS SOURCE, OVER THE WORLD. The weather is a WORLD field (FARWX-a: a sum of cosines on
+// the 997 km far torus), so one 48 km region holds about one weather system and its own mean cover moves
+// with it — that is the weather doing its job, not breaking D-20. What the copula promises is the WORLD's
+// cover: the weather has mean zero and variance one over the far torus, and Phi((q - rho W) / r) averages
+// to the slider there. So each weather is measured over many regions spread across the world (the same
+// shifts the kept-sky measurements use), at four settings of the slider and eight weathers, on the function
+// the bake itself calls.
 TEST( CloudPlacementSpectrum, TheWeatherRedistributesTheCellsCoverWithoutMovingItsMean )
 {
+    constexpr int kWorldRegions = 32;
+
     for ( const float coverage : { 0.15f, 0.35f, 0.60f, 0.85f } )
     {
         double sumOfMeans = 0.0;
@@ -3350,17 +3355,21 @@ TEST( CloudPlacementSpectrum, TheWeatherRedistributesTheCellsCoverWithoutMovingI
 
             double sum = 0.0;
             double sq  = 0.0;
-            for ( int iz = 0; iz < across; ++iz )
-                for ( int ix = 0; ix < across; ++ix )
-                {
-                    const glm::vec2 centre( ( static_cast<float>( ix ) + 0.5f ) * extent.x,
-                                            ( static_cast<float>( iz ) + 0.5f ) * extent.y );
-                    const double    local = CloudProceduralCellCoverage( params, 0u, centre );
-                    sum += local;
-                    sq += local * local;
-                }
+            for ( int shift = 0; shift < kWorldRegions; ++shift )
+            {
+                const glm::vec2 region = RegionShiftKm( params, shift );
+                for ( int iz = 0; iz < across; ++iz )
+                    for ( int ix = 0; ix < across; ++ix )
+                    {
+                        const glm::vec2 centre = region + glm::vec2( ( static_cast<float>( ix ) + 0.5f ) * extent.x,
+                                                                     ( static_cast<float>( iz ) + 0.5f ) * extent.y );
+                        const double    local  = CloudProceduralCellCoverage( params, 0u, centre );
+                        sum += local;
+                        sq += local * local;
+                    }
+            }
 
-            const double cells = static_cast<double>( across * across );
+            const double cells = static_cast<double>( across * across ) * static_cast<double>( kWorldRegions );
             const double mean  = sum / cells;
             sumOfMeans += mean;
             worst  = std::max( worst, std::abs( mean - coverage ) );
@@ -3369,11 +3378,11 @@ TEST( CloudPlacementSpectrum, TheWeatherRedistributesTheCellsCoverWithoutMovingI
 
         const double mean = sumOfMeans / 8.0;
         std::printf( "[CloudPlacementSpectrum] slider %.2f: cells' cover %.4f over eight weathers, worst "
-                     "region %.4f off, widest spread %.3f\n",
+                     "weather's world %.4f off, widest spread %.3f\n",
                      coverage, mean, worst, spread );
 
         EXPECT_NEAR( mean, coverage, 0.02 ) << "the weather moved the mean cover at a slider of " << coverage;
-        EXPECT_LT( worst, 0.07 ) << "one region's weather moved its cover by " << worst << " at a slider of "
+        EXPECT_LT( worst, 0.07 ) << "one weather moved the world's cover by " << worst << " at a slider of "
                                  << coverage;
         EXPECT_GT( spread, 0.15 ) << "the weather barely varies the cells' cover at a slider of " << coverage;
     }

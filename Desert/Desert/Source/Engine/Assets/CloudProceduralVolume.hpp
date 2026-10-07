@@ -397,11 +397,12 @@ namespace Desert::Assets
         /// does not move with it.
         float PlacementSizeVariety = 0.75f;
 
-        /// The size of a WEATHER SYSTEM, kilometres: the wavelength the large-scale modulation of coverage is
-        /// centred on. Its spectrum spans two octaves around it — half the tile up to twice it, clamped to
-        /// what the region's torus can hold — so at the shipped 30 km the sky has busy regions and clear
-        /// gaps from about fifteen kilometres to the region's own width, the scale real cumulus fields
-        /// cluster at. NOT 21 km, which it was: its gaps were ten to twenty kilometres, and between 10 and
+        /// The size of a WEATHER SYSTEM, kilometres: the SHORTEST wavelength of the large-scale modulation
+        /// of coverage. Its spectrum spans the one octave from the tile up to twice it, so at the shipped
+        /// 30 km the sky has busy regions and clear gaps — half a wavelength each — from fifteen to thirty
+        /// kilometres, the scale real cumulus fields cluster at. NOT two octaves around it, which it was
+        /// until FARWX-a4: the octave below opened 7.5 km gaps that a 12 km piece of sky averages away.
+        /// NOT 21 km, which it was: its gaps were ten to twenty kilometres, and between 10 and
         /// 25 km from the eye — 4 to 8 degrees above the owner's horizon — a sight line crosses that much
         /// sky inside the layer, so every gap there was closed by the cloud behind it.
         float PatchTileKm = 30.0f;
@@ -775,8 +776,9 @@ namespace Desert::Assets
     /// max over species.
     uint32_t CloudFarWeatherSeed( const CloudProceduralFieldParams& params );
 
-    /// The world weather, a standard normal field over WORLD kilometres with its spectrum spanning two
-    /// octaves around @p tileKm, periodic with kCloudFarWeatherPeriodKm and with nothing shorter.
+    /// The world weather, a standard normal field over WORLD kilometres with its spectrum spanning the one
+    /// octave of wavelengths from @p tileKm to twice it, periodic with kCloudFarWeatherPeriodKm and with
+    /// nothing shorter.
     float CloudFarWeather( uint32_t seed, const glm::vec2& worldKm, float tileKm );
 
     /// The cover the march compares a rank against at a world column: Coverage redistributed by the world
