@@ -18,7 +18,8 @@
 #include <fstream>
 #include <string>
 #include "../../TestSupport/engine_dir.hpp"
-#include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/project_scope.hpp"
+
 #include "../../TestSupport/runner.hpp"
 
 namespace

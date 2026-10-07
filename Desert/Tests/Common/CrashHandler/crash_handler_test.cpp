@@ -26,6 +26,7 @@
 #include <optional>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -61,11 +62,10 @@ namespace
                   const char* inMode = "--crash-child" )
     {
 #if defined( _WIN32 )
-        std::wstring command = L"\"" + g_SelfPath.wstring() + L"\" ";
-        command += std::wstring( kChildFlag, kChildFlag + std::strlen( kChildFlag ) ) + L" ";
-        command += std::wstring( inMode, inMode + std::strlen( inMode ) ) + L" ";
-        command += std::wstring( inKind, inKind + std::strlen( inKind ) );
-        command += L" \"" + inReportRoot.wstring() + L"\"";
+        const auto widen = []( const char* inText )
+        { return std::wstring( inText, inText + std::strlen( inText ) ); };
+        std::wstring command = std::format( L"\"{}\" {} {} {} \"{}\"", g_SelfPath.wstring(), widen( kChildFlag ),
+                                            widen( inMode ), widen( inKind ), inReportRoot.wstring() );
 
         std::vector<wchar_t> mutableCommand( command.begin(), command.end() );
         mutableCommand.push_back( L'\0' );
@@ -500,7 +500,8 @@ namespace
         if ( mode == "--crash-child" || engineRun )
         {
             // LogInit opens the log beside the executable; a test writes nothing into the tree (TST1), so the
-            // child's log is moved into its scratch root, the way the editor moves it into <ProjectDir>/Saved/Logs.
+            // child's log is moved into its scratch root, the way the editor moves it into
+            // <ProjectDir>/Saved/Logs.
             Common::Logger::LogInit();
             Common::Logger::RelocateLogFile( argv[3] );
 

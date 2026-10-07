@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <format>
 #include <iterator>
 #include <map>
@@ -121,7 +122,10 @@ namespace Desert::TestSupport
         // given together with `--desert-suite` narrows the suite instead of being overwritten by it.
         bool MatchesPattern( std::string_view pattern, std::string_view name )
         {
-            size_t p = 0, n = 0, starP = std::string_view::npos, starN = 0;
+            size_t p     = 0;
+            size_t n     = 0;
+            size_t starP = std::string_view::npos;
+            size_t starN = 0;
             while ( n < name.size() )
             {
                 if ( p < pattern.size() && ( pattern[p] == '?' || pattern[p] == name[n] ) )
@@ -198,7 +202,8 @@ namespace Desert::TestSupport
         }
 
         // The suites named by --desert-suite, read before InitGoogleTest (which leaves the flag in argv) so
-        // the host steps run first; nullopt = no selection. An unknown or empty selection is refused after gtest starts.
+        // the host steps run first; nullopt = no selection. An unknown or empty selection is refused after gtest
+        // starts.
         std::optional<std::set<std::string>> PeekSuiteSelection( int argc, char** argv )
         {
             std::optional<std::set<std::string>> suites;
@@ -235,7 +240,7 @@ namespace Desert::TestSupport
                 {
                     const testing::TestInfo& info = *testSuite.GetTestInfo( t );
                     const std::string fullName    = std::format( "{}.{}", info.test_suite_name(), info.name() );
-                    const auto               suite       = SuiteOfTest( info.file() );
+                    const auto        suite       = SuiteOfTest( info.file() );
                     if ( !suite )
                     {
                         unmapped.push_back( std::format( "{} ({})", fullName, info.file() ) );
@@ -340,77 +345,104 @@ namespace Desert::TestSupport
     }
 } // namespace Desert::TestSupport
 
+namespace
+{
+    // Exit code when setup outside any test throws (a suite's engine dir or project, gtest's own init): distinct
+    // from gtest's 1 and from kSelectionError's 2, so a script can tell "the runner itself broke".
+    constexpr int kRunnerException = 3;
+
+    int RunnerMain( int argc, char** argv )
+    {
+        using namespace Desert::TestSupport;
+
+        // A child runs instead of gtest, with the arguments that followed the flag.
+        if ( argc >= 2 && std::string_view( argv[1] ).starts_with( kChildFlag ) )
+        {
+            const std::string_view name = std::string_view( argv[1] ).substr( kChildFlag.size() );
+            const auto             it   = ChildTable().find( name );
+            if ( it == ChildTable().end() )
+            {
+                PrintError( std::format( "no --desert-child entry point named '{}' in this runner", name ) );
+                return kSelectionError;
+            }
+            argv[1]                        = argv[0];
+            const auto& [childMain, steps] = it->second;
+            if ( steps.EngineDir )
+            {
+                SetSuiteEngineDir();
+            }
+            if ( steps.Project )
+            {
+                OpenSuiteProject();
+            }
+            return childMain( argc - 1, argv + 1 );
+        }
+
+        // The host steps the selected suites declared, before gtest parses its flags (SuiteHost, runner.hpp).
+        const auto hostSuites = PeekSuiteSelection( argc, argv );
+        for ( const auto& [suite, steps] : HostTable() )
+        {
+            if ( steps.EngineDir && ( !hostSuites || hostSuites->contains( suite ) ) )
+            {
+                SetSuiteEngineDir();
+            }
+        }
+        for ( const auto& [suite, steps] : HostTable() )
+        {
+            if ( steps.Project && ( !hostSuites || hostSuites->contains( suite ) ) )
+            {
+                OpenSuiteProject();
+            }
+        }
+
+        testing::InitGoogleTest( &argc, argv );
+
+        // InitGoogleTest removed its own flags; what is left is ours or a mistake.
+        std::optional<std::set<std::string>> suites;
+        for ( int i = 1; i < argc; ++i )
+        {
+            const std::string_view arg( argv[i] );
+            if ( arg.starts_with( kSuiteFlag ) )
+            {
+                suites = SplitSuiteList( arg.substr( kSuiteFlag.size() ) );
+            }
+            else
+            {
+                PrintError( std::format( "unknown argument '{}'", arg ) );
+                return kSelectionError;
+            }
+        }
+        if ( suites && !SelectSuites( *suites ) )
+        {
+            return kSelectionError;
+        }
+        for ( const auto& [suite, make] : EnvironmentTable() )
+        {
+            if ( !suites || suites->contains( suite ) )
+            {
+                ::testing::AddGlobalTestEnvironment( make() );
+            }
+        }
+        return RUN_ALL_TESTS();
+    }
+} // namespace
+
+// An exception escaping main ends in std::terminate with no word of what failed; this names it instead.
 int main( int argc, char** argv )
 {
-    using namespace Desert::TestSupport;
-
-    // A child runs instead of gtest, with the arguments that followed the flag.
-    if ( argc >= 2 && std::string_view( argv[1] ).starts_with( kChildFlag ) )
+    try
     {
-        const std::string_view name = std::string_view( argv[1] ).substr( kChildFlag.size() );
-        const auto             it   = ChildTable().find( name );
-        if ( it == ChildTable().end() )
-        {
-            PrintError( std::format( "no --desert-child entry point named '{}' in this runner", name ) );
-            return kSelectionError;
-        }
-        argv[1] = argv[0];
-        const auto& [childMain, steps] = it->second;
-        if ( steps.EngineDir )
-        {
-            SetSuiteEngineDir();
-        }
-        if ( steps.Project )
-        {
-            OpenSuiteProject();
-        }
-        return childMain( argc - 1, argv + 1 );
+        return RunnerMain( argc, argv );
     }
-
-    // The host steps the selected suites declared, before gtest parses its flags (SuiteHost, runner.hpp).
-    const auto hostSuites = PeekSuiteSelection( argc, argv );
-    for ( const auto& [suite, steps] : HostTable() )
+    catch ( const std::exception& e )
     {
-        if ( steps.EngineDir && ( !hostSuites || hostSuites->contains( suite ) ) )
-        {
-            SetSuiteEngineDir();
-        }
+        std::fputs( "[desert-runner] uncaught exception: ", stderr );
+        std::fputs( e.what(), stderr );
+        std::fputs( "\n", stderr );
     }
-    for ( const auto& [suite, steps] : HostTable() )
+    catch ( ... )
     {
-        if ( steps.Project && ( !hostSuites || hostSuites->contains( suite ) ) )
-        {
-            OpenSuiteProject();
-        }
+        std::fputs( "[desert-runner] uncaught exception of a non-standard type\n", stderr );
     }
-
-    testing::InitGoogleTest( &argc, argv );
-
-    // InitGoogleTest removed its own flags; what is left is ours or a mistake.
-    std::optional<std::set<std::string>> suites;
-    for ( int i = 1; i < argc; ++i )
-    {
-        const std::string_view arg( argv[i] );
-        if ( arg.starts_with( kSuiteFlag ) )
-        {
-            suites = SplitSuiteList( arg.substr( kSuiteFlag.size() ) );
-        }
-        else
-        {
-            PrintError( std::format( "unknown argument '{}'", arg ) );
-            return kSelectionError;
-        }
-    }
-    if ( suites && !SelectSuites( *suites ) )
-    {
-        return kSelectionError;
-    }
-    for ( const auto& [suite, make] : EnvironmentTable() )
-    {
-        if ( !suites || suites->contains( suite ) )
-        {
-            ::testing::AddGlobalTestEnvironment( make() );
-        }
-    }
-    return RUN_ALL_TESTS();
+    return kRunnerException;
 }

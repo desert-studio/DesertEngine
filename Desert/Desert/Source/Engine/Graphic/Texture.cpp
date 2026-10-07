@@ -28,10 +28,10 @@ namespace Desert::Graphic
         m_Handle  = m_Service->Register( std::move( image ), Runtime::ImageHandle::Type::Image2D );
     }
 
-    Common::ResultStr<std::shared_ptr<Texture2D>>
-    Texture2D::CreateFromAsset( const std::filesystem::path& cookedPath, const TextureBackend& backend )
+    Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromAsset( const std::filesystem::path& asset,
+                                                                              const TextureBackend& backend )
     {
-        auto cooked = ReadCooked( cookedPath );
+        auto cooked = ReadCooked( asset );
         if ( !cooked.IsSuccess() )
             return Common::MakeError<std::shared_ptr<Texture2D>>( cooked.GetError() );
         return CreateFromCooked( cooked.ExtractValue(), backend );

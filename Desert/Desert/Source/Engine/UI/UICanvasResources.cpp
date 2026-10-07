@@ -10,7 +10,7 @@ namespace Desert::UI
         const Graphic::Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( sprite );
         if ( texture == nullptr )
             return nullptr;
-        return static_cast<Graphic::Image2D*>(
+        return dynamic_cast<Graphic::Image2D*>(
              Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) );
     }
 
@@ -21,7 +21,8 @@ namespace Desert::UI
 
     Graphic::Image2D* RegistryUICanvasResources::VideoFrame( uint64_t video, float volume, bool muted )
     {
-        return Runtime::ResourceRegistry::GetVideoService()->Resolve( video, { .Volume = volume, .Muted = muted } );
+        return Runtime::ResourceRegistry::GetVideoService()->Resolve( video,
+                                                                      { .Volume = volume, .Muted = muted } );
     }
 
     const Assets::UIThemeRuntime* RegistryUICanvasResources::Theme( const Assets::AssetHandle& theme )

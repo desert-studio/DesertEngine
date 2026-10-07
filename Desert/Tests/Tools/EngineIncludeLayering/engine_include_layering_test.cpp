@@ -14,6 +14,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -39,21 +41,13 @@ namespace
         const char* why;
     };
     constexpr GpuSideFile kGpuSideFiles[] = {
-         { "Geometry/ProceduralCharacterFactory.cpp",
-           "creates the character's materials through the ResourceRegistry" },
          { "World/Foliage/FoliagePrefabsScene.cpp", "instantiates foliage prefabs into a live Scene" },
     };
 
+    // The checkout the build baked in (scratch_dir.hpp), not one searched for from the working directory.
     fs::path RepoRoot()
     {
-        for ( fs::path p = fs::current_path(); !p.empty(); p = p.parent_path() )
-        {
-            if ( fs::exists( p / "Desert" / "Tests" / "TestSupport" ) && fs::exists( p / "Editor" ) )
-                return p;
-            if ( p == p.parent_path() )
-                break;
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     bool IsWindowOrGpuApiHeader( const std::string& include )
@@ -87,28 +81,69 @@ namespace
         {
         }
 
-        // The include chain from `file` to the first forbidden header, or nullopt when there is none.
+        // The include chain from `file` to the first forbidden header, or nullopt when there is none. A
+        // depth-first walk over an explicit stack: each frame is a file and the position of its next include. The
+        // memo holds every file entered, so a file already on the current path (a cycle) contributes nothing new.
         std::optional<std::string> ChainToForbidden( const fs::path& file )
         {
-            const fs::path key = file.lexically_normal();
-            if ( const auto it = m_Memo.find( key ); it != m_Memo.end() )
+            const fs::path root = file.lexically_normal();
+            if ( const auto it = m_Memo.find( root ); it != m_Memo.end() )
                 return it->second;
-            m_Memo[key] = std::nullopt; // cycles: a file on the current path contributes nothing new
-            for ( const std::string& include : Includes( key ) )
+
+            std::vector<Frame> stack;
+            Enter( stack, root );
+            while ( !stack.empty() )
             {
-                if ( IsWindowOrGpuApiHeader( include ) )
-                    return m_Memo[key] = include;
-                if ( const auto resolved = Resolve( key, include ) )
+                Frame& top = stack.back();
+                if ( top.Next == top.Headers.size() )
                 {
-                    if ( const auto chain = ChainToForbidden( *resolved ) )
-                        return m_Memo[key] = std::format( "{} -> {}", include, *chain );
+                    stack.pop_back(); // every include walked, none forbidden: the memo keeps nullopt
+                    continue;
                 }
+                const std::string include = top.Headers[top.Next++];
+                if ( IsWindowOrGpuApiHeader( include ) )
+                    return Settle( stack, include );
+                const auto resolved = Resolve( top.Key, include );
+                if ( !resolved )
+                    continue;
+                if ( const auto it = m_Memo.find( *resolved ); it != m_Memo.end() )
+                {
+                    if ( const std::optional<std::string>& chain = it->second; chain.has_value() )
+                        return Settle( stack, std::format( "{} -> {}", include, chain.value() ) );
+                    continue;
+                }
+                Enter( stack, *resolved );
             }
             return std::nullopt;
         }
 
     private:
-        std::optional<fs::path> Resolve( const fs::path& from, const std::string& include ) const
+        struct Frame
+        {
+            fs::path                 Key;
+            std::vector<std::string> Headers;
+            std::size_t              Next = 0;
+        };
+
+        void Enter( std::vector<Frame>& stack, const fs::path& key )
+        {
+            m_Memo[key] = std::nullopt;
+            stack.push_back( Frame{ .Key = key, .Headers = Includes( key ), .Next = 0 } );
+        }
+
+        // `chain` starts at the top frame's file; every frame below reached it through its last-read include.
+        std::string Settle( const std::vector<Frame>& stack, std::string chain )
+        {
+            m_Memo[stack.back().Key] = chain;
+            for ( auto frame = stack.rbegin() + 1; frame != stack.rend(); ++frame )
+            {
+                chain              = std::format( "{} -> {}", frame->Headers[frame->Next - 1], chain );
+                m_Memo[frame->Key] = chain;
+            }
+            return chain;
+        }
+
+        [[nodiscard]] std::optional<fs::path> Resolve( const fs::path& from, const std::string& include ) const
         {
             if ( fs::path local = ( from.parent_path() / include ).lexically_normal();
                  fs::is_regular_file( local ) )
@@ -139,8 +174,8 @@ namespace
     TEST( EngineIncludeLayering, CpuSideDirectoriesReachNoGpuApiHeader )
     {
         const fs::path root = RepoRoot();
-        ASSERT_FALSE( root.empty() ) << "walked up from " << fs::current_path()
-                                     << " without finding the tree root";
+        ASSERT_TRUE( fs::is_directory( root / "Desert" / "Tests" / "TestSupport" ) )
+             << root << " (DESERT_TEST_REPO_ROOT) is not the checkout";
         const fs::path     engine = root / "Desert" / "Desert" / "Source" / "Engine";
         std::set<fs::path> gpuSide;
         for ( const GpuSideFile& file : kGpuSideFiles )

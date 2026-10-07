@@ -14,7 +14,8 @@
 #include <format>
 #include <optional>
 #include <string>
-#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
+
 #include "../../TestSupport/runner.hpp"
 
 namespace

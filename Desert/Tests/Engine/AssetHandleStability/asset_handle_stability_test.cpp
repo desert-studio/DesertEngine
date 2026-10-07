@@ -1375,10 +1375,10 @@ namespace
         return 0;
     }
 
-    const Desert::TestSupport::ChildEntry kPrintHandles{ "asset-print-handles", &PrintHandlesChild,
-                                                         { .EngineDir = true, .Project = true } };
-    const Desert::TestSupport::ChildEntry kResolveHandle{ "asset-resolve-handle", &ResolveHandleChild,
-                                                          { .EngineDir = true, .Project = true } };
+    const Desert::TestSupport::ChildEntry kPrintHandles{
+         "asset-print-handles", &PrintHandlesChild, { .EngineDir = true, .Project = true } };
+    const Desert::TestSupport::ChildEntry kResolveHandle{
+         "asset-resolve-handle", &ResolveHandleChild, { .EngineDir = true, .Project = true } };
 } // namespace
 
 // A CLOUD TYPE'S HANDLE IS HandleForGuid OF ITS HEADER GUID (AF7v), adopted at creation, before any load:

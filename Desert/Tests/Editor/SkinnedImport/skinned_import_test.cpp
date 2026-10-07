@@ -37,7 +37,8 @@
 #include "../../TestSupport/assets_sandbox.hpp"
 #include "../../TestSupport/derived_data_sandbox.hpp"
 #include "../../TestSupport/engine_dir.hpp"
-#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include "../../TestSupport/runner.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -123,8 +124,8 @@ namespace
             Put( b, q );
         EXPECT_EQ( b.size(), 264u );
 
-        const std::string          uri    = std::format( "data:application/octet-stream;base64,{}", Base64( b ) );
-        constexpr std::string_view head     = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+        const std::string          uri  = std::format( "data:application/octet-stream;base64,{}", Base64( b ) );
+        constexpr std::string_view head = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
 "nodes":[
  {"name":"Z_UP","matrix":[1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1],"children":[1,3]},
  {"name":"Root","children":[2]},
@@ -136,7 +137,7 @@ namespace
 "materials":[{"name":"Skin","pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],
 "textures":[{"source":0}],
 "images":[{"mimeType":"image/png","uri":"data:image/png;base64,)";
-        constexpr std::string_view middle = R"("}],
+        constexpr std::string_view middle   = R"("}],
 "animations":[{"name":"Turn","samplers":[{"input":4,"output":5,"interpolation":"LINEAR"}],
  "channels":[{"sampler":0,"target":{"node":1,"path":"rotation"}}]}],
 "accessors":[
@@ -154,7 +155,7 @@ namespace
  {"buffer":0,"byteOffset":224,"byteLength":8},
  {"buffer":0,"byteOffset":232,"byteLength":32}],
 "buffers":[{"byteLength":264,"uri":")";
-        constexpr std::string_view tail   = R"("}]})";
+        constexpr std::string_view tail     = R"("}]})";
         return std::format( "{}{}{}{}{}{}{}", head, tipName, afterTip, OnePixelPng, middle, uri, tail );
     }
 
@@ -738,9 +739,9 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
 TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesNothing )
 {
     const std::filesystem::path        corpus = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes";
-    const std::vector<std::string>     files = { "TwoJointProbe.gltf", "TwoJointProbe.gltf.deimport",
-                                                 "TwoJointProbe.skmesh", "TwoJointProbe.skeleton",
-                                                 "TwoJointProbe_ArmSwing.anim" };
+    const std::vector<std::string>     files  = { "TwoJointProbe.gltf", "TwoJointProbe.gltf.deimport",
+                                                  "TwoJointProbe.skmesh", "TwoJointProbe.skeleton",
+                                                  "TwoJointProbe_ArmSwing.anim" };
     std::map<std::string, std::string> committed;
     for ( const std::string& name : files )
     {
@@ -787,7 +788,7 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
 // mesh and a rig state none (SKEL 3: the rig is a shared asset), so the import record beside them that wrote them
 // answers - by its Kind, not by the first record with the stem (Fox.fbx, a static import beside, wrote no
 // `.skmesh`).
-TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
+TEST( SkinnedImportThumbnailKind, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
 {
     namespace IAS        = Desert::Editor::ImportedAssetSource;
     namespace Ser        = Desert::Assets::Serialization;

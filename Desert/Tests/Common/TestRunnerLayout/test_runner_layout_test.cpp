@@ -22,6 +22,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <algorithm>
 #include <filesystem>
 #include <format>
@@ -42,22 +44,16 @@ namespace
          "added into kRunners in Desert/Tests/premake5.lua (BuildScripts/"
          "BUILD1-CONTRACT.md, \"Adding a suite\")";
 
+    // The checkout the build baked in (scratch_dir.hpp), not one searched for from the working directory.
     fs::path RepoRoot()
     {
-        for ( fs::path p = fs::current_path(); !p.empty(); p = p.parent_path() )
-        {
-            if ( fs::exists( p / "Desert" / "Tests" / "TestSupport" ) && fs::exists( p / "Editor" ) )
-                return p;
-            if ( p == p.parent_path() )
-                break;
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadFile( const fs::path& file )
     {
-        std::ifstream      in( file, std::ios::binary );
-        std::ostringstream text;
+        const std::ifstream in( file, std::ios::binary );
+        std::ostringstream  text;
         text << in.rdbuf();
         return text.str();
     }
@@ -143,8 +139,11 @@ namespace
 
     // "<line>: struct Name" for each class/struct DEFINED where every enclosing scope is a NAMED namespace
     // (or the global one). Forward declarations, `enum class` and types inside functions, classes or an
-    // anonymous namespace are not reported.
-    std::vector<std::string> NamespaceScopeTypes( const std::string& code )
+    // anonymous namespace are not reported. Neither are types inside the suite's OWN namespace, `<suite>Test`:
+    // the suite directory name is unique in its layer, so that name is as private to the suite as an anonymous
+    // namespace — and it is the form a suite needs when reflect-cpp names its enumerators, which clang cannot do
+    // for an enum declared in an anonymous namespace (JsonDocument).
+    std::vector<std::string> NamespaceScopeTypes( const std::string& code, const std::string& suite = {} )
     {
         static const std::regex kToken(
              R"(\bnamespace\b(\s+[\w:]+)?\s*\{|\b(class|struct)\s+(\w+)\s*(final\s*)?([:{])|[{}])" );
@@ -164,11 +163,14 @@ namespace
             const std::string  token( m[0] );
             if ( token.starts_with( "namespace" ) )
             {
-                stack.push_back( m[1].matched ? Scope::Named : Scope::Anonymous );
+                const bool owned =
+                     m[1].matched && !suite.empty() &&
+                     std::regex_replace( m[1].str(), std::regex( R"(\s)" ), "" ) == std::format( "{}Test", suite );
+                stack.push_back( m[1].matched && !owned ? Scope::Named : Scope::Anonymous );
             }
             else if ( m[2].matched )
             {
-                const size_t            start      = static_cast<size_t>( m.position( 0 ) );
+                const auto              start      = static_cast<size_t>( m.position( 0 ) );
                 const size_t            lookBehind = std::min<size_t>( start, 12 );
                 static const std::regex kEnum( R"(\benum\s*$)" );
                 const bool isEnum = std::regex_search( stripped.substr( start - lookBehind, lookBehind ), kEnum );
@@ -176,7 +178,7 @@ namespace
                      std::all_of( stack.begin(), stack.end(), []( Scope s ) { return s == Scope::Named; } );
                 if ( exposed && !isEnum )
                 {
-                    const auto line = std::count( stripped.begin(), stripped.begin() + start, '\n' ) + 1;
+                    const auto line = std::count( stripped.begin(), stripped.begin() + m.position( 0 ), '\n' ) + 1;
                     found.push_back( std::format( "{}: {} {}", line, m[2].str(), m[3].str() ) );
                 }
                 if ( m[5].str() == "{" )
@@ -216,7 +218,7 @@ namespace
         std::string           name;
         fs::path              dir;
         bool                  ownProject = false; // has its own premake5.lua (refused: rule 1)
-        std::vector<fs::path> sources;            // *.cpp directly in the suite directory
+        std::vector<fs::path> sources{};          // *.cpp directly in the suite directory
     };
 
     std::vector<Suite> Suites( const fs::path& root )
@@ -290,6 +292,16 @@ namespace
         EXPECT_EQ( NamespaceScopeTypes( code ), expected );
     }
 
+    TEST( TestRunnerLayout, OnlyTheSuitesOwnNamedNamespaceHidesItsTypes )
+    {
+        const std::string              code = "namespace AlphaTest\n{\n    struct Owned {};\n}\n"
+                                              "namespace BetaTest\n{\n    struct Foreign {};\n}\n";
+        const std::vector<std::string> alpha{ "7: struct Foreign" };
+        EXPECT_EQ( NamespaceScopeTypes( code, "Alpha" ), alpha );
+        const std::vector<std::string> unnamed{ "3: struct Owned", "7: struct Foreign" };
+        EXPECT_EQ( NamespaceScopeTypes( code ), unnamed );
+    }
+
     TEST( TestRunnerLayout, TestSuiteNamesAreTheFirstMacroArgument )
     {
         const std::string code = "TEST( Alpha, One ) {}\nTEST_F( BetaFixture, Two ) {}\n// TEST( Gamma, Three )\n"
@@ -303,8 +315,8 @@ namespace
     TEST( TestRunnerLayout, EverySuiteIsARunnerSuiteOrItsOwnProjectNeverHalfOfEach )
     {
         const fs::path root = RepoRoot();
-        ASSERT_FALSE( root.empty() ) << "walked up from " << fs::current_path()
-                                     << " without finding the tree root";
+        ASSERT_TRUE( fs::is_directory( root / "Desert" / "Tests" / "TestSupport" ) )
+             << root << " (DESERT_TEST_REPO_ROOT) is not the checkout";
         const std::vector<Suite> suites = Suites( root );
         ASSERT_GT( suites.size(), 300u ) << "the suite listing found almost nothing: the census would pass blind";
         size_t runnerSuites = 0;
@@ -380,12 +392,14 @@ namespace
         {
             for ( const fs::path& file : suite.sources )
             {
-                for ( const std::string& type : NamespaceScopeTypes( ReadFile( file ) ) )
+                for ( const std::string& type : NamespaceScopeTypes( ReadFile( file ), suite.name ) )
                 {
                     ADD_FAILURE()
                          << Relative( file, root ) << ":" << type << " is defined at namespace scope outside an "
                          << "anonymous namespace; every suite of the layer links into one runner, so a second "
-                         << "suite's type of the same name is a silent ODR violation. Wrap it in `namespace { }`";
+                         << "suite's type of the same name is a silent ODR violation. Wrap it in `namespace { }` "
+                            "(or `namespace "
+                         << suite.name << "Test { }` when reflect-cpp must name an enum's values)";
                 }
             }
         }

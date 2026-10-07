@@ -418,7 +418,7 @@ namespace
     }
 } // namespace
 
-TEST( LinkedAnimLayer, UnlinkedPassesTheInputAndLinkingSwapsTheLayerWithoutEditingTheGraph )
+TEST( TimelineLinkedAnimLayer, UnlinkedPassesTheInputAndLinkingSwapsTheLayerWithoutEditingTheGraph )
 {
     const Skeleton skeleton  = FiveBones();
     const auto     spineBone = skeleton.FindBoneIndex( "spine" );
@@ -452,7 +452,7 @@ TEST( LinkedAnimLayer, UnlinkedPassesTheInputAndLinkingSwapsTheLayerWithoutEditi
     EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "unlinked: the input passes again";
 }
 
-TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
+TEST( TimelineLinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
 {
     const Skeleton      skeleton = FiveBones();
     G::LinkedLayerTable table;
@@ -498,7 +498,7 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
 
 // ── 9c. ANIM-I14b: a layer is a whole graph (a state machine, a nested call); identity is the GUID ─────────
 
-TEST( LinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
+TEST( TimelineLinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
 {
     const Skeleton skeleton  = FiveBones();
     const auto     spineBone = skeleton.FindBoneIndex( "spine" );
@@ -524,7 +524,7 @@ TEST( LinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
     EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "its own GUID unlinks it";
 }
 
-TEST( LinkedAnimLayer, TheHostsOwnLayerIsTheDefaultAnUnlinkReturnsTo )
+TEST( TimelineLinkedAnimLayer, TheHostsOwnLayerIsTheDefaultAnUnlinkReturnsTo )
 {
     const Skeleton skeleton  = FiveBones();
     const auto     spineBone = skeleton.FindBoneIndex( "spine" );
@@ -573,7 +573,7 @@ TEST( LinkedAnimLayer, TheHostsOwnLayerIsTheDefaultAnUnlinkReturnsTo )
     EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "a host implementing nothing passes its input";
 }
 
-TEST( LinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle )
+TEST( TimelineLinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle )
 {
     const Skeleton skeleton  = FiveBones();
     const auto     spineBone = skeleton.FindBoneIndex( "spine" );

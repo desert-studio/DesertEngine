@@ -41,6 +41,7 @@
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/ECS/UIEasing.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 
@@ -1934,20 +1935,6 @@ namespace Desert::ECS
         Size,    // grow/shrink: adds to the rect's width/height
         Opacity, // fade: multiplies the element's alpha
         Color    // tint: multiplies the element's colour
-    };
-
-    enum class UIEasing
-    {
-        Linear,
-        QuadIn,
-        QuadOut,
-        QuadInOut,
-        CubicIn,
-        CubicOut,
-        CubicInOut,
-        BackOut, // overshoots then settles — the "pop" of a modal
-        ElasticOut,
-        BounceOut
     };
 
     enum class UITweenLoop
