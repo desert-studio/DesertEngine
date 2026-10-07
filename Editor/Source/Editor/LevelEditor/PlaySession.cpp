@@ -222,7 +222,7 @@ namespace Desert::Editor
         const std::size_t outgoing = scene->GetAllEntities().size();
         scene->Clear();
         // A notification of the level being left names one of ITS overlay canvases (RuntimeLayer's switch).
-        UI::UIOverlayRequests::Get().Clear();
+        Desert::UI::UIOverlayRequests::Get().Clear();
         phases.Lap( "clear the played world", outgoing );
 
         // Whatever fails from here on, the scene stays in Play: Stop restores the authored level only from a
