@@ -121,6 +121,11 @@ namespace Desert::Core::Formats
     {
         Storage = 0x1,
         Sample  = 0x2,
+        // THE IMAGE'S INTERPOLATION IS PART OF AN ALGORITHM, not a quality preference: its sampler is
+        // always LINEAR with REPEAT, whatever the user's texture filter says — the rule every 3D volume
+        // already follows. A field sampled between texels (the clouds' world weather map) under "Nearest"
+        // would otherwise render as texel-sized blocks with straight edges. Only meaningful with Sample.
+        AlgorithmicLinear = 0x4,
     };
 
     // Which planes of an image a barrier or a view must name. The bit values mirror VK_IMAGE_ASPECT_*,

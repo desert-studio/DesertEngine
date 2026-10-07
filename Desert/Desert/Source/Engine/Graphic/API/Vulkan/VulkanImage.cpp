@@ -75,6 +75,14 @@ namespace Desert::Graphic::API::Vulkan
             AlwaysLinear
         };
 
+        // A 2D image follows the user's filter unless it declared its interpolation algorithmic
+        // (Core::Formats::AlgorithmicLinear) — then it is a volume's sampler: LINEAR, REPEAT, always.
+        static SamplerFilterPolicy FilterPolicyOf( Core::Formats::ImageProperties properties )
+        {
+            return ( properties & Core::Formats::AlgorithmicLinear ) ? SamplerFilterPolicy::AlwaysLinear
+                                                                      : SamplerFilterPolicy::Global;
+        }
+
         static VkSamplerAddressMode AddressModeOf( Core::Formats::SamplerWrap wrap )
         {
             switch ( wrap )
@@ -520,7 +528,7 @@ namespace Desert::Graphic::API::Vulkan
         m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
 
         if ( m_Specification.Properties & Core::Formats::Sample )
-            Utils::CreateSampler( vkDevice, m_Resource.Sampler, Utils::SamplerFilterPolicy::Global );
+            Utils::CreateSampler( vkDevice, m_Resource.Sampler, Utils::FilterPolicyOf( m_Specification.Properties ) );
 
         for ( uint32_t i = 0; i < m_Resource.MipLevels; ++i )
             m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, 1, i ) );
@@ -1572,7 +1580,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanImage2D::RecreateSampler()
     {
-        RecreateSamplerImpl( m_Resource, Utils::SamplerFilterPolicy::Global );
+        RecreateSamplerImpl( m_Resource, Utils::FilterPolicyOf( m_Specification.Properties ) );
         m_ResourceGeneration = NextResourceGeneration();
     }
     void VulkanImageCube::RecreateSampler()

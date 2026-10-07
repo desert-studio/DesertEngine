@@ -1045,7 +1045,9 @@ namespace Desert::Graphic::System
              .Format     = Core::Formats::ImageFormat::RGBA16F,
              .Data       = std::move( texels ),
              .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Sample,
+             // LINEAR ALWAYS: the copula reads W between texels (1.95 km apart); under the user's "Nearest"
+             // the cut would follow texel-block edges — straight walls in the sky.
+             .Properties = Core::Formats::Sample | Core::Formats::AlgorithmicLinear,
         };
 
         if ( m_FarWeatherMap )
