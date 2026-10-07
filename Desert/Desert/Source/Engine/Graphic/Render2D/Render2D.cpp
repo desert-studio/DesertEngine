@@ -372,7 +372,9 @@ namespace Desert::Graphic::Render2D
                 const RetainedPicture& pic    = *resolved.Retained;
                 if ( pic.Mask.IsValid() )
                 {
-                    declared.Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+                    declared
+                         .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
+                                    RDG::OtherRouteFill{} )
                          .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
                          .Sampled( "u_Mask", pic.Mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
@@ -383,7 +385,9 @@ namespace Desert::Graphic::Render2D
                 {
                     const RetainerPush push = RetainerPushOf( m_Projection, cmd, pic.Uv, false );
                     resolved.Plain->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
-                    declared.Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), resolved.Executor->GetRouteFill() )
+                    declared
+                         .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
+                                    resolved.Executor->GetRouteFill() )
                          .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
                 }

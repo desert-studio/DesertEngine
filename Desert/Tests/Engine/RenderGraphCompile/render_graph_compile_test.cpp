@@ -2072,7 +2072,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     };
     declares( "AddFrameClearMainFramebuffer", { "PassFlags::Raster", "ColorTarget(", "LoadOp::ClearDepth(" } );
     // RDG-FAULT1: the sampled reads live in the system's binding block (SSAORenderer::DeclareBindings,
-    // DeferredLightingRenderer::DeclareCompositeBindings declare them Access::SampledGraphics); the node delegates.
+    // DeferredLightingRenderer::DeclareCompositeBindings declare them Access::SampledGraphics); the node
+    // delegates.
     declares( "AddFrameSSAO",
               { "PassFlags::Raster", "ssao->DeclareBindings(pass,worldPos,normal)", "ColorTarget(0,ao," } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
@@ -2082,21 +2083,24 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // RDG-A2-W4: the SSR passes sample the G-buffer as graph refs by name, never a framebuffer image.
     // RDG-FAULT1: the trace's storage writes are its block's (SSRRenderer::DeclareTraceBindings); the execs read
     // their block, not refs captured from the setup.
-    declares( "AddFrameSSR", { "PassFlags::Compute", "ssr->DeclareTraceBindings(pass,trace,tiles,inputs,sceneCopy)",
-                               "LoadTarget(pass,target)", "GBufferInputsinputs{gbuffer[0],gbuffer[1],gbuffer[2]}",
-                               "ssr->DeclareResolveBindings(pass,trace,tiles,history,inputs)",
-                               "ssr->DeclareCompositeBindings(pass,accum,tiles,inputs)",
-                               "ssr->RecordResolve(context)", "ssr->RecordComposite(context,viewProj)" } );
+    declares( "AddFrameSSR",
+              { "PassFlags::Compute", "ssr->DeclareTraceBindings(pass,trace,tiles,inputs,sceneCopy)",
+                "LoadTarget(pass,target)", "GBufferInputsinputs{gbuffer[0],gbuffer[1],gbuffer[2]}",
+                "ssr->DeclareResolveBindings(pass,trace,tiles,history,inputs)",
+                "ssr->DeclareCompositeBindings(pass,accum,tiles,inputs)", "ssr->RecordResolve(context)",
+                "ssr->RecordComposite(context,viewProj)" } );
     // ... and those blocks declare the accesses the node used to declare itself.
     {
         const auto declaration = [&]( const char* header )
         {
             std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred" / header );
             EXPECT_TRUE( file ) << header << " is gone";
-            return squeeze( std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() ) );
+            return squeeze(
+                 std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() ) );
         };
-        EXPECT_NE( declaration( "SSRRenderer.hpp" ).find( ".Storage(\"u_Trace\",trace,RDG::Access::StorageWrite)" ),
-                   std::string::npos );
+        EXPECT_NE(
+             declaration( "SSRRenderer.hpp" ).find( ".Storage(\"u_Trace\",trace,RDG::Access::StorageWrite)" ),
+             std::string::npos );
         EXPECT_NE( declaration( "SSAORenderer.hpp" )
                         .find( ".Sampled(\"u_GBufferPos\",worldPos,RDG::Access::SampledGraphics" ),
                    std::string::npos );
@@ -3064,7 +3068,8 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "sampledLuts(declareBlock(distant.Access,m_DistantLightPipeline.get(),m_DistantLightLayout,0))" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
-           { "SampledMedium(SampledVolumes(DeclareComputeBlock(shadow.Access,m_ShadowMapPipeline.get(),m_ShadowMapLayout,",
+           { "SampledMedium(SampledVolumes(DeclareComputeBlock(shadow.Access,m_ShadowMapPipeline.get(),m_"
+             "ShadowMapLayout,",
              "Storage(\"u_CloudShadowMap\",m_ShadowMapImage,RDG::Access::StorageWrite,\"Clouds.ShadowMap\")" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
