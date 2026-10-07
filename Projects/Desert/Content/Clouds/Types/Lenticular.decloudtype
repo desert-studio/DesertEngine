@@ -10,28 +10,28 @@
     "DisplayName": "Lenticular (orographic)",
     "Notes": "The lens that stands still over a mountain. Its signature is what it does NOT have: the base ramp is as long as the top taper, so the section is a symmetric lens rather than a flat-bottomed heap, and the erosion is turned almost off because a smooth surface is the whole point. Anisotropy 0.20 - BELOW one, so the stretch is ACROSS the wind and not along it, and that is what separates a wave cloud from everything else in this library. A lenticular stands in a mountain's lee wave with its crest perpendicular to the flow; the altocumulus next door has the same controls set the other way and is a different kind of cloud for it, not a thicker one.",
     "Shape": {
-        "BaseAltitudeKm": 2.5999999046325684,
-        "TopAltitudeKm": 3.4000000953674316,
-        "EdgeTopFraction": 0.8999999761581421,
-        "BaseRampFraction": 0.44999998807907104,
+        "BaseAltitudeKm": 2.6,
+        "TopAltitudeKm": 3.4,
+        "EdgeTopFraction": 0.9,
+        "BaseRampFraction": 0.45,
         "Profile": {
             "HalfWidth": [
-                0.6200000047683716, 0.6001933217048645, 0.5807066559791565, 0.5615400075912476, 0.5426933169364929, 0.5241666436195374, 0.5059599876403809, 0.48807331919670105,
-                0.4705066680908203, 0.45326000452041626, 0.4363333284854889, 0.4197266697883606, 0.403439998626709, 0.38747334480285645, 0.3718266785144806, 0.3564999997615814
+                0.62, 0.6001933, 0.58070666, 0.56154, 0.5426933, 0.52416664, 0.50596, 0.48807332,
+                0.47050667, 0.45326, 0.43633333, 0.41972667, 0.40344, 0.38747334, 0.37182668, 0.3565
             ],
             "Density": [
-                0.0, 0.25925928354263306, 0.7407407760620117, 1.0, 1.0, 1.0, 1.0, 1.0,
+                0.0, 0.25925928, 0.7407408, 1.0, 1.0, 1.0, 1.0, 1.0,
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
             ]
         },
         "AnvilAltitudeKm": 0.0,
         "AnvilThicknessKm": 0.0,
         "AnvilStrength": 0.0,
-        "DetailCharacter": 0.4000000059604645,
-        "DetailFactor": 0.15000000596046448,
-        "DensityFactor": 1.100000023841858,
-        "ExtinctionFactor": 1.100000023841858,
-        "PlacementScale": 0.800000011920929,
-        "PlacementAnisotropy": 0.20000000298023224
+        "DetailCharacter": 0.4,
+        "DetailFactor": 0.15,
+        "DensityFactor": 1.1,
+        "ExtinctionFactor": 1.1,
+        "PlacementScale": 0.8,
+        "PlacementAnisotropy": 0.2
     }
 }

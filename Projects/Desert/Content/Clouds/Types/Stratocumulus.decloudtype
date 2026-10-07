@@ -10,28 +10,28 @@
     "DisplayName": "Stratocumulus",
     "Notes": "A low deck with lumps in it: it covers the sky like stratus but is made of rolls rather than of nothing. EdgeTopFraction 0.80 - the lumps vary the top by a fifth, not by five sixths as a cumulus field does. Placement scale 0.35 AND THE REASON IS A MEASUREMENT: at the layer's own 12 km tile the coarse cell is 3 km, and a 3 km cell under a 1 km deck is one lump filling the zenith - the defect T3 was handed by name. 0.35 puts the cell at about 1.05 km, an aspect near 1, which is what a lumpy low deck looks like from underneath. Anisotropy 1.60 rows the lumps along the wind, which is stratocumulus radiatus.",
     "Shape": {
-        "BaseAltitudeKm": 0.6000000238418579,
-        "TopAltitudeKm": 1.600000023841858,
-        "EdgeTopFraction": 0.800000011920929,
-        "BaseRampFraction": 0.10000000149011612,
+        "BaseAltitudeKm": 0.6,
+        "TopAltitudeKm": 1.6,
+        "EdgeTopFraction": 0.8,
+        "BaseRampFraction": 0.1,
         "Profile": {
             "HalfWidth": [
-                0.6200000047683716, 0.6022244691848755, 0.5846977829933167, 0.5674200057983398, 0.5503911375999451, 0.5336111187934875, 0.5170800089836121, 0.5007977485656738,
-                0.4847644567489624, 0.46898001432418823, 0.4534444510936737, 0.4381577670574188, 0.42311999201774597, 0.40833112597465515, 0.3937911093235016, 0.37950000166893005
+                0.62, 0.60222447, 0.5846978, 0.56742, 0.55039114, 0.5336111, 0.51708, 0.50079775,
+                0.48476446, 0.46898, 0.45344445, 0.43815777, 0.42312, 0.40833113, 0.3937911, 0.3795
             ],
             "Density": [
-                0.0, 0.25925928354263306, 0.7407407760620117, 1.0, 1.0, 1.0, 1.0, 1.0,
+                0.0, 0.25925928, 0.7407408, 1.0, 1.0, 1.0, 1.0, 1.0,
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
             ]
         },
         "AnvilAltitudeKm": 0.0,
         "AnvilThicknessKm": 0.0,
         "AnvilStrength": 0.0,
-        "DetailCharacter": 0.949999988079071,
-        "DetailFactor": 0.699999988079071,
-        "DensityFactor": 0.949999988079071,
+        "DetailCharacter": 0.95,
+        "DetailFactor": 0.7,
+        "DensityFactor": 0.95,
         "ExtinctionFactor": 1.0,
-        "PlacementScale": 0.3499999940395355,
-        "PlacementAnisotropy": 1.600000023841858
+        "PlacementScale": 0.35,
+        "PlacementAnisotropy": 1.6
     }
 }

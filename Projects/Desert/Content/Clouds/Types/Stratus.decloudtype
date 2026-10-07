@@ -10,26 +10,26 @@
     "DisplayName": "Stratus",
     "Notes": "A featureless sheet a few hundred metres thick, sitting almost on the ground. EdgeTopFraction 0.88 because a sheet does not thin into a pad at its rim, and the erosion is halved because what makes stratus stratus is that it has no edge to speak of. Placement scale 4.00: a sheet has no cells. Pushing the period to four times the layer's tile is how a type says 'I am one patch as far as you can see' without a second kind of coverage field.",
     "Shape": {
-        "BaseAltitudeKm": 0.15000000596046448,
-        "TopAltitudeKm": 0.550000011920929,
-        "EdgeTopFraction": 0.8799999952316284,
-        "BaseRampFraction": 0.11999999731779099,
+        "BaseAltitudeKm": 0.15,
+        "TopAltitudeKm": 0.55,
+        "EdgeTopFraction": 0.88,
+        "BaseRampFraction": 0.12,
         "Profile": {
             "HalfWidth": [
-                0.6200000047683716, 0.6022244691848755, 0.5846977829933167, 0.5674200057983398, 0.5503911375999451, 0.5336111187934875, 0.5170800089836121, 0.5007977485656738,
-                0.4847644567489624, 0.46898001432418823, 0.4534444510936737, 0.4381577670574188, 0.42311999201774597, 0.40833112597465515, 0.3937911093235016, 0.37950000166893005
+                0.62, 0.60222447, 0.5846978, 0.56742, 0.55039114, 0.5336111, 0.51708, 0.50079775,
+                0.48476446, 0.46898, 0.45344445, 0.43815777, 0.42312, 0.40833113, 0.3937911, 0.3795
             ],
             "Density": [
-                0.0, 0.25925928354263306, 0.7407407760620117, 1.0, 1.0, 1.0, 1.0, 1.0,
+                0.0, 0.25925928, 0.7407408, 1.0, 1.0, 1.0, 1.0, 1.0,
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
             ]
         },
         "AnvilAltitudeKm": 0.0,
         "AnvilThicknessKm": 0.0,
         "AnvilStrength": 0.0,
-        "DetailCharacter": 0.05000000074505806,
+        "DetailCharacter": 0.05,
         "DetailFactor": 0.5,
-        "DensityFactor": 0.699999988079071,
+        "DensityFactor": 0.7,
         "ExtinctionFactor": 0.75,
         "PlacementScale": 4.0,
         "PlacementAnisotropy": 1.0

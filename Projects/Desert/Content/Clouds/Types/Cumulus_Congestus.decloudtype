@@ -10,17 +10,17 @@
     "DisplayName": "Cumulus congestus",
     "Notes": "The same base as mediocris, four times the height, and a rim that is a flat pad - EdgeTopFraction 0.15. This is the type an empty slot resolves to, and its numbers are the reference the layer's Density Scale, Extinction Scale and Detail Strength are relative to. Placement is the IDENTITY pair - scale 1, no stretch - because this row is the reference every other type's placement is stated against, exactly as its three material factors are. Changing it would move the sky of every scene that has ever used the built-in default.",
     "Shape": {
-        "BaseAltitudeKm": 2.200000047683716,
-        "TopAltitudeKm": 5.800000190734863,
-        "EdgeTopFraction": 0.15000000596046448,
-        "BaseRampFraction": 0.03999999910593033,
+        "BaseAltitudeKm": 2.2,
+        "TopAltitudeKm": 5.8,
+        "EdgeTopFraction": 0.15,
+        "BaseRampFraction": 0.04,
         "Profile": {
             "HalfWidth": [
-                0.6200000047683716, 0.5991777777671814, 0.5787110924720764, 0.5586000084877014, 0.5388444662094116, 0.519444465637207, 0.5004000067710876, 0.48171111941337585,
-                0.46337777376174927, 0.4453999996185303, 0.4277777671813965, 0.4105111062526703, 0.3935999870300293, 0.3770444393157959, 0.3608444333076477, 0.3449999988079071
+                0.62, 0.5991778, 0.5787111, 0.5586, 0.53884447, 0.51944447, 0.5004, 0.48171112,
+                0.46337777, 0.4454, 0.42777777, 0.4105111, 0.3936, 0.37704444, 0.36084443, 0.345
             ],
             "Density": [
-                0.0, 0.25925928354263306, 0.7407407760620117, 1.0, 1.0, 1.0, 1.0, 1.0,
+                0.0, 0.25925928, 0.7407408, 1.0, 1.0, 1.0, 1.0, 1.0,
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
             ]
         },
@@ -29,7 +29,7 @@
         "AnvilStrength": 0.0,
         "DetailCharacter": 1.0,
         "DetailFactor": 1.0,
-        "DensityFactor": 1.149999976158142,
+        "DensityFactor": 1.15,
         "ExtinctionFactor": 1.0,
         "PlacementScale": 1.0,
         "PlacementAnisotropy": 1.0
