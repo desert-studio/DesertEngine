@@ -1,0 +1,28 @@
+// Per-draw object motion (TAA1 step 4): the current and the previous world transform of one draw, and the
+// velocity a geometry pass writes from them.
+//
+// C++ twin: Graphic::GpuObjectMotion (Engine/Graphic/View/SceneViewState.hpp), std430, 128 bytes, PrevWorld at
+// byte 64 — Desert/Tests/Engine/VelocityTarget pins the two against each other. PrevWorld is what the view's
+// MotionHistory answered for the draw: World itself when the object was not drawn in the view's previous frame,
+// so a newly visible object carries camera motion only.
+//
+// DesertVelocity is the GLSL twin of Graphic::VelocityNdc (Engine/Graphic/View/Velocity.hpp). Both clip
+// positions are UNJITTERED — the vertex stage computes them with ViewProjection / PrevViewProjection, never with
+// the jittered matrix gl_Position uses (ViewFrame rule: velocity never carries the jitter). They travel to the
+// fragment stage as clip positions, not as NDC: the w-divide must happen per pixel, after interpolation.
+
+#ifndef DESERT_OBJECT_MOTION_GLSLH
+#define DESERT_OBJECT_MOTION_GLSLH
+
+struct GpuObjectMotion
+{
+    mat4 World;     // offset 0
+    mat4 PrevWorld; // offset 64
+};
+
+vec2 DesertVelocity( vec4 clip, vec4 prevClip )
+{
+    return clip.xy / clip.w - prevClip.xy / prevClip.w;
+}
+
+#endif // DESERT_OBJECT_MOTION_GLSLH

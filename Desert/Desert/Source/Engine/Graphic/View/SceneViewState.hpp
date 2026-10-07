@@ -4,6 +4,7 @@
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <glm/glm.hpp>
@@ -163,7 +164,7 @@ namespace Desert::Graphic
     // character's motion). Value: current unjittered NDC.xy minus previous unjittered NDC.xy of the surface point
     // (ViewFrame rule: velocity never carries the jitter). Pixels no geometry covered (sky, clouds, far plane)
     // keep the clear value 0 and the TAA pass derives their motion from depth and the two view matrices.
-    inline constexpr Core::Formats::ImageFormat kVelocityFormat = Core::Formats::ImageFormat::RG16F;
+    inline constexpr Core::Formats::ImageFormat kVelocityFormat = ViewTargetFormats::kVelocity;
 
     // RDG-FAULT1 fit. Velocity lost to a fault (every geometry pass that wrote it removed) is read as Black = zero
     // motion: the TAA resolve then treats each pixel as static and its neighbourhood clamp still bounds the error

@@ -27,6 +27,10 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kGBufferC        = ImageFormat::RGBA32F; // world position.xyz
     inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGBufferDepth    = ImageFormat::DEPTH32F;
+    // Screen motion of the surface each pixel shows: current minus previous UNJITTERED NDC.xy (TAA1, see
+    // View/SceneViewState.hpp "Velocity" — kVelocityFormat there is this constant). A colour attachment of the
+    // G-buffer AND of the scene target, because both hold passes that write the view's depth.
+    inline constexpr ImageFormat kVelocity        = ImageFormat::RG16F;
     inline constexpr ImageFormat kSSAO            = ImageFormat::RGBA8F;
 
     // Post stack. A target written by a compute shader as a storage image (bloom, light shafts, lens flare,
