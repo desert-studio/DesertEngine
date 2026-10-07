@@ -64,7 +64,7 @@ namespace Desert::Graphic
 
         if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
         {
-            const ShaderProtocols::Camera data = ShaderProtocols::MakeCameraUB( frame );
+            const auto data = ShaderProtocols::MakeCameraUB( frame );
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
     }

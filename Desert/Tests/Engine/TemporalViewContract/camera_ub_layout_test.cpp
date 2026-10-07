@@ -189,3 +189,45 @@ TEST( CameraUBLayout, AStillViewFrameHasNoJitterAndNoHistory )
     EXPECT_EQ( f.PrevTimeSeconds, 2.0 );
     EXPECT_FALSE( f.HistoryValid() );
 }
+
+// THE ONE WRITER (TAA1 step 3): nothing under the engine or editor sources builds a camera block by hand. The struct
+// is constructed only inside MakeCameraUB (ShaderProtocols/Camera.hpp), and MakeCameraUB is called only by
+// SceneCameraBind (Materials/SceneLightingBinding.hpp), the single write of CameraUB into a material. Mutation: a
+// writer filling `ShaderProtocols::Camera cam; cam.View = ...` again, or calling MakeCameraUB itself, goes red here.
+TEST( CameraUBLayout, NothingButMakeCameraUBFillsTheCameraBlock )
+{
+    namespace fs           = std::filesystem;
+    const fs::path   root  = Desert::TestSupport::RepositoryRoot();
+    const fs::path   owner = fs::path( "Desert" ) / "Desert" / "Source" / "Engine" / "Graphic" / "ShaderProtocols" /
+                           "Camera.hpp";
+    const fs::path   binder = fs::path( "Desert" ) / "Desert" / "Source" / "Engine" / "Graphic" / "Materials" /
+                            "SceneLightingBinding.hpp";
+    const std::regex declared( R"((ShaderProtocols\s*::\s*)Camera\s+[A-Za-z_]\w*\s*(;|\{|=|\())" );
+    const std::regex called( R"(\bMakeCameraUB\s*\()" );
+
+    size_t scanned = 0;
+    for ( const fs::path& tree : { fs::path( "Desert" ) / "Desert" / "Source", fs::path( "Editor" ) / "Source" } )
+    {
+        ASSERT_TRUE( fs::is_directory( root / tree ) ) << ( root / tree ).string();
+        for ( const auto& entry : fs::recursive_directory_iterator( root / tree ) )
+        {
+            const std::string ext = entry.path().extension().string();
+            if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                continue;
+            ++scanned;
+            const fs::path    rel = fs::relative( entry.path(), root );
+            std::ifstream     in( entry.path(), std::ios::binary );
+            std::stringstream text;
+            text << in.rdbuf();
+            const std::string source = text.str();
+            if ( rel != owner )
+                EXPECT_FALSE( std::regex_search( source, declared ) )
+                     << rel.generic_string() << " builds a ShaderProtocols::Camera by hand; fill CameraUB through "
+                     << "SceneCameraBind( material, ViewFrame ) (MakeStillViewFrame for a camera that is not a view)";
+            if ( rel != owner && rel != binder )
+                EXPECT_FALSE( std::regex_search( source, called ) )
+                     << rel.generic_string() << " calls MakeCameraUB itself; SceneCameraBind is the one writer";
+        }
+    }
+    EXPECT_GT( scanned, 100u ) << "the scan found too few sources to mean anything";
+}
