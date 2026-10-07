@@ -73,9 +73,12 @@ namespace Desert::Graphic::QualityBoot
              machine, Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version ) );
         // A first run with a valid recommendation starts on High and then APPLIES the recommendation, so the
         // Saver writes it: from then on machine.json holds a selection and the benchmark never overrides it.
-        Common::Scalability::QualityState::Initialize(
-             table.ExtractValue(), capabilities.Catalog,
-             start.FromRecommended ? MachineSettings::HighSelection() : start.Selection, &SaveSelection );
+        // A named local, not the conditional inline in the by-value argument: MSVC 19.44 never finishes compiling
+        // that call (cl.exe spins until killed).
+        Common::Scalability::QualitySelection initial =
+             start.FromRecommended ? MachineSettings::HighSelection() : start.Selection;
+        Common::Scalability::QualityState::Initialize( table.ExtractValue(), capabilities.Catalog,
+                                                       std::move( initial ), &SaveSelection );
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
         if ( start.FromRecommended )
         {
