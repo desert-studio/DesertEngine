@@ -23,6 +23,7 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
+#include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
@@ -986,8 +987,8 @@ namespace Desert::Graphic::System
         // BuildObjectMotions' output: the rows and both frames' palettes (CPU scratch, capacity kept) and the
         // per-(frame x view) buffers they are uploaded into (StorageBuffer::Create non-persistent: one copy per
         // frame in flight). Created on the first frame, grown by SetData.
-        std::vector<GpuObjectMotion>                              m_ScratchMotions;
-        std::vector<glm::mat4>                                    m_ScratchPalettes;
+        std::vector<MotionRecord>                                 m_ScratchMotionRecords;
+        ObjectMotionRows                                          m_ScratchMotionRows;
         std::shared_ptr<ShaderResources::StorageBuffer>           m_ObjectMotions;
         std::shared_ptr<ShaderResources::StorageBuffer>           m_ObjectBones;
     };

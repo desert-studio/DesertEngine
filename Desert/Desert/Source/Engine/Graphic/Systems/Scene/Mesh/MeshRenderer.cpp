@@ -2,6 +2,7 @@
 #include "MeshRendererInternal.hpp"
 
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
+#include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 namespace Desert::Graphic::System
@@ -453,55 +454,32 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory& motion )
     {
-        auto& rows     = m_ScratchMotions;
-        auto& palettes = m_ScratchPalettes;
-        rows.clear();
-        palettes.clear();
+        // The rows are numbered on the CPU (Graphic/View/ObjectMotionRows.hpp: one row per primitive, submesh
+        // records of one object share it, slots stable per submission); this function only gathers the queued
+        // records, writes each one's row back and uploads.
+        auto& records = m_ScratchMotionRecords;
+        records.clear();
+        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + m_SkinnedQueue.size() );
+        for ( const auto& data : m_StaticQueue )
+            records.push_back( { .Entity = data.Entity, .World = data.Transform } );
+        for ( const auto& data : m_GenericQueue )
+            records.push_back( { .Entity = data.Entity, .World = data.Transform } );
+        const size_t rigidCount = records.size();
+        for ( const auto& data : m_SkinnedQueue )
+            records.push_back( { .Entity = data.Entity, .World = data.Transform, .Bones = data.BoneMatrices } );
 
-        // Per entity, the rows it owns this frame in submission order: the row's index in that list IS the
-        // primitive's slot (MotionKey::Slot). The static, generic and slot-material records of one entity that
-        // carry the same world are ONE primitive (a mesh split across material slots) and share a row; a record
-        // with another world (a second primitive of the entity) or a skinned record takes the next slot.
-        std::unordered_map<uint32_t, std::vector<uint32_t>> entityRows;
-        entityRows.reserve( m_StaticQueue.size() + m_GenericQueue.size() + m_SkinnedQueue.size() );
-
-        const auto newRow = [&]( const uint32_t entity, const glm::mat4& world ) -> uint32_t
-        {
-            auto&          owned = entityRows[entity];
-            const MotionKey key{ entity, static_cast<uint32_t>( owned.size() ) };
-            GpuObjectMotion row;
-            row.World     = world;
-            row.PrevWorld = motion.PreviousTransform( key, world );
-            owned.push_back( static_cast<uint32_t>( rows.size() ) );
-            rows.push_back( row );
-            return owned.back();
-        };
-        const auto rigidRow = [&]( const uint32_t entity, const glm::mat4& world ) -> uint32_t
-        {
-            if ( const auto it = entityRows.find( entity ); it != entityRows.end() )
-                for ( const uint32_t index : it->second )
-                    if ( rows[index].World == world ) // only rigid rows exist yet: the skinned loop runs last
-                        return index;
-            return newRow( entity, world );
-        };
-
+        auto& built = m_ScratchMotionRows;
+        BuildObjectMotionRows( motion, std::span<const MotionRecord>( records ).first( rigidCount ),
+                               std::span<const MotionRecord>( records ).subspan( rigidCount ), built );
+        size_t record = 0;
         for ( auto& data : m_StaticQueue )
-            data.MotionRow = rigidRow( data.Entity, data.Transform );
+            data.MotionRow = built.RecordRows[record++];
         for ( auto& data : m_GenericQueue )
-            data.MotionRow = rigidRow( data.Entity, data.Transform );
+            data.MotionRow = built.RecordRows[record++];
         for ( auto& data : m_SkinnedQueue )
-        {
-            const uint32_t index = newRow( data.Entity, data.Transform );
-            const uint32_t slot  = static_cast<uint32_t>( entityRows[data.Entity].size() - 1 );
-            data.MotionRow       = index;
-            // Both palettes go into the ONE buffer every pass that draws the primitive skins it from.
-            rows[index].BoneOffset = static_cast<uint32_t>( palettes.size() );
-            palettes.insert( palettes.end(), data.BoneMatrices.begin(), data.BoneMatrices.end() );
-            const std::span<const glm::mat4> previous =
-                 motion.PreviousBones( MotionKey{ data.Entity, slot }, data.BoneMatrices );
-            rows[index].PrevBoneOffset = static_cast<uint32_t>( palettes.size() );
-            palettes.insert( palettes.end(), previous.begin(), previous.end() );
-        }
+            data.MotionRow = built.RecordRows[record++];
+        const auto& rows     = built.Rows;
+        const auto& palettes = built.Palettes;
 
         // Both buffers at FINAL size before any pass is declared: the descriptor a draw records points at the
         // buffer it reads (a later grow would reallocate it under recorded draws).

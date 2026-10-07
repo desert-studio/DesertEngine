@@ -6,6 +6,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
+#include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/Velocity.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -18,6 +19,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -484,4 +486,120 @@ TEST( VelocityTarget, EveryViewPassDrawIndexesItsMotionRowAndPushesARelativeTran
     EXPECT_EQ( skinned.find( "UploadSkinnedBones" ), std::string::npos )
          << "the skinned view cell reads ObjectBones (the row's BoneOffset / PrevBoneOffset), not a group palette";
     EXPECT_EQ( skinned.find( "SetSkinnedBoneOffset" ), std::string::npos );
+}
+
+// Step A's row numbering, on the CPU (Graphic/View/ObjectMotionRows.hpp) — what MeshRenderer::BuildObjectMotions
+// uploads. Each test names the mutation that turns it red.
+namespace VelocityTargetTest
+{
+    glm::mat4 At( const float x )
+    {
+        return glm::translate( glm::mat4( 1.0f ), glm::vec3( x, 0, 0 ) );
+    }
+} // namespace VelocityTargetTest
+
+// Mutation: drop the identical-world lookup in the rigid loop (every record a new row) -> red.
+TEST( VelocityTarget, SubmeshRecordsOfOneObjectShareOneRow )
+{
+    using namespace Desert::Graphic;
+    MotionHistory                   motion;
+    const std::vector<MotionRecord> rigid = {
+         { .Entity = 3, .World = VelocityTargetTest::At( 10 ) }, // material slot 0
+         { .Entity = 3, .World = VelocityTargetTest::At( 10 ) }, // material slot 1 of the same mesh
+         { .Entity = 3, .World = VelocityTargetTest::At( 90 ) }, // a second primitive of the entity
+         { .Entity = 4, .World = VelocityTargetTest::At( 10 ) }, // another entity at the same world
+    };
+    ObjectMotionRows out;
+    BuildObjectMotionRows( motion, rigid, {}, out );
+    ASSERT_EQ( out.RecordRows.size(), 4u );
+    EXPECT_EQ( out.Rows.size(), 3u ) << "one row per primitive";
+    EXPECT_EQ( out.RecordRows[0], out.RecordRows[1] );
+    EXPECT_NE( out.RecordRows[0], out.RecordRows[2] );
+    EXPECT_NE( out.RecordRows[0], out.RecordRows[3] ) << "rows are per entity, never shared across entities";
+    for ( std::size_t i = 0; i < rigid.size(); ++i )
+        EXPECT_EQ( out.Rows[out.RecordRows[i]].World, rigid[i].World ) << i;
+}
+
+// Mutation: key the history by the global row index instead of the entity's slot (a new object submitted first
+// shifts every other one) or drop PreviousTransform (PrevWorld = World always) -> red.
+TEST( VelocityTarget, RowsCarryEachPrimitivesOwnPreviousWorldAcrossFrames )
+{
+    using namespace Desert::Graphic;
+    using VelocityTargetTest::At;
+    MotionHistory    motion;
+    ObjectMotionRows out;
+    {
+        const std::vector<MotionRecord> rigid = { { .Entity = 5, .World = At( 0 ) }, { .Entity = 6, .World = At( 7 ) } };
+        BuildObjectMotionRows( motion, rigid, {}, out );
+        motion.EndFrame();
+    }
+    // Next frame: a new entity is submitted FIRST, entity 5 moved, entity 6 is still.
+    const std::vector<MotionRecord> rigid = { { .Entity = 9, .World = At( 300 ) },
+                                              { .Entity = 5, .World = At( 40 ) },
+                                              { .Entity = 6, .World = At( 7 ) } };
+    BuildObjectMotionRows( motion, rigid, {}, out );
+    ASSERT_EQ( out.Rows.size(), 3u );
+    EXPECT_EQ( out.Rows[out.RecordRows[0]].PrevWorld, At( 300 ) ) << "absent last frame: prev = current";
+    EXPECT_EQ( out.Rows[out.RecordRows[1]].PrevWorld, At( 0 ) ) << "moved: its own previous world";
+    // A still object: bit for bit, so its velocity is exactly the camera's.
+    EXPECT_EQ( 0, std::memcmp( &out.Rows[out.RecordRows[2]].PrevWorld, &out.Rows[out.RecordRows[2]].World,
+                               sizeof( glm::mat4 ) ) );
+}
+
+// Mutation: let a skinned record reuse a rigid row of the same world, write PrevBoneOffset = BoneOffset, or key
+// PreviousBones by slot 0 for every record -> red.
+TEST( VelocityTarget, EverySkinnedSlotGetsItsOwnRowAndItsOwnPreviousPalette )
+{
+    using namespace Desert::Graphic;
+    using VelocityTargetTest::At;
+    const std::vector<glm::mat4> poseA0 = { At( 1 ), At( 2 ) };
+    const std::vector<glm::mat4> poseB0 = { At( 5 ), At( 6 ), At( 7 ) };
+    const std::vector<glm::mat4> poseA1 = { At( 11 ), At( 12 ) };
+    const std::vector<glm::mat4> poseB1 = { At( 15 ), At( 16 ), At( 17 ) };
+    MotionHistory                motion;
+    ObjectMotionRows             out;
+    const std::vector<MotionRecord> rigid = { { .Entity = 2, .World = At( 0 ) } };
+    BuildObjectMotionRows( motion, rigid,
+                           std::vector<MotionRecord>{ { .Entity = 2, .World = At( 0 ), .Bones = poseA0 },
+                                                      { .Entity = 2, .World = At( 0 ), .Bones = poseB0 } },
+                           out );
+    motion.EndFrame();
+    const std::vector<MotionRecord> skinned = { { .Entity = 2, .World = At( 0 ), .Bones = poseA1 },
+                                                { .Entity = 2, .World = At( 0 ), .Bones = poseB1 } };
+    BuildObjectMotionRows( motion, rigid, skinned, out );
+
+    ASSERT_EQ( out.RecordRows.size(), 3u );
+    EXPECT_EQ( out.Rows.size(), 3u ) << "the rigid record and both skinned slots are three primitives";
+    const GpuObjectMotion& a = out.Rows[out.RecordRows[1]];
+    const GpuObjectMotion& b = out.Rows[out.RecordRows[2]];
+    const auto slice = [&]( const uint32_t offset, const std::size_t count )
+    { return std::vector<glm::mat4>( out.Palettes.begin() + offset, out.Palettes.begin() + offset + count ); };
+    EXPECT_EQ( slice( a.BoneOffset, 2 ), poseA1 );
+    EXPECT_EQ( slice( a.PrevBoneOffset, 2 ), poseA0 );
+    EXPECT_EQ( slice( b.BoneOffset, 3 ), poseB1 );
+    EXPECT_EQ( slice( b.PrevBoneOffset, 3 ), poseB0 );
+    EXPECT_EQ( out.Palettes.size(), 2u * ( poseA1.size() + poseB1.size() ) ) << "both frames, end to end";
+}
+
+// Mutation: build twice per frame with a different RecordRows order (rows not stable within the frame), or fill
+// RecordRows in another order than rigid-then-skinned -> red.
+TEST( VelocityTarget, RowIndicesAreStableWithinTheFrame )
+{
+    using namespace Desert::Graphic;
+    using VelocityTargetTest::At;
+    const std::vector<glm::mat4>    pose  = { At( 1 ) };
+    const std::vector<MotionRecord> rigid = { { .Entity = 1, .World = At( 0 ) },
+                                              { .Entity = 2, .World = At( 3 ) },
+                                              { .Entity = 1, .World = At( 0 ) } };
+    const std::vector<MotionRecord> skinned = { { .Entity = 8, .World = At( 4 ), .Bones = pose } };
+    MotionHistory                   motion;
+    ObjectMotionRows                first;
+    ObjectMotionRows                again;
+    BuildObjectMotionRows( motion, rigid, skinned, first );
+    BuildObjectMotionRows( motion, rigid, skinned, again ); // a second build in the same frame
+    EXPECT_EQ( first.RecordRows, again.RecordRows );
+    ASSERT_EQ( first.RecordRows.size(), 4u );
+    EXPECT_EQ( first.RecordRows, ( std::vector<uint32_t>{ 0, 1, 0, 2 } ) );
+    for ( std::size_t i = 0; i < first.Rows.size(); ++i )
+        EXPECT_EQ( 0, std::memcmp( &first.Rows[i], &again.Rows[i], sizeof( GpuObjectMotion ) ) ) << i;
 }
