@@ -279,6 +279,17 @@ Shader "DeferredLighting"
         	// (0..3). Heat-map it as a proxy for per-pixel shading cost (UE-style shader/material complexity).
         	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(word) / 3.0), 1.0); return; }
 
+        	// Shading Model / Sun Shadow Receive: the word's other two fields, decoded from the same integer fetch (the
+        	// slot is R32_UINT; a float view of it would reinterpret the bits). One flat colour per model index (golden-
+        	// ratio hue walk, so neighbouring indices differ); green = receives the sun's cascades, red = opted out.
+        	if (dbg == 10)
+        	{
+        		const float hue = fract(float(shadingModel) * 0.618034);
+        		oColor          = vec4(clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0), 1.0);
+        		return;
+        	}
+        	if (dbg == 11) { oColor = DesertReceivesSunShadows(word) ? vec4(0.1, 0.9, 0.2, 1.0) : vec4(0.9, 0.1, 0.1, 1.0); return; }
+
         	// --- Lit: shadow-mapped directional sun (N·L) + full PBR point/spot lights ---
         	vec3 N    = normalize(normal);
         	vec3 view = normalize(u_CameraPos.xyz - worldPos);

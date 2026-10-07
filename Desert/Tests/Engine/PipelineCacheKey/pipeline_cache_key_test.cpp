@@ -17,6 +17,7 @@
 
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/DebugViewState.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
 
@@ -26,6 +27,7 @@
 #include <fstream>
 #include <iterator>
 #include <optional>
+#include <regex>
 #include <string>
 #include <vector>
 #include <set>
@@ -677,4 +679,81 @@ TEST( PipelineBlendState, PipelineCreationTakesEveryBlendSwitchFromTheRule )
           at = body.find( "m_Specification.BlendEnable", at + 1 ) )
         ++uses;
     EXPECT_EQ( uses, 1u );
+}
+
+// G-buffer slot 2 is the R32_UINT shading word. A float sampler over it reinterprets the bits, so: no shader declares a
+// float sampler for a *ShadingWord, none reads one through texture()/textureLod (texelFetch only), the one C++ binding is
+// DeferredLighting's u_GBufferShadingWord fed from gbuffer[2], and the editor's buffer views of the word's three fields
+// (Material Complexity = TEXTURES, Shading Model = INDEX, Sun Shadow Receive = NO_SUN_SHADOWS) decode the one integer
+// fetch. Mutations: `usampler2D u_GBufferShadingWord` -> `sampler2D`, or a debug branch reading texture(u_GBufferShadingWord,
+// ...), or a second .Sampled("u_GBufferShadingWord", ...) anywhere -> red.
+TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
+{
+    const auto read = []( const std::filesystem::path& path )
+    {
+        std::ifstream in( path, std::ios::binary );
+        return std::string( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    };
+    const auto strip = []( std::string text )
+    {
+        std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+        return text;
+    };
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
+
+    const std::regex floatSampler( R"((^|[^u])sampler2D(Array)?\s+\w*ShadingWord)" );
+    const std::regex floatRead( R"(texture(Lod|Grad|Offset)?\s*\(\s*\w*ShadingWord)" );
+    std::vector<std::string> offenders;
+    std::size_t              shaders = 0;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / "Editor/Resources/Shaders" ) )
+    {
+        const auto ext = entry.path().extension();
+        if ( !entry.is_regular_file() || ( ext != ".shader" && ext != ".glslh" && ext != ".glsl" ) )
+            continue;
+        ++shaders;
+        const std::string text = read( entry.path() );
+        if ( std::regex_search( text, floatSampler ) || std::regex_search( text, floatRead ) )
+            offenders.push_back( entry.path().filename().string() );
+    }
+    EXPECT_GT( shaders, 50u );
+    EXPECT_TRUE( offenders.empty() ) << "reads the R32_UINT shading word through a float sampler: "
+                                     << ::testing::PrintToString( offenders );
+
+    const std::string lighting =
+         strip( read( root / "Editor/Resources/Shaders/Programs/Deferred/DeferredLighting.shader" ) );
+    ASSERT_FALSE( lighting.empty() );
+    EXPECT_NE( lighting.find( "Uniform(1)usampler2Du_GBufferShadingWord;" ), std::string::npos );
+    const auto fetch = lighting.find( "constuintword=texelFetch(u_GBufferShadingWord,ivec2(gl_FragCoord.xy),0).r;" );
+    ASSERT_NE( fetch, std::string::npos );
+    for ( const char* branch : { "if(dbg==9){oColor=vec4(HeatColor(DesertSampledTextureCount(word)",
+                                 "if(dbg==10){constfloathue=fract(float(shadingModel)",
+                                 "if(dbg==11){oColor=DesertReceivesSunShadows(word)" } )
+    {
+        const auto at = lighting.find( branch );
+        EXPECT_NE( at, std::string::npos ) << branch;
+        EXPECT_GT( at, fetch ) << branch << " does not decode the integer fetch.";
+    }
+    EXPECT_NE( lighting.find( "constintshadingModel=DesertShadingModelIndex(word);" ), std::string::npos );
+    EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::MaterialComplexity ), 9 );
+    EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::ShadingModel ), 10 );
+    EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::SunShadowReceive ), 11 );
+
+    // C++: the only binding of the word by name, fed from G-buffer slot 2.
+    std::vector<std::string> binders;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / "Desert/Desert/Source" ) )
+    {
+        const auto ext = entry.path().extension();
+        if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" ) )
+            continue;
+        if ( read( entry.path() ).find( "\"u_GBufferShadingWord\"" ) != std::string::npos )
+            binders.push_back( entry.path().filename().string() );
+    }
+    EXPECT_EQ( binders, std::vector<std::string>{ "DeferredLightingRenderer.hpp" } );
+    const std::string renderer =
+         strip( read( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" ) );
+    EXPECT_NE( renderer.find( ".Sampled(\"u_GBufferShadingWord\",inputs.GBufferShadingWord,RDG::Access::SampledGraphics,"
+                              "RDG::SubresourceRange::All(),RDG::SamplerDesc::PointClamp())" ),
+               std::string::npos );
+    const std::string deferred = strip( read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" ) );
+    EXPECT_NE( deferred.find( "inputs.GBufferShadingWord=gbuffer[2];" ), std::string::npos );
 }
