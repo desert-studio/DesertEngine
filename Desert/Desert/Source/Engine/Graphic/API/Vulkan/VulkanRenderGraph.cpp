@@ -265,6 +265,7 @@ namespace Desert::Graphic::API::Vulkan
     RdgRenderPassKey RdgCompatibilityKey( const RdgRenderPassKey& key )
     {
         std::vector<VkFormat> colourFormats;
+        colourFormats.reserve( key.Colours.size() );
         for ( const RdgAttachmentKey& colour : key.Colours )
             colourFormats.push_back( colour.Format );
         return RdgCompatibleRenderPassKey( colourFormats, key.Depth ? key.Depth->Format : VK_FORMAT_UNDEFINED,
@@ -307,6 +308,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !key.Resolves.empty() && key.Resolves.size() != key.Colours.size() )
             return Common::MakeFormattedError<VkRenderPass>( "render pass with {} colour(s) and {} resolve(s)",
                                                              key.Colours.size(), key.Resolves.size() );
+        resolveRefs.reserve( key.Resolves.size() );
         for ( const RdgAttachmentKey& resolve : key.Resolves )
         {
             resolveRefs.push_back( resolve.Format == VK_FORMAT_UNDEFINED
@@ -477,12 +479,12 @@ namespace Desert::Graphic::API::Vulkan
         }
         if ( range.MipCount == 1 && range.BaseLayer == 0 && range.LayerCount == RDG::kAllRemaining )
         {
-            const VkImageView view = mipView( range.BaseMip );
+            VkImageView view = mipView( range.BaseMip );
             if ( view == VK_NULL_HANDLE )
                 return Common::MakeFormattedError<VkImageView>( "no view of mip {}", range.BaseMip );
             return Common::MakeSuccess( view );
         }
-        if ( !graphTexture )
+        if ( graphTexture == nullptr )
             return Common::MakeFormattedError<VkImageView>(
                  "mips [{}, +{}) layers [{}, +{}) name a layer range of an image the graph did not import",
                  range.BaseMip, range.MipCount, range.BaseLayer, range.LayerCount );
@@ -785,7 +787,8 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t key = desc.GetKey();
         if ( const auto found = m_Samplers.find( key ); found != m_Samplers.end() )
             return Common::MakeSuccess( found->second );
-        VkSamplerCreateInfo info{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+        VkSamplerCreateInfo info{};
+        info.sType             = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         info.magFilter         = RdgVulkanFilter( desc.MagFilter );
         info.minFilter         = RdgVulkanFilter( desc.MinFilter );
         info.mipmapMode        = desc.MipMode == RDG::SamplerMipMode::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR
@@ -816,7 +819,8 @@ namespace Desert::Graphic::API::Vulkan
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, kSets },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kSets * 2 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSets * 2 } };
-        VkDescriptorPoolCreateInfo info{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        VkDescriptorPoolCreateInfo info{};
+        info.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         info.maxSets            = kSets;
         info.poolSizeCount      = static_cast<uint32_t>( sizes.size() );
         info.pPoolSizes         = sizes.data();
@@ -850,7 +854,8 @@ namespace Desert::Graphic::API::Vulkan
                     return Common::MakeFormattedError<VkDescriptorSet>( "{}", added.GetError() );
                 fresh = true;
             }
-            VkDescriptorSetAllocateInfo info{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            VkDescriptorSetAllocateInfo info{};
+            info.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
             info.descriptorPool     = pools.Pools[pools.Current];
             info.descriptorSetCount = 1;
             info.pSetLayouts        = &layout;
@@ -880,14 +885,15 @@ namespace Desert::Graphic::API::Vulkan
         if ( combined != ( sampler != VK_NULL_HANDLE ) )
             return Common::MakeFormattedError( "texture '{}': a sampler goes with COMBINED_IMAGE_SAMPLER only",
                                                texture.Name );
-        Common::ResultStr<VulkanRdgTexture*> physical = VulkanRdgBackend::TextureOf( texture );
+        const Common::ResultStr<VulkanRdgTexture*> physical = VulkanRdgBackend::TextureOf( texture );
         if ( !physical )
             return Common::MakeError( physical.GetError() );
-        Common::ResultStr<VkImageView> view = physical.GetValue()->GetView( range, false );
+        const Common::ResultStr<VkImageView> view = physical.GetValue()->GetView( range, false );
         if ( !view )
             return Common::MakeFormattedError( "texture '{}': {}", texture.Name, view.GetError() );
         const VkDescriptorImageInfo image{ sampler, view.GetValue(), layout };
-        VkWriteDescriptorSet        write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        VkWriteDescriptorSet        write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet          = set;
         write.dstBinding      = binding;
         write.descriptorCount = 1;
@@ -904,11 +910,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( type != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER && type != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER )
             return Common::MakeFormattedError( "buffer '{}': descriptor type {} is not a buffer type", buffer.Name,
                                                static_cast<int>( type ) );
-        Common::ResultStr<VulkanRdgBuffer*> physical = VulkanRdgBackend::BufferOf( buffer );
+        const Common::ResultStr<VulkanRdgBuffer*> physical = VulkanRdgBackend::BufferOf( buffer );
         if ( !physical )
             return Common::MakeError( physical.GetError() );
         const VkDescriptorBufferInfo info{ physical.GetValue()->GetBuffer(), 0, physical.GetValue()->GetSize() };
-        VkWriteDescriptorSet         write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        VkWriteDescriptorSet         write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet          = set;
         write.dstBinding      = binding;
         write.descriptorCount = 1;
@@ -968,6 +975,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( backend.GetKind() != RDG::BackendKind::Vulkan )
             return Common::MakeFormattedError<VulkanRdgPassDescriptors*>(
                  "pass '{}' is not recorded by the Vulkan backend", context.GetPassName() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): GetKind() == Vulkan names this exact
+        // type
         VulkanRdgPassDescriptors* descriptors = static_cast<VulkanRdgBackend&>( backend ).m_Descriptors;
         if ( descriptors == nullptr )
             return Common::MakeFormattedError<VulkanRdgPassDescriptors*>(
@@ -1030,7 +1039,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError( "graph '{}': no compile result to place transients from",
                                                graph.Name );
         // B(3): what records before the first segment (a graph with no segment: the tail for its final barriers).
-        Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
+        const Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
         if ( !first )
             return Common::MakeFormattedError( "graph '{}': {}", graph.Name, first.GetError() );
         // A graph refused below is not abandoned by Builder::Execute, and its compile result dies with that call:
@@ -1213,7 +1222,8 @@ namespace Desert::Graphic::API::Vulkan
                 if ( barrier.Kind == RDG::ResourceKind::Texture )
                 {
                     const VulkanRdgTexture& texture = *m_Textures[barrier.Resource];
-                    VkImageMemoryBarrier    image{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+                    VkImageMemoryBarrier    image{};
+                    image.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                     image.srcAccessMask       = srcAccess;
                     image.dstAccessMask       = dstAccess;
                     image.oldLayout           = barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
@@ -1228,7 +1238,8 @@ namespace Desert::Graphic::API::Vulkan
                 }
                 else
                 {
-                    VkBufferMemoryBarrier buffer{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+                    VkBufferMemoryBarrier buffer{};
+                    buffer.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
                     buffer.srcAccessMask       = srcAccess;
                     buffer.dstAccessMask       = dstAccess;
                     buffer.srcQueueFamilyIndex = srcFamily;
@@ -1344,7 +1355,7 @@ namespace Desert::Graphic::API::Vulkan
             views.push_back( depthView.first );
             clears.push_back( depthView.second );
         }
-        for ( const VkImageView view : resolveViews )
+        for ( VkImageView view : resolveViews )
         {
             if ( view != VK_NULL_HANDLE )
             {
@@ -1449,7 +1460,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_Queues == nullptr )
             return Common::MakeError( "the Vulkan backend has no queues (BeginFrame)" );
-        Common::ResultStr<VkCommandBuffer> begun = m_Segments.BeginSegment( segment, *m_Queues );
+        const Common::ResultStr<VkCommandBuffer> begun = m_Segments.BeginSegment( segment, *m_Queues );
         if ( !begun )
             return Common::MakeError( begun.GetError() );
         SetRecording( begun.GetValue() );
@@ -1460,7 +1471,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_OpenRenderPass )
             return Common::MakeError( "a render pass is open across a segment boundary" );
-        Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
+        const Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
         SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );
         if ( !next )
             return Common::MakeError( next.GetError() );

@@ -58,7 +58,7 @@ namespace Desert::Graphic::API::Vulkan
             SubresourceLayouts = std::move( layouts );
         }
 
-        VkDescriptorImageInfo GetDescriptorInfo() const
+        [[nodiscard]] VkDescriptorImageInfo GetDescriptorInfo() const
         {
             return { Sampler, ImageView, Layout };
         }
@@ -111,7 +111,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // The graph's handle on this image, kept for the image's lifetime so the views and framebuffers the
         // graph builds on it are made once, not every frame. Dropped with the VkImage (each kind's Release).
-        const std::shared_ptr<RDG::IPhysicalTexture>& GetGraphTexture() const
+        [[nodiscard]] const std::shared_ptr<RDG::IPhysicalTexture>& GetGraphTexture() const
         {
             return m_GraphTexture;
         }

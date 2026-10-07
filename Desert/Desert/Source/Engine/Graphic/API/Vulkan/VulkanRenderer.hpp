@@ -32,7 +32,7 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] virtual Common::BoolResultStr BeginFrame() override;
         // The command buffer the frame records into NOW. It changes at every ExecuteGraph (the frame is split
         // there), so a caller asks for it when it records and never keeps it.
-        VkCommandBuffer GetCurrentCommandBuffer() const
+        [[nodiscard]] VkCommandBuffer GetCurrentCommandBuffer() const
         {
             return m_CurrentCommandBuffer;
         }
@@ -75,7 +75,7 @@ namespace Desert::Graphic::API::Vulkan
         virtual void ComputeImageBeginRead( Image* image ) override;
         virtual void ComputeImageEndRead( Image* image ) override;
 
-        virtual Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
+        Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         virtual void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
 
         virtual void ResizeWindowEvent( uint32_t width, uint32_t height ) override;

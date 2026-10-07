@@ -267,9 +267,9 @@ namespace Common::Profiling
 // Times the enclosing function, named automatically from the function name — drop one line at the top of
 // any method you want to track (don't blanket EVERY tiny getter: the clock read + map insert per call adds
 // up and drowns the signal — instrument meaningful methods).
-#define DESERT_PROFILE_FUNC()                                                                               \
-    OPTICK_EVENT();                                                                                         \
-    ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfFn_, __LINE__ )( __FUNCTION__ )
+#define DESERT_PROFILE_FUNC()                                                                                     \
+    OPTICK_EVENT();                                                                                               \
+    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfFn_, __LINE__ )( __FUNCTION__ )
 
 // A RENDER PASS: exactly DESERT_PROFILE_SCOPE plus device timestamps around the same scope, under the
 // same name, landing in the same row of the same panel. There is no separate list of pass names anywhere

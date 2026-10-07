@@ -111,7 +111,7 @@ namespace Desert::Graphic::RDG
                                                                                   std::string_view  name )  = 0;
         // The graph released its hold; placed resources stay alive until the slot is re-begun.
         virtual void                    EndGraph( std::string_view graph ) = 0;
-        virtual TransientAllocatorStats GetStats() const                   = 0;
+        [[nodiscard]] virtual TransientAllocatorStats GetStats() const                   = 0;
     };
 
     // RDG-CONTRACTS B(4). The decided async-compute fallback is announced exactly once per backend, not silently
@@ -130,7 +130,7 @@ namespace Desert::Graphic::RDG
         // @p passNames: the names of the demoted passes of this compile. Returns true only on the call that
         // logged.
         bool     Report( std::span<const std::string_view> passNames );
-        uint32_t GetLinesLogged() const;
+        [[nodiscard]] uint32_t GetLinesLogged() const;
 
     private:
         Sink     m_Sink;
@@ -149,7 +149,7 @@ namespace Desert::Graphic::RDG
         // A(1): where BeginGraph places transients. Valid for the backend's whole life.
         virtual ITransientAllocator& GetTransientAllocator() = 0;
         // B(4): what Execute compiles against. Constant for the backend's life (it describes the device).
-        virtual PipeCapabilities GetPipeCapabilities() const = 0;
+        [[nodiscard]] virtual PipeCapabilities GetPipeCapabilities() const = 0;
         // B(4): the once-per-backend announcement of demoted AsyncCompute passes.
         virtual AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() = 0;
 

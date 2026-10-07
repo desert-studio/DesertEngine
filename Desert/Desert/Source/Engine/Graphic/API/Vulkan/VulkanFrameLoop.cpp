@@ -15,7 +15,8 @@ namespace Desert::Graphic::API::Vulkan
            m_Fences( std::max( 1u, frameSlots ), VK_NULL_HANDLE )
     {
         // SIGNALLED: no frame is in flight yet, so the first wait on every slot returns at once.
-        VkFenceCreateInfo info{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        VkFenceCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         for ( VkFence& fence : m_Fences )
         {
@@ -88,7 +89,8 @@ namespace Desert::Graphic::API::Vulkan
                 }
             }
 
-            VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            VkSubmitInfo submitInfo{};
+            submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
             submitInfo.waitSemaphoreCount   = static_cast<uint32_t>( waits.size() );
             submitInfo.pWaitSemaphores      = waits.data();
             submitInfo.pWaitDstStageMask    = stages.data();
@@ -96,7 +98,7 @@ namespace Desert::Graphic::API::Vulkan
             submitInfo.pCommandBuffers      = &entry.CommandBuffer;
             submitInfo.signalSemaphoreCount = static_cast<uint32_t>( signals.size() );
             submitInfo.pSignalSemaphores    = signals.data();
-            const VkQueue  target = entry.Queue != VK_NULL_HANDLE ? entry.Queue : device->GetGraphicsQueue();
+            VkQueue        target = entry.Queue != VK_NULL_HANDLE ? entry.Queue : device->GetGraphicsQueue();
             const VkResult submitted =
                  device->SubmitToQueue( target, 1, &submitInfo, last ? m_Fences[slot] : VK_NULL_HANDLE );
             if ( submitted != VK_SUCCESS )
