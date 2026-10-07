@@ -70,6 +70,7 @@
 
 using Desert::Core::CollectShaderIncludes;
 using Desert::Core::ComputeShaderCacheKey;
+using Desert::Core::ComputeShaderMapKey;
 using Desert::Core::Formats::ShaderStage;
 using namespace Desert::Graphic::API::Vulkan;
 
