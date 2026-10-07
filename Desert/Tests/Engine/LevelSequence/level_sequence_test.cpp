@@ -457,38 +457,38 @@ TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
 
 namespace
 {
-// The suite's stand-in for MeshECSSystem's per-entity slot instances: (entity, slot, parameter) → override.
-// The "asset" is a separate value no Set may reach — what the material asset says before and after.
-struct FakeMaterialSlots
-{
-    std::map<std::tuple<entt::entity, uint32_t, std::string>, glm::vec4> Overrides;
-    entt::entity                                                         Owner = entt::null;
-    uint32_t                                                             Slots = 1;
-
-    ECS::LevelSequenceMaterialSlots Access()
+    // The suite's stand-in for MeshECSSystem's per-entity slot instances: (entity, slot, parameter) → override.
+    // The "asset" is a separate value no Set may reach — what the material asset says before and after.
+    struct FakeMaterialSlots
     {
-        ECS::LevelSequenceMaterialSlots access;
-        access.Get = [this]( entt::registry&, entt::entity entity,
-                             const ECS::LevelSequenceMaterialParameter& parameter ) -> std::optional<glm::vec4>
+        std::map<std::tuple<entt::entity, uint32_t, std::string>, glm::vec4> Overrides;
+        entt::entity                                                         Owner = entt::null;
+        uint32_t                                                             Slots = 1;
+
+        ECS::LevelSequenceMaterialSlots Access()
         {
-            const auto at = Overrides.find( { entity, parameter.Slot, parameter.Name } );
-            return at != Overrides.end() ? std::optional<glm::vec4>( at->second ) : std::nullopt;
-        };
-        access.Set = [this]( entt::registry&, entt::entity entity,
-                             const ECS::LevelSequenceMaterialParameter& parameter,
-                             const std::optional<glm::vec4>&            value )
-        {
-            if ( entity != Owner || parameter.Slot >= Slots )
-                return false;
-            if ( value )
-                Overrides[{ entity, parameter.Slot, parameter.Name }] = *value;
-            else
-                Overrides.erase( { entity, parameter.Slot, parameter.Name } );
-            return true;
-        };
-        return access;
-    }
-};
+            ECS::LevelSequenceMaterialSlots access;
+            access.Get = [this]( entt::registry&, entt::entity entity,
+                                 const ECS::LevelSequenceMaterialParameter& parameter ) -> std::optional<glm::vec4>
+            {
+                const auto at = Overrides.find( { entity, parameter.Slot, parameter.Name } );
+                return at != Overrides.end() ? std::optional<glm::vec4>( at->second ) : std::nullopt;
+            };
+            access.Set = [this]( entt::registry&, entt::entity entity,
+                                 const ECS::LevelSequenceMaterialParameter& parameter,
+                                 const std::optional<glm::vec4>&            value )
+            {
+                if ( entity != Owner || parameter.Slot >= Slots )
+                    return false;
+                if ( value )
+                    Overrides[{ entity, parameter.Slot, parameter.Name }] = *value;
+                else
+                    Overrides.erase( { entity, parameter.Slot, parameter.Name } );
+                return true;
+            };
+            return access;
+        }
+    };
 } // namespace
 
 TEST( LevelSequenceDocument, AMaterialParameterTrackDrivesTheActorsSlotOverrideNotTheAsset )
