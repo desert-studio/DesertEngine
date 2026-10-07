@@ -165,3 +165,60 @@ TEST( VelocityTarget, AnObjectNotDrawnLastFrameMovesOnlyWithTheCamera )
     const glm::vec2 camera       = VelocityNdc( viewProj * record.World * p, prevViewProj * record.PrevWorld * p );
     EXPECT_GT( glm::length( camera ), 1e-4f );
 }
+
+// The owning entity is the MotionHistory key of a draw's previous transform, and it crosses three hops before the
+// geometry pass reads it: the ECS emplace names it, the command's Execute forwards it, SceneRenderer copies it onto
+// the render data. A hop that drops it keys every object of the scene under one id — each draw then reads another
+// object's previous transform, which is a wrong velocity with no error anywhere. Mutation that turns this red:
+// remove `Entity` from any command's Execute, or pass anything but `entity` first in an emplace.
+TEST( VelocityTarget, EveryMeshDrawCarriesItsOwningEntityToTheRenderData )
+{
+    using VelocityTargetTest::ReadFile;
+    const auto root     = Desert::TestSupport::RepositoryRoot();
+    const auto commands = root / "Desert/Desert/Source/Engine/Graphic/Render/Commands";
+
+    struct Hop
+    {
+        const char* File;
+        const char* Forward; // the Execute call that must carry Entity
+    };
+    const Hop hops[] = {
+         { "DrawMeshCommand.hpp", R"(\.Entity\s*=\s*Entity)" },
+         { "DrawSkinnedMeshCommand.hpp", R"(\.Entity\s*=\s*Entity)" },
+         { "DrawSlotMaterialMeshCommand.hpp", R"(SubmitSlotMaterialMesh\(\s*Entity\s*,)" },
+         { "DrawGenericMeshCommand.hpp", R"(SubmitGenericMesh\(\s*Entity\s*,)" },
+    };
+    for ( const auto& hop : hops )
+    {
+        const std::string src = ReadFile( commands / hop.File );
+        ASSERT_FALSE( src.empty() ) << hop.File;
+        EXPECT_TRUE( std::regex_search( src, std::regex( hop.Forward ) ) )
+             << hop.File << ": Execute no longer forwards the owning entity";
+    }
+
+    for ( const char* producer : { "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp",
+                                   "Desert/Desert/Source/Engine/ECS/System/TextECSSystem.hpp" } )
+    {
+        const std::string src = ReadFile( root / producer );
+        ASSERT_FALSE( src.empty() ) << producer;
+        const std::regex emplace(
+             R"(Emplace<Graphic::Render::Draw(Static|Skinned|SlotMaterial|Generic)Mesh(Command)?>\(\s*([^,]*),)" );
+        int seen = 0;
+        for ( auto it = std::sregex_iterator( src.begin(), src.end(), emplace ); it != std::sregex_iterator(); ++it )
+        {
+            ++seen;
+            EXPECT_EQ( ( *it )[3].str(), "static_cast<uint32_t>( entity )" )
+                 << producer << ": a mesh draw is emplaced without its owning entity first";
+        }
+        EXPECT_GT( seen, 0 ) << producer << ": no mesh draw emplace found — the census lost its subject";
+    }
+
+    const std::string scene = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+    EXPECT_TRUE( std::regex_search( scene, std::regex( R"(\.Entity\s*=\s*extra\.Entity)" ) ) )
+         << "SceneRenderer::SubmitMesh drops RenderSubmissionExtra::Entity";
+    EXPECT_EQ( std::distance( std::sregex_iterator( scene.begin(), scene.end(),
+                                                    std::regex( R"(\.Entity\s*=\s*entity\b)" ) ),
+                              std::sregex_iterator() ),
+               2 )
+         << "SubmitGenericMesh / SubmitSlotMaterialMesh must both copy the entity onto GenericMeshRenderData";
+}
