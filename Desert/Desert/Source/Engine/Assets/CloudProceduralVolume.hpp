@@ -366,23 +366,28 @@ namespace Desert::Assets
         /// 1.0 km to 1.5 km at the same distance.
         float PlacementScatter = 1.0f;
 
-        /// How much cluster sizes spread, 0..1. Zero makes every cluster the size its cell's fill says;
-        /// one makes the largest about four times the width of the smallest.
+        /// How much cluster sizes spread, 0..1, on a LOG scale: the largest cloud is `16^variety` times the
+        /// width of the smallest, so zero makes every cluster the size its cell's fill says, the shipped
+        /// 0.75 spans eightfold and one spans sixteenfold.
         ///
-        /// THE SPREAD IS UNIFORM IN AREA AND NOT IN RADIUS, so that the mean area a cluster covers is
-        /// exactly what it was at zero. Spreading the radius uniformly instead would have raised the mean
-        /// area by a twelfth of the spread squared and moved the Coverage mapping with it.
+        /// THE SIZES FOLLOW A POWER LAW, `n(D) ~ D^-2`, which is what observed cumulus fields measure —
+        /// many small clouds and few large ones (CLOUD-VARIETY; CloudClusterSizeDraw). The mean AREA is one
+        /// at every setting, so the knob shares the same cloud out differently and the Coverage mapping
+        /// does not move with it.
         float PlacementSizeVariety = 0.75f;
 
-        /// The world size over which the LARGE-scale modulation of coverage repeats, kilometres. It is the
-        /// scale of a weather system rather than of a cloud: patches of busy sky and patches of clear sky,
-        /// which is the structure a lattice with one number for the whole sky cannot have.
+        /// The size of a WEATHER SYSTEM, kilometres: the wavelength the large-scale modulation of coverage is
+        /// centred on. Its spectrum spans two octaves around it — half the tile up to twice it, clamped to
+        /// what the region's torus can hold — so at the shipped 21 km the sky has busy regions and clear
+        /// gaps from about ten to forty kilometres across, the scale real cumulus fields cluster at.
         float PatchTileKm = 21.0f;
 
-        /// How hard that modulation pushes, 0..1. Zero is a uniformly busy sky — which is what the owner
-        /// described as "the whole sky is cloud" — and one lets a patch reach nearly empty and nearly
-        /// solid. It is SYMMETRIC about the slider's own value, so it redistributes cloud rather than
-        /// adding or removing it.
+        /// How much of the sky's arrangement the weather decides, 0..1 — the fraction of the variance of a
+        /// cell's alive draw that comes from the weather rather than from the cell's own hash (a Gaussian
+        /// copula; WeatherLocalCover in the generator). Zero is a uniformly busy sky, which is what the
+        /// owner described as "the whole sky is cloud"; one is weather alone, with the busy regions solid
+        /// and the gaps between them EMPTY. At every setting the fraction of the sky covered is the
+        /// Coverage slider exactly, in expectation: the weather redistributes cloud, it never adds any.
         float PatchStrength = 0.60f;
 
         /// The horizontal wind direction the lattice's anisotropy is measured against, world XZ. Need not

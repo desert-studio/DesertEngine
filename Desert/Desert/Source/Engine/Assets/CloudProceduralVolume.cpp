@@ -57,8 +57,8 @@ namespace Desert::Assets
         /// — out by at most 0.019, against the tenth Desert/Tests/Engine/CloudProceduralField allows and
         /// against the 0.11 the free placement was out by before this line existed.
         ///
-        /// IT DOES NOT DEPEND ON THE SIZE SPREAD, which is by construction: the size draw is uniform in
-        /// AREA with a mean of one. It depends only weakly on the density, which is what
+        /// IT DOES NOT DEPEND ON THE SIZE SPREAD, which is by construction: the size draw is a power law
+        /// whose mean AREA is one (CloudClusterSizeDraw). It depends only weakly on the density, which is what
         /// kDensityCompensation is for. It DOES depend on the SCATTER, which is precisely what it is
         /// compensating — an artist who returns the scatter to zero gets a sky a few points fuller than
         /// the slider says, which is inside the suite's tenth and is stated on the knob's own tooltip.
@@ -276,54 +276,167 @@ namespace Desert::Assets
             return HashUnit( word ) - 0.5f;
         }
 
-        /// One octave of smoothly interpolated value noise over the world's XZ plane, in [0, 1].
+        /// THE WEATHER: a stationary GAUSSIAN field over the world's XZ plane, zero mean and unit variance,
+        /// whose features are the size of a weather system (CLOUD-VARIETY).
         ///
-        /// VALUE NOISE AND NOT ANOTHER LATTICE OF LUMPS, because what this is for is the SLOW part of the
-        /// sky — where the weather is busy and where it is clear — and that has no bodies in it. Smoothstep
-        /// on the cell fraction rather than the fraction itself, so the field's first derivative is
-        /// continuous and the patches have no facets along the octave's own axes.
-        float ValueNoise( uint32_t seed, const glm::vec2& point )
+        /// WHY IT REPLACED TWO OCTAVES OF VALUE NOISE. The value noise this was is bounded and concentrated:
+        /// two smoothstepped octaves of uniform corners put nearly all of the sky between 0.3 and 0.7, so
+        /// `base * (1 + s * (2p - 1))` moved a 0.55 slider between about 0.35 and 0.75 even at full strength
+        /// — and a sky whose local cover never drops under two thirds of its mean has no clear gaps. The
+        /// owner's frame (10-07, Clouds_Showcase from 0,200,0) is that sky: every patch equally busy, one
+        /// pattern to the horizon. CLOUD-HORIZON's sweep of every placement knob at its extreme could not
+        /// open a gap, because no setting of a bounded, concentrated field reaches empty.
+        ///
+        /// SPECTRAL SYNTHESIS ON THE REGION'S OWN TORUS. A sum of cosines whose wave vectors are INTEGER
+        /// multiples of the region's fundamental, each with a hashed phase. Three properties follow by
+        /// construction rather than by tuning:
+        ///   * PERIODIC WITH THE REGION, so a cell that leaves through one face and the cell that enters
+        ///     through the opposite one read the same weather. The bake is periodic (kWrapRange) and the
+        ///     sky repeats it; a weather field that was not would put a straight line between a clear patch
+        ///     and a busy one at every face of the region. Value noise on world axes had that seam too — it
+        ///     was merely too weak to see.
+        ///   * ISOTROPIC: the wave vectors point every way the integer lattice allows, so there is no grid
+        ///     of the noise's own to trade for the placement's.
+        ///   * UNIT VARIANCE EXACTLY, because the normalisation is the sum of the squared amplitudes over
+        ///     two, and with the thirty-odd waves the shipped tile gives the marginal is Gaussian by the
+        ///     central limit — which is what the copula below needs to preserve the slider.
+        ///
+        /// THE SPECTRUM SPANS TWO OCTAVES AROUND THE TILE, with amplitude falling as one over the
+        /// wavenumber: from twice the tile (wide clear gaps, broad busy regions) to half of it (clumps inside
+        /// the busy regions). Observed cumulus fields cluster at every scale from a few to fifty kilometres
+        /// (Nubis³, Docs/Clouds; the scale-free clustering in Benner & Curry 1998); one wavelength alone is a
+        /// regular polka-dot of patches, which is the very thing being removed.
+        float WeatherGaussian( uint32_t seed, const glm::vec2& worldKm, float tileKm, float regionKm )
         {
-            const glm::vec2 base( std::floor( point.x ), std::floor( point.y ) );
-            const glm::vec2 frac = point - base;
+            const double region = std::max( static_cast<double>( regionKm ), 1e-3 );
+            const double centre = region / std::max( static_cast<double>( tileKm ), 1e-3 );
 
-            const glm::vec2 weight( frac.x * frac.x * ( 3.0f - 2.0f * frac.x ),
-                                    frac.y * frac.y * ( 3.0f - 2.0f * frac.y ) );
+            // AT LEAST THE FUNDAMENTAL: a tile wider than the region cannot be expressed on its torus, and
+            // the honest answer is the widest weather the region holds rather than none.
+            const double lowest  = std::max( 1.0, 0.5 * centre );
+            const double highest = std::max( lowest, 2.0 * centre );
+            const int    reach   = static_cast<int>( std::ceil( highest ) );
 
-            const int32_t ix = static_cast<int32_t>( base.x );
-            const int32_t iy = static_cast<int32_t>( base.y );
+            // The position as a fraction of the period, in double and reduced first: a world thousands of
+            // kilometres from its origin would otherwise spend a float's whole mantissa on the turns.
+            const double fx = std::fmod( static_cast<double>( worldKm.x ), region ) / region;
+            const double fz = std::fmod( static_cast<double>( worldKm.y ), region ) / region;
 
-            const auto corner = [seed]( int32_t x, int32_t y )
-            { return HashUnit( HashCombine( HashCombine( seed, IndexWord( x ) ), IndexWord( y ) ) ); };
+            constexpr double kTau = 6.283185307179586;
 
-            const float c00 = corner( ix, iy );
-            const float c10 = corner( ix + 1, iy );
-            const float c01 = corner( ix, iy + 1 );
-            const float c11 = corner( ix + 1, iy + 1 );
+            double sum   = 0.0;
+            double power = 0.0;
+            for ( int kx = 0; kx <= reach; ++kx )
+                for ( int kz = -reach; kz <= reach; ++kz )
+                {
+                    // ONE OF EACH PAIR: k and -k are the same real wave.
+                    if ( kx == 0 && kz <= 0 )
+                        continue;
 
-            const float bottom = c00 + ( c10 - c00 ) * weight.x;
-            const float top    = c01 + ( c11 - c01 ) * weight.x;
-            return bottom + ( top - bottom ) * weight.y;
+                    const double wavenumber = std::sqrt( static_cast<double>( kx * kx + kz * kz ) );
+                    if ( wavenumber < lowest || wavenumber > highest )
+                        continue;
+
+                    const double amplitude = 1.0 / wavenumber;
+                    const double phase =
+                         kTau * HashUnit( HashCombine( HashCombine( seed, IndexWord( kx ) ), IndexWord( kz ) ) );
+
+                    sum += amplitude * std::cos( kTau * ( kx * fx + kz * fz ) + phase );
+                    power += 0.5 * amplitude * amplitude;
+                }
+
+            return power > 0.0 ? static_cast<float>( sum / std::sqrt( power ) ) : 0.0f;
         }
 
-        /// THE LARGE-SCALE MODULATION OF COVERAGE, in [0, 1] with a mean near a half.
-        ///
-        /// TWO OCTAVES AND THE SECOND IS ROTATED, because one octave of value noise is a lattice too: its
-        /// extrema sit on ITS grid, and a patch field that is itself a grid would trade one visible period
-        /// for another. The second octave runs at an irrational-ish ratio of the first's frequency and at
-        /// 31.7 degrees to it, so the two never line up over any distance the region can show.
-        float PatchField( uint32_t seed, const glm::vec2& worldKm, float tileKm )
+        /// The standard normal's cumulative distribution.
+        double NormalCdf( double x )
         {
-            const float safeTile = std::max( tileKm, 1e-3f );
+            return 0.5 * std::erfc( -x * 0.7071067811865476 );
+        }
 
-            const glm::vec2 coarse = worldKm / safeTile;
+        /// The standard normal's quantile — Acklam's rational approximation (relative error 1.15e-9),
+        /// polished by one Halley step on NormalCdf so the pair is inverse to double precision. Written
+        /// out, like the hash, because the sky's bytes depend on it.
+        double NormalQuantile( double p )
+        {
+            static constexpr double a[] = { -3.969683028665376e+01, 2.209460984245205e+02,
+                                            -2.759285104469687e+02, 1.383577518672690e+02,
+                                            -3.066479806614716e+01, 2.506628277459239e+00 };
+            static constexpr double b[] = { -5.447609879822406e+01, 1.615858368580409e+02,
+                                            -1.556989798598866e+02, 6.680131188771972e+01,
+                                            -1.328068155288572e+01 };
+            static constexpr double c[] = { -7.784894002430293e-03, -3.223964580411365e-01,
+                                            -2.400758277161838e+00, -2.549732539343734e+00,
+                                            4.374664141464968e+00,  2.938163982698783e+00 };
+            static constexpr double d[] = { 7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+                                            3.754408661907416e+00 };
 
-            // cos/sin of 31.7 degrees, written out because the field's bytes depend on them.
-            const glm::vec2 rotated( worldKm.x * 0.85072f - worldKm.y * 0.52561f,
-                                     worldKm.x * 0.52561f + worldKm.y * 0.85072f );
-            const glm::vec2 fine = rotated / ( safeTile * 0.47f );
+            p = std::clamp( p, 1e-12, 1.0 - 1e-12 );
 
-            return 0.65f * ValueNoise( seed, coarse ) + 0.35f * ValueNoise( HashCombine( seed, 0x5eedu ), fine );
+            double x = 0.0;
+            if ( p < 0.02425 )
+            {
+                const double q = std::sqrt( -2.0 * std::log( p ) );
+                x = ( ( ( ( ( c[0] * q + c[1] ) * q + c[2] ) * q + c[3] ) * q + c[4] ) * q + c[5] ) /
+                    ( ( ( ( d[0] * q + d[1] ) * q + d[2] ) * q + d[3] ) * q + 1.0 );
+            }
+            else if ( p > 1.0 - 0.02425 )
+            {
+                const double q = std::sqrt( -2.0 * std::log( 1.0 - p ) );
+                x = -( ( ( ( ( c[0] * q + c[1] ) * q + c[2] ) * q + c[3] ) * q + c[4] ) * q + c[5] ) /
+                    ( ( ( ( d[0] * q + d[1] ) * q + d[2] ) * q + d[3] ) * q + 1.0 );
+            }
+            else
+            {
+                const double q = p - 0.5;
+                const double r = q * q;
+                x = ( ( ( ( ( a[0] * r + a[1] ) * r + a[2] ) * r + a[3] ) * r + a[4] ) * r + a[5] ) * q /
+                    ( ( ( ( ( b[0] * r + b[1] ) * r + b[2] ) * r + b[3] ) * r + b[4] ) * r + 1.0 );
+            }
+
+            const double error = NormalCdf( x ) - p;
+            const double slope = 2.5066282746310002 * std::exp( 0.5 * x * x ) * error;
+            return x - slope / ( 1.0 + 0.5 * x * slope );
+        }
+
+        /// THE LOCAL SKY COVER THE WEATHER LEAVES A CELL, given the slider's @p cover for the whole sky —
+        /// a GAUSSIAN COPULA, and the reason it is one is the Coverage invariant (decision D-20).
+        ///
+        /// A cell is cloudy, in this model, where `rho * W + sqrt(1 - rho^2) * E` falls below the slider's
+        /// quantile, W being the weather and E the cell's own independent draw. Both are standard normal, so
+        /// that sum is standard normal WHATEVER rho is, and the fraction of the sky below the quantile is
+        /// the slider EXACTLY. Conditioned on the weather, the cell's own chance is
+        ///
+        ///     Phi( (Phi^-1(cover) - rho * W) / sqrt(1 - rho^2) )
+        ///
+        /// which is what this returns: the expected cover of the sky around a cell, whose average over the
+        /// weather is `cover` — not approximately, by the law of total probability. The multiplicative
+        /// modulation it replaces was mean-preserving only until the clamp at one bit, and could not reach
+        /// zero anywhere.
+        ///
+        /// THE COPULA IS ON THE SKY'S COVER AND NOT ON THE ALIVE FRACTION, and the difference is the one
+        /// the cell loop already pays for: what a cell's alive fraction delivers as sky is the calibrated
+        /// `pow(cover, 0.68)` relation, which is convex in the alive fraction. Redistributing the ALIVE
+        /// fraction would let Jensen's inequality raise the sky by the weather's own contrast; redistributing
+        /// the COVER and letting each cell's calibration act locally keeps the mean where the slider is.
+        ///
+        /// @p strength is the fraction of the draw's VARIANCE the weather decides, so `rho = sqrt(strength)`:
+        /// zero is a sky with no weather in it, one is weather alone — busy regions solid and gaps empty.
+        float WeatherLocalCover( float cover, float strength, float weather )
+        {
+            const float clamped = std::clamp( cover, 0.0f, 1.0f );
+            if ( clamped <= 0.0f || clamped >= 1.0f || strength <= 1e-4f )
+                return clamped;
+
+            const double rho      = std::sqrt( std::clamp( static_cast<double>( strength ), 0.0, 1.0 ) );
+            const double residual = std::sqrt( std::max( 1.0 - rho * rho, 0.0 ) );
+            const double quantile = NormalQuantile( clamped );
+
+            // AT FULL STRENGTH THE WEATHER ALONE DECIDES, and the limit of the expression is a step.
+            if ( residual < 1e-6 )
+                return ( rho * weather < quantile ) ? 1.0f : 0.0f;
+
+            return static_cast<float>( NormalCdf( ( quantile - rho * weather ) / residual ) );
         }
 
         /// THE ONE PLACE A CELL'S COVERAGE IS DECIDED, and it is one place on purpose.
@@ -408,8 +521,9 @@ namespace Desert::Assets
                 const float patchStrength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
                 if ( patchStrength > 1e-4f )
                 {
-                    const float patch = PatchField( patchSeed, centreKm, params.PatchTileKm );
-                    modulated         = base * ( 1.0f + patchStrength * ( 2.0f * patch - 1.0f ) );
+                    const float weather =
+                         WeatherGaussian( patchSeed, centreKm, params.PatchTileKm, params.RegionSizeKm );
+                    modulated = WeatherLocalCover( base, patchStrength, weather );
                 }
             }
 
@@ -425,6 +539,36 @@ namespace Desert::Assets
             }
 
             return std::clamp( modulated, 0.0f, 1.0f );
+        }
+
+        /// THE ASPECT OF A CLUSTER'S SIZE THAT A REAL CUMULUS FIELD HAS: many small clouds and few large
+        /// ones, as a POWER LAW in the diameter — `n(D) ~ D^-2` — between a smallest and a largest that are
+        /// `ratio` apart. Returned as a multiplier on the cluster's radius, from a uniform @p unit.
+        ///
+        /// WHAT IT REPLACED. The draw was uniform in area on `[1 - v, 1 + v]`, which at the shipped 0.75
+        /// put every cloud within a factor of 2.6 of every other and made the commonest size the middle
+        /// one — a sky of one cloud repeated, which is what the owner saw (10-07: "all spawned by one
+        /// pattern"). Observed fields are scale-free over two decades: Benner & Curry (1998) and Neggers et
+        /// al. (2003) measure a size density falling as the diameter to a power near -2 from a few hundred
+        /// metres to a few kilometres, which is the range one species' clusters span here.
+        ///
+        /// THE MEAN AREA IS ONE, EXACTLY, and that is what keeps decision D-20's Coverage mapping: for a
+        /// density `c D^-2` on `[m, M]` the mean of `D^2` is `m * M`, so choosing `m = 1/sqrt(ratio)` and
+        /// `M = sqrt(ratio)` makes it one at every setting of the knob. And for bodies placed
+        /// independently, the sky they cover depends on the MEAN area alone (the Boolean model's
+        /// `1 - exp(-lambda E[A])`), not on how that area is shared out — so widening the spread moves the
+        /// cover only through the overlap the free placement already pays for.
+        ///
+        /// THE KNOB IS THE SPREAD ON A LOG SCALE: `ratio = 16^variety`, so zero is every cloud the size
+        /// its cell's fill says, the shipped 0.75 is an eightfold range and one is sixteenfold. The
+        /// exponent is not a knob — it is what the atmosphere measures.
+        float CloudClusterSizeDraw( float variety, float unit )
+        {
+            const float ratio = std::pow( 16.0f, std::clamp( variety, 0.0f, 1.0f ) );
+            const float root  = std::sqrt( ratio );
+
+            // The inverse of the CDF `(1/m - 1/D) / (1/m - 1/M)`, with `1/m = root` and `1/M = 1/root`.
+            return 1.0f / ( root - unit * ( root - 1.0f / root ) );
         }
 
         /// How many clusters this cell carries, given a mean of @p density.
@@ -1289,14 +1433,10 @@ namespace Desert::Assets
 
                     const glm::vec2 clusterXZ = centre + along * jitter.x + across * jitter.y;
 
-                    // HOW BIG THIS PARTICULAR CLOUD IS, and the draw is UNIFORM IN AREA. `size` is the
-                    // square root of a number uniform on [1 - variety, 1 + variety], whose mean is one — so
-                    // the mean area a cluster covers does not move with the setting and the Coverage
-                    // mapping stays where D-20 left it. Spreading the RADIUS uniformly instead would have
-                    // raised the mean area by a twelfth of the spread squared.
-                    const float area =
-                         1.0f - variety + 2.0f * variety * HashUnit( HashCombine( clusterSeed, 0x4u ) );
-                    const float size = std::sqrt( std::max( area, 1e-4f ) );
+                    // HOW BIG THIS PARTICULAR CLOUD IS — drawn from a POWER LAW, because that is what a
+                    // cumulus field is (CLOUD-VARIETY). See CloudClusterSizeDraw.
+                    const float size =
+                         CloudClusterSizeDraw( variety, HashUnit( HashCombine( clusterSeed, 0x4u ) ) );
 
                     // THE CLUSTER'S OVERALL HORIZONTAL HALF-EXTENT — the size of the CLOUD, not of a lobe.
                     const float clusterRadiusKm =

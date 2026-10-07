@@ -3028,6 +3028,291 @@ TEST( CloudPlacementSpectrum, TheShellHoldsNoAltitudeTheBakeCannotFill )
     check( 0.85f, 1.80f, "the shipped cumulonimbus' canopy" );
 }
 
+// ===================================================================================================
+// CLOUD-VARIETY — THE FIELD IS A CUMULUS FIELD: MANY SMALL CLOUDS AND FEW LARGE, IN BUSY REGIONS WITH GAPS
+// ===================================================================================================
+//
+// The owner's frame (10-07, Clouds_Showcase from 0,200,0 looking along -z): "all spawned by one pattern,
+// not random", and a solid carpet at the horizon. Two properties of a real field were missing, and each is
+// measured here on the column map the rest of this file measures — what a person looking up would see —
+// rather than on the generator's internals:
+//
+//   * SIZES: observed cumulus number densities fall as a power of the diameter (n(D) ~ D^-2), so the sky
+//     holds many small clouds and a tail of large ones. The draw this replaced was uniform in area within a
+//     factor of 2.6, so the commonest cloud was the middle one.
+//   * CLUSTERING: busy regions and clear gaps tens of kilometres across. The value-noise patch this replaced
+//     was too concentrated to drive any patch near empty at any knob setting.
+
+namespace
+{
+    /// Every connected body in the column map, as the diameter of the disc of the same area, kilometres.
+    /// Four-connected and periodic, because the region is: a body over a face is one body.
+    std::vector<double> BodyDiametersKm( const std::vector<float>& map, float regionKm )
+    {
+        const double pixelKm = static_cast<double>( regionKm ) / static_cast<double>( kMapSide );
+
+        std::vector<int>    label( map.size(), -1 );
+        std::vector<size_t> stack;
+        std::vector<double> diameters;
+
+        for ( size_t seed = 0; seed < map.size(); ++seed )
+        {
+            if ( map[seed] <= 0.0f || label[seed] >= 0 )
+                continue;
+
+            const int id = static_cast<int>( diameters.size() );
+            size_t    pixels = 0;
+
+            label[seed] = id;
+            stack.push_back( seed );
+            while ( !stack.empty() )
+            {
+                const size_t at = stack.back();
+                stack.pop_back();
+                ++pixels;
+
+                const int x = static_cast<int>( at % kMapSide );
+                const int z = static_cast<int>( at / kMapSide );
+
+                const int nx[4] = { ( x + 1 ) % kMapSide, ( x + kMapSide - 1 ) % kMapSide, x, x };
+                const int nz[4] = { z, z, ( z + 1 ) % kMapSide, ( z + kMapSide - 1 ) % kMapSide };
+                for ( int n = 0; n < 4; ++n )
+                {
+                    const size_t next = static_cast<size_t>( nz[n] ) * kMapSide + static_cast<size_t>( nx[n] );
+                    if ( map[next] > 0.0f && label[next] < 0 )
+                    {
+                        label[next] = id;
+                        stack.push_back( next );
+                    }
+                }
+            }
+
+            const double areaKm2 = static_cast<double>( pixels ) * pixelKm * pixelKm;
+            diameters.push_back( 2.0 * std::sqrt( areaKm2 / 3.141592653589793 ) );
+        }
+
+        return diameters;
+    }
+
+    /// The column map of one realisation. Realisations differ by SEED and not by camera, because the
+    /// weather is periodic with the region: two regions of one seed share their weather exactly.
+    std::vector<float> ColumnsOfSeed( CloudProceduralFieldParams params, uint32_t seed )
+    {
+        params.Seed            = seed;
+        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+        return RasteriseColumns( GenerateCloudProceduralBlobs( params, 0u, origin ), origin, params.RegionSizeKm );
+    }
+
+    struct SizeLaw
+    {
+        size_t Bodies       = 0;
+        double MedianKm     = 0.0;
+        double P90Km        = 0.0;
+        double TailFraction = 0.0; ///< bodies at least twice the median diameter
+    };
+
+    SizeLaw MeasureSizes( const CloudProceduralFieldParams& params, uint32_t seeds )
+    {
+        std::vector<double> all;
+        for ( uint32_t seed = 1; seed <= seeds; ++seed )
+        {
+            const std::vector<double> some = BodyDiametersKm( ColumnsOfSeed( params, seed ), params.RegionSizeKm );
+            all.insert( all.end(), some.begin(), some.end() );
+        }
+
+        SizeLaw law;
+        law.Bodies = all.size();
+        if ( all.empty() )
+            return law;
+
+        std::sort( all.begin(), all.end() );
+        law.MedianKm = all[all.size() / 2];
+        law.P90Km    = all[std::min( all.size() - 1, ( all.size() * 9 ) / 10 )];
+
+        size_t tail = 0;
+        for ( double d : all )
+            tail += ( d >= 2.0 * law.MedianKm ) ? 1u : 0u;
+        law.TailFraction = static_cast<double>( tail ) / static_cast<double>( all.size() );
+        return law;
+    }
+
+    struct Clustering
+    {
+        double Mean = 0.0; ///< the sky's cover over every block
+        double Std  = 0.0; ///< how much the cover differs from one block to the next
+        double Gaps = 0.0; ///< the fraction of blocks that are nearly clear
+    };
+
+    /// The sky cut into square blocks @p blockPixels wide, and how unevenly the cloud is shared between them.
+    Clustering MeasureClustering( const CloudProceduralFieldParams& params, uint32_t seeds, int blockPixels )
+    {
+        std::vector<double> covers;
+        const int           blocks = kMapSide / blockPixels;
+
+        for ( uint32_t seed = 1; seed <= seeds; ++seed )
+        {
+            const std::vector<float> map = ColumnsOfSeed( params, seed );
+            for ( int bz = 0; bz < blocks; ++bz )
+                for ( int bx = 0; bx < blocks; ++bx )
+                {
+                    size_t touched = 0;
+                    for ( int z = 0; z < blockPixels; ++z )
+                        for ( int x = 0; x < blockPixels; ++x )
+                            touched += ( map[static_cast<size_t>( bz * blockPixels + z ) * kMapSide +
+                                             static_cast<size_t>( bx * blockPixels + x )] > 0.0f )
+                                            ? 1u
+                                            : 0u;
+                    covers.push_back( static_cast<double>( touched ) /
+                                      static_cast<double>( blockPixels * blockPixels ) );
+                }
+        }
+
+        Clustering out;
+        for ( double c : covers )
+            out.Mean += c;
+        out.Mean /= static_cast<double>( covers.size() );
+
+        size_t gaps = 0;
+        for ( double c : covers )
+        {
+            out.Std += ( c - out.Mean ) * ( c - out.Mean );
+            gaps += ( c < 0.1 ) ? 1u : 0u;
+        }
+        out.Std  = std::sqrt( out.Std / static_cast<double>( covers.size() ) );
+        out.Gaps = static_cast<double>( gaps ) / static_cast<double>( covers.size() );
+        return out;
+    }
+} // namespace
+
+// MANY SMALL AND FEW LARGE. Measured at a LOW coverage and with the weather off, so that bodies are mostly
+// single clusters rather than merged banks and the size law is not confounded with the clustering. The
+// same placement with the spread at zero is the control: whatever tail it has comes from the fill ramp and
+// from merging, and the shipped spread must add a real one on top.
+TEST( CloudPlacementSpectrum, TheCloudSizesFallAsAPowerLawManySmallAndFewLarge )
+{
+    constexpr uint32_t kSeeds = 8u;
+
+    CloudProceduralFieldParams shipped = ShippedParams();
+    shipped.Coverage                   = 0.15f;
+    shipped.PatchStrength              = 0.0f;
+
+    CloudProceduralFieldParams flat = shipped;
+    flat.PlacementSizeVariety       = 0.0f;
+
+    const SizeLaw law     = MeasureSizes( shipped, kSeeds );
+    const SizeLaw control = MeasureSizes( flat, kSeeds );
+
+    std::printf( "[CloudPlacementSpectrum] sizes, variety %.2f: %zu bodies, median %.3f km, p90 %.3f km, "
+                 "%.3f at twice the median or more\n",
+                 shipped.PlacementSizeVariety, law.Bodies, law.MedianKm, law.P90Km, law.TailFraction );
+    std::printf( "[CloudPlacementSpectrum] sizes, variety 0.00: %zu bodies, median %.3f km, p90 %.3f km, "
+                 "%.3f at twice the median or more\n",
+                 control.Bodies, control.MedianKm, control.P90Km, control.TailFraction );
+
+    ASSERT_GT( law.Bodies, 100u ) << "too few bodies to say anything about their sizes";
+    ASSERT_GT( control.Bodies, 100u ) << "too few bodies in the control to say anything about their sizes";
+
+    // n(D) ~ D^-2 over an eightfold range puts about a fifth of the bodies at twice the median or more.
+    EXPECT_GE( law.TailFraction, 0.08 ) << "the shipped sky has no tail of large clouds: only "
+                                        << law.TailFraction << " of the bodies reach twice the median";
+    EXPECT_GE( law.TailFraction, 2.0 * control.TailFraction )
+         << "the size spread adds no more large clouds than the fill ramp and the merging already make";
+    EXPECT_GE( law.P90Km / law.MedianKm, 1.4 * ( control.P90Km / control.MedianKm ) )
+         << "the size spread barely widens the distribution: p90/median " << law.P90Km / law.MedianKm
+         << " against " << control.P90Km / control.MedianKm << " with no spread at all";
+
+    // AND MANY SMALL: the median body is SMALLER than the control's, which is what a law that piles the
+    // count up at the small end does to a distribution whose mean AREA it holds still.
+    EXPECT_LT( law.MedianKm, control.MedianKm )
+         << "the commonest cloud did not get smaller, so the spread is not a power law falling with size";
+}
+
+// BUSY REGIONS AND CLEAR GAPS, on 12 km blocks — the scale the owner's frame shows between 10 and 24 km
+// from the camera. The cover must vary from block to block far more than independent cells make it, some
+// blocks must be nearly clear, and the sky's cover over all of them must still be the slider's.
+TEST( CloudPlacementSpectrum, TheWeatherOpensClearGapsTensOfKilometresAcrossAndKeepsTheSlider )
+{
+    constexpr uint32_t kSeeds       = 8u;
+    constexpr int      kBlockPixels = 64; // 12 km of the 48 km region
+
+    CloudProceduralFieldParams shipped = ShippedParams();
+    shipped.Coverage                   = 0.50f;
+
+    CloudProceduralFieldParams flat = shipped;
+    flat.PatchStrength              = 0.0f;
+
+    const Clustering weather = MeasureClustering( shipped, kSeeds, kBlockPixels );
+    const Clustering none    = MeasureClustering( flat, kSeeds, kBlockPixels );
+
+    std::printf( "[CloudPlacementSpectrum] 12 km blocks, patch strength %.2f: cover %.3f, spread %.3f, "
+                 "%.3f nearly clear\n",
+                 shipped.PatchStrength, weather.Mean, weather.Std, weather.Gaps );
+    std::printf( "[CloudPlacementSpectrum] 12 km blocks, patch strength 0.00: cover %.3f, spread %.3f, "
+                 "%.3f nearly clear\n",
+                 none.Mean, none.Std, none.Gaps );
+
+    EXPECT_GE( weather.Std, 0.18 ) << "the shipped weather leaves every 12 km of sky about as busy as the next";
+    EXPECT_GE( weather.Std, 2.0 * none.Std )
+         << "the weather spreads the cloud between blocks no more than independent cells already do";
+    EXPECT_GE( weather.Gaps, 0.05 ) << "no 12 km block of the shipped sky is nearly clear, so there are no gaps";
+
+    EXPECT_NEAR( weather.Mean, none.Mean, 0.05 )
+         << "the weather moved the sky's cover rather than redistributing it, so Coverage no longer means "
+            "the sky (decision D-20)";
+}
+
+// THE INVARIANT AT ITS SOURCE. The weather is a sum of cosines on the region's own torus, so over the
+// placement's cell lattice its mean is exactly zero and its variance exactly one (Parseval), and the copula
+// that turns it into a local cover then averages to the slider up to the field's higher moments. Measured
+// on the function the bake itself calls, at four settings of the slider and eight weathers.
+TEST( CloudPlacementSpectrum, TheWeatherRedistributesTheCellsCoverWithoutMovingItsMean )
+{
+    for ( const float coverage : { 0.15f, 0.35f, 0.60f, 0.85f } )
+    {
+        double sumOfMeans = 0.0;
+        double worst      = 0.0;
+        double spread     = 0.0;
+
+        for ( uint32_t seed = 1; seed <= 8u; ++seed )
+        {
+            CloudProceduralFieldParams params = ShippedParams();
+            params.Coverage                   = coverage;
+            params.Seed                       = seed;
+
+            const glm::vec2 extent = CloudProceduralCellExtentKm( params, params.Species[0] );
+            const int       across = static_cast<int>( params.RegionSizeKm / extent.x + 0.5f );
+
+            double sum = 0.0;
+            double sq  = 0.0;
+            for ( int iz = 0; iz < across; ++iz )
+                for ( int ix = 0; ix < across; ++ix )
+                {
+                    const glm::vec2 centre( ( static_cast<float>( ix ) + 0.5f ) * extent.x,
+                                            ( static_cast<float>( iz ) + 0.5f ) * extent.y );
+                    const double    local = CloudProceduralCellCoverage( params, 0u, centre );
+                    sum += local;
+                    sq += local * local;
+                }
+
+            const double cells = static_cast<double>( across * across );
+            const double mean  = sum / cells;
+            sumOfMeans += mean;
+            worst  = std::max( worst, std::abs( mean - coverage ) );
+            spread = std::max( spread, std::sqrt( std::max( sq / cells - mean * mean, 0.0 ) ) );
+        }
+
+        const double mean = sumOfMeans / 8.0;
+        std::printf( "[CloudPlacementSpectrum] slider %.2f: cells' cover %.4f over eight weathers, worst "
+                     "region %.4f off, widest spread %.3f\n",
+                     coverage, mean, worst, spread );
+
+        EXPECT_NEAR( mean, coverage, 0.02 ) << "the weather moved the mean cover at a slider of " << coverage;
+        EXPECT_LT( worst, 0.07 ) << "one region's weather moved its cover by " << worst << " at a slider of "
+                                 << coverage;
+        EXPECT_GT( spread, 0.15 ) << "the weather barely varies the cells' cover at a slider of " << coverage;
+    }
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
