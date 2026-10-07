@@ -108,8 +108,8 @@ namespace
                     continue;
                 if ( const auto it = m_Memo.find( *resolved ); it != m_Memo.end() )
                 {
-                    if ( it->second )
-                        return Settle( stack, std::format( "{} -> {}", include, *it->second ) );
+                    if ( const std::optional<std::string>& chain = it->second; chain.has_value() )
+                        return Settle( stack, std::format( "{} -> {}", include, chain.value() ) );
                     continue;
                 }
                 Enter( stack, *resolved );
