@@ -766,9 +766,10 @@ namespace Desert::Assets
     /// The bake's two blocks: the RGBA8 Dimensional Profile per species (the bytes it always returned) and
     /// the RG8 RANK PAIR (kCloudProceduralRankChannels: the voxel's own rank, then its cluster's core rank),
     /// remapped by the region's column CDF so that the fraction of columns whose rank is under a cover c is c
-    /// (the air's reach, CloudProceduralAirFalloff, then clears the air far from every body below Coverage 1). AIR HAS A RANK TOO: the profile's falloff past the nearest body's edge (the march grows the clouds
-    /// into it as the cover rises, so Coverage 1 is the whole sky) — but only within the altitudes of the species
-    /// that owns that body; air above or below its band, and every voxel of a bake with no cloud at all, holds
+    /// (the air's reach, CloudProceduralAirFalloff, then clears the air far from every body below Coverage 1). AIR
+    /// HAS A RANK TOO: the profile's falloff past the nearest body's edge (the march grows the clouds into it as
+    /// the cover rises, so Coverage 1 is the whole sky) — but only within the altitudes of the species that owns
+    /// that body; air above or below its band, and every voxel of a bake with no cloud at all, holds
     /// kCloudProceduralNoRank.
     struct CloudProceduralVolumeBake
     {
@@ -849,9 +850,9 @@ namespace Desert::Assets
     /// The air depth is in ProfileDepths: a body's voxel rises from its core by one rise to its surface, so
     /// (own - core) / rise - 1 is how far past the surface the voxel lies (zero or less inside the body, which the
     /// falloff never touches). The reach is 1 / sqrt(1 - cover) ProfileDepths: Nubis's one ProfileDepth with no
-    /// cover, 3.16 (1.1 km at the shipped 0.35 km) at a cover of 0.9, and unbounded at 1, so Coverage 1 is still the whole
-    /// sky. Written as a product with sqrt(1 - cover) so that the end is exact and not a division by zero.
-    /// Ranks as fractions (byte / 255) — what the shader's UNORM read of the R8G8 block returns.
+    /// cover, 3.16 (1.1 km at the shipped 0.35 km) at a cover of 0.9, and unbounded at 1, so Coverage 1 is still
+    /// the whole sky. Written as a product with sqrt(1 - cover) so that the end is exact and not a division by
+    /// zero. Ranks as fractions (byte / 255) — what the shader's UNORM read of the R8G8 block returns.
     inline float CloudProceduralAirFalloff( float ownRank, float coreRank, float localCover, float rankRise )
     {
         const float rise  = rankRise > 1e-4f ? rankRise : 1e-4f;
@@ -874,8 +875,8 @@ namespace Desert::Assets
 
     /// Whether column (@p x, @p z) of @p bake shows sky or cloud at @p localCover: cloud when ANY voxel of it is
     /// kept (CloudProceduralKeep on its rank pair). What a census of the sky fraction reads.
-    bool CloudProceduralColumnKept( const CloudProceduralVolumeBake& bake, uint32_t side, uint32_t x,
-                                    uint32_t z, float localCover );
+    bool CloudProceduralColumnKept( const CloudProceduralVolumeBake& bake, uint32_t side, uint32_t x, uint32_t z,
+                                    float localCover );
 
     /**
      * @brief The same bake, reporting progress and able to be abandoned.
