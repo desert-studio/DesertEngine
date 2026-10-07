@@ -845,6 +845,21 @@ namespace Desert::Graphic
         ImportSceneViewTextures( textures );
         const auto values = std::make_shared<FrameValues>();
 
+        // The view's per-primitive motion rows (current + previous world, both bone palettes) from the view's
+        // MotionHistory, built once before any pass is declared: every view pass of this frame reads the same rows.
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
+            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions( m_ViewState.Motion() ); !rows )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
+                           "frame: {}",
+                           m_ViewResources.GetName(), rows.GetError() );
+                return;
+            }
+        }
+
         const auto sceneColor = [this, &textures]()
         {
             return textures.Refs(

@@ -5,6 +5,7 @@
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/Velocity.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -375,4 +376,53 @@ TEST( VelocityTarget, EveryMeshDrawCarriesItsOwningEntityToTheRenderData )
                               std::sregex_iterator() ),
                2 )
          << "SubmitGenericMesh / SubmitSlotMaterialMesh must both copy the entity onto GenericMeshRenderData";
+}
+
+// Step C: the instanced view pass evaluates the wind at the view's previous frame (Vertex_Instanced reads WindB.z);
+// the renderer writes it per view. Mutation: drop the B.z write in PackViewInstanceWind -> red; the light-view
+// pack writing a previous time -> red.
+TEST( VelocityTarget, InstancedViewPushCarriesTheWindAtThePreviousFrame )
+{
+    using namespace Desert::Graphic;
+    const InstanceWind wind = MakeInstanceWind( 30.0f, 0.5f, 200.0f, 45.0f, 7.25 );
+    ASSERT_TRUE( wind.Sways() );
+    const InstanceWindPush view = PackViewInstanceWind( wind, 7.0 );
+    EXPECT_FLOAT_EQ( view.B.y, wind.Seconds );
+    EXPECT_FLOAT_EQ( view.B.z, WindSecondsAt( wind.Speed, 7.0 ) );
+    EXPECT_NE( view.B.z, view.B.y ) << "a different previous time must give a different previous wind clock";
+    EXPECT_EQ( PackInstanceWind( wind ).B.z, 0.0f ) << "a light view has no velocity and no previous wind";
+    // Wrapped like the current clock: a previous time one whole period later is the same clock.
+    const double period = static_cast<double>( kWindPeriodCycles ) / static_cast<double>( wind.Speed );
+    EXPECT_NEAR( PackViewInstanceWind( wind, 7.0 + period ).B.z, view.B.z, 1e-4f );
+    // A still wind pushes zeros, previous included (a push block keeps bytes between draws).
+    EXPECT_EQ( PackViewInstanceWind( InstanceWind{}, 7.0 ).B.z, 0.0f );
+}
+
+// Step A: the rows are built once per frame per view BEFORE any pass is declared, and every captured frame state
+// carries them. Mutation: drop the BuildObjectMotions call, move it after the first AddFrame*, or drop the
+// frame.ObjectMotions / ObjectBones assignment in CaptureFrameState -> red.
+TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
+{
+    using VelocityTargetTest::ReadFile;
+    const auto root  = Desert::TestSupport::RepositoryRoot();
+    const auto scene = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+    const auto body  = scene.find( "void SceneRenderer::OnUpdate(" );
+    ASSERT_NE( body, std::string::npos );
+    const auto build = scene.find( "->BuildObjectMotions( m_ViewState.Motion() )", body );
+    const auto prev  = scene.find( "->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds )", body );
+    const auto first = scene.find( "AddFrame", body );
+    ASSERT_NE( build, std::string::npos ) << "OnUpdate must build the view's motion rows";
+    ASSERT_NE( prev, std::string::npos ) << "OnUpdate must hand the view's previous time to the mesh renderer";
+    ASSERT_NE( first, std::string::npos );
+    EXPECT_LT( build, first ) << "the rows must be final before the first pass is declared";
+    EXPECT_LT( prev, first );
+
+    const auto meshes = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+    const auto capture = meshes.find( "PBRSceneFrame MeshRenderer::CaptureFrameState(" );
+    ASSERT_NE( capture, std::string::npos );
+    const auto end = meshes.find( "return frame;", capture );
+    ASSERT_NE( end, std::string::npos );
+    const std::string captureBody = meshes.substr( capture, end - capture );
+    EXPECT_NE( captureBody.find( "frame.ObjectMotions = m_ObjectMotions;" ), std::string::npos );
+    EXPECT_NE( captureBody.find( "frame.ObjectBones   = m_ObjectBones;" ), std::string::npos );
 }

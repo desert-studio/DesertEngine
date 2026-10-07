@@ -1125,7 +1125,8 @@ namespace Desert::Graphic::System
                     d.FirstInstance = static_cast<uint32_t>( ismSet->Transforms.size() );
                     d.MaterialIndex = materialIndex;
                     d.LodLevel      = level;
-                    d.Wind          = PackInstanceWind( ism.Wind );
+                    // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
+                    d.Wind          = PackViewInstanceWind( ism.Wind, m_PrevWorldTimeSeconds );
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
                             ismSet->Transforms.push_back( visible[i] );

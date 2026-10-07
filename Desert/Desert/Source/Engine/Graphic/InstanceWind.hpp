@@ -37,6 +37,16 @@ namespace Desert::Graphic
     inline constexpr float kWindHarmonicRatio = 2.3f;
     inline constexpr float kWindPeriodCycles  = 10.0f;
 
+    /// The wind clock MakeInstanceWind computes, at any gameplay time: wrapped to the period both harmonics
+    /// repeat over, so the sway is continuous across the wrap (10 and 23 whole cycles).
+    [[nodiscard]] inline float WindSecondsAt( const float speed, const double gameplaySeconds )
+    {
+        if ( speed <= 0.0f )
+            return 0.0f;
+        return static_cast<float>(
+             std::fmod( gameplaySeconds, static_cast<double>( kWindPeriodCycles ) / static_cast<double>( speed ) ) );
+    }
+
     /// The wind of a type from its authored numbers (cm, Hz, cm, degrees) at @p gameplaySeconds.
     [[nodiscard]] inline InstanceWind MakeInstanceWind( float strength, float speed, float height,
                                                         float directionDegrees, double gameplaySeconds )
@@ -47,9 +57,7 @@ namespace Desert::Graphic
         wind.Strength        = strength;
         wind.Speed           = speed;
         wind.Height          = height;
-        if ( speed > 0.0f )
-            wind.Seconds = static_cast<float>( std::fmod(
-                 gameplaySeconds, static_cast<double>( kWindPeriodCycles ) / static_cast<double>( speed ) ) );
+        wind.Seconds         = WindSecondsAt( speed, gameplaySeconds );
         return wind;
     }
 
@@ -97,7 +105,10 @@ namespace Desert::Graphic
      *
      * At kInstancedWindPushOffset, after the shared 68-byte material block (mat4 Transform, uint
      * MaterialIndex) and std430's alignment of the next vec4 to 80. A = (dir.x, dir.z, Strength, Height),
-     * B = (Speed, Seconds, 0, 0). Pushed for EVERY instanced draw, zeros for one that does not sway: a push
+     * B = (Speed, Seconds, PrevSeconds, 0). PrevSeconds is the wind clock at the VIEW's previous frame
+     * (ViewFrame::PrevTimeSeconds, wrapped like Seconds): a view pass evaluates the wind at both times for the
+     * instance's velocity (Mesh/Surface/Vertex_Instanced.glslh). It is a view quantity, so the renderer writes it
+     * per view (PackViewInstanceWind); a light view (shadow depth) has no velocity and leaves it 0. Pushed for EVERY instanced draw, zeros for one that does not sway: a push
      * block keeps its bytes between draws, so skipping the push would lend the last field's wind to a wall.
      */
     struct InstanceWindPush
@@ -114,5 +125,15 @@ namespace Desert::Graphic
             return {};
         return { glm::vec4( wind.Direction.x, wind.Direction.y, wind.Strength, wind.Height ),
                  glm::vec4( wind.Speed, wind.Seconds, 0.0f, 0.0f ) };
+    }
+
+    /// A view pass's push: PackInstanceWind plus B.z = the wind clock at the view's previous frame.
+    [[nodiscard]] inline InstanceWindPush PackViewInstanceWind( const InstanceWind& wind,
+                                                                const double        prevGameplaySeconds )
+    {
+        InstanceWindPush push = PackInstanceWind( wind );
+        if ( wind.Sways() )
+            push.B.z = WindSecondsAt( wind.Speed, prevGameplaySeconds );
+        return push;
     }
 } // namespace Desert::Graphic
