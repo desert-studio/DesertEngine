@@ -158,9 +158,10 @@ namespace Desert::Graphic::System
 
         // Pass 1, the "Deferred: SSR" compute node: classify + half-resolution trace, one dispatch (one workgroup
         // per tile), writing @p trace and @p tiles. gbuffer = the camera G-buffer's graph textures (albedo/normal/
-        // worldpos at 0/1/2); sceneCopy = this frame's snapshot of the lit opaque scene
+        // depth at 0/1/2); sceneCopy = this frame's snapshot of the lit opaque scene
         // (FrameTransients::SceneColorCopy).
-        // The G-buffer colours the three passes sample, as graph textures: albedo, normal, world position.
+        // The G-buffer textures the three passes sample, as graph textures: albedo, normal, depth (world positions
+        // are reconstructed from it, Common/ReconstructPosition.glslh).
         using GBufferInputs = std::array<RDG::TextureRef, 3>;
 
         // The trace dispatch's push-constant block.
@@ -186,8 +187,8 @@ namespace Desert::Graphic::System
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-                 .Sampled( "u_GBufferWorldPos", gbuffer[2], RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
+                 .Sampled( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::PointClamp() )
                  .Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearRepeat() )
                  .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
@@ -220,7 +221,7 @@ namespace Desert::Graphic::System
         // resolve of @p trace (read bilinearly - the upscale) over @p history (GetHistoryImage(), imported),
         // drawn over the tiles @p tiles marks.
         //
-        // SETUP of "Deferred: SSRResolve": its one block (block 0) - u_History / u_GBufferWorldPos linear REPEAT,
+        // SETUP of "Deferred: SSRResolve": its one block (block 0) - u_History linear REPEAT, u_GBufferDepth point CLAMP,
         // u_Trace (the bilinear upscale) linear CLAMP, u_SSRTileMask point CLAMP, mip 0 of both - the samplers
         // the exec bound before; the resolve material is the other route.
         void DeclareResolveBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef tiles,
@@ -232,19 +233,21 @@ namespace Desert::Graphic::System
                            m_ResolveMaterial->GetMaterialExecutor()->GetRouteFill() )
                  .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearRepeat() )
-                 .Sampled( "u_GBufferWorldPos", gbuffer[2], RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
+                 .Sampled( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
                  .Sampled( "u_Trace", trace, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
                            RDG::SamplerDesc::LinearClamp() )
                  .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
                            RDG::SamplerDesc::PointClamp() );
         }
 
-        // EXEC: draws the block DeclareResolveBindings declared.
-        [[nodiscard]] Common::BoolResultStr RecordResolve( const RDG::PassContext& context )
+        // EXEC: draws the block DeclareResolveBindings declared. @p viewProj = this frame's matrix the G-buffer
+        // depth was rasterised with (its inverse rebuilds the world positions the reprojection needs).
+        [[nodiscard]] Common::BoolResultStr RecordResolve( const RDG::PassContext& context,
+                                                           const glm::mat4&        viewProj )
         {
             DESERT_PROFILE_PASS( "SSR: Resolve" );
-            m_ResolveMaterial->BindValues( m_PrevViewProj, Texel(), m_HistoryValid ? 0.88f : 0.0f );
+            m_ResolveMaterial->BindValues( m_PrevViewProj, viewProj, Texel(), m_HistoryValid ? 0.88f : 0.0f );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawProcedural(
                  bindings, *m_ResolvePipeline, m_ResolveMaterial->GetMaterialExecutor(), TileVertices(), 1u );

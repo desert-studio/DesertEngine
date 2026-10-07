@@ -24,7 +24,7 @@ namespace Desert::Graphic
              : Material( "MaterialSSRResolve",
                          variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
-            // u_Trace, u_History and u_GBufferWorldPos are textures of the frame graph in both variants (the
+            // u_Trace, u_History and u_GBufferDepth are textures of the frame graph in both variants (the
             // history ping-pong is imported), bound by name through RDG::PassBindings (SSRRenderer::RecordResolve,
             // GIResolveRenderer::RecordTemporal).
         }

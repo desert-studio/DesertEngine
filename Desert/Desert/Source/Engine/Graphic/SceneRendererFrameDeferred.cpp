@@ -463,20 +463,21 @@ namespace Desert::Graphic
         const RDG::ImportedFramebuffer& target = *targets;
         if ( gbuffer.size() < 3 )
         {
-            LOG_ERROR( "[SceneRenderer] Deferred: SSR needs the G-buffer albedo, normal and world position, the "
-                       "graph has {}",
+            LOG_ERROR( "[SceneRenderer] Deferred: SSR needs the G-buffer albedo and normal, the graph has {}",
                        gbuffer.size() );
             return;
         }
         // Sampled by name in every SSR pass (no G-buffer image crosses into a pass exec).
-        const System::SSRRenderer::GBufferInputs inputs{ gbuffer[0], gbuffer[1], gbuffer[2] };
+        // World positions come from the G-buffer depth (Common/ReconstructPosition.glslh).
+        const System::SSRRenderer::GBufferInputs inputs{ gbuffer[0], gbuffer[1],
+                                                         textures.Depth( m_GBuffer, "GBuffer" ) };
         graph.AddPass(
              "Deferred: SSR", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  ssr->DeclareTraceBindings( pass, trace, tiles, inputs, sceneCopy );
-                 // The G-buffer colours past the three the trace samples stay declared as before.
-                 ReadAll( pass, { gbuffer.begin() + 3, gbuffer.end() }, RDG::Access::SampledCompute );
+                 // The G-buffer colours the trace does not sample stay declared as before.
+                 ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
              },
              [this, ssr, viewProj, cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -489,13 +490,12 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  ssr->DeclareResolveBindings( pass, trace, tiles, history, inputs );
-                 // Every G-buffer colour but the world position the block samples stays declared as before.
-                 ReadAll( pass, { gbuffer[0], gbuffer[1] }, RDG::Access::SampledGraphics );
-                 ReadAll( pass, { gbuffer.begin() + 3, gbuffer.end() }, RDG::Access::SampledGraphics );
+                 // Every G-buffer colour stays declared as before (the block samples only the depth).
+                 ReadAll( pass, { gbuffer.begin(), gbuffer.end() }, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [ssr]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssr->RecordResolve( context ); } );
+             [ssr, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordResolve( context, viewProj ); } );
         graph.AddPass(
              "Deferred: SSRComposite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )

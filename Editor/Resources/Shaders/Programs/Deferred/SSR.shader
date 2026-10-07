@@ -20,10 +20,11 @@ Shader "SSR"
     Compute
     {
         #include <Common/SSRGate.glslh>
+        #include <Common/ReconstructPosition.glslh>
 
         Uniform(0) sampler2D u_GBufferAlbedo;   // rgb = albedo, a = metallic
         Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferWorldPos; // rgb = world position
+        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest): world position via u_ViewProj's inverse
         Uniform(3) sampler2D u_SceneColor;      // composited opaque scene (reflection source)
         layout(binding = 4, rgba16f) writeonly uniform image2D u_Trace;    // half resolution
         layout(binding = 5, rgba8) writeonly uniform image2D u_TileMask;   // one texel per tile
@@ -38,6 +39,11 @@ Shader "SSR"
         LocalSize(8, 8, 1);
 
         shared uint s_TileReflects;
+        // inverse(u_ViewProj), computed once per workgroup. The push block is at the engine's 128-byte cap
+        // (ShaderReflectionTypes.hpp: kMaxPushBlockBytes) with u_ViewProj + the two vec4, so the inverse cannot
+        // travel beside it; deriving it here keeps ONE source matrix (the one the G-buffer depth was rasterised
+        // with - the caller passes the jittered view-projection, ReconstructPosition.glslh) for both directions.
+        shared mat4 s_InvViewProj;
 
         // Per-pixel hash (same one SSAO uses) — jitters the ray start so the coarse march's banding turns into
         // fine noise, which the composite pass's blur then resolves into a smooth reflection.
@@ -66,7 +72,11 @@ Shader "SSR"
         	vec3 sN = textureLod(u_GBufferNormal, uv, 0.0).rgb;
         	if (dot(sN, sN) <= 0.001)
         		return -1e9; // sky — no occluder here
-        	vec3 sPos = textureLod(u_GBufferWorldPos, uv, 0.0).rgb;
+        	// Nearest depth texel (a filtered depth would invent positions across silhouettes).
+        	ivec2 dSize = textureSize(u_GBufferDepth, 0);
+        	ivec2 dPix  = clamp(ivec2(uv * vec2(dSize)), ivec2(0), dSize - 1);
+        	vec3  sPos  = ReconstructWorldPosition((vec2(dPix) + 0.5) / vec2(dSize),
+        	                                       texelFetch(u_GBufferDepth, dPix, 0).r, s_InvViewProj);
         	return distance(u_CameraPos.xyz, p) - distance(u_CameraPos.xyz, sPos);
         }
 
@@ -87,7 +97,7 @@ Shader "SSR"
         	if (smoothFade < 0.01) return vec4(0.0);
 
         	N = normalize(N);
-        	vec3 worldPos = texelFetch(u_GBufferWorldPos, gPix, 0).rgb;
+        	vec3 worldPos = ReconstructWorldPosition(gUV, texelFetch(u_GBufferDepth, gPix, 0).r, s_InvViewProj);
         	vec3 V = normalize(u_CameraPos.xyz - worldPos);
         	vec3 R = reflect(-V, N);
 
@@ -182,7 +192,10 @@ Shader "SSR"
         void main()
         {
         	if (gl_LocalInvocationIndex == 0u)
+        	{
         		s_TileReflects = 0u;
+        		s_InvViewProj  = inverse(u_ViewProj);
+        	}
         	barrier();
 
         	// --- Classify: this tile spans [floor(t * scale), ceil((t + 1) * scale)) texels, up to 9, hence up
