@@ -61,7 +61,9 @@ namespace Desert::Editor
 
     struct CollectionManifest
     {
-        int                                                    Version = kCollectionManifestVersion;
+        // Absent means a manifest written before the format was versioned, which has no reader: the one member whose
+        // absence MEANS something (Json.hpp's rule), so it is optional and the writer stamps the current version.
+        std::optional<int>                                     Version;
         std::string                                            Name;
         std::optional<std::string>                             Author;
         std::optional<std::vector<CollectionManifestMaterial>> Materials;
@@ -70,7 +72,9 @@ namespace Desert::Editor
 
     [[nodiscard]] inline std::string WriteCollectionManifest( const CollectionManifest& manifest )
     {
-        return Common::Json::Write( manifest );
+        CollectionManifest stamped = manifest;
+        stamped.Version            = kCollectionManifestVersion;
+        return Common::Json::Write( stamped );
     }
 
     // Strict: an unknown key or a member of the wrong type refuses, and the error names the member.
@@ -80,9 +84,11 @@ namespace Desert::Editor
         auto read = Common::Json::Read<CollectionManifest>( json );
         if ( !read )
             return read;
-        if ( read.GetValue().Version != kCollectionManifestVersion )
+        const std::optional<int> version = read.GetValue().Version;
+        if ( version != kCollectionManifestVersion )
             return Common::MakeError<CollectionManifest>(
-                 "collection.json Version " + std::to_string( read.GetValue().Version ) + " is not " +
+                 "collection.json Version " + ( version ? std::to_string( *version ) : std::string( "(none)" ) ) +
+                 " is not " +
                  std::to_string( kCollectionManifestVersion ) + "; re-run FbxMeshSplitter on the pack" );
         return read;
     }

@@ -1668,6 +1668,8 @@ namespace
              { "ANIMATION_PATH", &P::ANIMATION_PATH, RootVerdict::Packaged, "" },
              // PACKAGED: a Level Sequence actor names its .dseq; covered by the ASSETS_PATH tree (Sequences/).
              { "LEVEL_SEQUENCE_PATH", &P::LEVEL_SEQUENCE_PATH, RootVerdict::Packaged, "" },
+             { "VFX_PATH", &P::VFX_PATH, RootVerdict::Packaged, "" },
+             { "FRACTURE_PATH", &P::FRACTURE_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
         };
         return roots;
