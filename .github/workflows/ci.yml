@@ -392,12 +392,17 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-sanitizers-macos14-${{ github.sha }}
 
-      # The expected list is what the unsharded runner ran: the executables in the test directory.
+      # The expected list is what the unsharded runner ran: the executables in the test directory, minus
+      # the suites that declare `test_needs_vulkan_device` (build/TestNeedsVulkanDevice.txt) while the
+      # shards run on macos-14, a VM with no Metal device for MoltenVK. The plan names them in a ::notice.
       - name: Plan test shards
+        env:
+          DESERT_MACOS_VULKAN_RUNNER: ${{ vars.DESERT_MACOS_VULKAN_RUNNER }}
         run: >-
           python3 scripts/CI/TestShards.py plan --expected-dir build/Bin/Tests/Debug
           --compare-manifest build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
           --column asan --shards 3 --out build/TestPlan
+          --vulkan-device-suites build/TestNeedsVulkanDevice.txt --vulkan-runner-var DESERT_MACOS_VULKAN_RUNNER
 
       # tar, not upload-artifact's own zip: the zip drops the executable bit. The DWARF stays in the
       # object files, so ASan reports in a shard name functions but not lines; reproduce locally for lines.
@@ -1049,13 +1054,18 @@ jobs:
       # packaging below still run. The expected list is build/TestManifest.txt, the list RunTests.ps1
       # has always failed against; TestShards.py refuses a plan whose union is not exactly that list.
       # The comment above `Run tests` in the shard job says why Shipping has no tests at all.
+      # windows-2022 has no Vulkan device: the suites that declare `test_needs_vulkan_device` leave the plan
+      # with a ::notice unless DESERT_WINDOWS_VULKAN_RUNNER is 'true' (the same switch as the smoke-run below).
       - name: Plan test shards
         if: matrix.shards > 0
         shell: bash
+        env:
+          DESERT_WINDOWS_VULKAN_RUNNER: ${{ vars.DESERT_WINDOWS_VULKAN_RUNNER }}
         run: >-
           python scripts/CI/TestShards.py plan --expected build/TestManifest.txt
           --timings scripts/CI/TestTimings.tsv --column ${{ matrix.column }}
           --shards ${{ matrix.shards }} --out build/TestPlan
+          --vulkan-device-suites build/TestNeedsVulkanDevice.txt --vulkan-runner-var DESERT_WINDOWS_VULKAN_RUNNER
 
       - name: Test bundle footprint
         if: matrix.shards > 0

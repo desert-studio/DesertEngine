@@ -8,6 +8,8 @@
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 local test_name = path.getname(_SCRIPT_DIR)
 
+test_needs_vulkan_device(test_name)
+
 project(test_name)
     kind "ConsoleApp"
     language "C++"
