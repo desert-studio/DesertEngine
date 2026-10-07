@@ -459,8 +459,8 @@ namespace Desert::Tests::CloudFieldRef
 
             const auto plane = [&]( int iz )
             {
-                const float top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
-                const float bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
+                const vec2 top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
+                const vec2 bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
                 return top * ( 1.0f - fy ) + bottom * fy;
             };
 
