@@ -96,6 +96,10 @@ namespace Desert::Editor::ImportOptions
         constexpr std::array<Assets::MeshLodPolicy, 2> kLods = { Assets::MeshLodPolicy::Generate,
                                                                  Assets::MeshLodPolicy::None };
         constexpr std::array<const char*, 2> kLodLabels = { "Generate (authored, else simplified)", "LOD 0 only" };
+        constexpr std::array<Assets::FbxSpecularMap, 2> kSpecularMaps = {
+             Assets::FbxSpecularMap::Specular, Assets::FbxSpecularMap::OcclusionRoughnessMetallic };
+        constexpr std::array<const char*, 2> kSpecularMapLabels = { "Specular (FBX's meaning)",
+                                                                    "Packed AO/Roughness/Metal (R/G/B)" };
 
         // The window's title and its options section, by what the file holds (UE: Static Mesh / Skeletal Mesh /
         // Animation import).
@@ -400,6 +404,20 @@ namespace Desert::Editor::ImportOptions
         {
             settings.Mesh.LodPolicy = kLods[static_cast<std::size_t>( lod )];
             changed                 = true;
+        }
+        UI::EndPropertyRow();
+
+        UI::BeginPropertyRow( "FBX Specular Map",
+                              "What the FBX Specular map holds. Specular: a specular-colour image, as FBX defines "
+                              "it (the surface template has no input for it; the import says so). Packed: AO in "
+                              "R, roughness in G, metalness in B (Lumberyard Bistro / ORCA). Written into new "
+                              "materials only: delete an imported .demat to re-make it." );
+        int specular = settings.SpecularMap == Assets::FbxSpecularMap::OcclusionRoughnessMetallic ? 1 : 0;
+        if ( ImGui::Combo( "##SpecularMap", &specular, kSpecularMapLabels.data(),
+                           static_cast<int>( kSpecularMapLabels.size() ) ) )
+        {
+            settings.SpecularMap = kSpecularMaps[static_cast<std::size_t>( specular )];
+            changed              = true;
         }
         UI::EndPropertyRow();
 

@@ -17,7 +17,10 @@ namespace Desert::Assets::Serialization
                  std::string( Assets::MeshLodPolicyName( settings.Mesh.LodPolicy ) ),
                  settings.Skeleton
                       ? std::optional<std::string>( Common::Content::AssetGuidToText( *settings.Skeleton ) )
-                      : std::nullopt };
+                      : std::nullopt,
+                 settings.SpecularMap == Assets::FbxSpecularMap::Specular
+                      ? std::nullopt
+                      : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ) };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -40,6 +43,16 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<Result>( "import settings name skeleton '{}', not an asset GUID",
                                                            *text.Skeleton );
             out.Skeleton = skeleton.GetValue();
+        }
+        if ( text.SpecularMap )
+        {
+            const auto specular = Assets::FbxSpecularMapFromName( *text.SpecularMap );
+            if ( !specular )
+                return Common::MakeFormattedError<Result>(
+                     "import settings name Specular map meaning '{}'; this build knows Specular and "
+                     "OcclusionRoughnessMetallic",
+                     *text.SpecularMap );
+            out.SpecularMap = *specular;
         }
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;

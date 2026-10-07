@@ -642,3 +642,48 @@ TEST( MaterialImportAdapter, AGltfSamplerReachesItsSlotAndADefaultOneStatesNothi
     ASSERT_NE( normal, nullptr );
     EXPECT_FALSE( normal->Sampler.has_value() ) << "a texture with no glTF sampler states the default: nothing";
 }
+
+// IMP-SPEC: an FBX Specular map (aiTextureType_SPECULAR) is never dropped silently. Under FBX's own meaning (UE's
+// default) it is `fbx.SpecularColor`, which StandardSurface has no input for: named unread, with the hint that
+// names the setting. Stated as packed AO/roughness/metalness (Lumberyard Bistro / ORCA) it is the ORM image as is.
+namespace
+{
+    SourceMaterial FbxWithSpecularMap()
+    {
+        aiMaterial      mat;
+        const aiString  albedo( "Bistro_BaseColor.png" );
+        const aiString  specular( "Bistro_Specular.png" );
+        mat.AddProperty( &albedo, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
+        mat.AddProperty( &specular, AI_MATKEY_TEXTURE( aiTextureType_SPECULAR, 0 ) );
+        return ReadSourceMaterial( mat, SourceFormatOf( "BistroExterior.fbx" ), "Paris_Wall",
+                                   []( const std::string& ref ) { return fs::path( ref ); } )
+             .Material;
+    }
+} // namespace
+
+TEST( MaterialImportAdapter, AnFbxSpecularMapIsNamedUnreadUnderItsOwnMeaning )
+{
+    const SourceMaterial source = WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::Specular );
+    ASSERT_TRUE( source.Has( kFbxSpecularMapKey ) ) << "the adapter dropped the FBX Specular map";
+    const TemplateFill fill = FillFromTemplate( source, Template( "PBR/StandardSurface.shader" ) );
+    EXPECT_NE( std::ranges::find( fill.UnreadKeys, kFbxSpecularMapKey ), fill.UnreadKeys.end() );
+    EXPECT_EQ( Slot( fill, "u_ORMTexture" ), nullptr ) << "a specular-colour image is not occlusion/roughness/metal";
+    EXPECT_NE( UnreadKeyHint( kFbxSpecularMapKey ).find( "FBX Specular Map" ), std::string_view::npos )
+         << "the warning must name the setting that states the map's meaning";
+    EXPECT_TRUE( UnreadKeyHint( "fbx.GlossinessMap" ).empty() );
+}
+
+TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsPackedIsTheOrmImageAsIs )
+{
+    const SourceMaterial source =
+         WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::OcclusionRoughnessMetallic );
+    EXPECT_FALSE( source.Has( kFbxSpecularMapKey ) );
+    const TemplateFill fill = FillFromTemplate( source, Template( "PBR/StandardSurface.shader" ) );
+    EXPECT_TRUE( fill.UnreadKeys.empty() ) << fill.UnreadKeys.front();
+    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    ASSERT_NE( orm, nullptr ) << "the packed map did not reach the ORM slot";
+    ASSERT_EQ( orm->Parts.size(), 1u );
+    EXPECT_EQ( orm->Parts[0].Source.filename().string(), "Bistro_Specular.png" );
+    EXPECT_EQ( orm->Parts[0].Channels, "rgb" ) << "R=AO, G=roughness, B=metal keep their places";
+    EXPECT_FALSE( orm->NeedsPacking() ) << "one image fills every ORM channel: it binds as is";
+}

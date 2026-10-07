@@ -656,6 +656,25 @@ namespace Desert::Assets
         return std::nullopt;
     }
 
+    std::string_view FbxSpecularMapName( const FbxSpecularMap meaning )
+    {
+        switch ( meaning )
+        {
+            case FbxSpecularMap::Specular:
+                return "Specular";
+            case FbxSpecularMap::OcclusionRoughnessMetallic:
+                return "OcclusionRoughnessMetallic";
+        }
+        return "?";
+    }
+    std::optional<FbxSpecularMap> FbxSpecularMapFromName( const std::string_view name )
+    {
+        for ( const auto m : { FbxSpecularMap::Specular, FbxSpecularMap::OcclusionRoughnessMetallic } )
+            if ( FbxSpecularMapName( m ) == name )
+                return m;
+        return std::nullopt;
+    }
+
     std::string_view MeshSourceProvenanceName( const MeshSourceProvenance provenance )
     {
         switch ( provenance )
