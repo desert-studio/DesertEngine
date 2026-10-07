@@ -238,6 +238,47 @@ TEST( CrashHandler, DecodesDriverVersionsTheWayEachVendorPrintsThem )
 #if DESERT_DEV_INSTRUMENTS
 // PKG1c: the Runtime's `--crash-test <kind>[@stage]`. No stage keeps the flag's old meaning (@mounted); an
 // unknown stage is refused, because a crash at the other stage files its report in the other directory.
+// The frame `function=` names is the top REAL frame. A Debug /JMC stack overflow on Windows hit the guard page
+// inside __CheckForDebuggerJustMyCode (int/b3 run: function=__CheckForDebuggerJustMyCode for both worker
+// overflow cases), so a rule that takes frame 0 names the helper and not the recursion.
+TEST( CrashHandler, TheFaultFrameIsTheTopFrameTheCompilerDidNotInsert )
+{
+    using Common::Crash::FrameIdentity;
+    using Common::Crash::SelectFaultFrame;
+
+    const FrameIdentity overflowInJmc[] = { { "__CheckForDebuggerJustMyCode", true },
+                                            { "`anonymous namespace'::Recurse", true },
+                                            { "`anonymous namespace'::Recurse", true } };
+    EXPECT_EQ( SelectFaultFrame( overflowInJmc, std::size( overflowInJmc ), false ), 1u );
+
+    const FrameIdentity probesAndChecks[] = {
+         { "__chkstk", true }, { "_RTC_CheckStackVars", true }, { "Game::Update", true } };
+    EXPECT_EQ( SelectFaultFrame( probesAndChecks, std::size( probesAndChecks ), false ), 2u );
+
+    // A real fault with no helper on top is named by frame 0, whatever module it is in.
+    const FrameIdentity inSystemDll[] = { { "RtlpLowFragHeapFree", false }, { "Game::Update", true } };
+    EXPECT_EQ( SelectFaultFrame( inSystemDll, std::size( inSystemDll ), false ), 0u );
+
+    // Synthesized: the handler's own frames, the helper and other modules are all passed over.
+    const FrameIdentity synthesized[] = { { "Common::Crash::Detail::WriteReport", true },
+                                          { "N6Common5Crash6Detail11WriteReportEv", true },
+                                          { "__CheckForDebuggerJustMyCode", true },
+                                          { "abort", false },
+                                          { "Game::Update", true } };
+    EXPECT_EQ( SelectFaultFrame( synthesized, std::size( synthesized ), true ), 4u );
+
+    // Nothing qualifies: frame 0, never past the end.
+    const FrameIdentity onlyHelpers[] = { { "__chkstk_darwin", true }, { "_RTC_CheckEsp", true } };
+    EXPECT_EQ( SelectFaultFrame( onlyHelpers, std::size( onlyHelpers ), false ), 0u );
+    EXPECT_EQ( SelectFaultFrame( nullptr, 0, false ), 0u );
+
+    // Prefixes, not substrings: a user function that merely contains the words is a real frame.
+    EXPECT_TRUE( Common::Crash::IsCompilerInsertedFrame( "__chkstk_darwin" ) );
+    EXPECT_FALSE( Common::Crash::IsCompilerInsertedFrame( "Game::my_RTC_Timer" ) );
+    EXPECT_FALSE( Common::Crash::IsCompilerInsertedFrame( "CheckForDebuggerJustMyCode" ) );
+    EXPECT_FALSE( Common::Crash::IsCompilerInsertedFrame( "" ) );
+}
+
 TEST( CrashHandler, TheRuntimeCrashTestFlagNamesAKindAndAStage )
 {
     using Desert::Player::CrashTestStage;
@@ -359,7 +400,8 @@ namespace
 
 #if defined( _WIN32 )
         EXPECT_EQ( FieldValue( contents, "codename" ), "EXCEPTION_STACK_OVERFLOW" );
-        // A real SEH fault: `function` is frame 0, the faulting frame itself, which is the recursion.
+        // A real SEH fault: `function` is the top frame the compiler did not insert, which is the recursion
+        // (in Debug the guard page can be hit inside its Just-My-Code check, one frame above it).
         EXPECT_NE( FieldValue( contents, "function" ).find( kRecursion ), std::string::npos )
              << "function=" << FieldValue( contents, "function" );
 #else

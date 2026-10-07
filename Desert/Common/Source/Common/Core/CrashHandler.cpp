@@ -105,10 +105,13 @@ extern char** environ;
 //   [end]       written=<complete>    ABSENT if the process died before finishing — its presence is
 //                                     how a reader tells a whole report from a truncated one.
 //
-// `function` for a real fault (synthesized=0) is frame 0, because the report thread walks the
-// faulting thread's own CONTEXT, handed over by the SEH filter. For synthesized=1 the innermost frames belong to
-// this file and to the CRT, so `function` is the innermost frame that is BOTH outside `Common::Crash::Detail` AND
-// inside the main executable module. Every frame is still in [stack] either way.
+// `function` (SelectFaultFrame) for a real fault (synthesized=0) is the innermost frame that is not
+// compiler-inserted (IsCompilerInsertedFrame: the Just-My-Code check, the stack probe, the run-time checks),
+// because the report thread walks the faulting thread's own CONTEXT, handed over by the SEH filter, and a
+// Debug stack overflow can hit the guard page inside such a helper. For synthesized=1 the innermost frames
+// belong to this file and to the CRT, so `function` is the innermost frame that is not compiler-inserted, is
+// outside `Common::Crash::Detail` AND is inside the main executable module. Every frame is still in [stack]
+// either way.
 // On POSIX every report is synthesized=1: the frames are walked from inside the signal handler (frame
 // 0 is the interrupted PC from the ucontext, then the handler, the trampoline and the callers), and the
 // function names stay Itanium-MANGLED, because demangling allocates.
@@ -512,22 +515,13 @@ namespace Common::Crash::Detail
         writer.Field( "synthesized", inFault.synthesized ? "1" : "0" );
 
         // The faulting frame, chosen by the rule documented at the top of this file.
-        std::size_t faultIndex = 0;
-        if ( inFault.synthesized )
+        FrameIdentity identities[kMaxStackFrames];
+        for ( std::size_t i = 0; i < g_FrameCount; ++i )
         {
-            for ( std::size_t i = 0; i < g_FrameCount; ++i )
-            {
-                // The second spelling is the Itanium-mangled one: POSIX names stay mangled (no allocation).
-                const bool isHandlerInternal =
-                     std::strstr( g_Frames[i].function, "Common::Crash::Detail" ) != nullptr ||
-                     std::strstr( g_Frames[i].function, "N6Common5Crash6Detail" ) != nullptr;
-                if ( !isHandlerInternal && g_Frames[i].inMainModule )
-                {
-                    faultIndex = i;
-                    break;
-                }
-            }
+            identities[i].function     = g_Frames[i].function;
+            identities[i].inMainModule = g_Frames[i].inMainModule;
         }
+        const std::size_t faultIndex = SelectFaultFrame( identities, g_FrameCount, inFault.synthesized );
         if ( faultIndex < g_FrameCount )
         {
             writer.Field( "module", g_Frames[faultIndex].module );
@@ -774,6 +768,24 @@ namespace Common::Crash::Detail
         }
     }
 
+    // THE UNWIND NEEDS NO SYMBOLS. On x64 a frame is unwound from the image's .pdata (RUNTIME_FUNCTION
+    // + UNWIND_INFO), which is mapped in memory with the module. dbghelp's SymFunctionTableAccess64 /
+    // SymGetModuleBase64 answer the same question by loading the module's symbols first, i.e. by reading
+    // its PDB — 140 MB for a Debug test binary, 6.8 s on the first frame from a cold HDD (CR-WIN). These two
+    // read the loaded image instead, so the walk costs no disk and only naming the frames reads the PDB.
+    PVOID CALLBACK FunctionTableFromImage( HANDLE, DWORD64 inPc )
+    {
+        DWORD64 imageBase = 0;
+        return ::RtlLookupFunctionEntry( inPc, &imageBase, nullptr );
+    }
+
+    DWORD64 CALLBACK ModuleBaseFromImage( HANDLE, DWORD64 inPc )
+    {
+        PVOID imageBase = nullptr;
+        ::RtlPcToFileHeader( reinterpret_cast<PVOID>( inPc ), &imageBase );
+        return reinterpret_cast<DWORD64>( imageBase );
+    }
+
     // Runs on the report thread and walks the FAULTING thread: the CONTEXT is that thread's, and
     // `inThread` is a real handle to it (GetCurrentThread() here would name the report thread).
     void WalkStack( const CONTEXT& inContext, HANDLE inThread )
@@ -796,7 +808,7 @@ namespace Common::Crash::Detail
         while ( g_FrameCount < kMaxStackFrames )
         {
             if ( ::StackWalk64( IMAGE_FILE_MACHINE_AMD64, process, inThread, &frame, &walkContext, nullptr,
-                                ::SymFunctionTableAccess64, ::SymGetModuleBase64, nullptr ) == 0 )
+                                &FunctionTableFromImage, &ModuleBaseFromImage, nullptr ) == 0 )
             {
                 break;
             }
@@ -897,8 +909,10 @@ namespace Common::Crash::Detail
         {
             WriteStderr( "[Crash] could not open the faulting thread; the stack walk may stop early\n" );
         }
-        WalkStack( *inFault.pointers->ContextRecord, thread );
+        // The minidump FIRST: it needs no symbols and holds everything an offline debugger needs, so
+        // however long naming the frames takes below (it reads the PDBs), the dump is already on disk.
         WriteMiniDump( inFault.pointers, inFault.threadId );
+        WalkStack( *inFault.pointers->ContextRecord, thread );
         if ( thread != nullptr )
         {
             ::CloseHandle( thread );
@@ -1745,6 +1759,44 @@ namespace Common::Crash
     {
         return fmt::format( "{}.{}.{}", ( inPacked >> 22 ) & 0x7Fu, ( inPacked >> 12 ) & 0x3FFu,
                             inPacked & 0xFFFu );
+    }
+
+    bool IsCompilerInsertedFrame( std::string_view inFunction )
+    {
+        // Prefixes: __chkstk covers __chkstk_darwin, _RTC_ every MSVC run-time check.
+        constexpr std::string_view kInserted[] = { "__CheckForDebuggerJustMyCode", "__chkstk", "_RTC_" };
+        for ( const std::string_view prefix : kInserted )
+        {
+            if ( inFunction.starts_with( prefix ) )
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::size_t SelectFaultFrame( const FrameIdentity* inFrames, std::size_t inCount, bool inSynthesized )
+    {
+        for ( std::size_t i = 0; i < inCount; ++i )
+        {
+            const char* function = inFrames[i].function != nullptr ? inFrames[i].function : "";
+            if ( IsCompilerInsertedFrame( function ) )
+            {
+                continue;
+            }
+            if ( !inSynthesized )
+            {
+                return i;
+            }
+            // The second spelling is the Itanium-mangled one: POSIX names stay mangled (no allocation).
+            const bool isHandlerInternal = std::strstr( function, "Common::Crash::Detail" ) != nullptr ||
+                                           std::strstr( function, "N6Common5Crash6Detail" ) != nullptr;
+            if ( !isHandlerInternal && inFrames[i].inMainModule )
+            {
+                return i;
+            }
+        }
+        return 0;
     }
 
     void SetGpu( const GpuIdentity& inGpu )
