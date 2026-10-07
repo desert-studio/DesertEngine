@@ -90,8 +90,8 @@ namespace
         std::string root   = inReportRoot.string();
         std::string mode   = inMode;
         std::string kind   = inKind;
-        std::string child  = kChildFlag;
-        char*       argv[] = { self.data(), child.data(), mode.data(), kind.data(), root.data(), nullptr };
+        std::string flag   = kChildFlag;
+        char*       argv[] = { self.data(), flag.data(), mode.data(), kind.data(), root.data(), nullptr };
         pid_t       child  = 0;
         if ( ::posix_spawn( &child, self.c_str(), nullptr, nullptr, argv, environ ) != 0 )
         {
