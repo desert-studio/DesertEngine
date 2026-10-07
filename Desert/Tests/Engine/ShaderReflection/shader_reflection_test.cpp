@@ -497,6 +497,54 @@ void main() { o_Color = texture(u_Albedo, vec2(0.5)); }
     EXPECT_NE( second.front().find( "u_Albedo" ), std::string::npos ) << second.front();
 }
 
+// THE 128-BYTE PUSH CAP (ShaderResources::ShaderLayout::kMaxPushBlockBytes). 128 bytes is what every
+// Vulkan device must hold, so the engine guarantees no program declares more: reflection refuses the
+// stage, naming the block and its size, and VulkanShader prefixes the shader's name and stage. Every
+// member is read through a dynamic index so no compiler can shrink the declared block.
+namespace
+{
+    constexpr const char* kPushBlockAtTheCap = R"(#version 450
+layout(local_size_x = 1) in;
+layout(push_constant) uniform AtTheCap { vec4 u_Values[8]; };
+layout(std430, binding = 0) buffer Out { vec4 o_Sum; };
+void main() { vec4 sum = vec4(0.0); for (int i = 0; i < 8; ++i) sum += u_Values[i]; o_Sum = sum; }
+)";
+
+    constexpr const char* kPushBlockPastTheCap = R"(#version 450
+layout(local_size_x = 1) in;
+layout(push_constant) uniform PastTheCap { vec4 u_Values[8]; float u_Tail; };
+layout(std430, binding = 0) buffer Out { vec4 o_Sum; };
+void main() { vec4 sum = vec4(u_Tail); for (int i = 0; i < 8; ++i) sum += u_Values[i]; o_Sum = sum; }
+)";
+} // namespace
+
+TEST( ShaderReflection, APushBlockOfExactlyTheCapIsAccepted )
+{
+    const auto spirv = Compile( kPushBlockAtTheCap, shaderc_glsl_compute_shader );
+    ASSERT_FALSE( spirv.empty() );
+
+    ShaderResource::ReflectionData data;
+    const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Compute, data );
+    ASSERT_TRUE( diagnostics.empty() ) << FirstOr( diagnostics, "" );
+    ASSERT_TRUE( data.PushConstantRanges.has_value() );
+    EXPECT_EQ( data.PushConstantRanges->Size, Desert::ShaderResources::ShaderLayout::kMaxPushBlockBytes );
+}
+
+TEST( ShaderReflection, A132BytePushBlockIsRefusedByNameAndSize )
+{
+    const auto spirv = Compile( kPushBlockPastTheCap, shaderc_glsl_compute_shader );
+    ASSERT_FALSE( spirv.empty() );
+
+    ShaderResource::ReflectionData data;
+    const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Compute, data );
+    ASSERT_EQ( diagnostics.size(), 1u );
+    EXPECT_NE( diagnostics.front().find( "PastTheCap" ), std::string::npos ) << diagnostics.front();
+    EXPECT_NE( diagnostics.front().find( "132 bytes" ), std::string::npos ) << diagnostics.front();
+    EXPECT_NE( diagnostics.front().find( "128 bytes" ), std::string::npos ) << diagnostics.front();
+    // Refused, not recorded: no pipeline layout can be built from a range the device may not hold.
+    EXPECT_FALSE( data.PushConstantRanges.has_value() );
+}
+
 // VERTEX INPUT = LAYOUT ∩ WHAT THE VERTEX STAGE READS. The static mesh layout feeds 0..4 on binding 0 and
 // colour/UV1 at 7/8 on binding 1; a shadow-like stage reads position only, a surface stage reads 7 and 8.
 // Before this, every mesh pipeline described 7/8 whatever its shader read, and the validation layer said
@@ -602,10 +650,4 @@ void main() { gl_Position = vec4(a_Position, 1.0) + a_Unfed; }
          ShaderReflection::BuildVertexInput( layout, ShaderReflection::ReflectVertexInputLocations( Compile(
                                                           kStreamsVertex, shaderc_glsl_vertex_shader ) ) ) );
     EXPECT_FALSE( clean.has_value() ) << clean.value_or( std::string() );
-}
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

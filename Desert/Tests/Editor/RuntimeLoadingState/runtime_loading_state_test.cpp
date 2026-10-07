@@ -346,9 +346,3 @@ TEST( RuntimeLoadingState, TheCaptureReadsTheSwapchainAndNotTheScenesOwnImage )
     EXPECT_EQ( runtime.find( "GetFinalImage" ), runtime.rfind( "GetFinalImage" ) )
          << kRuntimeLayer << " reads the scene's final image in more than one place; the blit is the one.";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

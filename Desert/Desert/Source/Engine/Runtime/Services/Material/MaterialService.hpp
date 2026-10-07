@@ -231,6 +231,12 @@ namespace Desert::Runtime
         [[nodiscard]] Common::BoolResultStr CellOf( const Assets::AssetHandle& handle,
                                                     Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const;
 
+        // The material ASSET's name (its file's stem, "UI_Gradient" for UI_Gradient.demat) - what a person looks
+        // for when a log line names a broken material; the shader name is shared by every material on it. Empty
+        // when
+        // @p handle names no material asset.
+        [[nodiscard]] std::string AssetNameOf( const Assets::AssetHandle& handle ) const;
+
         // For editor live-edit of a material-instance asset: entities rebuild their cached
         // runtime instances on the next tick (same mechanism as Invalidate, no graveyard needed —
         // no runtime Material dies here).

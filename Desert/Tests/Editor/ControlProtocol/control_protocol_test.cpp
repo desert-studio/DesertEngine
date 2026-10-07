@@ -791,12 +791,6 @@ TEST( ControlPointerDrag, ATargetOlderThanOneFrameIsNotAimedAt )
     EXPECT_FALSE( C::PointerInjection::FreshTarget( C::Subject::Viewport, 5 ).has_value() );
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 TEST( ControlInput, TheRequestCarriesKindPanelPointKeyAndPaths )
 {
     namespace C  = Desert::Editor::Control;

@@ -5,6 +5,10 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
@@ -24,6 +28,17 @@ namespace Desert::Graphic::Render2D
         // The shipped fill an element draws when its material slot cannot be executed. Named here rather
         // than spelled at three call sites so the refusal and the picture cannot describe different things.
         constexpr const char* kErrorShaderName = "UIMatError";
+
+        // The fields of a parameter row: the non-texture parameters in slot order
+        // (Core::Formats::MaterialParamSlot).
+        std::vector<std::string> RowFields( const Core::Formats::ShaderProgramMeta& meta )
+        {
+            std::vector<std::string> fields;
+            for ( const auto& p : meta.Params )
+                if ( !p.IsTexture )
+                    fields.push_back( p.Name );
+            return fields;
+        }
 
         // The vertex layout of the 2D batcher — pos / uv / straight RGBA, i.e. DrawList2D::Vertex2D. It is
         // the SAME layout Render2D::Init builds its own three pipelines with; a UI material draws the
@@ -106,15 +121,57 @@ namespace Desert::Graphic::Render2D
             return entry;
         }
 
-        entry.Pipeline = pipeline.GetValue();
-        entry.Material = std::make_unique<DataDrivenMaterial>( shaderName );
+        entry.Pipeline         = pipeline.GetValue();
+        entry.Material         = std::make_unique<DataDrivenMaterial>( shaderName );
+        entry.ShaderGeneration = shader->GetCodeGeneration();
         return entry;
+    }
+
+    template <class Rebuild>
+    void UIMaterialCache::FollowShaderReload( Entry& entry, Rebuild&& rebuild )
+    {
+        if ( !entry.Pipeline || !entry.Pipeline->GetSpecification().Shader )
+        {
+            return;
+        }
+        const uint64_t generation = entry.Pipeline->GetSpecification().Shader->GetCodeGeneration();
+        UIMaterialFallback::RebuildIfReloaded(
+             entry, generation,
+             [&]( Entry& stale )
+             {
+                 std::string refusal;
+                 Entry       rebuilt = rebuild( refusal );
+                 if ( !rebuilt.Pipeline )
+                 {
+                     LOG_ERROR(
+                          "[UIMaterial] '{}' did not rebuild after its shader '{}' reloaded ({}); it keeps the "
+                          "previous build",
+                          stale.AssetName, stale.Material ? stale.Material->GetShaderName() : std::string(),
+                          refusal );
+                     return false;
+                 }
+                 const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+                 m_RetiredBuilds.push_back(
+                      RetiredBuild{ std::move( stale.Material ), std::move( stale.Pipeline ), frame } );
+                 rebuilt.Error         = stale.Error;
+                 rebuilt.LastUsedFrame = stale.LastUsedFrame;
+                 if ( rebuilt.AssetName.empty() )
+                 {
+                     rebuilt.AssetName = stale.AssetName;
+                 }
+                 stale = std::move( rebuilt );
+                 return true;
+             } );
     }
 
     const UIMaterialCache::Entry* UIMaterialCache::ErrorEntry()
     {
         if ( m_Error )
+        {
+            FollowShaderReload( *m_Error,
+                                [this]( std::string& refusal ) { return Build( kErrorShaderName, refusal ); } );
             return m_Error.get();
+        }
 
         std::string refusal;
         Entry       built = Build( kErrorShaderName, refusal );
@@ -178,24 +235,17 @@ namespace Desert::Graphic::Render2D
         if ( hit != m_Entries.end() )
         {
             hit->second.LastUsedFrame = frame;
+            // A shader hot reload since this entry was built rebuilds it here, before any draw of this frame is
+            // prepared - a reloaded material draws its new self, not the default.
+            FollowShaderReload( hit->second, [this, &handle]( std::string& refusal )
+                                { return BuildFromAsset( handle, refusal ); } );
             if ( hit->second.Pipeline )
                 return &hit->second;
             return ErrorEntry();
         }
 
-        auto* materialService = Runtime::ResourceRegistry::GetMaterialService();
-        if ( !materialService )
-            return ErrorEntry();
-
-        const auto  materialTemplate = materialService->ShaderHandleOf( handle );
         std::string refusal;
-        Entry       built;
-        if ( materialTemplate.Shader.IsNull() )
-            refusal = "the handle names no material asset with a loaded template (it was deleted, never "
-                      "registered, or names no template)";
-        else
-            built = Build( materialTemplate.CompileName, refusal );
-
+        Entry       built = BuildFromAsset( handle, refusal );
         if ( !built.Pipeline )
         {
             // Once per handle. The picture repeats the complaint every frame; the log does not have to.
@@ -207,6 +257,33 @@ namespace Desert::Graphic::Render2D
             }
             return ErrorEntry();
         }
+
+        built.LastUsedFrame = frame;
+        auto [it, inserted] = m_Entries.emplace( handle, std::move( built ) );
+        return &it->second;
+    }
+
+    UIMaterialCache::Entry UIMaterialCache::BuildFromAsset( const Assets::AssetHandle& handle,
+                                                            std::string&               refusal ) const
+    {
+        auto* materialService = Runtime::ResourceRegistry::GetMaterialService();
+        if ( !materialService )
+        {
+            refusal = "no material service";
+            return Entry{};
+        }
+
+        const auto materialTemplate = materialService->ShaderHandleOf( handle );
+        Entry      built;
+        if ( materialTemplate.Shader.IsNull() )
+        {
+            refusal = "the handle names no material asset with a loaded template (it was deleted, never "
+                      "registered, or names no template)";
+            return built;
+        }
+        built = Build( materialTemplate.CompileName, refusal );
+        if ( !built.Pipeline )
+            return built;
 
         // The asset's authored values, flattened through the instance chain (base first, child last).
         // Applied by NAME, so a parameter the shader no longer declares is dropped by SetParam rather
@@ -240,9 +317,57 @@ namespace Desert::Graphic::Render2D
             }
         }
 
-        built.LastUsedFrame = frame;
-        auto [it, inserted] = m_Entries.emplace( handle, std::move( built ) );
-        return &it->second;
+        built.AssetName     = materialService->AssetNameOf( handle );
+        if ( built.AssetName.empty() )
+            built.AssetName = std::format( "<material {}>", static_cast<uint64_t>( handle ) );
+        return built;
+    }
+
+    std::string UIMaterialCache::PrepareDraw( const Entry& entry, const glm::mat4& projection )
+    {
+        if ( !entry.Material || !entry.Pipeline )
+        {
+            return "the material has no pipeline against the UI target";
+        }
+        DataDrivenMaterial&            material = *entry.Material;
+        const std::shared_ptr<Shader>& shader   = entry.Pipeline->GetSpecification().Shader;
+        if ( !shader )
+            return "the pipeline has no shader";
+        auto*       rowBuffer = material.Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName );
+        const auto& row       = material.GetParamRow();
+        std::string fault =
+             UIMaterialFallback::RowFault( rowBuffer != nullptr, RowFields( shader->GetProgramMeta() ),
+                                           RowFields( material.GetSchema() ), row.size() );
+        if ( !fault.empty() )
+            return fault;
+        // THE PARAMETERS ARE A ROW, NOT PUSH BYTES. One row per material and therefore index 0 - a UI material is
+        // shared by every element pointing at the same asset. `SetMaterialIndex` writes that index at
+        // Core::Formats::kMaterialIndexPushOffset (64), the same offset the mesh path writes it at. 64 bytes of
+        // projection at offset 0 + 4 of row index at 64 = 68 of the 128 available (Common/UIVertex.glslh).
+        if ( rowBuffer )
+            rowBuffer->SetRawData( row.data(), static_cast<uint32_t>( row.size() * sizeof( glm::vec4 ) ) );
+        material.SetPushMatrix( projection );
+        material.SetMaterialIndex( 0 );
+        const RDG::DeclaredBindingBlock block{
+             entry.Layout.Get( shader ), material.GetMaterialExecutor()->GetRouteFill(), {}, 0 };
+        const Common::BoolResultStr valid = RDG::ValidatePassBindings( block );
+        return valid.IsSuccess() ? std::string() : valid.GetError();
+    }
+
+    const UIMaterialCache::Entry* UIMaterialCache::DrawableOrDefault( const Entry*     entry,
+                                                                      const glm::mat4& projection )
+    {
+        if ( !entry || !entry->Material )
+        {
+            return nullptr;
+        }
+        // UIMaterialFallback::Choose is the decision (the suite drives it with fake entries); this binds it to the
+        // real entries: PrepareDraw judges each candidate, the error fill is the default, the log is the engine's.
+        return m_Fallback.Choose(
+             *entry, [this]() { return ErrorEntry(); },
+             [this, &projection]( const Entry& candidate ) { return PrepareDraw( candidate, projection ); },
+             []( const Entry& candidate ) { return candidate.Material->GetShaderName(); },
+             []( const std::string& line ) { LOG_ERROR( "{}", line ); }, kErrorShaderName );
     }
 
     void UIMaterialCache::RetireUnused()
@@ -250,6 +375,8 @@ namespace Desert::Graphic::Render2D
         const uint64_t frame  = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const uint32_t window = ExecutorRetireWindow();
 
+        std::erase_if( m_RetiredBuilds, [&]( const RetiredBuild& retired )
+                       { return MayRetireExecutor( retired.Frame, frame, window ); } );
         for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
         {
             if ( MayRetireExecutor( it->second.LastUsedFrame, frame, window ) )

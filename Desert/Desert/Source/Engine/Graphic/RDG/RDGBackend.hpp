@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -111,8 +112,8 @@ namespace Desert::Graphic::RDG
                                                                                   uint32_t          accessMask,
                                                                                   std::string_view  name )  = 0;
         // The graph released its hold; placed resources stay alive until the slot is re-begun.
-        virtual void                    EndGraph( std::string_view graph ) = 0;
-        virtual TransientAllocatorStats GetStats() const                   = 0;
+        virtual void                                  EndGraph( std::string_view graph ) = 0;
+        [[nodiscard]] virtual TransientAllocatorStats GetStats() const                   = 0;
     };
 
     // RDG-CONTRACTS B(4). The decided async-compute fallback is announced exactly once per backend, not silently
@@ -130,8 +131,8 @@ namespace Desert::Graphic::RDG
 
         // @p passNames: the names of the demoted passes of this compile. Returns true only on the call that
         // logged.
-        bool     Report( std::span<const std::string_view> passNames );
-        uint32_t GetLinesLogged() const;
+        bool                   Report( std::span<const std::string_view> passNames );
+        [[nodiscard]] uint32_t GetLinesLogged() const;
 
     private:
         Sink     m_Sink;
@@ -150,7 +151,7 @@ namespace Desert::Graphic::RDG
         // A(1): where BeginGraph places transients. Valid for the backend's whole life.
         virtual ITransientAllocator& GetTransientAllocator() = 0;
         // B(4): what Execute compiles against. Constant for the backend's life (it describes the device).
-        virtual PipeCapabilities GetPipeCapabilities() const = 0;
+        [[nodiscard]] virtual PipeCapabilities GetPipeCapabilities() const = 0;
         // B(4): the once-per-backend announcement of demoted AsyncCompute passes.
         virtual AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() = 0;
         // RDG-FAULT1: the one dedupe point for pass and frame faults (RDGFault.hpp). Valid for the backend's
@@ -192,6 +193,13 @@ namespace Desert::Graphic::RDG
         virtual Common::BoolResultStr EndGraph( std::span<const Barrier> finalBarriers ) = 0;
         // A pass failed: close whatever is open without recording further work.
         virtual void AbandonGraph() = 0;
+
+        // RDG-FAULT1 C3b (UE: FRDGBuilder::QueueBufferUpload). Records a copy of @p bytes into the start of buffer
+        // @p resource on the current pass's command buffer. Called only from the exec of the upload pass
+        // Builder::QueueBufferUpload adds, after the graph's barrier put the buffer in CopyDst; the builder has
+        // already refused an empty payload, one larger than the buffer, and a size that is not a multiple of 4.
+        // The bytes are consumed before the call returns (the backend keeps no pointer into them).
+        virtual Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) = 0;
 
         // Physical resource of a used resource, valid between BeginGraph and EndGraph / AbandonGraph.
         [[nodiscard]] virtual std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const = 0;

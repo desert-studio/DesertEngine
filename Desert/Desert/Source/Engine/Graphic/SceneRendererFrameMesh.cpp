@@ -48,7 +48,8 @@ namespace Desert::Graphic
         void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
                         const RDG::LoadOp& color, const RDG::LoadOp& depth,
                         const std::vector<RDG::TextureRef>&                             sampled,
-                        std::function<Common::BoolResultStr( const RDG::PassContext& )> body )
+                        std::function<Common::BoolResultStr( const RDG::PassContext& )> body,
+                        const std::function<void( RDG::PassBuilder& )>&                 declareBindings = {} )
         {
             graph.AddPass(
                  name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
@@ -62,6 +63,10 @@ namespace Desert::Graphic
                          pass.DepthTarget( targets.Depth, depth );
                      for ( uint32_t slot = 0; slot < targets.Resolves.size(); ++slot )
                          pass.ResolveTarget( slot, targets.Resolves[slot] );
+                     if ( declareBindings )
+                     {
+                         declareBindings( pass );
+                     }
                  },
                  [body = std::move( body )]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return body( context ); } );
@@ -128,14 +133,15 @@ namespace Desert::Graphic
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer" );
-        if ( !targets || !meshRenderer )
+        if ( !targets || meshRenderer == nullptr )
             return;
         // ZERO, not the default 0.1 grey: empty texels need a zero normal, the lighting pass tells geometry from
         // sky by dot(normal, normal).
         AddRaster( graph, "Deferred: GBuffer", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                    RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
                    [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGBufferManual( context ); } );
+                   { return meshRenderer->RenderGBufferManual( context ); },
+                   [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGBufferDraws( pass ); } );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
@@ -147,12 +153,12 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        AddRaster( graph, "TerrainGBuffer", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
-                   [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   {
-                       return UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                            ->RenderGBufferManual( context );
-                   } );
+        auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        AddRaster(
+             graph, "TerrainGBuffer", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return terrain->RenderGBufferManual( context ); },
+             [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareGBufferDraws( pass ); } );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 
@@ -162,14 +168,16 @@ namespace Desert::Graphic
         if ( glm::distance( sunDir, m_RSMLastSunDir ) > 1e-4f || m_RSMFrameCounter == 0 )
         {
             const auto targets = TargetsOf( textures, m_RSMBuffer, "RSM", "Deferred: RSM" );
-            if ( !targets || !meshRenderer )
+            if ( !targets || meshRenderer == nullptr )
                 return;
             // Colour 0 = "no caster here" for the VPL gather. Standard-Z pass (drawn through a cascade matrix), so
             // depth clears to 1 = far, not to the engine's reversed-Z clear.
-            AddRaster( graph, "Deferred: RSM", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
-                       RDG::LoadOp::ClearDepth( 1.0f ), {},
-                       [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                       { return meshRenderer->RenderRSMManual( context ); } );
+            AddRaster(
+                 graph, "Deferred: RSM", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+                 RDG::LoadOp::ClearDepth( 1.0f ), {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderRSMManual( context ); },
+                 [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareRSMDraws( pass ); } );
             m_RSMLastSunDir = sunDir;
         }
     }
@@ -178,46 +186,51 @@ namespace Desert::Graphic
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
-        if ( !targets || !meshRenderer )
+        if ( !targets || meshRenderer == nullptr )
             return;
-        // The scene/view inputs (cascades, environment cubes, BRDF LUT, cloud shadow map) are pass parameters.
-        const SceneViewInputs              view    = SceneViewInputsOf( textures.GraphRefs() );
-        const std::vector<RDG::TextureRef> sampled = view.Refs();
-        AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGenericManual( context, view ); } );
+        // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
+        // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        AddRaster(
+             graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGenericManual( context ); },
+             [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGenericDraws( pass, view ); } );
     }
 
     void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
-        if ( !targets || !meshRenderer )
+        if ( !targets || meshRenderer == nullptr )
             return;
-        // The scene/view inputs (cascades, environment cubes, BRDF LUT, cloud shadow map) are pass parameters.
-        const SceneViewInputs              view    = SceneViewInputsOf( textures.GraphRefs() );
-        const std::vector<RDG::TextureRef> sampled = view.Refs();
-        AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderSkinnedManual( context, view ); } );
+        // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
+        // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        AddRaster(
+             graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderSkinnedManual( context ); },
+             [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareSkinnedDraws( pass, view ); } );
     }
 
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                                        System::MeshRenderer* meshRenderer )
     {
-        if ( !sceneCopy.IsValid() || !meshRenderer )
+        if ( !sceneCopy.IsValid() || meshRenderer == nullptr )
             return;
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
         if ( !targets )
             return;
-        // The glass samples the scene copy for its refraction and the scene/view inputs, both bound by name in
-        // the body.
-        const SceneViewInputs        view    = SceneViewInputsOf( textures.GraphRefs() );
-        std::vector<RDG::TextureRef> sampled = view.Refs();
-        sampled.push_back( sceneCopy );
-        AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, sceneCopy, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGlassManual( context, sceneCopy, view ); } );
+        // The glass samples the scene copy for its refraction and the scene/view inputs its shader has slots for:
+        // its binding block, declared here (the block entries are the node's reads), resolved in the body.
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        AddRaster(
+             graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGlassManual( context ); },
+             [meshRenderer, sceneCopy, view]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -225,20 +238,26 @@ namespace Desert::Graphic
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        if ( !meshRenderer )
+        if ( meshRenderer == nullptr )
             return;
         const auto accum =
              TargetsOf( textures, meshRenderer->GetOverdrawFramebuffer(), "Overdraw", "Debug: Overdraw" );
         const auto scene = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Debug: Overdraw Resolve" );
         if ( !accum || !scene || accum->Colors.empty() )
             return;
-        AddRaster( graph, "Debug: Overdraw", *accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
-                   RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
-                   [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderOverdrawAccumManual( context ); } );
-        AddRaster( graph, "Debug: Overdraw Resolve", *scene, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
-                   accum->Colors, [meshRenderer, overdraw = accum->Colors[0]]( const RDG::PassContext& context )
-                   { return meshRenderer->RecordOverdrawResolve( context, overdraw ); } );
+        AddRaster(
+             graph, "Debug: Overdraw", *accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+             RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderOverdrawAccumManual( context ); },
+             [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareOverdrawDraws( pass ); } );
+        // The accumulation is read through the resolve's block (its u_Overdraw entry is the node's read).
+        AddRaster(
+             graph, "Debug: Overdraw Resolve", *scene, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RecordOverdrawResolve( context ); },
+             [meshRenderer, overdraw = accum->Colors[0]]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareOverdrawResolve( pass, overdraw ); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 } // namespace Desert::Graphic

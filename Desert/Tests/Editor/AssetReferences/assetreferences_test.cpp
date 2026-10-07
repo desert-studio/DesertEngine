@@ -280,9 +280,3 @@ TEST( AssetReferenceIndex, ClosureOfAnUnknownRootIsEmpty )
     idx.Add( Make( "Scenes/S.desce", ".desce", { "333000444" }, "{}" ) );
     EXPECT_TRUE( idx.ClosureFrom( "Scenes/NotHere.desce" ).empty() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

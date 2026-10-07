@@ -453,9 +453,3 @@ TEST( SkinnedMeshDependency, TheShippedProbeKeepsTheIdentityTheSceneWasSavedWith
     EXPECT_EQ( rigGuid.GetValue(), kProbeSkeletonGuid )
          << kProbeSkeletonPath << "'s GUID changed; SkinProbe.skmesh names the old one and binds no rig";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -640,9 +640,3 @@ namespace
         EXPECT_EQ( result.Aliasing.TotalPeakBytes, heapX.Bytes + heapY.Bytes );
     }
 } // namespace
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

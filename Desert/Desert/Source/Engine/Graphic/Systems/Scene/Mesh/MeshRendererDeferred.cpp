@@ -3,20 +3,26 @@
 
 namespace Desert::Graphic::System
 {
-    Common::BoolResultStr MeshRenderer::RenderGBufferManual( const RDG::PassContext& context )
+    void MeshRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
     {
+        m_GBufferDraws.Clear();
         if ( !m_StaticGBufferPipeline )
-            return BOOLSUCCESS;
+            return;
         const auto& gbuffer = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
         if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr )
-            return BOOLSUCCESS;
+            return;
 
         // The graph opens the render pass and clears it to ZERO (SceneRenderer::AddFrameGBuffer). The G-buffer
-        // shaders sample no scene input, so the node binds no cloud map: every draw is Plain.
-        m_DeferredGeometry                = true;
-        const Common::BoolResultStr drawn = DrawStaticMeshes( MeshPassBindings( context ) );
-        m_DeferredGeometry                = false;
-        return drawn;
+        // shaders sample no scene input: every block is the material's alone.
+        m_DeferredGeometry = true;
+        BuildStaticDraws( m_GBufferDraws );
+        m_DeferredGeometry = false;
+        m_GBufferDraws.Declare( pass, std::nullopt );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGBufferManual( const RDG::PassContext& context ) const
+    {
+        return m_GBufferDraws.Record( context );
     }
 
     bool MeshRenderer::SetupGBufferPass()

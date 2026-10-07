@@ -288,9 +288,3 @@ TEST( DrawableArea, TheGateIsFedByTheSameExtentRuleTheSwapchainRefusesOn )
     EXPECT_TRUE( gate.Observe( IsUsableViewExtent( minimised ) ).SkipFrame )
          << "a frame must not run for an extent the swapchain would refuse to rebuild at";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

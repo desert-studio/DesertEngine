@@ -1,5 +1,9 @@
 #pragma once
 
+#include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
+
+#include <Common/Settings/MachineSettings.hpp>
+
 #include <atomic>
 
 namespace Desert::Graphic
@@ -41,4 +45,34 @@ namespace Desert::Graphic
         // setting a wider line then is a validation error, so the debug-line paths clamp to 1.0.
         static inline std::atomic<bool> WideLines{ false };
     };
+
+    // The sampler an engine Image2D / ImageCube carries as its own (VulkanImage CreateSampler, Global policy):
+    // filter and mip mode from the global texture filter, REPEAT on every axis. The one derivation of it -- the
+    // backend's own sampler reads it, and a graph entry that must read an image exactly as the image's own
+    // sampler did (RDG-FAULT1 sampler parity) names it. Anisotropy is not part of a SamplerDesc: the entries
+    // that name this sample from compute with an explicit level of detail, where anisotropy does not apply.
+    inline RDG::SamplerDesc GlobalTextureFilterSampler()
+    {
+        using FM                      = Common::Settings::TextureFilter;
+        const int                mode = RenderConfig::TextureFilter.load();
+        const RDG::SamplerFilter filter =
+             mode == static_cast<int>( FM::Nearest ) ? RDG::SamplerFilter::Nearest : RDG::SamplerFilter::Linear;
+        const RDG::SamplerMipMode mip =
+             mode == static_cast<int>( FM::Trilinear ) || mode == static_cast<int>( FM::Anisotropic )
+                  ? RDG::SamplerMipMode::Linear
+                  : RDG::SamplerMipMode::Nearest;
+        return { filter,
+                 filter,
+                 mip,
+                 RDG::SamplerAddress::Repeat,
+                 RDG::SamplerAddress::Repeat,
+                 RDG::SamplerAddress::Repeat };
+    }
+
+    // The sampler an engine Image3D carries as its own (AlwaysLinear policy): LINEAR, linear mip, REPEAT, whatever
+    // the global filter -- a volume's interpolation is part of the algorithm that samples it.
+    constexpr RDG::SamplerDesc VolumeSampler()
+    {
+        return RDG::SamplerDesc::LinearRepeat();
+    }
 } // namespace Desert::Graphic

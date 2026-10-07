@@ -37,6 +37,7 @@ namespace Desert::Graphic
                            "contents -- {}",
                            size, wrote.GetError() );
 
+            m_Written = true;
             NoteWritten();
         }
 
@@ -45,8 +46,17 @@ namespace Desert::Graphic
         // rebinds the new VkBuffer.
         void SetBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
         {
-            m_Buffer     = buffer;
+            m_Buffer  = buffer;
+            m_Written = true;
             NoteWritten();
+        }
+
+        // Whether anything ever filled this buffer (SetRawData / SetBuffer). The reflection-created buffer of an
+        // unwritten property holds no copy to bind, so a draw would be refused at record time; the material's route
+        // fill leaves it out instead (MaterialExecutor::GetRouteFill) and the pass's setup refuses the block.
+        [[nodiscard]] bool IsWritten() const noexcept
+        {
+            return m_Written;
         }
 
         const auto& GetStorageBuffer() const
@@ -56,5 +66,6 @@ namespace Desert::Graphic
 
     private:
         std::shared_ptr<ShaderResources::StorageBuffer> m_Buffer;
+        bool                                            m_Written = false;
     };
 } // namespace Desert::Graphic

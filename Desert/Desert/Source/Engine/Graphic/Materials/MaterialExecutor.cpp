@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 
@@ -67,17 +68,8 @@ namespace Desert::Graphic
         // Properties block does not is a pass parameter (shadow cascades, environment cubes, BRDF LUT, cloud
         // shadow map, scene textures): the pass binds it through RDG::PassBindings, and no property exists
         // here for anything to write into -- "filled both" cannot be built.
-        std::unordered_map<std::string, const Core::Formats::ShaderParam*> textureParameters;
-        for ( const Core::Formats::ShaderParam* param :
-              Core::Formats::MaterialTextureParameters( parameterSchema ) )
-            textureParameters.emplace( param->Name, param );
-        const auto parameterFor = [&]( const std::string& name, bool cube ) -> const Core::Formats::ShaderParam*
-        {
-            const auto it = textureParameters.find( name );
-            if ( it == textureParameters.end() || it->second->IsCubeTexture != cube )
-                return nullptr;
-            return it->second;
-        };
+        const auto parameterFor = [&]( const std::string& name, bool cube )
+        { return Core::Formats::FindMaterialTextureParameter( parameterSchema, name, cube ); };
 
         auto uniformManager =
              ShaderResources::ShaderResourcesManager::Create( "Material_" + m_Shader->GetName(), m_Shader );
@@ -137,6 +129,28 @@ namespace Desert::Graphic
              m_Texture2DPropertiesStorage, m_Texture2DPropertiesLookup, "image2D" );
     }
 
+    RDG::OtherRouteFill MaterialExecutor::GetRouteFill() const
+    {
+        RDG::OtherRouteFill fill;
+        fill.PushConstants = m_PushConstantBuffer.Size != 0u;
+        const auto add     = [&fill]( const auto& lookup )
+        {
+            for ( const auto& [name, index] : lookup )
+                fill.Slots.push_back( name );
+        };
+        add( m_UniformBufferPropertiesLookup );
+        // A storage buffer nothing ever wrote is NOT filled: its slot is then "filled by neither the pass nor the
+        // material" in the pass's setup validation, before any draw is recorded.
+        for ( const auto& [name, index] : m_StorageBufferPropertiesLookup )
+            if ( m_StorageBufferPropertiesStorage[index]->IsWritten() )
+                fill.Slots.push_back( name );
+        add( m_Texture2DPropertiesLookup );
+        add( m_TextureCubePropertiesLookup );
+        // Deterministic, so a validation message does not depend on hash-map order.
+        std::sort( fill.Slots.begin(), fill.Slots.end() );
+        return fill;
+    }
+
     void MaterialExecutor::Apply() const
     {
         auto backend = m_MaterialBackend.get();
@@ -170,7 +184,7 @@ namespace Desert::Graphic
     }
 
     std::unique_ptr<MaterialExecutor>
-    MaterialExecutor::Create( std::string&& debugName, std::string&& shaderName,
+    MaterialExecutor::Create( std::string&& debugName, const std::string& shaderName,
                               const Core::Formats::ShaderProgramMeta* parameterSchema )
     {
         const auto& resolvedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
@@ -188,7 +202,7 @@ namespace Desert::Graphic
             {
                 return std::make_unique<MaterialExecutor>(
                      std::move( debugName ), resolvedShader,
-                     parameterSchema ? *parameterSchema : resolvedShader->GetProgramMeta(),
+                     parameterSchema != nullptr ? *parameterSchema : resolvedShader->GetProgramMeta(),
                      std::make_unique<API::Vulkan::VulkanMaterialBackend>( resolvedShader ),
                      VulkanPushBlockSize( resolvedShader ) );
             }
@@ -208,7 +222,8 @@ namespace Desert::Graphic
             case RendererAPIType::Vulkan:
             {
                 return std::make_unique<MaterialExecutor>(
-                     std::move( debugName ), shader, parameterSchema ? *parameterSchema : shader->GetProgramMeta(),
+                     std::move( debugName ), shader,
+                     parameterSchema != nullptr ? *parameterSchema : shader->GetProgramMeta(),
                      std::make_unique<API::Vulkan::VulkanMaterialBackend>( shader ),
                      VulkanPushBlockSize( shader ) );
             }

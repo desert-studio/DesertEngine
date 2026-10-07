@@ -474,9 +474,3 @@ TEST_F( Fixture, WhileTheCurrentLanguageIsOnItsWayAKeyIsPendingNotAMiss )
     EXPECT_EQ( loc.Resolve( "#menu.nowhere" ).Outcome, Localization::Outcome::MissingKey );
     EXPECT_FALSE( loc.Misses().empty() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

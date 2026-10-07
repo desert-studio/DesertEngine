@@ -481,36 +481,39 @@ TEST( MsdfBake, InsideOfAStemIsPositive )
     EXPECT_TRUE( EveryAlphaIsOpaque( font ) );
 }
 
-// MINIFICATION, WHICH IS THE WORLD-TEXT CASE, AND THE HYPOTHESIS IT DISPROVED.
-//
-// There are no mips: averaging three channels destroys the median, and the engine's image path only
-// knows how to build mips by averaging. So the only lever left is the width of the edge ramp, and the
-// first answer written here was "let it widen past a screen pixel, so a shrinking glyph fades instead
-// of breaking up". THAT IS WRONG, and this test is what says so: once the encoded band spans less than
-// a pixel it also saturates in less than a pixel, so a texel deep inside a stroke can only report the
-// band's own half-width and the stroke never reaches full opacity. Scored against the glyph's own
-// supersampled coverage it is nearly twice as wrong as flooring the ramp at one pixel.
-//
-// The floor is a lie about distances the band cannot express. The measurement is why we tell it.
-// One rendered glyph height, as a test parameter: the sizes are the interesting axis, and a loop of
-// EXPECTs would report all three under one name and stop at the first failure.
-class MsdfAtSize : public testing::TestWithParam<double>
+namespace
 {
-protected:
-    void SetUp() override
+    // MINIFICATION, WHICH IS THE WORLD-TEXT CASE, AND THE HYPOTHESIS IT DISPROVED.
+    //
+    // There are no mips: averaging three channels destroys the median, and the engine's image path only
+    // knows how to build mips by averaging. So the only lever left is the width of the edge ramp, and the
+    // first answer written here was "let it widen past a screen pixel, so a shrinking glyph fades instead
+    // of breaking up". THAT IS WRONG, and this test is what says so: once the encoded band spans less than
+    // a pixel it also saturates in less than a pixel, so a texel deep inside a stroke can only report the
+    // band's own half-width and the stroke never reaches full opacity. Scored against the glyph's own
+    // supersampled coverage it is nearly twice as wrong as flooring the ramp at one pixel.
+    //
+    // The floor is a lie about distances the band cannot express. The measurement is why we tell it.
+    // One rendered glyph height, as a test parameter: the sizes are the interesting axis, and a loop of
+    // EXPECTs would report all three under one name and stop at the first failure.
+    class MsdfAtSize : public testing::TestWithParam<double>
     {
-        const auto ttf = LoadRoboto();
-        ASSERT_FALSE( ttf.empty() );
-        m_Font = Desert::Text::BakeFontMSDF( ttf.data(), ttf.size(), kBakeSize );
-        ASSERT_TRUE( m_Font.Valid() );
-        ASSERT_TRUE( m_Font.Glyphs.contains( 'A' ) );
-        ASSERT_TRUE( m_Font.Glyphs.contains( 'a' ) );
-        m_Field = AtlasAsFloats( m_Font );
-    }
+    protected:
+        void SetUp() override
+        {
+            const auto ttf = LoadRoboto();
+            ASSERT_FALSE( ttf.empty() );
+            m_Font = Desert::Text::BakeFontMSDF( ttf.data(), ttf.size(), kBakeSize );
+            ASSERT_TRUE( m_Font.Valid() );
+            ASSERT_TRUE( m_Font.Glyphs.contains( 'A' ) );
+            ASSERT_TRUE( m_Font.Glyphs.contains( 'a' ) );
+            m_Field = AtlasAsFloats( m_Font );
+        }
 
-    Desert::Text::BakedFont m_Font;
-    std::vector<float>      m_Field;
-};
+        Desert::Text::BakedFont m_Font;
+        std::vector<float>      m_Field;
+    };
+} // namespace
 
 TEST_P( MsdfAtSize, FlooringTheRampAtOnePixelBeatsLettingItWiden )
 {

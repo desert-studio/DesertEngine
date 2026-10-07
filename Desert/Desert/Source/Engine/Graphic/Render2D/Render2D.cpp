@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -10,7 +11,6 @@
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
-#include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Graphic/Render2D/Render2DExecutorRetire.hpp>
@@ -25,6 +25,9 @@
 
 namespace Desert::Graphic::Render2D
 {
+    // Both glass-panel failure sites (backdrop description, the draw itself) report under one shape.
+    constexpr std::string_view kGlassPanelNotDrawnFormat = "a glass panel was not drawn: {}";
+
     // Out of line because MaterialExecutor is incomplete in the header. The white texture needs nothing
     // said here: a Texture2D unregisters its own image (Texture.hpp).
     Render2D::~Render2D() = default;
@@ -148,6 +151,8 @@ namespace Desert::Graphic::Render2D
              glm::ortho( viewportPx.x, viewportPx.x + viewportPx.z, viewportPx.y + viewportPx.w, viewportPx.y );
         m_ViewportPx = viewportPx;
         m_DrawList.Reset();
+        m_Prepared.Reset();
+        m_PreparedList = nullptr;
         m_Retained.clear();
         m_TargetOrigin = glm::vec2( 0.0f );
     }
@@ -205,13 +210,230 @@ namespace Desert::Graphic::Render2D
         return exec;
     }
 
-    Common::BoolResultStr Render2D::Flush( const RDG::PassContext& context, RDG::TextureRef backdrop )
+    namespace
     {
-        return FlushList( context, m_DrawList, backdrop );
+        // The glass draw's push block: projection, the rect in ITS OWN space, its corner radius, the blur LOD,
+        // 1/viewport (the shader maps gl_FragCoord into the snapshot with it) and the two rows that map a screen
+        // fragment back into that own space. 128 bytes, the engine's push-block cap.
+        //
+        // The inverse travels as ROWS rather than as a mat3 because a std430 mat3 is three 16-byte columns of
+        // which four floats are padding, and the block has no room for four floats of nothing.
+        struct GlassPush
+        {
+            glm::mat4 Projection;
+            glm::vec4 Rect;
+            glm::vec4 Params;
+            glm::vec4 InvRow0;
+            glm::vec4 InvRow1;
+        };
+        static_assert( sizeof( GlassPush ) == 128 );
+
+        // A retained layer's composite push block (UIRetainer.shader).
+        struct RetainerPush
+        {
+            glm::mat4 Projection;
+            glm::vec4 Rect; // min.xy, max.xy screen px
+            glm::vec4 Uv;   // xy = layer extent in target UV, zw = 1 / target size
+            glm::vec4 Mask; // x = mask on, y = invert, z = opacity, w = haze on
+            glm::vec4 Haze; // amplitude px, cell px, cells/s, time s
+        };
+        static_assert( sizeof( RetainerPush ) == 128, "UIRetainer.shader push block" );
+
+        RetainerPush RetainerPushOf( const glm::mat4& projection, const DrawCommand& cmd, const glm::vec4& uv,
+                                     const bool hasMask )
+        {
+            const RetainerEffect& fx = cmd.Effect;
+            return RetainerPush{ projection, cmd.RetainedRect, uv,
+                                 glm::vec4( fx.Mask && hasMask ? 1.0f : 0.0f, fx.InvertMask ? 1.0f : 0.0f,
+                                            fx.Opacity, fx.Haze ? 1.0f : 0.0f ),
+                                 glm::vec4( fx.HazeAmplitude, fx.HazeScale, fx.HazeSpeed, fx.Time ) };
+        }
+    } // namespace
+
+    Render2D::ResolvedCommand Render2D::Resolve( const DrawCommand& cmd, const bool backdrop )
+    {
+        ResolvedCommand resolved;
+        if ( cmd.IndexCount == 0 )
+            return resolved;
+        if ( cmd.Retained )
+        {
+            const auto it = m_Retained.find( &cmd );
+            if ( it == m_Retained.end() || !it->second.Content.IsValid() )
+            {
+                if ( !m_RefusedUnrendered )
+                {
+                    LOG_ERROR( "[Render2D] a retained UI layer was not rendered this frame, so its composite "
+                               "is not drawn: the host must call Render2D::AddRetainedPasses on the graph after "
+                               "the walk and before the pass that Flushes, and DeclareRetainedReads in that "
+                               "pass's setup (see Render2D.hpp)" );
+                }
+                m_RefusedUnrendered = true;
+                return resolved;
+            }
+            resolved.Kind     = CommandKind::Retained;
+            resolved.Pipeline = m_RetainerPipeline.get();
+            resolved.Layout   = &m_RetainerLayout;
+            resolved.Retained = &it->second;
+            if ( !it->second.Mask.IsValid() )
+            {
+                // Without a mask, u_Mask is the engine's white image, a written slot of the retainer executor,
+                // which then carries the push block; a slot is never bound by both routes.
+                MaterialExecutor* rexec =
+                     ExecutorFor( m_RetainerExecutors, m_RetainerShader, "u_Mask", nullptr, m_WhiteImage );
+                if ( rexec == nullptr )
+                {
+                    LOG_ERROR( "[Render2D] a retained UI layer's composite is not drawn: no UIRetainer executor" );
+                    return ResolvedCommand{};
+                }
+                resolved.Plain    = rexec;
+                resolved.Executor = rexec;
+            }
+            return resolved;
+        }
+        if ( cmd.Glass && m_GlassPipeline && backdrop )
+        {
+            resolved.Kind     = CommandKind::Glass;
+            resolved.Pipeline = m_GlassPipeline.get();
+            resolved.Layout   = &m_GlassLayout;
+            return resolved;
+        }
+        if ( cmd.Material )
+        {
+            // A UI-DOMAIN MATERIAL FILL. The batch carries the resolved entry the canvas walk got from
+            // UIMaterialCache::Resolve - never null, and never null-and-meaning-fine: a handle the UI path cannot
+            // execute resolved to the magenta error entry back there, with the reason logged.
+            // An entry whose row would leave the row buffer unwritten binds the default UI material instead - a
+            // per-draw decision made here, so setup (DeclareInto) and Flush agree, never the whole node's fault.
+            const auto* entry = m_MaterialCache.DrawableOrDefault(
+                 static_cast<const UIMaterialCache::Entry*>( cmd.Material ), m_Projection );
+            if ( !entry || !entry->Pipeline || !entry->Material )
+                return resolved;
+            resolved.Kind     = CommandKind::Material;
+            resolved.Pipeline = entry->Pipeline.get();
+            resolved.Material = entry->Material.get();
+            resolved.Executor = resolved.Material->GetMaterialExecutor();
+            resolved.Layout   = &entry->Layout;
+            return resolved;
+        }
+        MaterialExecutor* exec;
+        if ( cmd.Text )
+        {
+            // Text always carries a valid font-atlas texture; route it to the SDF pipeline.
+            exec              = ExecutorFor( m_TextExecutors, m_TextShader, "u_SDFAtlas", cmd.Texture,
+                                             const_cast<Image2D*>( static_cast<const Image2D*>( cmd.Texture ) ) );
+            resolved.Pipeline = m_TextPipeline.get();
+            resolved.Layout   = &m_TextLayout;
+        }
+        else
+        {
+            Image2D* img =
+                 cmd.Texture ? const_cast<Image2D*>( static_cast<const Image2D*>( cmd.Texture ) ) : m_WhiteImage;
+            exec              = ExecutorFor( m_Executors, m_Shader, "u_Texture", cmd.Texture, img );
+            resolved.Pipeline = m_Pipeline.get();
+            resolved.Layout   = &m_PlainLayout;
+        }
+        if ( !exec )
+            return ResolvedCommand{};
+        resolved.Kind     = CommandKind::Plain;
+        resolved.Plain    = exec;
+        resolved.Executor = exec;
+        return resolved;
+    }
+
+    template <class Declaration>
+    void Render2D::DeclareInto( Declaration& declared, const DrawList2D& list, const RDG::TextureRef backdrop )
+    {
+        if ( !m_Pipeline || !m_TextPipeline || list.Empty() )
+            return; // Flush draws nothing either
+        // THE ONE PREPARATION of this frame's draws (PreparedDraws): Resolve - and for a UI material
+        // UIMaterialCache::DrawableOrDefault's PrepareDraw - runs here once per command; Flush records the result.
+        const bool backdropValid = backdrop.IsValid();
+        m_PreparedList = &list;
+        m_Prepared.Prepare( list.GetCommands(),
+                            [&]( const DrawCommand& cmd ) -> std::optional<ResolvedCommand>
+                            {
+                                ResolvedCommand resolved = Resolve( cmd, backdropValid );
+                                if ( resolved.Kind == CommandKind::Skip )
+                                {
+                                    return std::nullopt;
+                                }
+                                return resolved;
+                            } );
+        for ( const auto& draw : m_Prepared.Draws() )
+        {
+            const ResolvedCommand&    resolved = draw.Value;
+            ShaderBindingLayoutCache& layout   = *resolved.Layout;
+            if ( resolved.Kind == CommandKind::Retained )
+            {
+                // The composite samples the layer (and its mask) the retained pass drew: graph textures, read by
+                // name through this block. A masked composite's push block goes through the graph too; a
+                // mask-less one is carried by the retainer executor (u_Mask = white), written here.
+                const DrawCommand&     cmd    = list.GetCommands()[draw.Command];
+                const RetainedPicture& pic    = *resolved.Retained;
+                const auto&            shader = resolved.Pipeline->GetSpecification().Shader;
+                if ( pic.Mask.IsValid() )
+                {
+                    declared.Bindings( layout.Get( shader ), RDG::OtherRouteFill{} )
+                         .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
+                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
+                         .Sampled( "u_Mask", pic.Mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                                   RDG::SamplerDesc::LinearClamp() )
+                         .PushConstantBytes( static_cast<uint32_t>( sizeof( RetainerPush ) ) );
+                }
+                else
+                {
+                    const RetainerPush push = RetainerPushOf( m_Projection, cmd, pic.Uv, false );
+                    resolved.Plain->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                    declared.Bindings( layout.Get( shader ), resolved.Executor->GetRouteFill() )
+                         .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
+                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+                }
+                continue;
+            }
+            if ( resolved.Kind == CommandKind::Glass )
+            {
+                // The sampler the glass sampled its backdrop with before: LinearClamp over every mip.
+                declared
+                     .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+                     .Sampled( "u_Backdrop", backdrop, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                               RDG::SamplerDesc::LinearClamp() )
+                     .PushConstantBytes( static_cast<uint32_t>( sizeof( GlassPush ) ) );
+                continue;
+            }
+            // A material draw's row, projection and row index were written by Resolve (UIMaterialCache::
+            // PrepareDraw, the one place - it also validated exactly this block).
+            if ( resolved.Kind != CommandKind::Material )
+            {
+                resolved.Plain->PushConstant( &m_Projection, (uint32_t)sizeof( glm::mat4 ) );
+            }
+            declared.Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
+                               resolved.Executor->GetRouteFill() );
+        }
+    }
+
+    void Render2D::DeclareBindings( RDG::PassBuilder& pass, const RDG::TextureRef backdrop )
+    {
+        DeclareInto( pass, m_DrawList, backdrop );
+    }
+
+    void Render2D::DeclareBindings( RenderPassDeclaration& declared, const RDG::TextureRef backdrop )
+    {
+        DeclareInto( declared, m_DrawList, backdrop );
+    }
+
+    void Render2D::DeclareListBindings( RDG::PassBuilder& pass, const DrawList2D& list, const RDG::TextureRef backdrop )
+    {
+        DeclareInto( pass, list, backdrop );
+    }
+
+    Common::BoolResultStr Render2D::Flush( const RDG::PassContext& context, RDG::TextureRef backdrop,
+                                           const uint32_t firstBlock )
+    {
+        return FlushList( context, m_DrawList, backdrop, firstBlock );
     }
 
     Common::BoolResultStr Render2D::FlushList( const RDG::PassContext& context, const DrawList2D& list,
-                                               RDG::TextureRef backdrop )
+                                               RDG::TextureRef backdrop, const uint32_t firstBlock )
     {
         if ( !m_Pipeline || !m_TextPipeline )
         {
@@ -220,6 +442,12 @@ namespace Desert::Graphic::Render2D
         if ( list.Empty() )
         {
             return BOOLSUCCESS;
+        }
+        if ( !m_Prepared.Ready() || m_PreparedList != &list )
+        {
+            return Common::MakeError( "Render2D::Flush: the draws were not prepared - DeclareBindings (or "
+                                      "DeclareListBindings for this list) must run in the node's setup for this "
+                                      "frame's draw list" );
         }
 
         const auto& verts = list.GetVertices();
@@ -278,197 +506,84 @@ namespace Desert::Graphic::Render2D
                                  static_cast<uint32_t>( std::max( box.w, 0.0f ) ) );
         };
 
-        for ( const auto& cmd : list.GetCommands() )
+        // The draws the setup prepared (DeclareBindings), recorded as they are: the n-th opens block n. Nothing is
+        // resolved, prepared or validated again here.
+        const auto& commands = list.GetCommands();
+        uint32_t    block    = firstBlock;
+        for ( const auto& draw : m_Prepared.Draws() )
         {
-            if ( cmd.IndexCount == 0 )
-                continue;
+            const DrawCommand&     cmd      = commands[draw.Command];
+            const ResolvedCommand& resolved = draw.Value;
+            const uint32_t         index    = block++;
 
-            if ( cmd.Retained )
+            if ( resolved.Kind == CommandKind::Retained )
             {
-                const auto it = m_Retained.find( &cmd );
-                if ( it == m_Retained.end() || !it->second.Content.IsValid() )
-                {
-                    if ( !m_RefusedUnrendered )
-                    {
-                        LOG_ERROR(
-                             "[Render2D] a retained UI layer was not rendered this frame, so its composite "
-                             "is not drawn: the host must call Render2D::AddRetainedPasses on the graph after "
-                             "the walk and before the pass that Flushes, and DeclareRetainedReads in that "
-                             "pass's setup (see Render2D.hpp)" );
-                    }
-                    m_RefusedUnrendered = true;
-                    continue;
-                }
-                const RetainedPicture& pic = it->second;
-
-                const RetainerEffect& fx = cmd.Effect;
-                struct RetainerPush
-                {
-                    glm::mat4 Projection;
-                    glm::vec4 Rect; // min.xy, max.xy screen px
-                    glm::vec4 Uv;   // xy = layer extent in target UV, zw = 1 / target size
-                    glm::vec4 Mask; // x = mask on, y = invert, z = opacity, w = haze on
-                    glm::vec4 Haze; // amplitude px, cell px, cells/s, time s
-                } push{ m_Projection, cmd.RetainedRect, pic.Uv,
-                        glm::vec4( fx.Mask && pic.Mask.IsValid() ? 1.0f : 0.0f, fx.InvertMask ? 1.0f : 0.0f,
-                                   fx.Opacity, fx.Haze ? 1.0f : 0.0f ),
-                        glm::vec4( fx.HazeAmplitude, fx.HazeScale, fx.HazeSpeed, fx.Time ) };
-                static_assert( sizeof( RetainerPush ) == 128, "UIRetainer.shader push block" );
-
+                // A retained layer's composite. The layer (and its mask) are graph textures this pass's setup
+                // declared (DeclareRetainedReads + the block DeclareInto opened); with a mask the push block goes
+                // through the graph bindings, without one the retainer executor (u_Mask = white) carries it.
+                const RetainedPicture& pic = *resolved.Retained;
                 ApplyScissor( cmd );
-                // The layer (and its mask) are graph textures, declared by the pass that Flushes
-                // (DeclareRetainedReads): bound by name through the pass's bindings. Without a mask, u_Mask is
-                // the engine's white image, a written slot of the retainer executor, which then carries the push
-                // block; a slot is never bound by both routes.
-                RDG::PassBindings bindings( context );
-                bindings.Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
-                                  RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
-                MaterialExecutor* rexec = nullptr;
+                RDG::PassBindings bindings( context, context.GetBindingBlock( index ) );
                 if ( pic.Mask.IsValid() )
                 {
-                    bindings
-                         .Sampled( "u_Mask", pic.Mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                                   RDG::SamplerDesc::LinearClamp() )
-                         .PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-                }
-                else
-                {
-                    rexec = ExecutorFor( m_RetainerExecutors, m_RetainerShader, "u_Mask", nullptr, m_WhiteImage );
-                    if ( rexec == nullptr )
-                    {
-                        if ( failure.IsSuccess() )
-                        {
-                            failure = Common::MakeError(
-                                 "a retained UI layer's composite was not drawn: no UIRetainer executor" );
-                        }
-                        continue;
-                    }
-                    rexec->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                    const RetainerPush push = RetainerPushOf( m_Projection, cmd, pic.Uv, true );
+                    bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                 }
                 const Common::BoolResultStr drawn =
-                     renderer.DrawIndexed( bindings, *m_RetainerPipeline, rexec, *m_VertexBuffer, *m_IndexBuffer,
-                                           cmd.IndexCount, cmd.IndexOffset );
+                     renderer.DrawIndexed( bindings, *resolved.Pipeline, resolved.Plain, *m_VertexBuffer,
+                                           *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
                 if ( !drawn.IsSuccess() && failure.IsSuccess() )
                 {
-                    failure =
-                         Common::MakeError( "a retained UI layer's composite was not drawn: " + drawn.GetError() );
+                    failure = Common::MakeError(
+                         std::format( "a retained UI layer's composite was not drawn: {}", drawn.GetError() ) );
                 }
                 continue;
             }
 
-            MaterialExecutor* exec;
-            GraphicsPipeline* pipeline;
-            if ( cmd.Glass && m_GlassPipeline && backdrop.IsValid() )
+            if ( resolved.Kind == CommandKind::Glass )
             {
                 // The coarsest LOD the glass may sample is the pyramid's own last mip (UE: Texture->Desc.NumMips).
                 const Common::ResultStr<RDG::TextureDesc> backdropDesc = context.GetTextureDesc( backdrop );
                 if ( !backdropDesc.IsSuccess() )
                 {
                     if ( failure.IsSuccess() )
-                        failure = Common::MakeError( "a glass panel was not drawn: " + backdropDesc.GetError() );
+                        failure = Common::MakeError(
+                             std::format( kGlassPanelNotDrawnFormat, backdropDesc.GetError() ) );
                     continue;
                 }
-                const uint32_t backdropMaxLod = backdropDesc.GetValue().Mips - 1;
-
-                // Per-element push block: projection, the rect in ITS OWN space, its corner radius, the
-                // blur LOD, 1/viewport (the shader maps gl_FragCoord into the snapshot with it) and the
-                // two rows that map a screen fragment back into that own space. 128 bytes, which is the
-                // size every Vulkan implementation is required to offer.
-                //
-                // The inverse travels as ROWS rather than as a mat3 because a std430 mat3 is three
-                // 16-byte columns of which four floats are padding, and the block has no room for four
-                // floats of nothing.
-                struct GlassPush
-                {
-                    glm::mat4 Projection;
-                    glm::vec4 Rect;
-                    glm::vec4 Params;
-                    glm::vec4 InvRow0;
-                    glm::vec4 InvRow1;
-                } push{ m_Projection, cmd.GlassRect,
-                        glm::vec4( cmd.GlassRound, cmd.GlassLod * static_cast<float>( backdropMaxLod ),
-                                   m_ViewportPx.z > 0.0f ? 1.0f / m_ViewportPx.z : 0.0f,
-                                   m_ViewportPx.w > 0.0f ? 1.0f / m_ViewportPx.w : 0.0f ),
-                        glm::vec4( cmd.GlassInverse[0].x, cmd.GlassInverse[1].x, cmd.GlassInverse[2].x,
-                                   cmd.GlassFeather ),
-                        glm::vec4( cmd.GlassInverse[0].y, cmd.GlassInverse[1].y, cmd.GlassInverse[2].y, 0.0f ) };
+                const uint32_t  backdropMaxLod = backdropDesc.GetValue().Mips - 1;
+                const GlassPush push{
+                     m_Projection, cmd.GlassRect,
+                     glm::vec4( cmd.GlassRound, cmd.GlassLod * static_cast<float>( backdropMaxLod ),
+                                m_ViewportPx.z > 0.0f ? 1.0f / m_ViewportPx.z : 0.0f,
+                                m_ViewportPx.w > 0.0f ? 1.0f / m_ViewportPx.w : 0.0f ),
+                     glm::vec4( cmd.GlassInverse[0].x, cmd.GlassInverse[1].x, cmd.GlassInverse[2].x,
+                                cmd.GlassFeather ),
+                     glm::vec4( cmd.GlassInverse[0].y, cmd.GlassInverse[1].y, cmd.GlassInverse[2].y, 0.0f ) };
 
                 ApplyScissor( cmd );
-                RDG::PassBindings bindings( context );
-                bindings
-                     .Sampled( "u_Backdrop", backdrop, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                               RDG::SamplerDesc::LinearClamp() )
-                     .PushConstants( &push, (uint32_t)sizeof( push ) );
+                RDG::PassBindings bindings( context, context.GetBindingBlock( index ) );
+                bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                 const Common::BoolResultStr drawn =
-                     renderer.DrawIndexed( bindings, *m_GlassPipeline, nullptr, *m_VertexBuffer, *m_IndexBuffer,
+                     renderer.DrawIndexed( bindings, *resolved.Pipeline, nullptr, *m_VertexBuffer, *m_IndexBuffer,
                                            cmd.IndexCount, cmd.IndexOffset );
                 if ( !drawn.IsSuccess() && failure.IsSuccess() )
-                    failure = Common::MakeError( "a glass panel was not drawn: " + drawn.GetError() );
+                    failure = Common::MakeError( std::format( kGlassPanelNotDrawnFormat, drawn.GetError() ) );
                 usedBackdrop = true;
                 continue;
             }
 
-            if ( cmd.Material )
-            {
-                // A UI-DOMAIN MATERIAL FILL. The batch carries the resolved entry the canvas walk got
-                // from UIMaterialCache::Resolve — never null, and never null-and-meaning-fine: a handle
-                // the UI path cannot execute resolved to the magenta error entry back there, with the
-                // reason logged, so there is nothing left here to fall back from.
-                const auto* entry = static_cast<const UIMaterialCache::Entry*>( cmd.Material );
-                if ( !entry->Pipeline || !entry->Material )
-                    continue;
-
-                auto* material = entry->Material.get();
-
-                // THE PARAMETERS ARE A ROW, NOT PUSH BYTES. One row per material and therefore index 0 —
-                // a UI material is shared by every element pointing at the same asset, which is exactly
-                // what keeps two such elements in one batch. `SetMaterialIndex` writes that index into
-                // the push block's `MaterialIndex` field, found by name in the cell's layout exactly as
-                // the mesh path finds it (Graphic/Materials/MaterialBinder.hpp), so the two cannot drift.
-                const auto& row = material->GetParamRow();
-                if ( !row.empty() )
-                    if ( auto* sb = material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) )
-                        sb->SetRawData( row.data(), static_cast<uint32_t>( row.size() * sizeof( glm::vec4 ) ) );
-
-                ApplyScissor( cmd );
-                // 64 bytes of projection at offset 0 + 4 of row index at 64 = 68 of the 128 available.
-                // Common/UIVertex.glslh is the other half of this: the mat4 slot the mesh path calls
-                // Transform carries the batcher's pixel -> clip projection in the UI domain.
-                material->SetPushMatrix( m_Projection );
-                material->SetMaterialIndex( 0 );
-                const Common::BoolResultStr drawn = renderer.DrawIndexed(
-                     RDG::PassBindings( context ), *entry->Pipeline, material->GetMaterialExecutor(),
-                     *m_VertexBuffer, *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
-                if ( !drawn.IsSuccess() && failure.IsSuccess() )
-                    failure = Common::MakeError( "a UI material batch was not drawn: " + drawn.GetError() );
-                continue;
-            }
-
-            if ( cmd.Text )
-            {
-                // Text always carries a valid font-atlas texture; route it to the SDF pipeline.
-                exec     = ExecutorFor( m_TextExecutors, m_TextShader, "u_SDFAtlas", cmd.Texture,
-                                        const_cast<Image2D*>( static_cast<const Image2D*>( cmd.Texture ) ) );
-                pipeline = m_TextPipeline.get();
-            }
-            else
-            {
-                Image2D* img = cmd.Texture ? const_cast<Image2D*>( static_cast<const Image2D*>( cmd.Texture ) )
-                                           : m_WhiteImage;
-                exec         = ExecutorFor( m_Executors, m_Shader, "u_Texture", cmd.Texture, img );
-                pipeline     = m_Pipeline.get();
-            }
-            if ( !exec )
-                continue;
-
+            // A UI material's row / push matrix / index and a 2D batch's projection were filled in the setup
+            // (DeclareBindings); the exec only clips and draws.
             ApplyScissor( cmd );
-
-            exec->PushConstant( &m_Projection, (uint32_t)sizeof( glm::mat4 ) );
-            const Common::BoolResultStr drawn =
-                 renderer.DrawIndexed( RDG::PassBindings( context ), *pipeline, exec, *m_VertexBuffer,
-                                       *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
+            const Common::BoolResultStr drawn = renderer.DrawIndexed(
+                 RDG::PassBindings( context, context.GetBindingBlock( index ) ), *resolved.Pipeline,
+                 resolved.Executor, *m_VertexBuffer, *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
             if ( !drawn.IsSuccess() && failure.IsSuccess() )
-                failure = Common::MakeError( "a 2D batch was not drawn: " + drawn.GetError() );
+                failure = Common::MakeError(
+                     std::format( resolved.Kind == CommandKind::Material ? "a UI material batch was not drawn: {}"
+                                                                         : "a 2D batch was not drawn: {}",
+                                  drawn.GetError() ) );
         }
 
         // Leave the scissor at the full viewport so nothing downstream inherits a UI clip.
@@ -478,6 +593,8 @@ namespace Desert::Graphic::Render2D
 
         m_UsedBackdrop = usedBackdrop;
 
+        m_Prepared.Reset();
+        m_PreparedList = nullptr;
         RetireUnusedExecutors();
         m_MaterialCache.RetireUnused();
         return failure;
@@ -596,7 +713,8 @@ namespace Desert::Graphic::Render2D
                            imported.GetError() );
                 if ( failure.IsSuccess() )
                 {
-                    failure = Common::MakeError( "a retained UI layer was not added: " + imported.GetError() );
+                    failure = Common::MakeError(
+                         std::format( "a retained UI layer was not added: {}", imported.GetError() ) );
                 }
                 continue;
             }
@@ -605,14 +723,16 @@ namespace Desert::Graphic::Render2D
             const DrawList2D*     layer         = job->Layer;
             graph.AddPass(
                  "UIRetainedLayer", RDG::PassFlags::Raster,
-                 [layerRef, layerRenderer]( RDG::PassBuilder& pass )
+                 [layerRef, layerRenderer, layer]( RDG::PassBuilder& pass )
                  {
                      // Transparent: the layer is premultiplied.
                      pass.ColorTarget( 0, layerRef, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
                      layerRenderer->DeclareRetainedReads( pass );
+                     layerRenderer->DeclareListBindings( pass, *layer, RDG::TextureRef{} );
                  },
+                 // The layer's blocks are the pass's only ones (DeclareRetainedReads declares reads, no block).
                  [layerRenderer, layer]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return layerRenderer->FlushList( context, *layer, RDG::TextureRef{} ); } );
+                 { return layerRenderer->FlushList( context, *layer, RDG::TextureRef{}, 0 ); } );
 
             if ( job->MaskOf != SIZE_MAX )
             {

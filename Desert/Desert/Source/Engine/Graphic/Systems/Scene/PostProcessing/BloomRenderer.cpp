@@ -87,15 +87,33 @@ namespace Desert::Graphic::System
                                  .Mips   = std::min( kMaxBloomMips, Utils::CalculateMipCount( bw, bh ) ) };
     }
 
+    void BloomRenderer::DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
+                                                   RDG::TextureRef chain, uint32_t mip ) const
+    {
+        if ( !m_DownsamplePipeline )
+            return;
+        auto block = pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
+                                    Renderer::GetInstance().GetPipelineRouteFill( *m_DownsamplePipeline ) );
+        if ( mip == 0 )
+            block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearClamp() );
+        else
+            block.Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ),
+                           RDG::SamplerDesc::LinearClamp() );
+        block.Storage( "u_Output", chain, RDG::Access::StorageWrite, mip )
+             .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
+    }
+
     Common::BoolResultStr BloomRenderer::RecordDownsample( const RDG::PassContext& context,
-                                                           RDG::TextureRef sceneColor, RDG::TextureRef chain,
                                                            const RDG::TextureDesc& chainDesc, uint32_t mip )
     {
-        const bool     first  = ( mip == 0 );
-        const uint32_t bw     = chainDesc.Size.Width;
-        const uint32_t bh     = chainDesc.Size.Height;
-        uint32_t       srcW   = 0;
-        uint32_t       srcH   = 0;
+        if ( !m_DownsamplePipeline )
+            return Common::MakeError( "BloomRenderer: the downsample pipeline is not initialised" );
+        const bool     first = ( mip == 0 );
+        const uint32_t bw    = chainDesc.Size.Width;
+        const uint32_t bh    = chainDesc.Size.Height;
+        uint32_t       srcW  = 0;
+        uint32_t       srcH  = 0;
         if ( first )
         {
             // Mip 0 samples the full-resolution scene colour.
@@ -115,23 +133,31 @@ namespace Desert::Graphic::System
              glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ), first ? 1 : 0,
              m_Threshold };
 
-        RDG::PassBindings bindings( context );
-        if ( first )
-            bindings.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                              RDG::SamplerDesc::LinearClamp() );
-        else
-            bindings.Sampled( "u_Source", chain, RDG::Access::SampledCompute,
-                              RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() );
-        bindings.Storage( "u_Output", chain, RDG::Access::StorageWrite, mip )
-             .PushConstants( &push, sizeof( push ) );
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &push, sizeof( push ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_DownsamplePipeline,
                                                         GroupCount( MipSize( bw, mip ) ),
                                                         GroupCount( MipSize( bh, mip ) ), 1 );
     }
 
-    Common::BoolResultStr BloomRenderer::RecordUpsample( const RDG::PassContext& context, RDG::TextureRef chain,
+    void BloomRenderer::DeclareUpsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef chain,
+                                                 uint32_t mip ) const
+    {
+        if ( !m_UpsamplePipeline || mip == 0 )
+            return; // RecordUpsample refuses both by name
+        pass.Bindings( m_UpsampleLayout.Get( m_UpsamplePipeline->GetSpecification().Shader ),
+                       Renderer::GetInstance().GetPipelineRouteFill( *m_UpsamplePipeline ) )
+             .Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ),
+                       RDG::SamplerDesc::LinearClamp() )
+             .Storage( "u_Output", chain, RDG::Access::StorageWrite, mip - 1 )
+             .PushConstantBytes( static_cast<uint32_t>( sizeof( UpsamplePush ) ) );
+    }
+
+    Common::BoolResultStr BloomRenderer::RecordUpsample( const RDG::PassContext& context,
                                                          const RDG::TextureDesc& chainDesc, uint32_t mip )
     {
+        if ( !m_UpsamplePipeline )
+            return Common::MakeError( "BloomRenderer: the upsample pipeline is not initialised" );
         if ( mip == 0 )
             return Common::MakeError( "BloomRenderer: an upsample reads mip >= 1" );
         const uint32_t bw = chainDesc.Size.Width;
@@ -141,12 +167,8 @@ namespace Desert::Graphic::System
                                             1.0f / static_cast<float>( MipSize( bh, mip ) ) ),
                                  kFilterRadius };
 
-        RDG::PassBindings bindings( context );
-        bindings
-             .Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ),
-                       RDG::SamplerDesc::LinearClamp() )
-             .Storage( "u_Output", chain, RDG::Access::StorageWrite, mip - 1 )
-             .PushConstants( &push, sizeof( push ) );
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &push, sizeof( push ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_UpsamplePipeline,
                                                         GroupCount( MipSize( bw, mip - 1 ) ),
                                                         GroupCount( MipSize( bh, mip - 1 ) ), 1 );

@@ -60,14 +60,14 @@ namespace Desert::Graphic::API::Vulkan
                                   VkDescriptorSet descriptorSet, uint32_t setIndex = 0 );
 
         // The descriptor set layouts this pipeline's layout was built from, one per set.
-        const std::vector<DescriptorSetLayoutRef>& GetLayouts() const
+        [[nodiscard]] const std::vector<DescriptorSetLayoutRef>& GetLayouts() const
         {
             return m_Layouts;
         }
         // The set-0 bindings the pipeline's own setters (SetInput / SetOutput / SetStorageBuffer) fill: the
         // "other route" of an in-graph dispatch (Renderer::DispatchCompute), sorted and unique.
-        std::vector<uint32_t>      GetBoundBindings() const;
-        std::span<const std::byte> GetBoundPushConstants() const
+        [[nodiscard]] std::vector<uint32_t>      GetBoundBindings() const;
+        [[nodiscard]] std::span<const std::byte> GetBoundPushConstants() const
         {
             return m_BoundPushConstants;
         }
@@ -94,7 +94,7 @@ namespace Desert::Graphic::API::Vulkan
         // shaders while both come from here. Strong references, so a shader recompile cannot pull them
         // out from under a pipeline that is still using them.
         std::vector<DescriptorSetLayoutRef> m_Layouts;
-        uint32_t                            m_ShaderGeneration = 0;
+        uint64_t                            m_ShaderGeneration = 0;
 
         VkCommandBuffer m_ActiveComputeCommandBuffer = nullptr;
 

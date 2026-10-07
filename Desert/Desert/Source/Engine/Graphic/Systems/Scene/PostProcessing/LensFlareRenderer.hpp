@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <glm/glm.hpp>
 
@@ -75,22 +76,25 @@ namespace Desert::Graphic::System
         // @p screenFade is SunScreen::Fade: 0 when the sun is behind the camera or far past the edge, in which
         // case nothing is dispatched, the graph gets no flare nodes and the tonemap reads the system black
         // texture.
-        bool Prepare( float screenFade ) const;
+        [[nodiscard]] bool Prepare( float screenFade ) const;
 
         // The two images of this frame, transients of its graph (Builder::CreateTexture): the half-resolution
         // source chain and the quarter-resolution feature image (FrameTextures::Transients.LensFlare, which the
         // tonemap adds in). The renderer keeps no image and has no Resize. Nullopt: no scene colour.
-        std::optional<RDG::TextureDesc> GetSourceDesc() const;
-        std::optional<RDG::TextureDesc> GetFlareDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetSourceDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetFlareDesc() const;
 
-        // Bright pass into @p source @p mip: mip 0 samples @p sceneColor (thresholded), mip i samples mip i-1.
-        // Called from the exec of the node that declares exactly those two subresources.
+        // Bright pass into @p source @p mip: block 0 of the setup samples @p sceneColor (mip 0, thresholded) or
+        // source mip i-1, and writes source mip i. Record dispatches from that block.
+        void DeclareBrightPassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor, RDG::TextureRef source,
+                                        uint32_t mip ) const;
         [[nodiscard]] Common::BoolResultStr RecordBrightPass( const RDG::PassContext& context,
-                                                              RDG::TextureRef sceneColor, RDG::TextureRef source,
                                                               const RDG::TextureDesc& sourceDesc, uint32_t mip );
-        // Features: the whole @p source chain -> @p flare, placed about @p sunScreenUv ([0,1] screen UV).
+        // Features: block 0 samples the whole @p source chain and writes @p flare; Record places the features
+        // about @p sunScreenUv ([0,1] screen UV).
+        void DeclareFeaturesBindings( RDG::PassBuilder& pass, RDG::TextureRef source,
+                                      RDG::TextureRef flare ) const;
         [[nodiscard]] Common::BoolResultStr RecordFeatures( const RDG::PassContext& context,
-                                                            RDG::TextureRef source, RDG::TextureRef flare,
                                                             const RDG::TextureDesc& flareDesc,
                                                             const glm::vec2&        sunScreenUv );
 
@@ -124,6 +128,8 @@ namespace Desert::Graphic::System
 
         std::shared_ptr<ComputePipeline> m_BrightPassPipeline;
         std::shared_ptr<ComputePipeline> m_FeaturesPipeline;
+        mutable ShaderBindingLayoutCache m_BrightPassLayout; // the two shaders' layouts, kept between frames
+        mutable ShaderBindingLayoutCache m_FeaturesLayout;
 
         Params m_Params;
     };

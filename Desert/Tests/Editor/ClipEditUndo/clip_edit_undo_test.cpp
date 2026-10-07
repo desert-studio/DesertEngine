@@ -842,9 +842,3 @@ TEST_F( ClipEditUndo, ABoneGizmoPressThatMovesNothingIsNoUndoStep )
     EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
     EXPECT_FALSE( m_Transaction.Open() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

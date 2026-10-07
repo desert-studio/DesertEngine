@@ -31,6 +31,7 @@
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace
 {
@@ -326,14 +327,6 @@ TEST( EngineShaderByGuid, DefaultAndRolesAreDeclaredExactlyOnce )
     EXPECT_NE( unknown.GetError().find( "Game.deproj" ), std::string::npos ) << unknown.GetError();
 }
 
-int main( int argc, char** argv )
-{
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // CENSUS: no decision in the sources takes a material TEMPLATE by its name. A template is a `.shader` under
 // Editor/Resources/Shaders that declares a material domain (`Domain Surface`/`Domain Terrain`) or a
 // template manifest line (`Role …`, `Default Surface`); its identity is its handle, found by role or by the
@@ -472,3 +465,9 @@ TEST( EngineShaderByGuid, NoDecisionNamesATemplate )
                                         "file with a reason):\n"
                                      << list;
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

@@ -259,9 +259,3 @@ TEST( InstanceFold, TheStaticMeshPassDoesNotReturnBeforeItReachesTheInstancedQue
             "drains, so an ISM alone in a scene is not drawn: "
          << guard;
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

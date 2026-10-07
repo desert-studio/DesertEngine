@@ -1625,9 +1625,3 @@ TEST( SettingConsumers, TheScatteringSeriesClampsItsOctavesAtTheSameCeilingTheSl
          << Desert::ECS::kCloudMultiScatterMaxOctaves << ", which is the ceiling the slider offers and the "
          << "payload packs. Expected to find:\n  " << expected;
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

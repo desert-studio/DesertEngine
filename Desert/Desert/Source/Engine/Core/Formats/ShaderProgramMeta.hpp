@@ -8,6 +8,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Core::Formats
@@ -111,8 +112,8 @@ namespace Desert::Core::Formats
         // texture (the MaterialExecutor gives it a property holding its default), and it is the reason the
         // DSL can say so without lying: the Material Editor's Details never list it
         // (MaterialEdit::PlanParameterGroups) and a .demat never carries a value for it
-        // (Runtime::ApplySurfaceAsset, MaterialService.cpp), because a value an artist wrote would be overwritten by
-        // the next draw.
+        // (Runtime::ApplySurfaceAsset, MaterialService.cpp), because a value an artist wrote would be overwritten
+        // by the next draw.
         bool EngineSet = false;
 
         std::optional<float> Min;                                // present => slider/clamped
@@ -377,6 +378,18 @@ namespace Desert::Core::Formats
             if ( param.IsTexture && !param.IsAssetRef() )
                 parameters.push_back( &param );
         return parameters;
+    }
+
+    // The material parameter a reflected sampler @p name of kind @p cube binds to, or null when it is a PASS
+    // parameter (not in MaterialTextureParameters, or declared as the other kind): the MaterialExecutor's one
+    // admission rule for texture properties.
+    inline const ShaderParam* FindMaterialTextureParameter( const ShaderProgramMeta& schema, std::string_view name,
+                                                            bool cube )
+    {
+        for ( const ShaderParam* param : MaterialTextureParameters( schema ) )
+            if ( param->Name == name && param->IsCubeTexture == cube )
+                return param;
+        return nullptr;
     }
 
 } // namespace Desert::Core::Formats

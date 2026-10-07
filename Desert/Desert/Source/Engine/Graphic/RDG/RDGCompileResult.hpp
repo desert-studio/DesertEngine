@@ -73,7 +73,7 @@ namespace Desert::Graphic::RDG
     {
         uint32_t    Slot      = 0; // colour slot; unused for depth
         bool        IsDepth   = false;
-        bool        IsResolve = false; // the single-sample image colour slot `Slot` resolves into
+        bool        IsResolve = false;               // the single-sample image colour slot `Slot` resolves into
         Access      Usage     = Access::ColorTarget; // ColorTarget, DepthWrite or DepthRead: the attachment layout
         uint32_t    Resource  = kInvalidResource;
         uint32_t    Mip       = 0;
@@ -150,14 +150,14 @@ namespace Desert::Graphic::RDG
         uint32_t         Resource = kInvalidResource;
         ResourceKind     Kind     = ResourceKind::Texture;
         SubresourceRange Range;
-        Pipe             From            = Pipe::Graphics;
-        Pipe             To              = Pipe::AsyncCompute;
+        Pipe             From = Pipe::Graphics;
+        Pipe             To   = Pipe::AsyncCompute;
         // Its OwnershipRelease is in this pass's EpilogueBarriers; kForkAtGraphStart: in PrologueBarriers.
         uint32_t ReleasePosition = 0;
         // Its OwnershipAcquire is in this pass's Barriers; kJoinAtGraphEnd (amendment A): in FinalBarriers,
         // recorded after the graphics queue waited on the graph-end join.
-        uint32_t         AcquirePosition = 0;
-        uint32_t         Sync            = 0; // the CrossPipeSync ordering the two (index into Syncs)
+        uint32_t AcquirePosition = 0;
+        uint32_t Sync            = 0; // the CrossPipeSync ordering the two (index into Syncs)
     };
 
     // RDG-CONTRACTS B(2)/(3). A maximal run of consecutive executed passes on ONE pipe that no sync splits: the
@@ -274,12 +274,12 @@ namespace Desert::Graphic::RDG
 
     struct CompileResult
     {
-        std::vector<CompiledPass>       Passes;        // executed passes, in AddPass order (never reordered)
-        std::vector<uint32_t>           CulledPasses;  // AddPass indices that do not execute
-        std::vector<std::string>        CulledPassNames; // their names, same order: what a log or debug view shows
-        bool PassCulling = true;                         // false: Builder::SetPassCulling(false) kept every pass
-        std::vector<DependencyEdge>     Edges;         // between executed passes
-        std::vector<Barrier>            FinalBarriers; // after the last pass: extraction / final accesses
+        std::vector<CompiledPass>   Passes;             // executed passes, in AddPass order (never reordered)
+        std::vector<uint32_t>       CulledPasses;       // AddPass indices that do not execute
+        std::vector<std::string>    CulledPassNames;    // their names, same order: what a log or debug view shows
+        bool                        PassCulling = true; // false: Builder::SetPassCulling(false) kept every pass
+        std::vector<DependencyEdge> Edges;              // between executed passes
+        std::vector<Barrier>        FinalBarriers;      // after the last pass: extraction / final accesses
         // Amendment B: the releases the graphics prologue segment records (fork at kForkAtGraphStart).
         std::vector<Barrier>            PrologueBarriers;
         std::vector<ResourceLifetime>   Lifetimes;

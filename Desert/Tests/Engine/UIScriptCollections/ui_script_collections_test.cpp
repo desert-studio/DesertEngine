@@ -97,9 +97,3 @@ TEST( UIScriptCollections, ABadWriteIsReportedToTheScriptAndChangesNothing )
     EXPECT_EQ( L.get<int>( "afterClear" ), 0 );
     EXPECT_EQ( L.get<int>( "missing" ), 0 );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

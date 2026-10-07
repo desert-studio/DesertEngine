@@ -87,9 +87,3 @@ TEST( UIPathStroke, TheEmittedStrokeEndsWhereTheRevealEnds )
         cappedMaxX = std::max( cappedMaxX, v.Position.x );
     EXPECT_NEAR( cappedMaxX, 100.0f + 2.0f + 1.0f, 1e-2f ); // the round cap adds half the width plus fringe
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

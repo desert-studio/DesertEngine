@@ -30,6 +30,7 @@
 #include "../../TestSupport/result_assert.hpp"
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace fs = std::filesystem;
 
@@ -222,9 +223,8 @@ TEST( FileSystemRead, ListFilesRecursiveMissingRootIsEmptyNotAnError )
     EXPECT_TRUE( Common::Utils::FileSystem::ListFilesRecursive( dir / "never_created" ).empty() );
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

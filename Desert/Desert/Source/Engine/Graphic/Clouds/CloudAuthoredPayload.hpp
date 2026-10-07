@@ -51,18 +51,10 @@ namespace Desert::Graphic
     /// descriptor rather than on an error.
     inline constexpr uint32_t kCloudAuthoredBinding = 8u;
 
-    /// And the sampler the sculpted bodies are read through — the ATLAS, one image holding up to
-    /// kCloudModellingAtlasMaxSlabs of them end to end along the depth axis. ALWAYS BOUND, fallback
-    /// included: a declared `sampler3D` with no image is an INVALID descriptor set rather than an unused
-    /// one, and this engine's compute path answers an invalid set by skipping the whole dispatch — the
-    /// clouds would vanish with nothing in the log. The subsystem has stood on that rake already.
-    inline constexpr uint32_t kCloudAuthoredAtlasBinding = 9u;
-
-    /// The shadow map reads the SAME FIELD through the SAME slots — one vocabulary for one field, which
-    /// is the arrangement kCloudShadowNoiseBinding and kCloudShadowProfileBinding already record. Aliases
-    /// rather than copies, so the two passes cannot drift apart by an edit to one of them.
-    inline constexpr uint32_t kCloudShadowAuthoredBinding      = kCloudAuthoredBinding;
-    inline constexpr uint32_t kCloudShadowAuthoredAtlasBinding = kCloudAuthoredAtlasBinding;
+    /// The shadow map reads the SAME instance buffer through the SAME slot — an alias rather than a copy, so
+    /// the two passes cannot drift apart. The sculpted bodies' atlas is a binding-block entry
+    /// (u_CloudAuthoredAtlas), named rather than numbered.
+    inline constexpr uint32_t kCloudShadowAuthoredBinding = kCloudAuthoredBinding;
 
     // One hero cloud as the ECS collected it: the component, where the entity puts it, and what to call
     // it in a log line.

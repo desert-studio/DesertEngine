@@ -302,9 +302,3 @@ TEST( FileSystemWrite, TheBannedIdiomReportsSuccessUnderTheVerySameFailure )
          << "the bytes actually landed, so nothing failed and neither test above means what it says";
 }
 #endif
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -94,9 +94,3 @@ TEST_F( ThemePalette, AModalDimLeavesTheEditorBehindItVisible )
         EXPECT_GT( seen * 255.0f, 60.0f ) << theme.Name << ": the magenta swatch under the dim reads as the dim";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

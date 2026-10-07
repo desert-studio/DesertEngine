@@ -626,13 +626,6 @@ TEST( LandscapeCollision, AnEditPatchesTheBodyInPlaceAndItsLifetimeFollowsTheTil
     EXPECT_EQ( jolt.Collision->BodyOf( jolt.Entities[0] ), Physics::kInvalidBody );
     EXPECT_EQ( jolt.World.GetBodyCount(), 2u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── 5. LS-7b: one surface — the ray, the height query and Jolt answer the same triangles ─────────────
 
 namespace

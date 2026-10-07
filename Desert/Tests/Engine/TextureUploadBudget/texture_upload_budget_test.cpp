@@ -235,9 +235,3 @@ TEST( TextureUploadBudgetCensus, TheGpuHalfDoesNotReadAndTheFrameLoopPumps )
     EXPECT_EQ( Count( loop, "GetTextureService()->PumpUploads()" ), 1u )
          << "nothing pumps the uploads each frame: every on-demand texture would stay Pending forever";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

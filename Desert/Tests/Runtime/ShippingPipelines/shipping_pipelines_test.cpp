@@ -863,9 +863,3 @@ TEST( ShippingPipelines, TheDeveloperOnlyShaderListIsWhatOnlyTheBoundaryLoads )
              << "Common/Core/DeveloperOnlyShaders.hpp, so a Shipping package carries a program its runtime "
                 "cannot load";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

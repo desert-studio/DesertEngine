@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Core/Camera.hpp>
 
@@ -30,13 +31,13 @@ namespace Desert::Graphic::System
             std::shared_ptr<Image2D> Source; // the configured source framebuffer's colour 0
             std::shared_ptr<Image2D> AutoExposure;
         };
-        Inputs GetInputs() const
+        [[nodiscard]] Inputs GetInputs() const
         {
             const auto source = m_TargetFramebuffer.lock();
             return { source ? source->GetColorAttachmentImage() : nullptr, m_AutoExposureImage.lock() };
         }
         // The tonemapped image, colour 0 of GetSystemFramebuffer(): the node's ColorTarget.
-        std::shared_ptr<Image2D> GetOutputImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetOutputImage() const
         {
             return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
         }
@@ -57,9 +58,15 @@ namespace Desert::Graphic::System
             RDG::TextureRef LensFlare;
             bool            LensFlareProduced = false;
         };
-        // Records the fullscreen tonemap inside the render pass the frame graph opens on GetOutputImage().
-        // Called from the exec of the pass that declared @p inputs as SampledGraphics reads.
-        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, const GraphInputs& inputs );
+        // SETUP of "PostFX: Tonemap", first: the material's values, from this frame's settings and @p inputs'
+        // effect flags (an effect that did not run draws with intensity 0). Filled before DeclareBindings so the
+        // setup validates the block against the route fill the draw will use.
+        void FillMaterial( const GraphInputs& inputs );
+        // SETUP of "PostFX: Tonemap": the node's one block (block 0) - every input as a SampledGraphics entry.
+        void DeclareBindings( RDG::PassBuilder& pass, const GraphInputs& inputs ) const;
+        // Records the fullscreen tonemap inside the render pass the frame graph opens on GetOutputImage(), from
+        // block 0 that DeclareBindings declared and the material FillMaterial filled.
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context );
 
         void Resize( uint32_t width, uint32_t height );
 
@@ -127,7 +134,7 @@ namespace Desert::Graphic::System
 
     private:
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
-        std::shared_ptr<Shader>   m_Shader;
+        mutable ShaderBindingLayoutCache  m_BindingLayout; // the tonemap shader's layout, kept between frames
 
         std::unique_ptr<MaterialTonemap> m_MaterialTonemap;
 

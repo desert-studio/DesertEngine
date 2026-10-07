@@ -26,6 +26,7 @@
 #include <string>
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace Path = Common::Constants::Path;
 namespace fs   = std::filesystem;
@@ -421,10 +422,8 @@ TEST( PathCensus, NoAuthoredDocumentReferencesAFileUnderACookedFolder )
     EXPECT_GT( read, 0u ) << "no scene was read under " << ( repo / "Projects" ).generic_string();
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

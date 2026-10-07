@@ -48,9 +48,3 @@ TEST( FuzzyMatch, ConsecutiveRanksAboveScattered )
     ASSERT_TRUE( FuzzyMatch( "sh", "Mesh", mesh ) );
     EXPECT_GT( shader, mesh );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

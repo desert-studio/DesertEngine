@@ -4,6 +4,7 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <optional>
 
@@ -29,32 +30,35 @@ namespace Desert::Graphic::System
         // opens the render pass on the step's output. The edges and the blend weights are transients of that graph
         // (Builder::CreateTexture with GetIntermediateDesc); the renderer keeps no image for them.
         // Nullopt: nothing to record this frame (the input, a LUT or a pipeline is missing; logged).
-        std::optional<RDG::TextureDesc> GetIntermediateDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetIntermediateDesc() const;
+        // Every Declare* adds block 0 to the node's setup; its Record* draws from that block only.
         // Pass 1, into the edges target the node declared: edge detection on @p input.
-        [[nodiscard]] Common::BoolResultStr RecordEdges( const RDG::PassContext& context, RDG::TextureRef input );
+        void DeclareEdgesBindings( RDG::PassBuilder& pass, RDG::TextureRef input ) const;
+        [[nodiscard]] Common::BoolResultStr RecordEdges( const RDG::PassContext& context );
         // Pass 2, into the weights target: blend weights from @p edges + AreaTex + SearchTex.
-        [[nodiscard]] Common::BoolResultStr RecordWeights( const RDG::PassContext& context, RDG::TextureRef edges,
-                                                           RDG::TextureRef area, RDG::TextureRef search );
+        void DeclareWeightsBindings( RDG::PassBuilder& pass, RDG::TextureRef edges, RDG::TextureRef area,
+                                     RDG::TextureRef search ) const;
+        [[nodiscard]] Common::BoolResultStr RecordWeights( const RDG::PassContext& context );
         // Pass 3, into GetOutputImage(): neighbourhood blending of @p input with @p weights (@p edges and @p area
         // are the shader's diagnostic views).
-        [[nodiscard]] Common::BoolResultStr RecordBlend( const RDG::PassContext& context, RDG::TextureRef input,
-                                                         RDG::TextureRef weights, RDG::TextureRef edges,
-                                                         RDG::TextureRef area );
+        void DeclareBlendBindings( RDG::PassBuilder& pass, RDG::TextureRef input, RDG::TextureRef weights,
+                                   RDG::TextureRef edges, RDG::TextureRef area ) const;
+        [[nodiscard]] Common::BoolResultStr RecordBlend( const RDG::PassContext& context );
 
-        std::shared_ptr<Image2D> GetInputImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetInputImage() const
         {
             const auto input = m_TargetFramebuffer.lock();
             return input ? input->GetColorAttachmentImage() : nullptr;
         }
-        std::shared_ptr<Image2D> GetOutputImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetOutputImage() const
         {
             return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
         }
-        const std::shared_ptr<Image2D>& GetAreaTex() const
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetAreaTex() const
         {
             return m_AreaTex;
         }
-        const std::shared_ptr<Image2D>& GetSearchTex() const
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetSearchTex() const
         {
             return m_SearchTex;
         }
@@ -69,9 +73,10 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_EdgesPipeline;
         std::shared_ptr<GraphicsPipeline> m_WeightsPipeline;
         std::shared_ptr<GraphicsPipeline> m_BlendPipeline;
-        std::shared_ptr<Shader>           m_EdgesShader;
-        std::shared_ptr<Shader>           m_WeightsShader;
-        std::shared_ptr<Shader>           m_BlendShader;
+        // The three pipelines' shaders' layouts, kept between frames (keyed on GetSpecification().Shader).
+        mutable ShaderBindingLayoutCache  m_EdgesLayout;
+        mutable ShaderBindingLayoutCache  m_WeightsLayout;
+        mutable ShaderBindingLayoutCache  m_BlendLayout;
 
         std::shared_ptr<Image2D> m_AreaTex;
         std::shared_ptr<Image2D> m_SearchTex;

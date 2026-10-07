@@ -469,9 +469,3 @@ TEST( ShotRecordGate, ContentUnsettlingMidCapturePausesWithoutRestarting )
     EXPECT_TRUE( reopened );
     EXPECT_EQ( gate.RecordWidth(), 1452u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

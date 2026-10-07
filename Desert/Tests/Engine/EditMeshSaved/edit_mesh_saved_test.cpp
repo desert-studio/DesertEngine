@@ -275,9 +275,3 @@ TEST( EditMeshSaved, ASavedFormNoWriterProducesIsRefusedByName )
     shortGroups.PolyGroups.pop_back();
     EXPECT_NE( refusal( shortGroups ).find( "polygroups" ), std::string::npos ) << refusal( shortGroups );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

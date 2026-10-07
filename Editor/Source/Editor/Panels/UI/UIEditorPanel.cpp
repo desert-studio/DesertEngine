@@ -269,6 +269,8 @@ namespace Desert::Editor
             return;
         }
         const Graphic::RDG::TextureRef target = graph.RegisterExternal( targetImage, "UIEditorPreview" );
+        // The panel shows this image: without its writer the preview has no picture (cleared to black).
+        graph.SetFaultPolicy( target, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
         graph.AddPass(
              "UIEditorPreview", Graphic::RDG::PassFlags::Raster, [&]( Graphic::RDG::PassBuilder& pass )
              { pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::ClearColor( 0.094f, 0.098f, 0.118f, 1.0f ) ); },
@@ -277,8 +279,8 @@ namespace Desert::Editor
         graph.Extract( target, targetImage, Graphic::RDG::Access::SampledGraphics );
         if ( const auto executed = renderer.ExecuteGraph( graph ); !executed )
         {
+            // Logged by the graph backend (a fault) or by ExecuteGraph (its own failure); the panel shows it.
             m_PreviewError = executed.GetError();
-            LOG_ERROR( "[UI Editor] preview graph failed: {}", m_PreviewError );
             return;
         }
 

@@ -401,9 +401,3 @@ TEST( ImGuiBoundary, TheProseFilesStayGreenAndAreStillProse )
              << file << " has a toolkit identifier in CODE now, not only in its prose.";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

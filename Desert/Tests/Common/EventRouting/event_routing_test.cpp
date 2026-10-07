@@ -688,12 +688,6 @@ TEST( EventRouting, AMethodNamedForAnotherEventDoesNotFireOnThisOne )
     EXPECT_EQ( node.Object.Typed, 1 );
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 namespace
 {
     struct SwapchainExtent

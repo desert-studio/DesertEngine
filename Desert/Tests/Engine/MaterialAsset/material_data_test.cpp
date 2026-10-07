@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 using Desert::Assets::MaterialAssetRef;
 using Desert::Assets::MaterialData;
@@ -236,12 +237,6 @@ TEST( MaterialFormatV3, ACloudSlotNamedByGuidFindsTheTypeRegisteredUnderThatGuid
     EXPECT_EQ( handed, registeredUnder );
 }
 
-int main( int argc, char** argv )
-{
-    Desert::TestSupport::SetSuiteEngineDir();
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
 // THM1e/THM1l: the thumbnail info (primitive, PreviewMesh, orbit) round-trips, its PreviewMesh is a stated
 // dependency; a file naming it outside the header is refused.
 TEST( MaterialData, ThumbnailInfoRoundTripsWithItsPreviewMeshAStatedDependency )
@@ -382,3 +377,9 @@ TEST( MaterialData, AbsentThumbnailIsTheDefaultAndTheOldKeyIsRefused )
     old.insert( old.rfind( '}' ), R"(,"PreviewMesh":{"Guid":"45d579b03cc0d0a8df2e4cb025d6bea5","Path":"G.fbx"})" );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "d.demat", old ) ) << "the pre-THM1l key was accepted";
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

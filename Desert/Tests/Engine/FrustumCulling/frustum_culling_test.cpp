@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -77,7 +78,7 @@ namespace
     {
         // A definition at namespace indent, whatever it returns (void, bool, Common::BoolResultStr); the body runs
         // to the next MeshRenderer definition.
-        const std::string qualified = " MeshRenderer::" + name + "(";
+        const std::string qualified = std::format( " MeshRenderer::{}(", name );
         const std::size_t nameAt    = source.find( qualified );
         if ( nameAt == std::string::npos )
         {
@@ -226,7 +227,9 @@ TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    // MeshRenderer is defined across five files (RDG-S); the passes this pairs live in three of them.
+    // MeshRenderer is defined across five files (RDG-S); the passes this pairs live in four of them. Each row
+    // names the function that CHOOSES the pass's draws - its setup (RDG-FAULT1: a node's draw list is built
+    // before any command is recorded) - which is where the cull is.
     std::string source;
     for ( const char* part : { "MeshRenderer.cpp", "MeshRendererShadow.cpp", "MeshRendererDeferred.cpp",
                                "MeshRendererForward.cpp", "MeshRendererDebug.cpp" } )
@@ -243,18 +246,18 @@ TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
     };
 
     const Row rows[] = {
-         { "DrawStaticMeshes", true, "camera->GetFrustum()", "opaque PBR pass — rasterizes from the camera" },
-         { "RenderGlassManual", true, "camera->GetFrustum()", "transparent pass — rasterizes from the camera" },
-         { "DrawGenericMeshes", true, "camera->GetFrustum()",
+         { "BuildStaticDraws", true, "camera->GetFrustum()", "opaque PBR pass — rasterizes from the camera" },
+         { "DeclareGlassBindings", true, "camera->GetFrustum()", "transparent pass — rasterizes from the camera" },
+         { "BuildGenericDraws", true, "camera->GetFrustum()",
            "data-driven / shader-graph surfaces — rasterizes from the camera. Sound only while no vertex "
            "stage moves a vertex off the authored box, which the next test asserts" },
-         { "RenderOverdrawAccumManual", true, "camera->GetFrustum()",
+         { "DeclareOverdrawDraws", true, "camera->GetFrustum()",
            "debug view OF the camera pass; it must report the frame that actually runs" },
-         { "RegisterShadowPass", true, "m_CascadeVP[c]",
+         { "BuildShadowCascadeDraws", true, "m_CascadeVP[c]",
            "rasterizes from the SUN: the camera's frustum here would delete off-screen casters whose "
            "shadows land on screen. Its own cascade matrix is a finite ortho box, so this skips only "
            "what the rasterizer already clips" },
-         { "RenderRSMManual", false, nullptr,
+         { "DeclareRSMDraws", false, nullptr,
            "rasterizes from the SUN into the RSM, and every one of the 114 scenes in the tree is "
            "GlobalIllumination=ScreenSpace, so this pass never runs: a change here could not be seen on "
            "any frame this repository can take, and an unobservable change is not shipped" },
@@ -387,10 +390,4 @@ TEST( FrustumCulling, NoSurfaceShaderMovesAVertexOffItsAuthoredBounds )
     // Derived from the register above, not pinned: a number here could be satisfied by editing it.
     EXPECT_GT( checked, 0 ) << "no Surface-domain shader was found — the search is looking in the "
                                "wrong place, and a census that examines nothing passes silently";
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

@@ -30,6 +30,7 @@
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -246,7 +247,7 @@ namespace
     }
 
     // The engine resolves `#include <...>` against ShaderDir(), derived from the engine directory this suite sets.
-    struct ShaderRootFixture : ::testing::Test
+    struct MeshVertexPathShaderRoot : ::testing::Test
     {
         static void SetUpTestSuite()
         {
@@ -267,7 +268,7 @@ namespace
 // itself what the table calls it — is what a rename breaks: the DSL's `Shader "Name"` is what the shader
 // service registers under, so a file renamed without its declaration (or the reverse) resolves to
 // nothing.
-TEST_F( ShaderRootFixture, EveryCellOfTheTableNamesAShaderThatExistsAndCallsItselfThat )
+TEST_F( MeshVertexPathShaderRoot, EveryCellOfTheTableNamesAShaderThatExistsAndCallsItselfThat )
 {
     for ( const auto path : kAllPaths )
     {
@@ -304,7 +305,7 @@ TEST_F( ShaderRootFixture, EveryCellOfTheTableNamesAShaderThatExistsAndCallsItse
 //
 // Stated over the paths rather than checked for the skinned one, because the next path added (terrain
 // blades, decals, anything) inherits the requirement without anyone remembering it.
-TEST_F( ShaderRootFixture, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
+TEST_F( MeshVertexPathShaderRoot, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
 {
     for ( const auto path : kAllPaths )
     {
@@ -330,7 +331,7 @@ TEST_F( ShaderRootFixture, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
 // Stated over the paths, like the shadow rule above, with the ONE exception named and argued rather
 // than the rule being written as "the instanced path must have a G-buffer cell". A path added tomorrow
 // inherits the question.
-TEST_F( ShaderRootFixture, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
+TEST_F( MeshVertexPathShaderRoot, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
 {
     // The exception, and why it is one: a skinned mesh is not rasterized into the G-buffer at all. It is
     // drawn FORWARD over the deferred composite (MeshRenderer::RenderSkinnedManual), so a (Skinned x
@@ -354,7 +355,7 @@ TEST_F( ShaderRootFixture, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
 // cells write the same four MRT targets from the same material payload; if they drifted apart, a scene
 // would shade its ISM entities by one G-buffer contract and its plain meshes by another, and the only
 // symptom would be that two cubes with one material look different.
-TEST_F( ShaderRootFixture, TheInstancedGBufferCellIsTheStaticOnePlusItsOwnBinding )
+TEST_F( MeshVertexPathShaderRoot, TheInstancedGBufferCellIsTheStaticOnePlusItsOwnBinding )
 {
     const char* staticName    = TableShader( MeshVertexPath::Static, MeshPass::GBuffer );
     const char* instancedName = TableShader( MeshVertexPath::Instanced, MeshPass::GBuffer );
@@ -388,7 +389,7 @@ TEST_F( ShaderRootFixture, TheInstancedGBufferCellIsTheStaticOnePlusItsOwnBindin
 // slot no shader uses and the C++ would be describing a shader that does not exist. Without "declares
 // nobody else's", a surface binding could quietly move onto a path slot and the sets would still look
 // equal after subtraction.
-TEST_F( ShaderRootFixture, TheForwardVariantsAreOneSurfacePlusExactlyThePathsOwnBinding )
+TEST_F( MeshVertexPathShaderRoot, TheForwardVariantsAreOneSurfacePlusExactlyThePathsOwnBinding )
 {
     std::map<MeshVertexPath, std::map<uint32_t, std::string>> bindings;
     for ( const auto path : kAllPaths )
@@ -461,7 +462,7 @@ TEST_F( ShaderRootFixture, TheForwardVariantsAreOneSurfacePlusExactlyThePathsOwn
 //     surface and can read nothing the surface does not have; PROPER, because a G-buffer write reads no
 //     lights, no cascades and no environment — and a G-buffer set that has grown back to the forward
 //     set's size is a shader padded to borrow somebody else's descriptors.
-TEST_F( ShaderRootFixture, TheGBufferCellIsAProperSubsetOfItsPathsForwardSurface )
+TEST_F( MeshVertexPathShaderRoot, TheGBufferCellIsAProperSubsetOfItsPathsForwardSurface )
 {
     std::map<MeshPass, std::map<uint32_t, std::string>> bindings;
     for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Glass } )
@@ -514,7 +515,7 @@ TEST_F( ShaderRootFixture, TheGBufferCellIsAProperSubsetOfItsPathsForwardSurface
 // The caster variants, on the same terms. A caster is depth, so its set is small; the point is that the
 // skinned caster added the SKINNED path's binding and nothing else — a caster that quietly grew a surface
 // binding would need the surface's descriptors bound to it, which the cascade pass does not do.
-TEST_F( ShaderRootFixture, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBinding )
+TEST_F( MeshVertexPathShaderRoot, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBinding )
 {
     std::map<MeshVertexPath, std::map<uint32_t, std::string>> bindings;
     for ( const auto path : kAllPaths )
@@ -555,7 +556,7 @@ TEST_F( ShaderRootFixture, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBi
 // so this asserts it three ways per cell: the stage includes Common/FoliageWind.glslh, calls
 // InstancedWorldPosition with the push block's wind, and projects THAT position (no second
 // `model * a_Position` path beside it); and the compiled SPIR-V really contains the function.
-TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFunction )
+TEST_F( MeshVertexPathShaderRoot, EveryInstancedVertexStagePositionsThroughTheOneWindFunction )
 {
     for ( const MeshPass pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::ShadowDepth } )
     {
@@ -599,7 +600,7 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
 // VUID-vkCmdPushConstants-offset-01795, then 'push range is 64 bytes, the pass pushes 128' and a black
 // frame). Every cell of the table, every pass that draws it: the block a material of that program holds
 // IS the range its pipeline is built with, and the renderer's per-submesh transform fits in it.
-TEST_F( ShaderRootFixture, EveryCellsMaterialPushBlockIsItsPipelinesPushRange )
+TEST_F( MeshVertexPathShaderRoot, EveryCellsMaterialPushBlockIsItsPipelinesPushRange )
 {
     using Desert::ShaderResources::ShaderLayout::PushBlockSize;
     for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
@@ -626,12 +627,12 @@ TEST_F( ShaderRootFixture, EveryCellsMaterialPushBlockIsItsPipelinesPushRange )
 }
 
 // Both sides take the size from the one function, and the material has no size of its own to fall back to.
-TEST_F( ShaderRootFixture, PipelineRangeAndMaterialBlockAreSizedByTheOneFunction )
+TEST_F( MeshVertexPathShaderRoot, PipelineRangeAndMaterialBlockAreSizedByTheOneFunction )
 {
     const std::filesystem::path engine =
          Desert::TestSupport::RepositoryRoot() / "Desert/Desert/Source/Engine/Graphic";
-    const std::string           pipeline = ReadFile( engine / "API/Vulkan/VulkanPipeline.cpp" );
-    const std::string           material = ReadFile( engine / "Materials/MaterialExecutor.cpp" );
+    const std::string pipeline = ReadFile( engine / "API/Vulkan/VulkanPipeline.cpp" );
+    const std::string material = ReadFile( engine / "Materials/MaterialExecutor.cpp" );
     ASSERT_FALSE( pipeline.empty() );
     ASSERT_FALSE( material.empty() );
     EXPECT_NE( pipeline.find( "ShaderLayout::PushBlockSize( pushConstant )" ), std::string::npos );
@@ -737,7 +738,7 @@ namespace
 
 // The template is the only input: its parameters, its textures and the push block its include declares all
 // arrive in the layout with their compiled offsets, and the compiled stages agree with it.
-TEST_F( ShaderRootFixture, AMockTemplatesLayoutIsItsPropertiesAndItsPushBlock )
+TEST_F( MeshVertexPathShaderRoot, AMockTemplatesLayoutIsItsPropertiesAndItsPushBlock )
 {
     auto cell = Reconcile( MockTemplate( "", kTransportInclude, "" ), "LayoutMock" );
     EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
@@ -758,7 +759,7 @@ TEST_F( ShaderRootFixture, AMockTemplatesLayoutIsItsPropertiesAndItsPushBlock )
 }
 
 // A parameter written into the template reaches the layout, at its slot, with no C++ naming it.
-TEST_F( ShaderRootFixture, ANewTemplateParameterAppearsInTheLayoutWithoutACppEdit )
+TEST_F( MeshVertexPathShaderRoot, ANewTemplateParameterAppearsInTheLayoutWithoutACppEdit )
 {
     auto cell = Reconcile( MockTemplate( "        Float     Gloss   (\"Gloss\")   = 1\n", kTransportInclude, "" ),
                            "LayoutMock" );
@@ -770,7 +771,7 @@ TEST_F( ShaderRootFixture, ANewTemplateParameterAppearsInTheLayoutWithoutACppEdi
 
 // A push field declared in the shader reaches the layout the same way: the block is read off the SPIR-V.
 // (No row here, so the parser injects no include and each stage's block is exactly the one written.)
-TEST_F( ShaderRootFixture, ANewPushFieldAppearsInTheLayoutWithoutACppEdit )
+TEST_F( MeshVertexPathShaderRoot, ANewPushFieldAppearsInTheLayoutWithoutACppEdit )
 {
     const std::string wider =
          "layout( push_constant ) uniform PushConstants { mat4 Transform; uint MaterialIndex; "
@@ -786,7 +787,7 @@ TEST_F( ShaderRootFixture, ANewPushFieldAppearsInTheLayoutWithoutACppEdit )
 
 // THE T1b REGRESSION. A vertex stage with a 72-byte block beside the fragment's 68 is one pipeline with two
 // blocks; reflection merged it into "the larger wins" and nothing noticed. Reconciling refuses it by name.
-TEST_F( ShaderRootFixture, StagesWhosePushBlocksDifferInLengthAreRefused )
+TEST_F( MeshVertexPathShaderRoot, StagesWhosePushBlocksDifferInLengthAreRefused )
 {
     const std::string vertex72 =
          "layout( push_constant ) uniform PushConstants { mat4 Transform; uint MaterialIndex; "
@@ -807,7 +808,7 @@ TEST_F( ShaderRootFixture, StagesWhosePushBlocksDifferInLengthAreRefused )
 // writer names — the write would then be dropped as Absent. Each cell is loaded the way the runtime loads it
 // (ReconcileCellLayout), which also refuses a pipeline whose stages disagree about the block (the T1b
 // regression: a 72-byte vertex block beside a 68-byte fragment one).
-TEST_F( ShaderRootFixture, EveryMeshCellDeclaresEachPushFieldTheRendererWritesByName )
+TEST_F( MeshVertexPathShaderRoot, EveryMeshCellDeclaresEachPushFieldTheRendererWritesByName )
 {
     struct Expectation
     {
@@ -847,7 +848,7 @@ TEST_F( ShaderRootFixture, EveryMeshCellDeclaresEachPushFieldTheRendererWritesBy
 }
 
 // Every shipped forward cell loads (reconciles), carries a row, and declares the two fields every draw writes.
-TEST_F( ShaderRootFixture, EveryShippedForwardCellReconcilesWithTheTransportFields )
+TEST_F( MeshVertexPathShaderRoot, EveryShippedForwardCellReconcilesWithTheTransportFields )
 {
     for ( const auto path : kAllPaths )
     {
@@ -889,7 +890,7 @@ namespace
 
 // A push field written only into the shader reaches the push BYTES: the binder finds it in the reconciled
 // layout, and no C++ spells its offset.
-TEST_F( ShaderRootFixture, ANewPushFieldReachesThePushBytesWithoutACppEdit )
+TEST_F( MeshVertexPathShaderRoot, ANewPushFieldReachesThePushBytesWithoutACppEdit )
 {
     const std::string wider =
          "layout( push_constant ) uniform PushConstants { mat4 Transform; uint MaterialIndex; "
@@ -907,7 +908,7 @@ TEST_F( ShaderRootFixture, ANewPushFieldReachesThePushBytesWithoutACppEdit )
 
 // THE MUTATION TARGET. A block with a field inserted before MaterialIndex moves it off 64; the index must
 // land where the layout says, and 64 — the old constant — must stay untouched.
-TEST_F( ShaderRootFixture, MaterialIndexLandsWhereTheLayoutPutsItNotAtTheOldOffset )
+TEST_F( MeshVertexPathShaderRoot, MaterialIndexLandsWhereTheLayoutPutsItNotAtTheOldOffset )
 {
     const std::string shifted = "layout( push_constant ) uniform PushConstants { mat4 Transform; vec4 Inserted; "
                                 "uint MaterialIndex; } m_PushConstants;";
@@ -928,7 +929,7 @@ TEST_F( ShaderRootFixture, MaterialIndexLandsWhereTheLayoutPutsItNotAtTheOldOffs
 
 // A field the cell does not declare is not written — explicitly, by the layout — and a value of the wrong
 // size is refused rather than spilled over the next field.
-TEST_F( ShaderRootFixture, AFieldTheCellLacksIsNotWrittenAndAWrongSizeIsRefused )
+TEST_F( MeshVertexPathShaderRoot, AFieldTheCellLacksIsNotWrittenAndAWrongSizeIsRefused )
 {
     const std::string noBones =
          "layout( push_constant ) uniform PushConstants { mat4 Transform; uint MaterialIndex; } m_PushConstants;";
@@ -1061,7 +1062,7 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
 
 // THE TABLE NAMES NO TEMPLATE (UE: the shader map is the MATERIAL's). No entry of the cell table carries a
 // "<Template>/" prefix, and no shipped template's name appears in it: which template draws is the material's.
-TEST_F( ShaderRootFixture, TheTableNamesNoTemplate )
+TEST_F( MeshVertexPathShaderRoot, TheTableNamesNoTemplate )
 {
     std::set<std::string> templates;
     for ( const auto& entry :
@@ -1083,7 +1084,7 @@ TEST_F( ShaderRootFixture, TheTableNamesNoTemplate )
 
 // A MATERIAL ON THE UNLIT TEMPLATE GETS THE UNLIT CELLS on every path, and the shipped Unlit.shader expands into
 // each of them — so a skinned or instanced unlit mesh is drawn by Unlit, not by the default surface.
-TEST_F( ShaderRootFixture, AnUnlitMaterialGetsTheUnlitCells )
+TEST_F( MeshVertexPathShaderRoot, AnUnlitMaterialGetsTheUnlitCells )
 {
     const auto file = ShaderFileFor( "Unlit" );
     ASSERT_FALSE( file.empty() );
@@ -1137,9 +1138,8 @@ TEST( MeshCellPipeline, TwoTemplatesInOnePassAreTwoPipelines )
     }
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

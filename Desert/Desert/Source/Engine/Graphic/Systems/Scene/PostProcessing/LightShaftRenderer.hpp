@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <glm/glm.hpp>
 
@@ -48,25 +49,25 @@ namespace Desert::Graphic::System
         // (Builder::CreateTexture from GetTargetDesc()); the renderer keeps no image and has no Resize.
         // The last blur pass's target is FrameTextures::Transients.LightShafts, which the tonemap adds in.
         // Nullopt: nothing to record (no scene colour or pipelines).
-        std::optional<RDG::TextureDesc> GetTargetDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetTargetDesc() const;
 
         // @p screenFade is the CPU-computed fade for a sun leaving the view (0 = fully off-screen or behind):
         // when this is false the graph gets no shaft nodes and the tonemap reads the system black texture.
-        bool IsActive( float screenFade ) const
+        [[nodiscard]] bool IsActive( float screenFade ) const
         {
             return m_Params.Enabled && screenFade > 0.0f && m_Params.BloomScale > 0.0f;
         }
 
-        // Mask: samples @p sceneColor, writes @p mask. @p sunScreenUv is the sun's position in [0,1] screen UV.
-        // Called from the exec of the pass that declared exactly those two uses.
-        [[nodiscard]] Common::BoolResultStr RecordMask( const RDG::PassContext& context,
-                                                        RDG::TextureRef sceneColor, RDG::TextureRef mask,
-                                                        const RDG::TextureDesc& desc,
-                                                        const glm::vec2&        sunScreenUv );
-        // Radial blur pass @p pass: samples @p source, writes @p target; the reach grows per pass.
-        [[nodiscard]] Common::BoolResultStr RecordBlur( const RDG::PassContext& context, RDG::TextureRef source,
-                                                        RDG::TextureRef target, const RDG::TextureDesc& desc,
-                                                        uint32_t pass, const glm::vec2& sunScreenUv );
+        // Mask: block 0 of the setup samples @p sceneColor and writes @p mask. Record dispatches from that block;
+        // @p sunScreenUv is the sun's position in [0,1] screen UV.
+        void DeclareMaskBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor, RDG::TextureRef mask ) const;
+        [[nodiscard]] Common::BoolResultStr
+        RecordMask( const RDG::PassContext& context, const RDG::TextureDesc& desc, const glm::vec2& sunScreenUv );
+        // Radial blur pass @p pass: block 0 samples @p source and writes @p target; the reach grows per pass.
+        void DeclareBlurBindings( RDG::PassBuilder& pass, RDG::TextureRef source, RDG::TextureRef target ) const;
+        [[nodiscard]] Common::BoolResultStr RecordBlur( const RDG::PassContext& context,
+                                                        const RDG::TextureDesc& desc, uint32_t pass,
+                                                        const glm::vec2& sunScreenUv );
 
         static constexpr uint32_t GetBlurPassCount()
         {
@@ -77,7 +78,7 @@ namespace Desert::Graphic::System
         {
             m_Params = params;
         }
-        const Params& GetParams() const
+        [[nodiscard]] const Params& GetParams() const
         {
             return m_Params;
         }
@@ -89,6 +90,8 @@ namespace Desert::Graphic::System
 
         std::shared_ptr<ComputePipeline> m_MaskPipeline;
         std::shared_ptr<ComputePipeline> m_BlurPipeline;
+        mutable ShaderBindingLayoutCache m_MaskLayout; // the two shaders' layouts, kept between frames
+        mutable ShaderBindingLayoutCache m_BlurLayout;
 
         Params m_Params;
     };

@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <array>
 #include <memory>
@@ -42,27 +43,31 @@ namespace Desert::Graphic::System
         // this frame's RecordAverage writes and GetPreviousLuminanceImage() the one it adapts from. False:
         // nothing to record (no scene colour or pipelines), and the ping-pong does not move.
         bool Prepare();
-        // 1) Zero the histogram (the node declares Write(histogram, StorageWrite)); binds "Histogram" by name.
-        [[nodiscard]] Common::BoolResultStr RecordClear( const RDG::PassContext& context,
-                                                         RDG::BufferRef          histogram );
+        // Each node's SETUP declares its one block (block 0; the pipeline is the only other route, no material)
+        // and its EXEC dispatches from that block plus this frame's push constants.
+        // 1) Zero @p histogram ("Histogram", StorageWrite).
+        void DeclareClearBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram ) const;
+        [[nodiscard]] Common::BoolResultStr RecordClear( const RDG::PassContext& context );
         // 2) Histogram of @p scene (texelFetch, so PointClamp), atomic adds into @p histogram. @p width x @p
         // height
         //    is the scene's size this frame (one thread per texel).
-        [[nodiscard]] Common::BoolResultStr RecordHistogram( const RDG::PassContext& context,
-                                                             RDG::TextureRef scene, RDG::BufferRef histogram,
-                                                             uint32_t width, uint32_t height );
+        void DeclareHistogramBindings( RDG::PassBuilder& pass, RDG::TextureRef scene,
+                                       RDG::BufferRef histogram ) const;
+        [[nodiscard]] Common::BoolResultStr RecordHistogram( const RDG::PassContext& context, uint32_t width,
+                                                             uint32_t height );
         // 3) Percentile-clipped average + temporal adaptation: reads @p histogram, samples @p previous (the
-        //    imported GetPreviousLuminanceImage()), writes @p adapted (the imported GetAdaptedLuminanceImage()).
-        [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context,
-                                                           RDG::BufferRef histogram, RDG::TextureRef previous,
-                                                           RDG::TextureRef adapted );
+        //    imported GetPreviousLuminanceImage(), PointClamp at its one texel), writes @p adapted (the imported
+        //    GetAdaptedLuminanceImage()).
+        void DeclareAverageBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram, RDG::TextureRef previous,
+                                     RDG::TextureRef adapted ) const;
+        [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context );
 
-        std::shared_ptr<Image2D> GetSceneColorImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const
         {
             const auto scene = m_TargetFramebuffer.lock();
             return scene ? scene->GetColorAttachmentImage() : nullptr;
         }
-        const std::shared_ptr<Image2D>& GetPreviousLuminanceImage() const
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetPreviousLuminanceImage() const
         {
             return m_LumImage[1 - m_ReadIndex];
         }
@@ -118,6 +123,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline> m_ClearPipeline;
         std::shared_ptr<ComputePipeline> m_HistogramPipeline;
         std::shared_ptr<ComputePipeline> m_AveragePipeline;
+        mutable ShaderBindingLayoutCache m_ClearLayout; // the three shaders' layouts, kept between frames
+        mutable ShaderBindingLayoutCache m_HistogramLayout;
+        mutable ShaderBindingLayoutCache m_AverageLayout;
 
         int m_ReadIndex = 0; // holds the latest adapted luminance; Prepare points it at this frame's write
         // Set by OnSceneReplaced, consumed and cleared by the next RecordAverage — see that override.

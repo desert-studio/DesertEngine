@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -38,7 +39,7 @@ namespace Desert::Graphic::System
     public:
         using RenderSystem::RenderSystem;
 
-        virtual Common::BoolResultStr Initialize() override
+        Common::BoolResultStr Initialize() override
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
@@ -87,7 +88,7 @@ namespace Desert::Graphic::System
         }
 
         // The scene target is multisampled and the resolve was built for it.
-        bool IsReady() const
+        [[nodiscard]] bool IsReady() const
         {
             return m_Resolved && m_Pipeline && m_Material;
         }
@@ -99,20 +100,28 @@ namespace Desert::Graphic::System
                 m_Resolved->Resize( width, height );
         }
 
-        const std::shared_ptr<Framebuffer>& GetFramebuffer() const
+        [[nodiscard]] const std::shared_ptr<Framebuffer>& GetFramebuffer() const
         {
             return m_Resolved;
         }
 
-        // Inside the render pass the frame graph opens on SceneDepthResolved ("Scene: DepthResolve").
-        // @p sceneDepth is the node's SampledGraphics read, fetched at sample 0 as u_Depth.
-        Common::BoolResultStr Record( const RDG::PassContext& context, RDG::TextureRef sceneDepth )
+        // SETUP of "Scene: DepthResolve": the node's one block (block 0) - @p sceneDepth as u_Depth, fetched at
+        // sample 0 (PointClamp), the material as the other route. Not ready: nothing declared, Record refuses.
+        void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneDepth ) const
         {
             if ( !IsReady() || !sceneDepth.IsValid() )
-                return Common::MakeError( "SceneDepthResolve recorded without its pipeline or the scene depth" );
-            RDG::PassBindings bindings( context );
-            bindings.Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                              RDG::SamplerDesc::PointClamp() );
+                return;
+            pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
+                 .Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::PointClamp() );
+        }
+
+        // Inside the render pass the frame graph opens on SceneDepthResolved: opens block 0.
+        Common::BoolResultStr Record( const RDG::PassContext& context )
+        {
+            if ( !IsReady() )
+                return Common::MakeError( "SceneDepthResolve recorded without its pipeline" );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
         }
@@ -120,6 +129,8 @@ namespace Desert::Graphic::System
     private:
         std::shared_ptr<Framebuffer>               m_Resolved;
         std::shared_ptr<Shader>                    m_Shader;
+        // The block layout, derived from m_Shader's reflection once per compile (not per frame).
+        mutable ShaderBindingLayoutCache           m_BindingLayout;
         std::shared_ptr<GraphicsPipeline>          m_Pipeline;
         std::unique_ptr<MaterialSceneDepthResolve> m_Material;
     };

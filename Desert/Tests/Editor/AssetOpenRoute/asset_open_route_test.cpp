@@ -325,9 +325,3 @@ TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
     EXPECT_TRUE( std::regex_search( layer, gate ) ) << "the \"Open Scene\" palette entry runs " << entry[1].str()
                                                     << ", which does not call SceneOpenRequest::Request";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

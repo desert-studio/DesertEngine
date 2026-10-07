@@ -96,7 +96,6 @@ namespace Desert::Graphic::API::Vulkan
             }
 
             // --- Limits the renderer actually branches on ---
-            m_Capabilities.MaxPushConstantSize    = deviceProperties.limits.maxPushConstantsSize;
             m_Capabilities.MaxTexture2DSize       = deviceProperties.limits.maxImageDimension2D;
             m_Capabilities.MaxTextureArrayLayers  = deviceProperties.limits.maxImageArrayLayers;
             m_Capabilities.MaxColorAttachments    = deviceProperties.limits.maxColorAttachments;

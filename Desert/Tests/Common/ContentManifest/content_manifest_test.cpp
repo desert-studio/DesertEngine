@@ -164,9 +164,3 @@ TEST( ContentManifest, ThePakDeletionListIsNotRecordedAsContent )
     EXPECT_EQ( manifest.Entries()[0].Key, "Assets/a.txt" );
     EXPECT_EQ( manifest.Find( std::string( Common::Utils::kDeletedEntriesKey ) ), nullptr );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

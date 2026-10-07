@@ -406,12 +406,6 @@ TEST( ThumbnailFraming, OrbitZoomScalesTheFit )
     EXPECT_NEAR( away.Scale, fit.Scale * 0.5f, fit.Scale * 1e-4f );
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // THM1n-14: an UNASSIGNED slot (reference 0) is drawn with the engine's default material, as the scene draws
 // it — never a refusal; only a reference no registered material answers to refuses the picture, by index.
 TEST( ThumbnailSlots, AnUnassignedSlotIsTheEngineDefaultNotARefusal )

@@ -592,13 +592,6 @@ TEST( LandscapeBlob, EveryWrongBlobIsRefusedWithItsNumber )
     refuse( PatchU32( PatchU32( good, 8, 3u ), 12, 4u ), "checksum", "dimensions swapped" );
     refuse( std::vector<unsigned char>( good.begin(), good.end() - 1 ), "checksum", "trailer cut" );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 TEST( LandscapeBlob, VisibilityLayerRoundTripsBesideThePaintLayers )
 {
     using namespace Desert::World::Landscape;

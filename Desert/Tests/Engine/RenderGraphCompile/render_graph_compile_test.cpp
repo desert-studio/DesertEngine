@@ -7,6 +7,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
+#include <Engine/Graphic/RDG/RDGLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
@@ -32,6 +33,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Desert::Graphic::RDG;
@@ -60,6 +62,12 @@ namespace
     Common::BoolResultStr Ok( PassContext& )
     {
         return Common::MakeSuccess( true );
+    }
+
+    // A DeferredFrameNodes declare callback with no shader behind it: the node's sampled read, declared plainly.
+    void ReadSampledGraphics( PassBuilder& pass, TextureRef texture )
+    {
+        pass.Read( texture, Access::SampledGraphics );
     }
 
     constexpr uint64_t AlignUp( uint64_t value, uint64_t alignment )
@@ -188,6 +196,12 @@ namespace
         {
             Calls.push_back( "AbandonGraph" );
         }
+        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override
+        {
+            Calls.push_back( std::format( "UploadBuffer {} {} first {}", resource, bytes.size(),
+                                          bytes.empty() ? -1 : static_cast<int>( bytes.front() ) ) );
+            return Common::MakeSuccess( true );
+        }
         [[nodiscard]] std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
         {
             return nullptr;
@@ -270,6 +284,15 @@ namespace
         const Common::ResultStr<CompileResult> result = builder.Compile( kEstimate );
         EXPECT_TRUE( result.IsSuccess() ) << result.GetError();
         return result ? result.GetValue() : CompileResult{};
+    }
+
+    // RDG-FAULT1: the one Declaration fault a malformed pass leaves, as "<pass>: <reason>" (empty: none / more).
+    std::string OnlyDeclarationFault( const Builder& builder )
+    {
+        const CompileResult result = CompileOrFail( builder );
+        if ( result.Faults.size() != 1 || result.Faults[0].Stage != PassFaultStage::Declaration )
+            return {};
+        return result.Faults[0].PassName + ": " + result.Faults[0].Reason;
     }
 
     std::vector<Barrier> BarriersOn( const CompiledPass* pass, uint32_t resource )
@@ -621,6 +644,110 @@ TEST( RenderGraphCompile, TheBuilderHandsBackTheDescriptionATextureWasCreatedOrR
     EXPECT_FALSE( graph.GetTextureDesc( TextureRef{ buffer.Index } ).IsSuccess() );
 }
 
+// RDG-FAULT1 C3b: a binding-block entry may name an engine image its system owns across frames (an atmosphere
+// LUT, the cloud history) instead of a ref of this graph. It is not a ref until SceneRenderer imports it
+// (ResolveDeclared), so InvalidDeclaredRef does not refuse it; DeclareRefsOn declares it on the ref the import
+// gave, as a storage write / sampled read the graph orders: the reader runs after the writer, a writer of an
+// image nobody reads is culled.
+TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAndOrdered )
+{
+    // Never dereferenced: the declaration only carries the image to the import (aliasing, non-owning).
+    int                                           lutToken = 0;
+    const std::shared_ptr<Desert::Graphic::Image> lut( std::shared_ptr<void>(),
+                                                       reinterpret_cast<Desert::Graphic::Image*>( &lutToken ) );
+
+    ExternalTexture  lutImport( Tex2D( 64, 32, ImageFormat::RGBA16F ), Access::None );
+    ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "block images" );
+    const TextureRef lutRef = graph.RegisterExternal( lutImport, "Sky.TransmittanceLut" );
+    const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    Desert::Graphic::RenderPassDeclaration writer;
+    writer.Bindings( ShaderBindingLayout{}, {} )
+         .Storage( "u_TransmittanceLut", lut, Access::StorageWrite, "Sky.TransmittanceLut" );
+    Desert::Graphic::RenderPassDeclaration reader;
+    reader.Bindings( ShaderBindingLayout{}, {} )
+         .Sampled( "u_TransmittanceLut", lut, Access::SampledGraphics, SamplerDesc::LinearClamp(),
+                   "Sky.TransmittanceLut" );
+    ASSERT_EQ( Desert::Graphic::BlockImageEntries( writer ).size(), 1u );
+    EXPECT_EQ( Desert::Graphic::BlockImageEntries( writer ).front()->ImportName, "Sky.TransmittanceLut" );
+    EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( writer ), nullptr );
+    EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( reader ), nullptr );
+
+    const std::vector<TextureRef> imported{ lutRef };
+    graph.AddPass(
+         "Sky: TransmittanceLut", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { Desert::Graphic::DeclareRefsOn( pass, writer, imported ); }, Ok );
+    graph.AddPass(
+         "Sky", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             Desert::Graphic::DeclareRefsOn( pass, reader, imported );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.CulledPassNames.empty() );
+    EXPECT_TRUE( HasEdge( result, 0, 1, DependencyKind::ReadAfterWrite ) );
+}
+
+// RDG-FAULT1 C3b: two block entries of one pass may read ONE image (the cloud resolve reads the 2D fallback as
+// both its history and its history guide while the history is invalid) -- the import gives one ref and the pass
+// holds it in one read-only state. The rule is the subresource's state, not the entry count: two reads in two
+// layouts (sampled = shader-read-only, storage read = general) are refused by name, as a read plus a write is
+// ("MalformedDeclarationsFaultTheirPassWithNames", "Both").
+TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndTwoLayoutsAreRefused )
+{
+    int                                           fallbackToken = 0;
+    const std::shared_ptr<Desert::Graphic::Image> fallback(
+         std::shared_ptr<void>(), reinterpret_cast<Desert::Graphic::Image*>( &fallbackToken ) );
+
+    ExternalTexture  fallbackImport( Tex2D( 4, 4, ImageFormat::RGBA8F ), Access::None );
+    ExternalTexture  reconstructed( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
+    Builder          graph( "one image twice" );
+    const TextureRef fallbackRef = graph.RegisterExternal( fallbackImport, "Clouds.HistoryFallback" );
+    const TextureRef output      = graph.RegisterExternal( reconstructed, "Clouds.History0" );
+
+    Desert::Graphic::RenderPassDeclaration resolve;
+    resolve.Bindings( ShaderBindingLayout{}, {} )
+         .Sampled( "u_CloudHistory", fallback, Access::SampledCompute, SamplerDesc::LinearRepeat(),
+                   "Clouds.HistoryFallback" )
+         .Sampled( "u_CloudHistoryGuide", fallback, Access::SampledCompute, SamplerDesc::LinearRepeat(),
+                   "Clouds.HistoryFallback" );
+    ASSERT_EQ( Desert::Graphic::BlockImageEntries( resolve ).size(), 2u );
+    EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( resolve ), nullptr );
+
+    // The one import, once per entry (FrameTextures::Import returns the first ref for the same image).
+    const std::vector<TextureRef> imported{ fallbackRef, fallbackRef };
+    graph.AddPass(
+         "Clouds: Resolve", PassFlags::Compute | PassFlags::NeverCull,
+         [&]( PassBuilder& pass )
+         {
+             Desert::Graphic::DeclareRefsOn( pass, resolve, imported );
+             pass.Write( output, Access::StorageWrite );
+         },
+         Ok );
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    EXPECT_TRUE( result.CulledPassNames.empty() );
+
+    Builder          layouts( "one image two layouts" );
+    const TextureRef twice = layouts.RegisterExternal( fallbackImport, "Clouds.HistoryFallback" );
+    layouts.AddPass(
+         "TwoLayouts", PassFlags::Compute | PassFlags::NeverCull,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( twice, Access::SampledCompute );
+             pass.Read( twice, Access::StorageRead );
+         },
+         Ok );
+    const std::string fault = OnlyDeclarationFault( layouts );
+    ASSERT_FALSE( fault.empty() );
+    EXPECT_NE( fault.find( "TwoLayouts" ), std::string::npos ) << fault;
+    EXPECT_NE( fault.find( "Clouds.HistoryFallback" ), std::string::npos ) << fault;
+}
+
 TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
 {
     Builder          graph( "refused" );
@@ -708,6 +835,121 @@ TEST( RenderGraphCompile, ABufferProducerIsKeptByALiveBufferReader )
     EXPECT_TRUE( HasEdge( result, 0, 2, DependencyKind::ReadAfterWrite ) );
     EXPECT_EQ( result.FindAllocation( unread.Index ), nullptr );
     EXPECT_NE( result.FindAllocation( counts.Index ), nullptr );
+}
+
+// RDG-FAULT1 C3b (UE: QueueBufferUpload). CPU bytes reach a graph buffer through an upload the BUILDER owns: the
+// bytes are copied at the call (the caller's vector is overwritten right after), the upload is a Copy pass that
+// writes the buffer, and the reader added after it gets a read-after-write edge on it and runs after it.
+TEST( RenderGraphCompile, AQueuedBufferUploadIsOrderedBeforeItsReaderAndCopiesTheBytes )
+{
+    ExternalTexture        backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder                graph( "upload" );
+    const BufferRef        lights = graph.CreateBuffer( BufferDesc{ 64 }, "Lights" );
+    const TextureRef       back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    std::vector<std::byte> bytes( 16, std::byte{ 7 } );
+    graph.QueueBufferUpload( lights, bytes );
+    std::fill( bytes.begin(), bytes.end(), std::byte{ 0 } ); // the graph holds its own copy
+    graph.AddPass(
+         "Composite", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( lights, Access::StorageRead );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    ASSERT_NE( result.FindPass( "Upload: Lights" ), nullptr );
+    EXPECT_TRUE( HasEdge( result, 0, 1, DependencyKind::ReadAfterWrite ) );
+    EXPECT_FALSE( BarriersOn( result.FindPass( "Composite" ), lights.Index ).empty() )
+         << "the reader gets the CopyDst -> StorageRead barrier";
+
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    const auto at = [&]( const std::string& call )
+    { return std::find( backend.Calls.begin(), backend.Calls.end(), call ) - backend.Calls.begin(); };
+    const auto upload = at( std::format( "UploadBuffer {} 16 first 7", lights.Index ) );
+    ASSERT_LT( upload, static_cast<std::ptrdiff_t>( backend.Calls.size() ) ) << "the copied bytes were uploaded";
+    EXPECT_LT( upload, at( std::format( kBeginPassFormat, "Composite" ) ) );
+}
+
+// A graph buffer nothing uploaded or produced is refused BY NAME in the reader (here the upload comes after the
+// reader, which is the same mistake: the graph orders by AddPass, so the reader saw no writer).
+TEST( RenderGraphCompile, ABufferReadWithNoUploadOrProducerIsRefusedByName )
+{
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "noupload" );
+    const BufferRef  lights = graph.CreateBuffer( BufferDesc{ 64 }, "Lights" );
+    const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Composite", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( lights, Access::StorageRead );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+    const std::vector<std::byte> bytes( 16, std::byte{ 1 } );
+    graph.QueueBufferUpload( lights, bytes );
+
+    const std::string fault = OnlyDeclarationFault( graph );
+    EXPECT_EQ( fault.rfind( "Composite: ", 0 ), 0u ) << fault;
+    EXPECT_NE( fault.find( "Lights" ), std::string::npos ) << fault;
+    EXPECT_NE( fault.find( "before any pass writes it" ), std::string::npos ) << fault;
+}
+
+// An upload that does not fit is refused by name, as a fault of the upload; its reader goes with it (Dependency),
+// never reading a half-written buffer. A size off the 4-byte transfer granularity is refused the same way.
+TEST( RenderGraphCompile, ABufferUploadLargerThanItsBufferIsRefusedByName )
+{
+    const auto build = []( size_t size, ExternalTexture& backbuffer )
+    {
+        auto                         graph  = std::make_unique<Builder>( "oversize" );
+        const BufferRef              lights = graph->CreateBuffer( BufferDesc{ 16 }, "Lights" );
+        const TextureRef             back   = graph->RegisterExternal( backbuffer, "Backbuffer" );
+        const std::vector<std::byte> bytes( size, std::byte{ 1 } );
+        graph->QueueBufferUpload( lights, bytes );
+        graph->AddPass(
+             "Composite", PassFlags::Raster,
+             [&]( PassBuilder& pass )
+             {
+                 pass.Read( lights, Access::StorageRead );
+                 pass.ColorTarget( 0, back, LoadOp::DontCare() );
+             },
+             Ok );
+        return graph;
+    };
+    const auto faultOf = []( const CompileResult& result, std::string_view pass ) -> const PassFault*
+    {
+        const auto it = std::find_if( result.Faults.begin(), result.Faults.end(),
+                                      [&]( const PassFault& fault ) { return fault.PassName == pass; } );
+        return it == result.Faults.end() ? nullptr : &*it;
+    };
+
+    ExternalTexture backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    {
+        const CompileResult result = CompileOrFail( *build( 32, backbuffer ) );
+        const PassFault*    upload = faultOf( result, "Upload: Lights" );
+        ASSERT_NE( upload, nullptr );
+        EXPECT_EQ( upload->Stage, PassFaultStage::Declaration );
+        EXPECT_NE( upload->Reason.find( "upload of 32 bytes into buffer 'Lights' of 16 bytes" ),
+                   std::string::npos )
+             << upload->Reason;
+        const PassFault* reader = faultOf( result, "Composite" );
+        ASSERT_NE( reader, nullptr );
+        EXPECT_EQ( reader->Stage, PassFaultStage::Dependency );
+    }
+    {
+        const CompileResult result = CompileOrFail( *build( 6, backbuffer ) );
+        const PassFault*    upload = faultOf( result, "Upload: Lights" );
+        ASSERT_NE( upload, nullptr );
+        EXPECT_NE( upload->Reason.find( "not a multiple of 4 bytes" ), std::string::npos ) << upload->Reason;
+    }
+    {
+        const CompileResult result = CompileOrFail( *build( 16, backbuffer ) );
+        EXPECT_TRUE( result.Faults.empty() ) << "an exact fit is accepted";
+    }
 }
 
 // A culled pass records nothing and gets no barrier: the backend never sees it, and no barrier anywhere in the
@@ -1332,10 +1574,13 @@ TEST( RenderGraphCompile, PassContextRefusesAnUndeclaredResourceNamingPassAndRes
              return Common::MakeSuccess( true );
          } );
 
-    const Common::BoolResultStr executed = ExecuteRecorded( graph );
-    ASSERT_FALSE( executed.IsSuccess() );
-    EXPECT_NE( executed.GetError().find( "Tonemap" ), std::string::npos ) << executed.GetError();
-    EXPECT_NE( executed.GetError().find( "Sneaky" ), std::string::npos ) << executed.GetError();
+    // RDG-FAULT1: the refused GetTexture fails Tonemap's exec - a late fault of Tonemap, not of the frame.
+    ASSERT_TRUE( ExecuteRecorded( graph ).IsSuccess() );
+    const ExecuteReport& report = graph.GetExecuteReport();
+    ASSERT_EQ( report.Faults.size(), 1u );
+    EXPECT_EQ( report.Faults[0].PassName, "Tonemap" );
+    EXPECT_EQ( report.Faults[0].Stage, PassFaultStage::Execution );
+    EXPECT_NE( report.Faults[0].Reason.find( "Sneaky" ), std::string::npos ) << report.Faults[0].Reason;
     EXPECT_NE( wrongAccess.find( "StorageRead" ), std::string::npos ) << wrongAccess;
 #else
     // Shipping only (DESERT_CONFIG_SHIPPING): Debug and Release define DESERT_DEV_INSTRUMENTS 1 and run the test.
@@ -1343,7 +1588,7 @@ TEST( RenderGraphCompile, PassContextRefusesAnUndeclaredResourceNamingPassAndRes
 #endif
 }
 
-TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
+TEST( RenderGraphCompile, MalformedDeclarationsFaultTheirPassWithNames )
 {
     {
         ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
@@ -1358,10 +1603,10 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
                  pass.ColorTarget( 0, back, LoadOp::DontCare() );
              },
              Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
-        ASSERT_FALSE( result.IsSuccess() );
-        EXPECT_NE( result.GetError().find( "Reader" ), std::string::npos ) << result.GetError();
-        EXPECT_NE( result.GetError().find( "NeverWritten" ), std::string::npos ) << result.GetError();
+        const std::string fault = OnlyDeclarationFault( graph );
+        ASSERT_FALSE( fault.empty() );
+        EXPECT_NE( fault.find( "Reader" ), std::string::npos ) << fault;
+        EXPECT_NE( fault.find( "NeverWritten" ), std::string::npos ) << fault;
     }
     {
         Builder          graph( "conflict" );
@@ -1374,10 +1619,10 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
                  pass.Read( t, Access::SampledGraphics );
              },
              Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
-        ASSERT_FALSE( result.IsSuccess() );
-        EXPECT_NE( result.GetError().find( "Both" ), std::string::npos ) << result.GetError();
-        EXPECT_NE( result.GetError().find( "Target" ), std::string::npos ) << result.GetError();
+        const std::string fault = OnlyDeclarationFault( graph );
+        ASSERT_FALSE( fault.empty() );
+        EXPECT_NE( fault.find( "Both" ), std::string::npos ) << fault;
+        EXPECT_NE( fault.find( "Target" ), std::string::npos ) << fault;
     }
     {
         Builder          graph( "kinds" );
@@ -1385,9 +1630,9 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
         graph.AddPass(
              "ComputeWithAttachment", PassFlags::Compute,
              [&]( PassBuilder& pass ) { pass.ColorTarget( 0, t, LoadOp::DontCare() ); }, Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
-        ASSERT_FALSE( result.IsSuccess() );
-        EXPECT_NE( result.GetError().find( "ComputeWithAttachment" ), std::string::npos ) << result.GetError();
+        const std::string fault = OnlyDeclarationFault( graph );
+        ASSERT_FALSE( fault.empty() );
+        EXPECT_NE( fault.find( "ComputeWithAttachment" ), std::string::npos ) << fault;
     }
     {
         Builder          graph( "range" );
@@ -1395,18 +1640,11 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
         graph.AddPass(
              "OutOfRange", PassFlags::Compute,
              [&]( PassBuilder& pass ) { pass.Write( t, Access::StorageWrite, SubresourceRange::Mip( 3 ) ); }, Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
-        ASSERT_FALSE( result.IsSuccess() );
-        EXPECT_NE( result.GetError().find( "mip 3" ), std::string::npos ) << result.GetError();
+        const std::string fault = OnlyDeclarationFault( graph );
+        ASSERT_FALSE( fault.empty() );
+        EXPECT_NE( fault.find( "mip 3" ), std::string::npos ) << fault;
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── Backend seam (RDG2) ─────────────────────────────────────────────────────────────────────────────────
 
 // Execute owns the order; the backend only records. The sequence is: acquire what executed passes use,
@@ -1470,9 +1708,10 @@ TEST( RenderGraphCompile, ExecuteDrivesTheBackendInPassOrder )
     EXPECT_EQ( out.SubresourceStates.front(), GetAccessState( Access::SampledGraphics ) );
 }
 
-// A failing pass stops the graph: the backend is told to abandon it, nothing after the pass is recorded
-// and the error names the graph and the pass.
-TEST( RenderGraphCompile, AFailingPassAbandonsTheGraph )
+// RDG-FAULT1: a failing exec is a late fault of its pass. The graph is not abandoned (AbandonGraph is for backend
+// failures only): the pass's render pass is ended, the frame goes on, and the fault is in the execute report
+// naming the pass and its error.
+TEST( RenderGraphCompile, AFailingPassIsALateFaultNotAnAbandonedGraph )
 {
     ExternalTexture  out( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
     RecordingBackend backend;
@@ -1481,16 +1720,14 @@ TEST( RenderGraphCompile, AFailingPassAbandonsTheGraph )
     graph.AddPass(
          "Broken", PassFlags::Raster, [&]( PassBuilder& pass ) { pass.ColorTarget( 0, o, LoadOp::DontCare() ); },
          []( PassContext& ) -> Common::BoolResultStr { return Common::MakeError( "pipeline missing" ); } );
-    const Common::BoolResultStr executed = graph.Execute( backend );
-    ASSERT_FALSE( executed.IsSuccess() );
-    EXPECT_NE( executed.GetError().find( "failing" ), std::string::npos ) << executed.GetError();
-    EXPECT_NE( executed.GetError().find( "Broken" ), std::string::npos ) << executed.GetError();
-    ASSERT_FALSE( backend.Calls.empty() );
-    EXPECT_EQ( backend.Calls.back(), "AbandonGraph" );
-    EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "EndRenderPass" ), 0 );
-    // The barrier recorded before the failing pass is in the command buffer, so the external holds the state it
-    // left (the record follows every barrier); the end-of-graph write-back did not run.
-    EXPECT_EQ( out.SubresourceStates.front().Layout, ImageLayout::ColorAttachment );
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "AbandonGraph" ), 0 );
+    EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "EndRenderPass" ), 1 );
+    const ExecuteReport& report = graph.GetExecuteReport();
+    ASSERT_EQ( report.Faults.size(), 1u );
+    EXPECT_EQ( report.Faults[0].PassName, "Broken" );
+    EXPECT_EQ( report.Faults[0].Stage, PassFaultStage::Execution );
+    EXPECT_NE( report.Faults[0].Reason.find( "pipeline missing" ), std::string::npos ) << report.Faults[0].Reason;
 }
 
 // The aliasing plan takes size, alignment and memory types from the provider, asked with the usage the
@@ -1841,11 +2078,12 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBarriers )
 {
     const fs::path root = RepoRoot();
-    std::ifstream               file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    std::ifstream  file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
     ASSERT_TRUE( file );
     std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
-    text.erase( std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
-                text.end() );
+    text.erase(
+         std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+         text.end() );
     const size_t begin = text.find( "voidSceneRenderer::AddFrameDepthResolve(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
@@ -1905,7 +2143,9 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
         const bool        declares     = declarations.find( "pass.Read(" ) != std::string::npos ||
                               declarations.find( "pass.Write(" ) != std::string::npos ||
                               declarations.find( "pass.ColorTarget(" ) != std::string::npos ||
-                              declarations.find( "ReadEach(" ) != std::string::npos;
+                              declarations.find( "ReadEach(" ) != std::string::npos ||
+                              // a renderer's DeclareBindings declares the node's binding block (RDG-FAULT1)
+                              declarations.find( "Bindings( pass" ) != std::string::npos;
         EXPECT_TRUE( declares || flags.find( "PassFlags::NeverCull" ) != std::string::npos )
              << name << " declares no access and is not a culling root";
         if ( flags.find( "RDG::PassFlags::Raster" ) != std::string::npos )
@@ -1915,14 +2155,15 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
     // JumpFlood 3, AutoExposure 3, Bloom 2, LightShafts 2, LensFlare 2, Tonemap 1, FXAA 1, SMAA 3, BackdropBlur 1.
     EXPECT_EQ( nodes, 18u );
 
-    const std::string dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
-    for ( const std::string& file :
-          { std::string( "SceneRendererFramePostFX.cpp" ), dir + "JumpFloodOutlineRenderer.cpp",
-            dir + "LensFlareRenderer.cpp", dir + "BackdropBlurRenderer.hpp", dir + "BloomRenderer.cpp",
-            dir + "AutoExposureRenderer.cpp", dir + "LightShaftRenderer.cpp", dir + "TonemapRenderer.cpp",
-            dir + "FXAARenderer.cpp", dir + "SMAARenderer.cpp" } )
+    // The frame's post-FX recorder (already read above) and every renderer in the PostProcessing folder.
+    constexpr std::string_view dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing";
+    for ( const std::string_view file :
+          { "SceneRendererFramePostFX.cpp", "JumpFloodOutlineRenderer.cpp", "LensFlareRenderer.cpp",
+            "BackdropBlurRenderer.hpp", "BloomRenderer.cpp", "AutoExposureRenderer.cpp", "LightShaftRenderer.cpp",
+            "TonemapRenderer.cpp", "FXAARenderer.cpp", "SMAARenderer.cpp" } )
     {
-        const std::string text = file == "SceneRendererFramePostFX.cpp" ? postFx : read( file );
+        const std::string text =
+             file == "SceneRendererFramePostFX.cpp" ? postFx : read( std::format( "{}/{}", dir, file ) );
         ASSERT_FALSE( text.empty() ) << file << " is gone";
         for ( const char* manual : { "ComputeImageBeginWrite(", "ComputeImageEndWrite(", "TransitionLayout(",
                                      "BeginRenderPass(", "EndRenderPass(", "RenderPass::Create(" } )
@@ -2003,8 +2244,8 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
 
 TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )
 {
-    ExternalTexture color   = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
-    color.RecordStates      = []( const std::vector<AccessState>&, bool )
+    ExternalTexture color = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
+    color.RecordStates    = []( const std::vector<AccessState>&, bool )
     { return Common::BoolResultStr( Common::MakeError( "record gone" ) ); };
     Builder                   graph( "import" );
     ExternalTexture* const    colors[] = { &color };
@@ -2201,7 +2442,7 @@ TEST( RenderGraphCompile, DepthToSceneIsACopyAtOneSampleAndARasterDepthExpandAtM
         const TextureRef sourceRef = graph.RegisterExternal( source, "GBuffer.Depth" );
         const TextureRef targetRef = graph.RegisterExternal( target, "SceneColor.Depth" );
         graph.Extract( targetRef, target, Access::DepthWrite );
-        Nodes::AddDepthToScene( graph, samples, sourceRef, targetRef, Ok, Ok );
+        Nodes::AddDepthToScene( graph, samples, sourceRef, targetRef, Ok, ReadSampledGraphics, Ok );
         const CompileResult result = CompileOrFail( graph );
         ASSERT_EQ( result.Passes.size(), 1u ) << samples;
         const CompiledPass* copy   = result.FindPass( "Deferred: DepthResolve" );
@@ -2242,7 +2483,7 @@ TEST( RenderGraphCompile, SceneDepthResolveIsARasterNodeOnlyAtMsaa )
         const TextureRef sceneRef    = graph.RegisterExternal( scene, "SceneColor.Depth" );
         const TextureRef resolvedRef = graph.RegisterExternal( resolved, "SceneDepthResolved.Depth" );
         graph.Extract( resolvedRef, resolved, Access::SampledCompute );
-        Nodes::AddSceneDepthResolve( graph, samples, sceneRef, resolvedRef, Ok );
+        Nodes::AddSceneDepthResolve( graph, samples, sceneRef, resolvedRef, ReadSampledGraphics, Ok );
         const CompileResult result  = CompileOrFail( graph );
         const CompiledPass* resolve = result.FindPass( "Scene: DepthResolve" );
         if ( samples == 1 )
@@ -2501,11 +2742,13 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
          body.find( "graph.AddPass(\"Particles:Simulate\",RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
          std::string::npos );
 
-    // The node declares the emitters' buffers: imported through Renderer::ImportBuffer, written StorageWrite.
+    // The node declares the emitters' buffers: imported through Renderer::ImportBuffer, written StorageWrite by
+    // the setup's binding blocks (ParticleRenderer::DeclareSimulateBindings, one per imported emitter).
     EXPECT_NE( body.find( "particles->ImportSimulationBuffers(graph)" ), std::string::npos )
          << "the simulation node does not import the emitters' buffers";
-    EXPECT_NE( body.find( "pass.Write(buffer,RDG::Access::StorageWrite)" ), std::string::npos )
-         << "the simulation node does not declare its writes";
+    EXPECT_NE( body.find( "[particles](RDG::PassBuilder&pass){particles->DeclareSimulateBindings(pass);}" ),
+               std::string::npos )
+         << "the simulation node does not declare its writes in its setup";
     EXPECT_EQ( body.find( "[](RDG::PassBuilder&){}" ), std::string::npos )
          << "the simulation node declares nothing";
 
@@ -2528,18 +2771,30 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     const size_t simulateAt = particleText.find( "ParticleRenderer::Simulate(constRDG::PassContext&context," );
     ASSERT_NE( simulateAt, std::string::npos );
     EXPECT_NE( particleText.find( "if(!fe.Declared)continue;", simulateAt ), std::string::npos );
-    // The node's exec binds this frame's graph handles of both buffers by their shader names, as the declared
-    // StorageWrite, and dispatches through DispatchCompute (no pipeline setter carries a graph buffer).
+    // The setup declares one block per imported emitter: this frame's graph handles of both buffers by their
+    // shader names, StorageWrite, and the push bytes; the exec opens the n-th declared emitter's block n and
+    // dispatches through DispatchCompute (no pipeline setter carries a graph buffer, no name is bound in it).
+    const size_t declareAt =
+         particleText.find( "voidParticleRenderer::DeclareSimulateBindings(RDG::PassBuilder&pass)const" );
+    ASSERT_NE( declareAt, std::string::npos );
+    const std::string declareBody =
+         particleText.substr( declareAt, particleText.find( "ParticleRenderer::", declareAt + 5 ) - declareAt );
+    EXPECT_NE( declareBody.find( "if(!fe.Declared)continue;" ), std::string::npos )
+         << "the setup declares an emitter Simulate skips: the block numbering drifts";
+    EXPECT_NE( declareBody.find( ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageWrite)"
+                                 ".Storage(\"SpawnCounter\",fe.CounterRef,RDG::Access::StorageWrite)"
+                                 ".PushConstantBytes(static_cast<uint32_t>(sizeof(SimPush)))" ),
+               std::string::npos );
     const std::string simulateBody = particleText.substr(
          simulateAt, particleText.find( "ParticleRenderer::ImportSimulationBuffers(", simulateAt ) - simulateAt );
-    EXPECT_NE( simulateBody.find( "bindings.Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageWrite)"
-                                  ".Storage(\"SpawnCounter\",fe.CounterRef,RDG::Access::StorageWrite)" ),
+    EXPECT_NE( simulateBody.find( "RDG::PassBindingsbindings(context,context.GetBindingBlock(block++));" ),
                std::string::npos );
+    EXPECT_EQ( simulateBody.find( ".Storage(" ), std::string::npos ) << "Simulate binds a buffer by name";
     EXPECT_NE( simulateBody.find( "renderer.DispatchCompute(bindings,*m_SimPipeline,groups,1,1)" ),
                std::string::npos );
     EXPECT_EQ( simulateBody.find( "SetStorageBuffer" ), std::string::npos );
     EXPECT_NE( importBody.find( "fe.CounterRef=graph.RegisterExternal(fe.CounterImport," ), std::string::npos );
-    EXPECT_NE( importBody.find( "written.push_back(fe.CounterRef);" ), std::string::npos );
+    EXPECT_NE( importBody.find( "fe.Declared=true;" ), std::string::npos );
 
     // The same shape in a graph: two frames of a persistent buffer written by the node. The second frame's
     // write waits on the first's, from the state the first graph wrote back.
@@ -2656,26 +2911,34 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
 
     // Each system names what its pass samples, in its own RegisterPasses.
     const std::pair<const char*, const char*> declared[] = {
+         // The procedural sky's LUTs are entries of the SkyboxPass's block (DeclareSkyDraw), each the read.
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           "declared.Read(refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,RDG::Access::"
-           "SampledGraphics" },
-         { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           "declared.Read(refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients.SkyTransmittanceLut:white,"
+           ".Sampled(\"u_SkyViewLut\",refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,"
            "RDG::Access::SampledGraphics" },
-         { "Systems/Scene/Mesh/MeshRenderer.cpp",
-           "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
-           "SampledGraphics" },
+         { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
+           ".Sampled(\"u_TransmittanceLut\",refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients."
+           "SkyTransmittanceLut:white,RDG::Access::SampledGraphics" },
+         // The forward mesh node's scene/view inputs are bound per material block of the draw list its Declare
+         // builds (MeshDrawList::Declare -> BindSceneViewInputs), so the graph sees each sampled input as a
+         // block binding of that node rather than a blanket read.
+         { "Systems/Scene/Mesh/MeshRenderer.cpp", "m_ForwardDraws.Declare(declared,SceneViewInputsOf(refs));" },
+         { "Systems/Scene/Mesh/MeshRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
+         // The terrain node likewise: one block per Forward material of the frame's groups, each binding the
+         // scene/view inputs its shader has slots for (TerrainRenderer's DeclareGroupBlocks).
          { "Systems/Scene/Terrain/TerrainRenderer.cpp",
-           "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
-           "SampledGraphics" },
+           "(void)DeclareGroupBlocks(declared,m_Pipeline.get(),m_ForwardLayout,GroupExecutors(&ProgramMaterials::"
+           "Forward),&view);" },
+         { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
            "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
+         // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
-           "declared.Read(refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
+           ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
+         // The cloud composite's pair: entries of its block (the material route + both halves), each the read.
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           "declared.Read(refs.Transients.CloudScatter,RDG::Access::SampledGraphics" },
+           ".Sampled(\"u_CloudScatter\",scatter,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           "declared.Read(refs.Transients.CloudGuide,RDG::Access::SampledGraphics" },
+           ".Sampled(\"u_CloudGuide\",guide,RDG::Access::SampledGraphics" },
          { "SceneRenderer.cpp", "declared.Read(mesh->GetCascadeShadowImage(c),RDG::Access::SampledGraphics" },
          { "SceneRenderer.cpp", "declared.Read(clouds->GetShadowMap(),RDG::Access::SampledGraphics" } };
     for ( const auto& [file, needle] : declared )
@@ -2741,26 +3004,48 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     const Declares declares[] = {
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
            "SkyboxRenderer::DeclareAtmosphereLutNodes(",
-           { "Write(m_TransmittanceLut,RDG::Access::StorageWrite",
-             "Write(m_MultiScatterLut,RDG::Access::StorageWrite", "Write(m_SkyViewLut,RDG::Access::StorageWrite",
-             "Write(m_AerialPerspectiveLut,RDG::Access::StorageWrite",
-             "Write(m_DistantLight,RDG::Access::StorageWrite",
-             "Read(m_TransmittanceLut,RDG::Access::SampledCompute" } },
+           // Each LUT node's block 0 names every LUT as an entry (the renderer's own image, imported by the
+           // graph): the entry IS the declaration of the write / the sampled read; no pipeline-level image
+           // binding.
+           { "Storage(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::StorageWrite",
+             "Storage(\"u_MultiScatterLut\",m_MultiScatterLut,RDG::Access::StorageWrite",
+             "Storage(\"u_SkyViewLut\",m_SkyViewLut,RDG::Access::StorageWrite",
+             "Storage(\"u_AerialPerspectiveLut\",m_AerialPerspectiveLut,RDG::Access::StorageWrite",
+             "Storage(\"u_DistantSkyLight\",m_DistantLight,RDG::Access::StorageWrite",
+             "Sampled(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::SampledCompute,"
+             "GlobalTextureFilterSampler()",
+             "declareBlock(transmittance.Access,*m_TransmittanceLutPipeline,0)",
+             "sampledLuts(declareBlock(distant.Access,*m_DistantLightPipeline,0))" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
-           { "DeclareVolumeReads(shadow.Access)", "Write(m_ShadowMapImage,RDG::Access::StorageWrite" } },
+           { "SampledMedium(SampledVolumes(DeclareComputeBlock(shadow.Access,*m_ShadowMapPipeline,",
+             "Storage(\"u_CloudShadowMap\",m_ShadowMapImage,RDG::Access::StorageWrite,\"Clouds.ShadowMap\")" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
-           { "Read(depth,RDG::Access::SampledCompute",
-             "DeclareAtmosphereReads(fog.Access,RDG::Access::SampledCompute)",
-             "graph.CreateTexture(fogDesc,\"HeightFog.Fog\")", "Write(fogImage,RDG::Access::StorageWrite",
-             "transients.HeightFog=fogImage" } },
+           // Block 0's entries: the fog image it writes, the depth and the sky's two images it samples, each
+           // with the sampler the image carried as its own.
+           { "block.Storage(\"u_FogApply\",fogImage,RDG::Access::StorageWrite)",
+             ".Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
+             ".Sampled(\"u_AerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
+             ".Sampled(\"u_DistantSkyLight\",distantSkyLight,RDG::Access::SampledCompute,"
+             "GlobalTextureFilterSampler()",
+             "graph.CreateTexture(fogDesc,\"HeightFog.Fog\")", "transients.HeightFog=fogImage" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareFrameNodes(",
-           { "Write(m_SkyOcclusionVolume,RDG::Access::StorageWrite", "Read(depth,RDG::Access::SampledCompute",
-             "Write(trace,RDG::Access::StorageWrite", "Read(trace,RDG::Access::SampledCompute",
+           { "Storage(\"u_CloudSkyOcclusion\",m_SkyOcclusionVolume,RDG::Access::StorageWrite",
+             "Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
+             "SampledMedium(SampledVolumes(DeclareComputeBlock(march.Access,*m_MarchPipeline,",
+             // The sky's three images are entries of the march with the sampler each carried as its own.
+             ".Sampled(\"u_DistantSkyLight\",distantSkyLight,RDG::Access::SampledCompute,"
+             "GlobalTextureFilterSampler()",
+             ".Sampled(\"u_CloudAerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
+             ".Sampled(\"u_CloudSunTransmittanceLut\",sunTransmittanceLut,RDG::Access::SampledCompute,"
+             "GlobalTextureFilterSampler()",
+             // The trace pair: block entries of the march (written) and of the resolve (sampled).
+             ".Storage(\"u_CloudScatter\",trace,RDG::Access::StorageWrite)",
+             ".Sampled(\"u_CloudTrace\",trace,RDG::Access::SampledCompute",
              "graph.CreateTexture(traceDesc,\"Clouds.Trace\")",
-             "Write(m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
+             "Storage(\"u_ReconstructedScatter\",m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
     for ( const Declares& d : declares )
     {
         const std::string body = FunctionBody( source( d.File ), d.Function );
@@ -2775,11 +3060,15 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
           { "Systems/Scene/Skybox/SkyboxRenderer.cpp", "Systems/Scene/Fog/HeightFogRenderer.cpp" } )
         EXPECT_EQ( source( file ).find( "ComputeImage" ), std::string::npos ) << file;
 
-    // The composite reads the cloud shadow map (through DeclareShadowReads), so the graph brings it back to a
-    // sampled layout after the shadow node's storage write.
-    EXPECT_NE( source( "SceneRenderer.cpp" )
-                    .find( "ResolveDeclared(textures,shadows,\"Deferred:Composite\",shadowMaps)" ),
-               std::string::npos );
+    // The composite reads the cascades and the cloud shadow map ONLY as scene view inputs (block entries with
+    // their neutral defaults, below), so the graph brings the map back to a sampled layout after the shadow
+    // node's storage write. The second, separately resolved read list (DeclareShadowReads -> shadowReads ->
+    // ReadAll) is gone: it declared the same images twice and, when it did not resolve, silently dropped them.
+    for ( const char* file : { "SceneRenderer.cpp", "SceneRenderer.hpp", "SceneRendererFrameDeferred.cpp" } )
+    {
+        EXPECT_EQ( source( file ).find( "DeclareShadowReads" ), std::string::npos ) << file;
+        EXPECT_EQ( source( file ).find( "shadowReads" ), std::string::npos ) << file;
+    }
 
     // RDG-TAILS-D2: the map is a graph ref of the frame (imported where its node runs), the composite declares
     // it and binds it by shader name; its material only uploads CloudShadowUB (a slot filled by both routes is
@@ -2794,8 +3083,12 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     EXPECT_NE( source( "SceneRendererFrameDeferred.cpp" )
                     .find( "conststd::vector<RDG::TextureRef>view=inputs.View.Refs();" ),
                std::string::npos );
+    // Declared on the composite's setup block against its layout (RDG-FAULT1 C3a); the exec overload that took
+    // an RDG::PassBindings and a Shader is gone (C3b) - a re-added one is red here.
     EXPECT_NE( source( "Systems/Scene/Deferred/DeferredLightingRenderer.hpp" )
-                    .find( "BindSceneViewInputs(bindings,inputs.View,*m_Shader);" ),
+                    .find( "BindSceneViewInputs(block,inputs.View,*layout);" ),
+               std::string::npos );
+    EXPECT_EQ( source( "FrameGraphRefs.hpp" ).find( "voidBindSceneViewInputs(RDG::PassBindings&" ),
                std::string::npos );
     const std::string deferredMaterial = source( "Materials/Deferred/MaterialDeferredLighting.hpp" );
     EXPECT_NE( deferredMaterial.find( "CloudShadowUpload(this,cloudShadow)" ), std::string::npos );
@@ -2876,24 +3169,351 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
 
     const std::string shadow = stripped( "Systems/Scene/Mesh/MeshRendererShadow.cpp" );
     ASSERT_FALSE( shadow.empty() );
-    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,m_CascadeVP[c]);!cast.IsSuccess())"
-                            "returncast;" ),
+    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,firstBlock,m_CascadeVP[c]);"
+                            "!cast.IsSuccess()){returncast;}" ),
                std::string::npos )
          << "the cascade body drops the non-mesh caster's draw result";
-    // RSM + the cascade's singles / generic / skinned / instanced draws.
-    EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 5u )
-         << "a shadow / RSM draw's refusal is no longer returned by its body";
+    // ...and records through the blocks the caster declared on the cascade node in its setup.
+    EXPECT_NE( shadow.find( "constuint32_tdeclaredBlocks=caster->DeclareShadowCascade(declared,c);" ),
+               std::string::npos )
+         << "the cascade's setup no longer lets the non-mesh casters declare their blocks";
+    // The cascade's draw list (singles / generic / skinned / instanced, built in its Declare by
+    // BuildShadowCascadeDraws) and the RSM's (DeclareRSMDraws), whose Record returns the first refused draw
+    // (MeshDrawList::Record).
+    EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 1u )
+         << "a shadow draw's refusal is no longer returned by its body";
+    EXPECT_NE( shadow.find( "returnm_RSMDraws.Record(context);" ), std::string::npos )
+         << "the RSM body drops its draw list's result";
+    EXPECT_NE( shadow.find( "if(autodrawn=m_CascadeDraws[c].Record(context);!drawn.IsSuccess())returndrawn;" ),
+               std::string::npos )
+         << "the cascade body drops its draw list's result";
+    EXPECT_NE( stripped( "Systems/Scene/Mesh/MeshRenderer.cpp" ).find( "!drawn.IsSuccess())returndrawn;" ),
+               std::string::npos )
+         << "MeshDrawList::Record no longer returns a refused draw";
 
     const std::string terrain = stripped( "Systems/Scene/Terrain/TerrainRenderer.cpp" );
     ASSERT_FALSE( terrain.empty() );
     EXPECT_NE( terrain.find( "draw.VertexCount,1);!drawn.IsSuccess())returndrawn;}returnBOOLSUCCESS;" ),
                std::string::npos )
          << "RecordDraws drops a refused terrain draw";
-    EXPECT_NE( terrain.find( "returnRecordDraws(bindings,*m_Pipeline,&ProgramMaterials::Forward" ),
+    EXPECT_NE( terrain.find( "returnRecordDraws(context,0,*m_Pipeline,&ProgramMaterials::Forward" ),
                std::string::npos );
-    EXPECT_NE( terrain.find( "returnRecordDraws(RDG::PassBindings(context),*m_GBufferPipeline" ),
+    EXPECT_NE( terrain.find( "returnRecordDraws(context,0,*m_GBufferPipeline" ), std::string::npos );
+    EXPECT_NE( terrain.find( "returnRecordDraws(context,firstBlock,*m_ShadowPipeline" ), std::string::npos );
+}
+
+// RDG-FAULT1 C3b, lead decisions A + B on "Deferred: Composite". The lights reach the shader through the graph's
+// upload command (two buffers uploaded BEFORE the node, bound as StorageRead block entries), not through the
+// material's storage properties; and the material is FILLED in the node's setup, before the block that the
+// setup validation checks against its route fill is declared - never in the exec, where the first frame's
+// validation would have read an unfilled material.
+TEST( RenderGraphCompile, DeferredCompositeUploadsItsLightsAndFillsItsMaterialInSetup )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string frame =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    const std::string body = SqueezedBody( frame, "voidSceneRenderer::AddFrameComposite(", "voidSceneRenderer::" );
+    ASSERT_FALSE( body.empty() );
+    const size_t upload  = body.find( "System::DeferredLightingRenderer::UploadLights(graph," );
+    const size_t node    = body.find( "\"Deferred:Composite\",RDG::PassFlags::Raster" );
+    const size_t fill    = body.find( "deferred->FillMaterial(" );
+    const size_t declare = body.find( "deferred->DeclareCompositeBindings(pass,inputs,lights);" );
+    const size_t record  = body.find( "deferred->Record(context)" );
+    ASSERT_NE( upload, std::string::npos );
+    ASSERT_NE( node, std::string::npos );
+    ASSERT_NE( fill, std::string::npos );
+    ASSERT_NE( declare, std::string::npos );
+    ASSERT_NE( record, std::string::npos );
+    EXPECT_LT( upload, node ) << "the upload is queued before the node that reads it";
+    EXPECT_LT( fill, declare ) << "the material is filled before its route fill is declared";
+    EXPECT_LT( declare, record ) << "both in the setup, before the exec";
+    EXPECT_EQ( body.find( "FillMaterial(", record ), std::string::npos ) << "no material fill in the exec";
+
+    const std::string renderer = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" );
+    EXPECT_NE(
+         renderer.find( ".Storage(ShaderProtocols::PointLight::Name,lights.Point,RDG::Access::StorageRead)" ),
+         std::string::npos );
+    EXPECT_NE( renderer.find( ".Storage(ShaderProtocols::SpotLight::Name,lights.Spot,RDG::Access::StorageRead)" ),
                std::string::npos );
-    EXPECT_NE( terrain.find( "returnRecordDraws(RDG::PassBindings(context),*m_ShadowPipeline" ),
+    EXPECT_NE( renderer.find( "graph.QueueBufferUpload(buffer,bytes);" ), std::string::npos );
+    const std::string material = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp" );
+    EXPECT_EQ( material.find( "Get<StorageBufferProperty>(ShaderProtocols::PointLight::Name)" ),
+               std::string::npos )
+         << "the material no longer writes the lights: the block entry is their one route";
+    EXPECT_EQ( material.find( "Get<StorageBufferProperty>(ShaderProtocols::SpotLight::Name)" ),
+               std::string::npos );
+}
+
+// RDG-FAULT1 C3b, lead decision B on the post chain: a post node's material is filled in the node's SETUP, before
+// the block the setup validates against its route fill - never in a Record* exec, where the first frame's
+// validation would have read an unfilled material. Every Record* of every converted renderer is checked, so a
+// new Record that fills its material goes red here; a renderer joins the table when its nodes are converted.
+TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    // Record: what starts every exec body in the squeezed file - "<Class>::Record" for an out-of-line
+    // definition, the return type glued to the name for one defined in its class (BackdropBlurRenderer.hpp).
+    struct Renderer
+    {
+        const char* File;
+        const char* Record;
+    };
+    const std::string dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
+    for ( const Renderer& renderer :
+          { Renderer{ "TonemapRenderer.cpp", "TonemapRenderer::Record" },
+            Renderer{ "FXAARenderer.cpp", "FXAARenderer::Record" },
+            Renderer{ "AutoExposureRenderer.cpp", "AutoExposureRenderer::Record" },
+            Renderer{ "BloomRenderer.cpp", "BloomRenderer::Record" },
+            Renderer{ "LightShaftRenderer.cpp", "LightShaftRenderer::Record" },
+            Renderer{ "LensFlareRenderer.cpp", "LensFlareRenderer::Record" },
+            Renderer{ "JumpFloodOutlineRenderer.cpp", "JumpFloodOutlineRenderer::Record" },
+            Renderer{ "SMAARenderer.cpp", "SMAARenderer::Record" },
+            Renderer{ "BackdropBlurRenderer.hpp", "Common::BoolResultStrRecord" } } )
+    {
+        const std::string text    = SqueezedSource( root, ( dir + renderer.File ).c_str() );
+        const std::string record  = renderer.Record;
+        size_t            records = 0;
+        for ( size_t at = text.find( record ); at != std::string::npos; at = text.find( record, at + 1 ) )
+        {
+            const std::string body = FunctionBody( text.substr( at ), record );
+            ASSERT_FALSE( body.empty() ) << renderer.File << ": no balanced body after " << record;
+            ++records;
+            for ( const char* fill : { "BindValues(", "BindInputs(", "SetRawData(", "FillMaterial(",
+                                       "FillFinalMaterial(", "SetParams(", "->Set(", "->Set<" } )
+                EXPECT_EQ( body.find( fill ), std::string::npos )
+                     << body.substr( 0, body.find( '{' ) ) << " fills its material (" << fill << ") in the exec";
+            EXPECT_EQ( body.find( "PassBindingsbindings(context);" ), std::string::npos )
+                 << body.substr( 0, body.find( '{' ) ) << " binds by name in the exec: its block is the setup's";
+        }
+        EXPECT_GT( records, 0u ) << renderer.File << " has no " << record;
+    }
+
+    const std::string tonemap = SqueezedSource( root, ( dir + "TonemapRenderer.cpp" ).c_str() );
+    EXPECT_NE(
+         FunctionBody( tonemap, "voidTonemapRenderer::FillMaterial(" ).find( "m_MaterialTonemap->BindValues(" ),
+         std::string::npos )
+         << "the tonemap's values are bound by FillMaterial";
+    const std::string postFx =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp" );
+    const std::string node = SqueezedBody( postFx, "voidSceneRenderer::AddFrameTonemap(", "voidSceneRenderer::" );
+    const size_t      fill = node.find( "tonemap->FillMaterial(graphInputs);" );
+    const size_t      declare = node.find( "tonemap->DeclareBindings(pass,graphInputs);" );
+    const size_t      exec    = node.find( "tonemap->Record(context)" );
+    ASSERT_NE( fill, std::string::npos );
+    ASSERT_NE( declare, std::string::npos );
+    ASSERT_NE( exec, std::string::npos );
+    EXPECT_LT( fill, declare ) << "the material is filled before its route fill is declared";
+    EXPECT_LT( declare, exec ) << "both in the setup, before the exec";
+
+    // The jump-flood composite's uniforms (outline colour, width, smoothness) the same way.
+    const std::string jfa = SqueezedSource( root, ( dir + "JumpFloodOutlineRenderer.cpp" ).c_str() );
+    EXPECT_NE( FunctionBody( jfa, "voidJumpFloodOutlineRenderer::FillFinalMaterial(" )
+                    .find( "m_MaterialComposite->SetParams(" ),
+               std::string::npos )
+         << "the composite's values are set by FillFinalMaterial";
+    const std::string jfaNode =
+         SqueezedBody( postFx, "voidSceneRenderer::AddFrameJumpFlood(", "voidSceneRenderer::" );
+    const size_t jfaFill    = jfaNode.find( "jfa->FillFinalMaterial();" );
+    const size_t jfaDeclare = jfaNode.find( "jfa->DeclareFinalBindings(pass,seed,scene);" );
+    const size_t jfaExec    = jfaNode.find( "jfa->RecordFinal(context)" );
+    ASSERT_NE( jfaFill, std::string::npos );
+    ASSERT_NE( jfaDeclare, std::string::npos );
+    ASSERT_NE( jfaExec, std::string::npos );
+    EXPECT_LT( jfaFill, jfaDeclare ) << "the composite is filled before its route fill is declared";
+    EXPECT_LT( jfaDeclare, jfaExec ) << "both in the setup, before the exec";
+}
+
+// RDG-FAULT1 C3b (cb3f65f9d rule): a node's kept layout is keyed on the shader the pipeline it records with
+// holds - `<pipeline>->GetSpecification().Shader` - never on a separate shader handle the renderer keeps beside
+// the pipeline, which a reload or a rebuilt pipeline does not update (the cache then hands out the old shader's
+// layout while the pipeline records the new one). Every ShaderBindingLayoutCache::Get in the post-processing
+// renderers (every file of the directory, so a new one is covered) and in the converted scene systems.
+TEST( RenderGraphCompile, BindingLayoutsAreKeyedOnTheRecordingPipelinesShader )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    std::vector<std::string> files;
+    const std::string        dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
+    for ( const auto& entry : fs::directory_iterator( root / dir ) )
+        files.push_back( dir + entry.path().filename().string() );
+    files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    files.push_back( "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp" );
+    files.push_back( "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" );
+    files.push_back( "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
+    files.push_back( "Runtime/Source/RuntimeLayer.cpp" );
+    files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp" );
+    files.push_back( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp" );
+    // The terrain and mesh renderers (C3b gap 5): the terrain keeps one layout per program, keyed on the pipeline
+    // every group records with; a mesh draw list keeps one per recording shader (ShaderBindingLayoutSet).
+    const char* const sceneMeshFiles[] = {
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp" };
+    for ( const char* file : sceneMeshFiles )
+        files.push_back( file );
+    const std::regex get( R"(([Ll]ayout(?:s|Cache)?\.Get\())" );
+    const std::regex key( R"(^[A-Za-z_][\w\[\]\.]*->GetSpecification\(\)\.Shader\))" );
+    size_t           gets = 0;
+    for ( const std::string& file : files )
+    {
+        const std::string text = SqueezedSource( root, file.c_str() );
+        for ( auto it = std::sregex_iterator( text.begin(), text.end(), get ); it != std::sregex_iterator(); ++it )
+        {
+            ++gets;
+            const std::string after = text.substr( static_cast<size_t>( it->position() + it->length() ), 120 );
+            EXPECT_TRUE( std::regex_search( after, key ) )
+                 << file << ": a layout keyed on " << after.substr( 0, after.find( ')' ) + 1 )
+                 << ", not on the recording pipeline's GetSpecification().Shader";
+        }
+    }
+    EXPECT_GT( gets, 10u ) << "the census found almost no layout lookups: the needle is stale";
+    // The Skybox LUT and cloud compute helpers take the kept layout; neither derives one per frame any more.
+    std::vector<std::string> keptOnly = {
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp" };
+    keptOnly.insert( keptOnly.end(), std::begin( sceneMeshFiles ), std::end( sceneMeshFiles ) );
+    for ( const std::string& file : keptOnly )
+        EXPECT_EQ( SqueezedSource( root, file.c_str() ).find( "GetBindingLayout(" ), std::string::npos )
+             << file << " derives a binding layout per frame again (Renderer::GetBindingLayout)";
+    // Each lookup above is one of these, not a stray: the terrain's three programs, the draw list's per-block Get,
+    // the glass and overdraw-resolve blocks.
+    const std::string terrain = SqueezedSource( root, sceneMeshFiles[0] );
+    EXPECT_NE( terrain.find( "layoutCache.Get(pipeline->GetSpecification().Shader)" ), std::string::npos );
+    for ( const char* program :
+          { "(declared,m_Pipeline.get(),m_ForwardLayout,", "(pass,m_GBufferPipeline.get(),m_GBufferLayout,",
+            "(declared,m_ShadowPipeline.get(),m_ShadowLayout," } )
+        EXPECT_NE( terrain.find( std::string( "DeclareGroupBlocks" ) + program ), std::string::npos )
+             << "a terrain program's blocks are not keyed on the pipeline it records with: " << program;
+    const std::string meshList = SqueezedSource( root, sceneMeshFiles[1] );
+    EXPECT_NE( meshList.find( "m_Layouts.Get(declared.Pipeline->GetSpecification().Shader)" ), std::string::npos )
+         << "a draw-list block's layout is no longer the kept one of its recording pipeline's shader";
+    // A block is per executor AND recording shader: one executor drawn through pipelines of two shaders must not
+    // share a block validated against only one of their layouts.
+    EXPECT_NE( meshList.find( "block.Material==command.Material&&block.Pipeline->GetSpecification().Shader.get()=="
+                              "recordedWith" ),
+               std::string::npos );
+    EXPECT_NE( meshList.find( "m_Layouts.DropExpired();" ), std::string::npos )
+         << "the draw list no longer forgets the layouts of destroyed shaders";
+}
+
+// RDG-FAULT1 C3b, the scene and UI systems that record from setup-declared blocks: no exec in these files opens a
+// name-taking PassBindings( context ) - every RDG::PassBindings is constructed over a declared block
+// (PassBindings( context, context.GetBindingBlock( n ) )). A file joins the table when its nodes are converted.
+TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    for ( const char* file :
+          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+            "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp",
+            "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp",
+            "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
+    {
+        const std::string text   = SqueezedSource( root, file );
+        size_t            opened = 0;
+        for ( size_t at = text.find( "RDG::PassBindings" ); at != std::string::npos;
+              at        = text.find( "RDG::PassBindings", at + 1 ) )
+        {
+            size_t args = at + std::string_view( "RDG::PassBindings" ).size();
+            while ( args < text.size() &&
+                    ( std::isalnum( static_cast<unsigned char>( text[args] ) ) != 0 || text[args] == '_' ) )
+                ++args;
+            if ( args >= text.size() || text[args] != '(' )
+                continue; // a type use (a parameter, a reference), not a construction
+            ++opened;
+            EXPECT_EQ( text.compare( args, std::string_view( "(context,context.GetBindingBlock(" ).size(),
+                                     "(context,context.GetBindingBlock(" ),
+                       0 )
+                 << file << ": " << text.substr( at, 80 ) << " is not opened over a setup-declared block";
+        }
+        EXPECT_GT( opened, 0u ) << file << " opens no PassBindings: the needle is stale";
+    }
+
+    // ParticlePass fills each emitter's material in its Declare, before the block that names the material's
+    // route fill; the exec only draws.
+    const std::string particles = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    const size_t pass = particles.find( ".AddPass(\"ParticlePass\"" );
+    const size_t declare =
+         particles.find( ".Declare=[this](RenderPassDeclaration&declared,constFrameGraphRefs&)", pass );
+    ASSERT_NE( pass, std::string::npos );
+    ASSERT_NE( declare, std::string::npos );
+    const std::string exec        = particles.substr( pass, declare - pass );
+    const std::string declaration = particles.substr( declare );
+    EXPECT_EQ( exec.find( "->Update(" ), std::string::npos ) << "ParticlePass fills a material in its exec";
+    const size_t update   = declaration.find( "fe.Gpu->Material->Update(camera);" );
+    const size_t bindings = declaration.find( "fe.Gpu->Material->GetMaterialExecutor()->GetRouteFill()" );
+    ASSERT_NE( update, std::string::npos );
+    ASSERT_NE( bindings, std::string::npos );
+    EXPECT_LT( update, bindings ) << "the material is filled before its route fill is declared";
+    EXPECT_NE( declaration.find( ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageRead)" ),
+               std::string::npos );
+    // Both walk the emitters by the one condition, so the exec's n-th drawn emitter opens block n.
+    EXPECT_NE( exec.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );
+    EXPECT_NE( declaration.find( "if(!IsDrawn(fe))continue;" ), std::string::npos );
+
+    // The editor's grid and cubemap-ball passes declare their one block in the external pass's Declare (layout
+    // kept per pipeline shader, the material's route fill); the exec opens block 0 of it. Without the Declare the
+    // exec's GetBindingBlock( 0 ) faults the node every frame.
+    for ( const char* file : { "Editor/Source/Editor/RenderSystems/Passes/EditorGridPass.cpp",
+                               "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp" } )
+    {
+        const std::string text = SqueezedSource( root, file );
+        EXPECT_NE( text.find( "pass.Declare=[this](Graphic::RenderPassDeclaration&declared,"
+                              "constGraphic::ExternalPassContext&){declared.Bindings(m_BindingLayout.Get("
+                              "m_Pipeline->GetSpecification().Shader),m_Material->GetMaterialExecutor()->"
+                              "GetRouteFill());};" ),
+                   std::string::npos )
+             << file << " declares no setup block";
+    }
+
+    // Render2D: the setup (DeclareInto) and the exec (Flush) walk the draw list through the one Resolve, so the
+    // n-th drawn command opens the n-th declared block; the executors are filled in the setup only.
+    const std::string r2d   = SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
+    const std::string setup = SqueezedBody( r2d, "voidRender2D::DeclareInto(", "voidRender2D::" );
+    const std::string flush = SqueezedBody( r2d, "Common::BoolResultStrRender2D::Flush(", "voidRender2D::" );
+    ASSERT_FALSE( setup.empty() );
+    ASSERT_FALSE( flush.empty() );
+    for ( const std::string* body : { &setup, &flush } )
+        EXPECT_NE( body->find( "constResolvedCommandresolved=Resolve(cmd,backdrop.IsValid());" ),
+                   std::string::npos );
+    for ( const char* fill :
+          { "SetRawData(", "SetPushMatrix(", "SetMaterialIndex(", "PushConstant(&m_Projection" } )
+    {
+        EXPECT_NE( setup.find( fill ), std::string::npos ) << fill;
+        EXPECT_EQ( flush.find( fill ), std::string::npos ) << "Flush fills an executor: " << fill;
+    }
+    EXPECT_NE( setup.find( ".Sampled(\"u_Backdrop\",backdrop,RDG::Access::SampledGraphics,RDG::SubresourceRange::"
+                           "All(),RDG::SamplerDesc::LinearClamp()).PushConstantBytes(static_cast<uint32_t>(sizeof("
+                           "GlassPush)));" ),
+               std::string::npos );
+    EXPECT_NE( flush.find( "uint32_tblock=firstBlock;" ), std::string::npos );
+
+    // The editor's UI pass gathers the frame (the canvas walk) in its Declare and declares the draw list's
+    // blocks there; its exec only flushes.
+    const std::string ui = SqueezedSource( root, "Editor/Source/Editor/RenderSystems/Passes/EditorUIPass.cpp" );
+    const size_t      uiDeclare = ui.find( "pass.Declare=[this](Graphic::RenderPassDeclaration&declared," );
+    const size_t      uiExec    = ui.find( "pass.Execute=[this](constGraphic::ExternalPassContext&ctx," );
+    ASSERT_NE( uiDeclare, std::string::npos );
+    ASSERT_NE( uiExec, std::string::npos );
+    ASSERT_LT( uiDeclare, uiExec );
+    const std::string uiSetup = ui.substr( uiDeclare, uiExec - uiDeclare );
+    const std::string uiRun   = ui.substr( uiExec );
+    EXPECT_NE( uiSetup.find( "UI::RenderCanvas2D(" ), std::string::npos );
+    EXPECT_NE( uiSetup.find( "m_Render2D.DeclareBindings(declared,ctx.Graph.Transients.BackdropBlur);" ),
+               std::string::npos );
+    EXPECT_EQ( uiRun.find( "UI::RenderCanvas2D(" ), std::string::npos ) << "the canvas walk is back in the exec";
+    EXPECT_NE( uiRun.find( "m_Render2D.Flush(node,ctx.Graph.Transients.BackdropBlur,0);" ), std::string::npos );
+    // The runtime declares the blit as block 0 and the 2D batch after it.
+    const std::string runtime = SqueezedSource( root, "Runtime/Source/RuntimeLayer.cpp" );
+    EXPECT_NE( runtime.find( "m_Render2D->DeclareBindings(pass,Graphic::RDG::TextureRef{});" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "m_Render2D->Flush(context,Graphic::RDG::TextureRef{},sceneRef.IsValid()?1u:0u);" ),
                std::string::npos );
 }
 
@@ -2915,12 +3535,11 @@ TEST( RenderGraphCompile, AutoExposureHistogramIsATransientBufferOfTheFrameGraph
                           "\"AutoExposure.Histogram\")" ),
                std::string::npos );
     EXPECT_EQ( body.find( "ImportHistogram" ), std::string::npos ) << "the histogram is not an import any more";
-    size_t writes = 0;
-    for ( size_t at = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)" ); at != std::string::npos;
-          at        = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)", at + 1 ) )
-        ++writes;
-    EXPECT_EQ( writes, 2u ) << "Clear and Histogram both write the histogram";
-    EXPECT_NE( body.find( "pass.Read(histogram,RDG::Access::StorageRead)" ), std::string::npos );
+    // The accesses are the setup-declared blocks' entries (RDG-FAULT1 C3b): each node's setup declares its block.
+    EXPECT_NE( body.find( "autoExp->DeclareClearBindings(pass,histogram);" ), std::string::npos );
+    EXPECT_NE( body.find( "autoExp->DeclareHistogramBindings(pass,scene,histogram);" ), std::string::npos );
+    EXPECT_NE( body.find( "autoExp->DeclareAverageBindings(pass,histogram,previous,adapted);" ),
+               std::string::npos );
     EXPECT_EQ( body.find( "NeverCull" ), std::string::npos );
 
     const std::string renderer = SqueezedSource(
@@ -2999,17 +3618,28 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
         return std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() );
     };
     const std::string mesh = read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
-    EXPECT_NE( mesh.find( "for ( const RDG::TextureRef input : SceneViewInputsOf( refs ).Refs() )" ),
-               std::string::npos )
+    // MeshGeometryPass builds its draw list in setup and declares one block per material of it, the scene/view
+    // inputs bound where the material's shader has slots for them (MeshDrawList; RDG-FAULT1 C3a).
+    EXPECT_NE( mesh.find( "m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );" ), std::string::npos )
          << "MeshGeometryPass no longer declares the scene/view inputs";
-    EXPECT_NE( mesh.find( "declared.Read( input, RDG::Access::SampledGraphics" ), std::string::npos );
+    EXPECT_NE( mesh.find( "BindSceneViewInputs( block, *view, layout );" ), std::string::npos )
+         << "MeshDrawList no longer binds the scene/view inputs into its blocks";
 
     const std::string frame    = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
     size_t            declared = 0;
     for ( size_t at = frame.find( "= view.Refs();" ); at != std::string::npos;
           at        = frame.find( "= view.Refs();", at + 1 ) )
         ++declared;
-    EXPECT_EQ( declared, 3u ) << "Deferred: Generic / Skinned / Glass each declare SceneViewInputs::Refs()";
+    EXPECT_EQ( declared, 0u ) << "a mesh node declares SceneViewInputs::Refs() wholesale instead of its blocks";
+    EXPECT_NE( frame.find( "meshRenderer->DeclareGenericDraws( pass, view );" ), std::string::npos );
+    EXPECT_NE( frame.find( "meshRenderer->DeclareSkinnedDraws( pass, view );" ), std::string::npos );
+    EXPECT_NE( frame.find( "meshRenderer->DeclareGBufferDraws( pass );" ), std::string::npos );
+    // The glass declares its inputs as its binding block in setup (only those its shader has slots for).
+    const std::string glass =
+         read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
+    EXPECT_NE( glass.find( "BindSceneViewInputs( block, view, layout );" ), std::string::npos )
+         << "Deferred: Glass no longer declares the scene/view inputs in its binding block";
+    EXPECT_NE( frame.find( "meshRenderer->DeclareGlassBindings( pass, sceneCopy, view );" ), std::string::npos );
 
     const std::string refs = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
     EXPECT_NE( refs.find( "{ EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap }" ), std::string::npos )
@@ -3035,7 +3665,11 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
     EXPECT_NE( runtime.find( "graph.AddPass(\"RuntimePresent\",Graphic::RDG::PassFlags::Raster" ),
                std::string::npos );
     EXPECT_NE( runtime.find( "pass.ColorTarget(0,target," ), std::string::npos );
-    EXPECT_NE( runtime.find( "bindings.Sampled(\"u_Texture\",sceneRef,Graphic::RDG::Access::SampledGraphics" ),
+    // The blit's block is declared in the node's setup (RDG-FAULT1 C3b) with the sampler it had: LinearClamp.
+    EXPECT_NE( runtime.find( "pass.Bindings(m_BlitLayout.Get(m_BlitPipeline->GetSpecification().Shader),"
+                             "m_BlitExecutor->GetRouteFill()).Sampled(\"u_Texture\",sceneRef,"
+                             "Graphic::RDG::Access::SampledGraphics,Graphic::RDG::SubresourceRange::All(),"
+                             "Graphic::RDG::SamplerDesc::LinearClamp());" ),
                std::string::npos );
     // The ref the graph extracts is the imported back buffer itself, not the node's target: under
     // --render-movie the node composes into the movie target and the back buffer is only cleared.
@@ -3052,9 +3686,9 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
 
     const std::string render2D =
          SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp" );
-    EXPECT_NE(
-         render2D.find( "Common::BoolResultStrFlush(constRDG::PassContext&context,RDG::TextureRefbackdrop);" ),
-         std::string::npos )
+    EXPECT_NE( render2D.find( "Common::BoolResultStrFlush(constRDG::PassContext&context,RDG::TextureRefbackdrop,"
+                              "uint32_tfirstBlock);" ),
+               std::string::npos )
          << "Render2D::Flush takes the node's context, with no default";
     for ( const char* file : { "Desert/Desert/Source/Engine/Graphic/Renderer.hpp",
                                "Desert/Desert/Source/Engine/Graphic/RendererAPI.hpp",
@@ -3212,7 +3846,7 @@ namespace
 TEST( RenderGraphCompile, BindingValidationNamesTheSlotTheShaderLacks )
 {
     DeclaredBindingBlock block;
-    block.Layout = GlassLayout();
+    block.Layout = std::make_shared<const ShaderBindingLayout>( GlassLayout() );
     block.Entries.push_back( { "u_SceneColor", ShaderResourceKind::SampledTexture, ResourceKind::Texture, 0,
                                Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
     EXPECT_TRUE( ValidatePassBindings( block ).IsSuccess() );
@@ -3224,6 +3858,127 @@ TEST( RenderGraphCompile, BindingValidationNamesTheSlotTheShaderLacks )
     EXPECT_NE( refused.GetError().find( "'u_ShadowMap0' is not a resource of shader 'StaticMeshGlass'" ),
                std::string::npos )
          << refused.GetError();
+}
+
+// RDG-FAULT1 C3b. The kept layout follows the shader OBJECT and its compile: another object at the same reload
+// generation (a renderer swapped its shader without a reload) re-derives; the same object at the same generation
+// hands back the kept pointer (no per-frame derivation, no copy); a reload re-derives; a block declared earlier
+// keeps the layout it was validated against.
+TEST( RenderGraphCompile, LayoutCacheKeysOnTheShaderObjectAndItsReload )
+{
+    struct FakeShader
+    {
+        std::string Name;
+    };
+    int        derived = 0;
+    const auto derive  = [&]( const FakeShader& shader )
+    {
+        ++derived;
+        return ShaderBindingLayout{ shader.Name, {}, 0 };
+    };
+    LayoutCache                                      cache;
+    auto                                             first = std::make_shared<FakeShader>( FakeShader{ "First" } );
+    const std::shared_ptr<const ShaderBindingLayout> kept  = cache.Get( first, 0, derive );
+    EXPECT_EQ( kept->ShaderName, "First" );
+    EXPECT_EQ( cache.Get( first, 0, derive ).get(), kept.get() );
+    EXPECT_EQ( derived, 1 );
+
+    auto second = std::make_shared<FakeShader>( FakeShader{ "Second" } );
+    EXPECT_EQ( cache.Get( second, 0, derive )->ShaderName, "Second" );
+    EXPECT_EQ( derived, 2 );
+
+    second->Name = "SecondReloaded";
+    EXPECT_EQ( cache.Get( second, 1, derive )->ShaderName, "SecondReloaded" );
+    EXPECT_EQ( derived, 3 );
+    EXPECT_EQ( kept->ShaderName, "First" ); // a block holding the old layout still validates against it
+
+    second.reset(); // destroyed; a new object (possibly at the same address) is never the old one
+    auto third = std::make_shared<FakeShader>( FakeShader{ "Third" } );
+    EXPECT_EQ( cache.Get( third, 1, derive )->ShaderName, "Third" );
+    EXPECT_EQ( derived, 4 );
+}
+
+// RDG-FAULT1 C3b (mesh draw lists): one kept layout PER SHADER OBJECT. Two shaders in one set each derive once and
+// keep their own pointer; a reload of one re-derives only it; a destroyed shader's cache is dropped and a new
+// object never inherits its layout.
+TEST( RenderGraphCompile, LayoutCacheSetKeepsOneLayoutPerShaderObject )
+{
+    struct FakeShader
+    {
+        std::string Name;
+    };
+    int        derived = 0;
+    const auto derive  = [&]( const FakeShader& shader )
+    {
+        ++derived;
+        return ShaderBindingLayout{ shader.Name, {}, 0 };
+    };
+    LayoutCacheSet                                   set;
+    auto                                             lit   = std::make_shared<FakeShader>( FakeShader{ "Lit" } );
+    auto                                             glass = std::make_shared<FakeShader>( FakeShader{ "Glass" } );
+    const std::shared_ptr<const ShaderBindingLayout> litKept   = set.Get( lit, 0, derive );
+    const std::shared_ptr<const ShaderBindingLayout> glassKept = set.Get( glass, 0, derive );
+    EXPECT_EQ( litKept->ShaderName, "Lit" );
+    EXPECT_EQ( glassKept->ShaderName, "Glass" );
+    EXPECT_EQ( derived, 2 );
+    // The next frame: both hand back their kept pointer, nothing re-derived (alternating does not evict).
+    EXPECT_EQ( set.Get( lit, 0, derive ).get(), litKept.get() );
+    EXPECT_EQ( set.Get( glass, 0, derive ).get(), glassKept.get() );
+    EXPECT_EQ( derived, 2 );
+
+    glass->Name = "GlassReloaded";
+    EXPECT_EQ( set.Get( glass, 1, derive )->ShaderName, "GlassReloaded" );
+    EXPECT_EQ( set.Get( lit, 0, derive ).get(), litKept.get() ) << "a reload of one shader re-derived another";
+    EXPECT_EQ( derived, 3 );
+
+    lit.reset();
+    set.DropExpired();
+    EXPECT_EQ( set.Size(), 1u ) << "a destroyed shader's layout is kept forever";
+    auto newcomer = std::make_shared<FakeShader>( FakeShader{ "Newcomer" } );
+    EXPECT_EQ( set.Get( newcomer, 0, derive )->ShaderName, "Newcomer" );
+    EXPECT_EQ( derived, 4 );
+}
+
+// RDG-FAULT1 C3b (Tonemap): one block may name ONE ref in several slots - bloom, light shafts and lens flare are
+// all System.Black when their nodes did not run. Three sampled reads of one subresource in one layout are one read
+// of the pass, so the node compiles and runs; refusing a repeated ref in a block would drop the tonemap every
+// frame an effect is off.
+TEST( RenderGraphCompile, OneRefInThreeSlotsOfOneBlockIsOneRead )
+{
+    ExternalTexture     blackImport( Tex2D( 1, 1, ImageFormat::RGBA8F ), Access::None );
+    ExternalTexture     backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder             graph( "tonemap black" );
+    const TextureRef    black = graph.RegisterExternal( blackImport, "System.Black" );
+    const TextureRef    back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    ShaderBindingLayout layout{ "SceneComposite",
+                                { { "u_BloomTexture", ShaderResourceKind::SampledTexture },
+                                  { "u_LightShaftTexture", ShaderResourceKind::SampledTexture },
+                                  { "u_LensFlareTexture", ShaderResourceKind::SampledTexture } },
+                                0 };
+    graph.AddPass(
+         "PostFX: Tonemap", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Bindings( layout, {} )
+                  .Sampled( "u_BloomTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ),
+                            SamplerDesc::LinearClamp() )
+                  .Sampled( "u_LightShaftTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ),
+                            SamplerDesc::LinearClamp() )
+                  .Sampled( "u_LensFlareTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ),
+                            SamplerDesc::LinearClamp() );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+    const CompileResult result = CompileOrFail( graph );
+    ASSERT_EQ( result.Passes.size(), 1u );
+    EXPECT_TRUE( result.CulledPassNames.empty() );
+}
+
+TEST( RenderGraphCompile, BindingValidationRefusesABlockWithoutALayout )
+{
+    const Common::BoolResultStr refused = ValidatePassBindings( DeclaredBindingBlock{} );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "declares no shader binding layout" ), std::string::npos );
 }
 
 TEST( RenderGraphCompile, FaultedPassIsCulledWithItsExclusiveDependants )
@@ -3262,6 +4017,34 @@ TEST( RenderGraphCompile, SharedDependantReadsTheProducersSystemDefault )
     EXPECT_FALSE( substitution.AttachmentCleared );
 }
 
+TEST( RenderGraphCompile, FaultDefaultsOwnTheSystemSourcesAndTheClears )
+{
+    GlassFrame           frame( FaultDefault::Black, ExternalFaultPolicy::FrameFatal );
+    const FaultDefaults& defaults = frame.graph.GetFaultDefaults();
+    // RegisterSystemTextures is the one call that gives a graph its sources.
+    EXPECT_TRUE( defaults.HasSources() );
+    EXPECT_EQ( defaults.GetSource( FaultDefault::Black ), frame.system.Black.Index );
+    EXPECT_EQ( defaults.GetSource( FaultDefault::White ), frame.system.White.Index );
+    EXPECT_EQ( defaults.GetSource( FaultDefault::BlackCube ), frame.system.BlackCube.Index );
+    EXPECT_EQ( defaults.GetSource( FaultDefault::None ), kInvalidResource );
+    EXPECT_FALSE( Builder{ "bare" }.GetFaultDefaults().HasSources() );
+
+    const ClearValue black = FaultDefaults::GetClear( FaultDefault::Black );
+    const ClearValue white = FaultDefaults::GetClear( FaultDefault::White );
+    EXPECT_EQ( black.Color[0], 0.0f );
+    EXPECT_EQ( black.Color[3], 1.0f );
+    EXPECT_EQ( white.Color[0], 1.0f );
+    EXPECT_EQ( white.Color[3], 1.0f );
+
+    // A FaultDefault in a graph without system textures cannot be honoured: a malformed graph.
+    Builder          bare( "bare" );
+    const TextureRef lost = bare.CreateTexture( Tex2D( 8, 8, ImageFormat::RGBA16F ), "Lost" );
+    bare.SetFaultDefault( lost, FaultDefault::White );
+    const Common::ResultStr<CompileResult> refused = bare.Compile( kEstimate );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Lost" ), std::string::npos ) << refused.GetError();
+}
+
 TEST( RenderGraphCompile, FrameExecutesWithoutTheFaultedPassAndReportsOnce )
 {
     RecordingBackend backend;
@@ -3286,15 +4069,21 @@ TEST( RenderGraphCompile, FaultThatLeavesAFrameFatalExternalUnwrittenIsAFrameFau
     // No default for GlassBlur: Composite, the backbuffer's only writer, is culled too.
     RecordingBackend    backend;
     GlassFrame          frame( FaultDefault::None, ExternalFaultPolicy::FrameFatal );
+    frame.graph.Extract( frame.back, frame.backbuffer, Access::Present );
     const CompileResult result = CompileOrFail( frame.graph );
     ASSERT_TRUE( result.Frame.has_value() );
-    EXPECT_EQ( result.Frame->Externals, std::vector<uint32_t>{ frame.back.Index } );
+    // The report alone tells the caller what to clear and the state to leave it in (the Extract's: Present).
+    const std::vector<FrameFaultExternal> expected{ { frame.back.Index, Access::Present } };
+    EXPECT_EQ( result.Frame->Externals, expected );
     EXPECT_EQ( result.Frame->RootPasses, std::vector<uint32_t>{ 2 } );
 
     EXPECT_FALSE( frame.graph.Execute( backend ).IsSuccess() );
     EXPECT_TRUE( backend.Calls.empty() ); // nothing recorded: the caller clears the backbuffer and presents
     EXPECT_TRUE( frame.ran.empty() );
     EXPECT_EQ( backend.FaultLines.size(), 1u ); // the frame fault is reported through the same reporter
+    const ExecuteReport& report = frame.graph.GetExecuteReport();
+    ASSERT_TRUE( report.Frame.has_value() );
+    EXPECT_EQ( report.Frame->Externals, expected );
 }
 
 TEST( RenderGraphCompile, KeepsContentsExternalWithoutWriterIsNotAFrameFault )
@@ -3306,6 +4095,19 @@ TEST( RenderGraphCompile, KeepsContentsExternalWithoutWriterIsNotAFrameFault )
     // Shadow and Lighting fed only removed passes: culled the ordinary way, not as faults.
     EXPECT_EQ( result.CulledPasses, ( std::vector<uint32_t>{ 0, 1 } ) );
     EXPECT_TRUE( result.Passes.empty() );
+}
+
+TEST( RenderGraphCompile, HistoryExternalWithoutWriterIsListedForItsOwnerToReset )
+{
+    RecordingBackend backend;
+    GlassFrame       frame( FaultDefault::None, ExternalFaultPolicy::InvalidateHistory );
+    frame.graph.Extract( frame.back, frame.backbuffer, Access::SampledGraphics );
+
+    EXPECT_TRUE( frame.graph.Execute( backend ).IsSuccess() );
+    const ExecuteReport& report = frame.graph.GetExecuteReport();
+    EXPECT_FALSE( report.Frame.has_value() );
+    // The index is the external's TextureRef::Index: the owner matches it against the ref it registered.
+    EXPECT_EQ( report.InvalidatedExternals, std::vector<uint32_t>{ frame.back.Index } );
 }
 
 TEST( RenderGraphCompile, LateExecutionFaultKeepsTheFrameAndSkipsOnlyItsDependants )
@@ -3398,4 +4200,306 @@ TEST( RenderGraphCompile, FaultReporterSaysOncePerPassAndReasonAgainOnChangeAndO
 
     reporter.Report( "Scene", added, broken );
     EXPECT_EQ( lines.size(), 5u ); // a relapse is reported again
+}
+
+namespace
+{
+    // What a setup's binding block receives from BindSceneViewInputs (the same Sampled() shape as
+    // RenderPassDeclaration::BlockDeclaration and RDG::BindingBlockBuilder), kept as the block
+    // ValidatePassBindings checks.
+    struct CollectedBlock
+    {
+        DeclaredBindingBlock Block;
+
+        CollectedBlock& Sampled( std::string_view name, TextureRef texture, Access access, SubresourceRange range,
+                                 SamplerDesc sampler )
+        {
+            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::SampledTexture,
+                                       ResourceKind::Texture, texture.Index, access, range, sampler } );
+            return *this;
+        }
+    };
+
+    Desert::Graphic::SceneViewInputs DistinctSceneViewInputs()
+    {
+        Desert::Graphic::SceneViewInputs view;
+        for ( uint32_t c = 0; c < Desert::Graphic::kSceneViewShadowCascades; ++c )
+            view.ShadowMaps[c] = TextureRef{ 10 + c };
+        view.EnvIrradiance  = TextureRef{ 20 };
+        view.EnvSpecular    = TextureRef{ 21 };
+        view.BrdfLut        = TextureRef{ 22 };
+        view.CloudShadowMap = TextureRef{ 23 };
+        return view;
+    }
+
+    std::vector<ShaderSlot> SceneViewSlotsWithoutCascades()
+    {
+        return {
+             { std::string( Desert::Graphic::kSceneViewEnvIrradianceName ), ShaderResourceKind::SampledTexture },
+             { std::string( Desert::Graphic::kSceneViewEnvSpecularName ), ShaderResourceKind::SampledTexture },
+             { std::string( Desert::Graphic::kSceneViewBrdfLutName ), ShaderResourceKind::SampledTexture },
+             { std::string( Desert::Graphic::kSceneViewCloudShadowMapName ),
+               ShaderResourceKind::SampledTexture } };
+    }
+} // namespace
+
+// RDG-FAULT1 (the fault that started it): the glass shader (StaticMeshGlass) has no cascade slot. The scene/view
+// inputs are declared in the glass node's SETUP against the shader's layout, so u_ShadowMap0..3 never enter its
+// block and ValidatePassBindings passes it; a lit layout still gets all four cascades.
+TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
+{
+    const Desert::Graphic::SceneViewInputs view = DistinctSceneViewInputs();
+
+    ShaderBindingLayout glass = GlassLayout();
+    for ( ShaderSlot& slot : SceneViewSlotsWithoutCascades() )
+        glass.Slots.push_back( std::move( slot ) );
+    EXPECT_TRUE( Desert::Graphic::SamplesSceneViewInputs( glass ) );
+    CollectedBlock glassBlock;
+    glassBlock.Block.Layout = std::make_shared<const ShaderBindingLayout>( glass );
+    glassBlock.Sampled( "u_SceneColor", TextureRef{ 0 }, Access::SampledGraphics, SubresourceRange::All(),
+                        SamplerDesc::LinearRepeat() );
+    Desert::Graphic::BindSceneViewInputs( glassBlock, view, glass );
+    const Common::BoolResultStr glassValid = ValidatePassBindings( glassBlock.Block );
+    EXPECT_TRUE( glassValid.IsSuccess() ) << glassValid.GetError();
+    EXPECT_EQ( glassBlock.Block.Entries.size(), 5u ); // the scene copy + irradiance, specular, BRDF LUT, cloud map
+    for ( const DeclaredBindingEntry& entry : glassBlock.Block.Entries )
+        EXPECT_EQ( entry.ShaderName.rfind( "u_ShadowMap", 0 ), std::string::npos ) << entry.ShaderName;
+
+    ShaderBindingLayout lit{ "StaticMeshPBR", SceneViewSlotsWithoutCascades(), 0 };
+    for ( const std::string_view name : Desert::Graphic::kSceneViewShadowMapNames )
+        lit.Slots.push_back( { std::string( name ), ShaderResourceKind::SampledTexture } );
+    CollectedBlock litBlock;
+    litBlock.Block.Layout = std::make_shared<const ShaderBindingLayout>( lit );
+    Desert::Graphic::BindSceneViewInputs( litBlock, view, lit );
+    const Common::BoolResultStr litValid = ValidatePassBindings( litBlock.Block );
+    EXPECT_TRUE( litValid.IsSuccess() ) << litValid.GetError();
+    ASSERT_EQ( litBlock.Block.Entries.size(), 8u );
+    for ( uint32_t c = 0; c < Desert::Graphic::kSceneViewShadowCascades; ++c )
+    {
+        EXPECT_EQ( litBlock.Block.Entries[c].ShaderName, Desert::Graphic::kSceneViewShadowMapNames[c] );
+        EXPECT_EQ( litBlock.Block.Entries[c].Index, 10 + c );
+    }
+
+    // A G-buffer program samples no scene/view input: nothing is declared for it.
+    const ShaderBindingLayout gbuffer{
+         "StaticMeshGBuffer", { { "u_AlbedoTexture", ShaderResourceKind::SampledTexture } }, 0 };
+    EXPECT_FALSE( Desert::Graphic::SamplesSceneViewInputs( gbuffer ) );
+    CollectedBlock gbufferBlock;
+    Desert::Graphic::BindSceneViewInputs( gbufferBlock, view, gbuffer );
+    EXPECT_TRUE( gbufferBlock.Block.Entries.empty() );
+}
+
+// RDG-FAULT1 C3b: the name-taking exec route is DELETED, not deprecated. A PassBindings is opened only from the
+// block its pass's setup declared (PassBindings( context, context.GetBindingBlock( i ) )); there is no constructor
+// from the context alone and no public Sampled / Storage / Uniform taking a shader name at exec. Once no caller is
+// left the compiler cannot catch a re-added overload (nothing calls it), so this census does: red on re-add of the
+// declaration or the definition. STRUCTURAL, not by spelling: any PassBindings constructor callable with a
+// PassContext alone (whatever the parameter is called, by reference or pointer, or with every later parameter
+// defaulted), and any PUBLIC PassBindings member whose first parameter is a name (string_view / std::string /
+// const char*). Mutations (each red): `explicit PassBindings( const PassContext& ctx );` in the header;
+// `PassBindings( const PassContext& c, BindingBlockRef b = {} );`; a public `PassBindings& Texture(
+// std::string_view slot, ... );`; `PassBindings::PassBindings( const PassContext& x )` defined in the .cpp;
+// `PassBindings::Uniform(` in the .cpp.
+TEST( RenderGraphCompile, TheNameTakingExecBindingApiStaysDeleted )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string header =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/RDG/RDGPassBindings.hpp" );
+    const std::string body = SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/RDG/RDGPassBindings.cpp" );
+    ASSERT_FALSE( header.empty() );
+    ASSERT_FALSE( body.empty() );
+    EXPECT_NE( header.find( "PassBindings(constPassContext&context,BindingBlockRefblock);" ), std::string::npos )
+         << "the block constructor is the one way to open a PassBindings";
+    // A PassContext parameter of any name, then either the end of the list or only defaulted parameters.
+    const std::string context = R"(\((const)?(RDG::)?PassContext(&|\*)\w*(=[^,()]*)?(,[^,()]*=[^,()]*)*\))";
+    const std::regex  contextAloneDecl( "PassBindings" + context );
+    const std::regex  contextAloneDef( "PassBindings::PassBindings" + context );
+    EXPECT_FALSE( std::regex_search( header, contextAloneDecl ) )
+         << "a PassBindings constructor callable with the context alone is back in RDGPassBindings.hpp";
+    EXPECT_FALSE( std::regex_search( body, contextAloneDef ) )
+         << "a PassBindings constructor taking the context alone is defined in RDGPassBindings.cpp";
+
+    // The public part of class PassBindings: no member takes a shader name first.
+    const size_t open = header.find( "classPassBindings{" );
+    ASSERT_NE( open, std::string::npos ) << "class PassBindings moved";
+    const size_t close = header.find( "};", open );
+    ASSERT_NE( close, std::string::npos );
+    std::string       classBody  = header.substr( open, close - open );
+    const size_t      privateAt  = classBody.find( "private:" );
+    const std::string publicPart = classBody.substr( 0, privateAt );
+    const std::regex  nameFirst( R"(\w+\((std::)?(string_view|conststd::string&|std::string|constchar\*))" );
+    std::smatch       hit;
+    EXPECT_FALSE( std::regex_search( publicPart, hit, nameFirst ) )
+         << "PassBindings has a public member taking a shader name at exec again: " << hit.str();
+    const std::regex nameMemberDef( R"(PassBindings::(Sampled|Storage|Uniform|Texture|Buffer)\()" );
+    EXPECT_FALSE( std::regex_search( body, hit, nameMemberDef ) )
+         << hit.str() << " is defined in RDGPassBindings.cpp again";
+}
+
+// RDG-FAULT1: ShaderBindingLayoutCache.hpp is included by every renderer header that keeps a layout
+// (UIMaterialCache.hpp, Render2D.hpp, the post renderers, RuntimeLayer.hpp, the editor passes). It needs only a
+// Shader forward declaration; Get lives in its .cpp. Re-inlining Get re-adds Renderer.hpp to all of them, which
+// compiles fine - so this is red.
+TEST( RenderGraphCompile, ShaderBindingLayoutCacheHeaderStaysLight )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string header =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/ShaderBindingLayoutCache.hpp" );
+    const std::string body =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/ShaderBindingLayoutCache.cpp" );
+    ASSERT_FALSE( header.empty() );
+    ASSERT_FALSE( body.empty() );
+    for ( const char* heavy : { "#include<Engine/Graphic/Renderer.hpp>", "#include<Engine/Graphic/Shader.hpp>" } )
+        EXPECT_EQ( header.find( heavy ), std::string::npos )
+             << heavy << " is back in ShaderBindingLayoutCache.hpp";
+    EXPECT_NE( header.find( "classShader;" ), std::string::npos );
+    EXPECT_NE( body.find( "ShaderBindingLayoutCache::Get(" ), std::string::npos ) << "Get moved out of the .cpp";
+}
+
+// RDG-FAULT1: a UI material that would leave its parameter row unwritten binds the default UI material for its own
+// draws (UIMaterialFallback, pinned in the Render2D suite) instead of faulting the whole UI / present node. The
+// decision only holds if the one function setup and Flush share asks it, and the cache answers through the
+// fallback - a dropped call compiles fine, so this census is what goes red.
+TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string render2d =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
+    const std::string cache =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/UIMaterialCache.cpp" );
+    ASSERT_FALSE( render2d.empty() );
+    ASSERT_FALSE( cache.empty() );
+    const std::size_t resolve = render2d.find( "Render2D::ResolvedCommandRender2D::Resolve(" );
+    ASSERT_NE( resolve, std::string::npos ) << "Render2D::Resolve (shared by setup and Flush) moved";
+    const std::size_t nextFn = render2d.find( "Render2D::DeclareInto(", resolve );
+    const std::string body =
+         render2d.substr( resolve, nextFn == std::string::npos ? std::string::npos : nextFn - resolve );
+    EXPECT_NE( body.find( "m_MaterialCache.DrawableOrDefault(" ), std::string::npos )
+         << "Render2D::Resolve no longer routes a material draw through UIMaterialCache::DrawableOrDefault";
+    const std::size_t drawable = cache.find( "UIMaterialCache::DrawableOrDefault(" );
+    ASSERT_NE( drawable, std::string::npos );
+    const std::size_t admit = cache.find( "m_Fallback.Choose(", drawable );
+    const std::size_t after = cache.find( "UIMaterialCache::RetireUnused(", drawable );
+    EXPECT_TRUE( admit != std::string::npos && admit < after )
+         << "DrawableOrDefault no longer asks the UIMaterialFallback";
+    // The decision itself (report once per material ASSET, the default in its place) is
+    // UIMaterialFallback::Choose, driven with fake entries by drawlist2d
+    // UIMaterialFallback.OneBrokenMaterialAmongSeveralThroughThePreparedPath; here: DrawableOrDefault is exactly
+    // that decision over the real entries.
+    const std::string drawableBody = cache.substr( drawable, after - drawable );
+    EXPECT_NE( drawableBody.find( "returnm_Fallback.Choose(*entry,[this](){returnErrorEntry();}," ),
+               std::string::npos )
+         << "DrawableOrDefault no longer is UIMaterialFallback::Choose with the error fill as the default";
+    EXPECT_NE( drawableBody.find( "{returnPrepareDraw(candidate,projection);}" ), std::string::npos )
+         << "DrawableOrDefault no longer judges a candidate by PrepareDraw";
+    EXPECT_NE( drawableBody.find( "LOG_ERROR(\"{}\",line);}" ), std::string::npos )
+         << "the fallback's one report no longer reaches the log";
+    EXPECT_NE( cache.find( "built.AssetName=materialService->AssetNameOf(handle);" ), std::string::npos )
+         << "an entry no longer keeps the asset name it was resolved from";
+    // A SHADER HOT RELOAD REBUILDS THE ENTRY (drawlist2d AShaderReloadRebuildsTheMaterialInsteadOfFallingBack pins
+    // RebuildIfReloaded): Build records the generation, every Resolve hit and the error fill follow it, and the
+    // follow keys on the entry's PIPELINE's shader - the one PrepareDraw judges the row against.
+    EXPECT_NE( cache.find( "entry.ShaderGeneration=shader->GetCodeGeneration();" ), std::string::npos )
+         << "Build no longer records the shader generation the entry was built at";
+    const std::string follow = FunctionBody( cache, "voidUIMaterialCache::FollowShaderReload(" );
+    ASSERT_FALSE( follow.empty() ) << "UIMaterialCache::FollowShaderReload moved";
+    EXPECT_NE( follow.find( "entry.Pipeline->GetSpecification().Shader->GetCodeGeneration()" ),
+               std::string::npos );
+    EXPECT_NE( follow.find( "UIMaterialFallback::RebuildIfReloaded(entry,generation," ), std::string::npos );
+    EXPECT_NE( follow.find( "m_RetiredBuilds.push_back(" ), std::string::npos )
+         << "a reload destroys the replaced pipeline/material under a frame that may still read them";
+    const std::string resolveEntry =
+         FunctionBody( cache, "UIMaterialCache::Resolve(constAssets::AssetHandle&handle)" );
+    EXPECT_NE( resolveEntry.find( "FollowShaderReload(hit->second," ), std::string::npos )
+         << "a cached entry no longer follows its shader's reload";
+    EXPECT_NE( FunctionBody( cache, "UIMaterialCache::ErrorEntry()" ).find( "FollowShaderReload(*m_Error," ),
+               std::string::npos )
+         << "the default UI material no longer follows its shader's reload";
+    EXPECT_NE( FunctionBody( cache, "voidUIMaterialCache::RetireUnused()" ).find( "m_RetiredBuilds" ),
+               std::string::npos )
+         << "replaced builds are never released";
+    // The fallback and the setup refusal cannot disagree: PrepareDraw judges by the row's fit AND the very
+    // ValidatePassBindings the setup runs, and the row is written nowhere else.
+    const std::size_t prepare = cache.find( "std::stringUIMaterialCache::PrepareDraw(" );
+    ASSERT_NE( prepare, std::string::npos );
+    const std::string prepareBody = cache.substr( prepare, drawable > prepare ? drawable - prepare : 0 );
+    EXPECT_NE( prepareBody.find( "UIMaterialFallback::RowFault(" ), std::string::npos );
+    EXPECT_NE( prepareBody.find( "RDG::ValidatePassBindings(block)" ), std::string::npos )
+         << "PrepareDraw no longer runs the setup's own binding validation";
+    EXPECT_EQ( render2d.find( "kMaterialRowBlockName" ), std::string::npos )
+         << "Render2D.cpp writes the parameter row again - PrepareDraw is the one place";
+    // PREPARED ONCE PER FRAME: the setup prepares the draw list (PreparedDraws, drawlist2d_test), Flush records
+    // exactly that list and resolves / prepares / validates nothing itself.
+    const std::string declareBody = FunctionBody( render2d, "voidRender2D::DeclareInto(" );
+    ASSERT_FALSE( declareBody.empty() ) << "Render2D::DeclareInto moved";
+    EXPECT_NE( declareBody.find( "m_Prepared.Prepare(m_DrawList.GetCommands()," ), std::string::npos )
+         << "the setup no longer prepares the frame's draws";
+    EXPECT_NE( declareBody.find( "Resolve(cmd,backdropValid)" ), std::string::npos );
+    const std::string flushBody = FunctionBody( render2d, "Common::BoolResultStrRender2D::Flush(" );
+    ASSERT_FALSE( flushBody.empty() ) << "Render2D::Flush moved";
+    for ( const char* again : { "Resolve(", "DrawableOrDefault(", "PrepareDraw(", "ValidatePassBindings(",
+                                "m_Prepared.Prepare(", "m_DrawList.GetCommands())" } )
+        EXPECT_EQ( flushBody.find( again ), std::string::npos )
+             << "Render2D::Flush calls " << again << " - a draw is prepared a second time in the exec";
+    EXPECT_NE( flushBody.find( "for(constauto&draw:m_Prepared.Draws())" ), std::string::npos )
+         << "Flush no longer records the list the setup prepared";
+    EXPECT_NE( flushBody.find( "if(!m_Prepared.Ready())" ), std::string::npos )
+         << "Flush records a list nobody prepared";
+}
+
+// RDG-FAULT1: every producer whose loss a surviving reader can absorb names the value the reader gets instead, at
+// the producer, right after the texture is created (before its pass is added): a lost SSAO term is "no occlusion"
+// (White - Black would black out the lit scene), a lost bloom / light shaft / SSR / GI / flare term "adds nothing"
+// (Black). A producer without one takes every reader down with it.
+TEST( RenderGraphCompile, ProducersDeclareTheirFaultDefault )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const auto stripped = [&root]( const char* relative )
+    {
+        std::ifstream file( root / relative );
+        EXPECT_TRUE( file ) << relative << " is gone";
+        std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        std::erase_if( text, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
+        return text;
+    };
+    struct Producer
+    {
+        const char* File;
+        const char* Variable;
+        const char* GraphName;
+        const char* Default;
+    };
+    constexpr const char* kDeferred   = "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp";
+    constexpr const char* kPostFX     = "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp";
+    const Producer        producers[] = {
+         { kDeferred, "ao", "SSAO", "White" },
+         { kDeferred, "gather", "GI.Gather", "Black" },
+         { kDeferred, "trace", "SSR.Trace", "Black" },
+         { kDeferred, "tiles", "SSR.TileMask", "Black" },
+         { kPostFX, "chain", "Bloom", "Black" },
+         { kPostFX, "ping", "LightShaft.Ping", "Black" },
+         { kPostFX, "pong", "LightShaft.Pong", "Black" },
+         { kPostFX, "image", "LensFlare", "Black" },
+    };
+    for ( const Producer& producer : producers )
+    {
+        const std::string text   = stripped( producer.File );
+        const std::string create = std::format( "TextureRef{}=graph.CreateTexture(", producer.Variable );
+        const size_t      at     = text.find( create );
+        ASSERT_NE( at, std::string::npos ) << producer.GraphName << ": " << create;
+        const size_t named = text.find( std::format( ",\"{}\");", producer.GraphName ), at );
+        ASSERT_NE( named, std::string::npos ) << producer.GraphName;
+        EXPECT_LT( named - at, 120u ) << producer.GraphName << ": the texture is created under another name";
+        const size_t defaulted = text.find( std::format( "graph.SetFaultDefault({},RDG::FaultDefault::{});",
+                                                         producer.Variable, producer.Default ),
+                                            at );
+        ASSERT_NE( defaulted, std::string::npos )
+             << producer.GraphName << " declares no FaultDefault::" << producer.Default;
+        EXPECT_LT( defaulted, text.find( "AddPass(", at ) )
+             << producer.GraphName << ": the FaultDefault is not declared with the texture";
+    }
 }

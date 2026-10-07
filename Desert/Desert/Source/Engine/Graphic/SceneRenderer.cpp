@@ -130,7 +130,7 @@ namespace Desert::Graphic
         uint32_t samples =
              static_cast<uint32_t>( std::clamp( requested, 1, RenderConfig::MaxMSAASamples.load() ) );
         const uint32_t mask = EngineContext::GetInstance().GetCapabilities().MSAASampleMask;
-        while ( samples > 1 && !( mask & samples ) )
+        while ( samples > 1 && ( mask & samples ) == 0u )
             samples >>= 1;
         return std::max( 1u, samples );
     }
@@ -656,8 +656,10 @@ namespace Desert::Graphic
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
              ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
@@ -823,11 +825,11 @@ namespace Desert::Graphic
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
         // Execute, after the whole graph is built, so a value one pass hands a later one travels through `values`,
         // which outlives Execute; everything else they need is captured by value.
-        RDG::Builder        graph( "SceneView" );
+        RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
-        FrameTextures       textures( graph );
+        FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
-        const auto          values = std::make_shared<FrameValues>();
+        const auto values = std::make_shared<FrameValues>();
 
         const auto sceneColor = [this, &textures]()
         {
@@ -877,7 +879,7 @@ namespace Desert::Graphic
 
             RDG::TextureRef giAccum;
 
-            if ( m_GIMode == Core::GIMode::RSM && meshRenderer && EnsureGIResources() )
+            if ( m_GIMode == Core::GIMode::RSM && meshRenderer != nullptr && EnsureGIResources() )
             {
                 const std::vector<RDG::TextureRef> rsm = textures.Colors( m_RSMBuffer, "RSM" );
                 const glm::vec3                    sunDir( lightDir );
@@ -887,20 +889,13 @@ namespace Desert::Graphic
                 giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, viewProj, lightColor );
             }
 
-            std::vector<RDG::TextureRef> shadowReads;
-            {
-                // The lighting pass shades with the cascades and the cloud layer's shadow map.
-                RenderPassDeclaration shadows;
-                DeclareShadowReads( shadows );
-                std::vector<RDG::TextureRef> shadowMaps;
-                if ( ResolveDeclared( textures, shadows, "Deferred: Composite", shadowMaps ) )
-                    shadowReads = std::move( shadowMaps );
-            }
-            AddFrameComposite( graph, textures, gbuffer, giAccum, shadowReads, meshRenderer, lightDir, lightColor,
-                               cameraPos );
+            // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
+            // with their neutral defaults), not as a second, separately resolved read list.
+            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, cameraPos );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
             const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy );
 
@@ -966,12 +961,21 @@ namespace Desert::Graphic
         if ( const auto extracted =
                   textures.ExtractImported( GetFinalImage(), "final image", RDG::Access::SampledGraphics );
              !extracted )
+        {
             LOG_ERROR( "SceneRenderer: frame graph '{}' cannot hand over its final image: {}", graph.GetName(),
                        extracted.GetError() );
+        }
+        else
+        {
+            // What the viewport / runtime blit shows: without its writer this frame has no picture (black).
+            graph.SetFaultPolicy( textures.Import( GetFinalImage(), "final image" ),
+                                  RDG::ExternalFaultPolicy::FrameFatal );
+        }
 
-        if ( const auto executed = Renderer::GetInstance().ExecuteGraph( graph ); !executed )
-            LOG_ERROR( "SceneRenderer: frame graph '{}' did not execute: {}", graph.GetName(),
-                       executed.GetError() );
+        // Its faults are logged by the graph backend and its own failures by ExecuteGraph; a FrameFault leaves
+        // the final image black for this frame.
+        (void)Renderer::GetInstance().ExecuteGraph( graph );
+        textures.ResetInvalidatedHistories();
     }
 
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
@@ -1341,9 +1345,11 @@ namespace Desert::Graphic
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
     {
         // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.
-        const char* finalSystem = ( m_AAMode == Common::Settings::AntiAliasingMethod::FXAA )   ? "FXAASystem"
-                                  : ( m_AAMode == Common::Settings::AntiAliasingMethod::SMAA ) ? "SMAASystem"
-                                                                                               : "TonemapSystem";
+        const char* finalSystem = "TonemapSystem";
+        if ( m_AAMode == Common::Settings::AntiAliasingMethod::FXAA )
+            finalSystem = "FXAASystem";
+        else if ( m_AAMode == Common::Settings::AntiAliasingMethod::SMAA )
+            finalSystem = "SMAASystem";
 
         return std::static_pointer_cast<System::RenderSystem>( m_RenderSystems[finalSystem] )
              ->GetSystemFramebuffer()
@@ -1385,9 +1391,9 @@ namespace Desert::Graphic
                     return;
 
                 RenderGraphBuilder::PassConfig config;
-                config.Name              = m_Spec.Name;
-                config.Phase             = m_Spec.Phase;
-                config.ExecuteFunc       = [this]( RDG::PassContext& pass, const FrameGraphRefs& refs )
+                config.Name        = m_Spec.Name;
+                config.Phase       = m_Spec.Phase;
+                config.ExecuteFunc = [this]( RDG::PassContext& pass, const FrameGraphRefs& refs )
                 { return m_Spec.Execute( Context( refs ), pass ); };
                 config.PipelineSpec      = m_Spec.PipelineSpecification;
                 config.TargetFramebuffer = target;
@@ -1400,7 +1406,7 @@ namespace Desert::Graphic
             }
 
         private:
-            ExternalPassContext Context( const FrameGraphRefs& refs ) const
+            [[nodiscard]] ExternalPassContext Context( const FrameGraphRefs& refs ) const
             {
                 const auto&         target = m_Renderer->GetTargetFramebuffer();
                 ExternalPassContext ctx;
@@ -1551,35 +1557,6 @@ namespace Desert::Graphic
         cloudShadow.BorderFadeUv = view.BorderFadeUv;
         cloudShadow.Enabled      = true;
         return cloudShadow;
-    }
-
-    void SceneRenderer::DeclareAtmosphereReads( RenderPassDeclaration& declared, const RDG::Access access ) const
-    {
-        if ( const auto it = m_RenderSystems.find( "SkyboxSystem" ); it != m_RenderSystems.end() )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            if ( const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second ) )
-                sky->DeclareAtmosphereReads( declared, access );
-    }
-
-    void SceneRenderer::DeclareShadowReads( RenderPassDeclaration& declared ) const
-    {
-        // `find`, as GetCloudShadowInput: a const observer inserts no empty system.
-        if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
-        {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
-            if ( mesh && mesh->AreShadowsEnabled() )
-                for ( uint32_t c = 0; c < mesh->GetValidCascadeCount(); ++c )
-                    declared.Read( mesh->GetCascadeShadowImage( c ), RDG::Access::SampledGraphics,
-                                   std::format( "ShadowCascade{}", c ) );
-        }
-        if ( const auto it = m_RenderSystems.find( "VolumetricCloudSystem" ); it != m_RenderSystems.end() )
-        {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second );
-            if ( clouds && clouds->HasShadowMap() )
-                declared.Read( clouds->GetShadowMap(), RDG::Access::SampledGraphics, "Clouds.ShadowMap" );
-        }
     }
 
 } // namespace Desert::Graphic

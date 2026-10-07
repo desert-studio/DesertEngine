@@ -292,9 +292,3 @@ TEST( ImageFormatBlocks, BC4SpendsHalfOfWhatEveryOtherBlockFormatSpends )
     EXPECT_EQ( CalculateImageSize( 2048, 2048, ImageFormat::BC4_UNORM ),
                CalculateImageSize( 2048, 2048, ImageFormat::BC7_UNORM ) / 2u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

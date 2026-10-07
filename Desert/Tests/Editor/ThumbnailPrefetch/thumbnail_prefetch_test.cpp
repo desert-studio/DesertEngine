@@ -411,12 +411,6 @@ TEST( ThumbnailPrefetch, TheServiceAsksTheViewBudgetAsBackgroundWork )
     EXPECT_EQ( code.find( "Demand::UserSurface" ), std::string::npos );
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 namespace
 {
     // A `.detex` as the importer writes one: an envelope stating the Texture kind, with (or without) the

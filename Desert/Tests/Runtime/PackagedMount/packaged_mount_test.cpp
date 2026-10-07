@@ -448,12 +448,6 @@ TEST( PackagedMount, AnArchiveThatNamesNoChunksIsAGameThatWasNeverDivided )
                              "the whole game" );
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 TEST( PackagedMount, ABaseWithoutItsChunkListIsRefusedNamingThePath )
 {
     // The packager writes the list into every base (ContentChunks.cpp), so a base without one is not

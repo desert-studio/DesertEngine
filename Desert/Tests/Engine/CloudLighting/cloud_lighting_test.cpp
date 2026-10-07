@@ -1629,9 +1629,3 @@ TEST( CloudSkyOcclusion, TheSkyLightGAINSFormAtAPhysicalExtinctionAndTheTermGoes
     EXPECT_LT( termAt45, termAt8 ) << "the shipped term is supposed to FLATTEN as the medium thickens -- it "
                                       "runs out of range at its own floor -- and it no longer does";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

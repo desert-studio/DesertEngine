@@ -335,9 +335,3 @@ TEST( BootContentCensus, BothSceneSkyboxResolversRequireTheSkybox )
              << "the \"SkyboxAsset\" branch of '" << resolver << "' returns a handle without requiring it";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

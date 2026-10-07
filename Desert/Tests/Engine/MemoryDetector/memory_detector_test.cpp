@@ -601,9 +601,3 @@ TEST( ResourceCensusBytes, EveryImageAllocationRecordsWhatItCost )
          << "the factory records a size derived from the specification as well as the backend recording "
             "the allocator's; the two disagree and nothing says which won";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

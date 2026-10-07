@@ -272,9 +272,3 @@ TEST( AnimationTimeModel, NothingHereProducesANonFiniteOrRunawayTick )
     EXPECT_EQ( AdvanceFrameTime( clock, 1.0, FrameRate{ 0, 1 } ).Frame.Value, 5 );
     EXPECT_EQ( FrameTimeToSeconds( clock, FrameRate{ 0, 1 } ), 0.0 );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

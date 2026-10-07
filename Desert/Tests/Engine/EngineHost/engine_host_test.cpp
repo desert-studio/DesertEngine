@@ -15,9 +15,13 @@
 //     FullscreenTriangle.glslh ScreenUVToNdc without the y flip -> every row lands mirrored.
 //   * Renderer::DrawProcedural: draw one instance instead of instanceCount -> the right half keeps the clear
 //   colour.
+//   * VulkanMaterialBackend::ApplyStorageBuffer: drop the `!storageProp->IsWritten()` return -> the never-written
+//     storage buffer's binding shows up among the material's written slots.
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -30,11 +34,15 @@
 
 #include <GLFW/glfw3.h>
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
+#include <algorithm>
+#include <optional>
 #include <array>
 #include <cstring>
 #include <functional>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -54,7 +62,8 @@ namespace
         return ( i * 2654435761u ) ^ 0xA5A5A5A5u;
     }
 
-    constexpr const char* kFillShader = R"DSL(// DesertAsset {"Kind":"Shader","Guid":"e46f0a5b1c2d4e3f8a9b0c1d2e3f4a5b","Versions":{"SHDR":1},"Dependencies":[]}
+    constexpr const char* kFillShader =
+         R"DSL(// DesertAsset {"Kind":"Shader","Guid":"e46f0a5b1c2d4e3f8a9b0c1d2e3f4a5b","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "EngineHostFill"
 {
     Compute
@@ -117,14 +126,29 @@ Shader "EngineHostFill"
     class HostEnvironment final : public ::testing::Environment
     {
     public:
+        // The suite's shaders compile through the DDC: a throwaway cache for the whole process, so a run
+        // leaves nothing in the project; it outlives the renderer, which may still write to it.
+        void SetUp() override
+        {
+            m_Cache.emplace( "EngineHost" );
+        }
+
         void TearDown() override
         {
             Host& host = GetHost();
             if ( host.Device )
+            {
                 host.Device->WaitIdle();
+            }
             if ( host.Error.empty() )
+            {
                 Renderer::GetInstance().Shutdown();
+            }
+            m_Cache.reset();
         }
+
+    private:
+        std::optional<Desert::TestSupport::DerivedDataSandbox> m_Cache;
     };
 
     Common::ResultStr<std::shared_ptr<ComputePipeline>> MakeFillPipeline()
@@ -147,7 +171,8 @@ Shader "EngineHostFill"
 
     // Each pixel writes its own texel coordinate from the interpolated v_TexCoord: (x, y, 255, 255). A triangle
     // that misses a pixel leaves the clear colour; a flipped or shifted uv writes another pixel's coordinate.
-    constexpr const char* kCoordShader = R"DSL(// DesertAsset {"Kind":"Shader","Guid":"7c1d2e3f4a5b46c7d8e9f0a1b2c3d4e5","Versions":{"SHDR":1},"Dependencies":[]}
+    constexpr const char* kCoordShader =
+         R"DSL(// DesertAsset {"Kind":"Shader","Guid":"7c1d2e3f4a5b46c7d8e9f0a1b2c3d4e5","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "EngineHostCoord"
 {
     Fragment
@@ -218,7 +243,7 @@ Shader "EngineHostInstanced"
     // @p name is both the shader's name and its temp file's stem.
     Common::ResultStr<std::shared_ptr<GraphicsPipeline>> MakeRasterPipeline( const char* source, const char* name )
     {
-        const fs::path file = fs::temp_directory_path() / ( std::string( name ) + ".shader" );
+        const fs::path file = fs::temp_directory_path() / std::format( "{}.shader", name );
         {
             std::ofstream out( file, std::ios::binary | std::ios::trunc );
             out << source;
@@ -266,11 +291,19 @@ TEST( EngineHost, DispatchComputeThroughPassBindingsIsByteExact )
         const RDG::BufferRef bytes = graph.CreateBuffer( RDG::BufferDesc{ kWords * 4u }, "Readback" );
         graph.AddPass(
              "Fill", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass ) { pass.Write( words, RDG::Access::StorageWrite ); },
+             [&]( RDG::PassBuilder& pass )
+             {
+                 // The fill shader: one storage buffer "Words", no push constants.
+                 pass.Bindings(
+                          RDG::ShaderBindingLayout{
+                               .ShaderName = "EngineHostFill",
+                               .Slots      = { { "Words", RDG::ShaderResourceKind::StorageBuffer } } },
+                          RDG::OtherRouteFill{} )
+                      .Storage( "Words", words, RDG::Access::StorageWrite );
+             },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 RDG::PassBindings bindings( context );
-                 bindings.Storage( "Words", words, RDG::Access::StorageWrite );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline.GetValue(), kWords / 64u, 1u,
                                                                  1u );
              } );
@@ -329,7 +362,7 @@ namespace
         auto&                       renderer = Renderer::GetInstance();
         const Common::BoolResultStr begun    = renderer.BeginFrame();
         if ( !begun )
-            return Common::MakeError<std::vector<uint8_t>>( "BeginFrame: " + begun.GetError() );
+            return Common::MakeError<std::vector<uint8_t>>( std::format( "BeginFrame: {}", begun.GetError() ) );
 
         RDG::TextureDesc desc;
         desc.Size   = { kSide, kSide, 1 };
@@ -342,10 +375,15 @@ namespace
         graph.AddPass(
              "Draw", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
-             { pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ); },
+             {
+                 pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                 // The fullscreen / procedural test shaders read no resource and take no push constants: an empty
+                 // block, which ValidatePassBindings checks like any other.
+                 pass.Bindings( RDG::ShaderBindingLayout{ .ShaderName = name }, RDG::OtherRouteFill{} );
+             },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 RDG::PassBindings bindings( context );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return draw( bindings );
              } );
         graph.AddPass(
@@ -377,9 +415,11 @@ namespace
         graph.Extract( bytes, readback, RDG::Access::HostRead );
 
         if ( const Common::BoolResultStr executed = renderer.ExecuteGraph( graph ); !executed )
-            return Common::MakeError<std::vector<uint8_t>>( "ExecuteGraph: " + executed.GetError() );
+            return Common::MakeError<std::vector<uint8_t>>(
+                 std::format( "ExecuteGraph: {}", executed.GetError() ) );
         if ( const Common::BoolResultStr presented = renderer.PresentFinalImage(); !presented )
-            return Common::MakeError<std::vector<uint8_t>>( "PresentFinalImage: " + presented.GetError() );
+            return Common::MakeError<std::vector<uint8_t>>(
+                 std::format( "PresentFinalImage: {}", presented.GetError() ) );
 
         if ( !readback.Physical || readback.Physical->GetBackendKind() != RDG::BackendKind::Vulkan )
             return Common::MakeError<std::vector<uint8_t>>( "the readback buffer was not extracted" );
@@ -403,11 +443,9 @@ namespace
                 const uint8_t*               p    = px.data() + ( y * kSide + x ) * 4u;
                 const std::array<uint8_t, 4> want = expected( x, y );
                 if ( std::memcmp( p, want.data(), 4 ) != 0 && count++ == 0 )
-                    first = "(" + std::to_string( x ) + ", " + std::to_string( y ) + ") holds " +
-                            std::to_string( p[0] ) + "," + std::to_string( p[1] ) + "," + std::to_string( p[2] ) +
-                            "," + std::to_string( p[3] );
+                    first = std::format( "({}, {}) holds {},{},{},{}", x, y, p[0], p[1], p[2], p[3] );
             }
-        return count == 0 ? std::string() : std::to_string( count ) + " wrong pixels, first " + first;
+        return count == 0 ? std::string() : std::format( "{} wrong pixels, first {}", count, first );
     }
 } // namespace
 
@@ -462,13 +500,96 @@ TEST( EngineHost, DrawProceduralDrawsEveryInstance )
                "" );
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    // The suite's shaders compile through the DDC: a throwaway cache, so a run leaves nothing in the project.
-    const Desert::TestSupport::DerivedDataSandbox cache( "EngineHost" );
-    ::testing::InitGoogleTest( &argc, argv );
-    ::testing::AddGlobalTestEnvironment( new HostEnvironment );
-    return RUN_ALL_TESTS();
+    // Two storage buffers; the material writes only `Written`. The other one is the pass's (the Composite's
+    // uploaded light lists are this case), so it must not be among the material's written slots.
+    constexpr const char* kSlotsShader =
+         R"DSL(// DesertAsset {"Kind":"Shader","Guid":"9e3f4a5b6c7d48e9f0a1b2c3d4e5f6a7","Versions":{"SHDR":1},"Dependencies":[]}
+Shader "EngineHostSlots"
+{
+    Compute
+    {
+        LocalSize(64, 1, 1);
+
+        Buffer(0) Unwritten
+        {
+            vec4 u_Unwritten[4];
+        };
+
+        Buffer(1) Written
+        {
+            vec4 u_Written[4];
+        };
+
+        void main()
+        {
+            uint i = gl_GlobalInvocationID.x & 3u;
+            u_Written[i] = u_Unwritten[i] + vec4( 1.0 );
+        }
+    }
 }
+)DSL";
+} // namespace
+
+// The record route (VulkanRenderer: material->Apply, then GetWrittenSlots -> RdgOtherRoute.Filled) counts a slot
+// as the material's only when the material filled it. A storage buffer nobody wrote is left to the pass; were its
+// lazy copy written, the pass's block binding of it would be refused as "filled both".
+TEST( EngineHost, AnUnwrittenMaterialStorageBufferIsNotAmongTheMaterialsWrittenSlots )
+{
+    const Host& host = GetHost();
+    ASSERT_TRUE( host.Error.empty() ) << host.Error;
+
+    const fs::path file = fs::temp_directory_path() / "EngineHostSlots.shader";
+    {
+        std::ofstream out( file, std::ios::binary | std::ios::trunc );
+        out << kSlotsShader;
+    }
+    auto       asset  = std::make_shared<Assets::ShaderAsset>( Common::Filepath( file.string() ) );
+    const auto loaded = asset->LoadFromFile();
+    ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    const std::shared_ptr<Shader> shader = Shader::Create( asset );
+    ASSERT_NE( shader, nullptr );
+
+    auto executor = MaterialExecutor::Create( "EngineHostSlots", shader );
+    ASSERT_NE( executor, nullptr );
+    const auto written = executor->GetStorageBufferProperty( "Written" );
+    ASSERT_NE( executor->GetStorageBufferProperty( "Unwritten" ), nullptr );
+    ASSERT_NE( written, nullptr );
+    const std::array<float, 16> values{};
+    written->SetRawData( values.data(), static_cast<uint32_t>( sizeof( values ) ) );
+
+    auto&                       renderer = Renderer::GetInstance();
+    const Common::BoolResultStr begun    = renderer.BeginFrame();
+    ASSERT_TRUE( begun.IsSuccess() ) << begun.GetError();
+    executor->Apply();
+    auto*      backend = static_cast<API::Vulkan::VulkanMaterialBackend*>( executor->GetMaterialBackend().get() );
+    const auto slots   = backend->GetWrittenSlots( EngineContext::GetInstance().GetCurrentFrameIndex() );
+    const Common::BoolResultStr presented = renderer.PresentFinalImage();
+    ASSERT_TRUE( presented.IsSuccess() ) << presented.GetError();
+
+    ASSERT_TRUE( slots.IsSuccess() ) << slots.GetError();
+    const std::vector<uint32_t>& bindings = slots.GetValue().Bindings;
+    // The positive control: the written buffer is the material's (binding 1), so the check below is not
+    // passing because nothing is ever recorded.
+    EXPECT_NE( std::find( bindings.begin(), bindings.end(), 1u ), bindings.end() )
+         << "the written storage buffer (binding 1) is missing from the material's written slots";
+    EXPECT_EQ( std::find( bindings.begin(), bindings.end(), 0u ), bindings.end() )
+         << "the never-written storage buffer (binding 0) is among the material's written slots";
+}
+
+namespace
+{
+    // The host's device is made by the first test that asks for it and shut down once, after the suite.
+    const Desert::TestSupport::SuiteEnvironment kHost{
+         +[]() -> ::testing::Environment*
+         {
+             return new HostEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
+} // namespace
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

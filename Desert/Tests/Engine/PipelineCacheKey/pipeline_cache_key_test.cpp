@@ -465,9 +465,3 @@ TEST( PipelineCacheKey, EveryFieldOfTheSpecificationIsAccountedFor )
     EXPECT_EQ( "Baseline", debugName );
     EXPECT_FALSE( useLoadRenderPass );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

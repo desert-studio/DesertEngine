@@ -1339,13 +1339,6 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     EXPECT_TRUE( CallsFunction( layer, {}, "SetQuality" ) )
          << "the packaged game loads the machine's quality and never gives it to a renderer";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // AA1: the retired pair `AA` + `MSAASamples` becomes the one method, in the loader, and only the new keys are
 // written back.
 namespace
@@ -1584,8 +1577,8 @@ TEST( ConfigOwnership, ResolvingAntiAliasingIsPureAndCommittingMsaaLogsOnce )
     MachineSettings::Get() = MachineSettings{}; // the store is process-wide: leave the defaults behind
 
     // The settings layer keeps no memory of what it said: no statics, no lock.
-    const std::string impl = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
-         ReadAll( RepoRoot() + "Desert/Common/Source/Common/Settings/MachineSettings.cpp" ) );
+    const std::string impl = Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll(
+         std::filesystem::path( RepoRoot() ) / "Desert/Common/Source/Common/Settings/MachineSettings.cpp" ) );
     ASSERT_FALSE( impl.empty() );
     EXPECT_EQ( impl.find( "std::mutex" ), std::string::npos );
     EXPECT_EQ( impl.find( "AADowngrade" ), std::string::npos );

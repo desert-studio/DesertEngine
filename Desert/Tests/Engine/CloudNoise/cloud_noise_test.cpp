@@ -566,9 +566,3 @@ TEST( CloudNoiseVolumeLayout, EveryChannelHasExactlyOneScaleAndSaturatesFarBelow
                 "Common/CloudField.glslh with the new numbers rather than deleting this bound";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -66,9 +66,3 @@ TEST( Utf8, PopBackRemovesAWholeCodepoint )
     Utf8PopBack( s ); // empty input must not underflow
     EXPECT_TRUE( s.empty() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

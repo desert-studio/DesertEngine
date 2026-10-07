@@ -158,15 +158,15 @@ namespace Desert::Graphic
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
         {
             Image3D* noise = cloudsBound ? clouds.Noise[slot] : nullptr;
-            pipeline->SetInput( kSkyBakeCloudNoiseBindings[slot], noise ? noise : volumeFallback,
+            pipeline->SetInput( kSkyBakeCloudNoiseBindings[slot], noise != nullptr ? noise : volumeFallback,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         }
 
         pipeline->SetInput( kSkyBakeCloudModellingBinding,
-                            cloudsBound && clouds.Modelling ? clouds.Modelling : volumeFallback,
+                            cloudsBound && clouds.Modelling != nullptr ? clouds.Modelling : volumeFallback,
                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetInput( kSkyBakeCloudAuthoredAtlasBinding,
-                            cloudsBound && clouds.AuthoredAtlas ? clouds.AuthoredAtlas : volumeFallback,
+                            cloudsBound && clouds.AuthoredAtlas != nullptr ? clouds.AuthoredAtlas : volumeFallback,
                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetInput( kSkyBakeCloudSkyOcclusionBinding,
                             cloudsBound && clouds.SkyOcclusion && clouds.SkyOcclusionVolume
@@ -199,7 +199,7 @@ namespace Desert::Graphic
         // dispatching, which costs the scene its entire environment rather than its clouds.
         for ( std::size_t slot = 0; slot < clouds.MediumImages.size(); ++slot )
             pipeline->SetInput( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
-                                clouds.MediumImages[slot]
+                                clouds.MediumImages[slot] != nullptr
                                      ? clouds.MediumImages[slot]
                                      : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() );

@@ -471,9 +471,3 @@ TEST( NewCloudAsset, AModellingVolumeSaveThatCannotBeWrittenIsARefusal )
     ExpectRefusedAndOriginalIntact( blocked,
                                     Assets::CloudModellingVolumeAsset::Save( blocked.Path, body.GetValue() ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

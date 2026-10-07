@@ -272,12 +272,6 @@ TEST( AnimatorPose, ARigRereadWithOtherBindsRebuildsTheAnimator )
          << "the Animator kept the old binds across a reread";
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ANIM-FIX1 — UE's bUpdateAnimationInEditor. The RELATION, not the rule alone: two editor-world ticks of a
 // MOVING clip, each advanced by exactly what AnimationECSSystem advances it by (AnimationAdvanceSeconds with
 // gameplay time 0, the editor frame time 0.1 s), leave the pose where it was with the flag off and move it
@@ -360,8 +354,8 @@ TEST( AnimatorPose, TheEditorPreviewFollowsItsOwnScenesRealtime )
         return AnimationAdvanceSeconds( 0.0f, clock.EditorPreviewSeconds( true ), true );
     };
 
-    WorldTime main;
-    WorldTime preview;
+    WorldTime   main;
+    WorldTime   preview;
     const float mainFrozen      = editTick( main, false );
     const float previewOwnClock = editTick( preview, true ); // the same frame: main's Realtime is off
 
@@ -374,7 +368,8 @@ TEST( AnimatorPose, TheEditorPreviewFollowsItsOwnScenesRealtime )
          << "the preview scene's pose stopped with the MAIN scene's Realtime off — its clock is its own";
 
     const auto [liveA, liveB] = TwoTicks( editTick( main, true ) );
-    EXPECT_FALSE( MatNear( liveA, liveB ) ) << "the main scene's Realtime is on, yet the editor preview held still";
+    EXPECT_FALSE( MatNear( liveA, liveB ) )
+         << "the main scene's Realtime is on, yet the editor preview held still";
 
     // Play and Paused are not the editor world: no preview step, whatever Realtime says.
     EXPECT_FLOAT_EQ( main.EditorPreviewSeconds( false ), 0.0f );

@@ -390,9 +390,3 @@ TEST( PrefabOverrides, OverridesSurviveTheFile )
     EXPECT_EQ( Text( round.Components.get( "UIPanel" ).value() ), Text( Payload( "Color", 0.90 ) ) );
 }
 // NOLINTEND(bugprone-unchecked-optional-access)
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

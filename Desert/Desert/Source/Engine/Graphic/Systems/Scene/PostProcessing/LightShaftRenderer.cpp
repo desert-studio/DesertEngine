@@ -91,39 +91,60 @@ namespace Desert::Graphic::System
                                  .Mips   = 1 };
     }
 
-    Common::BoolResultStr LightShaftRenderer::RecordMask( const RDG::PassContext& context,
-                                                          RDG::TextureRef sceneColor, RDG::TextureRef mask,
-                                                          const RDG::TextureDesc& desc,
-                                                          const glm::vec2&        sunScreenUv )
+    void LightShaftRenderer::DeclareMaskBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
+                                                  RDG::TextureRef mask ) const
     {
-        const MaskPush    maskPush{ sunScreenUv, m_Params.Threshold, m_Params.MaxBrightness, kMaskWindow };
-        RDG::PassBindings bindings( context );
-        bindings
+        if ( !m_MaskPipeline )
+            return; // RecordMask refuses by name
+        pass.Bindings( m_MaskLayout.Get( m_MaskPipeline->GetSpecification().Shader ),
+                       Renderer::GetInstance().GetPipelineRouteFill( *m_MaskPipeline ) )
              .Sampled( "u_SceneColor", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Storage( "u_Mask", mask, RDG::Access::StorageWrite, 0 )
-             .PushConstants( &maskPush, sizeof( maskPush ) );
+             .PushConstantBytes( static_cast<uint32_t>( sizeof( MaskPush ) ) );
+    }
+
+    Common::BoolResultStr LightShaftRenderer::RecordMask( const RDG::PassContext& context,
+                                                          const RDG::TextureDesc& desc,
+                                                          const glm::vec2&        sunScreenUv )
+    {
+        if ( !m_MaskPipeline )
+            return Common::MakeError( "LightShaftRenderer: the mask pipeline is not initialised" );
+        const MaskPush    maskPush{ sunScreenUv, m_Params.Threshold, m_Params.MaxBrightness, kMaskWindow };
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &maskPush, sizeof( maskPush ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_MaskPipeline, GroupCount( desc.Size.Width ),
                                                         GroupCount( desc.Size.Height ), 1 );
     }
 
     // Radial blur pass @p pass of the ping-pong; the reach grows kPassScale-fold per pass.
-    Common::BoolResultStr LightShaftRenderer::RecordBlur( const RDG::PassContext& context, RDG::TextureRef source,
-                                                          RDG::TextureRef target, const RDG::TextureDesc& desc,
-                                                          uint32_t pass, const glm::vec2& sunScreenUv )
+    void LightShaftRenderer::DeclareBlurBindings( RDG::PassBuilder& pass, RDG::TextureRef source,
+                                                  RDG::TextureRef target ) const
     {
+        if ( !m_BlurPipeline )
+            return; // RecordBlur refuses by name
+        pass.Bindings( m_BlurLayout.Get( m_BlurPipeline->GetSpecification().Shader ),
+                       Renderer::GetInstance().GetPipelineRouteFill( *m_BlurPipeline ) )
+             .Sampled( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() )
+             .Storage( "u_Output", target, RDG::Access::StorageWrite, 0 )
+             .PushConstantBytes( static_cast<uint32_t>( sizeof( BlurPush ) ) );
+    }
+
+    Common::BoolResultStr LightShaftRenderer::RecordBlur( const RDG::PassContext& context,
+                                                          const RDG::TextureDesc& desc, uint32_t pass,
+                                                          const glm::vec2& sunScreenUv )
+    {
+        if ( !m_BlurPipeline )
+            return Common::MakeError( "LightShaftRenderer: the blur pipeline is not initialised" );
         if ( pass >= kBlurPasses )
             return Common::MakeError( "LightShaftRenderer: blur pass out of range" );
         float reach = kBaseReach; // grown by repeated multiplication, as the single loop did
         for ( uint32_t i = 0; i < pass; ++i )
             reach *= kPassScale;
         const BlurPush    blurPush{ sunScreenUv, std::min( reach, 1.0f ), kBlurDecay };
-        RDG::PassBindings bindings( context );
-        bindings
-             .Sampled( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() )
-             .Storage( "u_Output", target, RDG::Access::StorageWrite, 0 )
-             .PushConstants( &blurPush, sizeof( blurPush ) );
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &blurPush, sizeof( blurPush ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_BlurPipeline, GroupCount( desc.Size.Width ),
                                                         GroupCount( desc.Size.Height ), 1 );
     }

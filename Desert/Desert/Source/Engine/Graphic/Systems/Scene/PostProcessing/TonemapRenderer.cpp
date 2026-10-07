@@ -26,14 +26,14 @@ namespace Desert::Graphic::System
                                targetFramebuffer->GetFramebufferHeight() );
 
         // Pipeline
-        m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SceneComposite" );
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SceneComposite" );
 
         Graphic::GraphicsPipelineSpecification pipeSpec;
         pipeSpec.DebugName   = debugName;
         pipeSpec.Framebuffer = m_Framebuffer;
-        pipeSpec.Shader      = m_Shader;
+        pipeSpec.Shader      = shader;
 
-        // m_Shader is whatever GetByName returned, INCLUDING nullptr — this site never checked, and a
+        // shader is whatever GetByName returned, INCLUDING nullptr — this site never checked, and a
         // null shader used to be dereferenced inside the backend. Create's rule names it now.
         const auto pipeline = Graphic::GraphicsPipeline::Create( pipeSpec );
         if ( !pipeline )
@@ -51,28 +51,16 @@ namespace Desert::Graphic::System
             m_Framebuffer->Resize( width, height );
     }
 
-    Common::BoolResultStr TonemapRenderer::Record( const RDG::PassContext& context, const GraphInputs& inputs )
+    void TonemapRenderer::DeclareBindings( RDG::PassBuilder& pass, const GraphInputs& inputs ) const
     {
-        const auto& framebuffer =
-             m_TargetFramebuffer.lock(); // We call lock internally to avoid cyclic dependencies.
-        if ( !framebuffer )
-            return Common::MakeError( "TonemapRenderer: the source framebuffer was destroyed or wasn't set up" );
-
-        // An effect whose nodes did not run this frame reads System.Black and adds nothing.
-        const float bloomIntensity      = inputs.BloomProduced ? m_BloomIntensity : 0.0f;
-        const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
-        const float lensFlareIntensity  = inputs.LensFlareProduced ? m_LensFlareIntensity : 0.0f;
-
-        MaterialTonemap::Params params{ m_TonemapOperator, m_Exposure,         m_Gamma,
-                                        bloomIntensity,    m_ExposureKey,      m_AutoExposureEnabled,
-                                        m_ChromaticBloom,  m_WhitePoint,       lightShaftIntensity,
-                                        m_LightShaftTint,  lensFlareIntensity, m_LensFlareTint };
-
-        m_MaterialTonemap->BindValues( params );
-
-        // The sampler the material route sampled these two with (the image's own: linear, REPEAT).
-        RDG::PassBindings bindings( context );
-        bindings
+        if ( !m_Pipeline || !m_MaterialTonemap )
+            return;
+        // The samplers the material route sampled these with before: the scene colour and the luminance with the
+        // image's own (linear, REPEAT), the three effect images with LinearClamp at mip 0. Any of the three may
+        // be the same System.Black ref: three read entries of one ref in one state are one read of the pass
+        // (RenderGraphCompile TwoBlockEntriesReadingOneImageInOneState...).
+        pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
+                       m_MaterialTonemap->GetMaterialExecutor()->GetRouteFill() )
              .Sampled( "u_GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
              .Sampled( "u_AvgLuminance", inputs.AvgLuminance, RDG::Access::SampledGraphics,
@@ -83,6 +71,35 @@ namespace Desert::Graphic::System
                        RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() );
+    }
+
+    void TonemapRenderer::FillMaterial( const GraphInputs& inputs )
+    {
+        if ( !m_MaterialTonemap )
+            return;
+        // An effect whose nodes did not run this frame reads System.Black and adds nothing.
+        const float bloomIntensity      = inputs.BloomProduced ? m_BloomIntensity : 0.0f;
+        const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
+        const float lensFlareIntensity  = inputs.LensFlareProduced ? m_LensFlareIntensity : 0.0f;
+
+        const MaterialTonemap::Params params{ m_TonemapOperator, m_Exposure,         m_Gamma,
+                                              bloomIntensity,    m_ExposureKey,      m_AutoExposureEnabled,
+                                              m_ChromaticBloom,  m_WhitePoint,       lightShaftIntensity,
+                                              m_LightShaftTint,  lensFlareIntensity, m_LensFlareTint };
+
+        m_MaterialTonemap->BindValues( params );
+    }
+
+    Common::BoolResultStr TonemapRenderer::Record( const RDG::PassContext& context )
+    {
+        if ( !m_Pipeline || !m_MaterialTonemap )
+            return Common::MakeError( "PostFX: Tonemap: the tonemap pipeline is not initialised" );
+        const auto& framebuffer =
+             m_TargetFramebuffer.lock(); // We call lock internally to avoid cyclic dependencies.
+        if ( !framebuffer )
+            return Common::MakeError( "TonemapRenderer: the source framebuffer was destroyed or wasn't set up" );
+
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                        m_MaterialTonemap->GetMaterialExecutor() );
     }

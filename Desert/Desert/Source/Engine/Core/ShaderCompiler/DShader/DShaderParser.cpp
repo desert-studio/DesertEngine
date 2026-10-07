@@ -343,8 +343,10 @@ namespace Desert::Core::Preprocess
                 {
                     if ( !param.IsTexture )
                     {
-                        err = { c.Line, "EngineSet is only valid on a Texture2D or TextureCube property ('" +
-                                             param.Name + "')" };
+                        err = {
+                             c.Line,
+                             std::format( "EngineSet is only valid on a Texture2D or TextureCube property ('{}')",
+                                          param.Name ) };
                         return false;
                     }
                     param.EngineSet = true;

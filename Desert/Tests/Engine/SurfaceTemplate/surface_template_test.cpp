@@ -22,7 +22,8 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
-#include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 #include <Common/Core/Constants.hpp>
 
 namespace
@@ -352,9 +353,8 @@ TEST_F( SurfaceTemplateFixture, EveryStandardSurfaceCellLoadsAndTheDepthCellsBin
     }
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::OpenSuiteProject();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .Project = true } };
+} // namespace

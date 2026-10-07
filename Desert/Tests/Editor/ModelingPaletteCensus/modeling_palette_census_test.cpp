@@ -401,9 +401,3 @@ TEST( ModelingPaletteCensus, GridPowerRoundTripsThroughTheBlockSize )
     state.HalveBlockSize();
     EXPECT_FLOAT_EQ( state.CellSize, ModelingState::MinCellSize );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

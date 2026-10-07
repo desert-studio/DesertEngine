@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <cstdint>
@@ -87,6 +88,10 @@ namespace Desert::Graphic::System
 
         std::shared_ptr<ComputePipeline>  m_FogPipeline;
         std::shared_ptr<GraphicsPipeline> m_ApplyPipeline;
+        // The two nodes' binding layouts, re-derived only when the pipeline's shader is another object or
+        // reloaded.
+        mutable ShaderBindingLayoutCache m_FogLayout;
+        mutable ShaderBindingLayoutCache m_ApplyLayout;
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
 

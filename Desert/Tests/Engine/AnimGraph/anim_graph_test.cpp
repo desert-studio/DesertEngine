@@ -331,13 +331,6 @@ TEST( AnimGraph, SyncGraphPreservesStateAndParams )
     eval.SyncGraph( idleOnly );
     EXPECT_EQ( eval.CurrentState()->Name, "Idle" );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ОТКУДА ПРИШЛИ — и почему это утверждается парой, а не одним «имя правильное».
 //
 // Заголовок панели показывает переход как «откуда → куда NN%», и без второго имени он утверждает

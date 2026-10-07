@@ -948,9 +948,3 @@ TEST( PureVirtualCensus, TheNumberIsStatedSoAShrinkageIsVisible )
     EXPECT_EQ( std::size( k_Census ), 0u )
          << "the number of pure virtuals implemented by everybody and called by nobody has changed";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

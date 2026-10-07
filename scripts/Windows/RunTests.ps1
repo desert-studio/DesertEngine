@@ -135,7 +135,22 @@ if (-not (Test-Path -LiteralPath $manifest))
     exit 1
 }
 
-$names = @(Get-Content -LiteralPath $manifest | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+# Each line is `<Executable> <Suite>` (Desert/Tests/premake5.lua): the layer's runner, which runs one suite
+# per process with --desert-suite=<Suite>, or, for a suite not converted to a runner yet, its own binary,
+# which ignores that flag. A line of any other shape is refused rather than guessed at.
+$runnerOf = @{}
+$names = @()
+foreach ($line in @(Get-Content -LiteralPath $manifest | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }))
+{
+    $fields = @($line -split '\s+')
+    if ($fields.Count -ne 2)
+    {
+        Write-Host "[ERROR] malformed manifest line (want '<Executable> <Suite>'): $line"
+        exit 1
+    }
+    $runnerOf[$fields[1]] = $fields[0]
+    $names += $fields[1]
+}
 if ($names.Count -eq 0)
 {
     Write-Host "[ERROR] test manifest is empty: $manifest"
@@ -169,7 +184,7 @@ foreach ($name in $names)
 {
     $records += [pscustomobject]@{
         Name    = $name
-        Exe     = [IO.Path]::Combine($testDir, $name + $exeSuffix)
+        Exe     = [IO.Path]::Combine($testDir, $runnerOf[$name] + $exeSuffix)
         Scratch = [IO.Path]::Combine($scratchDir, $Config, $name)
         Xml     = [IO.Path]::Combine($reportDir, $name + ".xml")
         Out     = [IO.Path]::Combine($reportDir, $name + ".out.log")
@@ -223,7 +238,7 @@ while ($emit -lt $records.Count)
 
             $r.Started = Get-Date
             $r.Proc = Start-Process -FilePath $r.Exe `
-                                    -ArgumentList "--gtest_output=xml:`"$($r.Xml)`"" `
+                                    -ArgumentList "--desert-suite=$($r.Name) --gtest_output=xml:`"$($r.Xml)`"" `
                                     -RedirectStandardOutput $r.Out `
                                     -RedirectStandardError $r.Err `
                                     -WorkingDirectory $r.Scratch `

@@ -197,7 +197,8 @@ namespace
            "const Common::Timestep gameplayTs( TicksGameplay() ? m_WorldTime.GetDeltaSeconds() : 0.0f )" },
          { "Desert/Desert/Source/Engine/Core/Scene.cpp",
            "editorTs( m_WorldTime.EditorPreviewSeconds( m_State == SceneState::Edit ) )" },
-         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp", "Animation::AnimationAdvanceSeconds(" },
+         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
+           "Animation::AnimationAdvanceSeconds(" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
            "AdvanceWind( data, m_WorldDeltaSeconds )" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
@@ -296,7 +297,8 @@ TEST( WorldTimeOneSource, OnlyTheMainSceneTakesTheViewportsRealtime )
     ASSERT_FALSE( root.empty() );
     std::vector<std::string> setters;
     std::size_t              scanned = 0;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root + "Editor/Source" ) )
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( std::filesystem::path( root ) / "Editor/Source" ) )
     {
         if ( !entry.is_regular_file() )
             continue;
@@ -310,10 +312,4 @@ TEST( WorldTimeOneSource, OnlyTheMainSceneTakesTheViewportsRealtime )
     EXPECT_GT( scanned, 50u ) << "the scan reached too few files to mean anything";
     ASSERT_EQ( setters.size(), 1u ) << "a scene's Realtime is set from more than the main viewport";
     EXPECT_EQ( setters.front(), "Editor/Source/EditorLayer.cpp" );
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

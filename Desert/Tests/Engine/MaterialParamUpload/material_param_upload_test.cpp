@@ -503,9 +503,3 @@ TEST_F( MaterialParamUpload, DestroyingTheBufferTakesItsCopiesBackFromEveryView 
     EXPECT_EQ( a.CopyCount(), 0u );
     EXPECT_EQ( b.CopyCount(), 0u );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

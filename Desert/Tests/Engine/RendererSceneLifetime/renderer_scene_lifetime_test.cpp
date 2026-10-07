@@ -444,7 +444,7 @@ TEST( RendererSceneLifetime, TheCaptureCountStartsOnATemporalReset )
     EXPECT_NE( cut.find( "->ResetTemporalHistory()" ), std::string::npos )
          << "the first recorded frame does not cut the views' temporal history.";
 
-    const std::string count = BodyAfter( director, "ShotDirector::CountRenderedFrame(" );
+    const std::string count   = BodyAfter( director, "ShotDirector::CountRenderedFrame(" );
     const std::size_t counted = count.find( "++m_ShotFrame" );
     ASSERT_NE( counted, std::string::npos ) << "ShotDirector::CountRenderedFrame no longer counts frames.";
     const std::size_t gate = count.rfind( "recordedFrame", counted );
@@ -492,7 +492,7 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
     }
     // The simulate node (RDG-LEG1-L3) reads the frame's timestep while the graph is built and hands that value to
     // the particles when it executes.
-    EXPECT_NE( renderer.find( "static_cast<float>( sceneRenderInfo.Timestep.GetSeconds() )" ), std::string::npos )
+    EXPECT_NE( renderer.find( "seconds = sceneRenderInfo.Timestep.GetSeconds();" ), std::string::npos )
          << "SceneRenderer no longer takes the particles' step from the frame's timestep.";
     EXPECT_NE( renderer.find( "->Simulate( context, seconds )" ), std::string::npos )
          << "SceneRenderer no longer hands the particles the frame's timestep.";
@@ -738,10 +738,4 @@ TEST( RendererSceneLifetime, TheBuildReadsTheViewExtentAndNeverTheWindow )
     ASSERT_NE( unbuilt, std::string::npos );
     EXPECT_LT( record, unbuilt ) << "Resize leaves before recording the extent: a size learned before the "
                                     "build would be lost.";
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

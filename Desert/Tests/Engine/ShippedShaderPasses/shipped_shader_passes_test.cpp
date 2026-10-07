@@ -18,6 +18,7 @@
 
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -68,7 +69,7 @@ namespace
     // census of "the mesh renderer" reads every part, so code moving between them cannot step outside it.
     std::string ReadMeshRendererSources( const std::filesystem::path& repo )
     {
-        const std::filesystem::path dir = repo / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh";
+        const std::filesystem::path        dir = repo / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh";
         std::vector<std::filesystem::path> parts;
         std::error_code                    ec;
         for ( const auto& entry : std::filesystem::directory_iterator( dir, ec ) )
@@ -778,15 +779,6 @@ TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )
             " commit.";
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    // The engine resources (the shader root and its shading models) hang off the engine directory the build baked
-    // in; the working directory is never consulted.
-    const Desert::TestSupport::EngineDirScope engineDir;
-    return RUN_ALL_TESTS();
-}
-
 // ── THE PBR ROW IS THE GENERIC ROW (MAT1a-T1) ────────────────────────────────────────────────────────────
 // The six PBR passes read ONE Materials[] row per object, written from the FORWARD material: glass and the
 // RSM/GBuffer pass consume the forward row as it is. So their `Properties Binding(2)` blocks must declare the
@@ -878,7 +870,7 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
     EXPECT_FALSE( Desert::Graphic::MeshShaderFor( "", MeshVertexPath::Static, MeshPass::Glass ).has_value() );
 
     const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
-    const std::string source = ReadMeshRendererSources( here );
+    const std::string           source = ReadMeshRendererSources( here );
     ASSERT_FALSE( source.empty() ) << "no MeshRenderer*.cpp was found from " << here;
     for ( const std::string_view single : { "m_GlassMaterial", "m_StaticGlassPipeline", "\"StaticMeshGlass\"" } )
         EXPECT_EQ( source.find( single ), std::string::npos )
@@ -892,7 +884,7 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
 TEST( ShippedShaderPasses, TheMeshRendererPicksNoPassByAParameterName )
 {
     const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
-    const std::string source = ReadMeshRendererSources( here );
+    const std::string           source = ReadMeshRendererSources( here );
     ASSERT_FALSE( source.empty() ) << "no MeshRenderer*.cpp was found from " << here;
     for ( const std::string_view name : { "\"Transmission\"", "\"IOR\"", "\"GlassTint\"" } )
         EXPECT_EQ( source.find( name ), std::string::npos )
@@ -1006,3 +998,9 @@ TEST( ShippedShaderPasses, MeshRendererSlotLookupAgreesWithTheCellLayoutForEvery
     }
     EXPECT_GT( checked, 0u );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

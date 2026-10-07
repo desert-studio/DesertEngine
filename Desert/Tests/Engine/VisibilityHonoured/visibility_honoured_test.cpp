@@ -519,9 +519,3 @@ TEST( VisibilityCensus, TheDirectionalLightSiteHonoursItToo )
             "unticking Visible on the SUN leaves the scene lit and shadowed by it — the owner's first "
             "example, and the one no sweep of the ECS systems can see.";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

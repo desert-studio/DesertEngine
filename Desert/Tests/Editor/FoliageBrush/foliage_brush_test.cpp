@@ -477,9 +477,3 @@ TEST( FoliageBrush, ALandscapeStrokeFromOneSeedPlacesTheRecordedInstances )
     EXPECT_EQ( stats.Placed, static_cast<int>( field.size() ) );
     ExpectDigest( field, 409u, -14883.2323, -4.188752 );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

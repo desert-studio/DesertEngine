@@ -1,7 +1,9 @@
 #pragma once
 
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
+#include <Engine/Graphic/Render2D/PreparedDraws.hpp>
 #include <Engine/Graphic/Render2D/UIMaterialCache.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -22,6 +24,7 @@ namespace Desert::Graphic
     class VertexBuffer;
     class IndexBuffer;
     class MaterialExecutor;
+    class RenderPassDeclaration;
 } // namespace Desert::Graphic
 
 namespace Desert::Graphic::Render2D
@@ -76,12 +79,28 @@ namespace Desert::Graphic::Render2D
         // texture's own description (PassContext::GetTextureDesc); with an invalid ref (no blur this frame) they
         // draw as a flat tinted panel. Every batch is drawn through Renderer::DrawIndexed over @p context; the
         // first refused draw is returned (the remaining batches are still drawn and the caches still retired).
-        [[nodiscard]] Common::BoolResultStr Flush( const RDG::PassContext& context, RDG::TextureRef backdrop );
+        // @p firstBlock is the index DeclareBindings' first block got in the node's setup (0 unless the node
+        // declared blocks of its own before it).
+        [[nodiscard]] Common::BoolResultStr Flush( const RDG::PassContext& context, RDG::TextureRef backdrop,
+                                                   uint32_t firstBlock );
+
+        // RDG-FAULT1. The UI node's SETUP half of Flush: one binding block per command Flush will draw, in draw
+        // order (Flush opens block n for its n-th drawn command), each against the layout of the pipeline it
+        // draws with and the route fill of its executor. The executors are filled here (a UI material's row,
+        // push matrix and index; a 2D batch's projection), so the block validation sees what the draw will
+        // carry. A glass command declares u_Backdrop (@p backdrop, LinearClamp, every mip) and its push block.
+        // Called after the canvas walk recorded this frame's draw list, before Flush, with the same backdrop.
+        void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef backdrop );
+        void DeclareBindings( RenderPassDeclaration& declared, RDG::TextureRef backdrop );
 
         // Flush for @p list (not the own one) inside @p context's raster pass. A retained layer's renderer draws
         // the walk's layer list through this, so the list is never copied.
+        // The list's draws must have been prepared by DeclareListBindings in the same pass's setup; @p firstBlock
+        // as for Flush.
         [[nodiscard]] Common::BoolResultStr FlushList( const RDG::PassContext& context, const DrawList2D& list,
-                                                       RDG::TextureRef backdrop );
+                                                       RDG::TextureRef backdrop, uint32_t firstBlock );
+        // DeclareBindings for @p list (a retained layer's): the setup half of FlushList.
+        void DeclareListBindings( RDG::PassBuilder& pass, const DrawList2D& list, RDG::TextureRef backdrop );
 
         // RETAINED LAYERS (UE Retainer Box) as graph passes. Adds to @p graph one raster pass per layer the
         // recorded list composites (at any depth, the most nested first), each drawing into its pooled offscreen
@@ -156,10 +175,38 @@ namespace Desert::Graphic::Render2D
 
         [[nodiscard]] Common::BoolResultStr AddRetainedPassesOf( RDG::Builder& graph, const DrawList2D& root );
         RetainedTarget* AcquireRetainedTarget( uint32_t width, uint32_t height, uint64_t frame );
-        static void     OpenTarget( RetainedTarget& target, const glm::vec4& rect );
+        static void                         OpenTarget( RetainedTarget& target, const glm::vec4& rect );
 
         // Grow the dynamic buffers to hold at least the given counts (reused across frames otherwise).
         void EnsureCapacity( uint32_t vertexCount, uint32_t indexCount );
+
+        // What one command draws with, decided in ONE place for the setup (DeclareBindings) and the exec (Flush),
+        // so the n-th drawn command of both is the same command: Skip (nothing drawn), the glass pipeline, a UI
+        // material's own pipeline + executor, or the 2D/text pipeline with the executor of its texture.
+        enum class CommandKind
+        {
+            Skip,
+            Glass,
+            Retained,
+            Material,
+            Plain
+        };
+        // What one drawn command binds: made by Resolve ONCE per command in the setup (DeclareInto) and kept in
+        // m_Prepared until that frame's Flush records it. Non-owning: every pointer is into this Render2D (its
+        // pipelines, executor caches, layouts) or into the UIMaterialCache entry the command resolved to.
+        struct ResolvedCommand
+        {
+            CommandKind               Kind     = CommandKind::Skip;
+            GraphicsPipeline*         Pipeline = nullptr;
+            const MaterialExecutor*   Executor = nullptr;
+            MaterialExecutor*         Plain    = nullptr; // the 2D/text executor (its projection is pushed)
+            DataDrivenMaterial*       Material = nullptr; // a UI material's
+            ShaderBindingLayoutCache* Layout   = nullptr; // keyed on Pipeline's shader
+            const RetainedPicture*    Retained = nullptr; // a retained composite's picture (m_Retained's entry)
+        };
+        ResolvedCommand Resolve( const DrawCommand& cmd, bool backdrop );
+        template <class Declaration>
+        void DeclareInto( Declaration& declared, const DrawList2D& list, RDG::TextureRef backdrop );
 
         // One cached executor and the frame it was last drawn with. THE STAMP IS THE WHOLE FIX: without
         // it nothing could ever be removed from these caches safely, and so nothing was removed at all —
@@ -190,6 +237,10 @@ namespace Desert::Graphic::Render2D
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_TextPipeline;
         std::shared_ptr<GraphicsPipeline> m_GlassPipeline;
+        ShaderBindingLayoutCache          m_PlainLayout; // keyed on m_Pipeline's shader
+        ShaderBindingLayoutCache          m_TextLayout;  // keyed on m_TextPipeline's shader
+        ShaderBindingLayoutCache          m_GlassLayout; // keyed on m_GlassPipeline's shader
+        ShaderBindingLayoutCache          m_RetainerLayout; // keyed on m_RetainerPipeline's shader
         std::shared_ptr<VertexBuffer>     m_VertexBuffer;
         std::shared_ptr<IndexBuffer>      m_IndexBuffer;
         uint32_t                          m_VertexCapacity = 0;
@@ -216,6 +267,10 @@ namespace Desert::Graphic::Render2D
         bool m_UsedBackdrop = false; // glass drawn in the last Flush -> keep the pyramid alive
 
         DrawList2D m_DrawList;
+        // The frame's draws as the setup prepared them (DeclareInto); Flush records exactly these. Reset by
+        // BeginFrame and after Flush, so nothing prepared outlives its frame.
+        PreparedDraws<ResolvedCommand> m_Prepared;
+        const DrawList2D*              m_PreparedList = nullptr; // the list m_Prepared was prepared from
         glm::mat4  m_Projection = glm::mat4( 1.0f );
         glm::vec4  m_ViewportPx = { 0.0f, 0.0f, 0.0f, 0.0f }; // x,y,w,h — the unclipped scissor / reset rect
     };

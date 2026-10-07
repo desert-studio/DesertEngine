@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <map>
 #include <set>
@@ -574,11 +575,12 @@ TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )
             ++end;
         const std::string name = src.substr( at + qualifier.size(), end - at - qualifier.size() );
         if ( !name.empty() && !bodies.contains( name ) )
-            bodies[name] = BodyOf( src, qualifier + name + "(" );
+            bodies[name] = BodyOf( src, std::format( "{}{}(", qualifier, name ) );
     }
     const auto calls = []( const std::string& body, const std::string& callee )
     {
-        for ( std::size_t at = 0; ( at = body.find( callee + "(", at ) ) != std::string::npos; ++at )
+        for ( std::size_t at = 0; ( at = body.find( std::format( "{}(", callee ), at ) ) != std::string::npos;
+              ++at )
             if ( at == 0 || !IsIdentChar( body[at - 1] ) )
                 return true;
         return false;
@@ -621,13 +623,6 @@ TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )
     EXPECT_NE( begin.find( "== VK_NULL_HANDLE" ), std::string::npos )
          << "BeginRenderPass must refuse a framebuffer whose attachments failed to create";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ONE FRAME SUBMISSION PATH (FRAME-OUT1). A window is an output of the frame, not a second way to submit it: the
 // renderer submits only through VulkanFrameLoop::Submit, which is the frame's only vkQueueSubmit route, and no
 // frame function waits for the whole device -- CPU/GPU sync is the slot fence. Mutations: put a

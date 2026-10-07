@@ -124,7 +124,7 @@ namespace Desert::Graphic::API::Vulkan
                      "dispatch skipped",
                      m_Specification.DebugName, binding, resolved.GetError() );
             }
-            const VkImageView      view           = resolved.GetValue();
+            VkImageView            view           = resolved.GetValue();
             const RDG::ImageLayout declaredLayout = RDG::GetAccessState( input.Declared ).Layout;
             if ( declaredLayout != RDG::ImageLayout::ShaderReadOnly &&
                  declaredLayout != RDG::ImageLayout::General )
@@ -137,8 +137,7 @@ namespace Desert::Graphic::API::Vulkan
             const VkImageLayout layout = RdgVulkanLayout( declaredLayout );
 
             if ( kind == SampledImageKind::Volume &&
-                 ( view == VK_NULL_HANDLE || r.Sampler == VK_NULL_HANDLE ||
-                   layout == VK_IMAGE_LAYOUT_UNDEFINED ) )
+                 ( view == VK_NULL_HANDLE || r.Sampler == VK_NULL_HANDLE || layout == VK_IMAGE_LAYOUT_UNDEFINED ) )
             {
                 // No fallback exists for a volume, and dispatching with a stale descriptor would read
                 // whatever the previous user of this ring slot bound. Say exactly what is missing and
@@ -310,15 +309,16 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         std::vector<VkDescriptorPoolSize> poolSizes;
+        poolSizes.reserve( countsByType.size() );
         for ( const auto& [type, count] : countsByType )
             poolSizes.push_back( { static_cast<VkDescriptorType>( type ), count * kBatchRingSize } );
         if ( poolSizes.empty() )
             poolSizes.push_back( { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kBatchRingSize } );
 
-        VkDescriptorPoolCreateInfo poolInfo{ .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                                             .maxSets       = kBatchRingSize,
-                                             .poolSizeCount = static_cast<uint32_t>( poolSizes.size() ),
-                                             .pPoolSizes    = poolSizes.data() };
+        const VkDescriptorPoolCreateInfo poolInfo{ .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                                   .maxSets       = kBatchRingSize,
+                                                   .poolSizeCount = static_cast<uint32_t>( poolSizes.size() ),
+                                                   .pPoolSizes    = poolSizes.data() };
         VK_CHECK_RESULT( vkCreateDescriptorPool( device, &poolInfo, nullptr, &m_BatchPool ) );
 
         // The ring is allocated from the layout THIS PIPELINE captured at Invalidate, never from the
@@ -331,10 +331,10 @@ namespace Desert::Graphic::API::Vulkan
 
         std::vector<VkDescriptorSetLayout> layouts( kBatchRingSize, layout0 );
         m_BatchRing.resize( kBatchRingSize );
-        VkDescriptorSetAllocateInfo allocInfo{ .sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                                               .descriptorPool = m_BatchPool,
-                                               .descriptorSetCount = kBatchRingSize,
-                                               .pSetLayouts        = layouts.data() };
+        const VkDescriptorSetAllocateInfo allocInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                                     .descriptorPool     = m_BatchPool,
+                                                     .descriptorSetCount = kBatchRingSize,
+                                                     .pSetLayouts        = layouts.data() };
         VK_CHECK_RESULT( vkAllocateDescriptorSets( device, &allocInfo, m_BatchRing.data() ) );
     }
 
@@ -384,7 +384,7 @@ namespace Desert::Graphic::API::Vulkan
         // keeps the layouts alive if the shader recompiles under us, and using only these is what keeps
         // the set and the pipeline layout describing the same contract.
         m_Layouts          = vulkanShader->GetAllDescriptorSetLayouts();
-        m_ShaderGeneration = vulkanShader->GetReloadGeneration();
+        m_ShaderGeneration = vulkanShader->GetCodeGeneration();
 
         // The material backend allocated its descriptor sets in this pipeline's constructor. If the
         // shader was recompiled between then and now, those sets belong to a different contract than

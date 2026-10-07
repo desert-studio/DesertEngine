@@ -6,6 +6,7 @@
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 #include <gtest/gtest.h>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
@@ -291,10 +292,8 @@ TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
     EXPECT_NE( outcomes[0].Error.find( path.generic_string() ), std::string::npos ) << outcomes[0].Error;
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

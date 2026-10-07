@@ -116,9 +116,3 @@ TEST( ViewBudget, ALiveViewsResizeIsNeverRefusedAndReportsOnlyItsOverrun )
     EXPECT_EQ( VB::ResizeOverrunBytes( 40 * kMiB, 51 * kMiB, roomy ), 1 * kMiB )
          << "the overrun is the growth minus what was free";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

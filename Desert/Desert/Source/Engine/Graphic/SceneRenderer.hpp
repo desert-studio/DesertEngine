@@ -453,12 +453,6 @@ namespace Desert::Graphic
         /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
-        // The shadow images a lit pass samples: every valid cascade of the directional shadow, and the cloud
-        // layer's shadow map. A system whose materials receive shadows calls this from its pass's Declare.
-        void DeclareShadowReads( RenderPassDeclaration& declared ) const;
-        // The atmosphere LUTs a consumer of GetAtmosphere() samples (aerial perspective, distant sky light,
-        // transmittance), each declared with @p access.
-        void DeclareAtmosphereReads( RenderPassDeclaration& declared, RDG::Access access ) const;
 
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
@@ -568,15 +562,14 @@ namespace Desert::Graphic
                                            const glm::vec4& lightColor );
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                           const std::vector<RDG::TextureRef>& shadowReads,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const glm::vec4& cameraPos );
         // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
         // raster node): published as FrameTransients::SceneColorCopy and returned; invalid when no copy was made
         // (no copy system, no scene colour, its desc refused - logged).
-        RDG::TextureRef AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& sceneColor,
-                                           System::CopyRenderer*               copy );
+        static RDG::TextureRef AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
+                                                  const std::vector<RDG::TextureRef>& sceneColor,
+                                                  System::CopyRenderer*               copy );
         // @p sceneCopy: the snapshot SSR traces reflections from (valid; the caller skips SSR without one).
         void AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,

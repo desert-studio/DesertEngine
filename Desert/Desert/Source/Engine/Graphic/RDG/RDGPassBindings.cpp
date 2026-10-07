@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <format>
 
 namespace Desert::Graphic::RDG
 {
@@ -20,10 +21,6 @@ namespace Desert::Graphic::RDG
         }
     } // namespace
 
-    PassBindings::PassBindings( const PassContext& context ) : m_Context( context )
-    {
-    }
-
     // Every failure goes through here so the message has one shape: "<pass>: '<slot>' <- '<resource>': <why>".
     // Only the first one is kept; a later entry never overwrites it.
     static void KeepFirstError( std::string& firstError, std::string_view pass, std::string_view shaderName,
@@ -33,11 +30,11 @@ namespace Desert::Graphic::RDG
             firstError = fmt::format( "{}: '{}' <- '{}': {}", pass, shaderName, resource, why );
     }
 
-    PassBindings& PassBindings::Sampled( std::string_view shaderName, TextureRef texture, Access declared,
-                                         SubresourceRange range, SamplerDesc sampler )
+    void PassBindings::ResolveSampled( std::string_view shaderName, TextureRef texture, Access declared,
+                                       SubresourceRange range, SamplerDesc sampler )
     {
         if ( !m_FirstError.empty() )
-            return *this;
+            return;
         const std::string_view pass   = m_Context.GetPassName();
         const std::string      handle = fmt::format( "texture #{}", texture.Index );
         if ( !IsSampledAccess( declared ) )
@@ -62,20 +59,21 @@ namespace Desert::Graphic::RDG
             KeepFirstError( m_FirstError, pass, shaderName, handle, resolved.GetError() );
             return *this;
         }
-        m_Textures.push_back( BoundTexture{ .ShaderName = std::string( shaderName ),
-                                            .Kind       = ShaderResourceKind::SampledTexture,
-                                            .Texture    = resolved.GetValue(),
-                                            .Range      = range,
-                                            .Declared   = declared,
-                                            .Sampler    = sampler } );
-        return *this;
+        m_Textures.push_back( BoundTexture{
+             .ShaderName = std::string( shaderName ),
+             .Kind       = ShaderResourceKind::SampledTexture,
+             .Texture    = resolved.GetValue(),
+             // A FaultDefault read binds the 1x1 system texture whole.
+             .Range    = resolved.GetValue().Resource == texture.Index ? range : SubresourceRange::All(),
+             .Declared = declared,
+             .Sampler  = sampler } );
     }
 
-    PassBindings& PassBindings::Storage( std::string_view shaderName, TextureRef texture, Access declared,
-                                         uint32_t mip )
+    void PassBindings::ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared,
+                                            uint32_t mip )
     {
         if ( !m_FirstError.empty() )
-            return *this;
+            return;
         const std::string_view pass   = m_Context.GetPassName();
         const std::string      handle = fmt::format( "texture #{}", texture.Index );
         if ( !IsStorageAccess( declared ) )
@@ -105,11 +103,12 @@ namespace Desert::Graphic::RDG
                                             .Kind       = ShaderResourceKind::StorageTexture,
                                             .Texture    = resolved.GetValue(),
                                             .Range      = range,
-                                            .Declared   = declared } );
+                                            .Declared   = declared,
+                                            .Sampler    = std::nullopt } );
         return *this;
     }
 
-    // Shared by Uniform and the buffer Storage: the kind decides which accesses are legal.
+    // A declared uniform or storage buffer entry: the kind decides which accesses are legal.
     static void AddBuffer( const PassContext& context, std::vector<BoundTexture>& textures,
                            std::vector<BoundBuffer>& buffers, std::string& firstError, std::string_view shaderName,
                            BufferRef buffer, Access declared, ShaderResourceKind kind )
@@ -148,20 +147,6 @@ namespace Desert::Graphic::RDG
                                         .Kind       = kind,
                                         .Buffer     = resolved.GetValue(),
                                         .Declared   = declared } );
-    }
-
-    PassBindings& PassBindings::Uniform( std::string_view shaderName, BufferRef buffer )
-    {
-        AddBuffer( m_Context, m_Textures, m_Buffers, m_FirstError, shaderName, buffer, Access::UniformRead,
-                   ShaderResourceKind::UniformBuffer );
-        return *this;
-    }
-
-    PassBindings& PassBindings::Storage( std::string_view shaderName, BufferRef buffer, Access declared )
-    {
-        AddBuffer( m_Context, m_Textures, m_Buffers, m_FirstError, shaderName, buffer, declared,
-                   ShaderResourceKind::StorageBuffer );
-        return *this;
     }
 
     PassBindings& PassBindings::PushConstants( const void* data, uint32_t size )
@@ -210,5 +195,170 @@ namespace Desert::Graphic::RDG
     std::span<const std::byte> PassBindings::GetPushConstants() const
     {
         return m_PushConstants;
+    }
+    // ── RDG-FAULT1: setup-time binding blocks ─────────────────────────────────────────────────────────────────
+    namespace
+    {
+        std::string_view GetShaderResourceKindName( ShaderResourceKind kind )
+        {
+            switch ( kind )
+            {
+                case ShaderResourceKind::SampledTexture:
+                    return "sampled texture";
+                case ShaderResourceKind::StorageTexture:
+                    return "storage texture";
+                case ShaderResourceKind::UniformBuffer:
+                    return "uniform buffer";
+                case ShaderResourceKind::StorageBuffer:
+                    return "storage buffer";
+            }
+            return "unknown";
+        }
+
+        constexpr std::string_view kNotInShaderFormat  = "'{}' is not a resource of shader '{}'";
+        constexpr std::string_view kKindFormat         = "'{}' is a {} in shader '{}', bound as {}";
+        constexpr std::string_view kTwiceFormat        = "'{}' of shader '{}' is bound twice by the pass";
+        constexpr std::string_view kBothRoutesFormat   = "'{}' of shader '{}' is bound by the pass and by the material";
+        constexpr std::string_view kNeitherRouteFormat = "'{}' of shader '{}' is filled by neither the pass nor the "
+                                                         "material";
+        constexpr std::string_view kPushFormat = "push constants: shader '{}' declares {} bytes, the pass gives {}";
+    } // namespace
+
+    Common::BoolResultStr ValidatePassBindings( const DeclaredBindingBlock& block )
+    {
+        if ( !block.Layout )
+            return Common::MakeError( std::string( "the block declares no shader binding layout" ) );
+        const ShaderBindingLayout& layout   = *block.Layout;
+        const auto                 byOther  = [&]( std::string_view name )
+        { return std::find( block.Other.Slots.begin(), block.Other.Slots.end(), name ) != block.Other.Slots.end(); };
+        for ( const DeclaredBindingEntry& entry : block.Entries )
+        {
+            const auto sameName = [&]( const DeclaredBindingEntry& e )
+            { return e.ShaderName == entry.ShaderName; };
+            if ( std::count_if( block.Entries.begin(), block.Entries.end(), sameName ) > 1 )
+                return Common::MakeError( std::format( kTwiceFormat, entry.ShaderName, layout.ShaderName ) );
+            const auto slot = std::find_if( layout.Slots.begin(), layout.Slots.end(),
+                                            [&]( const ShaderSlot& s ) { return s.Name == entry.ShaderName; } );
+            if ( slot == layout.Slots.end() )
+                return Common::MakeError( std::format( kNotInShaderFormat, entry.ShaderName, layout.ShaderName ) );
+            if ( slot->Kind != entry.Kind )
+                return Common::MakeError( std::format( kKindFormat, entry.ShaderName,
+                                                       GetShaderResourceKindName( slot->Kind ), layout.ShaderName,
+                                                       GetShaderResourceKindName( entry.Kind ) ) );
+            if ( byOther( entry.ShaderName ) )
+                return Common::MakeError( std::format( kBothRoutesFormat, entry.ShaderName, layout.ShaderName ) );
+        }
+        for ( const ShaderSlot& slot : layout.Slots )
+        {
+            const bool byBlock = std::any_of( block.Entries.begin(), block.Entries.end(),
+                                              [&]( const DeclaredBindingEntry& e ) { return e.ShaderName == slot.Name; } );
+            if ( !byBlock && !byOther( slot.Name ) )
+                return Common::MakeError( std::format( kNeitherRouteFormat, slot.Name, layout.ShaderName ) );
+        }
+        const uint32_t declared = layout.PushConstantBytes;
+        const uint32_t given    = block.PushConstantBytes;
+        const bool     refused  = declared == 0 ? given != 0 || block.Other.PushConstants
+                                                : ( given == 0 ) == !block.Other.PushConstants ||
+                                                      ( given != 0 && given != declared );
+        if ( refused )
+            return Common::MakeError( std::format( kPushFormat, layout.ShaderName, declared, given ) );
+        return Common::MakeSuccess( true );
+    }
+
+    BindingBlockBuilder PassBuilder::Bindings( ShaderBindingLayout layout, OtherRouteFill other )
+    {
+        return Bindings( std::make_shared<const ShaderBindingLayout>( std::move( layout ) ), std::move( other ) );
+    }
+
+    BindingBlockBuilder PassBuilder::Bindings( const std::shared_ptr<const ShaderBindingLayout>& layout,
+                                               OtherRouteFill                                    other )
+    {
+        std::vector<DeclaredBindingBlock>& blocks = m_Builder.m_Passes[m_Pass].Blocks;
+        blocks.push_back( DeclaredBindingBlock{ layout, std::move( other ), {}, 0 } );
+        return BindingBlockBuilder( *this, BindingBlockRef{ m_Pass, static_cast<uint32_t>( blocks.size() - 1 ) } );
+    }
+
+    BindingBlockBuilder& BindingBlockBuilder::Sampled( std::string_view shaderName, TextureRef texture,
+                                                       Access declared, SubresourceRange range, SamplerDesc sampler )
+    {
+        m_Pass.DeclareTexture( texture, declared, range, false, "Bindings.Sampled" );
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+             { std::string( shaderName ), ShaderResourceKind::SampledTexture, ResourceKind::Texture, texture.Index,
+               declared, range, sampler } );
+        return *this;
+    }
+
+    BindingBlockBuilder& BindingBlockBuilder::Storage( std::string_view shaderName, TextureRef texture,
+                                                       Access declared, uint32_t mip )
+    {
+        m_Pass.DeclareTexture( texture, declared, SubresourceRange::Mip( mip ), IsWriteAccess( declared ),
+                               "Bindings.Storage" );
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+             { std::string( shaderName ), ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index,
+               declared, SubresourceRange::Mip( mip ), std::nullopt } );
+        return *this;
+    }
+
+    BindingBlockBuilder& BindingBlockBuilder::Uniform( std::string_view shaderName, BufferRef buffer )
+    {
+        m_Pass.DeclareBuffer( buffer, Access::UniformRead, false, "Bindings.Uniform" );
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+             { std::string( shaderName ), ShaderResourceKind::UniformBuffer, ResourceKind::Buffer, buffer.Index,
+               Access::UniformRead, SubresourceRange::All(), std::nullopt } );
+        return *this;
+    }
+
+    BindingBlockBuilder& BindingBlockBuilder::Storage( std::string_view shaderName, BufferRef buffer,
+                                                       Access declared )
+    {
+        m_Pass.DeclareBuffer( buffer, declared, IsWriteAccess( declared ), "Bindings.Storage" );
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+             { std::string( shaderName ), ShaderResourceKind::StorageBuffer, ResourceKind::Buffer, buffer.Index,
+               declared, SubresourceRange::All(), std::nullopt } );
+        return *this;
+    }
+
+    BindingBlockBuilder& BindingBlockBuilder::PushConstantBytes( uint32_t bytes )
+    {
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].PushConstantBytes = bytes;
+        return *this;
+    }
+
+    BindingBlockRef BindingBlockBuilder::GetRef() const
+    {
+        return m_Ref;
+    }
+
+    PassBindings::PassBindings( const PassContext& context, BindingBlockRef block ) : m_Context( context )
+    {
+        const auto& passes = context.m_Builder.m_Passes;
+        if ( block.Pass != context.m_Pass || block.Block >= passes[block.Pass].Blocks.size() )
+        {
+            m_FirstError = std::format( "{}: binding block {} of pass #{} is not a block this pass declared",
+                                        context.GetPassName(), block.Block, block.Pass );
+            return;
+        }
+        for ( const DeclaredBindingEntry& entry : passes[block.Pass].Blocks[block.Block].Entries )
+        {
+            switch ( entry.Kind )
+            {
+                case ShaderResourceKind::SampledTexture:
+                    ResolveSampled( entry.ShaderName, TextureRef{ entry.Index }, entry.Declared, entry.Range,
+                                    entry.Sampler.value_or( SamplerDesc::LinearClamp() ) );
+                    break;
+                case ShaderResourceKind::StorageTexture:
+                    ResolveStorageImage( entry.ShaderName, TextureRef{ entry.Index }, entry.Declared,
+                                         entry.Range.BaseMip );
+                    break;
+                case ShaderResourceKind::UniformBuffer:
+                    AddBuffer( m_Context, m_Textures, m_Buffers, m_FirstError, entry.ShaderName,
+                               BufferRef{ entry.Index }, Access::UniformRead, ShaderResourceKind::UniformBuffer );
+                    break;
+                case ShaderResourceKind::StorageBuffer:
+                    AddBuffer( m_Context, m_Textures, m_Buffers, m_FirstError, entry.ShaderName,
+                               BufferRef{ entry.Index }, entry.Declared, ShaderResourceKind::StorageBuffer );
+                    break;
+            }
+        }
     }
 } // namespace Desert::Graphic::RDG

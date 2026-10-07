@@ -92,9 +92,3 @@ TEST( Refusal, EmptyZeroAndUncovered )
     const auto verts = Select( cube, ElementMode::Vertex, { 0, 1 } );
     expectRefused( DeleteSelection( cube, verts ), "cover no whole triangle" );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

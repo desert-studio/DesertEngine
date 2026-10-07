@@ -327,8 +327,3 @@ TEST( GpuTimestampLayout, OnlyDirectChildrenAreSubtracted )
 }
 
 // Only gtest is linked, not gtest_main — every suite in this tree brings its own entry point.
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

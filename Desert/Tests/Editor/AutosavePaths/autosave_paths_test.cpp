@@ -16,6 +16,7 @@
 #include <iterator>
 #include <algorithm>
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace fs   = std::filesystem;
 namespace Path = Common::Constants::Path;
@@ -213,9 +214,8 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
     EXPECT_TRUE( AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit ).Offered.empty() );
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

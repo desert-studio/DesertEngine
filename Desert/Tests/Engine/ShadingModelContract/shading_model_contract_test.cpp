@@ -335,9 +335,3 @@ TEST( ShadingModelSurface, EveryPassMakesTheSurfaceThroughTheOneConstructor )
             EXPECT_EQ( ReadFile( entry.path() ).find( "normalize( S.N" ), std::string::npos )
                  << entry.path().filename().string() << " re-normalizes the pass's normal";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

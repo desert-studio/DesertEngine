@@ -92,10 +92,14 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <string_view>
 
 namespace
 {
+    // The runtime present reports every failed import/pass under one prefix.
+    constexpr std::string_view kRuntimePresentErrorFormat = "[Runtime] present: {}";
+
     /// The device image behind an authored sprite handle, or nullptr if the project has none. Both the
     /// loading cover and the authored splash ask this, and they used to ask it in two hand-copied
     /// blocks -- which is how the two of them would have drifted apart the first time either was fixed.
@@ -1159,16 +1163,19 @@ namespace Desert::Player
         // THE PRESENT IS A GRAPH NODE (UE: the viewport's back buffer is registered as an external texture each
         // frame, the final passes write it, and the present follows the graph). The node clears its target,
         // samples the scene's final image as a declared pass parameter, draws the 2D batch over it, and the
-        // graph leaves the back buffer in the present layout.
+        // graph leaves the back buffer in the present layout. Every draw's binding block is declared in the setup
+        // (the blit's first, then one per 2D batch: Render2D::DeclareBindings over the list gathered above).
         Graphic::RDG::Builder         graph( "RuntimePresent" );
         Graphic::RDG::ExternalTexture backBuffer;
         if ( const auto imported = renderer.ImportBackBuffer( backBuffer ); !imported )
         {
-            return Common::MakeError( "[Runtime] present: " + imported.GetError() );
+            return Common::MakeError( std::format( kRuntimePresentErrorFormat, imported.GetError() ) );
         }
         const Graphic::RDG::TextureRef backBufferRef = graph.RegisterExternal( backBuffer, "BackBuffer" );
-        Graphic::RDG::TextureRef       target        = backBufferRef;
-        auto                           targetLoad    = Graphic::RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f );
+        // The acquired image has no picture of its own: without its writer the frame has none (cleared to black).
+        graph.SetFaultPolicy( backBufferRef, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
+        Graphic::RDG::TextureRef target     = backBufferRef;
+        auto                     targetLoad = Graphic::RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f );
 #if DESERT_DEV_INSTRUMENTS
         // --render-movie: the same node composes into the movie's offscreen target (imported per frame), which
         // CollectMovieFrame reads back after the present; the back buffer is only cleared (below).
@@ -1188,6 +1195,8 @@ namespace Desert::Player
             }
             target     = graph.RegisterExternal( movieImage, "MovieTarget" );
             targetLoad = Graphic::RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 1.0f );
+            // The movie frame is this node's picture: a fault of its writer is a fault of the frame.
+            graph.SetFaultPolicy( target, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
         }
 #endif
         Graphic::RDG::ExternalTexture sceneImage;
@@ -1196,7 +1205,8 @@ namespace Desert::Player
         {
             if ( const auto imported = renderer.ImportImage( presented, sceneImage ); !imported )
             {
-                return Common::MakeError( "[Runtime] present: the scene's final image: " + imported.GetError() );
+                return Common::MakeError(
+                     std::format( "[Runtime] present: the scene's final image: {}", imported.GetError() ) );
             }
             sceneRef = graph.RegisterExternal( sceneImage, "SceneFinalImage" );
         }
@@ -1206,7 +1216,7 @@ namespace Desert::Player
         {
             if ( const auto retained = m_Render2D->AddRetainedPasses( graph ); !retained )
             {
-                return Common::MakeError( "[Runtime] present: " + retained.GetError() );
+                return Common::MakeError( std::format( kRuntimePresentErrorFormat, retained.GetError() ) );
             }
         }
         graph.AddPass(
@@ -1214,34 +1224,37 @@ namespace Desert::Player
              [&]( Graphic::RDG::PassBuilder& pass )
              {
                  pass.ColorTarget( 0, target, targetLoad );
+                 // Block 0: the scene blit, with the sampler it sampled the final image with before.
                  if ( sceneRef.IsValid() )
                  {
-                     pass.Read( sceneRef, Graphic::RDG::Access::SampledGraphics );
+                     pass.Bindings( m_BlitLayout.Get( m_BlitPipeline->GetSpecification().Shader ),
+                                    m_BlitExecutor->GetRouteFill() )
+                          .Sampled( "u_Texture", sceneRef, Graphic::RDG::Access::SampledGraphics,
+                                    Graphic::RDG::SubresourceRange::All(),
+                                    Graphic::RDG::SamplerDesc::LinearClamp() );
                  }
+                 // The runtime has no backdrop pyramid: a glass panel draws as its flat tinted fill.
                  if ( drawUI )
                  {
                      m_Render2D->DeclareRetainedReads( pass );
+                     m_Render2D->DeclareBindings( pass, Graphic::RDG::TextureRef{} );
                  }
              },
              [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  if ( sceneRef.IsValid() )
                  {
-                     Graphic::RDG::PassBindings bindings( context );
-                     bindings.Sampled( "u_Texture", sceneRef, Graphic::RDG::Access::SampledGraphics,
-                                       Graphic::RDG::SubresourceRange::All(),
-                                       Graphic::RDG::SamplerDesc::LinearClamp() );
+                     const Graphic::RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      if ( const auto drawn =
                                renderer.DrawFullscreen( bindings, *m_BlitPipeline, m_BlitExecutor.get() );
                           !drawn )
                      {
-                         return Common::MakeError( "the scene blit: " + drawn.GetError() );
+                         return Common::MakeError( std::format( "the scene blit: {}", drawn.GetError() ) );
                      }
                  }
-                 // The runtime has no backdrop pyramid: a glass panel draws as its flat tinted fill.
                  if ( drawUI )
                  {
-                     return m_Render2D->Flush( context, Graphic::RDG::TextureRef{} );
+                     return m_Render2D->Flush( context, Graphic::RDG::TextureRef{}, sceneRef.IsValid() ? 1u : 0u );
                  }
                  return BOOLSUCCESS;
              } );
@@ -1267,14 +1280,21 @@ namespace Desert::Player
 #if DESERT_DEV_INSTRUMENTS
             if ( m_Movie.has_value() )
             {
-                // A refused frame records nothing usable: the movie fails (exit 1) and no frame is read back.
+                // A refused or faulted frame records nothing usable: the movie fails (exit 1) and no frame is
+                // read back.
                 LOG_ERROR( "[Movie] frame {}: the present graph was refused: {}", m_MovieFrame,
                            executed.GetError() );
                 m_MovieFrameDrawn = false;
                 m_Application->Close( 1 );
+                return Common::MakeError( "[Runtime] present graph: " + executed.GetError() );
             }
 #endif
-            return Common::MakeError( "[Runtime] present graph: " + executed.GetError() );
+            // A FrameFault (logged by the graph backend) is a frame: ExecuteGraph cleared the back buffer to black
+            // and the frame presents it. Only a failure of ExecuteGraph itself (logged there) ends the frame here.
+            if ( !graph.GetExecuteReport().Frame )
+            {
+                return Common::MakeError( std::format( "[Runtime] present graph: {}", executed.GetError() ) );
+            }
         }
 
         // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and it has to be: a swapchain

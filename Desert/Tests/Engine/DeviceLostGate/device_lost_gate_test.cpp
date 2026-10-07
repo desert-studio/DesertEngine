@@ -54,7 +54,8 @@ namespace
     const char* const k_FrameSequence[] = {
          "VulkanSwapChainOutput::AcquireImage",    // the acquire
          "VulkanSwapChain::AcquireNextImage",      // vkAcquireNextImageKHR <- "Semaphore must not have..."
-         "VulkanSwapChain::ApplyRequestedRebuild", // the rebuild (EVT-2c: at the frame boundary, before the acquire)
+         "VulkanSwapChain::ApplyRequestedRebuild", // the rebuild (EVT-2c: at the frame boundary, before the
+                                                   // acquire)
          "VulkanSwapChain::CreateSwapChain",       // vkCreateSwapchainKHR <- the abort, at line 165
          "VulkanRendererAPI::BeginFrame",          // vkBeginCommandBuffer
          "VulkanFrameLoop::Submit",                // vkResetFences <- "pFences[0] is in use" + vkQueueSubmit
@@ -170,10 +171,4 @@ TEST( DeviceLostGate, TwoThreadsDiscoveringItAtOnceStillProduceOneMessage )
     EXPECT_EQ( firsts.load(), 1 ) << "exactly one reporter must own the event";
     EXPECT_EQ( DeviceLost::ReportCount(), 1u );
     EXPECT_TRUE( DeviceLost::IsLost() );
-}
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

@@ -15,10 +15,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         Common::ResultStr<VkSemaphore> MakeSemaphore( VkDevice device )
         {
-            VkSemaphoreCreateInfo createInfo{
+            const VkSemaphoreCreateInfo createInfo{
                  .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = VK_NULL_HANDLE, .flags = 0 };
 
-            VkSemaphore semaphore;
+            VkSemaphore semaphore = VK_NULL_HANDLE;
 
             VK_RETURN_RESULT_IF_FALSE_TYPE( VkSemaphore,
                                             vkCreateSemaphore( device, &createInfo, VK_NULL_HANDLE, &semaphore ) );
@@ -44,7 +44,7 @@ namespace Desert::Graphic::API::Vulkan
             LOG_ERROR( "[SwapChain] rebuild at the frame boundary failed: {}", requested.GetError() );
         }
 
-        uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        const uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
 
         // SUBOPTIMAL IS AN IMAGE; ONLY OUT_OF_DATE IS A REBUILD (Engine/Graphic/SwapchainAcquire.hpp). The
         // rebuild keeps `currentIndex` current (FrameManager::AdoptSwapchainImageCount), so the frame loop's
@@ -76,8 +76,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 
-        uint32_t    currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
-        const auto& queue =
+        const uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        const auto&    queue =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetGraphicsQueue();
 
         const auto& queuePresent =
@@ -97,7 +97,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         VkPresentInfoKHR presentInfo = {};
         presentInfo.sType            = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        presentInfo.pNext            = NULL;
+        presentInfo.pNext            = nullptr;
         presentInfo.swapchainCount   = 1;
         presentInfo.pSwapchains      = &m_SwapChain->m_SwapChain;
         presentInfo.pImageIndices    = &imageIndex;
@@ -135,7 +135,7 @@ namespace Desert::Graphic::API::Vulkan
         VkDevice device =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
 
-        uint32_t backBufferCount = m_SwapChain->GetBackBufferCount();
+        const uint32_t backBufferCount = m_SwapChain->GetBackBufferCount();
 
         m_FrameSemaphores.resize( backBufferCount );
         for ( uint32_t i = 0; i < backBufferCount; i++ )

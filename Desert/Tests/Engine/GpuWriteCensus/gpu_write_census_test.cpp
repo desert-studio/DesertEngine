@@ -551,9 +551,3 @@ TEST( BufferGrowth, EveryVerdictHasAName )
         EXPECT_NE( std::string( name ), std::string() );
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

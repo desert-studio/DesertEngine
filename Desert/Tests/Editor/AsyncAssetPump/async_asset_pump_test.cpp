@@ -207,9 +207,3 @@ TEST( AsyncAssetPump, NoProductionSourceReadsAConvertedKindSynchronously )
             "was almost never taken. Removing a preload is what exposes reads like this, which is why the "
             "census exists rather than a note.";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

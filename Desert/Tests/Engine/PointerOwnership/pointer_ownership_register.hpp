@@ -377,15 +377,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp",
           "VulkanSwapChain", "m_VmaAllocation", Guard::OwningRaw,
           "VMA allocation handles for the capture buffers, allocated and freed by this class" },
-        { "Desert/Desert/Source/Engine/Graphic/AtmosphereEnv.hpp",
-          "AtmosphereEnv", "AerialPerspectiveVolume", Guard::FrameScoped,
-          "an opaque per-frame handle; the SkyboxRenderer of THIS SceneRenderer owns the image and refills the struct every frame (documented at the member)" },
-        { "Desert/Desert/Source/Engine/Graphic/AtmosphereEnv.hpp",
-          "AtmosphereEnv", "DistantSkyLight", Guard::FrameScoped,
-          "an opaque per-frame handle; the SkyboxRenderer of THIS SceneRenderer owns the image and refills the struct every frame (documented at the member)" },
-        { "Desert/Desert/Source/Engine/Graphic/AtmosphereEnv.hpp",
-          "AtmosphereEnv", "TransmittanceLut", Guard::FrameScoped,
-          "an opaque per-frame handle; the SkyboxRenderer of THIS SceneRenderer owns the image and refills the struct every frame (documented at the member)" },
         { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudEnvironmentBake.hpp",
           "CloudEnvironmentBake", "Modelling", Guard::FrameScoped,
           kWhyFramePayload },
@@ -434,11 +425,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudEnvironmentBake.hpp",
           "CloudBakeBinding", "MediumImages", Guard::CallScoped,
           kWhyArgumentPack },
-        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp",
-          "VolumetricCloudRenderer", "m_MediumImages", Guard::FrameScoped,
-          "borrowed from the texture service and rebuilt from scratch by ResolveMediumValues once per "
-          "frame, before any pass reads it. Nothing here survives a frame boundary, so an image the "
-          "service released between frames cannot be bound: the vector is assigned, not patched" },
         { "Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp",
           "Compiler", "touchedParams", Guard::ObservedContainsUs,
           "addresses of nodes in the Document the Compiler holds a reference to and never mutates; the "
@@ -814,6 +800,21 @@ namespace Desert::Tests::PointerCensus
           "resolved from ImageService for the image of m_WhiteTexture, which this Render2D owns; it is declared AFTER "
           "that texture, so it is destroyed first and the texture's destructor (which unregisters the image) runs "
           "last. The only other release path is Renderer::Shutdown -- terminal, after the last Flush" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "ResolvedCommand", "Pipeline", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, what ONE drawn command binds: made by Render2D::Resolve once per command in the setup (DeclareInto) and kept in m_Prepared (PreparedDraws) only until that frame's Flush records it; m_Prepared is Reset by BeginFrame and at the end of Flush, so the pointer never outlives the frame that prepared it. Points at m_Pipeline / m_TextPipeline / m_GlassPipeline (shared_ptr members of this Render2D, rebuilt only by Init, never during a frame's graph) or at a UIMaterialCache entry's Pipeline (the cache is the Render2D member m_MaterialCache; its unordered_map nodes do not move, Rebuild runs only from Init, and RetireUnused runs after the last draw of the Flush and keeps every entry a frame in flight can read)" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "ResolvedCommand", "Executor", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, what ONE drawn command binds: made by Render2D::Resolve once per command in the setup (DeclareInto) and kept in m_Prepared (PreparedDraws) only until that frame's Flush records it; m_Prepared is Reset by BeginFrame and at the end of Flush, so the pointer never outlives the frame that prepared it. The 2D/text executor of this Render2D's executor caches (retired by RetireUnusedExecutors only after the draws, on the frames-in-flight window) or the executor of a UIMaterialCache entry's runtime material (owned by that entry's unique_ptr Material) -- the same owners and window as the Pipeline row" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "ResolvedCommand", "Plain", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, what ONE drawn command binds: made by Render2D::Resolve once per command in the setup (DeclareInto) and kept in m_Prepared (PreparedDraws) only until that frame's Flush records it; m_Prepared is Reset by BeginFrame and at the end of Flush, so the pointer never outlives the frame that prepared it. The same executor as the Executor row for a plain/text draw, non-const because its projection is pushed: owned by this Render2D's executor caches, retired only after the draws on the frames-in-flight window" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "ResolvedCommand", "Material", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, what ONE drawn command binds: made by Render2D::Resolve once per command in the setup (DeclareInto) and kept in m_Prepared (PreparedDraws) only until that frame's Flush records it; m_Prepared is Reset by BeginFrame and at the end of Flush, so the pointer never outlives the frame that prepared it. The runtime material of a UIMaterialCache entry (the entry's unique_ptr, or the shared error entry m_Error after UIMaterialCache::DrawableOrDefault substitutes the default UI material); owned by the Render2D member m_MaterialCache and retired only after the Flush's last draw" },
+        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
+          "ResolvedCommand", "Layout", Guard::FrameScoped,
+          "Render2D::ResolvedCommand, what ONE drawn command binds: made by Render2D::Resolve once per command in the setup (DeclareInto) and kept in m_Prepared (PreparedDraws) only until that frame's Flush records it; m_Prepared is Reset by BeginFrame and at the end of Flush, so the pointer never outlives the frame that prepared it. One of this Render2D's ShaderBindingLayoutCache members (m_PlainLayout / m_TextLayout / m_GlassLayout) or the mutable Layout of the UIMaterialCache entry the draw binds -- members of objects that outlive the walk, by the same rules as the Pipeline row" },
         { "Desert/Desert/Source/Engine/Graphic/Texture.hpp",
           "Texture2D", "m_Service", Guard::StaticStorage,
           "ResourceRegistry::GetImageService's function-local static; ResourceRegistry.cpp constructs it before "
@@ -1972,6 +1973,14 @@ namespace Desert::Tests::PointerCensus
           "EdgePoint", "NearEdge", Guard::CallScoped,
           "the edge that won this texel's channel, inside the Shape the caller owns for the whole "
           "generation; the EdgePoint itself dies at the end of the texel" },
+        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+          "UIViewContext", "m_Resources", Guard::ObservedContainsUs,
+          "where this view's sprites, frames, themes, fonts and icons come from, as an IUICanvasResources. "
+          "Bound by the constructor and never null. Q1: nobody destroys the pointee through this member -- "
+          "the engine's RegistryUICanvasResources is a BY-VALUE member declared BEFORE the view in the same "
+          "host (EditorUIPass, UIEditorPanel, RuntimeLayer), so it is constructed first and destroyed last; a "
+          "test's mock is a file-scope object that outlives every view. Q2: a copy (the introspection probe) "
+          "lives inside one call of the host that owns both" },
         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
           "UIViewContext", "Registry", Guard::FrameScoped,
           "the scene registry, handed to the UI pass for one frame and never stored past it" },

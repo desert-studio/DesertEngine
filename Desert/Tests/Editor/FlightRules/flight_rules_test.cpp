@@ -317,8 +317,3 @@ TEST( FlightRules, AFlightMissingAPartOrFightingAnotherFlagIsRefused )
         EXPECT_FALSE( Parse( bad ).IsSuccess() ) << bad;
     }
 }
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

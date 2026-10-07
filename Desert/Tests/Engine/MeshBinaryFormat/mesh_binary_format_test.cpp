@@ -55,6 +55,7 @@
 
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/cooked_static_mesh.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -887,10 +888,15 @@ TEST( MeshBinaryFormat, TheImporterWritesTheContainerAndNotJson )
          << "SerializeMeshAsset writes a cooked mesh as JSON again";
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The suite writes cooked meshes into a throwaway DDC for its own run (TestSupport/cooked_static_mesh.hpp).
+    const Desert::TestSupport::SuiteEnvironment kCookedMeshDdc{
+         &Desert::TestSupport::MakeCookedMeshDerivedDataEnvironment };
+} // namespace
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

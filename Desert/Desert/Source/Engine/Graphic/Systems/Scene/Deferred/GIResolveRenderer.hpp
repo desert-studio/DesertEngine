@@ -4,6 +4,7 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp> // MaterialSSRResolve (shared temporal resolve)
@@ -61,7 +62,8 @@ namespace Desert::Graphic::System
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "GIResolve";
             // The gather is a graph transient: built against the graph's canonical pass for that one target.
-            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kGIResolve } };
+            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kGIResolve },
+                                                         .DepthFormat  = std::nullopt };
             spec.Shader            = m_Shader;
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
@@ -129,37 +131,57 @@ namespace Desert::Graphic::System
         }
 
         // Pass 1, inside the render pass the graph opens on the gather transient (cleared to 0): jittered VPL
-        // gather. Every texture of @p inputs is bound by shader name through RDG::PassBindings.
+        // gather. Its textures are block 0, declared by DeclareGatherBindings.
         [[nodiscard]] Common::BoolResultStr RecordGather( const RDG::PassContext& context,
-                                                          const GIGatherInputs&   inputs,
                                                           const glm::mat4&        rsmViewProj,
                                                           const glm::vec4& sunColorIntensity, float giIntensity )
         {
             m_Material->BindInputs( rsmViewProj, sunColorIntensity, giIntensity,
                                     static_cast<float>( m_FrameIndex % 1024u ) );
-            // The sampler the material route sampled these images with (the image's own: linear, REPEAT).
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
+                                                           m_Material->GetMaterialExecutor() );
+        }
+
+        // SETUP of pass 1: the node's one block (block 0) - every texture of @p inputs with the sampler the
+        // material route sampled them with (the image's own: linear, REPEAT), the material as the other route.
+        void DeclareGatherBindings( RDG::PassBuilder& pass, const GIGatherInputs& inputs ) const
+        {
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            RDG::PassBindings          bindings( context );
-            const auto                 sampled = [&]( std::string_view name, RDG::TextureRef texture ) {
-                bindings.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                                                  kSampler );
+            auto                       block    = pass.Bindings( m_GatherLayout.Get( m_Pipeline->GetShader() ),
+                                                                 m_Material->GetMaterialExecutor()->GetRouteFill() );
+            const auto sampled = [&]( std::string_view name, RDG::TextureRef texture ) {
+                block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                               kSampler );
             };
             sampled( "u_GBufferB", inputs.GBufferNormal );
             sampled( "u_GBufferC", inputs.GBufferWorldPos );
             sampled( "u_RSMAlbedo", inputs.RSMAlbedo );
             sampled( "u_RSMNormal", inputs.RSMNormal );
             sampled( "u_RSMWorldPos", inputs.RSMWorldPos );
-            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
-                                                           m_Material->GetMaterialExecutor() );
+        }
+
+        // SETUP of pass 2: the node's one block (block 0) - u_Trace / u_History / u_GBufferWorldPos (linear,
+        // REPEAT, as the material route sampled them), the resolve material as the other route.
+        void DeclareTemporalBindings( RDG::PassBuilder& pass, RDG::TextureRef gather, RDG::TextureRef history,
+                                      RDG::TextureRef worldPos ) const
+        {
+            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
+            pass.Bindings( m_ResolveLayout.Get( m_ResolvePipeline->GetShader() ),
+                           m_ResolveMaterial->GetMaterialExecutor()->GetRouteFill() )
+                 .Sampled( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler )
+                 .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler )
+                 .Sampled( "u_GBufferWorldPos", worldPos, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), kSampler );
         }
 
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): temporal
-        // accumulation (shared SSRResolve denoiser) of @p gather over @p history (GetHistoryImage, imported).
+        // accumulation (shared SSRResolve denoiser) of the gather over the history (GetHistoryImage, imported).
         // Advances the ping-pong; the graph imported both accumulation images before this runs.
         [[nodiscard]] Common::BoolResultStr RecordTemporal( const RDG::PassContext& context,
-                                                            RDG::TextureRef gather, RDG::TextureRef history,
-                                                            RDG::TextureRef  worldPos,
-                                                            const glm::mat4& cameraViewProj )
+                                                            const glm::mat4&        cameraViewProj )
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
@@ -167,15 +189,7 @@ namespace Desert::Graphic::System
             const glm::vec2 texel( 1.0f / static_cast<float>( target->GetFramebufferWidth() ),
                                    1.0f / static_cast<float>( target->GetFramebufferHeight() ) );
             m_ResolveMaterial->BindValues( m_PrevViewProj, texel, m_HistoryValid ? 0.92f : 0.0f );
-            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            RDG::PassBindings          bindings( context );
-            bindings
-                 .Sampled( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
-                 .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
-                 .Sampled( "u_GBufferWorldPos", worldPos, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), kSampler );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             const auto drawn = Renderer::GetInstance().DrawFullscreen( bindings, *m_ResolvePipeline,
                                                                        m_ResolveMaterial->GetMaterialExecutor() );
 
@@ -187,11 +201,11 @@ namespace Desert::Graphic::System
         }
 
         // Before RecordTemporal: the target it writes this frame, the one it reprojects.
-        std::shared_ptr<Image2D> GetAccumImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetAccumImage() const
         {
             return m_AccumFB[m_AccumIndex] ? m_AccumFB[m_AccumIndex]->GetColorAttachmentImage( 0 ) : nullptr;
         }
-        std::shared_ptr<Image2D> GetHistoryImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetHistoryImage() const
         {
             const uint32_t prv = 1u - m_AccumIndex;
             return m_AccumFB[prv] ? m_AccumFB[prv]->GetColorAttachmentImage( 0 ) : nullptr;
@@ -204,6 +218,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline>   m_ResolvePipeline;
         std::unique_ptr<MaterialGIResolve>  m_Material;
         std::unique_ptr<MaterialSSRResolve> m_ResolveMaterial;
+        // The two block layouts, derived from each pipeline shader's reflection once per compile (not per frame).
+        mutable ShaderBindingLayoutCache    m_GatherLayout;
+        mutable ShaderBindingLayoutCache    m_ResolveLayout;
         std::shared_ptr<Framebuffer>        m_AccumFB[2];
 
         glm::mat4 m_PrevViewProj{ 1.0f };

@@ -44,16 +44,16 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
-    Common::BoolResultStr MeshRenderer::DrawGenericMeshes( const bool useLoadPass, const MeshPassBindings& pass )
+    void MeshRenderer::BuildGenericDraws( const bool useLoadPass, MeshDrawList& list )
     {
         const auto  targetFb = m_TargetFramebuffer.lock();
         const auto* camera   = m_SceneRenderer->GetMainCamera();
         if ( !targetFb || camera == nullptr )
-            return BOOLSUCCESS;
+            return;
 
         PrecacheRequestedMaterials( targetFb, useLoadPass );
         if ( m_GenericQueue.empty() )
-            return BOOLSUCCESS;
+            return;
 
         // THE SAME per-frame scene snapshot the PBR queue is drawn with — camera, lights, cascades, the
         // baked environment and the cloud shadow — gathered once here as it is there.
@@ -265,6 +265,8 @@ namespace Desert::Graphic::System
                     auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
                     if ( tex == nullptr )
                         continue;
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
+                    // type
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
                     if ( img != nullptr && !material->SetTexture( name, img ) )
@@ -290,7 +292,7 @@ namespace Desert::Graphic::System
         }
 
         if ( draws.empty() )
-            return BOOLSUCCESS;
+            return;
 
         // ── Upload every row BEFORE recording any draw ──────────────────────────────────────────────
         //
@@ -344,15 +346,14 @@ namespace Desert::Graphic::System
         for ( const auto& d : draws )
         {
             const auto& g = *d.Data;
-            d.Material->SetMaterialIndex( d.Row );
-            const GraphicsPipeline* pipeline = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() );
-            if ( auto drawn =
-                      DrawMesh( pass, pipeline, g.Mesh, g.Transform, d.Material->GetMaterialExecutor(), 1, 0,
-                                ~g.VisibleSubmeshMask, ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) );
-                 !drawn.IsSuccess() )
-                return drawn;
+            list.Add( { .Pipeline          = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() ),
+                        .Mesh              = g.Mesh,
+                        .Transform         = g.Transform,
+                        .Material          = d.Material->GetMaterialExecutor(),
+                        .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
+                        .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
+                        .BindState = [material = &*d.Material, row = d.Row] { material->SetMaterialIndex( row ); } } );
         }
-        return BOOLSUCCESS;
     }
 
     GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>&      shader,
@@ -418,9 +419,10 @@ namespace Desert::Graphic::System
         {
             static bool s_Unresolved = false;
             if ( !std::exchange( s_Unresolved, true ) )
-                LOG_ERROR( "[MeshRenderer] no default surface template: {}; a material whose pipeline is not ready "
-                           "yet is not drawn",
-                           key.GetError() );
+                LOG_ERROR(
+                     "[MeshRenderer] no default surface template: {}; a material whose pipeline is not ready "
+                     "yet is not drawn",
+                     key.GetError() );
             return nullptr;
         }
         auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( key.GetValue() );
@@ -451,50 +453,61 @@ namespace Desert::Graphic::System
     GraphicsPipeline* MeshRenderer::CullPermutation( GraphicsPipeline* pipeline, const bool twoSided )
     {
         if ( !twoSided || pipeline == nullptr || pipeline->GetSpecification().CullMode == CullMode::None )
+        {
             return pipeline;
+        }
         if ( const auto it = m_TwoSidedPipelines.find( pipeline ); it != m_TwoSidedPipelines.end() )
+        {
             return it->second.get();
+        }
         GraphicsPipelineSpecification spec = pipeline->GetSpecification();
         spec.CullMode                      = CullMode::None;
         spec.DebugName += "_TwoSided";
         const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !built )
+        {
             LOG_ERROR( "[MeshRenderer] two-sided materials on '{}' will not draw: {}",
                        pipeline->GetSpecification().DebugName, built.GetError() );
+        }
         auto& slot = m_TwoSidedPipelines[pipeline];
         slot       = built ? built.GetValue() : nullptr;
         return slot.get();
     }
 
-    Common::BoolResultStr MeshRenderer::RenderGenericManual( const RDG::PassContext& context,
-                                                             const SceneViewInputs&  view )
+    void MeshRenderer::DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
+        m_GenericDraws.Clear();
         const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
-            return BOOLSUCCESS;
+            return;
         if ( m_GenericQueue.empty() )
         {
             PrecacheRequestedMaterials( target, /*useLoadPass*/ true );
-            return BOOLSUCCESS;
+            return;
         }
-
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        return DrawGenericMeshes( /*useLoadPass*/ true, MeshPassBindings( context, view ) );
+        BuildGenericDraws( /*useLoadPass*/ true, m_GenericDraws );
+        m_GenericDraws.Declare( pass, view );
     }
 
-    Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context,
-                                                           const RDG::TextureRef   sceneCopy,
-                                                           const SceneViewInputs&  view )
+    Common::BoolResultStr MeshRenderer::RenderGenericManual( const RDG::PassContext& context ) const
     {
+        return m_GenericDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareGlassBindings( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
+                                             const SceneViewInputs& view )
+    {
+        m_GlassDraws.Clear();
         if ( m_StaticQueue.empty() )
         {
-            return BOOLSUCCESS;
+            return;
         }
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        const auto  camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
-        if ( !target || !camera )
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( !target || camera == nullptr )
         {
-            return BOOLSUCCESS;
+            return;
         }
 
         // Collect the translucent objects (their template's BlendMode), each with the draw state of ITS
@@ -539,18 +552,14 @@ namespace Desert::Graphic::System
         }
         if ( draws.empty() )
         {
-            return BOOLSUCCESS;
+            return;
         }
         // Blending is order-dependent: far glass first, near glass over it (see TranslucentSortOrder.hpp).
         const std::vector<uint32_t> drawOrder = TranslucentSortOrder( camera->GetPosition(), sortKeys );
 
-        // --- Per translucent cell, once per frame: its rows, the scene snapshot, its pass parameters ---
-        // The scene snapshot the cells sample for refraction (u_SceneColor) is this frame's graph transient,
-        // bound by name; the sampler is the one the material route sampled the copy with (linear, REPEAT). The
-        // scene/view inputs (environment cubes, BRDF LUT, cloud shadow map) are bound for what EACH cell's
-        // shader samples: one PassBindings per cell, since two templates are two reflected resource lists.
+        // --- Per translucent cell, once per frame and BEFORE the blocks are declared, so each cell's route fill
+        // is what its draws will read: its rows and the scene snapshot ---
         const PBRSceneFrame frameState = CaptureFrameState( camera );
-        std::unordered_map<TranslucentDraw*, std::unique_ptr<RDG::PassBindings>> cellBindings;
         for ( auto& [state, cellRows] : rows )
         {
             if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
@@ -558,34 +567,46 @@ namespace Desert::Graphic::System
                 sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
             }
             frameState.ApplyTo( state->Instance.get() );
-            auto bindings = std::make_unique<RDG::PassBindings>( context );
-            bindings->Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
-                               RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
-            BindSceneViewInputs( *bindings, view, *state->Material->GetMaterialExecutor()->GetShader() );
-            cellBindings.emplace( state, std::move( bindings ) );
         }
 
-        // --- Draw over the composited scene in sort order, each cell with its own pipeline: the graph opens
-        // the render pass (LOAD + blend) ---
-        auto& renderer = Renderer::GetInstance();
+        // --- The draws in sort order, each with its cell's pipeline: the list declares one block per cell (its
+        // executor + the shader its pipeline records with) ---
         for ( const uint32_t index : drawOrder )
         {
-            const Draw& draw     = draws[index];
-            const auto* obj      = draw.Object;
-            auto&       material = *draw.State->Material;
-            material.SetPushMatrix( obj->Transform );
-            material.SetMaterialIndex( draw.Row );
-            material.Bind( draw.State->Instance.get() );
-            const Common::BoolResultStr drawn =
-                 renderer.RenderMesh( *cellBindings.at( draw.State ), *draw.State->Pipeline, *obj->Mesh,
-                                      obj->Transform, *material.GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes,
-                                      ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ) );
-            if ( !drawn.IsSuccess() )
-            {
-                return drawn;
-            }
+            const Draw&         draw     = draws[index];
+            const auto*         obj      = draw.Object;
+            DataDrivenMaterial* material = draw.State->Material.get();
+            MaterialInstance*   instance = draw.State->Instance.get();
+            m_GlassDraws.Add( { .Pipeline          = draw.State->Pipeline.get(),
+                                .Mesh              = obj->Mesh,
+                                .Transform         = obj->Transform,
+                                .Material          = material->GetMaterialExecutor(),
+                                .HiddenSubmeshMask = obj->HiddenSubmeshes,
+                                .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                                .BindState =
+                                     [material, instance, transform = obj->Transform, row = draw.Row]
+                                {
+                                    material->SetPushMatrix( transform );
+                                    material->SetMaterialIndex( row );
+                                    material->Bind( instance );
+                                } } );
         }
-        return BOOLSUCCESS;
+
+        // Every cell's block also carries the scene snapshot the cells sample for refraction (u_SceneColor),
+        // this frame's graph transient, with the sampler the material route sampled the copy with (linear,
+        // REPEAT); the scene/view inputs are bound for what EACH cell's shader has a slot for.
+        m_GlassDraws.Declare( pass, view,
+                              [sceneCopy]( RDG::BindingBlockBuilder& block )
+                              {
+                                  block.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
+                                                 RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+                              } );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context ) const
+    {
+        // Over the composited scene: the graph opens the render pass (LOAD + blend).
+        return m_GlassDraws.Record( context );
     }
 
     // SUPPRESSED, NAMED, AND NOT FIXED HERE: cognitive complexity 153 against a threshold of 19. That is
@@ -595,7 +616,7 @@ namespace Desert::Graphic::System
     // in here cannot land without either this line or a split that is a task of its own. Named in Г26's
     // report as debt rather than hidden.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-    Common::BoolResultStr MeshRenderer::DrawStaticMeshes( const MeshPassBindings& pass )
+    void MeshRenderer::BuildStaticDraws( MeshDrawList& list )
     {
         // BOTH QUEUES, AND THE SECOND ONE WAS MISSING. The instanced batches at the bottom of this
         // function are drawn INSIDE it, so `if ( m_StaticQueue.empty() ) return;` meant an Instanced
@@ -614,11 +635,11 @@ namespace Desert::Graphic::System
         // empty it. The shadow pass has its own loop and never had this guard, which is why the draw
         // counter still reported thousands of instances while the colour frame held none.
         if ( m_StaticQueue.empty() && m_InstancedQueue.empty() )
-            return BOOLSUCCESS;
+            return;
 
-        auto* const camera   = m_SceneRenderer->GetMainCamera();
+        auto* const camera = m_SceneRenderer->GetMainCamera();
         if ( camera == nullptr )
-            return BOOLSUCCESS;
+            return;
 
         // The scene's whole contribution to a lit draw, gathered ONCE (camera, lights, shadow cascades and
         // the resolved IBL cubes + BRDF LUT). Applied per material GROUP below, not per object: only the
@@ -653,7 +674,7 @@ namespace Desert::Graphic::System
         for ( const auto& data : m_StaticQueue )
         {
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() ||
-                 !data.MaterialSlots->Slots[0] )
+                 data.MaterialSlots->Slots[0] == nullptr )
                 continue;
 
             if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
@@ -726,8 +747,8 @@ namespace Desert::Graphic::System
             if ( !instancingOn || group == nullptr )
                 return nullptr;
 
-            auto*        materials = Runtime::ResourceRegistry::GetMaterialService();
-            const bool   hasAsset  = materials != nullptr && materials->Owns( group );
+            auto*               materials = Runtime::ResourceRegistry::GetMaterialService();
+            const bool          hasAsset  = materials != nullptr && materials->Owns( group );
             DataDrivenMaterial* variant =
                  hasAsset ? materials->GetVariant( group, MeshVertexPath::Instanced, instancedPass ) : nullptr;
 
@@ -995,39 +1016,36 @@ namespace Desert::Graphic::System
                 const auto*       obj  = singles[i].Obj;
                 MaterialInstance* inst = singles[i].Inst;
 
-                {
-                    // Per-object work: transform (push constant) + material index + descriptor bind.
-                    DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
-                    drawMat->SetPushMatrix( obj->Transform );
-                    drawMat->SetMaterialIndex( i );
-                    // The INSTANCE still comes from the forward slot, and that is correct rather than
-                    // convenient: an instance carries the per-object Transform this Bind pushes plus the
-                    // overrides, and both are looked up by NAME in whichever material is binding. What the
-                    // instance must NOT be is a second descriptor set — it never was.
-                    drawMat->Bind( inst );
-                }
-
-                {
-                    // The actual draw call (bind pipeline + descriptor sets + vkCmdDrawIndexed).
-                    DESERT_PROFILE_SCOPE( "Mesh: RenderMesh (draw)" );
-                    // Deferred: the G-buffer twin's sets bind against the G-buffer pipeline, which writes
-                    // the MRT instead of shading. Otherwise forward (wireframe variant when enabled).
-                    // The pass fixes the state, drawMat's template fixes the program: its cell's sets are
-                    // the ones Bind just bound.
-                    auto* pipeline = CellPipeline( ( m_DeferredGeometry && m_StaticGBufferPipeline )
-                                                        ? m_StaticGBufferPipeline.get()
-                                                        : WireframePipelineOr( m_StaticPipeline.get() ),
-                                                   *drawMat );
-                    pipeline =
-                         CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
-                    // A null pipeline (the cell's program refused) is the pass's error through DrawMesh,
-                    // never a skipped object.
-                    const uint32_t lod = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias );
-                    if ( auto drawn = DrawMesh( pass, pipeline, obj->Mesh, obj->Transform,
-                                                drawMat->GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes, lod );
-                         !drawn.IsSuccess() )
-                        return drawn;
-                }
+                // Per-object work, written right before the draw is recorded: transform (push constant) +
+                // material index + descriptor bind. The INSTANCE still comes from the forward slot, and that is
+                // correct rather than convenient: an instance carries the per-object Transform this Bind pushes
+                // plus the overrides, and both are looked up by NAME in whichever material is binding. What the
+                // instance must NOT be is a second descriptor set - it never was.
+                //
+                // Deferred: the G-buffer twin's sets bind against the G-buffer pipeline, which writes the MRT
+                // instead of shading. Otherwise forward (wireframe variant when enabled). The pass fixes the
+                // state, drawMat's template fixes the program: its cell's sets are the ones Bind binds. A null
+                // pipeline (the cell's program refused) is refused by the list, the pass's error - never a
+                // skipped object.
+                GraphicsPipeline* pipeline = CellPipeline( ( m_DeferredGeometry && m_StaticGBufferPipeline )
+                                                                ? m_StaticGBufferPipeline.get()
+                                                                : WireframePipelineOr( m_StaticPipeline.get() ),
+                                                           *drawMat );
+                pipeline = CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
+                const glm::mat4 transform = obj->Transform;
+                list.Add( { .Pipeline          = pipeline,
+                            .Mesh              = obj->Mesh,
+                            .Transform         = transform,
+                            .Material          = drawMat->GetMaterialExecutor(),
+                            .HiddenSubmeshMask = obj->HiddenSubmeshes,
+                            .LodLevel          = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                            .BindState         = [drawMat, inst, transform, i]
+                            {
+                                DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
+                                drawMat->SetPushMatrix( transform );
+                                drawMat->SetMaterialIndex( i );
+                                drawMat->Bind( inst );
+                            } } );
             }
         }
 
@@ -1151,32 +1169,38 @@ namespace Desert::Graphic::System
 
                 for ( const auto& d : set.Draws )
                 {
-                    set.Mat->SetMaterialIndex( d.MaterialIndex );
-                    set.Mat->SetInstancedWind( d.Wind );
-                    set.Mat->Bind( set.Inst );
                     // set.Mat is the recorder (the material's (Instanced x pass) variant or the renderer's
                     // spare): its cell is the program, as it is the sets'. A refused cell pipeline is null and
-                    // DrawMesh makes it the pass's error.
+                    // the list refuses it, the pass's error.
                     const GraphicsPipeline* instancedDrawPipeline =
                          CullPermutation( CellPipeline( instancedPipeline, *set.Mat ),
                                           set.Inst != nullptr ? set.Inst->IsTwoSided() : set.Mat->IsTwoSided() );
-                    if ( auto drawn = DrawMesh( pass, instancedDrawPipeline, d.Mesh, unusedModelTransform,
-                                                set.Mat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance,
-                                                /*hiddenSubmeshMask*/ 0, d.LodLevel );
-                         !drawn.IsSuccess() )
-                        return drawn;
+                    list.Add( { .Pipeline      = instancedDrawPipeline,
+                                .Mesh          = d.Mesh,
+                                .Transform     = unusedModelTransform,
+                                .Material      = set.Mat->GetMaterialExecutor(),
+                                .InstanceCount = d.InstanceCount,
+                                .FirstInstance = d.FirstInstance,
+                                .LodLevel      = d.LodLevel,
+                                .BindState     = [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex,
+                                              wind = d.Wind]
+                                {
+                                    mat->SetMaterialIndex( index );
+                                    mat->SetInstancedWind( wind );
+                                    mat->Bind( inst );
+                                } } );
                 }
             }
         }
-        return BOOLSUCCESS;
+        return;
     }
 
-    Common::BoolResultStr MeshRenderer::DrawSkinnedMeshes( const bool useLoadPass, const MeshPassBindings& pass )
+    void MeshRenderer::BuildSkinnedDraws( const bool useLoadPass, MeshDrawList& list )
     {
         if ( m_SkinnedQueue.empty() )
-            return BOOLSUCCESS;
+            return;
 
-        auto* const camera   = m_SceneRenderer->GetMainCamera();
+        auto* const camera = m_SceneRenderer->GetMainCamera();
 
         // The SAME snapshot, from the SAME gather, that lights every static mesh in this frame — the
         // cascades and the environment cubes included. Skinned meshes have no G-buffer variant, so in a
@@ -1266,33 +1290,42 @@ namespace Desert::Graphic::System
             for ( uint32_t i = 0; i < static_cast<uint32_t>( objects.size() ); ++i )
             {
                 const auto* obj = objects[i];
-                mat->SetPushMatrix( obj->Transform );
-                mat->SetMaterialIndex( i );
-                mat->SetSkinnedBoneOffset( boneOffsets[i] );
-                mat->Bind( obj->Instance );
-
                 const GraphicsPipeline* twin =
                      CullPermutation( CellPipeline( pipeline, *mat ),
                                       obj->Instance != nullptr ? obj->Instance->IsTwoSided() : mat->IsTwoSided() );
-                if ( auto drawn = DrawMesh( pass, twin, obj->Mesh, obj->Transform, mat->GetMaterialExecutor() );
-                     !drawn.IsSuccess() )
-                    return drawn;
+                list.Add( { .Pipeline  = twin,
+                            .Mesh      = obj->Mesh,
+                            .Transform = obj->Transform,
+                            .Material  = mat->GetMaterialExecutor(),
+                            .BindState = [mat = &*mat, inst = &*obj->Instance, transform = obj->Transform, i,
+                                          bones = boneOffsets[i]]
+                            {
+                                mat->SetPushMatrix( transform );
+                                mat->SetMaterialIndex( i );
+                                mat->SetSkinnedBoneOffset( bones );
+                                mat->Bind( inst );
+                            } } );
             }
         }
-        return BOOLSUCCESS;
+        return;
     }
 
-    Common::BoolResultStr MeshRenderer::RenderSkinnedManual( const RDG::PassContext& context,
-                                                             const SceneViewInputs&  view )
+    void MeshRenderer::DeclareSkinnedDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
+        m_SkinnedDraws.Clear();
         if ( m_SkinnedQueue.empty() )
-            return BOOLSUCCESS;
+            return;
         const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
-            return BOOLSUCCESS;
-
+            return;
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        return DrawSkinnedMeshes( /*useLoadPass*/ true, MeshPassBindings( context, view ) );
+        BuildSkinnedDraws( /*useLoadPass*/ true, m_SkinnedDraws );
+        m_SkinnedDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderSkinnedManual( const RDG::PassContext& context ) const
+    {
+        return m_SkinnedDraws.Record( context );
     }
 
     bool MeshRenderer::SetupGeometryPass()
@@ -1372,7 +1405,7 @@ namespace Desert::Graphic::System
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_Translucent[cellShader];
 
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         auto        shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
         if ( !shader || !target )
         {

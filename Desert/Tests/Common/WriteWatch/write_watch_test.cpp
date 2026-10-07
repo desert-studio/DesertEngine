@@ -144,9 +144,3 @@ TEST( WriteWatch, ForgetMakesTheNextSightingABaseline )
     watch.Clear();
     EXPECT_EQ( watch.Observe( "a", file ), Seen::First );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

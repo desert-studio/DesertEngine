@@ -473,9 +473,3 @@ TEST( ElementSelectionEdits, CompactionRenumbersTheSelection )
     EXPECT_EQ( sel.Prune( mesh ).Total(), 0 ); // the keys were renumbered with the IDs
     EXPECT_EQ( sel.Ids().back(), 10 );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

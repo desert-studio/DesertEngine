@@ -182,9 +182,3 @@ TEST( AssetRefStates, AReadyReferenceKeepsItsPayloadAlive )
     }
     EXPECT_TRUE( observer.expired() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

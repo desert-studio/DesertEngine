@@ -587,9 +587,10 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
 TEST( PointerOwnership, VulkanRendererDeclaresItsFrameObjectsBeforeTheGraphBackend )
 {
     // FOUR ROWS REST ON ONE LINE ORDER: VulkanRdgBackend::m_Queues / m_Transients / m_Descriptors point at
-    // members of VulkanRendererAPI, and VulkanRdgQueueSet::Objects (inside m_RdgQueues) at the queue objects m_FrameLoop owns (FRAME-OUT1).
-    // Each pointee outlives its holder only because it is declared BEFORE it. Until RDG-INT3 the backend was
-    // declared first and outlived all three; asserted so the next tidy-up cannot put it back.
+    // members of VulkanRendererAPI, and VulkanRdgQueueSet::Objects (inside m_RdgQueues) at the queue objects
+    // m_FrameLoop owns (FRAME-OUT1). Each pointee outlives its holder only because it is declared BEFORE it. Until
+    // RDG-INT3 the backend was declared first and outlived all three; asserted so the next tidy-up cannot put it
+    // back.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
@@ -660,13 +661,6 @@ TEST( PointerOwnership, Render2DExecutorRetirementRespectsFramesInFlight )
     EXPECT_NE( src.find( "MayRetireExecutor(" ), std::string::npos )
          << "the sweep no longer goes through the tested predicate.";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 TEST( PointerOwnership, EditorLayerSeedsEveryScenePanelAtRegistration )
 {
     // A PANEL THAT FOLLOWS THE ACTIVE SCENE MUST BE BORN WITH ONE (L8e). IPanel::SetScene is called only
