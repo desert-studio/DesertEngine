@@ -32,8 +32,9 @@ namespace Desert::Editor
         // their Skeleton and writes each through BuildAssetDataFromClip (ImportManager::SerializeAnimationAsset).
         std::vector<Desert::Animation::AnimationClip>                   Animations;
         std::vector<ImportedMaterial>                                   Materials;
-        // The name of the source node that placed each submesh of Mesh, one per submesh in order (the first node
-        // when a mesh is instanced). What NodeMeshSplit groups by when Combine Meshes is off (UE's default).
+        // The name of the source node that placed each submesh of Mesh, one per submesh in order. A mesh the
+        // source shares between nodes is one submesh PER NODE, each baked with that node's transform
+        // (AssimpImporter ProcessScene). What NodeMeshSplit groups by when Combine Meshes is off (UE's default).
         std::vector<std::string> SubmeshNodes;
     };
 } // namespace Desert::Editor
