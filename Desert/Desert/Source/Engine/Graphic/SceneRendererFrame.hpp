@@ -150,8 +150,12 @@ namespace Desert::Graphic
             if ( !framebuffer )
                 return imported;
             for ( uint32_t i = 0; i < framebuffer->GetColorAttachmentCount(); ++i )
-                imported.Colors.push_back(
-                     Import( framebuffer->GetColorAttachmentImage( i ), std::format( "{}.Color{}", name, i ) ) );
+            {
+                // An unused colour slot has no image: an invalid ref at its place (LoadTarget declares no target).
+                const std::shared_ptr<Image2D>& image = framebuffer->GetColorAttachmentImage( i );
+                imported.Colors.push_back( image ? Import( image, std::format( "{}.Color{}", name, i ) )
+                                                 : RDG::TextureRef{} );
+            }
             if ( framebuffer->GetDepthAttachmentCount() > 0 )
                 imported.Depth = Import( framebuffer->GetDepthAttachmentImage(), std::format( "{}.Depth", name ) );
             return imported;
@@ -176,10 +180,19 @@ namespace Desert::Graphic
             if ( !framebuffer || framebuffer->GetSpecification().Samples <= 1 )
                 return refs;
             for ( uint32_t i = 0; i < framebuffer->GetColorAttachmentCount(); ++i )
-                if ( const RDG::TextureRef ref = Import( framebuffer->GetMultisampleColorAttachmentImage( i ),
-                                                         std::format( "{}.Color{}.MSAA", name, i ) );
+            {
+                // An unused colour slot has no multisampled image either: an invalid ref keeps the slots after it
+                // at their locations, as Colors() does (TargetsOf counts one entry per colour slot).
+                const std::shared_ptr<Image2D>& image = framebuffer->GetMultisampleColorAttachmentImage( i );
+                if ( !image )
+                {
+                    refs.emplace_back();
+                    continue;
+                }
+                if ( const RDG::TextureRef ref = Import( image, std::format( "{}.Color{}.MSAA", name, i ) );
                      ref.IsValid() )
                     refs.push_back( ref );
+            }
             return refs;
         }
 

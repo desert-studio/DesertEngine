@@ -66,7 +66,8 @@ namespace Desert::Graphic
                      if ( targets.Depth.IsValid() )
                          pass.DepthTarget( targets.Depth, depth );
                      for ( uint32_t slot = 0; slot < targets.Resolves.size(); ++slot )
-                         pass.ResolveTarget( slot, targets.Resolves[slot] );
+                         if ( targets.Resolves[slot].IsValid() )
+                             pass.ResolveTarget( slot, targets.Resolves[slot] );
                      if ( declareBindings )
                      {
                          declareBindings( pass );

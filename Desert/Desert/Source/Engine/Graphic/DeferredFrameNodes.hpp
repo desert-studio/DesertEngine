@@ -22,12 +22,16 @@ namespace Desert::Graphic::DeferredFrameNodes
     // Composite" declares it, which is what takes the target depth back from DepthResolve's transfer layout.
     inline void LoadTarget( RDG::PassBuilder& pass, const RDG::ImportedFramebuffer& target )
     {
+        // An invalid colour / resolve is an unused slot (FramebufferAttachment::UnusedColourSlot): no target, the
+        // backend's render pass references it as VK_ATTACHMENT_UNUSED.
         for ( uint32_t i = 0; i < target.Colors.size(); ++i )
-            pass.ColorTarget( i, target.Colors[i], RDG::LoadOp::Load() );
+            if ( target.Colors[i].IsValid() )
+                pass.ColorTarget( i, target.Colors[i], RDG::LoadOp::Load() );
         if ( target.Depth.IsValid() )
             pass.DepthTarget( target.Depth, RDG::LoadOp::Load(), /*write*/ true );
         for ( uint32_t i = 0; i < target.Resolves.size(); ++i )
-            pass.ResolveTarget( i, target.Resolves[i] );
+            if ( target.Resolves[i].IsValid() )
+                pass.ResolveTarget( i, target.Resolves[i] );
     }
 
     // G-buffer depth -> scene target depth. The same sample count: "Deferred: DepthResolve", a Copy node. A

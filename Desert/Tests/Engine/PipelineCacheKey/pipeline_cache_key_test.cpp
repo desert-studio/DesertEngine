@@ -22,10 +22,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <optional>
 #include <string>
+#include <vector>
+#include <set>
 
 using namespace Desert::Graphic;
 
@@ -563,6 +566,90 @@ TEST( PipelineBlendState, TheRSMSlotsAreOneListWithSlotTwoUnused )
                           "kRSMDepth};" ),
                std::string::npos )
          << "the RSM pipeline is not built against kRSMColourSlots.";
+}
+
+// An unused colour slot (FramebufferAttachment::UnusedColourSlot, the RSM's slot 2) has no image:
+// GetColorAttachmentImage / GetMultisampleColorAttachmentImage return null and its graph ref is invalid. Every code
+// path that walks a framebuffer's colour slots by index is named here with the guard that skips the slot; a new walker
+// (a file outside the list calling GetColorAttachmentCount / GetMultisampleColorAttachmentImage) is red until it is
+// named with its guard. Readers of ONE slot (GetColorAttachmentImage(0) of the scene target, tonemap, SMAA, FXAA,
+// SSR/GI accumulators, UI / movie targets, the cascades) name framebuffers that have no unused slot.
+// Mutation: drop any one guard below (e.g. Colors()'s `if(!image){refs.emplace_back();continue;}`) -> red.
+TEST( PipelineBlendState, EveryColourSlotWalkerSkipsAnUnusedSlot )
+{
+    const auto read = []( const std::filesystem::path& path )
+    {
+        std::ifstream in( path, std::ios::binary );
+        std::string   text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+        return text;
+    };
+    const std::filesystem::path root  = Desert::TestSupport::RepositoryRoot();
+    const std::string           frame = read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrame.hpp" );
+    ASSERT_FALSE( frame.empty() );
+    // FrameTextures::Colors: an invalid ref at the slot.
+    EXPECT_NE( frame.find( "conststd::shared_ptr<Image2D>&image=framebuffer->GetColorAttachmentImage(i);if(!image)"
+                           "{refs.emplace_back();continue;}" ),
+               std::string::npos )
+         << "FrameTextures::Colors imports an unused slot's null image.";
+    // FrameTextures::MultisampleColors: the same, for the multisampled images.
+    EXPECT_NE( frame.find( "conststd::shared_ptr<Image2D>&image=framebuffer->GetMultisampleColorAttachmentImage(i);"
+                           "if(!image){refs.emplace_back();continue;}" ),
+               std::string::npos )
+         << "FrameTextures::MultisampleColors drops an unused slot and shifts the slots after it.";
+    // FrameTextures::ImportFramebuffer.
+    EXPECT_NE( frame.find( "imported.Colors.push_back(image?Import(image,std::format(\"{}.Color{}\",name,i)):"
+                           "RDG::TextureRef{});" ),
+               std::string::npos )
+         << "FrameTextures::ImportFramebuffer imports an unused slot's null image.";
+
+    // AddRaster (SceneRendererFrameMesh.cpp) and LoadTarget (DeferredFrameNodes.hpp): no target for an invalid slot.
+    const std::string mesh = read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
+    EXPECT_NE( mesh.find( "if(targets.Colors[slot].IsValid())pass.ColorTarget(slot,targets.Colors[slot],color);" ),
+               std::string::npos )
+         << "AddRaster declares a target for an unused colour slot.";
+    EXPECT_NE( mesh.find( "if(targets.Resolves[slot].IsValid())pass.ResolveTarget(slot,targets.Resolves[slot]);" ),
+               std::string::npos )
+         << "AddRaster declares a resolve for an unused colour slot.";
+    const std::string nodes = read( root / "Desert/Desert/Source/Engine/Graphic/DeferredFrameNodes.hpp" );
+    EXPECT_NE( nodes.find( "if(target.Colors[i].IsValid())pass.ColorTarget(i,target.Colors[i],RDG::LoadOp::Load());" ),
+               std::string::npos )
+         << "LoadTarget declares a target for an unused colour slot.";
+    EXPECT_NE( nodes.find( "if(target.Resolves[i].IsValid())pass.ResolveTarget(i,target.Resolves[i]);" ),
+               std::string::npos )
+         << "LoadTarget declares a resolve for an unused colour slot.";
+
+    // VulkanFramebuffer::RT_Invalidate (create and Resize): the colour reference, the resolve reference, the
+    // multisampled image and the single-sample image each skip an unused slot.
+    const std::string vk = read( root / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanFramebuffer.cpp" );
+    std::size_t       guards = 0;
+    for ( auto at = vk.find( "if(attachment.Unused)" ); at != std::string::npos;
+          at      = vk.find( "if(attachment.Unused)", at + 1 ) )
+        ++guards;
+    EXPECT_EQ( guards, 4u ) << "VulkanFramebuffer::RT_Invalidate: a walk over the attachments lost its unused guard.";
+
+    // No walker outside the named ones.
+    const std::set<std::string> walkers = { "SceneRendererFrame.hpp", "Pipeline.hpp", "Framebuffer.hpp",
+                                            "VulkanFramebuffer.hpp", "VulkanFramebuffer.cpp" };
+    std::vector<std::string>    unnamed;
+    for ( const char* dir : { "Desert/Desert/Source", "Editor/Source", "Runtime/Source" } )
+    {
+        if ( !std::filesystem::exists( root / dir ) )
+            continue;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / dir ) )
+        {
+            const auto ext = entry.path().extension();
+            if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                continue;
+            const std::string text = read( entry.path() );
+            if ( ( text.find( "GetColorAttachmentCount(" ) != std::string::npos ||
+                   text.find( "GetMultisampleColorAttachmentImage(" ) != std::string::npos ) &&
+                 !walkers.contains( entry.path().filename().string() ) )
+                unnamed.push_back( entry.path().filename().string() );
+        }
+    }
+    EXPECT_TRUE( unnamed.empty() ) << "walks a framebuffer's colour slots without being named here: "
+                                   << ::testing::PrintToString( unnamed );
 }
 
 // The function above is only the rule if pipeline creation obeys it: VulkanPipeline::CreateColorBlendState
