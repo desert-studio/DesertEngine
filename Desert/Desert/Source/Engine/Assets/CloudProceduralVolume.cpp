@@ -1752,9 +1752,9 @@ namespace Desert::Assets
             {
                 if ( std::isfinite( rankField[at] ) || feature[at] < 0 )
                     continue;
-                const size_t   source = static_cast<size_t>( feature[at] );
-                const uint32_t row    = static_cast<uint32_t>( ( at % stride ) / width );
-                const glm::uvec2 band = bandRows[ownerSlot[source]];
+                const size_t     source = static_cast<size_t>( feature[at] );
+                const uint32_t   row    = static_cast<uint32_t>( ( at % stride ) / width );
+                const glm::uvec2 band   = bandRows[ownerSlot[source]];
                 if ( row < band.x || row >= band.y )
                     continue;
                 rankField[at] = rankField[source] + risePerKm * std::sqrt( cost[at] );
@@ -2148,8 +2148,8 @@ namespace Desert::Assets
         for ( size_t slot = 0; slot < params.Species.size(); ++slot )
         {
             const Graphic::CloudTypeShape& shape = params.Species[slot].Shape;
-            const float lo = ( Graphic::CloudTypeBaseKm( shape ) - params.LayerBottomKm ) / voxelYKm;
-            const float hi = ( Graphic::CloudTypeTopKm( shape ) - params.LayerBottomKm ) / voxelYKm;
+            const float lo  = ( Graphic::CloudTypeBaseKm( shape ) - params.LayerBottomKm ) / voxelYKm;
+            const float hi  = ( Graphic::CloudTypeTopKm( shape ) - params.LayerBottomKm ) / voxelYKm;
             const auto  row = [&]( float r )
             { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( height ) ) ); };
             bandRows[slot] = glm::uvec2( row( std::floor( lo ) ), row( std::ceil( hi ) ) );
