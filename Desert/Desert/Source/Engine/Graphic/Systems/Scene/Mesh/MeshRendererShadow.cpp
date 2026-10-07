@@ -399,9 +399,14 @@ namespace Desert::Graphic::System
         const bool content  = shader != spec.Shader;
         spec.Shader         = shader;
         // Reached through the one spelling the tree uses for the pipeline cache, which is how the shipping
-        // pipeline register (ShippingPipelines suite) recognises a creation site.
-        const auto pipeline = content ? m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec )
-                                      : m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        // pipeline register (ShippingPipelines suite) recognises a creation site; each answer is RETURNED
+        // into `pipeline`, which is how the refusal scanner (GraphicsPipelineRefusal) sees it read.
+        const auto pipeline = [&]
+        {
+            if ( content )
+                return m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
+            return m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        }();
         if ( !pipeline )
         {
             LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': {}", key.CellShader,

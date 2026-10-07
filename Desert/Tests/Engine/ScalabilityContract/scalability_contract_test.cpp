@@ -476,12 +476,16 @@ TEST( ScalabilityContract, AnOverrideSitsOnTopOfItsGroupLevelAndTouchesNothingEl
 
 TEST( ScalabilityContract, ASavedValueTheDeviceLacksResolvesWithOneReportedFallback )
 {
-    const ResolvedQuality r =
-         Resolve( AllAt( Level::Cinematic ), Table(), Vk::BuildCapabilityCatalog( AmdProbe() ) );
+    // The saved value is DLAA, which no catalog offers since the fixtures went DLSS-free (SCAL1-S2): the
+    // table's Cinematic row no longer carries it, so the saved selection does, as a user's override would.
+    QualitySelection s = AllAt( Level::Cinematic );
+    s.Overrides.push_back( { std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ),
+                             static_cast<ParameterValue>( AntiAliasingMethod::DLAA ) } );
+    const ResolvedQuality r = Resolve( s, Table(), Vk::BuildCapabilityCatalog( AmdProbe() ) );
     EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
     const auto count = std::count_if( r.Fallbacks.begin(), r.Fallbacks.end(),
                                       []( const Fallback& f ) { return f.Id == Parameter::AntiAliasingMethod; } );
-    EXPECT_EQ( count, 1 );
+    ASSERT_EQ( count, 1 );
     EXPECT_FALSE( FormatFallback( r.Fallbacks.front() ).empty() );
 }
 

@@ -1125,12 +1125,15 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgTransients  = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
             m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
 
-            // The compute queue is the graph's AsyncCompute pipe only when its family differs from the
-            // graphics one (VulkanPhysicalDevice falls back to the graphics family when there is none);
-            // otherwise every pass runs on Graphics and the backend's fallback log says so once.
+            // The compute queue is the graph's AsyncCompute pipe only when the catalog offers async compute
+            // (CapabilityCatalog::AsyncCompute: a separate compute family, and not a portability device whose
+            // Metal backend overlaps encoders itself) - VulkanPhysicalDevice falls back to the graphics family
+            // when there is none. Otherwise the queue set gets no compute queue, every pass runs on Graphics and
+            // the backend's fallback log says so once.
             const uint32_t graphicsFamily = device->GetPhysicalDevice()->GetGraphicsFamily();
             const uint32_t computeFamily  = device->GetPhysicalDevice()->GetComputeFamily();
-            const bool     separate       = computeFamily != graphicsFamily;
+            const bool     separate       = computeFamily != graphicsFamily &&
+                                 EngineContext::GetInstance().GetCapabilities().Catalog.AsyncCompute;
             m_FrameLoop                   = std::make_unique<VulkanFrameLoop>(
                  m_RdgDevice.Device, graphicsFamily,
                  separate ? std::optional<uint32_t>( computeFamily ) : std::nullopt, slots );

@@ -228,8 +228,10 @@ namespace
         Builder          graph( "pass-bindings-consumer" );
         const TextureRef chain   = graph.RegisterExternal( chainImage, "Bloom" );
         Verdict          verdict = Common::MakeError<std::vector<RdgResolvedEntry>>( "the pass did not run" );
+        // NeverCull: the probe's product is the verdict, not an image. A block that writes nothing (the unfilled
+        // u_Output case) makes a pass with no externally visible write, which Compile culls before its exec runs.
         graph.AddPass(
-             "PostFX: BloomUpsample1", PassFlags::Compute,
+             "PostFX: BloomUpsample1", PassFlags::Compute | PassFlags::NeverCull,
              [&]( PassBuilder& pass )
              {
                  BindingBlockBuilder declared = pass.Bindings( believed, OtherRouteFill{} );
