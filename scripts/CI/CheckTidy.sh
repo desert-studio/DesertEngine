@@ -5,6 +5,13 @@
 #   scripts/CI/CheckTidy.sh --all                 every translation unit in the workspace
 #   scripts/CI/CheckTidy.sh --register            only scripts/CI/TidyRegister.txt
 #
+# Sharding (CI runs the changed-lines mode as a matrix; locally nothing changes without these):
+#   scripts/CI/CheckTidy.sh --plan [<base>]       print `files=`, `shards=`, `matrix=` for $GITHUB_OUTPUT
+#                                                 (no analyser needed — the plan job runs on ubuntu)
+#   scripts/CI/CheckTidy.sh --shard I/N [<base>]  analyse only shard I of N: the changed files and the
+#                                                 register rows whose sorted index is I-1 modulo N. The
+#                                                 union of 1/N..N/N is exactly the unsharded run.
+#
 # Exit codes, and they are the interface: 0 clean, 1 findings, 2 THE GATE COULD NOT RUN.
 # 2 exists for the same reason it exists in CheckFormat.sh: this project's most frequent defect is an
 # instrument that answers a different question with nothing in its output to say so. A missing
@@ -13,6 +20,94 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
+
+# ------------------------------------------------------------------------------------------------------
+# ARGUMENTS. --shard may sit before or after the base; everything else keeps its old position.
+SHARD_I=1
+SHARD_N=1
+MODE=""
+ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --shard)
+            spec="${2:-}"
+            if [[ ! "$spec" =~ ^[0-9]+/[0-9]+$ ]]; then
+                echo "clang-tidy: --shard needs I/N, got '$spec'." >&2
+                exit 2
+            fi
+            shift 2
+            SHARD_I=$((10#${spec%%/*}))
+            SHARD_N=$((10#${spec#*/}))
+            if [ "$SHARD_N" -lt 1 ] || [ "$SHARD_I" -lt 1 ] || [ "$SHARD_I" -gt "$SHARD_N" ]; then
+                echo "clang-tidy: --shard '$spec' is out of range (need 1 <= I <= N)." >&2
+                exit 2
+            fi
+            ;;
+        --plan|--all|--register) MODE="$1"; shift ;;
+        *) ARGS+=("$1"); shift ;;
+    esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
+# TakeShard: keep the lines of stdin whose index (0-based, in the order given) is SHARD_I-1 modulo
+# SHARD_N. Callers hand it a SORTED list, so the partition depends only on the list and on N — the plan
+# job and every shard compute the same split without exchanging anything but N.
+TakeShard() {
+    awk -v i="$SHARD_I" -v n="$SHARD_N" 'NF { if ((k++ % n) == i - 1) print }'
+}
+
+# THE CHANGED LIST HAS ONE HOME, because the plan job counts it and the shards split it: two spellings
+# of the same `git diff` would let the plan size the matrix over one list while the shards partition
+# another.
+# WHY CHANGED LINES AND NOT THE WHOLE TREE: measured on this commit with `--all`, the check set in
+# .clang-tidy reports 727 689 diagnostics over the 565 distinct translation units of the
+# workspace (912 database entries; a source compiled by several test projects is one unit here), which
+# collapse to 67 406 distinct source locations once the same header seen from many units is
+# counted once. A whole-tree gate would be red on day one and stay red, so it would be turned off —
+# which is how a config ends up in the repository that nobody runs, the exact state this task found
+# .clang-tidy in. The format gate made the same call for the same reason and the tree has been
+# converging under it ever since: code you TOUCH becomes clean.
+# THE EXTENSION LIST IS DERIVED FROM WHAT THE BUILD ACTUALLY COMPILES, not from habit. The database
+# holds .cpp AND .mm — Common/Platform/MacOS is Objective-C++ — and the tree carries two .h alongside
+# its .hpp. An extension missing from this list is the quietest possible hole in the gate: the file
+# changes, nothing matches, and the script prints "no C++ files changed" and exits 0.
+# ThirdParty is out of scope HERE for the same reason it is out of the database: GenCompileCommands.sh
+# drops every source with a `ThirdParty/` path component, so a changed vendored file (vk-bootstrap,
+# VKF1) could only ever come back as an "orphan" and fail the job as an environment error. Vendored
+# code is not ours to lint; excluding it by the same path component keeps the two lists in step.
+THIRDPARTY_PATHSPEC=':(exclude,glob)**/ThirdParty/**'
+ResolveBase() {
+    local input="${1:-origin/dev}"
+    if git rev-parse --verify -q "$input^{commit}" >/dev/null 2>&1; then
+        git merge-base HEAD "$input" 2>/dev/null || echo "$input"
+    else
+        git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD
+    fi
+}
+ChangedFiles() {   # repo-relative, sorted, the whole push (not one shard)
+    git diff --name-only --diff-filter=ACMR "$1" \
+        -- '*.cpp' '*.hpp' '*.mm' '*.h' "$THIRDPARTY_PATHSPEC" | LC_ALL=C sort
+}
+
+# HOW MANY SHARDS. Every changed file is one clang-tidy process (a header is analysed as its own unit
+# through the derived database below), so the work is the file count. CI 37580217727 is the measurement
+# that forced this: 254 changed files (127 units + headers) on a 3-core macos-14 were cancelled at the
+# 45-minute ceiling after ~10 minutes of Homebrew and premake, i.e. well over 20 s of runner CPU a file
+# rather than the 13 s a developer machine shows. 60 files a shard is ~7 minutes of analysis at 20 s,
+# ~14 at 40 s: under a third of the ceiling with room for the runner to be twice as slow again. There is
+# no upper bound on N on purpose — a bigger push gets more shards rather than a timeout.
+TIDY_FILES_PER_SHARD=60
+if [ "$MODE" = "--plan" ]; then
+    BASE=$(ResolveBase "${1:-}")
+    files=$(ChangedFiles "$BASE" | grep -c .)
+    shards=$(( (files + TIDY_FILES_PER_SHARD - 1) / TIDY_FILES_PER_SHARD ))
+    matrix="[$(awk -v n="$shards" 'BEGIN { for (k = 1; k <= n; k++) printf "%s%d", (k > 1 ? "," : ""), k }')]"
+    echo "files=$files"
+    echo "shards=$shards"
+    echo "matrix=$matrix"
+    echo "clang-tidy plan: $files changed C++ file(s) vs $BASE -> $shards shard(s) of <= $TIDY_FILES_PER_SHARD" >&2
+    exit 0
+fi
 
 # THE VERSION IS PINNED TO 18, DELIBERATELY AND FOR THE SAME REASON THE FORMATTER IS.
 # clang-tidy's check set, its fix-its and even which diagnostics exist change between releases:
@@ -129,7 +224,12 @@ RunRegister() {
 
     local checks files
     checks=$(awk '/^CHECKS:/{c=1;next} /^FILES:/{c=0} c && /^[a-z]/ {printf "%s%s", sep, $0; sep=","}' "$register")
-    files=$(awk '/^FILES:/{f=1;next} f && /^[A-Za-z]/ {print}' "$register")
+    files=$(awk '/^FILES:/{f=1;next} f && /^[A-Za-z]/ {print}' "$register" | LC_ALL=C sort)
+    # A shard runs its share of the rows, split exactly like the changed files. The emptiness check
+    # below is on the WHOLE register, so a shard that happens to get no rows is not mistaken for a
+    # register whose format broke.
+    local share
+    share=$(printf '%s\n' "$files" | TakeShard)
 
     # A REGISTER THAT CAME OUT EMPTY IS AN ENVIRONMENT FAILURE, NOT A PASS. This is the same shape the
     # exit codes at the top of this file exist for: nothing to analyse reads exactly like nothing wrong.
@@ -143,20 +243,26 @@ RunRegister() {
     local missing=""
     local absolute=""
     local row
+    # Existence is checked over EVERY row in every shard (it costs a stat), so a dangling row fails each
+    # shard the same way; only the analysis below is split.
     while IFS= read -r row; do
         [ -n "$row" ] || continue
-        if [ ! -f "$ROOT/$row" ]; then
-            missing="$missing $row"
-            continue
-        fi
-        absolute="$absolute$ROOT/$row"$'\n'
+        [ -f "$ROOT/$row" ] || missing="$missing $row"
     done <<< "$files"
+    while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        absolute="$absolute$ROOT/$row"$'\n'
+    done <<< "$share"
 
     if [ -n "$missing" ]; then
         echo "clang-tidy: the register names files that do not exist:" >&2
         printf '    %s\n' $missing >&2
         echo "A row is a claim about a file. Renaming one means moving its row, not dropping it." >&2
         return 2
+    fi
+    if [ -z "$absolute" ]; then
+        echo "clang-tidy: register shard $SHARD_I/$SHARD_N has no rows of its own"
+        return 0
     fi
 
     local rows
@@ -196,12 +302,12 @@ RunRegister() {
     return 0
 }
 
-if [ "${1:-}" = "--register" ]; then
+if [ "$MODE" = "--register" ]; then
     RunRegister
     exit $?
 fi
 
-if [ "${1:-}" = "--all" ]; then
+if [ "$MODE" = "--all" ]; then
     RCT="$(command -v run-clang-tidy-18 || echo "$TIDY_DIR/run-clang-tidy")"
     if [ ! -x "$RCT" ]; then
         echo "clang-tidy: run-clang-tidy not found beside $TIDY." >&2
@@ -214,35 +320,24 @@ if [ "${1:-}" = "--all" ]; then
     exit $RC
 fi
 
-BASE_INPUT="${1:-origin/dev}"
-if git rev-parse --verify -q "$BASE_INPUT^{commit}" >/dev/null 2>&1; then
-    BASE=$(git merge-base HEAD "$BASE_INPUT" 2>/dev/null || echo "$BASE_INPUT")
-else
-    BASE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
-fi
+BASE=$(ResolveBase "${1:-}")
 
-# WHY CHANGED LINES AND NOT THE WHOLE TREE: measured on this commit with `--all`, the check set in
-# .clang-tidy reports 727 689 diagnostics over the 565 distinct translation units of the
-# workspace (912 database entries; a source compiled by several test projects is one unit here), which
-# collapse to 67 406 distinct source locations once the same header seen from many units is
-# counted once. A whole-tree gate would be red on day one and stay red, so it would be turned off —
-# which is how a config ends up in the repository that nobody runs, the exact state this task found
-# .clang-tidy in. The format gate made the same call for the same reason and the tree has been
-# converging under it ever since: code you TOUCH becomes clean.
-# THE EXTENSION LIST IS DERIVED FROM WHAT THE BUILD ACTUALLY COMPILES, not from habit. The database
-# holds .cpp AND .mm — Common/Platform/MacOS is Objective-C++ — and the tree carries two .h alongside
-# its .hpp. An extension missing from this list is the quietest possible hole in the gate: the file
-# changes, nothing matches, and the script prints "no C++ files changed" and exits 0.
-# ThirdParty is out of scope HERE for the same reason it is out of the database: GenCompileCommands.sh
-# drops every source with a `ThirdParty/` path component, so a changed vendored file (vk-bootstrap,
-# VKF1) could only ever come back as an "orphan" and fail the job as an environment error. Vendored
-# code is not ours to lint; excluding it by the same path component keeps the two lists in step.
-THIRDPARTY_PATHSPEC=':(exclude,glob)**/ThirdParty/**'
-CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE" \
-          -- '*.cpp' '*.hpp' '*.mm' '*.h' "$THIRDPARTY_PATHSPEC" | sed "s#^#$ROOT/#")
-if [ -z "$CHANGED" ]; then
+ALL_CHANGED=$(ChangedFiles "$BASE")
+if [ -z "$ALL_CHANGED" ]; then
     echo "clang-tidy: no C++ files changed vs $BASE — nothing to analyse"
     exit 0
+fi
+# Everything below sees only this shard's files: the orphan check, the header database and the diff.
+# Unsharded (1/1) that is the whole list, so the local run is byte-for-byte what it was.
+SHARD_REL=$(printf '%s\n' "$ALL_CHANGED" | TakeShard)
+CHANGED=$(printf '%s\n' "$SHARD_REL" | sed '/^$/d' | sed "s#^#$ROOT/#")
+if [ "$SHARD_N" -gt 1 ]; then
+    echo "clang-tidy shard $SHARD_I/$SHARD_N: $(printf '%s\n' "$SHARD_REL" | grep -c .) of $(printf '%s\n' "$ALL_CHANGED" | grep -c .) changed file(s)"
+fi
+if [ -z "$CHANGED" ]; then
+    echo "clang-tidy: shard $SHARD_I/$SHARD_N has no changed files of its own (vs $BASE)"
+    RunRegister
+    exit $?
 fi
 N_CHANGED=$(printf '%s\n' "$CHANGED" | grep -c .)
 
@@ -404,9 +499,19 @@ print(f"headers given the flags of a unit that includes them: {len(extra)} of {l
     exit 2
 fi
 
+# A SHARD NARROWS THE DIFF BY clang-tidy-diff.py's OWN -regex, NOT BY A PATHSPEC. The diff stays the
+# whole push's diff; only the files the script analyses are chosen. A pathspec naming just the shard's
+# files would also cut rename detection in half — a moved file would arrive as an add, and every line
+# in it would count as changed in the shard and in no unsharded run.
+SHARD_FILTER=()
+if [ "$SHARD_N" -gt 1 ]; then
+    SHARD_FILTER=(-regex "$(printf '%s\n' "$SHARD_REL" | python3 -c '
+import re, sys
+print("(" + "|".join(re.escape(l.rstrip("\n")) for l in sys.stdin if l.strip()) + ")")')")
+fi
 OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' '*.mm' '*.h' "$THIRDPARTY_PATHSPEC" $EXCLUDE_PATHSPEC \
       | python3 -W ignore "$DIFFPY" -clang-tidy-binary "$TIDY" -p1 -path "$HDRDB" -j "$JOBS" \
-                -quiet ${EXTRA[@]+"${EXTRA[@]}"} 2>&1)
+                -quiet ${SHARD_FILTER[@]+"${SHARD_FILTER[@]}"} ${EXTRA[@]+"${EXTRA[@]}"} 2>&1)
 RC=$?
 printf '%s\n' "$OUT"
 
