@@ -579,8 +579,13 @@ namespace Desert::Graphic::System
             }
             frameState.ApplyTo( state->Instance.get() );
             auto bindings = std::make_unique<RDG::PassBindings>( context );
-            bindings->Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
-                               RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+            // Bound only where the cell's program REFLECTS it, as BindSceneViewInputs binds the view inputs (UE's
+            // pass parameters: a shader receives what it declares). The default-surface stand-in (RDG-PSO) samples
+            // no scene copy, and naming one to it fails the node ("is not a resource of shader").
+            const Shader& cellShader = *state->Material->GetMaterialExecutor()->GetShader();
+            if ( SceneViewDetail::Reflects2D( cellShader, "u_SceneColor" ) )
+                bindings->Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
+                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
             BindSceneViewInputs( *bindings, view, *state->Material->GetMaterialExecutor()->GetShader() );
             cellBindings.emplace( state, std::move( bindings ) );
         }

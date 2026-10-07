@@ -354,6 +354,20 @@ TEST( MaterialPipelines, EveryMeshGraphPassAsksTheCellChoiceBeforeRecording )
          << "the cell's readiness is decided by the AL1-12 tracker";
 }
 
+// RDG-PSO live run: the glass stand-in (the default surface) declares no u_SceneColor, and a pass parameter named
+// to a shader that does not reflect it fails the node — three whole frames dropped. The glass pass binds the scene
+// copy only to a cell that reflects it, so its stand-in executes the graph.
+TEST( MaterialPipelines, GlassBindsTheSceneCopyOnlyToACellThatReflectsIt )
+{
+    const std::string forward =
+         ReadSource( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
+    const auto guard = forward.find( "if ( SceneViewDetail::Reflects2D( cellShader, \"u_SceneColor\" ) )" );
+    const auto bind  = forward.find( "bindings->Sampled( \"u_SceneColor\"" );
+    ASSERT_NE( bind, std::string::npos );
+    EXPECT_NE( guard, std::string::npos ) << "u_SceneColor is handed to every glass cell, the stand-in included";
+    EXPECT_LT( guard, bind ) << "the scene copy is bound before the reflection is asked";
+}
+
 TEST( MaterialPipelines, OnLoadRequestsReachEveryRendererFromItsOwnCursor )
 {
     Desert::Graphic::MaterialPipelineRequests requests;
