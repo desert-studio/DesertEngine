@@ -384,7 +384,9 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                                    params.LayerBottomKm + ( static_cast<float>( at.y ) + 0.5f ) * voxelYKm,
                                    origin.y + ( static_cast<float>( at.z ) + 0.5f ) * voxelZKm );
 
-            const float expected = ClusteredProfile( clusters, point, params );
+            const float expected =
+                 ClusteredProfile( clusters, point, params ) *
+                 Desert::Assets::CloudProceduralAltitudeDensity( params.Species[0].Shape, point.y );
 
             const unsigned char actual = baked.GetValue().Voxels[VoxelIndex( at.x, at.y, at.z )];
             const double        steps  = std::abs( static_cast<double>( actual ) / 255.0 - expected ) * 255.0;
@@ -410,6 +412,52 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     EXPECT_GT( filled, ( CloudProceduralVoxelBytes( kCloudProceduralVolumeSide ) / 4u ) / 400u )
          << "under a quarter of a per cent of the volume has cloud in it, so the sky this agreed about is "
             "not one anybody would look at";
+}
+
+// H-BASE: THE CROSS-SECTION SHRINKS TOWARDS THE BASE. The altitude density multiplies the profile before the
+// coverage remap, so at the base row of a type's band the area that clears the remap's threshold is smaller
+// than a fifth of the band up, where the curve is full — the base is rounded, not the floor of a box.
+// Mutation: drop the `* CloudProceduralAltitudeDensity(...)` factor in the bake (CloudProceduralVolume.cpp,
+// the profile line) and the two areas come out equal or inverted.
+TEST( CloudProceduralField, TheCrossSectionShrinksTowardsTheBase )
+{
+    const CloudProceduralFieldParams params = MakeParams();
+    const glm::vec2                  origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+
+    const auto baked = BakeCloudProceduralVolume( params, origin );
+    ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
+    const std::vector<unsigned char>& voxels = baked.GetValue();
+
+    const Desert::Graphic::CloudTypeShape& shape    = params.Species[0].Shape;
+    const float                            voxelYKm = params.LayerThicknessKm / kCloudProceduralVolumeHeight;
+    const auto rowAt = [&]( float altitudeKm )
+    { return static_cast<uint32_t>( std::clamp( ( altitudeKm - params.LayerBottomKm ) / voxelYKm, 0.0f,
+                                                static_cast<float>( kCloudProceduralVolumeHeight - 1 ) ) ); };
+    const float bandKm = shape.TopAltitudeKm - shape.BaseAltitudeKm;
+
+    // The remap at a mid cover: g = 0.5 keeps what is deeper than half the profile.
+    const auto areaOfRow = [&]( uint32_t y )
+    {
+        size_t area = 0;
+        for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
+            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
+                area += voxels[VoxelIndex( x, y, z )] > 127u ? 1u : 0u;
+        return area;
+    };
+
+    const uint32_t baseRow = rowAt( shape.BaseAltitudeKm + 0.5f * voxelYKm );
+    const uint32_t bodyRow = rowAt( shape.BaseAltitudeKm + 0.25f * bandKm );
+    ASSERT_LT( baseRow, bodyRow );
+
+    const size_t baseArea = areaOfRow( baseRow );
+    const size_t bodyArea = areaOfRow( bodyRow );
+    std::printf( "[CloudProceduralField] cross-section past the remap: base row %u = %zu voxels, a quarter up "
+                 "row %u = %zu\n",
+                 baseRow, baseArea, bodyRow, bodyArea );
+
+    ASSERT_GT( bodyArea, 0u ) << "nothing clears the threshold a quarter up the band, so there is no body";
+    EXPECT_LT( static_cast<double>( baseArea ), 0.5 * static_cast<double>( bodyArea ) )
+         << "the base is as wide as the body: the altitude density is not reaching the profile";
 }
 
 // ---------------------------------------------------------------------------------------------------

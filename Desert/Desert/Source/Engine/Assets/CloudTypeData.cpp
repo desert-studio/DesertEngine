@@ -114,6 +114,23 @@ namespace Desert::Assets
                      halfWidth );
         }
 
+        // THE ALTITUDE DENSITY, sample by sample, and not all zero: a curve that is zero everywhere is a type
+        // whose every voxel the bake multiplies away — a sky with nothing in it and nothing in the log.
+        float densest = 0.0f;
+        for ( uint32_t i = 0; i < Graphic::kCloudProfileSamples; ++i )
+        {
+            const float density = shape.Profile.Density[i];
+            if ( !Graphic::CloudProfileDensitySampleIsLegal( density ) )
+                return Common::MakeFormattedError<bool>(
+                     "Profile.Density[{}] is {}, which is not a finite density in [0, 1]", i, density );
+            densest = std::max( densest, density );
+        }
+        if ( !( densest > 0.01f ) )
+            return Common::MakeFormattedError<bool>(
+                 "Profile.Density is {} at its densest: a type whose altitude density is zero at every height "
+                 "draws nothing",
+                 densest );
+
         // A CURVE OF ALL ZEROES IS NOT A TYPE, and it is refused here rather than drawn. Every lump would
         // be floored at the march's resolvable chord, so the sky would come out as a field of identical
         // minimum-sized specks — a shape nobody authored, produced by a clamp. The threshold is a

@@ -29,7 +29,7 @@ namespace Desert::Assets
     // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as
     // the header's one Dependency.
     inline constexpr uint32_t kCloudTypeSchemaTag     = Common::Content::FourCC( "CLTY" );
-    inline constexpr uint32_t kCloudTypeSchemaVersion = 5;
+    inline constexpr uint32_t kCloudTypeSchemaVersion = 6;
     // A .destrings: the string table file layout, stated in the header since v2 (T7b; v1 had a top-level
     // FormatVersion, absent meaning 1, and no header). v3 (AL1-7b): one file per language, the language
     // being the file's directory.

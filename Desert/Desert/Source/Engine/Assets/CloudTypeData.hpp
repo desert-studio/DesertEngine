@@ -76,6 +76,11 @@ namespace Desert::Assets
     /// VERSION 5 SINCE T7h: NoiseVolume names the volume by {Guid, Path} (the GUID its `.dcnv` envelope
     /// states) and the header's Dependencies state exactly that GUID. A version-4 file names it by a bare
     /// path and is refused by name; Tools/SceneMigrator reads the GUID out of the named volume once.
+    ///
+    /// VERSION 6 SINCE H-BASE: `Profile.Density` — the altitude density H(t) on the silhouette's sixteen
+    /// heights, multiplied into the profile before the coverage remap (Graphic::CloudVerticalProfile). A
+    /// version-5 file has no curve and is refused by name; Tools/SceneMigrator (MigrateCloudTypeV5ToV6)
+    /// writes Graphic::CloudProfileDensityBaseRamp into it once.
     inline constexpr int32_t kCloudTypeFormatVersion = static_cast<int32_t>( kCloudTypeSchemaVersion );
 
     /// The subsystem versions a .decloudtype of this build states: the cloud type schema, and nothing else.

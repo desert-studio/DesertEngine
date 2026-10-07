@@ -45,6 +45,7 @@
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
+#include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
@@ -1251,6 +1252,7 @@ namespace Desert::Migration
         }
 
         int foliageRaised    = 0;
+        int cloudTypesRaised = 0;
         int animGraphsRaised = 0;
 
         // ANIM-SKELREF: what the TargetSkeleton step matches a graph, rig or retarget against - every rig's bones,
@@ -1347,6 +1349,30 @@ namespace Desert::Migration
                         continue;
                     }
                     ++animGraphsRaised;
+                    continue;
+                }
+            }
+            // CLTY 5 -> 6 (H-BASE): the altitude density curve.
+            if ( path.extension() == Desert::Assets::kCloudTypeExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "CLTY" );
+                if ( stated && stated.GetValue() == 5u )
+                {
+                    const auto raised = Desert::Migration::MigrateCloudTypeV5ToV6( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — CLTY 5 -> 6: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " CLTY 5 -> "
+                        << Desert::Assets::kCloudTypeSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++cloudTypesRaised;
                     continue;
                 }
             }
@@ -1456,7 +1482,8 @@ namespace Desert::Migration
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
             << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
-            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << animGraphsRaised
+            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << cloudTypesRaised
+            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << animGraphsRaised
             << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
             << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << recordsStated
@@ -1468,7 +1495,7 @@ namespace Desert::Migration
         if ( failed > 0 )
             return 1;
         return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
-                            animGraphsRaised > 0 || meshesRaised > 0 || recordsStated > 0 ) )
+                            cloudTypesRaised > 0 || animGraphsRaised > 0 || meshesRaised > 0 || recordsStated > 0 ) )
                     ? 1
                     : 0;
     }

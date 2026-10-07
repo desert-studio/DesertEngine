@@ -776,6 +776,8 @@ namespace Desert::Assets
             KeyF32( out, shape.BaseRampFraction );
             for ( const float halfWidth : shape.Profile.HalfWidth )
                 KeyF32( out, halfWidth );
+            for ( const float density : shape.Profile.Density )
+                KeyF32( out, density );
             KeyF32( out, shape.AnvilAltitudeKm );
             KeyF32( out, shape.AnvilThicknessKm );
             KeyF32( out, shape.AnvilStrength );
@@ -1963,7 +1965,13 @@ namespace Desert::Assets
                                  // is Guerrilla's own quantity (deck p.85) obtained analytically rather than by a
                                  // distance transform — and the normalised distance field variant C §3 point 2
                                  // asks the profile to BE.
-                                 const float profile = std::clamp( -joined * invProfile, 0.0f, 1.0f );
+                                 //
+                                 // TIMES THE TYPE'S ALTITUDE DENSITY H (H-BASE), here and not in the march: the
+                                 // form the remap cuts is profile * H, so a base where H rises from zero is eaten
+                                 // first and rounds off rather than standing as the flat floor of the band.
+                                 const float profile =
+                                      std::clamp( -joined * invProfile, 0.0f, 1.0f ) *
+                                      CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY );
 
                                  const size_t at = ( ( static_cast<size_t>( z ) * height + y ) * width + x ) *
                                                    kCloudProceduralBytesPerVoxel;

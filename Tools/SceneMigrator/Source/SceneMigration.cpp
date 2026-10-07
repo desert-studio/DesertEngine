@@ -1624,6 +1624,86 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
+    namespace
+    {
+        // CLTY 5 as it was written: the shape with a silhouette and no altitude density.
+        struct CloudVerticalProfileV5
+        {
+            std::array<float, Graphic::kCloudProfileSamples> HalfWidth;
+        };
+        struct CloudTypeShapeV5
+        {
+            float                  BaseAltitudeKm;
+            float                  TopAltitudeKm;
+            float                  EdgeTopFraction;
+            float                  BaseRampFraction;
+            CloudVerticalProfileV5 Profile;
+            float                  AnvilAltitudeKm;
+            float                  AnvilThicknessKm;
+            float                  AnvilStrength;
+            float                  DetailCharacter;
+            float                  DetailFactor;
+            float                  DensityFactor;
+            float                  ExtinctionFactor;
+            float                  PlacementScale;
+            float                  PlacementAnisotropy;
+        };
+        struct CloudTypeDataV5
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            std::optional<std::string>                                DisplayName;
+            std::optional<std::string>                                Notes;
+            std::optional<Assets::AssetGuidRef>                       NoiseVolume;
+            CloudTypeShapeV5                                          Shape;
+        };
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateCloudTypeV5ToV6( const std::string& text )
+    {
+        const auto v5 = Common::Json::Read<CloudTypeDataV5>( text );
+        if ( !v5 )
+            return Common::MakeFormattedError<std::string>( "CLTY 5 body does not read: {}", v5.GetError() );
+        const CloudTypeDataV5& old = v5.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header, and this step raises CLTY 5 only" );
+        const auto stated = old.Header->Versions.find( "CLTY" );
+        if ( stated == old.Header->Versions.end() || stated->second != 5u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states CLTY {}, and this step raises CLTY 5 only",
+                 stated == old.Header->Versions.end() ? std::string( "nothing" ) : std::to_string( stated->second ) );
+
+        Assets::CloudTypeData data;
+        data.Header      = old.Header;
+        data.DisplayName = old.DisplayName;
+        data.Notes       = old.Notes;
+        data.NoiseVolume = old.NoiseVolume;
+
+        const CloudTypeShapeV5& from = old.Shape;
+        Graphic::CloudTypeShape& to  = data.Shape;
+        to.BaseAltitudeKm            = from.BaseAltitudeKm;
+        to.TopAltitudeKm             = from.TopAltitudeKm;
+        to.EdgeTopFraction           = from.EdgeTopFraction;
+        to.BaseRampFraction          = from.BaseRampFraction;
+        to.Profile.HalfWidth         = from.Profile.HalfWidth;
+        to.Profile.Density           = Graphic::CloudProfileDensityBaseRamp();
+        to.AnvilAltitudeKm           = from.AnvilAltitudeKm;
+        to.AnvilThicknessKm          = from.AnvilThicknessKm;
+        to.AnvilStrength             = from.AnvilStrength;
+        to.DetailCharacter           = from.DetailCharacter;
+        to.DetailFactor              = from.DetailFactor;
+        to.DensityFactor             = from.DensityFactor;
+        to.ExtinctionFactor          = from.ExtinctionFactor;
+        to.PlacementScale            = from.PlacementScale;
+        to.PlacementAnisotropy       = from.PlacementAnisotropy;
+
+        // WriteCloudType stamps the header at the engine's CLTY and keeps the loaded GUID.
+        std::string written = Assets::WriteCloudType( data );
+        if ( auto reread = Assets::ParseCloudType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as CLTY 6: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
     Common::ResultStr<std::string> MigrateFoliageTypeV6ToV7( const std::string& text )
     {
         if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 6u )

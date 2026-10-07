@@ -405,6 +405,22 @@ namespace Desert::Editor
             ImGui::TreePop();
         }
 
+        // THE ALTITUDE DENSITY H (format version 6): how much matter the type has at each of the same sixteen
+        // heights, multiplied into the profile before the coverage remap. Its rising part is the wispy base.
+        if ( ImGui::TreeNode( "Altitude density (base first)" ) )
+        {
+            for ( uint32_t row = 0; row < Graphic::kCloudProfileSamples; row += 4 )
+            {
+                ImGui::PushID( static_cast<int>( row ) + 100 );
+                ImGui::SetNextItemWidth( -1.0f );
+                ImGui::DragFloat4( "##densityRow", &profile.Density[row], 0.005f, 0.0f, 1.0f, "%.3f" );
+                ImGui::PopID();
+            }
+            if ( ImGui::Button( "Base ramp" ) )
+                profile.Density = Graphic::CloudProfileDensityBaseRamp();
+            ImGui::TreePop();
+        }
+
         // THE PRESETS ARE THE ENGINE'S OWN FUNCTIONS, not a second set of numbers written out here. The
         // tower and the deck are what the delivery frames were shot with and what the tests assert
         // against, so a preset that drifted from them would make the panel and the evidence disagree.

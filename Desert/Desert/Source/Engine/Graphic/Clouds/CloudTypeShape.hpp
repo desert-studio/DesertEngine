@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <vector>
 
 namespace Desert::Graphic
@@ -106,7 +107,70 @@ namespace Desert::Graphic
         // last wrote and compares the working state against it. Cheap because these are small.
         [[nodiscard]] bool                      operator==( const CloudVerticalProfile& ) const = default;
         std::array<float, kCloudProfileSamples> HalfWidth;
+
+        // THE ALTITUDE DENSITY H(t) (H-BASE, format version 6): how much of the type's matter there is at
+        // height fraction t of its band, in [0, 1], on the same sixteen heights as HalfWidth. Unreal's
+        // VolumetricCloud material multiplies its profile by a curve of NormAltitudeInLayer; Nubis (2015,
+        // 2017) by a height gradient per cloud type. Both do it BEFORE the coverage remap, and that order
+        // is the point: remap(profile * H, 1 - g, 1, 0, 1) cuts hardest where H is small, so the base
+        // rounds off and its corners are eaten instead of standing as the flat floor of a box. The bake
+        // applies it (Assets::CloudProceduralAltitudeDensity), so the march's form is profile * H.
+        //
+        // THE RISING PART IS ALSO WHERE THE EDGE TURNS WISPY: up to the first sample at the curve's
+        // maximum (CloudProfileWispTopFraction) the march blends the type's DetailCharacter towards 0,
+        // which is Nubis' wispy-at-the-base, billowy-above erosion — one authority for both.
+        std::array<float, kCloudProfileSamples> Density;
     };
+
+    /// THE SHIPPED ALTITUDE DENSITY: zero at the base, a smoothstep to full over the lowest fifth of the
+    /// band, full above it — the cumulus gradient of Nubis 2015 and the default ramp of Unreal's cloud
+    /// altitude curve. What every generator below writes and what Tools/SceneMigrator gave the nine shipped
+    /// types when the format moved to version 6.
+    constexpr std::array<float, kCloudProfileSamples> CloudProfileDensityBaseRamp()
+    {
+        constexpr uint32_t last     = kCloudProfileSamples - 1;
+        constexpr float    rampTopT = 0.2f;
+
+        std::array<float, kCloudProfileSamples> density{};
+        for ( uint32_t i = 0; i <= last; ++i )
+        {
+            const float t = static_cast<float>( i ) / static_cast<float>( last );
+            const float x = std::clamp( t / rampTopT, 0.0f, 1.0f );
+            density[i]    = x * x * ( 3.0f - 2.0f * x );
+        }
+        return density;
+    }
+
+    /// H at height fraction @p t of the band: linear between samples, clamped outside — the same reading
+    /// CloudProfileHalfWidth makes of the silhouette, for the same reason (no overshoot past the authored).
+    inline float CloudProfileDensity( const CloudVerticalProfile& profile, float t )
+    {
+        constexpr uint32_t last = kCloudProfileSamples - 1;
+
+        const float clamped  = std::clamp( t, 0.0f, 1.0f );
+        const float position = clamped * static_cast<float>( last );
+
+        const uint32_t low      = std::min( static_cast<uint32_t>( position ), last );
+        const uint32_t high     = std::min( low + 1u, last );
+        const float    fraction = position - static_cast<float>( low );
+
+        return profile.Density[low] + ( profile.Density[high] - profile.Density[low] ) * fraction;
+    }
+
+    /// Where the wispy base ends: the height fraction of the FIRST sample at the curve's maximum. Below it
+    /// the density is still rising and the edge is wispy; above it the type's own DetailCharacter stands.
+    inline float CloudProfileWispTopFraction( const CloudVerticalProfile& profile )
+    {
+        const auto peak = std::max_element( profile.Density.begin(), profile.Density.end() );
+        return static_cast<float>( std::distance( profile.Density.begin(), peak ) ) /
+               static_cast<float>( kCloudProfileSamples - 1 );
+    }
+
+    /// A density sample the validator accepts: finite and in [0, 1].
+    inline bool CloudProfileDensitySampleIsLegal( float density )
+    {
+        return std::isfinite( density ) && density >= 0.0f && density <= 1.0f;
+    }
 
     /// The half-width at height fraction @p t up the type's band, in cluster radii.
     ///
@@ -157,6 +221,7 @@ namespace Desert::Graphic
             const float t        = static_cast<float>( i ) / static_cast<float>( last );
             profile.HalfWidth[i] = ( 0.62f - 0.16f * t ) * ( 1.0f - 0.5f * clamped * t );
         }
+        profile.Density = CloudProfileDensityBaseRamp();
         return profile;
     }
 
@@ -179,6 +244,7 @@ namespace Desert::Graphic
     {
         CloudVerticalProfile profile{};
         profile.HalfWidth.fill( 0.62f );
+        profile.Density = CloudProfileDensityBaseRamp();
         return profile;
     }
 
@@ -212,6 +278,7 @@ namespace Desert::Graphic
             const float lobe     = std::cos( ( t - 0.75f ) * 3.14159265f / 0.62f );
             profile.HalfWidth[i] = 0.15f + 0.77f * std::max( lobe, 0.0f );
         }
+        profile.Density = CloudProfileDensityBaseRamp();
         return profile;
     }
 

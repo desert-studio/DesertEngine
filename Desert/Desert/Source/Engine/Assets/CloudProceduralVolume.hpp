@@ -826,6 +826,17 @@ namespace Desert::Assets
     /// THE CUT the march makes (the CPU mirror of the shader's keep): a cluster exists when its core rank is
     /// under the local cover. Half a byte of offset so that a cover of 0 keeps nothing and 1 keeps every
     /// cluster; kCloudProceduralNoRank is never kept.
+    /// THE ALTITUDE DENSITY H (H-BASE) the bake multiplies a species' profile by at altitude @p altitudeKm:
+    /// the type's Profile.Density at the height fraction of its own band. Unreal's altitude curve and Nubis'
+    /// height gradient, applied BEFORE the march's coverage remap so the threshold eats the base and its
+    /// corners first. Zero outside the band would be a second clamp of what the lumps already respect, so
+    /// the curve is simply clamped at its ends.
+    inline float CloudProceduralAltitudeDensity( const Graphic::CloudTypeShape& shape, float altitudeKm )
+    {
+        const float bandKm = std::max( shape.TopAltitudeKm - shape.BaseAltitudeKm, 1e-4f );
+        return Graphic::CloudProfileDensity( shape.Profile, ( altitudeKm - shape.BaseAltitudeKm ) / bandKm );
+    }
+
     inline bool CloudProceduralKeep( unsigned char core, float localCover )
     {
         return ( static_cast<float>( core ) + 0.5f ) / 255.0f < localCover;
@@ -871,7 +882,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000000bULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000000cULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
