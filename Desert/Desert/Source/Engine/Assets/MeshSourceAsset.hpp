@@ -102,7 +102,7 @@ namespace Desert::Assets
         // import (CheckSkeletonAssignment) - never a new .skeleton in its place.
         std::optional<Common::Content::AssetGuid> Skeleton;
         // How the file's FBX Specular map enters the material (ImportManager, before the template fill).
-        FbxSpecularMap SpecularMap = FbxSpecularMap::Specular;
+        FbxSpecularMap SpecularMap                                     = FbxSpecularMap::Specular;
         bool           operator==( const SourceImportSettings& ) const = default;
     };
 

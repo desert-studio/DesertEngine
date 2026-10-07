@@ -183,8 +183,9 @@ namespace Desert::Editor
     {
         if ( meaning != Assets::FbxSpecularMap::OcclusionRoughnessMetallic )
             return material;
-        if ( auto node = material.Entries.extract( kFbxSpecularMapKey ) )
+        if ( const auto found = material.Entries.find( kFbxSpecularMapKey ); found != material.Entries.end() )
         {
+            auto node  = material.Entries.extract( found );
             node.key() = std::string( kFbxOcclusionRoughnessMetalKey );
             material.Entries.insert( std::move( node ) );
         }

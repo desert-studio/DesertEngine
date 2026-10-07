@@ -12,7 +12,8 @@ namespace Desert::Assets::Serialization
 {
     SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings )
     {
-        return { settings.CombineMeshes, settings.Mesh.UniformScale,
+        return { settings.CombineMeshes,
+                 settings.Mesh.UniformScale,
                  std::string( Assets::MeshSourceUpAxisName( settings.Mesh.UpAxis ) ),
                  std::string( Assets::MeshLodPolicyName( settings.Mesh.LodPolicy ) ),
                  settings.Skeleton

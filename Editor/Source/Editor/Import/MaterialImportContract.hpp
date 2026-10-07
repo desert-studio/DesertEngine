@@ -107,7 +107,7 @@ namespace Desert::Editor
     // the template fill. The adapter carries the map under FBX's own name, `fbx.SpecularColor` (UE links it to
     // the Specular input); `OcclusionRoughnessMetallic` re-keys it to `fbx.OcclusionRoughnessMetallic`, which
     // a template routes channel by channel (StandardSurface: the ORM slot, R/G/B as they stand).
-    inline constexpr std::string_view kFbxSpecularMapKey           = "fbx.SpecularColor";
+    inline constexpr std::string_view kFbxSpecularMapKey             = "fbx.SpecularColor";
     inline constexpr std::string_view kFbxOcclusionRoughnessMetalKey = "fbx.OcclusionRoughnessMetallic";
     SourceMaterial WithFbxSpecularMap( SourceMaterial material, Assets::FbxSpecularMap meaning );
 

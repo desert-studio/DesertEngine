@@ -650,9 +650,9 @@ namespace
 {
     SourceMaterial FbxWithSpecularMap()
     {
-        aiMaterial      mat;
-        const aiString  albedo( "Bistro_BaseColor.png" );
-        const aiString  specular( "Bistro_Specular.png" );
+        aiMaterial     mat;
+        const aiString albedo( "Bistro_BaseColor.png" );
+        const aiString specular( "Bistro_Specular.png" );
         mat.AddProperty( &albedo, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
         mat.AddProperty( &specular, AI_MATKEY_TEXTURE( aiTextureType_SPECULAR, 0 ) );
         return ReadSourceMaterial( mat, SourceFormatOf( "BistroExterior.fbx" ), "Paris_Wall",
@@ -663,11 +663,13 @@ namespace
 
 TEST( MaterialImportAdapter, AnFbxSpecularMapIsNamedUnreadUnderItsOwnMeaning )
 {
-    const SourceMaterial source = WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::Specular );
+    const SourceMaterial source =
+         WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::Specular );
     ASSERT_TRUE( source.Has( kFbxSpecularMapKey ) ) << "the adapter dropped the FBX Specular map";
     const TemplateFill fill = FillFromTemplate( source, Template( "PBR/StandardSurface.shader" ) );
     EXPECT_NE( std::ranges::find( fill.UnreadKeys, kFbxSpecularMapKey ), fill.UnreadKeys.end() );
-    EXPECT_EQ( Slot( fill, "u_ORMTexture" ), nullptr ) << "a specular-colour image is not occlusion/roughness/metal";
+    EXPECT_EQ( Slot( fill, "u_ORMTexture" ), nullptr )
+         << "a specular-colour image is not occlusion/roughness/metal";
     EXPECT_NE( UnreadKeyHint( kFbxSpecularMapKey ).find( "FBX Specular Map" ), std::string_view::npos )
          << "the warning must name the setting that states the map's meaning";
     EXPECT_TRUE( UnreadKeyHint( "fbx.GlossinessMap" ).empty() );
