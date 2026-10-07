@@ -26,9 +26,10 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::DeclareRSMDraws( RDG::PassBuilder& pass )
     {
-        // Reuses the G-buffer SHADER and attachment layout — the RSM framebuffer is created to match, so
-        // the two are render-pass compatible and the shader's four outputs line up. The pipeline is its
-        // own (standard-Z, see SetupDeferredPass) and so is the camera.
+        // The G-buffer program under DESERT_GBUFFER_RSM (no shading-word output) into the RSM framebuffer, whose
+        // colour slots are ViewTargetFormats::kRSMColourSlots (slot 2 unused). The pipeline is its own (standard-Z,
+        // see SetupGBufferPass) and so is the camera. Only static meshes are bounce sources: no other renderer
+        // (terrain, foliage, skinned) draws into the RSM — census ShaderVariantDefines.OnlyTheMeshRendererDrawsTheRSM.
         m_RSMDraws.Clear();
         if ( !m_RSMPipeline || !m_RSMMaterial || !m_RSMInstance || m_StaticQueue.empty() )
             return;

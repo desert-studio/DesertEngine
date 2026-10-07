@@ -586,6 +586,73 @@ TEST( ShaderVariantDefines, TheRSMPipelineIsBuiltFromTheRSMPermutation )
          << "Pass_GBuffer writes the shading word in the RSM permutation too.";
 }
 
+TEST( ShaderVariantDefines, OnlyTheMeshRendererDrawsTheRSM )
+{
+    // The RSM framebuffer's colour slot 2 is unused (ViewTargetFormats::kRSMColourSlots), so every pipeline that
+    // draws into it must be built from the DESERT_GBUFFER_RSM permutation (TheRSMPipelineIsBuiltFromTheRSMPermutation).
+    // That holds because exactly one drawer exists: the "Deferred: RSM" pass records MeshRenderer's RSM draw list and
+    // nothing else, every draw on that list is m_RSMPipeline, and no other renderer (terrain, foliage, particles)
+    // reaches the RSM framebuffer. A second drawer must come with its own RSM permutation — this census goes red first.
+    const auto read = []( const std::filesystem::path& path )
+    {
+        std::ifstream in( path, std::ios::binary );
+        std::string   text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+        return text;
+    };
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
+
+    const std::string frame = read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
+    ASSERT_FALSE( frame.empty() );
+    EXPECT_NE( frame.find( "{returnmeshRenderer->RenderRSMManual(context);},[meshRenderer](RDG::PassBuilder&pass)"
+                           "{meshRenderer->DeclareRSMDraws(pass);});" ),
+               std::string::npos )
+         << "the \"Deferred: RSM\" pass records something besides MeshRenderer's RSM draw list.";
+
+    const std::string shadow =
+         read( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp" );
+    ASSERT_FALSE( shadow.empty() );
+    std::size_t adds = 0;
+    for ( auto at = shadow.find( "m_RSMDraws.Add(" ); at != std::string::npos;
+          at      = shadow.find( "m_RSMDraws.Add(", at + 1 ) )
+    {
+        ++adds;
+        EXPECT_EQ( shadow.compare( at, 46, "m_RSMDraws.Add({.Pipeline=m_RSMPipeline.get()," ), 0 )
+             << "an RSM draw does not use the RSM-permutation pipeline.";
+    }
+    EXPECT_EQ( adds, 1u );
+
+    // Who can reach the RSM framebuffer: the scene renderer that owns it, and MeshRenderer's RSM draw list.
+    const std::set<std::string> allowed = { "SceneRenderer.cpp", "SceneRenderer.hpp", "SceneRendererFrameMesh.cpp",
+                                            "SceneRendererFrameDeferred.cpp", "MeshRendererShadow.cpp" };
+    std::vector<std::string>    reach;
+    for ( const char* dir : { "Desert/Desert/Source", "Editor/Source", "Runtime/Source" } )
+    {
+        if ( !std::filesystem::exists( root / dir ) )
+            continue;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / dir ) )
+        {
+            const auto ext = entry.path().extension();
+            if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                continue;
+            const std::string text  = read( entry.path() );
+            const bool        named = text.find( "GetRSMBuffer(" ) != std::string::npos ||
+                                text.find( "m_RSMBuffer" ) != std::string::npos;
+            if ( named && !allowed.contains( entry.path().filename().string() ) )
+                reach.push_back( entry.path().filename().string() );
+        }
+    }
+    EXPECT_TRUE( reach.empty() ) << "reaches the RSM framebuffer outside SceneRenderer / MeshRenderer's RSM list: "
+                                 << ::testing::PrintToString( reach );
+    const std::filesystem::path terrain = root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain";
+    ASSERT_TRUE( std::filesystem::exists( terrain ) );
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( terrain ) )
+        if ( entry.is_regular_file() )
+            EXPECT_EQ( read( entry.path() ).find( "RSM" ), std::string::npos )
+                 << entry.path().filename().string()
+                 << " mentions the RSM: a terrain RSM draw needs the DESERT_GBUFFER_RSM permutation and kRSMColourSlots.";
+}
+
 TEST_F( ShaderCacheKeyShaderRoot, TheClosureFollowsASubstitutedBodyRatherThanTheFileOnDisk )
 {
     // A generated medium may include a header of its own. Walking the FILE instead would leave that
