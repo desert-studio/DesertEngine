@@ -141,7 +141,7 @@ REM unfiltered copy carried them. A FRESH CHECKOUT holds zero — Finder is what
 REM never saw one, and looking there says the hazard does not exist. Windows contributes Thumbs.db and
 REM desktop.ini the same way.
 REM ---------------------------------------------------------------------------
-for %%T in (Branding Engine Shaders Fonts Icons Splash) do (
+for %%T in (Branding Config Engine Shaders Fonts Icons Splash) do (
     if not exist "%ROOT%\Editor\Resources\%%T" (
         echo Package.bat: engine resource tree Editor\Resources\%%T is missing 1>&2
         exit /b 1
