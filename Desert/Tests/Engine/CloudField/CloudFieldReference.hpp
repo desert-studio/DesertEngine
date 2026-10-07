@@ -66,8 +66,10 @@ namespace Desert::Tests::CloudFieldRef
         using glm::abs;
         using glm::clamp;
         using glm::dot;
+        using glm::exp;
         using glm::floor;
         using glm::length;
+        using glm::log;
         using glm::max;
         using glm::min;
         using glm::mix;
@@ -75,8 +77,6 @@ namespace Desert::Tests::CloudFieldRef
         using glm::pow;
         using glm::smoothstep;
         using glm::sqrt;
-        using glm::exp;
-        using glm::log;
 
         DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
 #include <Common/CloudNoise.glslh>
@@ -511,11 +511,12 @@ namespace Desert::Tests::CloudFieldRef
         // The cut's three inputs, from the very functions the renderer uploads: the bake's rank, the world
         // weather at its point (the map IS this field — Assets::BakeCloudFarWeatherMap samples it), and
         // CloudFarWeatherUniform of the bound bake's parameters.
-#define CLOUD_SAMPLE_MODELLING_RANK( p )                                                                         \
-    CloudSampleRankBytes( ModellingVolume().Ranks ? *ModellingVolume().Ranks : std::vector<unsigned char>{}, ( p ) )
-#define CLOUD_SAMPLE_WEATHER( uv )                                                                               \
-    Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( ModellingVolume().Params ),            \
-                                     ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                          \
+#define CLOUD_SAMPLE_MODELLING_RANK( p )                                                                          \
+    CloudSampleRankBytes( ModellingVolume().Ranks ? *ModellingVolume().Ranks : std::vector<unsigned char>{},      \
+                          ( p ) )
+#define CLOUD_SAMPLE_WEATHER( uv )                                                                                \
+    Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( ModellingVolume().Params ),             \
+                                     ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \
                                      ModellingVolume().Params.PatchTileKm )
 #define CLOUD_WEATHER Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params )
 

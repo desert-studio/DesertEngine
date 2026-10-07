@@ -57,16 +57,16 @@ namespace Desert::Tests::CloudAuthoredRef
         using glm::abs;
         using glm::clamp;
         using glm::dot;
+        using glm::exp;
         using glm::floor;
         using glm::length;
+        using glm::log;
         using glm::max;
         using glm::min;
         using glm::mix;
         using glm::mod;
         using glm::pow;
         using glm::smoothstep;
-        using glm::exp;
-        using glm::log;
         using glm::sqrt;
 
         DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
@@ -262,7 +262,6 @@ namespace Desert::Tests::CloudAuthoredRef
             return plane( z0 ) * ( 1.0f - fz ) + plane( z1 ) * fz;
         }
 
-
         // THE R8 RANK, read as the device reads an R8_UNORM volume: trilinear, REPEAT, byte / 255.
         float CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
         {
@@ -309,9 +308,9 @@ namespace Desert::Tests::CloudAuthoredRef
 
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleProceduralTexture( p )
 #define CLOUD_SAMPLE_MODELLING_RANK( p ) CloudSampleRankBytes( Procedural( BoundCoverage() ).Ranks, ( p ) )
-#define CLOUD_SAMPLE_WEATHER( uv )                                                                               \
+#define CLOUD_SAMPLE_WEATHER( uv )                                                                                \
     Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( Procedural( BoundCoverage() ).Params ), \
-                                     ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                          \
+                                     ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \
                                      Procedural( BoundCoverage() ).Params.PatchTileKm )
 #define CLOUD_WEATHER Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params )
 

@@ -2061,8 +2061,8 @@ namespace Desert::Graphic::System
                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_MarchPipeline->SetInput( kCloudModellingRankBinding, m_ModellingRank.get(),
                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            m_MarchPipeline->SetInput( kCloudFarWeatherBinding, m_FarWeatherMap.get(),
-                                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_MarchPipeline->SetInput( kCloudFarWeatherBinding, m_FarWeatherMap.get(), RDG::Access::SampledCompute,
+                                       RDG::SubresourceRange::All() );
 
             // ALWAYS bound, even when the payload's gate says it will not be read: a declared sampler with no
             // image is an invalid descriptor set, not an unused one, and this backend answers an invalid set

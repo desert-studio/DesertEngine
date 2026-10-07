@@ -2499,18 +2499,19 @@ TEST( CloudFieldCut, TheShadersCutIsCloudProceduralKeepAgainstTheLocalCover )
     for ( int iz = 0; iz < side; iz += 5 )
         for ( int ix = 0; ix < side; ix += 5 )
         {
-            const vec2  worldKm = state.OriginKm + vec2( ( ix + 0.5f ) / side, ( iz + 0.5f ) / side ) *
-                                                       state.Params.RegionSizeKm;
+            const vec2 worldKm =
+                 state.OriginKm + vec2( ( ix + 0.5f ) / side, ( iz + 0.5f ) / side ) * state.Params.RegionSizeKm;
             const float gpuCover = CloudLocalCover( weather, worldKm );
             const float cpuCover = Desert::Assets::CloudProceduralLocalCover( state.Params, worldKm );
 
             for ( int iy = 0; iy < height; iy += 3 )
             {
-                const vec3 uvw( ( ix + 0.5f ) / side, ( iy + 0.5f ) / height, ( iz + 0.5f ) / side );
+                const vec3          uvw( ( ix + 0.5f ) / side, ( iy + 0.5f ) / height, ( iz + 0.5f ) / side );
                 const unsigned char rank =
                      ( *state.Ranks )[( static_cast<size_t>( iz ) * height + iy ) * side + ix];
 
-                const bool gpuKeeps = CloudRankProfile( CLOUD_SAMPLE_MODELLING_RANK( uvw ), gpuCover, weather.z ) > 0.0f;
+                const bool gpuKeeps =
+                     CloudRankProfile( CLOUD_SAMPLE_MODELLING_RANK( uvw ), gpuCover, weather.z ) > 0.0f;
                 const bool cpuKeeps = Desert::Assets::CloudProceduralKeep( rank, cpuCover );
 
                 ++compared;

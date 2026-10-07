@@ -173,8 +173,8 @@ namespace Desert::Graphic
     // AND IT GREW BY SIXTEEN THREE TIMES. The third is Weather — the cut the march makes against the rank,
     // which the bake stopped making when the world weather moved to the march (FARWX).
     //
-    // AND IT GREW BY SIXTEEN TWICE BEFORE THAT. Once for SpeciesNoise — the price of a type's noise volume reaching
-    // the march at all; until it was paid, three of a layer's four slots could name a volume the frame
+    // AND IT GREW BY SIXTEEN TWICE BEFORE THAT. Once for SpeciesNoise — the price of a type's noise volume
+    // reaching the march at all; until it was paid, three of a layer's four slots could name a volume the frame
     // never read. Once for Albedo, which is the price of the scattering albedo being a COLOUR: a vec4 is
     // the smallest shape three contiguous components fit in.
     static_assert( sizeof( CloudGpuPayload ) == 300,
