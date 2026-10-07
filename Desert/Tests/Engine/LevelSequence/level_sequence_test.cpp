@@ -455,6 +455,8 @@ TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
     EXPECT_FALSE( world.registry.has<ECS::VisibilityComponent>( world.other ) );
 }
 
+namespace
+{
 // The suite's stand-in for MeshECSSystem's per-entity slot instances: (entity, slot, parameter) → override.
 // The "asset" is a separate value no Set may reach — what the material asset says before and after.
 struct FakeMaterialSlots
@@ -487,6 +489,7 @@ struct FakeMaterialSlots
         return access;
     }
 };
+} // namespace
 
 TEST( LevelSequenceDocument, AMaterialParameterTrackDrivesTheActorsSlotOverrideNotTheAsset )
 {
