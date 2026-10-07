@@ -26,6 +26,9 @@ PushConstant PushConstants
     mat4 Transform;     // offset 0
     uint MaterialIndex; // offset 64 — the row in Materials[]
     uint BoneOffset;    // offset 68 — skinned vertex only: first bone of THIS draw in BoneMatrices[] (Material::SetSkinnedBoneOffset)
+    uint PrimitiveIndex; // offset 72 — view passes only: the draw's row in ObjectMotions[] (Common/ObjectMotion.glslh,
+                         // Material::SetPrimitiveIndex). Every submesh draw of one object reads the same row; in a
+                         // view pass Transform is then the submesh's transform RELATIVE TO that row's World.
     vec4 WindA;         // offset 80 — instanced vertex only: Graphic::kInstancedWindPushOffset (FoliageWind.glslh)
     vec4 WindB;         // offset 96
 }

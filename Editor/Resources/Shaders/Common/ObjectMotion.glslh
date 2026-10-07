@@ -16,9 +16,25 @@
 
 struct GpuObjectMotion
 {
-    mat4 World;     // offset 0
-    mat4 PrevWorld; // offset 64
+    mat4 World;          // offset 0
+    mat4 PrevWorld;      // offset 64
+    uint PrevBoneOffset; // offset 128 — skinned: first bone of the PREVIOUS palette in BoneMatrices[]; 0 otherwise
+    uint Pad0;
+    uint Pad1;
+    uint Pad2;
 };
+
+// ONE ROW PER DRAWN PRIMITIVE (object), per (frame x view) — UE GPUScene primitive data. Built once per frame per
+// view from the view's MotionHistory (MeshRenderer::BuildObjectMotions); the submesh draws of one object index the
+// same row through the push block's PrimitiveIndex. Declared only by the stages of a VIEW pass: a light view
+// (shadow depth) has no previous frame of its own and keeps the world in its push block.
+#ifdef DESERT_OBJECT_MOTION_ROWS
+layout( std430, binding = 16 ) readonly buffer ObjectMotions
+{
+    GpuObjectMotion Motions[];
+}
+objectMotions;
+#endif
 
 vec2 DesertVelocity( vec4 clip, vec4 prevClip )
 {
