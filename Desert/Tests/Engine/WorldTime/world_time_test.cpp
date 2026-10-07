@@ -297,7 +297,8 @@ TEST( WorldTimeOneSource, OnlyTheMainSceneTakesTheViewportsRealtime )
     ASSERT_FALSE( root.empty() );
     std::vector<std::string> setters;
     std::size_t              scanned = 0;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root + "Editor/Source" ) )
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( std::filesystem::path( root ) / "Editor/Source" ) )
     {
         if ( !entry.is_regular_file() )
             continue;

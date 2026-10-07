@@ -125,12 +125,11 @@ int main( int argc, char** argv )
 // halves are read as text: the stored value is the row's Key, and the lookup expands a key.
 TEST( PreviewEnvironment, ThePickerStoresTheStableKeyAndTheLookupExpandsIt )
 {
-    std::string root = "./";
-    for ( int up = 0;
-          up < 6 && !std::filesystem::exists( root + "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp" );
-          ++up )
-        root += "../";
-    std::ifstream in( root + "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp", std::ios::binary );
+    const std::filesystem::path kPickerSource = "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp";
+    std::filesystem::path       root          = ".";
+    for ( int up = 0; up < 6 && !std::filesystem::exists( root / kPickerSource ); ++up )
+        root /= "..";
+    std::ifstream in( root / kPickerSource, std::ios::binary );
     ASSERT_TRUE( in ) << "run from inside the repository";
     std::ostringstream text;
     text << in.rdbuf();

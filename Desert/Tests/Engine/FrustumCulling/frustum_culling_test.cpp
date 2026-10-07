@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -77,7 +78,7 @@ namespace
     {
         // A definition at namespace indent, whatever it returns (void, bool, Common::BoolResultStr); the body runs
         // to the next MeshRenderer definition.
-        const std::string qualified = " MeshRenderer::" + name + "(";
+        const std::string qualified = std::format( " MeshRenderer::{}(", name );
         const std::size_t nameAt    = source.find( qualified );
         if ( nameAt == std::string::npos )
         {

@@ -35,6 +35,7 @@
 #include <cstring>
 #include <functional>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -220,7 +221,7 @@ Shader "EngineHostInstanced"
     // @p name is both the shader's name and its temp file's stem.
     Common::ResultStr<std::shared_ptr<GraphicsPipeline>> MakeRasterPipeline( const char* source, const char* name )
     {
-        const fs::path file = fs::temp_directory_path() / ( std::string( name ) + ".shader" );
+        const fs::path file = fs::temp_directory_path() / std::format( "{}.shader", name );
         {
             std::ofstream out( file, std::ios::binary | std::ios::trunc );
             out << source;
@@ -331,7 +332,7 @@ namespace
         auto&                       renderer = Renderer::GetInstance();
         const Common::BoolResultStr begun    = renderer.BeginFrame();
         if ( !begun )
-            return Common::MakeError<std::vector<uint8_t>>( "BeginFrame: " + begun.GetError() );
+            return Common::MakeError<std::vector<uint8_t>>( std::format( "BeginFrame: {}", begun.GetError() ) );
 
         RDG::TextureDesc desc;
         desc.Size   = { kSide, kSide, 1 };
@@ -378,9 +379,11 @@ namespace
         graph.Extract( bytes, readback, RDG::Access::HostRead );
 
         if ( const Common::BoolResultStr executed = renderer.ExecuteGraph( graph ); !executed )
-            return Common::MakeError<std::vector<uint8_t>>( "ExecuteGraph: " + executed.GetError() );
+            return Common::MakeError<std::vector<uint8_t>>(
+                 std::format( "ExecuteGraph: {}", executed.GetError() ) );
         if ( const Common::BoolResultStr presented = renderer.PresentFinalImage(); !presented )
-            return Common::MakeError<std::vector<uint8_t>>( "PresentFinalImage: " + presented.GetError() );
+            return Common::MakeError<std::vector<uint8_t>>(
+                 std::format( "PresentFinalImage: {}", presented.GetError() ) );
 
         if ( !readback.Physical || readback.Physical->GetBackendKind() != RDG::BackendKind::Vulkan )
             return Common::MakeError<std::vector<uint8_t>>( "the readback buffer was not extracted" );
@@ -404,11 +407,9 @@ namespace
                 const uint8_t*               p    = px.data() + ( y * kSide + x ) * 4u;
                 const std::array<uint8_t, 4> want = expected( x, y );
                 if ( std::memcmp( p, want.data(), 4 ) != 0 && count++ == 0 )
-                    first = "(" + std::to_string( x ) + ", " + std::to_string( y ) + ") holds " +
-                            std::to_string( p[0] ) + "," + std::to_string( p[1] ) + "," + std::to_string( p[2] ) +
-                            "," + std::to_string( p[3] );
+                    first = std::format( "({}, {}) holds {},{},{},{}", x, y, p[0], p[1], p[2], p[3] );
             }
-        return count == 0 ? std::string() : std::to_string( count ) + " wrong pixels, first " + first;
+        return count == 0 ? std::string() : std::format( "{} wrong pixels, first {}", count, first );
     }
 } // namespace
 

@@ -29,6 +29,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Desert::Graphic::RDG;
@@ -1906,14 +1907,15 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
     // JumpFlood 3, AutoExposure 3, Bloom 2, LightShafts 2, LensFlare 2, Tonemap 1, FXAA 1, SMAA 3, BackdropBlur 1.
     EXPECT_EQ( nodes, 18u );
 
-    const std::string dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
-    for ( const std::string& file :
-          { std::string( "SceneRendererFramePostFX.cpp" ), dir + "JumpFloodOutlineRenderer.cpp",
-            dir + "LensFlareRenderer.cpp", dir + "BackdropBlurRenderer.hpp", dir + "BloomRenderer.cpp",
-            dir + "AutoExposureRenderer.cpp", dir + "LightShaftRenderer.cpp", dir + "TonemapRenderer.cpp",
-            dir + "FXAARenderer.cpp", dir + "SMAARenderer.cpp" } )
+    // The frame's post-FX recorder (already read above) and every renderer in the PostProcessing folder.
+    const std::filesystem::path dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing";
+    for ( const std::string_view file :
+          { "SceneRendererFramePostFX.cpp", "JumpFloodOutlineRenderer.cpp", "LensFlareRenderer.cpp",
+            "BackdropBlurRenderer.hpp", "BloomRenderer.cpp", "AutoExposureRenderer.cpp", "LightShaftRenderer.cpp",
+            "TonemapRenderer.cpp", "FXAARenderer.cpp", "SMAARenderer.cpp" } )
     {
-        const std::string text = file == "SceneRendererFramePostFX.cpp" ? postFx : read( file );
+        const std::string text =
+             file == "SceneRendererFramePostFX.cpp" ? postFx : read( ( dir / file ).generic_string() );
         ASSERT_FALSE( text.empty() ) << file << " is gone";
         for ( const char* manual : { "ComputeImageBeginWrite(", "ComputeImageEndWrite(", "TransitionLayout(",
                                      "BeginRenderPass(", "EndRenderPass(", "RenderPass::Create(" } )

@@ -25,6 +25,9 @@
 
 namespace Desert::Graphic::Render2D
 {
+    // Both glass-panel failure sites (backdrop description, the draw itself) report under one shape.
+    constexpr std::string_view kGlassPanelNotDrawnFormat = "a glass panel was not drawn: {}";
+
     // Out of line because MaterialExecutor is incomplete in the header. The white texture needs nothing
     // said here: a Texture2D unregisters its own image (Texture.hpp).
     Render2D::~Render2D() = default;
@@ -350,8 +353,8 @@ namespace Desert::Graphic::Render2D
                                            cmd.IndexCount, cmd.IndexOffset );
                 if ( !drawn.IsSuccess() && failure.IsSuccess() )
                 {
-                    failure =
-                         Common::MakeError( "a retained UI layer's composite was not drawn: " + drawn.GetError() );
+                    failure = Common::MakeError(
+                         std::format( "a retained UI layer's composite was not drawn: {}", drawn.GetError() ) );
                 }
                 continue;
             }
@@ -365,7 +368,8 @@ namespace Desert::Graphic::Render2D
                 if ( !backdropDesc.IsSuccess() )
                 {
                     if ( failure.IsSuccess() )
-                        failure = Common::MakeError( "a glass panel was not drawn: " + backdropDesc.GetError() );
+                        failure = Common::MakeError(
+                             std::format( kGlassPanelNotDrawnFormat, backdropDesc.GetError() ) );
                     continue;
                 }
                 const uint32_t backdropMaxLod = backdropDesc.GetValue().Mips - 1;
@@ -403,7 +407,7 @@ namespace Desert::Graphic::Render2D
                      renderer.DrawIndexed( bindings, *m_GlassPipeline, nullptr, *m_VertexBuffer, *m_IndexBuffer,
                                            cmd.IndexCount, cmd.IndexOffset );
                 if ( !drawn.IsSuccess() && failure.IsSuccess() )
-                    failure = Common::MakeError( "a glass panel was not drawn: " + drawn.GetError() );
+                    failure = Common::MakeError( std::format( kGlassPanelNotDrawnFormat, drawn.GetError() ) );
                 usedBackdrop = true;
                 continue;
             }
@@ -440,7 +444,8 @@ namespace Desert::Graphic::Render2D
                      RDG::PassBindings( context ), *entry->Pipeline, material->GetMaterialExecutor(),
                      *m_VertexBuffer, *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
                 if ( !drawn.IsSuccess() && failure.IsSuccess() )
-                    failure = Common::MakeError( "a UI material batch was not drawn: " + drawn.GetError() );
+                    failure = Common::MakeError(
+                         std::format( "a UI material batch was not drawn: {}", drawn.GetError() ) );
                 continue;
             }
 
@@ -468,7 +473,7 @@ namespace Desert::Graphic::Render2D
                  renderer.DrawIndexed( RDG::PassBindings( context ), *pipeline, exec, *m_VertexBuffer,
                                        *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
             if ( !drawn.IsSuccess() && failure.IsSuccess() )
-                failure = Common::MakeError( "a 2D batch was not drawn: " + drawn.GetError() );
+                failure = Common::MakeError( std::format( "a 2D batch was not drawn: {}", drawn.GetError() ) );
         }
 
         // Leave the scissor at the full viewport so nothing downstream inherits a UI clip.
@@ -596,7 +601,8 @@ namespace Desert::Graphic::Render2D
                            imported.GetError() );
                 if ( failure.IsSuccess() )
                 {
-                    failure = Common::MakeError( "a retained UI layer was not added: " + imported.GetError() );
+                    failure = Common::MakeError(
+                         std::format( "a retained UI layer was not added: {}", imported.GetError() ) );
                 }
                 continue;
             }
