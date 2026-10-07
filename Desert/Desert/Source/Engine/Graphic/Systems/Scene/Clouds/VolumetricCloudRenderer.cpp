@@ -1039,12 +1039,12 @@ namespace Desert::Graphic::System
         }
 
         const Core::Formats::Image2DSpecification spec{
-             .Tag        = "CloudFarWeatherMap",
-             .Width      = Assets::kCloudFarWeatherMapSide,
-             .Height     = Assets::kCloudFarWeatherMapSide,
-             .Format     = Core::Formats::ImageFormat::RGBA16F,
-             .Data       = std::move( texels ),
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
+             .Tag    = "CloudFarWeatherMap",
+             .Width  = Assets::kCloudFarWeatherMapSide,
+             .Height = Assets::kCloudFarWeatherMapSide,
+             .Format = Core::Formats::ImageFormat::RGBA16F,
+             .Data   = std::move( texels ),
+             .Usage  = Core::Formats::Image2DUsage::Image2D,
              // LINEAR ALWAYS: the copula reads W between texels (1.95 km apart); under the user's "Nearest"
              // the cut would follow texel-block edges — straight walls in the sky.
              .Properties = Core::Formats::Sample | Core::Formats::AlgorithmicLinear,

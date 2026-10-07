@@ -80,7 +80,7 @@ namespace Desert::Graphic::API::Vulkan
         static SamplerFilterPolicy FilterPolicyOf( Core::Formats::ImageProperties properties )
         {
             return ( properties & Core::Formats::AlgorithmicLinear ) ? SamplerFilterPolicy::AlwaysLinear
-                                                                      : SamplerFilterPolicy::Global;
+                                                                     : SamplerFilterPolicy::Global;
         }
 
         static VkSamplerAddressMode AddressModeOf( Core::Formats::SamplerWrap wrap )
@@ -528,7 +528,8 @@ namespace Desert::Graphic::API::Vulkan
         m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
 
         if ( m_Specification.Properties & Core::Formats::Sample )
-            Utils::CreateSampler( vkDevice, m_Resource.Sampler, Utils::FilterPolicyOf( m_Specification.Properties ) );
+            Utils::CreateSampler( vkDevice, m_Resource.Sampler,
+                                  Utils::FilterPolicyOf( m_Specification.Properties ) );
 
         for ( uint32_t i = 0; i < m_Resource.MipLevels; ++i )
             m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, 1, i ) );
