@@ -1,6 +1,9 @@
 #include <Common/Content/ImportRecord.hpp>
 
+#include <Common/Core/Constants.hpp>
+
 #include <string>
+#include <vector>
 
 namespace Common::Content
 {
@@ -11,7 +14,7 @@ namespace Common::Content
             std::filesystem::path candidate = assetPath;
             candidate.replace_extension( ext );
             std::error_code ec;
-            if ( std::filesystem::exists( candidate, ec ) )
+            if ( std::filesystem::exists( Common::Constants::Path::FullPath( candidate ), ec ) )
                 return candidate;
         }
         return std::nullopt;
@@ -28,6 +31,16 @@ namespace Common::Content
     {
         const std::filesystem::path inner = file.stem(); // base.fbx of base.fbx.deimport
         return file.extension() == kImportRecordSuffix && !inner.extension().empty();
+    }
+
+    std::vector<std::filesystem::path> SourcesRecordedIn( const std::filesystem::path& folder )
+    {
+        std::vector<std::filesystem::path> sources;
+        std::error_code                    ec;
+        for ( const auto& entry : std::filesystem::directory_iterator( folder, ec ) )
+            if ( IsImportRecord( entry.path() ) )
+                sources.push_back( entry.path().parent_path() / entry.path().stem() );
+        return sources;
     }
 
     std::filesystem::path MeshAssetOfImportRecord( const std::filesystem::path& record )

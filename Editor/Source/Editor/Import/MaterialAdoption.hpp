@@ -23,7 +23,7 @@
 // the materials are resolved FIRST, and the GUID a submesh carries is the one the file on disk states.
 namespace Desert::Editor::MaterialAdoption
 {
-    // Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat. The name is made filesystem-safe here
+    // Content/Materials/<meshRelativeId>/<materialName>.demat. The name is made filesystem-safe here
     // and nowhere else, so the file the writer checks is the file the adoption reads.
     inline std::filesystem::path MaterialAssetPath( const std::filesystem::path& sourcePath,
                                                     const std::string&           materialName )

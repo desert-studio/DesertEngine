@@ -27,22 +27,16 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
     namespace fs = std::filesystem;
 
-    // Walk up until the marker is found: the test binary's working directory is not fixed.
+    // The checkout, baked by the build (DESERT_TEST_REPO_ROOT).
     fs::path RepoRoot()
     {
-        fs::path p = fs::current_path();
-        for ( int i = 0; i < 8; ++i )
-        {
-            if ( fs::exists( p / "Desert" / "Common" ) && fs::exists( p / "Editor" ) )
-                return p;
-            p = p.parent_path();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::vector<fs::path> SourceFiles( const fs::path& root )
@@ -124,7 +118,8 @@ namespace
 TEST( ReservedIdentifiers, NoSourceDeclaresAVariableWindowsWillEat )
 {
     const fs::path root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from " << fs::current_path();
+    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from "
+                                 << Desert::TestSupport::RepositoryRoot();
 
     const auto files = SourceFiles( root );
     // Guards the guard: a wrong working directory would otherwise make this a green pass over zero files.
@@ -1076,6 +1071,10 @@ namespace
            "TH2: the stamp only matches decoded pixels to ThumbnailCache's request; the cache applies the racy "
            "rule "
            "to what it takes" },
+         { "Editor/Source/Editor/Widgets/ThumbnailCache.cpp",
+           "THM: the stamp is only the key ThumbnailPrefetch::Acquire matches a worker's pixels by; freshness is "
+           "Common::Utils::WriteWatch's (it hashes while the stamp is racy) and ThumbnailOutdated's read moment, "
+           "and a taken entry leaves the store, so a same-tick rewrite is flagged and decoded again" },
          { "Editor/Source/Editor/Widgets/ThumbnailFreshness.hpp",
            "FIX2: the record's writer tells the memo what it wrote, so the stamp is never the only witness" },
     };

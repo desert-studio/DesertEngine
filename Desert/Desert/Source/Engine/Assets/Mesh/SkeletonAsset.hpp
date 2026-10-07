@@ -6,6 +6,11 @@
 
 #include <Engine/Animation/Skeleton.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
+#include <span>
+#include <vector>
+
 namespace Desert::Assets
 {
     class SkeletonAsset : public AssetBase
@@ -61,6 +66,40 @@ namespace Desert::Assets
             return m_Signature;
         }
 
+        /// The skinned mesh the Skeleton Editor previews this rig on (UE USkeleton::PreviewSkeletalMesh). Null =
+        /// bones only. Contract: Engine/Animation/SkeletonReference.hpp.
+        [[nodiscard]] Common::Content::AssetGuid GetPreviewMesh() const;
+
+        /// Skeletons whose clips play on meshes of THIS skeleton (UE USkeleton::CompatibleSkeletons): one
+        /// direction, not transitive. The third argument of Animation::ClipPlaysOnMesh.
+        [[nodiscard]] std::span<const Common::Content::AssetGuid> GetCompatibleSkeletons() const;
+
+        /// Authoring (Skeleton Editor Details). In memory only; Serialization::SaveSkeletonAsset writes the file.
+        void SetPreviewMesh( Common::Content::AssetGuid mesh );
+        void SetCompatibleSkeletons( std::vector<Common::Content::AssetGuid> skeletons );
+
+        /// Reference Pose authoring (Skeleton Editor, UE's Skeleton Tree bone transform): one bone's
+        /// LocalBindTransform on the loaded rig, in memory - Serialization::SaveSkeletonAsset writes it to the
+        /// `.skeleton`. The structure does not move, so GetSignature (the identity a mesh and a clip match on)
+        /// stays. False when the rig is not loaded or @p bone is out of range.
+        bool SetLocalBindTransform( uint32_t bone, const glm::mat4& localBind );
+
+        /// RENAME BONE (Skeleton Editor; UE Skeleton Editing's Rename Bone): @p bone answers to @p name on the
+        /// loaded rig, in memory - Serialization::SaveSkeletonAsset writes it and carries it into every asset of
+        /// this skeleton that names the bone (Assets::RenameBonesInSkeletonAssets). Indices do not move, so a skin
+        /// and every resolved index stay valid; the rig is rebuilt at the same address (its name lookup and its
+        /// signature are the names'), the signature moves (AnimationECSSystem re-resolves on it) and so does the
+        /// bind revision. Refused, by reason: the rig is not loaded, @p bone is out of range, @p name is empty or
+        /// already another bone's. The same name is a success that changes nothing.
+        [[nodiscard]] Common::BoolResultStr RenameBone( uint32_t bone, const std::string& name );
+
+        /// Moves on every write of the rest pose - an authoring edit or a (re)load from the file - so a reader
+        /// that decomposed it once (an Animator's bind pose) knows to read it again (Animator::RebindRestPose).
+        [[nodiscard]] uint64_t GetBindRevision() const
+        {
+            return m_BindRevision;
+        }
+
         static AssetTypeID GetTypeID()
         {
             return AssetTypeID::Skeleton;
@@ -71,6 +110,12 @@ namespace Desert::Assets
 
         // The payload's identity, kept across `Unload`. See GetSignature.
         uint64_t m_Signature = 0U;
+        // See GetBindRevision.
+        uint64_t m_BindRevision = 0U;
+
+        // References, not payload: kept across `Unload` like the signature (the .skeleton states them).
+        Common::Content::AssetGuid              m_PreviewMesh;
+        std::vector<Common::Content::AssetGuid> m_CompatibleSkeletons;
     };
 
 } // namespace Desert::Assets

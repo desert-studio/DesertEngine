@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
 
@@ -159,6 +160,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr Invalidate() override;
         Common::BoolResultStr Release() override;
         NO_DISCARD Common::BoolResultStr SetData( const Core::Formats::ImagePixelData& data ) override;
+        NO_DISCARD Common::BoolResultStr RecordSetData( GpuBatch&                            batch,
+                                                        const Core::Formats::ImagePixelData& data ) override;
 
         // --- IVulkanImage Interface ---
         [[nodiscard]] const VulkanImageResource& GetResource() const override { return m_Resource; }
@@ -189,6 +192,14 @@ namespace Desert::Graphic::API::Vulkan
             m_Resource.RecordLayouts( std::move( layouts ) );
         }
 
+        /// Which view and sampler a descriptor written from this image was written against: process-wide
+        /// unique, minted whenever CreateResource or RecreateSampler replaces them. A cache keyed on the
+        /// image (the editor's UI texture ids) compares it instead of trusting a recyclable VkImageView.
+        [[nodiscard]] uint64_t GetResourceGeneration() const noexcept
+        {
+            return m_ResourceGeneration;
+        }
+
     private:
         Common::BoolResultStr CreateResource();
         void UploadData( VkCommandBuffer cmdBuffer, VkBuffer stagingBuffer );
@@ -200,7 +211,8 @@ namespace Desert::Graphic::API::Vulkan
         Core::Formats::Image2DSpecification m_Specification;
         VulkanImageResource                 m_Resource;
         std::vector<VkImageView>            m_MipViews;
-        bool                                m_IsLoaded = false;
+        bool                                m_IsLoaded           = false;
+        uint64_t                            m_ResourceGeneration = 0;
     };
 
     /**
@@ -363,5 +375,11 @@ namespace Desert::Graphic::API::Vulkan
         // the 2D and cube paths; a volume has exactly one view in it.
         std::vector<VkImageView> m_MipViews;
     };
+
+    /// The one VkSampler for a material slot's sampling state (MAT1s) under the current global texture
+    /// filter; created on first ask, shared by every slot with that state, destroyed by ReleaseSlotSamplers.
+    [[nodiscard]] VkSampler AcquireSlotSampler( const Core::Formats::SamplerState& state );
+    /// Device teardown: destroys every slot sampler. Called before the logical device goes.
+    void ReleaseSlotSamplers();
 
 } // namespace Desert::Graphic::API::Vulkan

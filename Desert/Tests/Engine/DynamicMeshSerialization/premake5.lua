@@ -6,7 +6,7 @@
 -- the scene's own WriteBlock / ReadBlock around the block, as EditMeshSaved does.
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
-local scenes_dir = path.getabsolute(_SCRIPT_DIR .. "/../../../../Editor/Resources/Assets/Scenes")
+local scenes_dir = path.getabsolute(_SCRIPT_DIR .. "/../../../../Projects/Desert/Content/Scenes")
 
 project(test_name)
     kind "ConsoleApp"
@@ -66,10 +66,6 @@ project(test_name)
         defines { "DESERT_PLATFORM_MACOS" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
-    filter {}
-
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

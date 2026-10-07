@@ -27,6 +27,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Editor::kTextureSourceExtensionCount;
 using Desert::Editor::kTextureSourceExtensions;
@@ -72,27 +74,16 @@ namespace
            "the open-file dialog's display filter for a noise SLICE SHEET, and the save dialog's. The "
            "sheet is read whole by stbi and its pixels ARE the voxels, so no format outranks another "
            "here — the same membership-only case as CloudLayoutPanel one row up" },
-         { "Editor/Source/Editor/Splash/SplashImage.hpp",
-           "fixed paths of three committed files (the splash's source JPEG, its cooked .tex and the "
-           "application icon PNG). Each is named whole; nothing chooses between two formats of one stem" },
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "the extension -> FileType icon map and the import dialog's display filter. Membership and "
            "presentation; two same-stem files both simply appear in the tree" },
     };
 
-    // The repository root, found by walking up from wherever the test binary was started — the same
-    // approach the UI-element census uses, so no suite has to be run from one exact directory.
+    // The checkout the build baked in (TestSupport::RepositoryRoot), with a trailing separator so the census
+    // can spell `root + "Editor/..."`; never searched for from the working directory.
     std::string RepoRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            std::ifstream probe( prefix + "Editor/Source/Editor/Import/TextureSourceFormats.hpp" );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
+        return ( Desert::TestSupport::RepositoryRoot() / "" ).generic_string();
     }
 
     std::string ReadFile( const std::filesystem::path& path )
@@ -156,7 +147,7 @@ TEST( TextureSourceFormatCensus, BothConsumersIncludeTheSharedList )
     ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
 
     const char* consumers[] = {
-         "Editor/Source/Editor/Import/Assimp/AssimpImporter.cpp",
+         "Editor/Source/Editor/Import/Assimp/SourceTexturePath.cpp", // AssimpImporter's texture search
          "Tools/FbxMeshSplitter/FbxMeshSplitter.cpp",
     };
     for ( const char* consumer : consumers )
@@ -228,6 +219,9 @@ TEST( TextureSourceFormatCensus, NoSecondExtensionListExists )
 
 int main( int argc, char** argv )
 {
+    // The host step (as the editor takes it in Sandbox.hpp): every engine path read after it answers off
+    // the checkout's engine directory, never off the working directory.
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

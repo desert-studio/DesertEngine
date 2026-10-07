@@ -21,6 +21,8 @@
 #include <Editor/Packaging/PackagedContentTrees.hpp>
 
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Project/ProjectContext.hpp>
@@ -51,6 +53,7 @@
 #include <PackagedContent.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/engine_dir.hpp"
 
 #include <cstdint>
 
@@ -146,18 +149,16 @@ namespace
 #endif
     }
 
-    // Restores cwd, HOME and the (global) project-root remap, whatever the test body did.
+    // Restores the engine directory, HOME and the (global) project-root remap, whatever the test body did.
     struct EnvironmentGuard
     {
-        fs::path    OldCwd  = fs::current_path();
+        Desert::TestSupport::EngineDirScope EngineDir; // restores the previous engine directory on exit
         // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test fixture
         bool        HadHome = std::getenv( "HOME" ) != nullptr;
         // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test fixture
         std::string OldHome = HadHome ? std::getenv( "HOME" ) : "";
         ~EnvironmentGuard()
         {
-            std::error_code ec;
-            fs::current_path( OldCwd, ec );
             // A Windows runner has no HOME until a test sets one: leaving the test's HOME behind would point
             // every later test in this process at a deleted sandbox, so an absent HOME is restored as absent.
             if ( HadHome )
@@ -165,8 +166,8 @@ namespace
             else
                 UnsetEnv( "HOME" );
             Common::Utils::VFS::Unmount();
-            // Back to the built-in sandbox mapping the process started with.
-            Common::Constants::Path::SetProjectRoot( "", "Resources/Assets" );
+            // Back to no project, the state the process started in.
+            Common::Constants::Path::ClearProject();
         }
     };
 } // namespace
@@ -191,13 +192,71 @@ TEST( PackagedContent, EveryScannedRootIsAPackagedTree )
         EXPECT_TRUE( packed( root ) ) << "icon scan root not packaged: " << root->string();
 }
 
+// WHAT A PACKAGE IS BUILT FROM (PRJ1, UE: /Game + /Engine runtime content). The committed project lives in
+// Projects/Desert/, apart from the engine: every census tree the packager stages is EITHER the project's (its
+// Content/ and its Cooked/, both under the project folder) OR the engine's runtime resources (under the
+// engine directory's Resources/) — never a tree of the editor, and project content never inside the engine.
+// Mutation: add a census row for P::RESOURCE_PATH / "Branding" (editor-only) in PackagedContentTrees.hpp, or set
+// the .deproj AssetsRoot to "../../Editor/Resources/Assets" => red here.
+TEST( PackagedContent, APackageIsTheProjectContentPlusTheEngineRuntimeContentOnly )
+{
+    const EnvironmentGuard guard;
+
+    const fs::path repo       = Desert::TestSupport::RepositoryRoot();
+    const fs::path engineDir  = repo / "Editor";
+    const fs::path projectDir = repo / "Projects" / "Desert";
+    Common::Constants::Path::SetEngineDir( engineDir );
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( projectDir / "Desert.deproj" ).string() ) );
+
+    const auto under = []( const fs::path& path, const fs::path& root )
+    {
+        const fs::path rel = fs::weakly_canonical( path ).lexically_relative( fs::weakly_canonical( root ) );
+        return !rel.empty() && *rel.begin() != "..";
+    };
+
+    // The engine's runtime trees, by name: the editor's own (Branding, Splash of the editor) are not among them.
+    const std::set<std::string> runtimeEngineTrees = { "Shaders", "Engine", "Fonts", "Icons" };
+
+    std::size_t projectTrees = 0;
+    for ( const auto& tree : Desert::Editor::PackagedContentTrees() )
+    {
+        const fs::path& path = *tree.Tree;
+        if ( under( path, projectDir ) )
+        {
+            ++projectTrees;
+            EXPECT_FALSE( under( path, engineDir ) ) << path.string();
+            continue;
+        }
+        ASSERT_TRUE( under( path, engineDir / "Resources" ) )
+             << "a packaged tree is neither the project's nor the engine's runtime content: " << path.string();
+        const fs::path rel =
+             fs::weakly_canonical( path ).lexically_relative( fs::weakly_canonical( engineDir / "Resources" ) );
+        EXPECT_TRUE( runtimeEngineTrees.contains( rel.begin()->string() ) )
+             << "an editor resource tree is packaged: " << path.string();
+    }
+    EXPECT_EQ( projectTrees, 2u ) << "the project contributes its Content/ and its Cooked/, nothing else";
+    EXPECT_TRUE( under( Common::Constants::Path::ASSETS_PATH, projectDir / "Content" ) )
+         << Common::Constants::Path::ASSETS_PATH.string();
+
+    // The editor-only subtrees of the engine trees are excluded by the one predicate the stager reads.
+    EXPECT_TRUE( Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::SHADERDIR_PATH / "Editor" /
+                                                       "Grid.shader" ) );
+    EXPECT_TRUE(
+         Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::ICONS_PATH / "Gizmo" / "Light.svg" ) );
+    EXPECT_FALSE( Desert::Editor::IsEditorOnlyResource( Common::Constants::Path::ASSETS_PATH / "Scenes" /
+                                                        "Starter.desce" ) );
+}
+
 TEST( PackagedContent, PakKeysAreTheRuntimeLookupKeysUnderThePackageRoot )
 {
     EnvironmentGuard guard;
 
     // Simulate the packaged game's world: Game.deproj opened from the package dir remaps the content
     // trees under it, the launcher cds there, and every resource path resolves against it.
+    // The packaged game's engine directory IS the package root (the launcher sets it there), so the engine
+    // resource trees resolve under it exactly like the project trees.
     const fs::path pkg = fs::temp_directory_path() / "desert_pkgkeys";
+    Common::Constants::Path::SetEngineDir( pkg );
     Common::Constants::Path::SetProjectRoot( pkg, Desert::Editor::kPackagedAssetsRoot );
 
     for ( const auto& t : Desert::Editor::PackagedContentTrees() )
@@ -223,7 +282,7 @@ TEST( PackagedContent, APackageWithoutAChunkSchemeIsRefusedByPathAndWritesNoArch
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
 
     const fs::path scheme = Common::Content::ChunkSchemePath();
@@ -259,8 +318,8 @@ TEST( PackagedContent, BuildContentPakPacksWhatTheScannersFind )
     WriteFile( proj / "Resources" / "Icons" / "fake.svg", "icon-body" );
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
-    SetEnv( "HOME", base.string() ); // keep RegisterRecent out of the real user config
-    fs::current_path( proj );        // relative resource trees resolve against the editor cwd
+    SetEnv( "HOME", base.string() );               // keep RegisterRecent out of the real user config
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -275,7 +334,7 @@ TEST( PackagedContent, BuildContentPakPacksWhatTheScannersFind )
     // it. This block used to hand-splice one, which is exactly how the packer and the player managed
     // to disagree about its name for as long as they did (П5).
 
-    fs::current_path( pkg );
+    Common::Constants::Path::SetEngineDir( pkg );
     const auto mounted = Common::Utils::VFS::MountPak( pkg / "Content.dpak" );
     ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
     ASSERT_TRUE(
@@ -340,7 +399,7 @@ TEST( PackagedContent, AScriptReferenceResolvesToTheSameFileLooseAndPackaged )
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -381,7 +440,7 @@ TEST( PackagedContent, AScriptReferenceResolvesToTheSameFileLooseAndPackaged )
     // it. This block used to hand-splice one, which is exactly how the packer and the player managed
     // to disagree about its name for as long as they did (П5).
 
-    fs::current_path( pkg );
+    Common::Constants::Path::SetEngineDir( pkg );
     const auto mounted = Common::Utils::VFS::MountPak( pkg / "Content.dpak" );
     ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
     ASSERT_TRUE(
@@ -453,7 +512,7 @@ TEST( PackagedContent, AServiceAssetReferenceResolvesToTheSameFileLooseAndPackag
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -516,7 +575,7 @@ TEST( PackagedContent, AServiceAssetReferenceResolvesToTheSameFileLooseAndPackag
     // it. This block used to hand-splice one, which is exactly how the packer and the player managed
     // to disagree about its name for as long as they did (П5).
 
-    fs::current_path( pkg );
+    Common::Constants::Path::SetEngineDir( pkg );
     const auto mounted = Common::Utils::VFS::MountPak( pkg / "Content.dpak" );
     ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
     ASSERT_TRUE(
@@ -574,7 +633,7 @@ TEST( PackagedContent, ACleanProjectPackagesComplete )
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -604,7 +663,7 @@ TEST( PackagedContent, AnAssetTheCookCannotBakeMakesThePackageIncompleteAndSaysH
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -652,7 +711,7 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -693,7 +752,7 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     // The descriptor is NOT written here: it comes out of the archive, which is where the packer put
     // it. This block used to hand-splice one, which is exactly how the packer and the player managed
     // to disagree about its name for as long as they did (П5).
-    fs::current_path( pkg );
+    Common::Constants::Path::SetEngineDir( pkg );
     const auto mounted = Common::Utils::VFS::MountPak( pkg / "Content.dpak" );
     ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
     ASSERT_TRUE(
@@ -771,7 +830,7 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -783,7 +842,9 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
 
     // The runtime's side of the relation: assemble the same stages the way VulkanShader::Reload does
     // and ask the cache with the runtime's own key overload. Every stage must already be there.
-    const fs::path shaderFile = fs::path( "Resources" ) / "Shaders" / "CookProbe.shader";
+    // The runtime names a shader the way the shader root lists it (ENG-ROOT): off the engine directory's
+    // shader root, never a working-directory spelling — and under debug info that spelling is a key input.
+    const fs::path shaderFile = Common::Constants::Path::SHADERDIR_PATH / "CookProbe.shader";
 
     // Ф3 made the primitive return a ResultStr. Asserting on the read ITSELF rather than on an empty
     // string is the point of that change: a probe file this test cannot read is a broken fixture and
@@ -793,8 +854,10 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
     const std::string& content = contentRead.GetValue();
     ASSERT_FALSE( content.empty() );
 
-    const auto stages =
+    const auto preprocessed =
          Desert::Core::Preprocess::ShaderPreprocess::PreProcessProgramPass( content, shaderFile, "" );
+    ASSERT_TRUE( preprocessed.IsSuccess() ) << preprocessed.GetError();
+    const auto& stages = preprocessed.GetValue();
     ASSERT_EQ( stages.size(), 2u );
     for ( const auto& [stage, source] : stages )
     {
@@ -844,7 +907,7 @@ TEST( PackagedContent, ACookThatCannotWriteDoesNotReportTheArtifactAsCooked )
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -891,12 +954,12 @@ TEST( PackagedContent, PackageGameProducesTheLauncherAndBinaryTheHostDescription
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
-    // The Runtime the packager copies. It looks one directory ABOVE the editor's cwd, which is why the
+    // The Runtime the packager copies. It looks beside the ENGINE directory (proj, here), which is why the
     // project sits inside `base` rather than being `base`.
     StageRuntimeBinary( base / "build" / "Bin" / "Release" / host.RuntimeBinary );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -952,7 +1015,7 @@ TEST( PackagedContent, AMissingRuntimeIsRefusedByNamingThisHostsOwnBuildScript )
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     fs::create_directories( proj / "GameAssets" );
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -993,7 +1056,7 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
 
     const fs::path scheme = Common::Content::ChunkSchemePath();
@@ -1063,7 +1126,9 @@ namespace
     PlayerStartup StartTheGameLikeThePlayerDoes( const fs::path& playerBinary )
     {
         PlayerStartup  out;
-        const fs::path baseDir = playerBinary.parent_path();
+        const fs::path baseDir = Common::Utils::FileSystem::PackagedContentDir( playerBinary.parent_path() );
+        // The player's host step: a packaged game's engine directory is its content directory.
+        Common::Constants::Path::SetEngineDir( baseDir );
 
         const auto content = Desert::Player::MountPackagedContent( baseDir, playerBinary.stem().string() );
         out.MountExit      = content.ExitCode;
@@ -1104,7 +1169,7 @@ namespace
         WriteFile( proj / "Resources" / "Fonts" / "fake.ttf", "font-body" );
         WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":)"
                                       "\"GameAssets/Scenes/level.desce\"}" );
-        // The packager looks one directory ABOVE the editor's cwd for it.
+        // The packager looks beside the engine directory (the project, in these fixtures) for it.
         StageRuntimeBinary( base / "build" / "Bin" / "Release" / runtimeBinaryName );
         return proj;
     }
@@ -1121,7 +1186,7 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
     const fs::path proj = WriteProjectToPackage( base, host.RuntimeBinary );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1154,9 +1219,13 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
          << "the generated launcher still names a project on the command line. That flag is the DEV door; "
             "a shipped game that needs it is a game that only starts when started the one blessed way:\n"
          << launcherRead.GetValue();
+    // Nor the Vulkan driver: the player finds its MoltenVK manifest from its own position (ENG-ROOT-4b,
+    // VulkanContext.cpp SelectDriverManifest), so a script that still exports one is a second source of
+    // the same answer — and a double-click without the script would have had no GPU.
+    EXPECT_EQ( launcherRead.GetValue().find( "VK_ICD_FILENAMES" ), std::string::npos ) << launcherRead.GetValue();
+    EXPECT_EQ( launcherRead.GetValue().find( "DYLD_" ), std::string::npos ) << launcherRead.GetValue();
 
     // ── THE ACCEPTANCE: the player's own sequence, no arguments anywhere in it.
-    fs::current_path( root );
     const PlayerStartup started = StartTheGameLikeThePlayerDoes( exe );
     ASSERT_EQ( started.MountExit, Desert::Player::kContentOk ) << started.MountMessage;
     ASSERT_TRUE( started.Opened )
@@ -1178,10 +1247,10 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
 
 // The same property under the OTHER layout, and it is one test rather than a macOS-only one because the
 // claim is host-independent: whatever this host produces when a bundle is asked for, the archive is in
-// the directory the player binary is in. On a bundle host that is Contents/MacOS and Contents/Resources
-// is not produced at all — that split is what forced the launcher to pass `--project`, and it is gone
-// with it. Everywhere else the request is refused and the plain layout comes back, which satisfies the
-// same claim by a different route.
+// the directory the player looks in from its own binary (FileSystem::PackagedContentDir). On a bundle host
+// that is Contents/Resources — Contents/MacOS holds code only (Apple's signing rule) — and the player
+// still needs no `--project` and no launcher to find it. Everywhere else the request is refused and the plain
+// layout comes back, which satisfies the same claim by a different route.
 TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHostProduces )
 {
     EnvironmentGuard guard;
@@ -1193,7 +1262,7 @@ TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHo
     const fs::path proj = WriteProjectToPackage( base, host.RuntimeBinary );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1213,21 +1282,20 @@ TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHo
                                                 : root / host.RuntimeBinary;
     ASSERT_TRUE( fs::exists( exe ) ) << "no player binary at " << exe.string();
 
-    EXPECT_TRUE( fs::exists( exe.parent_path() / "Content.dpak" ) )
-         << "the archive is not beside the player binary (" << exe.parent_path().string() << ")";
+    const fs::path contentDir = host.SupportsAppBundle ? root / "Contents" / "Resources" : root;
+    EXPECT_EQ( Common::Utils::FileSystem::PackagedContentDir( exe.parent_path() ), contentDir )
+         << "the player would look for its content somewhere other than where the packager put it";
+    EXPECT_TRUE( fs::exists( contentDir / "Content.dpak" ) )
+         << "the archive is not in the packaged content directory (" << contentDir.string() << ")";
+    if ( host.SupportsAppBundle )
+        EXPECT_FALSE( fs::exists( exe.parent_path() / "Content.dpak" ) )
+             << "Contents/MacOS holds code only — an archive there breaks codesign --verify";
 
     if ( host.SupportsAppBundle )
     {
-        // Contents/Resources holds ONE thing: the Vulkan driver manifest, in the loader's own bundle location
-        // (vulkan/icd.d, PKG2b). No game payload.
-        std::vector<std::string> resources;
-        for ( const auto& entry : fs::directory_iterator( root / "Contents" / "Resources" ) )
-            resources.push_back( entry.path().filename().string() );
-        EXPECT_EQ( resources, std::vector<std::string>{ "vulkan" } )
-             << "Contents/Resources holds more than the Vulkan ICD manifest. Nothing on macOS requires it, and "
-                "holding the "
-                "payload there is exactly what made the launcher hand the descriptor over on the command "
-                "line - a second place the player has to be told about.";
+        // Contents/MacOS holds code only: the player binary, its launcher and nothing that is data.
+        for ( const auto& entry : fs::directory_iterator( root / "Contents" / "MacOS" ) )
+            EXPECT_NE( entry.path().extension(), ".dpak" ) << entry.path().string();
 
         // The plist and the disk must agree about which file macOS starts. They were two independent
         // literals; when they disagree macOS says "damaged application" and nothing else, which is the
@@ -1243,7 +1311,6 @@ TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHo
              << "the file Info.plist names as the bundle executable is not in Contents/MacOS";
     }
 
-    fs::current_path( exe.parent_path() );
     const PlayerStartup started = StartTheGameLikeThePlayerDoes( exe );
     ASSERT_EQ( started.MountExit, Desert::Player::kContentOk ) << started.MountMessage;
     EXPECT_TRUE( started.Opened ) << "the bundled game does not start from its own directory";
@@ -1290,7 +1357,7 @@ TEST( PackagedContent, APackagedReleaseRecordsAManifestOfTheArchiveItActuallyShi
     const fs::path proj = WriteProjectToPackage( base, host.RuntimeBinary );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1361,7 +1428,7 @@ TEST( PackagedContent, AnUpdateBuiltAgainstTheRecordedManifestReachesThePlayerAs
     const fs::path proj = WriteProjectToPackage( base, host.RuntimeBinary );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1381,7 +1448,7 @@ TEST( PackagedContent, AnUpdateBuiltAgainstTheRecordedManifestReachesThePlayerAs
     // archive and the OLD MANIFEST, and nothing else — which is the whole economy of П3: no old archive
     // is kept anywhere.
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body-v2" );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     const auto next = PackageInto( base / "out2" );
     ASSERT_TRUE( next.Success ) << next.Message;
     const fs::path second = next.PackageDir;
@@ -1401,8 +1468,7 @@ TEST( PackagedContent, AnUpdateBuiltAgainstTheRecordedManifestReachesThePlayerAs
          << "the patch does not carry the one file that changed (" << sceneKey << ")";
 
     // ---- the acceptance: the INSTALLED release, started the way a player starts it, reads the new bytes.
-    const fs::path exe = installed / host.RuntimeBinary;
-    fs::current_path( installed );
+    const fs::path      exe     = installed / host.RuntimeBinary;
     const PlayerStartup started = StartTheGameLikeThePlayerDoes( exe );
     ASSERT_EQ( started.MountExit, Desert::Player::kContentOk ) << started.MountMessage;
     ASSERT_TRUE( started.Opened ) << "the patched installation no longer contains a game";
@@ -1428,7 +1494,7 @@ TEST( PackagedContent, APatchWithNoBaselineIsRefusedByNameAndWritesNothing )
     const fs::path proj = WriteProjectToPackage( base, host.RuntimeBinary );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1544,15 +1610,16 @@ namespace
     {
         namespace P                                  = Common::Constants::Path;
         static const std::vector<DeclaredRoot> roots = {
-             // --- engine resources: never remapped, and only these three travel ---
+             // --- engine resources: never remapped, and only these four travel ---
              { "RESOURCE_PATH", &P::RESOURCE_PATH, RootVerdict::NotContent,
-               "the engine tree's ROOT, and it is not shipped wholesale - only the three named subtrees "
+               "the engine tree's ROOT, and it is not shipped wholesale - only the four named subtrees "
                "below it are. Anything new placed under it is invisible to the packager until it becomes "
                "a tree of its own here AND in PackagedContentTrees(); Resources/Scripts/ was exactly that "
                "and shipped in nothing for as long as it existed." },
              { "SHADERDIR_PATH", &P::SHADERDIR_PATH, RootVerdict::Packaged, "" },
              { "FONTS_PATH", &P::FONTS_PATH, RootVerdict::Packaged, "" },
              { "ICONS_PATH", &P::ICONS_PATH, RootVerdict::Packaged, "" },
+             { "ENGINE_CONTENT_PATH", &P::ENGINE_CONTENT_PATH, RootVerdict::Packaged, "" },
 
              // --- project content: every row is derived from the assets or cooked root, and both of
              //     those are packed trees, so the whole census travels by construction ---
@@ -1596,6 +1663,8 @@ namespace
              // PACKAGED: editor-authored clips (the Sequencer's Save, AF8b) are content an anim graph names.
              // Covered by the ASSETS_PATH tree (Animations/).
              { "ANIMATION_PATH", &P::ANIMATION_PATH, RootVerdict::Packaged, "" },
+             // PACKAGED: a Level Sequence actor names its .dseq; covered by the ASSETS_PATH tree (Sequences/).
+             { "LEVEL_SEQUENCE_PATH", &P::LEVEL_SEQUENCE_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
         };
         return roots;
@@ -1734,14 +1803,15 @@ TEST( PackagedContent, EachConfigurationPackagesExactlyTheShaderProgramsItsRunti
 {
     const EnvironmentGuard guard;
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
-    fs::current_path( fs::absolute( RepoRoot() ) / "Editor" );
+    Common::Constants::Path::SetEngineDir( fs::absolute( RepoRoot() ) / "Editor" );
 
     std::set<std::string> runtimePrograms; // every program a runtime of SOME configuration may load
     for ( const auto& file :
           Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::SHADERDIR_PATH ) )
         if ( file.extension() == ".shader" && !Desert::Editor::IsEditorOnlyResource( file ) )
             runtimePrograms.insert( file.stem().string() );
-    ASSERT_GT( runtimePrograms.size(), 40u ) << "the engine shader tree was not found from " << fs::current_path();
+    ASSERT_GT( runtimePrograms.size(), 40u )
+         << "the engine shader tree was not found from " << Common::Constants::Path::EngineDir();
 
     const auto stems = []( const std::vector<fs::path>& files )
     {
@@ -1778,6 +1848,7 @@ TEST( PackagedContent, EachConfigurationPackagesExactlyTheShaderProgramsItsRunti
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
@@ -1852,7 +1923,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
 
     const fs::path repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
-    const fs::path shipped = repo / "Editor" / "Resources" / "Assets";
+    const fs::path shipped = repo / "Projects" / "Desert" / "Content";
 
     const fs::path base = fs::temp_directory_path() / "desert_pkg_textures";
     fs::remove_all( base );
@@ -1883,7 +1954,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1903,7 +1974,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     // ── THE PLAYER'S SIDE: an archive in a bare directory, and nothing loose ──
     fs::create_directories( pkg );
     fs::copy_file( proj / "Content.dpak", pkg / "Content.dpak" );
-    fs::current_path( pkg );
+    Common::Constants::Path::SetEngineDir( pkg );
     const auto mounted = Common::Utils::VFS::MountPak( pkg / "Content.dpak" );
     ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
     ASSERT_TRUE(
@@ -2007,7 +2078,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
 
     // ── INCREMENTAL: a second pass over unchanged sources cooks nothing ──
     Common::Utils::VFS::Unmount();
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Desert::Assets::ContentRegistry::Gather().IsSuccess() );
     const auto again =
@@ -2027,8 +2098,9 @@ TEST( PackagedContent, EveryTextureTheShippedContentNamesIsOneThePackageCooks )
 
     const fs::path repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
-    fs::current_path( repo / "Editor" );
-    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( repo / "Editor" / "Desert.deproj" ).string() ) );
+    Common::Constants::Path::SetEngineDir( repo / "Editor" );
+    ASSERT_TRUE(
+         Desert::Project::ProjectContext::Open( ( repo / "Projects" / "Desert" / "Desert.deproj" ).string() ) );
     const fs::path assets = Common::Constants::Path::ASSETS_PATH;
 
     // What the cook reaches, spelled the three ways content can name it.
@@ -2132,7 +2204,7 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
 
     const fs::path repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
-    const fs::path shipped = repo / "Editor" / "Resources" / "Assets";
+    const fs::path shipped = repo / "Projects" / "Desert" / "Content";
 
     const fs::path base = fs::temp_directory_path() / "desert_pkg_cooked_tree";
     fs::remove_all( base );
@@ -2154,7 +2226,7 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
                    proj / "Resources" / "Icons" / "Gizmo" / "camera.svg" );
 
     SetEnv( "HOME", base.string() );
-    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
     ASSERT_TRUE( Desert::Assets::ContentRegistry::Gather().IsSuccess() );
@@ -2262,7 +2334,6 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
 
     // 4. One cooked location: the retired texture stage stays gone.
     EXPECT_FALSE( fs::exists( proj / "Saved" / "CookedAssets" ) );
-    fs::current_path( repo );
     fs::remove_all( base );
 }
 
@@ -2293,4 +2364,72 @@ TEST( PackagedContent, NoWindowInitMovesTheWorkingDirectoryIntoTheBundleResource
              << "` before it, so inside a .app GLFW moves the working directory to Contents/Resources and "
                 "every relative engine path (shaders, the mounted pak) stops resolving";
     }
+}
+
+// THE PACKAGED GAME READS ITS SHADING MODELS FROM THE PAK AND WRITES NOTHING. The runtime reaches the set through
+// CompileEngineShaders -> BuildShaderMap -> ShaderRootShadingModels(); a scan that only looked at loose
+// directories found nothing in a package and failed every surface template. The fixture is the cook's own order:
+// the set is loaded once over a loose copy of the real models (kGeneratedInclude is virtual: nothing is written),
+// that tree is packed, and the pak is mounted in an EMPTY package directory — a fresh root, so the per-root cache
+// cannot answer from the loose load. Mutation: put the std::filesystem::is_directory check back in
+// ShadingModelRegistry::Scan and the scan fails here.
+TEST( PackagedContent, ThePackagedGameReadsItsShadingModelsFromThePakAndWritesNothing )
+{
+    const EnvironmentGuard guard;
+    const fs::path         repo = fs::absolute( RepoRoot() );
+    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
+    const Desert::TestSupport::ScratchDir scratch( "desert-pkg-shading-models" );
+    const fs::path                        staging       = scratch.Path() / "staging";
+    const fs::path                        pkg           = scratch.Path() / "pkg";
+    const fs::path                        shaders       = repo / "Editor" / "Resources" / "Shaders";
+    const fs::path                        stagedShaders = staging / "Resources" / "Shaders";
+
+    std::vector<std::string> keys;
+    const auto               stage = [&]( const fs::path& rel )
+    {
+        fs::create_directories( ( stagedShaders / rel ).parent_path() );
+        fs::copy_file( shaders / rel, stagedShaders / rel );
+    };
+    for ( const auto& entry :
+          fs::directory_iterator( shaders / Desert::Core::ShadingModels::kShadingModelDirectory ) )
+        if ( entry.path().extension() == Desert::Core::ShadingModels::kShadingModelExtension )
+            stage( fs::path( Desert::Core::ShadingModels::kShadingModelDirectory ) / entry.path().filename() );
+    stage( fs::path( "Mesh" ) / "Surface" / "SurfaceTypes.glslh" );
+
+    Common::Constants::Path::SetEngineDir( staging );
+    const auto loose = Desert::Core::ShadingModels::ShaderRootShadingModels();
+    ASSERT_TRUE( loose->IsSuccess() ) << loose->GetError();
+    EXPECT_FALSE( fs::exists( stagedShaders / Desert::Core::ShadingModels::kGeneratedInclude ) )
+         << "the generated include is virtual; the loose load wrote it into the shader root";
+
+    fs::create_directories( pkg );
+    {
+        Common::Utils::PakWriter writer( pkg / "Content.dpak" );
+        ASSERT_TRUE( writer.IsOpen() );
+        for ( const auto& entry : fs::recursive_directory_iterator( stagedShaders ) )
+        {
+            if ( !entry.is_regular_file() )
+                continue;
+            const std::string key = KeyUnder( staging, entry.path() );
+            keys.push_back( key );
+            ASSERT_TRUE( writer.AddFile( key, entry.path() ) ) << key;
+        }
+        ASSERT_EQ( writer.Finalize(), keys.size() );
+    }
+
+    Common::Constants::Path::SetEngineDir( pkg );
+    const auto mounted = Common::Utils::VFS::MountPak( pkg / "Content.dpak" );
+    ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
+
+    const auto packaged = Desert::Core::ShadingModels::ShaderRootShadingModels();
+    ASSERT_TRUE( packaged->IsSuccess() ) << packaged->GetError();
+    EXPECT_EQ( packaged->GetValue().IndexLayoutKey, loose->GetValue().IndexLayoutKey )
+         << "the pak carries the same set the cook loaded";
+    EXPECT_EQ( packaged->GetValue().GeneratedGlsl, loose->GetValue().GeneratedGlsl );
+
+    std::vector<std::string> onDisk;
+    for ( const auto& entry : fs::recursive_directory_iterator( pkg ) )
+        onDisk.push_back( KeyUnder( pkg, entry.path() ) );
+    EXPECT_EQ( onDisk, std::vector<std::string>{ "Content.dpak" } )
+         << "the packaged game wrote into its package directory";
 }

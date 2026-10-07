@@ -489,6 +489,8 @@ namespace Desert::Geometry
         // cos of the angle between the two constrained sides, below which m counts as straight (about 143 deg).
         // Measured on the per-triangle cube-sphere (every edge a seam): -0.7 .. -0.85 leave 0 fins and reach the
         // target; -0.9 leaves 2 fins, -0.6 stalls at 198 of 192 triangles.
+        // Pinned on two junction fans (simplify_test.cpp, M18f): a flat 135 deg corner may be cut (-0.7 and up
+        // refuse it), 150 deg on a great circle may not (-0.87 and down let the fin through).
         constexpr double kStraightCos = -0.8;
         if ( !m_Constraints )
             return false;

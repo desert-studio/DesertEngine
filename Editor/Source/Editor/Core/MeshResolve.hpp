@@ -4,6 +4,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
+#include <Engine/Geometry/SkinnedMesh.hpp> // the SkinnedMesh -> Mesh conversion below
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::Editor

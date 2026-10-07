@@ -130,8 +130,8 @@ namespace Desert::Editor::Commands
     };
 
     // Multi-entity variant: one undo step for the whole group drag (entities whose transform did not
-    // actually change are skipped).
-    void RecordTransformEdits( const std::vector<TransformSnapshot>& before );
+    // actually change are skipped). True when an entry was pushed.
+    bool RecordTransformEdits( const std::vector<TransformSnapshot>& before );
 
     // ---- Editor clipboard (in-memory, serialized snapshots — survives deleting the originals) ----
 

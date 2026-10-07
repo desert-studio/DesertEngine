@@ -419,10 +419,11 @@ TEST( SyncLoadChokepointCensus, BothHostsCloseTheirBootSoAnInFrameLoadCanBeRecog
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // The phase is what separates a loading screen from a hitch, and it is set by the LAYER — nothing
-    // else knows when a boot is over. A host that forgot this line would report every one of its
-    // in-frame loads as a boot load, which is a detector that is on and always answers "fine".
-    for ( const char* layer : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
+    // The phase is what separates a loading screen from a hitch, and it is set by the HOST (the editor's startup,
+    // the runtime layer) — nothing else knows when a boot is over. A host that forgot this line would report every
+    // one of its in-frame loads as a boot load, which is a detector that is on and always answers "fine".
+    for ( const char* layer :
+          { "Editor/Source/Editor/LevelEditor/EditorStartup.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
     {
         const std::string text = Desert::Tests::ConsumerText::StripComments( ReadAll( fs::path( root ) / layer ) );
         ASSERT_FALSE( text.empty() ) << "could not read " << layer;

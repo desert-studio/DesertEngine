@@ -1,15 +1,18 @@
 #pragma once
 
+#include <array>
 #include <unordered_map>
 
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 
 #include <vulkan/vulkan.hpp>
 
 #include <atomic>
+#include <optional>
 #include <future>
 
 namespace Desert::Graphic::API::Vulkan
@@ -73,6 +76,13 @@ namespace Desert::Graphic::API::Vulkan
         {
             return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
         }
+        // The pipeline's vertex input describes the optional streams binding (binding 1) — the layout has
+        // streams AND the vertex stage reads one of them (ShaderReflection::BuildVertexInput): the draw
+        // must bind a buffer there, and must not otherwise.
+        [[nodiscard]] bool HasVertexStreams() const
+        {
+            return m_VertexInput.HasBinding( 1 );
+        }
 
         // THE PIPELINE FOR THE RENDER PASS THE DRAW IS RECORDED IN, passed by the caller as that pass's
         // compatibility key (RdgCompatibilityKey). The pipeline is built at the sample count of its target when
@@ -91,6 +101,15 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_PipelineLayout;
         }
+        // The push range m_PipelineLayout was built with, and so the one a push into this pipeline must name
+        // (stages, size). The shader's reflection is not that: the shader object outlives a recompile that
+        // re-reflects it, while this pipeline keeps the layout it was built with until it is rebuilt, and a push
+        // that named the shader's current stages named a stage this layout lacks
+        // (VUID-vkCmdPushConstants-offset-01795). Empty when the layout declares no push range.
+        const std::optional<VkPushConstantRange>& GetPushConstantRange() const
+        {
+            return m_PushConstantRange;
+        }
 
     private:
         bool HasDepth();
@@ -99,7 +118,7 @@ namespace Desert::Graphic::API::Vulkan
         VkStencilOpState ConvertStencilOpState( const StencilOpState& state );
 
         void CreatePipelineLayout();
-        void CreateVertexInputState();
+        [[nodiscard]] bool CreateVertexInputState(); // false = refused (reason logged)
         void CreateInputAssemblyState();
         void CreateDynamicState();
         void CreateViewportState();
@@ -124,7 +143,9 @@ namespace Desert::Graphic::API::Vulkan
         GraphicsPipelineSpecification m_Specification;
 
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
-        VkPipeline       m_Pipeline= VK_NULL_HANDLE;
+        VkPipeline       m_Pipeline       = VK_NULL_HANDLE;
+        // Set with m_PipelineLayout, from the same SetUpPushConstantRange call (GetPushConstantRange).
+        std::optional<VkPushConstantRange> m_PushConstantRange;
 
         // The descriptor set layouts m_PipelineLayout was built from, held so they outlive it. A shader
         // recompile replaces the shader's references; this pipeline keeps its own until it is rebuilt.
@@ -137,10 +158,10 @@ namespace Desert::Graphic::API::Vulkan
         VkPipelineRasterizationStateCreateInfo m_Rasterizer{};
         VkPipelineMultisampleStateCreateInfo   m_Multisampling{};
         VkPipelineDepthStencilStateCreateInfo  m_DepthStencil{};
-        VkPipelineColorBlendStateCreateInfo    m_ColorBlending{};
-        VkVertexInputBindingDescription m_VertexInputBinding;
+        VkPipelineColorBlendStateCreateInfo            m_ColorBlending{};
+        // Layout ∩ vertex-stage inputs; m_VertexInputInfo points into it.
+        ShaderReflection::VertexInputState m_VertexInput;
 
-        std::vector<VkVertexInputAttributeDescription>   m_VertexAttributes;
         std::vector<VkDynamicState>                      m_DynamicStates;
         std::vector<VkPipelineColorBlendAttachmentState> m_ColorBlendAttachments;
 

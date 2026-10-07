@@ -1,5 +1,6 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -148,10 +149,12 @@ namespace Desert::Core
         Common::BoolResultStr WriteLandscapeTiles( Scene& scene, const std::filesystem::path& scenePath )
         {
             // The path the .desce records is spelled the way the scene's other files are: relative to the
-            // working directory, so a scene saved on one machine opens on another.
-            const std::filesystem::path relative =
-                 scenePath.is_absolute() ? scenePath.lexically_proximate( std::filesystem::current_path() )
-                                         : scenePath;
+            // PROJECT's directory (FPaths::ProjectDir, never the working directory), so a scene saved on one
+            // machine opens on another and the editor may be started from any folder.
+            const std::filesystem::path& projectDir = Common::Constants::Path::ProjectDir();
+            const std::filesystem::path  relative   = scenePath.is_absolute() && !projectDir.empty()
+                                                           ? scenePath.lexically_proximate( projectDir )
+                                                           : scenePath;
 
             for ( const auto& entity : scene.GetAllEntities() )
             {
@@ -172,7 +175,8 @@ namespace Desert::Core
                                                        tile.TileX, tile.TileZ );
                 const auto id = static_cast<uint64_t>( entity.GetComponent<ECS::UUIDComponent>().UUID );
                 const std::filesystem::path file = World::Landscape::LandscapeTileBlobPath( relative, id );
-                if ( const auto written = World::Landscape::WriteLandscapeTileFile( file, *tile.Heights );
+                if ( const auto written = World::Landscape::WriteLandscapeTileFile(
+                          Common::Constants::Path::FullPath( file ), *tile.Heights );
                      !written )
                     return Common::MakeFormattedError( "tile ({}, {}): {}", tile.TileX, tile.TileZ,
                                                        written.GetError() );

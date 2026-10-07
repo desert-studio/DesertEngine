@@ -14,12 +14,13 @@
 # content: 50 MB of baked cloud volumes, 38 MB of meshes, 3 MB of textures and a 37 MB
 # `cinematic_menu_loop.gif` that NO file in this repository names. None of it is reachable from the
 # scene the drop opens. Worse, the descriptor that would have made any of it reachable —
-# Editor/Desert.deproj — was not copied at all, so the packaged editor had 129 MB of assets and no
+# Projects/Desert/Desert.deproj — was not copied at all, so the packaged editor had 129 MB of assets and no
 # project able to see them.
 #
 # Now three things travel and each has a rule rather than a list:
-#   1. the ENGINE resource trees — Shaders, Fonts, Icons. Whole, because the engine's own services
-#      SCAN them (Engine/Runtime/Services/ServiceScanRoots.hpp) rather than naming files; that is the
+#   1. the ENGINE resource trees — Engine (the engine's content mount, ENGINE_CONTENT_PATH: the
+#      built-in humanoid's skeleton, mesh and clips), Shaders, Fonts, Icons. Whole, because the engine's
+#      own services SCAN them (Engine/Runtime/Services/ServiceScanRoots.hpp) rather than naming files; that is the
 #      same census PackagedContentTrees() ships for a game, and Desert/Tests/Editor/PackagedContent
 #      asserts the two agree.
 #   2. the sandbox descriptor, Desert.deproj.
@@ -39,7 +40,7 @@ CONFIG="${1:-Release}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="$ROOT/build/Bin/$CONFIG"
 OUT="$ROOT/dist/DesertEngine-$CONFIG"
-PROJECT="$ROOT/Editor/Desert.deproj"
+PROJECT="$ROOT/Projects/Desert/Desert.deproj"
 
 if [ ! -x "$BIN/Runtime" ]; then
     echo "Package.sh: no $CONFIG binaries in $BIN — build first" >&2
@@ -74,7 +75,7 @@ done
 # out fresh too, which is why no CI artifact ever carried one and why this could stay invisible: it
 # only ever affected a drop packaged on a developer's own machine, which is the one a developer
 # hands to somebody.
-for tree in Branding Shaders Fonts Icons Splash; do
+for tree in Branding Engine Shaders Fonts Icons Splash; do
     if [ ! -d "$ROOT/Editor/Resources/$tree" ]; then
         echo "Package.sh: engine resource tree Editor/Resources/$tree is missing" >&2
         exit 1
@@ -84,7 +85,7 @@ for tree in Branding Shaders Fonts Icons Splash; do
         "$ROOT/Editor/Resources/$tree/" "$OUT/Resources/$tree/"
 done
 
-# The descriptor, verbatim: the drop's Resources/Assets sits exactly where the dev tree's does, so
+# The descriptor, verbatim: the drop's Content/ sits beside it exactly as the project's does, so
 # nothing about it needs rebasing (a GAME's does — see PackagedDescriptor()).
 cp "$PROJECT" "$OUT/"
 
@@ -94,8 +95,8 @@ CLOSURE="$(mktemp)"
 trap 'rm -f "$CLOSURE"' EXIT
 "$BIN/AssetClosure" "$PROJECT" --out "$CLOSURE"
 
-ASSETS_SRC="$ROOT/Editor/Resources/Assets"
-ASSETS_DST="$OUT/Resources/Assets"
+ASSETS_SRC="$ROOT/Projects/Desert/Content"
+ASSETS_DST="$OUT/Content"
 COPIED=0
 while IFS= read -r rel; do
     [ -n "$rel" ] || continue
@@ -137,6 +138,6 @@ if [ ! -f "$OUT/Resources/Splash/Splash.tex" ]; then
 fi
 
 echo "Package.sh: packaged -> $OUT"
-echo "  engine resources: Branding + Shaders + Fonts + Icons + Splash (its picture is committed there)"
+echo "  engine resources: Branding + Engine + Shaders + Fonts + Icons + Splash (its picture is committed there)"
 echo "  project assets:   $COPIED files, the closure of $(basename "$PROJECT")'s DefaultScene"
 du -sh "$OUT"

@@ -2,7 +2,6 @@
 
 #include <Engine/ECS/Entity.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
-#include <Editor/Widgets/PreviewInput.hpp>
 
 #include <functional>
 #include <memory>
@@ -11,7 +10,6 @@
 #include <vector>
 
 struct ImGuiTextFilter;
-struct ImVec2;
 
 namespace Desert::Core
 {
@@ -32,33 +30,12 @@ namespace Desert::Editor::UI
 
 namespace Desert::Editor
 {
-    class PreviewViewport;
-
     // Runtime services handed to a component's Draw callback (built once per frame by ComponentEditor).
     struct ComponentEditContext
     {
         std::weak_ptr<Assets::AssetManager> AssetManager;
         const Animation::AnimationLibrary*  AnimationLibrary = nullptr;
         UI::UIHelper*                       UIHelper         = nullptr;
-
-        // The Details panel's live preview renderer, lent to whichever component wants a thumbnail of what
-        // the entity renders (the 3D Model row uses it). A component only DRAWS it — the panel owns it and
-        // records its offscreen render in OnPreUpdate, because rendering from inside the ImGui pass
-        // destroys descriptor pools bound to the recording command buffer. Setting PreviewUsed tells the
-        // panel to pay for next frame's render; leaving it alone stops the GPU work.
-        PreviewViewport* Preview     = nullptr;
-        UI::UIHelper*    PreviewUI   = nullptr;
-        bool*            PreviewUsed = nullptr;
-
-        // Draws the shared preview at @p size and marks it as used. Returns false when the panel did not
-        // lend one, so a component never has to know where it came from — the caller falls back to a
-        // cached thumbnail.
-        //
-        // The mode comes from @p kind (DetailsPreviewInteraction, Editor/Widgets/PreviewInput.hpp): the
-        // Static Mesh row orbits and zooms, the Skybox row keeps one angle. A Static row's double-click opens
-        // @p openHandle — the asset the row stands for — through the same AssetFieldRequests queue every
-        // other asset field in Details uses; an Interactive row's double-click re-frames instead.
-        [[nodiscard]] bool DrawPreview( const ImVec2& size, DetailsPreviewKind kind, uint64_t openHandle ) const;
 
         // Details search box: while non-empty, reflected components draw only the fields that match.
         // A hand-written widget cannot filter itself — the panel decides whether to draw it at all.

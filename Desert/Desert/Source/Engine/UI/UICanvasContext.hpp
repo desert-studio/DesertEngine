@@ -1,6 +1,9 @@
 #pragma once
 
+#include <optional>
+
 #include <Engine/ECS/Components.hpp>
+#include <Engine/UI/UIAnimationPlayback.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UILayout.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
@@ -75,6 +78,8 @@ namespace Desert::UI
         // canvas's tree. Per canvas rather than per view because that is what gives them a death: the cell
         // goes when the canvas does, instead of accumulating a row per element the scene ever had.
         std::unordered_map<entt::entity, float>    HoverT;    // 0 = rest, 1 = hovered; eased each frame
+        // Retainers whose Mask Element name was refused (not exactly one match) — logged once per element.
+        std::unordered_set<entt::entity>           RetainerMaskRefused;
         std::unordered_map<entt::entity, float>    TweenT;    // per-element tween playhead
         std::unordered_map<entt::entity, uint64_t> TweenSeen; // FrameIndex the tween was last evaluated on
 
@@ -271,17 +276,12 @@ namespace Desert::UI
         const entt::registry* Registry = nullptr;
 
         // --- This view's clock ------------------------------------------------------------------------
-        // Wall-clock seconds at this view's previous frame, and the delta from it. Per view because two
-        // views draw in the same frame: with one shared clock the second walk of every frame measured a
-        // delta of ~0 and its hover eases, tweens and screen transitions stood still. It is advanced ONCE
-        // per view frame (BeginUIFrame) and not once per canvas, or the same freeze reappears between the
-        // canvases of a single view.
-        // HasDrawn is a flag rather than a sentinel value in LastFrameTime, because the clock's epoch is the
-        // first UI frame of the process: a "not yet" spelled as a negative time is indistinguishable from a
-        // real reading taken in the first fraction of a second.
-        bool     HasDrawn      = false;
-        float    LastFrameTime = 0.0f;
+        // The frame delta the host handed BeginUIFrame, and the sum of them (this view's UI time — the
+        // phase of marquees and pulses). Per view because two views draw in the same frame and each must
+        // spend the frame's step; advanced ONCE per view frame (BeginUIFrame) and not once per canvas.
+        // There is no clock in here: the host owns the timestep, so a fixed-step run is reproducible.
         float    FrameDt       = 0.0f;
+        double   Time          = 0.0;
         uint64_t FrameIndex    = 0; // drives the tween's rewind-on-hide check
 
         // Is a frame of this view open — i.e. has BeginUIFrame run and EndUIFrame not yet? A walk outside
@@ -310,11 +310,21 @@ namespace Desert::UI
         // not the one that draws the frame.
         bool AuthoringLastFrame = false;
 
-        // Does this view drive the scene's SHARED animation playheads (UIAnimComponent::Data::Time)? That
+        // Does this view drive the scene's SHARED animation playheads (UIAnimComponent::Data::Playback)? That
         // one clock lives in the component on purpose — the Sequencer scrubs it — so it is scene state, not
         // view state, and exactly one view may advance it. A second view advancing it too runs every UIAnim
         // clip at double speed. The authoring preview sets this false; the viewport / game keeps it true.
         bool DrivesSceneAnimation = true;
+
+        // Is this view showing a GAME world — Play-in-editor, the packaged game, the movie render — rather
+        // than an authored level? Only a game world starts AutoPlay UI clips (UIAnimationPlayback.hpp); an
+        // authored level shows the frame under the clip's playhead and the Sequencer moves it, as UE's
+        // designer never auto-plays a widget animation. The editor viewport sets it from the scene's state.
+        bool GameWorld = true;
+
+        // What the scene's UI clips add to each element THIS frame, as this view evaluated them
+        // (UIAnimationPlayback.hpp). Filled once in BeginUIFrame, read by every canvas walk of the frame.
+        UIClipFrame AnimClips;
 
         // --- Hit testing ------------------------------------------------------------------------------
         // The frame elects a single HOT element (last writer in draw order = topmost) and controls compare
@@ -481,6 +491,7 @@ namespace Desert::UI
             OverlayHoverTrigger    = entt::null;
             OverlayHoverHeld       = 0.0f;
             PrevRightDown          = false;
+            AnimClips.Reset();
         }
 
     private:

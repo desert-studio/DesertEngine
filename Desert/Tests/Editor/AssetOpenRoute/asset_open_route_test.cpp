@@ -7,6 +7,7 @@
 #include <regex>
 #include <set>
 #include <sstream>
+#include <format>
 #include <string>
 
 using namespace Desert;
@@ -228,13 +229,14 @@ namespace
     }
 } // namespace
 
-// THE REGISTER AND THE EDITORS ARE ONE LIST. EditorLayer.cpp (compiled by no suite) registers the asset
-// editors; the types it registers must be exactly the ones AssetOpenRefusal lets through, or an Open is
-// either refused for a type that has a window or promised a window that no registration builds.
-TEST( AssetOpenRegister, MatchesTheAssetEditorsEditorLayerRegisters )
+// THE REGISTER AND THE EDITORS ARE ONE LIST. AssetEditorRegistrations.cpp (compiled by no suite) registers
+// the asset editors; the types it registers must be exactly the ones AssetOpenRefusal lets through, or an Open
+// is either refused for a type that has a window or promised a window that no registration builds.
+TEST( AssetOpenRegister, MatchesTheAssetEditorsTheRegistrationsRegister )
 {
-    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" );
-    ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.cpp not found from the working directory";
+    const std::string layer = ReadRepoFile( "Editor/Source/Editor/LevelEditor/AssetEditorRegistrations.cpp" );
+    ASSERT_FALSE( layer.empty() )
+         << "Editor/Source/Editor/LevelEditor/AssetEditorRegistrations.cpp not found from the working directory";
 
     std::set<std::string> registered;
     const std::regex      registration(
@@ -254,13 +256,15 @@ TEST( AssetOpenRegister, MatchesTheAssetEditorsEditorLayerRegisters )
 
 namespace
 {
-    // The EditorLayer member each LoadScene call sits in: the last line before it that opens a member at
-    // namespace indent ("    <ret> EditorLayer::Name(" — four spaces, then not a comment).
+    // The member each LoadScene call sits in: the last line before it that opens a member of one of the
+    // level editor's hosts at namespace indent ("    <ret> SceneFiles::Name(" — four spaces, then not a
+    // comment).
     std::multiset<std::string> LoadSceneCallers( const std::string& layer )
     {
         std::multiset<std::string> callers;
-        const std::regex           member( R"(^    (?:[^ /][^(]*)?EditorLayer::(\w+)\()" );
-        const std::regex           call( R"((^|[^:\w])LoadScene\()" );
+        const std::regex           member(
+             R"(^    (?:[^ /][^(]*)?(?:EditorLayer|SceneFiles|DockLayout|ShotDirector)::(\w+)\()" );
+        const std::regex           call( R"((^|[^:\w])RequestLoad\()" );
         std::istringstream         lines( layer );
         std::string                line;
         std::string                current;
@@ -288,14 +292,20 @@ namespace
 // the ask. Each row names its reason; a new caller is red here until it goes through SceneOpenRequest.
 TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
 {
-    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" );
+    // EDL-4: the scene-file code moved into SceneFiles; EDL-9: the recovery popup moved into DockLayout and
+    // the shot's scene into ShotDirector. The register reads the layer and every file that calls RequestLoad.
+    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" ) +
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/SceneFiles.cpp" ) +
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/SceneFileDialogs.cpp" ) +
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/DockLayout.cpp" ) +
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/ShotDirector.cpp" );
     ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.cpp not found from the working directory";
 
     // clang-format off
     const std::multiset<std::string> allowed = {
-        "EditorLayer",               // constructor: --scene and the shot's scene, before any edit exists
-        "EditorLayer",
-        "OnUpdate",                  // the SceneOpenRequest consumer, after the unsaved-changes check
+        "EditorLayer",               // constructor: --scene, before any edit exists
+        "QueueScene",                // ShotDirector: the shot's scene, before any edit exists
+        "ConsumeOpenRequest",        // the SceneOpenRequest consumer, after the unsaved-changes check
         "DrawRecoveryPopup",         // restoring an autosave the user just chose to recover
         "DrawConfirmOpenScenePopup", // "Save and open" / "Discard and open" — the ask itself
         "DrawConfirmOpenScenePopup",
@@ -303,9 +313,17 @@ TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
     // clang-format on
     EXPECT_EQ( LoadSceneCallers( layer ), allowed );
 
-    // And the palette's "Open Scene <file>" entries go through the gate rather than around it.
-    const std::regex palette( R"("Open Scene " \+ SceneLabel\( scene \)[^}]*SceneOpenRequest::Request\()" );
-    EXPECT_TRUE( std::regex_search( layer, palette ) );
+    // And the palette's "Open Scene <file>" entries go through the gate rather than around it. The entry binds
+    // a named function (std::bind_front, not a lambda); that function's body is what must call the gate.
+    const std::regex palette(
+         R"(std::format\( "Open Scene \{\}", Label\( scene \) \),\s*std::bind_front\( &(\w+),)" );
+    std::smatch entry;
+    ASSERT_TRUE( std::regex_search( layer, entry, palette ) )
+         << "no palette entry std::format( \"Open Scene {}\", Label( scene ) ) bound to a named function";
+    const std::regex gate(
+         std::format( R"({}\([^)]*\)\s*\{{[^}}]*SceneOpenRequest::Request\()", entry[1].str() ) );
+    EXPECT_TRUE( std::regex_search( layer, gate ) ) << "the \"Open Scene\" palette entry runs " << entry[1].str()
+                                                    << ", which does not call SceneOpenRequest::Request";
 }
 
 int main( int argc, char** argv )

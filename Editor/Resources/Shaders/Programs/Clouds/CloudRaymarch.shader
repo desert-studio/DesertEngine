@@ -38,6 +38,7 @@ Shader "CloudRaymarch"
     // in Docs/Clouds/CALIBRATION.md; the tooltips carry the operative conclusions.
 
     Domain Volume
+    Role CloudMaterial
 
     Properties
     {

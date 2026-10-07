@@ -78,6 +78,10 @@ TEST( GenericBlockRead, AnAnimationBlockMissingTwoFieldsKeepsTheComponentAndDefa
     EXPECT_FALSE( parsed.value().Graph.has_value() )
          << "an absent graph key came back as something other than 'no graph' — absence is how this "
             "format says an entity has no state machine";
+    // ANIM-FIX1: a file written before UpdateAnimationInEditor existed reads as UE's default — the level
+    // holds still in Edit. The Edit preview it used to get regardless of this key was the defect.
+    EXPECT_FALSE( parsed.has_value() && parsed->UpdateAnimationInEditor )
+         << "a block with no UpdateAnimationInEditor key previews in the editor world; UE's default is off";
 }
 
 TEST( GenericBlockRead, ATextBlockMissingEverythingButItsTextIsStillAText )
@@ -92,16 +96,20 @@ TEST( GenericBlockRead, ATextBlockMissingEverythingButItsTextIsStillAText )
     EXPECT_FALSE( parsed.value().Billboard );
 }
 
-TEST( GenericBlockRead, AUIAnimBlockMissingItsPlaybackFlagsKeepsItsTracks )
+TEST( GenericBlockRead, AUIAnimBlockMissingItsAutoPlayFlagKeepsItsSequence )
 {
-    const auto older = FromJsonText( R"({"Tracks":[],"Duration":4.0})" );
+    const auto older = FromJsonText( R"({"Sequence":{"Start":0},"Loop":1})" );
 
     const auto parsed = ReadBlockOf<Assets::UIAnimComponentSer>( older );
 
-    ASSERT_TRUE( parsed.has_value() );
-    EXPECT_FLOAT_EQ( parsed.value().Duration, 4.0f );
-    EXPECT_FALSE( parsed.value().Loop );
-    EXPECT_TRUE( parsed.value().Playing );
+    if ( !parsed )
+    {
+        FAIL() << "the UIAnim block was refused";
+    }
+    EXPECT_EQ( parsed->Loop, 1 );
+    EXPECT_TRUE( parsed->AutoPlay ) << "an absent AutoPlay must read as the authored default, true";
+    EXPECT_EQ( Common::Json::Write( parsed->Sequence ), R"({"Start":0})" )
+         << "the TMLN block is carried verbatim; the sequence reader is the one that judges it";
 }
 
 // ── THE DIRECTION THAT WAS ALREADY SAFE, PINNED SO IT STAYS SAFE ───────────────────────────────────
@@ -265,7 +273,7 @@ TEST( GenericBlockRead, AnInstancedStaticMeshSurvivesTheTripWithEveryMatrixIntac
 
 // The shape a real `.desce` states, read as text rather than round-tripped — because a round trip can
 // agree with itself while disagreeing with the files on disk. This is the block
-// Editor/Resources/Assets/Scenes/G26_ISMProbe.desce carries under its "InstancedStaticMesh" key, cut to
+// Projects/Desert/Content/Scenes/G26_ISMProbe.desce carries under its "InstancedStaticMesh" key, cut to
 // two instances. (ReadBlock is handed the block's CONTENTS; EntitySerializer looks the key up.)
 TEST( GenericBlockRead, TheBlockShapeASceneFileStatesIsTheOneThisStructReads )
 {

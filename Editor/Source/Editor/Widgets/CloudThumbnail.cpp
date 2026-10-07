@@ -551,7 +551,7 @@ namespace Desert::Editor::CloudThumbnail
 
         return Common::MakeFormattedError<std::vector<unsigned char>>(
              "'{}' has extension '{}', which no CPU thumbnail producer claims. If the Content Browser "
-             "shows this format it needs a row in Editor/Widgets/ThumbnailFormats.hpp, and a "
+             "shows this format its kind needs a row in Editor/Widgets/ThumbnailProducers.hpp, and a "
              "Producer::Painted row needs a branch here.",
              assetPath, ext );
     }

@@ -6,12 +6,57 @@
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/VFS.hpp>
 
+#include <atomic>
 #include <cstring>
+#include <exception>
 #include <format>
+#include <future>
+#include <mutex>
+#include <random>
+#include <span>
+#include <unordered_map>
 #include <vector>
 
 namespace Common::DDC
 {
+    namespace
+    {
+        // Every Put writes through its own working file: `<entry>.<process salt>-<sequence>.tmp`. The salt
+        // separates processes sharing one cache (editor + cook), the sequence separates threads.
+        std::filesystem::path UniqueWorkingFile( const std::filesystem::path& entry )
+        {
+            static const uint64_t salt =
+                 ( static_cast<uint64_t>( std::random_device{}() ) << 32 ) ^ std::random_device{}();
+            static std::atomic<uint64_t> sequence{ 0 };
+            std::filesystem::path        temp = entry;
+            temp += std::format( ".{:016x}-{}.tmp", salt, sequence.fetch_add( 1, std::memory_order_relaxed ) );
+            return temp;
+        }
+
+        struct FlightOutcome
+        {
+            bool        Ok = false;
+            std::string Value;
+            std::string Error;
+        };
+
+        std::mutex                                                         s_FlightsMutex;
+        std::unordered_map<std::string, std::shared_future<FlightOutcome>> s_Flights;
+
+        void EndFlight( const std::string& flightId )
+        {
+            const std::lock_guard<std::mutex> lock( s_FlightsMutex );
+            s_Flights.erase( flightId );
+        }
+
+        Common::ResultStr<std::string> FromOutcome( const FlightOutcome& outcome )
+        {
+            if ( outcome.Ok )
+                return Common::MakeSuccess( outcome.Value );
+            return Common::MakeError<std::string>( outcome.Error );
+        }
+    } // namespace
+
     uint64_t MakeKey( const Deriver& deriver, const uint64_t payloadHash, const void* settings,
                       const size_t settingsSize )
     {
@@ -44,8 +89,9 @@ namespace Common::DDC
 
     std::filesystem::path Root()
     {
-        return ResolveRoot( Settings::MachineSettings::Get().DerivedDataCachePath,
-                            Constants::Path::CurrentProjectRoot().ProjectDir );
+        // ProjectDir(), not the open project's folder alone: the built-in sandbox's project directory IS the
+        // engine directory (UE: FPaths::ProjectDir), so the sandbox caches beside its own content too.
+        return ResolveRoot( Settings::MachineSettings::Get().DerivedDataCachePath, Constants::Path::ProjectDir() );
     }
 
     Common::ResultStr<std::filesystem::path> WritableRoot()
@@ -53,14 +99,12 @@ namespace Common::DDC
         std::filesystem::path root = Root();
         if ( root.is_absolute() )
             return Common::MakeSuccess( root );
-        std::error_code ec;
         return Common::MakeFormattedError<std::filesystem::path>(
-             "the derived data cache has no root: no project is open and machine.json's DerivedDataCachePath "
-             "('{}') is not an absolute path, so the cache would be written into the working directory '{}'. "
-             "Open a project or set an absolute DerivedDataCachePath (a test: hold a "
-             "Desert::TestSupport::DerivedDataSandbox)",
-             Settings::MachineSettings::Get().DerivedDataCachePath,
-             std::filesystem::current_path( ec ).generic_string() );
+             "the derived data cache has no root: neither a project nor the engine directory is set and "
+             "machine.json's DerivedDataCachePath ('{}') is not an absolute path, so the cache would be written "
+             "into the working directory. Open a project, set the engine directory, or set an absolute "
+             "DerivedDataCachePath (a test: hold a Desert::TestSupport::DerivedDataSandbox)",
+             Settings::MachineSettings::Get().DerivedDataCachePath );
     }
 
     Common::BoolResultStr CheckWritable( const std::filesystem::path& entry )
@@ -71,12 +115,10 @@ namespace Common::DDC
         if ( !root.IsSuccess() )
             return Common::MakeFormattedError<bool>( "DDC entry '{}' refused: {}", entry.generic_string(),
                                                      root.GetError() );
-        std::error_code ec;
         return Common::MakeFormattedError<bool>(
              "DDC entry '{}' refused: it is relative although the cache root '{}' is not, so it would be written "
-             "into the working directory '{}'",
-             entry.generic_string(), root.GetValue().generic_string(),
-             std::filesystem::current_path( ec ).generic_string() );
+             "into the working directory",
+             entry.generic_string(), root.GetValue().generic_string() );
     }
 
     std::filesystem::path RelativePath( const Deriver& deriver, const uint64_t key )
@@ -117,7 +159,57 @@ namespace Common::DDC
         const std::filesystem::path path = root.GetValue() / RelativePath( deriver, key );
         std::error_code             ec;
         std::filesystem::create_directories( path.parent_path(), ec );
-        return Utils::FileSystem::WriteContentToFileAtomic( path, std::string( bytes ) );
+        return Utils::FileSystem::WriteBytesToFileAtomic(
+             path, std::as_bytes( std::span( bytes.data(), bytes.size() ) ), UniqueWorkingFile( path ) );
+    }
+
+    Common::ResultStr<std::string> GetOrBuild( const Deriver& deriver, const uint64_t key,
+                                               const std::function<Common::ResultStr<std::string>()>& build )
+    {
+        if ( auto hit = Get( deriver, key ); hit.has_value() )
+            return Common::MakeSuccess( std::move( *hit ) );
+
+        const std::string                 flightId = std::format( "{}/{:016x}", deriver.Bucket, key );
+        std::promise<FlightOutcome>       promise;
+        std::shared_future<FlightOutcome> flight;
+        bool                              leader = false;
+        {
+            const std::lock_guard<std::mutex> lock( s_FlightsMutex );
+            if ( const auto it = s_Flights.find( flightId ); it != s_Flights.end() )
+                flight = it->second;
+            else
+            {
+                flight = promise.get_future().share();
+                s_Flights.emplace( flightId, flight );
+                leader = true;
+            }
+        }
+        if ( !leader )
+            return FromOutcome( flight.get() );
+
+        FlightOutcome outcome;
+        try
+        {
+            // A flight that finished between our miss and our registration has already written the entry.
+            if ( auto hit = Get( deriver, key ); hit.has_value() )
+                outcome = { true, std::move( *hit ), {} };
+            else if ( auto built = build(); !built.IsSuccess() )
+                outcome.Error = built.GetError();
+            else if ( auto put = Put( deriver, key, built.GetValue() ); !put.IsSuccess() )
+                outcome.Error = std::format( "built but not cached under DDC key {:016x} ({}): {}", key,
+                                             RelativePath( deriver, key ).generic_string(), put.GetError() );
+            else
+                outcome = { true, built.ExtractValue(), {} };
+        }
+        catch ( ... )
+        {
+            promise.set_exception( std::current_exception() );
+            EndFlight( flightId );
+            throw;
+        }
+        promise.set_value( outcome );
+        EndFlight( flightId );
+        return FromOutcome( outcome );
     }
 
     std::filesystem::path PackagedPath( const std::filesystem::path& loosePath )
@@ -141,7 +233,6 @@ namespace Common::DDC
 
     std::filesystem::path PlatformCookedDir()
     {
-        return ( Constants::Path::CurrentProjectRoot().ProjectDir / "Saved" / "Cooked" / CookPlatformName() )
-             .lexically_normal();
+        return ( Constants::Path::ProjectDir() / "Saved" / "Cooked" / CookPlatformName() ).lexically_normal();
     }
 } // namespace Common::DDC

@@ -124,7 +124,7 @@ while IFS=$'\t' read -r STEM LOOK LABEL; do
     # The editor segfaults during teardown after writing the PNG — a known shutdown bug — so its exit
     # status says nothing about whether the capture succeeded. The LOG does, and it is the only thing
     # this script believes.
-    ( cd "$ROOT/Editor" && "$EDITOR" --project Desert.deproj --scene "$SCENE" \
+    ( cd "$ROOT/Editor" && "$EDITOR" --project ../Projects/Desert/Desert.deproj --scene "$SCENE" \
         --shot "$TILE" --shot-frames "$FRAMES" $PLAY \
         --camera "$CAMERA" --look "$LOOK" ) > "$LOG" 2>&1 || true
 

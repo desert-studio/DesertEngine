@@ -9,7 +9,12 @@
 
 #include <Common/Core/Singleton.hpp>
 #include <Common/Core/LayerStack.hpp>
+
+#include <concepts>
+#include <type_traits>
+#include <Common/Core/Events/EventTree.hpp>
 #include <Common/Core/Events/WindowEvents.hpp>
+#include <Common/Core/Subsystems/SubsystemCollection.hpp>
 #include <Common/Core/Core.hpp>
 
 #include "EngineStats.hpp"
@@ -48,6 +53,10 @@ namespace Desert::Engine
         bool Visible = true;
     };
 
+    class Application;
+
+    void CreateSubsystems( Common::SubsystemCollection<Application>& collection );
+
     class Application
     {
     public:
@@ -66,7 +75,37 @@ namespace Desert::Engine
 
         /// Takes ownership of @p layer and attaches it. `PopLayer` is gone: it was called from nowhere,
         /// it deleted nothing, and under ownership it would have been a silent destroy (see LayerStack).
-        void PushLayer( std::unique_ptr<Common::Layer> layer );
+        template <std::derived_from<Common::Layer> ConcreteLayer>
+        void PushLayer( std::unique_ptr<ConcreteLayer> layer )
+        {
+            static_assert( !std::is_same_v<ConcreteLayer, Common::Layer>,
+                           "a layer joins the event tree as its concrete type; a Common::Layer pointer hides its "
+                           "handlers" );
+            if ( !layer )
+                return;
+            ConcreteLayer&            concrete = *layer;
+            const Common::EventNodeId node     = m_Events.Attach<ConcreteLayer>( m_WindowEventNode, concrete );
+            concrete.JoinEvents( Common::EventNodeLink( m_Events, node ) );
+            if constexpr ( Common::ReceivesEvents<ConcreteLayer> )
+            {
+                m_Events.SetFocus( node );
+                m_Events.SetHovered( node );
+            }
+            AttachLayer( std::move( layer ) );
+        }
+
+        [[nodiscard]] Common::EventTree& Events()
+        {
+            return m_Events;
+        }
+
+        template <typename T>
+        [[nodiscard]] T* GetSubsystem() const
+        {
+            return m_EngineSubsystems ? m_EngineSubsystems->template Get<T>() : nullptr;
+        }
+
+        bool OnWindowClosed( Common::EventWindowClose& close );
 
         const auto& GetWindow() const
         {
@@ -82,6 +121,18 @@ namespace Desert::Engine
         static constexpr int kExitDeviceLost = 3;
 
     public:
+        // OFFLINE TIME (UE: FApp::SetUseFixedTimeStep / SetFixedDeltaTime, what Movie Render Queue drives).
+        // Set, every frame's Timestep is exactly @p seconds however long the frame took, so frame N of a
+        // capture sits at N * seconds of world time on every machine and every run. Unset = wall clock.
+        void SetFixedDeltaTime( std::optional<float> seconds )
+        {
+            m_FixedDeltaTime = seconds;
+        }
+        NO_DISCARD std::optional<float> GetFixedDeltaTime() const
+        {
+            return m_FixedDeltaTime;
+        }
+
         // Ends the run loop after the current frame. Used by the editor's screenshot mode, which renders a
         // fixed number of frames and leaves.
         //
@@ -127,13 +178,7 @@ namespace Desert::Engine
         NO_DISCARD bool EndRunOnDeviceLoss( const char* stage );
 
     private:
-        NO_DISCARD bool OnClose( Common::EventWindowClose& /*e*/ )
-        {
-            if ( m_CloseGate.StopsNow() )
-                m_IsRunningApplication = false;
-            return true;
-        }
-        void ProcessEvents( Common::Event& e );
+        void AttachLayer( std::unique_ptr<Common::Layer> layer );
 
         // MEMBER ORDER IS LOAD-BEARING. Members die in REVERSE declaration order, and the window owns the
         // swapchain, its framebuffers and their images — device-owned objects that must be released while
@@ -146,11 +191,17 @@ namespace Desert::Engine
         // written to survive the same window; that guard is still load-bearing for the editor's
         // process-lifetime thumbnail caches, which are not released deterministically yet.
     private:
+        Common::EventTree   m_Events;
+        Common::EventNodeId m_ApplicationEventNode = m_Events.Attach<Application>( m_Events.Root(), *this );
+        Common::EventNodeId m_WindowEventNode{};
+        std::optional<Common::SubsystemCollection<Application>> m_EngineSubsystems;
+
         ApplicationInfo m_ApplicationInfo;
 
         bool m_IsRunningApplication = true;
         Core::WindowCloseGate m_CloseGate;
         int  m_ExitCode             = 0;
+        std::optional<float>  m_FixedDeltaTime; // SetFixedDeltaTime: offline (movie) time, unset = wall clock
         std::string m_StartupRefusal;
 
         // Failures already reported by ReportLayerFailure, keyed on stage + layer + message. Not a

@@ -142,6 +142,17 @@ namespace Desert::Core
             return m_Mode;
         }
 
+        /// THE EDITOR WORLD'S PREVIEW STEP (Scene -> System::SetEditorTick, read by the components that asked to
+        /// preview: AnimationComponent::UpdateAnimationInEditor): this clock's Delta while the world is EDITED,
+        /// 0 in Play and Paused (their time is the gameplay step). The Delta, not the real step: the viewport's
+        /// Realtime gates it like every other preview (UE: a non-realtime viewport does not tick the editor
+        /// world) — Realtime off is Frozen, Delta 0. Per clock, so per Scene: a preview scene's own Realtime
+        /// decides its preview, never the main scene's.
+        [[nodiscard]] float EditorPreviewSeconds( const bool editing ) const
+        {
+            return editing ? m_Delta : 0.0f;
+        }
+
     private:
         double               m_GameTime     = 0.0;
         double               m_RealTime     = 0.0;

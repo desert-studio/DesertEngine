@@ -17,11 +17,13 @@ project "AssetRegistryTool"
 
     files {
         "Source/**.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
     }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source", -- Engine/Project/StartupLayout.hpp (Common-only)
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -47,7 +49,5 @@ project "AssetRegistryTool"
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        -- Common contains Objective-C (file dialog); linking it needs AppKit + the ObjC runtime.
-        links { "Cocoa.framework", "Foundation.framework" }
 
     filter {}

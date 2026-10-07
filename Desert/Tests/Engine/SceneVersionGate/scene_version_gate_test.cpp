@@ -127,7 +127,7 @@ namespace
     };
 
     constexpr std::array<SceneRoot, 2> kSceneRoots = { {
-         { "Editor/Resources/Assets/Scenes", true },
+         { "Projects/Desert/Content/Scenes", true },
          // May be empty: templates are authored content and there is no rule that one must exist.
          // The DIRECTORY still has to, so a rename or a move reddens here rather than going unseen.
          { "Templates", false },

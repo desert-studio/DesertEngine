@@ -32,9 +32,9 @@ namespace Desert::Editor::CookPaths
         return source.parent_path() / ( source.stem().string() + suffix );
     }
 
-    // A MESH'S IDENTITY, WITH ITS DIRECTORY IN IT: the source path relative to Resources/Assets/Meshes,
+    // A MESH'S IDENTITY, WITH ITS DIRECTORY IN IT: the source path relative to <project>/Content/Meshes,
     // extension dropped — "Props/base" for Assets/Meshes/Props/base.fbx. A source ANYWHERE ELSE under
-    // content (e.g. a character pack in Resources/Assets/Collections/<pack>/) is taken relative to Assets/
+    // content (e.g. a character pack in Content/Collections/<pack>/) is taken relative to Assets/
     // (then Resources/) instead, so two packs never share an identity through a shared "../".
     //
     // The importer used to identify a source by `stem()` alone, i.e. by "base", with the directory thrown
@@ -59,17 +59,22 @@ namespace Desert::Editor::CookPaths
     {
         namespace fs = std::filesystem;
         std::error_code ec;
+        // Both sides of fs::relative in one spelling: a project-relative source against an absolute content
+        // root goes through the project (never the cwd); a root spelled relative is compared as given.
+        const fs::path full = source.is_absolute() || !Common::Constants::Path::MESH_PATH.is_absolute()
+                                   ? source
+                                   : Common::Constants::Path::FullPath( source );
 
-        fs::path   rel       = fs::relative( source, Common::Constants::Path::MESH_PATH, ec );
+        fs::path   rel       = fs::relative( full, Common::Constants::Path::MESH_PATH, ec );
         const bool underMesh = !rel.empty() && rel.begin()->string() != "..";
         if ( !underMesh )
         {
-            const fs::path relAssets = fs::relative( source, Common::Constants::Path::ASSETS_PATH, ec );
+            const fs::path relAssets = fs::relative( full, Common::Constants::Path::ASSETS_PATH, ec );
             if ( !relAssets.empty() && relAssets.begin()->string() != ".." )
                 rel = relAssets;
             else
             {
-                const fs::path relRes = fs::relative( source, Common::Constants::Path::RESOURCE_PATH, ec );
+                const fs::path relRes = fs::relative( full, Common::Constants::Path::RESOURCE_PATH, ec );
                 if ( !relRes.empty() && relRes.begin()->string() != ".." )
                     rel = relRes;
             }
@@ -81,8 +86,17 @@ namespace Desert::Editor::CookPaths
     }
 
     // Where an imported mesh's materials live as editable content:
-    // Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat.
+    // Content/Materials/<meshRelativeId>/<materialName>.demat.
     //
+    // A FILE A SKINNED IMPORT WRITES (SkinnedAsset's three suffixes): `.skmesh`, `.skeleton`, `.anim`. Each is its
+    // own cooked form (a picture of it is filed under the file itself), unlike a static mesh, whose `.stmesh` is
+    // an extension swap of its source (MeshAsset).
+    inline bool IsSkinnedAssetFile( const std::filesystem::path& asset )
+    {
+        const std::string extension = asset.extension().string();
+        return extension == ".skmesh" || extension == ".skeleton" || extension == ".anim";
+    }
+
     // Both the writer (ImportManager::SerializeMaterialAsset) and the reader that registers them after a
     // drag-drop (MeshDnD) call THIS — they used to spell `MATERIAL_PATH / stem` separately, which is two
     // places obliged to agree with nothing checking that they do.

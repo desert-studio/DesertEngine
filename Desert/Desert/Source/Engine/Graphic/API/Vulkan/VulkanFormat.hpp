@@ -36,6 +36,8 @@ namespace Desert::Graphic::API::Vulkan
                     return VK_FORMAT_D32_SFLOAT;
                 case Core::Formats::ImageFormat::R16_UNORM:
                     return VK_FORMAT_R16_UNORM;
+                case Core::Formats::ImageFormat::R8_UNORM:
+                    return VK_FORMAT_R8_UNORM;
                 case Core::Formats::ImageFormat::R32F:
                     return VK_FORMAT_R32_SFLOAT;
                 // Velocity (TAA1 kVelocityFormat). Sampled, colour attachment and blend are mandatory for it in

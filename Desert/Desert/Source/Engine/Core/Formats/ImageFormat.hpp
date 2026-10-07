@@ -92,6 +92,10 @@ namespace Desert::Core::Formats
         /// ever carries depth in .r (Shadow.shader). Full float, not half: half precision would band a
         /// normalised depth across a 150 m cascade. APPENDED for the same renumbering reason as R16_UNORM.
         R32F,
+        /// `VK_FORMAT_R8_UNORM`. One 8-bit channel: a video frame's Y, U or V plane as the AV1 decoder
+        /// hands it over (Engine/Media/MediaTexture.hpp), converted to RGB on the GPU. APPENDED for the
+        /// same renumbering reason as R16_UNORM.
+        R8_UNORM,
         /// `VK_FORMAT_R16G16_SFLOAT`. Two half-float channels: the per-view velocity target (TAA1,
         /// View/SceneViewState.hpp kVelocityFormat) — an NDC delta, where half's 2^-11 relative step is about
         /// 1/1000 of a pixel at 4K for any motion under a screen. APPENDED for the renumbering reason above.
@@ -188,6 +192,8 @@ namespace Desert::Core::Formats
                 return { 1, 1, 4 };
             case ImageFormat::R16_UNORM:
                 return { 1, 1, 2 }; // one channel, 16 bits
+            case ImageFormat::R8_UNORM:
+                return { 1, 1, 1 }; // one channel, 8 bits
             case ImageFormat::R32F:
                 return { 1, 1, 4 }; // one channel, 32-bit float
             case ImageFormat::RG16F:
@@ -249,6 +255,7 @@ namespace Desert::Core::Formats
             case ImageFormat::DEPTH32F:
                 return 1;
             case ImageFormat::R16_UNORM:
+            case ImageFormat::R8_UNORM:
             case ImageFormat::R32F:
                 return 1;
             case ImageFormat::BC6H_UFLOAT:
@@ -329,6 +336,7 @@ namespace Desert::Core::Formats
             case ImageFormat::RGBA32F:
             case ImageFormat::BGRA8F:
             case ImageFormat::R16_UNORM:
+            case ImageFormat::R8_UNORM:
             case ImageFormat::R32F:
             case ImageFormat::RG16F:
             case ImageFormat::BC7_UNORM:

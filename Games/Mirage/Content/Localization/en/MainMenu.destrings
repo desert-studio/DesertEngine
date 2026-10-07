@@ -1,0 +1,157 @@
+{
+    "Header": {
+        "Kind": "StringTable",
+        "Guid": "93ec7ad4cfe340a87c048c2e263f50d1",
+        "Versions": {
+            "STRT": 3
+        },
+        "Dependencies": []
+    },
+    "DisplayName": "Main menu",
+    "Entries": [
+        {
+            "Key": "menu.continue",
+            "Forms": {
+                "other": "Continue"
+            }
+        },
+        {
+            "Key": "menu.new_game",
+            "Forms": {
+                "other": "New Game"
+            }
+        },
+        {
+            "Key": "menu.settings",
+            "Forms": {
+                "other": "Settings"
+            }
+        },
+        {
+            "Key": "menu.credits",
+            "Forms": {
+                "other": "Credits"
+            }
+        },
+        {
+            "Key": "menu.quit",
+            "Forms": {
+                "other": "Quit"
+            }
+        },
+        {
+            "Key": "menu.back",
+            "Forms": {
+                "other": "Back"
+            }
+        },
+        {
+            "Key": "quit.question",
+            "Forms": {
+                "other": "Quit the game?"
+            }
+        },
+        {
+            "Key": "quit.yes",
+            "Forms": {
+                "other": "Yes"
+            }
+        },
+        {
+            "Key": "quit.no",
+            "Forms": {
+                "other": "No"
+            }
+        },
+        {
+            "Key": "settings.title",
+            "Forms": {
+                "other": "Settings"
+            }
+        },
+        {
+            "Key": "settings.tab.graphics",
+            "Forms": {
+                "other": "Graphics"
+            }
+        },
+        {
+            "Key": "settings.tab.language",
+            "Forms": {
+                "other": "Language"
+            }
+        },
+        {
+            "Key": "settings.graphics.cloud_quality",
+            "Forms": {
+                "other": "Cloud quality"
+            }
+        },
+        {
+            "Key": "settings.graphics.antialiasing",
+            "Forms": {
+                "other": "Anti-aliasing"
+            }
+        },
+        {
+            "Key": "settings.language.ru",
+            "Forms": {
+                "other": "Русский"
+            }
+        },
+        {
+            "Key": "settings.language.en",
+            "Forms": {
+                "other": "English"
+            }
+        },
+        {
+            "Key": "credits.title",
+            "Forms": {
+                "other": "Credits"
+            }
+        },
+        {
+            "Key": "credits.studio_heading",
+            "Forms": {
+                "other": "Studio"
+            }
+        },
+        {
+            "Key": "credits.engine_heading",
+            "Forms": {
+                "other": "Engine"
+            }
+        },
+        {
+            "Key": "credits.engine",
+            "Forms": {
+                "other": "Desert Engine"
+            }
+        },
+        {
+            "Key": "credits.fonts_heading",
+            "Forms": {
+                "other": "Fonts"
+            }
+        },
+        {
+            "Key": "credits.manrope",
+            "Forms": {
+                "other": "Manrope — © 2018 The Manrope Project Authors, SIL Open Font License 1.1"
+            }
+        },
+        {
+            "Key": "credits.libraries_heading",
+            "Forms": {
+                "other": "Third-party libraries"
+            }
+        },
+        {
+            "Key": "credits.libraries",
+            "Forms": {
+                "other": "EnTT (MIT) · Dear ImGui (MIT) · GLFW (zlib) · GLM (MIT) · Lua (MIT) · sol2 (MIT) · Jolt Physics (MIT) · vk-bootstrap (MIT) · Vulkan Memory Allocator (MIT) · stb (MIT / public domain) · assimp (BSD-3)"
+            }
+        }
+    ]
+}

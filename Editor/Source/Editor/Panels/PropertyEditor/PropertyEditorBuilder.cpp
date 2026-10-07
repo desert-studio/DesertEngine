@@ -807,7 +807,7 @@ namespace Desert::Editor
                     break;
                 }
 
-                // Video slot: a video is referenced by asset handle (never a raw path). Drag a .mpg from the
+                // Video slot: a video is referenced by asset handle (never a raw path). Drag a .webm from the
                 // Content Browser (a generic AssetFile payload). VideoService owns the handle<->path registry.
                 if ( field.Meta.AssetType == "VideoAsset" )
                 {
@@ -835,7 +835,7 @@ namespace Desert::Editor
                         ImGui::EndDragDropTarget();
                     }
                     if ( ImGui::IsItemHovered() )
-                        ImGui::SetTooltip( "Drag a .mpg (MPEG1) here from the Content Browser" );
+                        ImGui::SetTooltip( "Drag a .webm (AV1 + Opus) here from the Content Browser" );
                     if ( *handle != 0 )
                     {
                         ImGui::SameLine();

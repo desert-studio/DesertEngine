@@ -191,6 +191,33 @@ namespace Desert::Editor::Utils
         ImGui::Columns( 1 );
     }
 
+    bool ImGuiUtilities::BeginFactTable( const char* id )
+    {
+        constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                                          ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingFixedFit;
+        if ( !ImGui::BeginTable( id, 2, flags ) )
+            return false;
+        ImGui::TableSetupColumn( "Label", ImGuiTableColumnFlags_WidthFixed, PropertyLabelWidth() );
+        ImGui::TableSetupColumn( "Value", ImGuiTableColumnFlags_WidthStretch );
+        return true;
+    }
+
+    void ImGuiUtilities::FactRow( const char* label, const std::string& value )
+    {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled( "%s", label );
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted( value.c_str() );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "%s", value.c_str() );
+    }
+
+    void ImGuiUtilities::EndFactTable()
+    {
+        ImGui::EndTable();
+    }
+
     bool ImGuiUtilities::AccentButton( const char* label, float height )
     {
         // The theme's accent, not a second blue of its own — the editor gets ONE primary colour.

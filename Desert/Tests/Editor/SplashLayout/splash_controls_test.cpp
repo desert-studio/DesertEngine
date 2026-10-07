@@ -10,6 +10,7 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert::Editor::Splash;
 
@@ -118,14 +119,11 @@ namespace
 {
     std::string SplashSource( const std::string& relative )
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up, prefix += "../" )
-        {
-            std::ifstream in( prefix + "Editor/Source/Editor/Splash/" + relative, std::ios::binary );
-            if ( in )
-                return { std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
-        }
-        return {};
+        std::ifstream in( Desert::TestSupport::RepositoryRoot() / "Editor/Source/Editor/Splash" / relative,
+                          std::ios::binary );
+        if ( !in )
+            return {};
+        return { std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
     }
 } // namespace
 

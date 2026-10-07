@@ -1,54 +1,15 @@
 #ifndef SPOTLIGHT_GLSLH
 #define SPOTLIGHT_GLSLH
 
-#include "PBRFunctions.glslh"
-#include "DirectLighting.glslh"
-
-// std430 layout — must match ShaderProtocols::SpotLightPayload (64 bytes).
-struct SpotLight {
-    vec3  color;
-    float intensity;
-    vec3  position;
-    float range;
-    vec3  direction;   // normalized, pointing OUT of the cone apex
-    float cosInner;    // cos(inner half-angle) — full intensity inside this
-    float cosOuter;    // cos(outer half-angle) — zero intensity outside this
-    int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
-    vec2  _pad;
-};
+// The source's layout and its cone live in LightSources.glslh (binding-free); this file adds the scene's buffer
+// of them and the debug-view helper.
+#include "LightSources.glslh"
 
 // Unbounded storage buffer — no cap. Count from LightsMetadata.SpotLightCount.
 ReadBuffer(16) SpotLightsUB
 {
     SpotLight spotLights[];
 };
-
-// Cone angular falloff: 1 inside the inner cone, smooth to 0 between inner and outer, 0 outside.
-float SpotConeFactor(SpotLight light, vec3 L)
-{
-    // L points from the surface TOWARD the light; the cone opens along -direction from the light.
-    float cosTheta = dot(-L, light.direction);
-    return clamp((cosTheta - light.cosOuter) / max(light.cosInner - light.cosOuter, 1e-4), 0.0, 1.0);
-}
-
-// Cone + distance falloff, then THE shared direct-light BRDF — see the note on CalculatePointLight.
-// A spot light differs from a point light only in the cone factor folded into its attenuation, and
-// from the sun only in having any attenuation at all; none of that is the BRDF's business.
-vec3 CalculateSpotLight(SpotLight light, vec3 worldPosition, vec3 view, vec3 N, vec3 F0, float metalness, float roughness, vec3 albedo)
-{
-    vec3  L    = light.position - worldPosition;
-    float distance = length(L);
-    L = normalize(L);
-
-    float cone = SpotConeFactor(light, L);
-    if (cone <= 0.0)
-        return vec3(0.0);
-
-    float attenuation = LightFalloffFactor(distance, 0.0, light.range, light.falloff) * cone;
-    vec3  radiance    = light.color * light.intensity * attenuation;
-
-    return EvaluateDirectLight(L, radiance, view, N, F0, metalness, roughness, albedo);
-}
 
 // Scalar "how much this spot light lands here" for the lighting debug view.
 float SpotLightContribution(SpotLight light, vec3 worldPosition, vec3 N)

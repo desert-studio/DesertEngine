@@ -103,6 +103,16 @@ TEST( ImageFormatBytesPerPixel, R16IsOneColourChannelOfTwoBytes )
     EXPECT_EQ( CalculateImageSize( 65, 65, ImageFormat::R16_UNORM ), 65u * 65u * 2u );
 }
 
+// A video plane (MediaTexture) is one 8-bit channel uploaded exactly as the decoder hands it over: a staging
+// size of two or four bytes per sample would read past the plane.
+TEST( ImageFormatBytesPerPixel, R8IsOneColourChannelOfOneByte )
+{
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::R8_UNORM ), 1u );
+    EXPECT_EQ( GetImageAspect( ImageFormat::R8_UNORM ), Formats::ImageAspect_Colour );
+    EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::R8_UNORM ) );
+    EXPECT_EQ( CalculateImageSize( 160, 90, ImageFormat::R8_UNORM ), 160u * 90u );
+}
+
 // The velocity target (TAA1 kVelocityFormat) is two half floats of NDC motion, sampled as colour: a channel count
 // or a size of anything else would make the view memory line and the staging of a readback wrong.
 TEST( ImageFormatBytesPerPixel, RG16FIsTwoColourChannelsOfFourBytes )

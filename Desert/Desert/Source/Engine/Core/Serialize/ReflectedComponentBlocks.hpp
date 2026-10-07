@@ -101,6 +101,8 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<UIImageComponent, UIImageData>{ "UIImage", "UIImageData", &UIImageComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<UILayoutGroupComponent, UILayoutGroupData>{ "UILayoutGroup", "UILayoutGroupData", &UILayoutGroupComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<UIProgressBarComponent, UIProgressBarData>{ "UIProgressBar", "UIProgressBarData", &UIProgressBarComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIPathComponent, UIPathData>{ "UIPath", "UIPathData", &UIPathComponent::Data, R::UIAfterRenderTexture } );
+        visit( ReflectedMemberBlock<UIRetainerComponent, UIRetainerData>{ "UIRetainer", "UIRetainerData", &UIRetainerComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<UIStyleComponent, UIStyleData>{ "UIStyle", "UIStyleData", &UIStyleComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<UIToggleComponent, UIToggleData>{ "UIToggle", "UIToggleData", &UIToggleComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<UISliderComponent, UISliderData>{ "UISlider", "UISliderData", &UISliderComponent::Data, R::UIAfterRenderTexture } );
@@ -122,6 +124,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<PostProcessVolumeComponent, PostProcessVolumeData>{ "PostProcessVolume", "PostProcessVolumeData", &PostProcessVolumeComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<VolumetricCloudComponent, VolumetricCloudData>{ "VolumetricCloud", "VolumetricCloudData", &VolumetricCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<HeroCloudComponent, HeroCloudData>{ "HeroCloud", "HeroCloudData", &HeroCloudComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<ProceduralFoliageComponent, ProceduralFoliageData>{ "ProceduralFoliage", "ProceduralFoliageData", &ProceduralFoliageComponent::Data, R::SkyAndAtmosphere } );
         // clang-format on
     }
 } // namespace Desert::Core::Serialize

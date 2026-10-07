@@ -70,7 +70,7 @@ def categorize(block):
 def analyse(path):
     requests = {}  # requestId -> {"usage":..., "tools":[...], "order": n}
     order = 0
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             try:
                 rec = json.loads(line)

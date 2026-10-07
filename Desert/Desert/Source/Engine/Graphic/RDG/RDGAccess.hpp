@@ -135,6 +135,17 @@ namespace Desert::Graphic::RDG
     inline constexpr PipelineStageFlags kDepthTestStages =
          PipelineStage_EarlyFragmentTests | PipelineStage_LateFragmentTests;
 
+    // THE STATE OF AN IMAGE THE PRESENTATION ENGINE HAS JUST HANDED BACK (vkAcquireNextImageKHR), and the one
+    // declaration both halves of that hand-off read: the back buffer is imported into the graph in this state
+    // (VulkanSwapChain::ImportBackBuffer), and the frame's wait on the acquire semaphore is at these stages
+    // (VulkanSwapChainOutput::GetFrameOutput). The two must name the same stage, because the semaphore wait only
+    // orders work at its own stage onward: the graph's first barrier on the image (the layout transition out of
+    // Undefined) has to have it in its source scope to chain with the wait. Imported as Access::None the barrier's
+    // source was TOP_OF_PIPE, the transition was ordered against nothing, and the validation layer reported a
+    // WRITE_AFTER_READ against the presentation engine's read on every frame. Contents are discarded (Undefined).
+    inline constexpr AccessState kPresentAcquiredState{ PipelineStage_ColorAttachmentOutput, MemoryAccess_None,
+                                                        ImageLayout::Undefined };
+
     // THE table. Indexed by Access; the static_assert below proves every row sits at its own index, so a
     // row inserted out of order fails the build instead of shifting every later state by one.
     inline constexpr std::array<AccessInfo, kAccessCount> kAccessTable = { {

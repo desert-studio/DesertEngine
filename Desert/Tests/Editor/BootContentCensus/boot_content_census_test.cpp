@@ -26,7 +26,18 @@ namespace
 {
     constexpr const char* kBootHeader  = "Desert/Desert/Source/Engine/Assets/BootContent.hpp";
     constexpr const char* kBootSource  = "Desert/Desert/Source/Engine/Assets/BootContent.cpp";
-    constexpr const char* kLayers[]    = { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" };
+    // A host is the set of files that make it up: the editor's boot stages live in
+    // LevelEditor/EditorStartup.cpp (EDL-7), the engine-shader compile and the content rebuild in EditorLayer.cpp.
+    struct Host
+    {
+        const char*              Name;
+        std::vector<const char*> Files;
+    };
+    const Host kHosts[] = {
+         { "the editor (EditorLayer.cpp + LevelEditor/EditorStartup.cpp)",
+           { "Editor/Source/EditorLayer.cpp", "Editor/Source/Editor/LevelEditor/EditorStartup.cpp" } },
+         { "Runtime/Source/RuntimeLayer.cpp", { "Runtime/Source/RuntimeLayer.cpp" } },
+    };
     constexpr const char* kCodeRoots[] = { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source",
                                            "Runtime/Source" };
 
@@ -216,7 +227,9 @@ TEST( BootContentCensus, EveryBootFunctionIsCalledByBothHosts )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const std::string        header = WithoutComments( ReadFile( root + kBootHeader ) );
-    const std::regex         declaration( R"(\bvoid\s+(\w+)\s*\()" );
+    // A boot function either loads silently (void) or refuses the boot (BoolResultStr, CompileEngineShaders with
+    // no Default Surface); EngineShaderCount is the splash's weight, not a boot function.
+    const std::regex         declaration( R"(\b(?:void|Common::BoolResultStr)\s+(\w+)\s*\()" );
     std::vector<std::string> declared;
     for ( auto it = std::sregex_iterator( header.begin(), header.end(), declaration );
           it != std::sregex_iterator(); ++it )
@@ -224,10 +237,17 @@ TEST( BootContentCensus, EveryBootFunctionIsCalledByBothHosts )
     ASSERT_EQ( declared.size(), 3u ) << "BootContent.hpp declares " << declared.size()
                                      << " void functions; the census expects shaders, clips, string tables";
 
-    for ( const char* layer : kLayers )
+    for ( const Host& host : kHosts )
     {
-        const std::string code = WithoutComments( ReadFile( root + layer ) );
-        ASSERT_FALSE( code.empty() ) << "could not read " << layer;
+        const char* layer = host.Name;
+        std::string code;
+        for ( const char* file : host.Files )
+        {
+            const std::string part = WithoutComments( ReadFile( root + file ) );
+            ASSERT_FALSE( part.empty() ) << "could not read " << file;
+            code += part;
+            code += '\n';
+        }
         for ( const std::string& name : declared )
             EXPECT_NE( code.find( "Assets::" + name + "(" ), std::string::npos )
                  << layer << " never calls Assets::" << name

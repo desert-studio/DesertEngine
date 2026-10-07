@@ -5,22 +5,46 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetRootPin.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Runtime/Services/Material/MaterialIdentity.hpp>
 
 #include <array>
+#include <memory>
 #include <span>
 #include <vector>
 #include <unordered_set>
 
+namespace Desert::Assets
+{
+    class SurfaceMaterialAsset;
+}
+
 namespace Desert::Graphic
 {
-    class MaterialPBR;
+    class DataDrivenMaterial;
+}
+
+namespace Desert::Assets
+{
+    class SurfaceMaterialAsset;
 }
 
 namespace Desert::Runtime
 {
+    // THE ONE WAY A `.demat` BECOMES A RUNTIME MATERIAL, for one (vertex path x pass) cell of its template
+    // (Graphic::MeshShaderFor). Every template, the shipped lit surface included, is built the same way:
+    // a DataDrivenMaterial of that cell, its row and textures applied from the asset. Null when the asset
+    // has no template or the template has no such cell — logged with the material's name.
+    std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
+                                                                        Graphic::MeshVertexPath      path,
+                                                                        Graphic::MeshPass            pass );
+
+    // (Re)apply a surface asset's parameters and textures onto a live runtime material built from it —
+    // CreateSurfaceMaterial's own body, and what the editor and hot reload call on an edit.
+    void ApplySurfaceAsset( Graphic::DataDrivenMaterial& material, const Assets::SurfaceMaterialAsset& asset );
+
     // Owns the runtime materials behind the `.demat` assets.
     //
     // A runtime material is identified by the TRIPLE (asset, vertex path, pass), not by the asset alone.
@@ -53,6 +77,27 @@ namespace Desert::Runtime
         /// found by its content-registry row on first use. Bound by ResourceRegistry::BindOnDemandAssets.
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
 
+        /// THE TEMPLATE THE RENDERER'S OWN DRAWS USE, found BY ROLE and never by a name: the project's `.deproj`
+        /// DefaultSurfaceTemplate when it states one, else the one loaded shader declaring `Default Surface`
+        /// (Assets::FindDefaultSurfaceTemplate). Answers its compile key (the name ShaderService registers its
+        /// cells under). Refused with the registry's reason when none or several declare it, or when no asset
+        /// manager is bound yet.
+        [[nodiscard]] Common::ResultStr<std::string> DefaultSurfaceTemplate() const;
+
+        /// THE DEFAULT SURFACE TEMPLATE IS IN THE ROOT SET for the life of the engine (UE: the engine's default
+        /// material is AddToRoot'ed at load and never garbage-collected). No scene names it — a slotless mesh
+        /// has no material to name it through — so without this pin the first eviction sweep released it, and
+        /// every later DefaultSurfaceTemplate() was refused ("no loaded shader declares 'Default Surface'"): the
+        /// animation editor's preview drew no character. Called by CompileEngineShaders once the template is
+        /// found; a second call (a recompile) moves the pin. Dropped by Clear().
+        void PinDefaultSurfaceTemplate( const Common::AssetHandle& handle );
+
+        /// The (path x pass) shader of the default surface template (MeshShaderFor on DefaultSurfaceTemplate),
+        /// for a draw that has no material of its own: a slotless mesh, the renderer's pipeline layouts, the
+        /// shadow casters. Refused naming the pair when the table has a hole there.
+        [[nodiscard]] Common::ResultStr<std::string> DefaultSurfaceShader( Graphic::MeshVertexPath path,
+                                                                           Graphic::MeshPass       pass ) const;
+
         /// ONE ROW OF A CLOSURE (AL1-8b, plan §2.4(b)): start the worker read of the `.demat` @p handle names
         /// (discovered from its registry row if nobody registered it) and append the loader handle to wait on
         /// to @p awaited; nothing is appended for a material already read or one the project does not have.
@@ -67,7 +112,7 @@ namespace Desert::Runtime
         // Builds-on-miss from a shell, for ONE (vertex path, pass) cell. A material-INSTANCE handle
         // resolves through its parent chain to the BASE material (an instance has no runtime Material of
         // its own). Returns null when the asset resolves to nothing, or when its shader has no variant in
-        // that cell (a custom DSL surface shader on the skinned path, say) — MaterialFactory names which.
+        // that cell (a custom DSL surface shader on the skinned path, say) — CreateSurfaceMaterial names which.
         //
         // The defaults are (Static, Forward) because most callers ask "does this asset resolve to a
         // material at all?" and any cell answers that; the mesh renderers pass the cell they are about to
@@ -100,8 +145,19 @@ namespace Desert::Runtime
         // Null when the engine has no shader for the requested cell, or when @p built is not service-owned
         // — ask Owns() first if the two need telling apart, because they need different handling and a
         // caller that treats them alike either drops geometry or draws it with the wrong textures.
-        Graphic::MaterialPBR* GetVariant( const Graphic::MaterialPBR* built, Graphic::MeshVertexPath path,
-                                          Graphic::MeshPass pass ) const;
+        Graphic::DataDrivenMaterial* GetVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                 Graphic::MeshPass pass ) const;
+
+        // The same cell as GetVariant, ONE PER VIEW: for a pass that draws one `.demat` under several views
+        // in ONE frame — the shadow cascades, each with its own light matrix. A material's per-frame blocks
+        // (the camera among them) are the material's, so a single GetVariant sibling drawn into four cascades
+        // would have its camera written four times a frame and every recorded draw would read the last — the
+        // hazard the renderer's own caster materials are per-cascade for. Built on miss from the asset exactly
+        // as GetVariant's sibling is (same parameters, same textures), owned here beside it: an edit reaches
+        // it through GetBuiltVariants and Invalidate retires it with the rest. Null on the same terms as
+        // GetVariant.
+        Graphic::DataDrivenMaterial* GetViewVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                     Graphic::MeshPass pass, uint32_t view ) const;
 
         // Whether this runtime material came from a `.demat` this service holds. FALSE for a material a
         // renderer built for itself — the glass pass, the RSM pass, the instanced batch material, and
@@ -151,17 +207,29 @@ namespace Desert::Runtime
         // schema defaults in place.
         bool ResolveOverrides( const Assets::AssetHandle& handle, Graphic::MaterialOverrides& out ) const;
 
-        // WHICH SHADER this handle's material is drawn by — the base of the instance chain's, since an
-        // instance overrides values and never the program. Empty when the handle resolves to no `.demat`
-        // at all, which is a DIFFERENT answer from "StaticMeshPBR": SurfaceMaterialAsset::GetShaderName()
-        // substitutes that default for an absent field, and a caller that cannot tell the two apart reads
-        // a dangling handle as a request for the standard mesh surface.
+        // WHICH TEMPLATE this handle's material is drawn by — the base of the instance chain's, since an
+        // instance overrides values and never the program. IDENTITY IS Shader (the template's handle); a
+        // null Shader means the handle resolves to no `.demat`, or to one naming no loaded template, and
+        // the caller refuses. CompileName is the ShaderService compile key (the template file's stem) and
+        // is used for nothing but building the program.
         //
         // It exists for the same caller ResolveOverrides exists for — one that owns its own runtime
         // material and needs the asset's values by name — except that such a caller must first know WHICH
         // program to build. The UI path is the one that does: Render2D::UIMaterialCache pairs this with
-        // ResolveOverrides, and refuses by name when the program's domain is not UI.
-        [[nodiscard]] std::string ShaderNameOf( const Assets::AssetHandle& handle ) const;
+        // ResolveOverrides, and refuses when the program's domain is not UI.
+        struct MaterialTemplate
+        {
+            Assets::AssetHandle Shader = Assets::AssetHandle::Null();
+            std::string         CompileName;
+        };
+        [[nodiscard]] MaterialTemplate ShaderHandleOf( const Assets::AssetHandle& handle ) const;
+
+        // Whether the material at @p handle HAS a (path x pass) cell, asked of its base through the same chain
+        // walk (CellShaderOf in the .cpp is the rule — the one CreateSurfaceMaterial builds by). For a caller that
+        // must refuse BEFORE it stages a draw instead of photographing the default material the scene substitutes
+        // (the skinned thumbnail).
+        [[nodiscard]] Common::BoolResultStr CellOf( const Assets::AssetHandle& handle,
+                                                    Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const;
 
         // For editor live-edit of a material-instance asset: entities rebuild their cached
         // runtime instances on the next tick (same mechanism as Invalidate, no graveyard needed —
@@ -275,7 +343,15 @@ namespace Desert::Runtime
 
         mutable uint32_t                                              m_InvalidationVersion = 0;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;
-        // Mutable: discovery on a miss fills these from const lookups (Get, ShaderNameOf, ...), which is a
+        // GetViewVariant's materials: per asset, one per (cell slot x view), built on first ask.
+        struct ViewVariant
+        {
+            size_t                                       Slot = 0;
+            uint32_t                                     View = 0;
+            std::shared_ptr<Graphic::DataDrivenMaterial> Material;
+        };
+        mutable std::unordered_map<Assets::AssetHandle, std::vector<ViewVariant>> m_ViewMaterials;
+        // Mutable: discovery on a miss fills these from const lookups (Get, ShaderHandleOf, ...), which is a
         // cache fill, not a change of what the service answers.
         mutable std::unordered_map<Common::UUID, Assets::AssetHandle> m_ExternalToInternal;
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>> m_MaterialAssets;
@@ -284,11 +360,15 @@ namespace Desert::Runtime
         /// Live metadata reads started by Get(); a handle here answers Pending (nullptr).
         mutable std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
         std::weak_ptr<Assets::AssetManager>                                  m_Assets;
+        /// The engine's hold on the Default Surface template (PinDefaultSurfaceTemplate).
+        std::unique_ptr<Assets::AssetRootPin> m_DefaultSurfacePin;
 
         /// THE ONE LOOKUP every `m_MaterialAssets.find` went through: the held shell, or one discovered
         /// from the registry row now, or `end()`.
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>>::iterator
         FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        // The instance chain walked to its base (depth-capped against cycles); null when a link is missing.
+        const Assets::SurfaceMaterialAsset* BaseOf( const Assets::AssetHandle& handle ) const;
         /// True when @p asset is read; otherwise starts its read once (AsyncAssetLoader) and answers false.
         bool RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const;
 

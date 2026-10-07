@@ -7,6 +7,7 @@
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/UI/UIAnchorControls.hpp>
 #include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Core/ToastManager.hpp>
 #include <Editor/Core/SubjectOpenRequest.hpp>
 #include <Editor/Panels/PanelContext.hpp>
 #include <Editor/Panels/Clouds/CloudsPanel.hpp>
@@ -15,6 +16,7 @@
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -27,7 +29,6 @@
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -44,6 +45,15 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/ECS/LevelSequencePlayback.hpp>
+#include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Core/DetailsNavigation.hpp>
+#include <Editor/Widgets/AssetFieldOpen.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
@@ -67,6 +77,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <limits>
 #include <optional>
 
@@ -84,9 +95,10 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "R
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
 // runs, and they were invisible. See MakeCharacterControllerEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AudioSourceComponent, Data, "AudioSourceData", "Audio Source" )
-// UE's APlayerStart: where Play puts the pawn (Core::ChoosePlayerStart); a tag and nothing else.
+// UE's APlayerStart: where Play puts the pawn (::Desert::Core::ChoosePlayerStart); a tag and nothing else.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, "PlayerStartData", "Player Start" )
-// UE's World Partition Streaming Source: the world loads around this entity in Play (Core::WorldStreamer).
+// UE's World Partition Streaming Source: the world loads around this entity in Play
+// (::Desert::Core::WorldStreamer).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::StreamingSourceComponent, Data, "StreamingSourceData",
                                      "Streaming Source" )
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
@@ -133,6 +145,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UILayoutGroupComponent, Data
                                      "UI Layout Group" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIProgressBarComponent, Data, "UIProgressBarData",
                                      "UI Progress Bar" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIPathComponent, Data, "UIPathData", "UI Path" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIRetainerComponent, Data, "UIRetainerData", "UI Retainer" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIToggleComponent, Data, "UIToggleData", "UI Toggle" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UISliderComponent, Data, "UISliderData", "UI Slider" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIScrollViewComponent, Data, "UIScrollViewData",
@@ -160,6 +174,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PostProcessVolumeComponent, 
 // component rather than another field of the layer, because there may be several of them and each has a
 // place in the world; the layer is one shell and has none.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::HeroCloudComponent, Data, "HeroCloudData", "Hero Cloud" )
+// Procedural Foliage is a CUSTOM entry (S1): Resimulate and the type list with a drop target, then the reflected
+// fields. See MakeProceduralFoliageEntry below.
 // Sky Atmosphere is a CUSTOM entry: the reflected fields PLUS the sky-colour ramp (which needs the scene's
 // sun elevation, and that is not a field) and the IBL bake button. See
 // ComponentWidgets/SkyAtmosphereComponent.cpp.
@@ -205,8 +221,10 @@ namespace Desert::Editor
         // the one every future editor run resolves to.
         {
             ::Desert::Assets::MaterialData data;
-            if ( const auto stated =
-                      ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName( data, *assetMgr, "Terrain" );
+            const auto terrain = ::Desert::Assets::FindTemplateByRole( *assetMgr, Common::Content::kTerrainRole );
+            if ( const auto stated = terrain ? ::Desert::Assets::SurfaceMaterialAsset::StateShader(
+                                                    data, *assetMgr, terrain.GetValue() )
+                                             : Common::MakeError( terrain.GetError() );
                  !stated )
             {
                 LOG_ERROR( "[Landscape] material '{}': {}", path.string(), stated.GetError() );
@@ -672,8 +690,11 @@ namespace Desert::Editor
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
         {
             ::Desert::Assets::MaterialData data;
-            if ( const auto stated = ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName(
-                      data, *assetMgr, ::Desert::Graphic::kCloudMaterialShaderName );
+            const auto                     cloud =
+                 ::Desert::Assets::FindTemplateByRole( *assetMgr, Common::Content::kCloudMaterialRole );
+            if ( const auto stated = cloud ? ::Desert::Assets::SurfaceMaterialAsset::StateShader(
+                                                  data, *assetMgr, cloud.GetValue() )
+                                           : Common::MakeError( cloud.GetError() );
                  !stated )
             {
                 LOG_ERROR( "[Clouds] material '{}': {}", path.string(), stated.GetError() );
@@ -1679,8 +1700,8 @@ namespace Desert::Editor
                           : ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
                 if ( mesh && mesh->IsSkinned() )
                 {
-                    const auto& skeleton = static_cast<::Desert::SkinnedMesh*>( mesh )->GetSkeleton();
-                    for ( const auto& asset : ctx.AnimationLibrary->GetForSkeleton( skeleton ) )
+                    for ( const auto& asset : ctx.AnimationLibrary->GetForMesh(
+                               ctx.AnimationLibrary->IdentifyMeshHandle( smc.MeshHandle ) ) )
                         if ( asset )
                             clipNames.push_back( asset->GetClip().AnimationName );
                 }
@@ -1801,6 +1822,302 @@ namespace Desert::Editor
             }
             if ( type )
                 Tool::DrawTypeSettings( *manager, type );
+        };
+        return e;
+    }
+
+    // PROCEDURAL FOLIAGE VOLUME (UE AProceduralFoliageVolume's Details: Resimulate, the spawner's FoliageTypes).
+    // Resimulate rewrites this volume's own fields (FoliagePaintTool::ResimulateProcedural); the types are a
+    // list of `.defoliage` rows, a `.defoliage` dropped on "Add" joins it.
+    static ComponentEditorEntry MakeProceduralFoliageEntry()
+    {
+        using C = ::Desert::ECS::ProceduralFoliageComponent;
+        ComponentEditorEntry e;
+        e.Name              = "Procedural Foliage";
+        e.CanRemove         = true;
+        e.ReflectedTypeName = "ProceduralFoliageData";
+        e.Has               = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
+        e.Add               = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
+        e.Remove            = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
+        e.DataPtr           = []( ::Desert::ECS::Entity& en ) -> void* { return &en.GetComponent<C>().Data; };
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
+        {
+            using Tool   = ::Desert::Editor::Tools::FoliagePaintTool;
+            auto manager = ctx.AssetManager.lock();
+            if ( !ctx.FieldFilter && manager )
+            {
+                if ( ImGui::Button( ICON_MDI_RESTART "  Resimulate", ImVec2( -1.0f, 0.0f ) ) && scene )
+                {
+                    const auto id   = en.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
+                    const auto done = Tool::ResimulateProcedural( *scene, *manager, id );
+                    if ( !done )
+                        ::Desert::Editor::ToastManager::Push( done.GetError(), ::Desert::Editor::ToastLevel::Error,
+                                                              6.0f );
+                    else
+                        ::Desert::Editor::ToastManager::Push( std::format(
+                             "Procedural foliage: {} instances ({} fields new, {} rewritten, {} removed)",
+                             done.GetValue().Instances, done.GetValue().Created, done.GetValue().Rewritten,
+                             done.GetValue().Removed ) );
+                }
+                ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                     "Simulate the types and replace the instances this volume generated (painted foliage "
+                     "stays)" );
+
+                auto&  types  = en.GetComponent<C>().Data.FoliageTypes;
+                size_t remove = types.size();
+                for ( size_t i = 0; i < types.size(); ++i )
+                {
+                    ImGui::PushID( static_cast<int>( i ) );
+                    const auto type = Tool::ResolveType( *manager, types[i] );
+                    if ( ImGui::SmallButton( ICON_MDI_CLOSE ) )
+                        remove = i;
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted( type ? type->GetMetadata().Filepath.filename().string().c_str()
+                                                 : "(type does not load)" );
+                    ImGui::PopID();
+                }
+                if ( remove < types.size() )
+                    types.erase( types.begin() + static_cast<std::ptrdiff_t>( remove ) );
+                ImGui::Button( ICON_MDI_PLUS "  Drop a .defoliage to add a type", ImVec2( -1.0f, 0.0f ) );
+                if ( ImGui::BeginDragDropTarget() )
+                {
+                    if ( const ImGuiPayload* p =
+                              ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                    {
+                        const std::string path( static_cast<const char*>( p->Data ) );
+                        if ( std::filesystem::path( path ).extension() ==
+                             ::Desert::Assets::Serialization::kFoliageTypeExtension )
+                            if ( const auto dropped = Tool::OpenTypeFile( *manager, path ) )
+                                if ( std::find( types.begin(), types.end(), dropped->GetMetadata().Handle ) ==
+                                     types.end() )
+                                    types.push_back( dropped->GetMetadata().Handle );
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                ImGui::Spacing();
+            }
+            PropertyEditorBuilder::Draw( &en.GetComponent<C>().Data, "ProceduralFoliageData", ctx.AssetMgr(),
+                                         ctx.UIHelper, ctx.FieldFilter );
+        };
+        return e;
+    }
+
+    // LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor's Details - Sequence, Playback Settings, Binding
+    // Overrides). The Sequence is an asset field like every other in Details: a slot whose picker lists the
+    // project's `.dseq` rows (the registry's, nothing loaded to list them) with a search, a `.dseq` dropped from
+    // the Assets window, and Open / Show in Content Browser beside it. Loop by its NAME (the saved form,
+    // ComponentRegistry.cpp). Binding Overrides: each row re-points one binding at an entity of this scene
+    // (chosen from the scene's entities, or removed); "+" adds one for a binding with no override yet
+    // (ECS::OverridableBindings).
+    static ComponentEditorEntry MakeLevelSequenceEntry()
+    {
+        using C = ::Desert::ECS::LevelSequenceComponent;
+        ComponentEditorEntry e;
+        e.Name      = "Level Sequence";
+        e.CanRemove = true;
+        e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
+        e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
+        e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& context )
+        {
+            namespace T   = ::Desert::Animation::Timeline;
+            namespace U   = ::Desert::Editor::Utils;
+            auto& actor   = en.GetComponent<C>();
+            auto  manager = context.AssetManager.lock();
+            if ( !manager )
+                return;
+
+            // The one way a file becomes the actor's sequence, for the picker and the drop alike: the asset
+            // the manager already knows by that path, else a shell for it (loaded by whoever plays it).
+            const auto choose = [&]( const std::filesystem::path& full )
+            {
+                auto chosen = manager->FindByPath<::Desert::Assets::LevelSequenceAsset>( full );
+                if ( !chosen )
+                    chosen =
+                         manager->CreateAsset<::Desert::Assets::LevelSequenceAsset>( full,
+                                                                                     /*loadAfterCreate=*/false );
+                if ( chosen )
+                    actor.Sequence = chosen->GetMetadata().Handle;
+                else
+                    LOG_ERROR( "[LevelSequence] '{}' is not a sequence this project can open", full.string() );
+            };
+
+            const auto sequence =
+                 actor.Sequence != 0
+                      ? manager->FindByHandle<::Desert::Assets::LevelSequenceAsset>( actor.Sequence )
+                      : nullptr;
+            const auto rows =
+                 ::Desert::Assets::ContentRegistry::Rows( ::Common::Content::ContentKind::LevelSequence );
+            std::string slotText = "None";
+            for ( const auto& row : rows )
+                if ( actor.Sequence != 0 && row.Handle == actor.Sequence )
+                    slotText = ::Desert::Editor::PickerDisplayName( row );
+            if ( slotText == "None" && sequence )
+                slotText = sequence->GetMetadata().Filepath.stem().string();
+            const bool     emptySlot = actor.Sequence == 0;
+            const uint64_t handle    = emptySlot ? 0 : static_cast<uint64_t>( actor.Sequence );
+
+            U::ImGuiUtilities::ResetPropertyRows();
+            U::ImGuiUtilities::BeginPropertyRow( "Sequence", "The .dseq this actor plays" );
+            const bool clicked = U::ImGuiUtilities::AssetSlot( "levelsequenceslot", slotText.c_str(), emptySlot );
+            if ( ImGui::BeginDragDropTarget() )
+            {
+                if ( const ImGuiPayload* p =
+                          ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                {
+                    const std::filesystem::path named( static_cast<const char*>( p->Data ) );
+                    if ( named.extension() == T::kLevelSequenceExtension )
+                        choose( named.is_absolute()
+                                     ? named
+                                     : ( ::Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if ( ::Desert::Editor::TakeDetailsPickerRequest( "Level sequence" ) || clicked )
+                ImGui::OpenPopup( "level_sequence_selector" );
+            ::Desert::Editor::DrawAssetFieldOpen( handle );
+            ::Desert::Editor::DrawAssetFieldButtons( handle );
+            if ( ImGui::BeginPopup( "level_sequence_selector" ) )
+            {
+                static ImGuiTextFilter filter;
+                filter.Draw( "##Search", 200 );
+                ImGui::Separator();
+                if ( ImGui::Selectable( "None", emptySlot ) )
+                    actor.Sequence = ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+                for ( const auto& row : rows )
+                {
+                    const std::string name = ::Desert::Editor::PickerDisplayName( row );
+                    if ( filter.PassFilter( name.c_str() ) &&
+                         ImGui::Selectable( name.c_str(), !emptySlot && row.Handle == actor.Sequence ) )
+                        choose( row.Path );
+                }
+                ImGui::EndPopup();
+            }
+            U::ImGuiUtilities::EndPropertyRow();
+
+            // Playback Settings.
+            // The names are Player.hpp's (its reflected names, the ones the scene stores).
+            if ( ImGui::BeginCombo( "Loop", T::ToString( actor.Loop ) ) )
+            {
+                for ( const T::LoopMode mode : T::kLoopModes )
+                    if ( ImGui::Selectable( T::ToString( mode ), mode == actor.Loop ) )
+                        actor.Loop = mode;
+                ImGui::EndCombo();
+            }
+            ImGui::Checkbox( "Auto Play", &actor.AutoPlay );
+
+            // Binding Overrides.
+            if ( !U::ImGuiUtilities::SectionHeader( ICON_MDI_LINK_VARIANT "  Binding Overrides", true ) )
+                return;
+
+            // The scene's entities by UUID, named by their Tag: what an override may point at.
+            const auto entityName = [&]( const ::Common::UUID& uuid ) -> std::string
+            {
+                if ( scene != nullptr )
+                    if ( const auto found = scene->FindEntityByID( uuid ) )
+                    {
+                        const ::Desert::ECS::Entity entity = found->get();
+                        return entity.HasComponent<::Desert::ECS::TagComponent>()
+                                    ? entity.GetComponent<::Desert::ECS::TagComponent>().Tag
+                                    : std::string( "Entity" );
+                    }
+                return std::format( "<missing entity {}>", uuid.ToString() );
+            };
+            // Draws the scene's entities with a search; true when one was picked into @p picked.
+            const auto entityList = [&]( ::Common::UUID& picked ) -> bool
+            {
+                if ( scene == nullptr )
+                {
+                    ImGui::TextDisabled( "No scene" );
+                    return false;
+                }
+                static ImGuiTextFilter entityFilter;
+                entityFilter.Draw( "##EntitySearch", 200 );
+                ImGui::Separator();
+                auto& registry = scene->GetRegistry();
+                for ( auto h : registry.view<::Desert::ECS::UUIDComponent>() )
+                {
+                    const ::Desert::ECS::Entity candidate( h, registry );
+                    const auto                  uuid = candidate.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
+                    const std::string           name = candidate.HasComponent<::Desert::ECS::TagComponent>()
+                                                            ? candidate.GetComponent<::Desert::ECS::TagComponent>().Tag
+                                                            : std::string( "Entity" );
+                    if ( !entityFilter.PassFilter( name.c_str() ) )
+                        continue;
+                    ImGui::PushID( static_cast<int>( static_cast<uint32_t>( h ) ) );
+                    const bool chosen = ImGui::Selectable( name.c_str(), uuid == picked );
+                    ImGui::PopID();
+                    if ( chosen )
+                    {
+                        picked = uuid;
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            const T::Sequence* loaded = sequence && sequence->IsReadyForUse() ? &sequence->GetSequence() : nullptr;
+            if ( actor.BindingOverrides.empty() )
+                ImGui::TextDisabled( "None: every binding plays on the entity its locator names" );
+            U::ImGuiUtilities::ResetPropertyRows();
+            for ( std::size_t i = 0; i < actor.BindingOverrides.size(); )
+            {
+                auto&             over    = actor.BindingOverrides[i];
+                const T::Binding* binding = loaded != nullptr ? T::FindBinding( *loaded, over.Binding ) : nullptr;
+                ImGui::PushID( static_cast<int>( i ) );
+                U::ImGuiUtilities::BeginPropertyRow( binding != nullptr ? binding->Label.c_str()
+                                                                        : "(binding not in the sequence)",
+                                                     "The entity of this scene the binding plays on" );
+                const std::string target = entityName( over.Entity );
+                if ( U::ImGuiUtilities::AssetSlot( "overrideentity", target.c_str(), false ) )
+                    ImGui::OpenPopup( "override_entity" );
+                if ( ImGui::BeginPopup( "override_entity" ) )
+                {
+                    if ( entityList( over.Entity ) )
+                        ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                }
+                ImGui::SameLine();
+                const bool remove = ImGui::SmallButton( ICON_MDI_CLOSE );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "Remove this override" );
+                U::ImGuiUtilities::EndPropertyRow();
+                ImGui::PopID();
+                if ( remove )
+                    actor.BindingOverrides.erase( actor.BindingOverrides.begin() +
+                                                  static_cast<std::ptrdiff_t>( i ) );
+                else
+                    ++i;
+            }
+
+            // "+": a binding of the sequence with no override yet, then the entity it plays on.
+            if ( ImGui::Button( ICON_MDI_PLUS "  Add Override" ) )
+                ImGui::OpenPopup( "add_binding_override" );
+            if ( ImGui::BeginPopup( "add_binding_override" ) )
+            {
+                const auto open = loaded != nullptr ? ::Desert::ECS::OverridableBindings( *loaded, actor )
+                                                    : std::vector<const T::Binding*>{};
+                if ( loaded == nullptr )
+                    ImGui::TextDisabled( "Choose a sequence (loaded) first" );
+                else if ( open.empty() )
+                    ImGui::TextDisabled( "Every entity binding already has an override" );
+                for ( const T::Binding* binding : open )
+                {
+                    ImGui::PushID( binding );
+                    if ( ImGui::BeginMenu( binding->Label.c_str() ) )
+                    {
+                        ::Common::UUID picked = ::Common::UUID::Null();
+                        if ( entityList( picked ) )
+                        {
+                            actor.BindingOverrides.push_back( { binding->Guid, picked } );
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndMenu();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndPopup();
+            }
         };
         return e;
     }
@@ -1955,6 +2272,10 @@ namespace
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeProjectileEntry() );
     const int _desert_foliage_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeFoliageEntry() );
+    const int _desert_procedural_foliage_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
+         ::Desert::Editor::MakeProceduralFoliageEntry() );
+    const int _desert_level_sequence_component_reg =
+         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeLevelSequenceEntry() );
 
     const int _desert_uicanvas_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeUICanvasEntry() );

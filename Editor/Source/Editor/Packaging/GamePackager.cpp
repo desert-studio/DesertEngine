@@ -175,7 +175,7 @@ namespace Desert::Editor
             {
                 if ( path.extension() != ".desce" )
                     continue;
-                auto text = Core::ExternalEntities::ReadSceneFileText( path );
+                auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( path );
                 if ( !text )
                 {
                     error = "cooking the worlds: " + text.GetError();
@@ -184,7 +184,7 @@ namespace Desert::Editor
                 // Only a file that names the block can state one; the rest are not parsed twice.
                 if ( text.GetValue().find( "\"WorldPartition\"" ) == std::string::npos )
                     continue;
-                auto scene = Core::ParseLoadableScene( path.string(), text.GetValue() );
+                auto scene = ::Desert::Core::ParseLoadableScene( path.string(), text.GetValue() );
                 if ( !scene )
                 {
                     error = "cooking the worlds: " + scene.GetError();
@@ -192,14 +192,14 @@ namespace Desert::Editor
                 }
                 if ( !scene.GetValue().Scene.WorldPartition.has_value() )
                     continue;
-                auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene,
-                                                           std::span( &Assets::ContentRegistry::Get(), 1 ) );
+                auto cooked = ::Desert::Core::WorldCells::CookWorld(
+                     scene.GetValue().Scene, std::span( &Assets::ContentRegistry::Get(), 1 ) );
                 if ( !cooked )
                 {
                     error = "cooking the world '" + key + "': " + cooked.GetError();
                     return false;
                 }
-                const std::string directory = Core::WorldCells::CookedWorldDirectory( key );
+                const std::string directory = ::Desert::Core::WorldCells::CookedWorldDirectory( key );
                 for ( const auto& file : cooked.GetValue().Files )
                 {
                     baseBlobs.emplace_back( directory + file.Name,
@@ -772,8 +772,8 @@ namespace Desert::Editor
         // The shader SET is the target's too: a Shipping runtime cannot load the developer-instrument
         // programs, so its package neither cooks nor carries them (Common/Core/DeveloperOnlyShaders.hpp).
         const bool      developerInstruments = Common::ConfigHasDeveloperInstruments( options.Config );
-        const CookStats cook =
-             CookContentCaches( Core::SpirvDebugInfoForConfigName( options.Config ), developerInstruments );
+        const CookStats cook = CookContentCaches( ::Desert::Core::SpirvDebugInfoForConfigName( options.Config ),
+                                                  developerInstruments );
 
         // BEFORE ANYTHING IS WRITTEN. A refusal after the output directory exists leaves half a
         // package behind, and half a package is the thing somebody ships by accident.
@@ -790,10 +790,13 @@ namespace Desert::Editor
         // repair П6 was opened for.
         const TargetPlatformInfo& host = HostPlatformInfo();
 
-        // 1) The Runtime binary for the chosen configuration (editor cwd is Editor/). The FILE NAME is
-        // the host's: looking for an extensionless `Runtime` on Windows could only ever fail, and it
-        // failed by naming a macOS build script in the message.
-        const fs::path  runtimeBin = fs::path( ".." ) / "build" / "Bin" / options.Config / host.RuntimeBinary;
+        // 1) The Runtime binary for the chosen configuration, where the engine's build puts it: the
+        // checkout's `build/Bin/<Config>/`, beside the engine directory (UE: EngineDir()/Binaries/<Platform>).
+        // Read off EngineDir(), never off the working directory — a packager started from anywhere finds
+        // the same binary. The FILE NAME is the host's: looking for an extensionless `Runtime` on Windows
+        // could only ever fail, and it failed by naming a macOS build script in the message.
+        const fs::path runtimeBin = Common::Constants::Path::EngineDir().parent_path() / "build" / "Bin" /
+                                    options.Config / host.RuntimeBinary;
         std::error_code ec;
         if ( !fs::exists( runtimeBin, ec ) )
             return { false,
@@ -837,19 +840,18 @@ namespace Desert::Editor
             bundle = false;
         }
 
-        // THE CONTENT SITS BESIDE THE PLAYER BINARY, IN BOTH LAYOUTS (П5). The Runtime has exactly one
-        // rule for finding a game — look in its own executable's directory — and a bundle that put the
-        // archive in Contents/Resources could not satisfy it, so the launcher had to cd there and hand
-        // the descriptor over as `--project`. That flag is what made the package unstartable by hand:
-        // a player who ran the binary directly got "No game to run". Removing the flag means removing
-        // the reason it was needed, which is this split. Contents/Resources is simply not produced —
-        // macOS requires no such directory, and a second place the player has to be told about is
-        // exactly the knowledge a shipped game must not depend on.
+        // THE CONTENT SITS WHERE THE PLAYER LOOKS FROM ITS OWN EXECUTABLE (П5): FileSystem::PackagedContentDir,
+        // one rule on both sides. A plain folder: beside the player binary. A .app: Contents/Resources —
+        // Apple's signing rule keeps Contents/MacOS for code only. The player needs no flag and no launcher
+        // to find it; running the binary directly works.
         const fs::path root    = fs::path( options.OutputDir ) / ( bundle ? safeName + ".app" : safeName );
         const fs::path gameDir = bundle ? root / "Contents" / "MacOS" : root;
         const char*    binName = bundle ? kBundlePlayerBinary : host.RuntimeBinary;
+        const fs::path contentDir = Common::Utils::FileSystem::PackagedContentDir( gameDir );
 
         fs::create_directories( gameDir, ec );
+        if ( !ec )
+            fs::create_directories( contentDir, ec );
         if ( ec )
             return { false, "Cannot create output dir " + root.string() + ": " + ec.message(), "" };
 
@@ -918,7 +920,7 @@ namespace Desert::Editor
             if ( !plan )
                 return { false, plan.GetError(), "" };
 
-            auto written = Common::Content::WriteChunkedPaks( gameDir / "Content.dpak", plan.GetValue(),
+            auto written = Common::Content::WriteChunkedPaks( contentDir / "Content.dpak", plan.GetValue(),
                                                               contentFiles, baseBlobs );
             if ( !written )
                 return { false, written.GetError(), "" };
@@ -992,12 +994,10 @@ namespace Desert::Editor
 
         // 7) Launcher + (bundle) Info.plist. The launcher script is the bundle's CFBundleExecutable.
         //
-        // WHAT THE LAUNCHER IS STILL FOR, now that it no longer names the project (П5): the Vulkan
-        // environment, and only that. Finder gives a double-clicked .app no VK_ICD_FILENAMES, and the loader
-        // reads it when the player first calls into Vulkan, so the launcher names the bundle's own ICD manifest.
-        // The library path is no longer part of it: the player binary names the bundled loader itself. It is
-        // therefore not a second way to start the game — running the binary directly works and is tested — it is
-        // the environment the host does not provide.
+        // WHAT THE LAUNCHER IS STILL FOR, now that it names neither the project (П5) nor the Vulkan driver
+        // (ENG-ROOT-4b: the player finds the bundle's MoltenVK_icd.json itself, from its own executable
+        // position — VulkanContext.cpp SelectDriverManifest) nor the working directory (the log goes to the
+        // game's user directory): only being CFBundleExecutable. Running the binary directly works as well.
         if ( bundle )
         {
             std::ostringstream run;
@@ -1005,12 +1005,6 @@ namespace Desert::Editor
                 << "# Launches " << projectName << " (packaged by the Desert Editor).\n"
                 << "set -euo pipefail\n"
                 << "DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n"
-                // The loader finds its driver through the bundle's own ICD manifest; the player binary already
-                // names the bundled loader (BundleVulkan), so no library search path is set.
-                << "export VK_ICD_FILENAMES=\"$DIR/../Resources/vulkan/icd.d/MoltenVK_icd.json\"\n"
-                // The game directory IS this script's own directory now, so the cd is only about where
-                // engine_log.txt lands — the player finds its content from its executable path.
-                << "cd \"$DIR\"\n"
                 << "exec \"$DIR/" << kBundlePlayerBinary << "\" \"$@\"\n";
             const fs::path launcher = gameDir / kBundleLauncherName;
             // This script IS the bundle's CFBundleExecutable — without it macOS reports the app as
@@ -1042,11 +1036,11 @@ namespace Desert::Editor
         }
         else
         {
-            // The plain-folder launcher, in the host's own shell. On macOS it has to find MoltenVK
-            // through Homebrew (there is no Frameworks directory outside a bundle); on Windows the
-            // Vulkan loader is installed by the graphics driver and there is nothing to point at, so the
-            // script only has to cd and run. Writing the bash version on Windows produced a `run.sh`
-            // nothing there can execute.
+            // The plain-folder launcher, in the host's own shell: cd and run. It sets no Vulkan
+            // environment on either host — on macOS the player picks its MoltenVK manifest itself
+            // (VulkanContext.cpp SelectDriverManifest; a plain folder has no Frameworks, so that is the
+            // one the build machine recorded), on Windows the driver installs the loader. Writing the bash version
+            // on Windows produced a `run.sh` nothing there can execute.
             std::ostringstream run;
             if ( host.Platform == TargetPlatform::Windows )
             {
@@ -1061,13 +1055,6 @@ namespace Desert::Editor
                     << "# Launches " << projectName << " (packaged by the Desert Editor).\n"
                     << "set -euo pipefail\n"
                     << "cd \"$(dirname \"$0\")\"\n"
-                    << "BREW_PREFIX=\"${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null || echo /opt/homebrew)}\"\n"
-                    << "export "
-                       "VK_ICD_FILENAMES=\"${VK_ICD_FILENAMES:-$BREW_PREFIX/etc/vulkan/icd.d/"
-                       "MoltenVK_icd.json}\"\n"
-                    << "export "
-                       "DYLD_FALLBACK_LIBRARY_PATH=\"$BREW_PREFIX/"
-                       "lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}\"\n"
                     << "exec ./" << host.RuntimeBinary << " \"$@\"\n";
             }
             const fs::path launcher = root / host.LauncherName;
@@ -1114,7 +1101,8 @@ namespace Desert::Editor
         // cross-config dev runtime misses and self-heals into loose Cooked/ — dev machines are
         // writable; only the shipped package must never rely on that.) FIRST, for PackageGame's
         // reason: the cook writes files the gather below must name.
-        const CookStats cook = CookContentCaches( Core::SpirvDebugInfoThisBuild(), DESERT_DEV_INSTRUMENTS != 0 );
+        const CookStats cook =
+             CookContentCaches( ::Desert::Core::SpirvDebugInfoThisBuild(), DESERT_DEV_INSTRUMENTS != 0 );
 
         // The same gather PackageGame makes, for the same reason: this archive is what a developer's
         // Runtime mounts, so its registry must name what the archive holds.

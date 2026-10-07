@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- FO-UI1: the foliage palette's arithmetic and files (cost, footprint, search, a type's copy, a preset)
-    -- are pure functions; the panel and EditorLayer are compiled by no suite, so the census reads them as text.
+    -- are pure functions; the panel and the provider are compiled by no suite, so the census reads them as text.
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
@@ -50,8 +50,6 @@ project(test_name)
 
     links { "Common", "Optick" }
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

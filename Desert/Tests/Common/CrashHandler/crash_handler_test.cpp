@@ -168,6 +168,13 @@ namespace
         EXPECT_EQ( FieldValue( contents, "host" ), "CrashHandlerTestChild" );
         EXPECT_FALSE( FieldValue( contents, "codename" ).empty() );
         EXPECT_FALSE( FieldValue( contents, "version" ).empty() );
+        // CR2b: the suites run in Debug and Release, both of which write the developer report — the
+        // configuration named, and the repository/machine keys present. Shipping (no suite) omits them.
+        const std::string config = FieldValue( contents, "config" );
+        EXPECT_TRUE( config == "Debug" || config == "Release" ) << "config=" << config;
+        EXPECT_FALSE( FieldValue( contents, "sha" ).empty() );
+        EXPECT_FALSE( FieldValue( contents, "branch" ).empty() );
+        EXPECT_FALSE( FieldValue( contents, "machine" ).empty() );
         EXPECT_FALSE( FieldValue( contents, "os" ).empty() );
         EXPECT_EQ( FieldValue( contents, "scene" ), "Scenes/CrashHandlerSuite.desce" );
         // CR1c: the GPU keys come from the device the host created, decoded; the game from SetGameName.
@@ -256,6 +263,8 @@ TEST( CrashHandler, ParsesEveryTestKind )
     EXPECT_EQ( Common::Crash::ParseTestKind( "stackoverflow-worker" ),
                Common::Crash::TestKind::StackOverflowWorker );
     EXPECT_EQ( Common::Crash::ParseTestKind( "stackoverflow-job" ), Common::Crash::TestKind::StackOverflowJob );
+    EXPECT_EQ( Common::Crash::ParseTestKind( "verify" ), Common::Crash::TestKind::Verify );
+    EXPECT_EQ( Common::Crash::ParseTestKind( "trap" ), Common::Crash::TestKind::Trap );
     // An unknown word is refused rather than defaulted: a --crash-test typo that crashed in some
     // other way would file a report describing a fault nobody asked for.
     EXPECT_FALSE( Common::Crash::ParseTestKind( "sigsegv" ).has_value() );
@@ -277,6 +286,53 @@ TEST( CrashHandler, PureCallWritesAReportNamingTheFaultingFunction )
     RunCrashCase( { "purecall", "PureCall" } );
 }
 
+namespace
+{
+    // Runs one child and returns its crash.txt after RunCrashCase's common assertions, or "" after a fatal one.
+    std::string RunCaseAndReadReport( const char* inKind, const char* inFunction )
+    {
+        RunCrashCase( { inKind, inFunction, true } );
+        if ( ::testing::Test::HasFatalFailure() )
+        {
+            return {};
+        }
+        std::string     contents = ReadWholeFile( SoleReportDirectory( g_LastCrashRoot ) / "crash.txt" );
+        std::error_code cleanup;
+        std::filesystem::remove_all( g_LastCrashRoot, cleanup );
+        return contents;
+    }
+} // namespace
+
+// DEV-CRASH1: a failed DESERT_VERIFY with no debugger attached reaches the handler THROUGH std::abort. The
+// relation asserted is the codename: SIGABRT means the check skipped its breakpoint (no debugger) and took
+// the abort path; SIGTRAP / EXCEPTION_BREAKPOINT would mean it trapped unconditionally, which before this
+// change killed the Editor as "trace trap" with no report at all.
+TEST( CrashHandler, AFailedVerifyWithoutADebuggerAbortsIntoTheHandler )
+{
+    const std::string contents = RunCaseAndReadReport( "verify", "CrashTestVerify" );
+    if ( !contents.empty() )
+    {
+        EXPECT_EQ( FieldValue( contents, "codename" ), "SIGABRT" );
+        EXPECT_NE( contents.find( "Verify failed: g_VerifyHolds" ), std::string::npos )
+             << "the report's log does not carry the failed check";
+    }
+}
+
+// A raw breakpoint instruction with nobody attached (a third-party __builtin_debugtrap / brk) is a crash
+// the handler reports, not a silent "trace trap".
+TEST( CrashHandler, ABreakpointWithoutADebuggerWritesAReport )
+{
+    const std::string contents = RunCaseAndReadReport( "trap", "CrashTestTrap" );
+    if ( !contents.empty() )
+    {
+#if defined( _WIN32 )
+        EXPECT_EQ( FieldValue( contents, "codename" ), "EXCEPTION_BREAKPOINT" );
+#else
+        EXPECT_EQ( FieldValue( contents, "codename" ), "SIGTRAP" );
+#endif
+    }
+}
+
 // CR1b: a stack overflow leaves the faulting thread no stack to write a report on, so the report must come
 // from the report thread (Windows) / the alternate signal stack (POSIX). Proven by the relation between
 // the crash and the report: the report's stack is the recursion, frame after frame, not just a file.
@@ -287,15 +343,7 @@ namespace
     // Runs one stack-overflow child and returns its crash.txt, or "" after a fatal failure.
     std::string RunStackOverflowCase( const char* inKind )
     {
-        RunCrashCase( { inKind, kRecursion, true } );
-        if ( ::testing::Test::HasFatalFailure() )
-        {
-            return {};
-        }
-        std::string     contents = ReadWholeFile( SoleReportDirectory( g_LastCrashRoot ) / "crash.txt" );
-        std::error_code cleanup;
-        std::filesystem::remove_all( g_LastCrashRoot, cleanup );
-        return contents;
+        return RunCaseAndReadReport( inKind, kRecursion );
     }
 
     void ExpectReportStackIsTheRecursion( const std::string& contents )
@@ -443,10 +491,10 @@ int main( int argc, char** argv )
     const bool        engineRun = mode == "--crash-child-engine" || mode == "--crash-child-moved";
     if ( mode == "--crash-child" || engineRun )
     {
-        // LogInit opens engine_log.txt in the WORKING directory, which is the checkout the suite runs
-        // from; a test writes nothing into the tree (TST1), so the child works inside its scratch root.
-        std::filesystem::current_path( argv[3] );
+        // LogInit opens the log beside the executable; a test writes nothing into the tree (TST1), so the
+        // child's log is moved into its scratch root, the way the editor moves it into <ProjectDir>/Saved/Logs.
         Common::Logger::LogInit();
+        Common::Logger::RelocateLogFile( argv[3] );
 
         Common::Crash::InstallOptions options;
         options.hostName = "CrashHandlerTestChild";

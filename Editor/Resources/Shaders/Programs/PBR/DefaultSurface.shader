@@ -14,31 +14,20 @@ Shader "DefaultSurface"
         ZWrite On
     }
 
-    Vertex
+    // A surface template like any material: its default program is the Static.Forward cell, and the other
+    // cells give the stand-in to instanced and skinned meshes, the G-buffer and the shadow pass as well.
+    Surface
     {
-        #define GRAPH_LIT 1
-        #include <Common/GraphVertex.glslh>
-    }
-
-    Fragment
-    {
-        layout( location = 0 ) in vec2 v_UV;
-        layout( location = 1 ) in vec3 v_Normal;
-        layout( location = 2 ) in vec3 v_WorldPos;
-        layout( location = 3 ) in vec3 v_CameraPos;
-        layout( location = 0 ) out vec4 o_Color;
-
-        #include <Common/GraphSurfaceLighting.glslh>
-
-        void main()
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             // 1 unit = 1 cm: one checker cell per metre.
-            ivec3 cell    = ivec3( floor( v_WorldPos / 100.0 ) );
-            float checker = float( ( cell.x + cell.y + cell.z ) & 1 );
-            vec3  albedo  = mix( vec3( 0.30 ), vec3( 0.45 ), checker );
-            vec3  N       = normalize( v_Normal );
-            vec3  view    = normalize( v_CameraPos - v_WorldPos );
-            o_Color       = vec4( ShadeGraphSurface( v_WorldPos, N, view, albedo, 0.0, 0.6, 1.0 ), 1.0 );
+            const ivec3 cell    = ivec3( floor( i.WorldPosition / 100.0 ) );
+            const float checker = float( ( cell.x + cell.y + cell.z ) & 1 );
+            SurfaceOutput s     = DefaultSurfaceOutput();
+            s.BaseColor         = mix( vec3( 0.30 ), vec3( 0.45 ), checker );
+            s.Metallic          = 0.0;
+            s.Roughness         = 0.6;
+            return s;
         }
     }
 }

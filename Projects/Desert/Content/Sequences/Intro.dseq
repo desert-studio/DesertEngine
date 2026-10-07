@@ -1,0 +1,17 @@
+{
+    "Header": {
+        "Kind": "LevelSequence",
+        "Guid": "cfc167f2f17843d9923404ade3d7435b",
+        "Versions": {
+            "TMLN": 2
+        },
+        "Dependencies": []
+    },
+    "Host": 2,
+    "TickRate": [24000, 1],
+    "DisplayRate": [30, 1],
+    "Start": 0,
+    "End": 120000,
+    "Bindings": [],
+    "Tracks": []
+}

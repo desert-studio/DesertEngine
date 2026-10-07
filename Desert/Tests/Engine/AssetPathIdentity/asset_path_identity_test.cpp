@@ -36,6 +36,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
 
 using Desert::Assets::AssetKey;
 using Desert::Assets::AssetManager;
@@ -65,30 +66,8 @@ namespace
         Common::Constants::Path::ProjectRootState m_Saved;
     };
 
-    // The working directory is what turns a RELATIVE spelling into a place, so the reproducer below has
-    // to control it: `StableKeyForPath` resolves a relative path through `fs::absolute`, and a scene
-    // saying `Cooked/Meshes/base.stmesh` means "under the project I am open in".
-    class WorkingDirectoryGuard
-    {
-    public:
-        explicit WorkingDirectoryGuard( const std::filesystem::path& moveTo )
-             : m_Saved( std::filesystem::current_path() )
-        {
-            std::filesystem::current_path( moveTo );
-        }
-
-        ~WorkingDirectoryGuard()
-        {
-            std::error_code ec;
-            std::filesystem::current_path( m_Saved, ec );
-        }
-
-        WorkingDirectoryGuard( const WorkingDirectoryGuard& )            = delete;
-        WorkingDirectoryGuard& operator=( const WorkingDirectoryGuard& ) = delete;
-
-    private:
-        std::filesystem::path m_Saved;
-    };
+    // A RELATIVE spelling is relative to the open project (Path::FullPath), never to the working directory:
+    // a scene saying `Cooked/Meshes/base.stmesh` means "under the project I am open in".
 
     // Two asset classes with DIFFERENT type ids, because the identity is (file, type) and the suite has
     // to be able to tell the two halves apart. Neither reads a byte: `Load` only flips the flag the
@@ -190,7 +169,6 @@ TEST( AssetPathIdentity, EverySpellingOfOneFileFindsTheAssetRegisteredUnderAnoth
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "find_only" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -213,7 +191,6 @@ TEST( AssetPathIdentity, TheTwoEntryPointsAnswerOneQuestionTheSameWay )
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "agreement" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -242,7 +219,6 @@ TEST( AssetPathIdentity, TheScenesSpellingFindsThePreloadersUnparsedShell )
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "preloader_shell" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -268,7 +244,6 @@ TEST( AssetPathIdentity, TheRecordsOwnKeyEqualsTheKeyOfEverySpellingOfIt )
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "record_key" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -320,7 +295,6 @@ TEST( AssetPathIdentity, OnePathTwoTypesStaysTwoRecordsUnderEverySpelling )
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "two_types" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -393,22 +367,16 @@ TEST( AssetPathIdentity, OutsideEveryContentRootOnlyLexicalSpellingsAgree )
          << "a path outside every content root must keep its normalized spelling as its key";
 }
 
-// A RELATIVE SPELLING IS RESOLVED LEXICALLY, NOT THROUGH LINKS — found while writing this suite, and
-// asserted here because avoiding it in the fixture would have buried it.
+// A RELATIVE SPELLING IS RESOLVED OFF THE PROJECT, NOT OFF THE WORKING DIRECTORY (ENG-ROOT).
 //
-// `StableKeyForPath` turns a relative path into a place with `fs::absolute`, which prepends the working
-// directory and follows nothing. So a project whose root is recorded as `/var/folders/…/P` and a working
-// directory that reports itself as `/private/var/folders/…/P` — the SAME directory on macOS, where
-// `/var` is a symlink — give one file two identities. The first draft of this suite hit it and read as a
-// defect in the fix.
-//
-// It is stated rather than fixed. Making the derivation canonical would put a `stat` per root inside the
-// key, on the path where computing the key inside a scan already cost 56.9 s over a 2000-asset preload;
-// and it would make an asset's identity depend on what the filesystem looks like at that instant, which
-// is exactly what a handle written into a committed scene must not do. What WOULD change the answer: a
-// project whose recorded root and whose working directory are reached by different links. The editor
-// derives both from the same `.deproj` path, so this is a hazard for tooling, not for the editor.
-TEST( AssetPathIdentity, RelativeSpellingsAreResolvedLexicallyNotThroughLinks )
+// `StableKeyForPath` makes a relative path absolute with `Constants::Path::FullPath`, which reads it off
+// ProjectDir() and never off the process's working directory. The hazard this test used to state — a project
+// recorded as `/var/folders/…/P` while the working directory reports itself as `/private/var/folders/…/P` (the
+// SAME directory on macOS, where `/var` is a symlink), giving one file two identities — is gone by construction:
+// both spellings now hang off the one recorded root, whatever link the runner stands behind. Still lexical, still
+// no `stat` inside the key; the precondition (a scratch directory reached through a link) is kept so the case that
+// used to split stays the case measured.
+TEST( AssetPathIdentity, RelativeSpellingsAreResolvedOffTheProjectNotTheWorkingDirectory )
 {
     const ProjectRootGuard roots;
 
@@ -422,9 +390,8 @@ TEST( AssetPathIdentity, RelativeSpellingsAreResolvedLexicallyNotThroughLinks )
                         "spellings of it are the same string and there is nothing to measure";
     }
 
-    // The project is opened under the UNCANONICAL spelling, the caller stands in the canonical one.
+    // The project is opened under the UNCANONICAL spelling; the runner stands wherever it was started.
     Common::Constants::Path::SetProjectRoot( dir, "Resources/Assets" );
-    const WorkingDirectoryGuard cwd( canonical );
 
     AssetManager mgr;
 
@@ -433,11 +400,12 @@ TEST( AssetPathIdentity, RelativeSpellingsAreResolvedLexicallyNotThroughLinks )
                                         /*loadAfterCreate=*/false );
     ASSERT_NE( registered, nullptr );
 
-    EXPECT_EQ( mgr.FindByPath<TextureProbe>( std::filesystem::path( "Resources" ) / "Assets" / "Meshes" /
-                                             "base.stmesh" ),
-               nullptr )
-         << "the derivation has become link-aware; that is a bigger change than it looks (it puts a stat "
-            "inside the identity of every asset) and this test is where to argue it";
+    EXPECT_EQ(
+         mgr.FindByPath<TextureProbe>( std::filesystem::path( "Resources" ) / "Assets" / "Meshes" / "base.stmesh" )
+              .get(),
+         registered.get() )
+         << "a relative spelling must resolve off the recorded project root (Constants::Path::FullPath), not off "
+            "the working directory or through a link";
 }
 
 // THE OLDER QUESTION IS NOT MERELY DISCOURAGED, IT DOES NOT COMPILE.
@@ -490,7 +458,6 @@ TEST( AssetPathIdentity, ARootRelativeReferenceIsAnotherIdentityUntilItsOwnForma
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "assets_root_relative" );
-    const WorkingDirectoryGuard cwd( project );
 
     // Exactly what the shipped `Cirrus.decloudtype` carries in its "NoiseVolume" field, and exactly where
     // the file sits. Spelled here rather than read off disk because the claim is about the KEY.
@@ -518,6 +485,7 @@ TEST( AssetPathIdentity, ARootRelativeReferenceIsAnotherIdentityUntilItsOwnForma
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

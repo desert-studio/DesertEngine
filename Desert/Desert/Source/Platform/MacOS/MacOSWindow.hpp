@@ -14,8 +14,6 @@ namespace Desert::Platform::MacOS
         MacOSWindow( const WindowSpecification& specification );
         virtual ~MacOSWindow();
 
-        using EventCallbackFn = std::function<void( Common::Event& )>;
-
         virtual Common::ResultStr<bool> Init() override;
 
         virtual void ProcessEvents() override;
@@ -54,7 +52,7 @@ namespace Desert::Platform::MacOS
             if ( m_SwapChain )
             {
                 m_SwapChain->SetVSync( enabled );
-                m_SwapChain->OnResize( m_Data.Specification.Width, m_Data.Specification.Height );
+                m_SwapChain->RequestRebuild( m_Data.Specification.Width, m_Data.Specification.Height );
             }
         }
         [[nodiscard]] virtual const void* GetNativeWindow() const override;
@@ -62,27 +60,24 @@ namespace Desert::Platform::MacOS
         [[nodiscard]] virtual Common::BoolResultStr PrepareNextFrame() const override;
         [[nodiscard]] virtual Common::BoolResultStr PresentFinalImage() const override;
 
-        virtual void OnEvent( Common::Event& e ) override;
-
         virtual std::shared_ptr<Graphic::SwapChain> GetWindowSwapChain() override
         {
             return m_SwapChain;
         }
 
-        virtual void SetEventCallback( const EventCallbackFn& e ) override
+        void SetEventTree( Common::EventTree& events ) override
         {
-            m_Data.EventCallback = e;
+            m_Data.Events = &events;
         }
 
-        void DispatchEvent( Common::Event& e ) override
+        [[nodiscard]] Common::EventTree* GetEventTree() const override
         {
-            m_Data.EventCallback( e );
+            return m_Data.Events;
         }
 
         virtual Common::ResultStr<bool> SetupSwapChain() override;
 
     private:
-        bool OnEventWindowResize( Common::EventWindowResize& e );
         /// Refill the cached Width/Height from the OS after a call that resized the window without going
         /// through the resize callback yet. See the definition for why one frame of staleness matters.
         void RefreshCachedSize();
@@ -91,7 +86,7 @@ namespace Desert::Platform::MacOS
         struct WindowData
         {
             WindowSpecification Specification;
-            EventCallbackFn     EventCallback;
+            Common::EventTree*  Events = nullptr;
         } m_Data;
 
         GLFWwindow*                         m_GLFWWindow;

@@ -34,6 +34,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/project_scope.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -242,13 +243,14 @@ TEST( AssetResolverCensus, TheEngineResourceTreesAreDeliberatelyNotProjectCensus
     const std::filesystem::path iconsBefore  = P::ICONS_PATH;
     const std::filesystem::path assetsBefore = P::ASSETS_PATH;
 
-    P::SetProjectRoot( "/tmp/desert_census_probe", "GameAssets" );
-    EXPECT_EQ( P::FONTS_PATH, fontsBefore ) << "an engine tree followed the project root";
-    EXPECT_EQ( P::ICONS_PATH, iconsBefore ) << "an engine tree followed the project root";
-    EXPECT_NE( P::ASSETS_PATH, assetsBefore )
-         << "the assets root did NOT follow the project root, so this test proves nothing about the "
-            "difference between the two kinds";
-    P::ResetToSandbox();
+    {
+        const Desert::TestSupport::ProjectScope probe( "/tmp/desert_census_probe", "GameAssets" );
+        EXPECT_EQ( P::FONTS_PATH, fontsBefore ) << "an engine tree followed the project root";
+        EXPECT_EQ( P::ICONS_PATH, iconsBefore ) << "an engine tree followed the project root";
+        EXPECT_NE( P::ASSETS_PATH, assetsBefore )
+             << "the assets root did NOT follow the project root, so this test proves nothing about the "
+                "difference between the two kinds";
+    }
 
     // The two kinds must be TOLD APART by the one table that has to know: AssetHandle's root tags. This
     // is what let I10 write `engine:Fonts/x.ttf` and `assets:Fonts/x.ttf` as different references at all.
@@ -259,6 +261,7 @@ TEST( AssetResolverCensus, TheEngineResourceTreesAreDeliberatelyNotProjectCensus
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

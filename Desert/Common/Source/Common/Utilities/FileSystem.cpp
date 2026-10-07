@@ -1,19 +1,19 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include "VFS.hpp"
 
-#if defined( DESERT_PLATFORM_WINDOWS )
-#include <Common/Platform/Windows/WindowsFileSystem.hpp>
-#elif defined( DESERT_PLATFORM_MACOS )
-#include <Common/Platform/MacOS/MacOSFileSystem.hpp>
+#if defined( DESERT_PLATFORM_MACOS )
 #include <mach-o/dyld.h>
 #endif
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <system_error>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -25,10 +25,61 @@ namespace fs = std::filesystem;
 
 namespace Common::Utils
 {
-    class WindowsFileSystem;
+    namespace
+    {
+        // THE ONE PLATFORM SEAM OF THE ATOMIC WRITE (UE: IFileManager::Move over the platform file's
+        // MoveFile, retried). std::filesystem::rename is rename(2) on POSIX and MoveFileExW with
+        // MOVEFILE_REPLACE_EXISTING on MSVC; both replace an existing target in one step. What differs is
+        // the failure set: on Windows the replace is refused while another handle holds the target
+        // without FILE_SHARE_DELETE — a parallel writer's replace of the same path in flight, a reader, an
+        // antivirus or indexer scan — and that refusal is TRANSIENT (ERROR_ACCESS_DENIED,
+        // ERROR_SHARING_VIOLATION and ERROR_LOCK_VIOLATION all map to errc::permission_denied). POSIX
+        // rename(2) does not care about open handles, so there a failure is final.
+        [[nodiscard]] bool IsTransientReplaceFailure( const std::error_code& ec )
+        {
+#if defined( _WIN32 )
+            return ec == std::errc::permission_denied || ec == std::errc::device_or_resource_busy;
+#else
+            return ec == std::errc::device_or_resource_busy;
+#endif
+        }
+
+        // Replaces @p to by @p from; a transient refusal is retried a bounded number of times with a short
+        // growing pause (~0.5 s in all), then the last error is returned. @p attempts reports how many
+        // replaces were tried, for the caller's message.
+        [[nodiscard]] std::error_code ReplaceFileWithRetry( const fs::path& from, const fs::path& to,
+                                                            int& attempts )
+        {
+            constexpr int   kMaxAttempts = 10;
+            std::error_code ec;
+            for ( attempts = 1;; ++attempts )
+            {
+                ec.clear();
+                fs::rename( from, to, ec );
+                if ( !ec || !IsTransientReplaceFailure( ec ) || attempts == kMaxAttempts )
+                    return ec;
+                std::this_thread::sleep_for( std::chrono::milliseconds( 10 * attempts ) );
+            }
+        }
+
+        // THE DISK SPELLING OF A CONTENT PATH (UE: every IFileManager call goes through
+        // FPaths::ConvertRelativePathToFull). A RELATIVE path is relative to the PROJECT — the same rule
+        // VFS::CanonicalAbs applies to the archive side — never to the process's working directory: the
+        // disk side read the cwd while the pak side read ProjectDir, so one relative spelling named two
+        // files depending on which side answered. Absolute paths and synthetic keys (`procedural://`)
+        // are taken as given; an unset root is FullPath's refusal, not a cwd fallback.
+        [[nodiscard]] fs::path OnDisk( const fs::path& filepath )
+        {
+            if ( filepath.empty() || filepath.is_absolute() ||
+                 filepath.generic_string().find( "://" ) != std::string::npos )
+                return filepath;
+            return Common::Constants::Path::FullPath( filepath );
+        }
+    } // namespace
+
     bool FileSystem::Exists( const std::filesystem::path& filepath )
     {
-        return fs::exists( filepath ) || VFS::Exists( filepath );
+        return fs::exists( OnDisk( filepath ) ) || VFS::Exists( filepath );
     }
 
     bool FileSystem::Exists( const std::string& filepath )
@@ -65,42 +116,6 @@ namespace Common::Utils
     const std::string FileSystem::GetFileName( const std::string& filepath )
     {
         return std::filesystem::path( filepath ).filename().string();
-    }
-
-    std::filesystem::path FileSystem::OpenFileDialog( const char* filter )
-    {
-#if defined( DESERT_PLATFORM_WINDOWS )
-        return WindowsFileSystem::OpenFileDialog( filter );
-#elif defined( DESERT_PLATFORM_MACOS )
-        return MacOSFileSystem::OpenFileDialog( filter );
-#else
-        (void)filter;
-        return {};
-#endif
-    }
-
-    std::filesystem::path FileSystem::OpenFolderDialog( const char* initialFolder )
-    {
-#if defined( DESERT_PLATFORM_WINDOWS )
-        return WindowsFileSystem::OpenFolderDialog( initialFolder );
-#elif defined( DESERT_PLATFORM_MACOS )
-        return MacOSFileSystem::OpenFolderDialog( initialFolder );
-#else
-        (void)initialFolder;
-        return {};
-#endif
-    }
-
-    std::filesystem::path FileSystem::SaveFileDialog( const char* filter )
-    {
-#if defined( DESERT_PLATFORM_WINDOWS )
-        return WindowsFileSystem::SaveFileDialog( filter );
-#elif defined( DESERT_PLATFORM_MACOS )
-        return MacOSFileSystem::SaveFileDialog( filter );
-#else
-        (void)filter;
-        return {};
-#endif
     }
 
     std::filesystem::path FileSystem::GetFileDirectory( const std::filesystem::path& filepath )
@@ -148,6 +163,22 @@ namespace Common::Utils
 #endif
     }
 
+    std::filesystem::path FileSystem::BaseDir()
+    {
+        const fs::path executable = ExecutablePath();
+        return executable.empty() ? fs::path{} : executable.parent_path().lexically_normal();
+    }
+
+    std::filesystem::path FileSystem::PackagedContentDir( const std::filesystem::path& baseDir )
+    {
+        fs::path       dir      = baseDir.lexically_normal();
+        const fs::path contents = dir.parent_path();
+        if ( dir.filename() == "MacOS" && contents.filename() == "Contents" &&
+             contents.parent_path().extension() == ".app" )
+            return contents / "Resources";
+        return dir;
+    }
+
     std::string FileSystem::GetFileDirectoryString( const std::filesystem::path& filepath )
     {
         return filepath.parent_path().string();
@@ -173,7 +204,7 @@ namespace Common::Utils
 
     Common::ResultStr<std::string> FileSystem::ReadFileContent( const std::filesystem::path& filepath )
     {
-        std::ifstream in( filepath, std::ios::in | std::ios::binary );
+        std::ifstream in( OnDisk( filepath ), std::ios::in | std::ios::binary );
         if ( !in )
         {
             // Not on disk: a packaged game serves content from the mounted .dpak (disk first so loose
@@ -221,7 +252,7 @@ namespace Common::Utils
     Common::ResultStr<std::string> FileSystem::ReadFileContentPrefix( const std::filesystem::path& filepath,
                                                                       const std::size_t            maxBytes )
     {
-        std::ifstream in( filepath, std::ios::in | std::ios::binary );
+        std::ifstream in( OnDisk( filepath ), std::ios::in | std::ios::binary );
         if ( !in )
         {
             // Not on disk: fall through to the archive, which has no ranged read — see the header for
@@ -266,7 +297,7 @@ namespace Common::Utils
     Common::ResultStr<std::vector<uint8_t>>
     FileSystem::ReadByteFileContent( const std::filesystem::path& filepath )
     {
-        std::ifstream file( filepath, std::ios::in | std::ios::binary );
+        std::ifstream file( OnDisk( filepath ), std::ios::in | std::ios::binary );
         if ( !file )
         {
             if ( auto packed = VFS::ReadFile( filepath ) )
@@ -311,10 +342,10 @@ namespace Common::Utils
         // /var -> /private/var) those are two spellings of one file.
         std::unordered_set<std::string> seen;
         std::error_code                 ec;
-        const fs::path                  cwd  = fs::current_path( ec );
         auto                            push = [&]( const fs::path& p )
         {
-            const fs::path  raw = ( p.is_absolute() ? p : cwd / p ).lexically_normal();
+            // The SAME absolute spelling VFS::CanonicalAbs builds: relative = off ProjectDir(), not the cwd.
+            const fs::path  raw = Common::Constants::Path::FullPath( p );
             std::error_code canonEc;
             fs::path        abs = fs::weakly_canonical( raw, canonEc );
             if ( canonEc || abs.empty() )
@@ -368,28 +399,38 @@ namespace Common::Utils
     uint32_t FileSystem::GetFileSize( const std::filesystem::path& filepath )
     {
         std::error_code ec;
-        if ( fs::exists( filepath, ec ) )
-            return (uint32_t)fs::file_size( filepath, ec );
+        const fs::path  onDisk = OnDisk( filepath );
+        if ( fs::exists( onDisk, ec ) )
+            return static_cast<uint32_t>( fs::file_size( onDisk, ec ) );
         if ( auto packed = VFS::FileSize( filepath ) )
-            return (uint32_t)*packed;
+            return static_cast<uint32_t>( *packed );
         return 0;
     }
 
     Common::BoolResultStr FileSystem::WriteBytesToFileAtomic( const std::filesystem::path& filepath,
                                                               std::span<const std::byte>   content )
     {
-        // Contract and the reasoning behind every step are in the header. In one line: the original
-        // file must survive a failure at ANY point, so nothing here ever opens the original for write.
         std::filesystem::path temp = filepath;
         temp += ".tmp";
+        return WriteBytesToFileAtomic( filepath, content, temp );
+    }
 
-        std::ofstream out( temp, std::ios::binary | std::ios::trunc );
+    Common::BoolResultStr FileSystem::WriteBytesToFileAtomic( const std::filesystem::path& requestedPath,
+                                                              std::span<const std::byte>   content,
+                                                              const std::filesystem::path& requestedWorkingFile )
+    {
+        // The write lands where a read of the same spelling looks: relative = off the project (OnDisk).
+        const fs::path filepath    = OnDisk( requestedPath );
+        const fs::path workingFile = OnDisk( requestedWorkingFile );
+        // Contract and the reasoning behind every step are in the header. In one line: the original
+        // file must survive a failure at ANY point, so nothing here ever opens the original for write.
+        std::ofstream out( workingFile, std::ios::binary | std::ios::trunc );
         if ( !out )
         {
             LOG_ERROR( "[FileSystem] Atomic write failed: could not open temporary {} (original untouched)",
-                       temp.string() );
+                       workingFile.string() );
             return Common::MakeFormattedError( "could not open the temporary file {} (the original is unchanged)",
-                                               temp.string() );
+                                               workingFile.string() );
         }
 
         out.write( reinterpret_cast<const char*>( content.data() ),
@@ -400,23 +441,25 @@ namespace Common::Utils
         if ( !out )
         {
             LOG_ERROR( "[FileSystem] Atomic write failed: writing {} bytes to {} (original untouched)",
-                       content.size(), temp.string() );
+                       content.size(), workingFile.string() );
             std::error_code removeEc;
-            fs::remove( temp, removeEc );
+            fs::remove( workingFile, removeEc );
             return Common::MakeFormattedError( "could not write {} bytes to {} (the original is unchanged)",
-                                               content.size(), temp.string() );
+                                               content.size(), workingFile.string() );
         }
 
-        std::error_code renameEc;
-        fs::rename( temp, filepath, renameEc ); // POSIX rename(2) / MoveFileExW: replaces atomically
+        int                   attempts = 0;
+        const std::error_code renameEc = ReplaceFileWithRetry( workingFile, filepath, attempts );
         if ( renameEc )
         {
-            LOG_ERROR( "[FileSystem] Atomic write failed: renaming {} over {}: {} (original untouched)",
-                       temp.string(), filepath.string(), renameEc.message() );
+            LOG_ERROR(
+                 "[FileSystem] Atomic write failed: renaming {} over {} ({} attempt(s)): {} (original untouched)",
+                 workingFile.string(), filepath.string(), attempts, renameEc.message() );
             std::error_code removeEc;
-            fs::remove( temp, removeEc );
-            return Common::MakeFormattedError( "could not rename {} over {}: {} (the original is unchanged)",
-                                               temp.string(), filepath.string(), renameEc.message() );
+            fs::remove( workingFile, removeEc );
+            return Common::MakeFormattedError(
+                 "could not rename {} over {} ({} attempt(s)): {} (the original is unchanged)",
+                 workingFile.string(), filepath.string(), attempts, renameEc.message() );
         }
         return BOOLSUCCESS;
     }

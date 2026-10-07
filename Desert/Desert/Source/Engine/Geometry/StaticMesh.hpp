@@ -8,7 +8,7 @@ namespace Desert
     {
     public:
         StaticMesh( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
-                    const std::vector<Submesh>& submeshes );
+                    const std::vector<Submesh>& submeshes, const std::vector<MeshVertexStreams>& streams );
 
         [[nodiscard]] MeshType GetType() const override
         {

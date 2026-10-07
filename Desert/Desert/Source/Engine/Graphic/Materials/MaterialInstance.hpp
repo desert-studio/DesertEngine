@@ -2,6 +2,7 @@
 
 #include "MaterialProperty.hpp"
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -82,6 +83,13 @@ namespace Desert::Graphic
         // or its type isn't vec4-packable (mat4/texture). See MaterialProperty for the type enum.
         bool SetParamFromVec4( const std::string& name, const glm::vec4& value );
 
+        // The read counterpart: THIS instance's own override of `name`, packed into a vec4 the way
+        // SetParamFromVec4 unpacks it (float/int/bool in .x, vec2 .xy, vec3 .xyz); nullopt when the instance does
+        // not override it (the parent's / material's value shows) or the value is not vec4-packable.
+        std::optional<glm::vec4> GetOverrideAsVec4( const std::string& name ) const;
+        // Drop this instance's own override of `name` — the parent's / material's value shows again.
+        void ClearOverride( const std::string& name );
+
         // Batch operations
         void SetParameters( const std::vector<std::pair<std::string, MaterialPropertyValue>>& params );
         void SetParameters( const MaterialPropertySet& properties );
@@ -92,6 +100,13 @@ namespace Desert::Graphic
         {
             return m_ParentMaterial;
         }
+        // TwoSided of this instance: its own override (a `.demat` instance that sets MaterialData::TwoSided), else
+        // its parent instance's, else the base material's. Nothing = inherit.
+        void SetTwoSidedOverride( const std::optional<bool> twoSided )
+        {
+            m_TwoSidedOverride = twoSided;
+        }
+        [[nodiscard]] bool  IsTwoSided() const;
         MaterialInstancePtr GetParentInstance() const
         {
             return m_ParentInstance.lock();
@@ -149,6 +164,7 @@ namespace Desert::Graphic
         std::string                      m_Name;
         MaterialPropertySet              m_Properties;
         std::weak_ptr<MaterialInstance>  m_ParentInstance;
+        std::optional<bool>              m_TwoSidedOverride;
         std::vector<MaterialInstancePtr> m_ChildInstances;
         bool                             m_bNeedsApply = true;
     };

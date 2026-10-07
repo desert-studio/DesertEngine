@@ -70,7 +70,7 @@ Intermediate/
 
 # The project's Cooked/ tree holds only generated intermediates (font/icon caches, the local registry).
 # Authored content never lives there: the hand-authored skinned probes and clips that used to be
-# re-included here are content and sit under Editor/Resources/Assets/Meshes/Skinned/ (AF8b).
+# re-included here are content and sit under Projects/Desert/Content/Meshes/Skinned/ (AF8b).
 Cooked/
 
 # Fetched by scripts/MacOS/Setup.sh (not a submodule)
@@ -154,7 +154,7 @@ nuclei-*.txt
 # history that has already blown a CI checkout timeout once, to store something a test asserts can be
 # recreated exactly (Desert/Tests/Tools/WorldSceneGenerator).
 #
-# AND THIS IS WHY IT IS NOT UNDER Editor/Resources/Assets/Scenes/, WHICH IS MEASURED AND NOT ASSUMED.
+# AND THIS IS WHY IT IS NOT UNDER Projects/Desert/Content/Scenes/, WHICH IS MEASURED AND NOT ASSUMED.
 # Twenty-one suites name that tree, a directory iterator and ".desce" in one file. With this one file dropped into it: SceneVersionGate
 # went 1.35 s -> 4.91 s and SceneForeignKeys went 19.2 s -> more than ten minutes, on the same machine
 # and the same binaries. A measuring stick that costs the whole test sweep an hour is not free, and the
@@ -184,3 +184,4 @@ __pycache__/
 
 # per-tree scratch of scripts/Dev (handoff markers)
 .cache/
+

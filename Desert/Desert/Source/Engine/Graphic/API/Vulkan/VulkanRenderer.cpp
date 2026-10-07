@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <mutex>
+#include <unordered_set>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
@@ -30,6 +32,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -333,8 +336,25 @@ namespace Desert::Graphic::API::Vulkan
         return false;
     }
 
-    void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                         float lineWidth, const MaterialExecutor* materialExecutor )
+    const std::shared_ptr<VertexBuffer>& VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
+    {
+        // White colour and UV1 (0,0) in every vertex — what UE's GNullColorVertexBuffer and a missing TexCoord1
+        // give a material. Grown, never shrunk; the replaced buffer is released through the allocator's
+        // per-frame deletion queue, so a command buffer still in flight keeps reading valid memory.
+        if ( m_DefaultVertexStreams == nullptr || capacity > m_DefaultVertexStreamsCapacity )
+        {
+            std::vector<MeshVertexStreams> defaults( capacity );
+            m_DefaultVertexStreams = VertexBuffer::Create(
+                 defaults.data(), static_cast<uint32_t>( defaults.size() * sizeof( MeshVertexStreams ) ) );
+            const auto uploaded = m_DefaultVertexStreams->RT_Invalidate();
+            DESERT_VERIFY( uploaded.IsSuccess(), "the default vertex-streams buffer could not be uploaded" );
+            m_DefaultVertexStreamsCapacity = capacity;
+        }
+        return m_DefaultVertexStreams;
+    }
+
+    void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+                                         const MaterialExecutor* materialExecutor )
     {
         if ( !IsRecording() || vertexCount == 0 )
             return;
@@ -370,6 +390,29 @@ namespace Desert::Graphic::API::Vulkan
 
     namespace
     {
+        // A pipeline holds the push range its layout was built with; its shader is re-reflected by every
+        // recompile. When the two name different stages the pipeline was built from an earlier compile of that
+        // shader and has not been rebuilt since: pushes keep to the layout (that is what the GPU validates
+        // against), and this says which pipeline is stale, once per layout, with both stage sets.
+        void
+        ReportPushStagesApart( const VulkanPipeline& pipeline, std::string_view shaderName,
+                               const std::optional<ShaderResources::ShaderLayout::PushConstantRange>& reflected )
+        {
+            const auto&              range        = pipeline.GetPushConstantRange();
+            const VkShaderStageFlags layoutStages = range.has_value() ? range->stageFlags : 0;
+            const VkShaderStageFlags shaderStages =
+                 reflected.has_value() ? static_cast<VkShaderStageFlags>( reflected->ShaderStage ) : 0;
+            if ( layoutStages == shaderStages )
+                return;
+            static std::mutex                           mutex;
+            static std::unordered_set<VkPipelineLayout> reported;
+            const std::scoped_lock                      lock( mutex );
+            if ( !reported.insert( pipeline.GetVkPipelineLayout() ).second )
+                return;
+            LOG_ERROR( "Pipeline '{}': its layout's push stages 0x{:x} are not shader '{}''s current 0x{:x}; the "
+                       "pipeline was built from an earlier compile of the shader and was not rebuilt",
+                       pipeline.GetSpecification().DebugName, layoutStages, shaderName, shaderStages );
+        }
         const VkDescriptorSetLayoutBinding* FindLayoutBinding( const VulkanDescriptorSetLayout& layout,
                                                                uint32_t                         binding )
         {
@@ -587,6 +630,25 @@ namespace Desert::Graphic::API::Vulkan
         const VkBuffer     vbuffer =
              sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetVertexBuffer() )->GetVulkanBuffer();
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
+        // Binding 1, the optional streams (MeshVertexLayout): the mesh's own, or the shared default holding at
+        // least as many vertices as this mesh - one pipeline, one stride either way. HasVertexStreams is read off
+        // the pipeline's BUILT vertex input (layout and vertex-stage inputs,
+        // VulkanPipeline::CreateVertexInputState): a pipeline whose shader reads no stream has no binding 1 and
+        // gets no buffer there. It implies a layout.
+        if ( const auto& layout = pipeline.GetSpecification().Layout;
+             graphics->HasVertexStreams() && layout.has_value() )
+        {
+            const auto&    own = mesh.GetStreamBuffer();
+            const VkBuffer sbuffer =
+                 sp_cast<API::Vulkan::VulkanVertexBuffer>(
+                      own != nullptr ? own
+                                     : DefaultVertexStreams(
+                                            DefaultVertexStreamsFor( *layout, mesh.GetVertexBuffer()->GetSize(),
+                                                                     m_DefaultVertexStreamsCapacity )
+                                                 .Capacity ) )
+                      ->GetVulkanBuffer();
+            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, offsets );
+        }
         const auto indexBuffer = mesh.GetIndexBuffer();
         if ( indexBuffer )
         {
@@ -594,18 +656,20 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
         }
 
-        // The push block of every submesh: the material's (its full reflected range, so the per-object values the
-        // caller wrote past the transform go too; zero past what the material holds) with the submesh's transform
-        // over the first mat4.
-        const auto&            pushConstant = shader->GetShaderPushConstant();
+        // The push block of every submesh: the material's (the pipeline layout's full range, so the per-object
+        // values the caller wrote past the transform go too; zero past what the material holds) with the submesh's
+        // transform over the first mat4. Stages and size are the LAYOUT's (VulkanPipeline::GetPushConstantRange),
+        // never the shader's current reflection, which a recompile can move past the layout this pipeline holds.
+        const auto& pushConstant = graphics->GetPushConstantRange();
+        ReportPushStagesApart( *graphics, shader->GetName(), shader->GetShaderPushConstant() );
         std::vector<std::byte> push;
-        if ( pushConstant.has_value() && pushConstant->Size > 0 )
+        if ( pushConstant.has_value() && pushConstant->size > 0 )
         {
-            if ( pushConstant->Size < sizeof( glm::mat4 ) )
+            if ( pushConstant->size < sizeof( glm::mat4 ) )
                 return Common::MakeFormattedError(
                      "{}: shader '{}' push block of {} bytes cannot hold the transform", pass, shader->GetName(),
-                     pushConstant->Size );
-            push.assign( pushConstant->Size, std::byte{ 0 } );
+                     pushConstant->size );
+            push.assign( pushConstant->size, std::byte{ 0 } );
             const auto& materialPush = material.GetPushConstantBuffer();
             if ( materialPush.Data != nullptr )
                 std::memcpy( push.data(), materialPush.Data, std::min<size_t>( push.size(), materialPush.Size ) );
@@ -619,12 +683,12 @@ namespace Desert::Graphic::API::Vulkan
                 continue;
             const auto&     submesh        = submeshes[si];
             const glm::mat4 finalTransform = transform * submesh.Transform;
-            if ( pushConstant.has_value() && pushConstant->Size > 0 )
+            if ( pushConstant.has_value() && pushConstant->size > 0 )
             {
                 std::memcpy( push.data(), &finalTransform, sizeof( glm::mat4 ) );
                 vkCmdPushConstants( m_CurrentCommandBuffer, graphics->GetVkPipelineLayout(),
-                                    static_cast<VkShaderStageFlags>( pushConstant->ShaderStage ), 0,
-                                    pushConstant->Size, push.data() );
+                                    pushConstant->stageFlags, pushConstant->offset, pushConstant->size,
+                                    push.data() );
             }
 
             if ( !indexBuffer )
@@ -748,11 +812,21 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdBindDescriptorSets(
                  cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS, graphics->GetVkPipelineLayout(), 0,
                  static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0, nullptr );
-        const std::span<const std::byte> push = ChoosePushConstants( bindings, materialPush );
-        if ( !push.empty() && reflection.PushConstantRanges.has_value() )
-            vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(),
-                                static_cast<VkShaderStageFlags>( reflection.PushConstantRanges->ShaderStage ), 0,
-                                static_cast<uint32_t>( push.size() ), push.data() );
+        // Stages and size are the pipeline LAYOUT's range (VulkanPipeline::GetPushConstantRange), not the shader's
+        // current reflection: the two part ways when the shader is re-reflected while this pipeline keeps its
+        // layout.
+        const std::span<const std::byte> push      = ChoosePushConstants( bindings, materialPush );
+        const auto&                      pushRange = graphics->GetPushConstantRange();
+        ReportPushStagesApart( *graphics, shader->GetName(), reflection.PushConstantRanges );
+        if ( !push.empty() && pushRange.has_value() )
+        {
+            if ( push.size() > pushRange->size )
+                return Common::MakeFormattedError( "{}: pipeline '{}' push range is {} bytes, the pass pushes {}",
+                                                   pass, pipeline.GetSpecification().DebugName, pushRange->size,
+                                                   push.size() );
+            vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(), pushRange->stageFlags,
+                                pushRange->offset, static_cast<uint32_t>( push.size() ), push.data() );
+        }
         return Common::MakeSuccess( true );
     }
 
@@ -1142,14 +1216,17 @@ namespace Desert::Graphic::API::Vulkan
         // Through the device, not vkDeviceWaitIdle here: it must hold the queue lock (VK1).
         EngineContext::GetInstance().GetDevice()->WaitIdle();
     }
+    // The window swapchain's composite wrapper: the format every pipeline drawing into the back buffer is
+    // built against. Asked of the swapchain itself, so it exists from the first frame on, before any pass.
     std::shared_ptr<Framebuffer> VulkanRendererAPI::GetCompositeFramebuffer() const
     {
-        // The window swapchain's composite wrapper: the format every pipeline drawing into the back buffer is
-        // built against. Asked of the swapchain itself, so it exists from the first frame on.
         const auto window = m_Window.lock();
         if ( !window )
+        {
             return nullptr;
-        return SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetCompositeFramebuffer();
+        }
+        const auto vulkanSwap = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
+        return vulkanSwap ? vulkanSwap->GetCompositeFramebuffer() : nullptr;
     }
     void VulkanRendererAPI::SetViewportAndScissor( const uint32_t width, const uint32_t height )
     {

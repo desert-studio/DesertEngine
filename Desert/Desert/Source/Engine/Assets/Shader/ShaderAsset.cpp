@@ -1,6 +1,7 @@
 #include "ShaderAsset.hpp"
 
 #include <Common/Content/ShaderAssetHeader.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -10,6 +11,8 @@
 
 #include <array>
 #include <format>
+#include <utility>
+#include <vector>
 
 namespace Desert::Assets
 {
@@ -54,6 +57,12 @@ namespace Desert::Assets
         // The runtime names this shader by its file stem, and a material's shader GUID resolves to that stem
         // (SurfaceMaterialAsset::ResolveDependencies). A DSL name that differs would make the file say one
         // name and the engine bind another, so it is refused here rather than resolved either way.
+        const auto manifest = Common::Content::ReadShaderManifest( m_ShaderContent );
+        if ( !manifest )
+            return Common::MakeError( std::format( "shader '{}': {}", path, manifest.GetError() ) );
+        m_Role           = manifest.GetValue().Role;
+        m_DefaultSurface = manifest.GetValue().DefaultSurface;
+
         const auto declared = Common::Content::ReadShaderDeclaredName( m_ShaderContent );
         if ( !declared )
             return Common::MakeError( std::format( "shader '{}': {}", path, declared.GetError() ) );
@@ -78,8 +87,53 @@ namespace Desert::Assets
         // shader outlives the text it was compiled from.
         m_ShaderContent.clear();
         m_ShaderContent.shrink_to_fit();
+        m_Role.clear();
+        m_DefaultSurface = false;
         m_ReadyForUse = false;
         return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<AssetGuidRef> FindShaderRefByHandle( const AssetManager& manager, Common::AssetHandle shader,
+                                                           const AssetRefSite& site )
+    {
+        const auto asset = manager.FindByHandle<ShaderAsset>( shader );
+        if ( asset == nullptr )
+            return Common::MakeError<AssetGuidRef>( std::format( "{} on {}: no loaded shader has handle {}",
+                                                                 site.Field, site.Context,
+                                                                 static_cast<uint64_t>( shader ) ) );
+        const Common::Filepath& file = asset->GetMetadata().Filepath;
+        return WriteAssetGuidRef( ReadShaderHeaderGuid( file ), file, site );
+    }
+
+    std::optional<Common::AssetHandle> FindShaderHandleByCompileName( const AssetManager& manager,
+                                                                      std::string_view    compileName )
+    {
+        for ( const auto& [handle, shader] : manager.FindAllByType<ShaderAsset>() )
+            if ( shader->GetMetadata().Filepath.stem().string() == compileName )
+                return handle;
+        return std::nullopt;
+    }
+
+    bool IsPBRSurfaceTemplate( const AssetManager& manager, Common::AssetHandle shader )
+    {
+        const auto asset = manager.FindByHandle<ShaderAsset>( shader );
+        return asset != nullptr && asset->GetRole() == Common::Content::kPBRSurfaceRole;
+    }
+
+    Common::ResultStr<std::string> FindOverrideShaderNameByRef( const AssetManager& manager,
+                                                                const AssetGuidRef& ref, const AssetRefSite& site )
+    {
+        auto name = FindShaderNameByRef( manager, ref, site );
+        if ( !name )
+            return name;
+        const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
+        if ( guid && IsPBRSurfaceTemplate( manager, Common::AssetHandle( static_cast<uint64_t>(
+                                                         Common::Content::HandleForGuid( guid.GetValue() ) ) ) ) )
+            return Common::MakeError<std::string>(
+                 std::format( "{} on {}: '{}' (GUID {}) is the PBRSurface template, which overrides nothing - the "
+                              "mesh draws its material slots; remove the key from the file",
+                              site.Field, site.Context, ref.Path, ref.Guid ) );
+        return name;
     }
 
     Common::ResultStr<AssetGuidRef> FindShaderRefByName( const AssetManager& manager, std::string_view name,
@@ -110,5 +164,55 @@ namespace Desert::Assets
                  return shader->GetMetadata().Filepath.stem().string();
              },
              site );
+    }
+
+    namespace
+    {
+        template <class Pred>
+        Common::ResultStr<Common::AssetHandle> ExactlyOneTemplate( const AssetManager& manager, Pred declares,
+                                                                   std::string_view what )
+        {
+            std::vector<std::pair<Common::AssetHandle, std::string>> found;
+            for ( const auto& [handle, shader] : manager.FindAllByType<ShaderAsset>() )
+                if ( shader->IsReadyForUse() && declares( *shader ) )
+                    found.emplace_back( handle, shader->GetMetadata().Filepath.generic_string() );
+            if ( found.size() == 1 )
+                return Common::MakeSuccess( found.front().first );
+            std::string paths;
+            for ( const auto& [handle, path] : found )
+                paths += std::format( "{}'{}'", paths.empty() ? "" : ", ", path );
+            return Common::MakeError<Common::AssetHandle>(
+                 found.empty()
+                      ? std::format( "no loaded shader declares {}", what )
+                      : std::format( "{} shaders declare {} — exactly one may: {}", found.size(), what, paths ) );
+        }
+    } // namespace
+
+    Common::ResultStr<Common::AssetHandle> FindTemplateByRole( const AssetManager& manager, std::string_view role )
+    {
+        return ExactlyOneTemplate(
+             manager, [role]( const ShaderAsset& shader ) { return shader.GetRole() == role; },
+             std::format( "'Role {}'", role ) );
+    }
+
+    Common::ResultStr<Common::AssetHandle> FindDefaultSurfaceTemplate( const AssetManager& manager,
+                                                                       std::string_view    projectOverride,
+                                                                       std::string_view    deprojPath )
+    {
+        if ( !projectOverride.empty() )
+        {
+            const auto guid = Common::Content::AssetGuidFromText( projectOverride );
+            if ( !guid )
+                return Common::MakeError<Common::AssetHandle>( std::format(
+                     "'{}': DefaultSurfaceTemplate is not a shader GUID ({})", deprojPath, guid.GetError() ) );
+            const Common::AssetHandle handle(
+                 static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) );
+            if ( manager.FindByHandle<ShaderAsset>( handle ) == nullptr )
+                return Common::MakeError<Common::AssetHandle>( std::format(
+                     "'{}': DefaultSurfaceTemplate {} names no loaded shader", deprojPath, projectOverride ) );
+            return Common::MakeSuccess( handle );
+        }
+        return ExactlyOneTemplate(
+             manager, []( const ShaderAsset& shader ) { return shader.IsDefaultSurface(); }, "'Default Surface'" );
     }
 } // namespace Desert::Assets

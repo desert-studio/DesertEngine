@@ -66,7 +66,7 @@ namespace Desert::WorldGen
     };
 
     // One mesh a generated world may name, spelled the way a scene spells it: the path relative to the PROJECT
-    // root (a tracked scene says `Cooked/Meshes/SkinProbe.skmesh`, `Resources/Assets/Meshes/StaticProbe.stmesh`)
+    // root (a tracked scene says `Cooked/Meshes/SkinProbe.skmesh`, `Content/Meshes/StaticProbe.stmesh`)
     // and the file's header GUID as text (SCNE 28). Read from the file by the caller, like MaterialRef, so the
     // generator never holds a second statement of an asset's identity.
     struct MeshRef

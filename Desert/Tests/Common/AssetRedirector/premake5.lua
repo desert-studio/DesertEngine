@@ -30,10 +30,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
 
-    -- Common contains Objective-C (MacOSFileSystem file dialog) — pulled in here because this test
-    -- references FileSystem, so the ObjC runtime + AppKit must link too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     -- gtest comes from Dependencies.lua (prebuilt .lib on Windows, Homebrew on macOS)

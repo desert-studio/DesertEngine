@@ -56,6 +56,8 @@ namespace Desert::Editor
                     return "BC5";
                 case F::R16_UNORM:
                     return "R16";
+                case F::R8_UNORM:
+                    return "R8";
                 case F::R32F:
                     return "R32F";
                 case F::RG16F:
@@ -125,8 +127,11 @@ namespace Desert::Editor
         ImGui::SameLine();
         const bool oneToOne = ImGui::Button( "1:1" );
         ImGui::SameLine();
+        // The levels the GPU image HAS, not spec.Mips: a chain supplied from the file lives in spec.MipLevels
+        // and leaves Mips at 1 (Image2DSpecification), so the spec's count said "1 mip" for every cooked texture.
+        const uint32_t mips = image->GetMipmapLevels();
         ImGui::Text( "%u x %u  |  %s  |  %u mip%s  |  %s  |  %.0f%%", spec.Width, spec.Height,
-                     FormatName( spec.Format ), spec.Mips, spec.Mips == 1 ? "" : "s",
+                     FormatName( spec.Format ), mips, mips == 1 ? "" : "s",
                      ::Desert::Core::Formats::IsBlockCompressed( spec.Format ) ? "block-compressed"
                                                                                : "uncompressed",
                      static_cast<double>( m_Zoom * 100.0f ) );

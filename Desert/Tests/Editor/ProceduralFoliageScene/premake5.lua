@@ -1,0 +1,73 @@
+local test_name = path.getname(_SCRIPT_DIR)
+local test_files = os.matchfiles("*.cpp")
+
+project(test_name)
+    kind "ConsoleApp"
+    language "C++"
+
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
+
+    -- S1: Resimulate of a procedural foliage volume through its host (the Scene host cannot be compiled by a
+    -- suite): an in-memory world of fields over a landscape, the simulation and the cell filing are the real ones.
+    files {
+        test_files,
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliageBrush.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Foliage/FoliageCells.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Foliage/Procedural/*.cpp",
+        -- FO-3b: a stroke over a Terrain_Grass-sized landscape through the engine's own landscape ray.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeRaycast.cpp",
+    }
+
+    includedirs {
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+        -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+    }
+    externalincludedirs {
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
+    }
+
+    for name, path in pairs(deps.Common.IncludeDir) do
+        externalincludedirs { path }
+    end
+
+    for name, path in pairs(deps.TestSpecific.IncludeDir) do
+        externalincludedirs { path }
+    end
+
+    for _, define in ipairs(deps.TestSpecific.Defines) do
+        defines { define }
+    end
+
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+    filter "system:linux"
+        defines { "DESERT_PLATFORM_LINUX" }
+    filter {}
+
+    links { "Common", "Optick" }
+
+    filter {}
+
+    filter "configurations:Debug"
+        for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
+            links { path }
+        end
+
+    filter "configurations:Release"
+        for name, path in pairs(deps.TestSpecific.Libraries.Release) do
+            links { path }
+        end
+
+    filter {}
+
+print("Configured test project: " .. test_name)

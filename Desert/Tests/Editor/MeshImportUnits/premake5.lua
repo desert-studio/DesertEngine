@@ -47,8 +47,6 @@ project(test_name)
     -- Optick is what Common's JobSystem registers its threads with.
     links { "Common", "Optick" }
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "system:not windows"

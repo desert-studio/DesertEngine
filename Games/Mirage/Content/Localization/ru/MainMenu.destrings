@@ -1,0 +1,157 @@
+{
+    "Header": {
+        "Kind": "StringTable",
+        "Guid": "546469ec2c049c2f163436edc2d9f9a0",
+        "Versions": {
+            "STRT": 3
+        },
+        "Dependencies": []
+    },
+    "DisplayName": "Main menu",
+    "Entries": [
+        {
+            "Key": "menu.continue",
+            "Forms": {
+                "other": "Продолжить"
+            }
+        },
+        {
+            "Key": "menu.new_game",
+            "Forms": {
+                "other": "Новая игра"
+            }
+        },
+        {
+            "Key": "menu.settings",
+            "Forms": {
+                "other": "Настройки"
+            }
+        },
+        {
+            "Key": "menu.credits",
+            "Forms": {
+                "other": "Авторы"
+            }
+        },
+        {
+            "Key": "menu.quit",
+            "Forms": {
+                "other": "Выход"
+            }
+        },
+        {
+            "Key": "menu.back",
+            "Forms": {
+                "other": "Назад"
+            }
+        },
+        {
+            "Key": "quit.question",
+            "Forms": {
+                "other": "Выйти из игры?"
+            }
+        },
+        {
+            "Key": "quit.yes",
+            "Forms": {
+                "other": "Да"
+            }
+        },
+        {
+            "Key": "quit.no",
+            "Forms": {
+                "other": "Нет"
+            }
+        },
+        {
+            "Key": "settings.title",
+            "Forms": {
+                "other": "Настройки"
+            }
+        },
+        {
+            "Key": "settings.tab.graphics",
+            "Forms": {
+                "other": "Графика"
+            }
+        },
+        {
+            "Key": "settings.tab.language",
+            "Forms": {
+                "other": "Язык"
+            }
+        },
+        {
+            "Key": "settings.graphics.cloud_quality",
+            "Forms": {
+                "other": "Качество облаков"
+            }
+        },
+        {
+            "Key": "settings.graphics.antialiasing",
+            "Forms": {
+                "other": "Сглаживание"
+            }
+        },
+        {
+            "Key": "settings.language.ru",
+            "Forms": {
+                "other": "Русский"
+            }
+        },
+        {
+            "Key": "settings.language.en",
+            "Forms": {
+                "other": "English"
+            }
+        },
+        {
+            "Key": "credits.title",
+            "Forms": {
+                "other": "Авторы"
+            }
+        },
+        {
+            "Key": "credits.studio_heading",
+            "Forms": {
+                "other": "Студия"
+            }
+        },
+        {
+            "Key": "credits.engine_heading",
+            "Forms": {
+                "other": "Движок"
+            }
+        },
+        {
+            "Key": "credits.engine",
+            "Forms": {
+                "other": "Desert Engine"
+            }
+        },
+        {
+            "Key": "credits.fonts_heading",
+            "Forms": {
+                "other": "Шрифты"
+            }
+        },
+        {
+            "Key": "credits.manrope",
+            "Forms": {
+                "other": "Manrope — © 2018 The Manrope Project Authors, SIL Open Font License 1.1"
+            }
+        },
+        {
+            "Key": "credits.libraries_heading",
+            "Forms": {
+                "other": "Сторонние библиотеки"
+            }
+        },
+        {
+            "Key": "credits.libraries",
+            "Forms": {
+                "other": "EnTT (MIT) · Dear ImGui (MIT) · GLFW (zlib) · GLM (MIT) · Lua (MIT) · sol2 (MIT) · Jolt Physics (MIT) · vk-bootstrap (MIT) · Vulkan Memory Allocator (MIT) · stb (MIT / public domain) · assimp (BSD-3)"
+            }
+        }
+    ]
+}

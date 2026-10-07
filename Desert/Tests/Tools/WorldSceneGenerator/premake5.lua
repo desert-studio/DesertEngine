@@ -62,9 +62,6 @@ project(test_name)
         defines { "DESERT_PLATFORM_WINDOWS" }
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        -- Common carries the Objective-C file dialog; linking it needs AppKit and the ObjC runtime. The
-        -- suite reaches Common for the write primitive the tool writes the scene with.
-        links { "Cocoa.framework", "Foundation.framework" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}

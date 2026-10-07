@@ -37,9 +37,6 @@ project(test_name)
 
     links { "Common", "Optick" }
 
-    -- Common carries Objective-C (the macOS file dialog) and the linker pulls whole objects.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

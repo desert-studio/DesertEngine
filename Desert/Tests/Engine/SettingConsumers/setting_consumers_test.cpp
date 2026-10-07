@@ -693,6 +693,8 @@ namespace
          { "Sprite", kCanvasRenderer },
          { "SpriteBorder", kCanvasRenderer },
          { "Video", kCanvasRenderer },
+         { "VideoVolume", kCanvasRenderer },
+         { "VideoMuted", kCanvasRenderer },
          { "Circle", kCanvasRenderer },
          { "RingWidth", kCanvasRenderer },
          { "RingColorA", kCanvasRenderer },
@@ -735,7 +737,9 @@ namespace
          { "Marquee", kCanvasRenderer },      { "MarqueeSpeed", kCanvasRenderer },
          { "Shadow", kCanvasRenderer },       { "ShadowColor", kCanvasRenderer },
          { "ShadowOffset", kCanvasRenderer }, { "Outline", kCanvasRenderer },
-         { "OutlineColor", kCanvasRenderer },
+         { "OutlineColor", kCanvasRenderer }, { "Glow", kCanvasRenderer },
+         { "GlowColor", kCanvasRenderer },    { "GlowRadius", kCanvasRenderer },
+         { "GlowStrength", kCanvasRenderer },
     };
 
     constexpr Row kImageRows[] = {
@@ -780,6 +784,22 @@ namespace
          { "Tag", kPlayerStart },
     };
 
+    // A procedural foliage volume (S1): the Details button's resimulation reads every spawner and filter field
+    // (ProceduralFoliageResimulate.cpp); the type list is resolved by FoliagePaintTool::ResimulateProcedural.
+    constexpr const char* kFoliageResimulate =
+         "Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp";
+    constexpr Row kProceduralFoliageRows[] = {
+         { "Extent", kFoliageResimulate },
+         { "TileSize", kFoliageResimulate },
+         { "MinimumQuadTreeSize", kFoliageResimulate },
+         { "NumUniqueTiles", kFoliageResimulate },
+         { "RandomSeed", kFoliageResimulate },
+         { "TileOverlap", kFoliageResimulate },
+         { "AllowLandscape", kFoliageResimulate },
+         { "AllowStaticMesh", kFoliageResimulate },
+         { "FoliageTypes", "Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.cpp" },
+    };
+
     // What Play streams around (WP24): every field is read by Core::WorldStreamer::GatherSources.
     constexpr Row kStreamingSourceRows[] = {
          { "Enabled", kWorldStreamer },
@@ -804,6 +824,22 @@ namespace
          { "Background", kCanvasRenderer },
          { "Fill", kCanvasRenderer },
          { "CornerRadius", kCanvasRenderer },
+    };
+
+    constexpr Row kPathRows[] = {
+         { "Curve", kCanvasRenderer },      { "PointCount", kCanvasRenderer },   { "Reveal", kCanvasRenderer },
+         { "Thickness", kCanvasRenderer },  { "Color", kCanvasRenderer },        { "Opacity", kCanvasRenderer },
+         { "RoundCaps", kCanvasRenderer },  { "Feather", kCanvasRenderer },      { "P0", kCanvasRenderer },
+         { "P1", kCanvasRenderer },         { "P2", kCanvasRenderer },           { "P3", kCanvasRenderer },
+         { "P4", kCanvasRenderer },         { "P5", kCanvasRenderer },           { "P6", kCanvasRenderer },
+         { "P7", kCanvasRenderer },         { "Glow", kCanvasRenderer },         { "GlowColor", kCanvasRenderer },
+         { "GlowRadius", kCanvasRenderer }, { "GlowStrength", kCanvasRenderer },
+    };
+
+    constexpr Row kRetainerRows[] = {
+         { "Opacity", kCanvasRenderer },    { "Mask", kCanvasRenderer },      { "MaskElement", kCanvasRenderer },
+         { "InvertMask", kCanvasRenderer }, { "Haze", kCanvasRenderer },      { "HazeAmplitude", kCanvasRenderer },
+         { "HazeScale", kCanvasRenderer },  { "HazeSpeed", kCanvasRenderer },
     };
 
     constexpr Row kToggleRows[] = {
@@ -974,7 +1010,10 @@ namespace
          { "RetargetData", "RetargetComponent", nullptr, CENSUS_ROWS( kRetargetRows ) },
          { "PlayerStartData", "PlayerStartComponent", nullptr, CENSUS_ROWS( kPlayerStartRows ) },
          { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
+         { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
+         { "UIPathData", "UIPathComponent", nullptr, CENSUS_ROWS( kPathRows ) },
+         { "UIRetainerData", "UIRetainerComponent", nullptr, CENSUS_ROWS( kRetainerRows ) },
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
          { "UIScrollViewData", "UIScrollViewComponent", nullptr, CENSUS_ROWS( kScrollViewRows ) },
@@ -1171,7 +1210,13 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     //
     // -> 49 with WP24's StreamingSourceData: all four fields are WIRED to Core::WorldStreamer::GatherSources,
     // which turns every enabled source into what the residency streams around.
-    EXPECT_EQ( all.size(), 49u );
+    //
+    // -> 50 with VIDEO-2a's UIPathData (kPathRows, every field read by the canvas walk's path branch).
+    // -> 51 with VIDEO-2c's UIRetainerData (kRetainerRows, read by the walk's retainer branch and
+    // ResolveRetainerMasks in UICanvasRenderer2D.cpp).
+    // -> 52 with S1's ProceduralFoliageData (kProceduralFoliageRows: eight fields read by
+    // ProceduralFoliageResimulate.cpp, FoliageTypes by FoliagePaintTool.cpp).
+    EXPECT_EQ( all.size(), 52u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstddef>
 #include <fstream>
 #include <istream>
 #include <limits>
@@ -652,22 +653,37 @@ namespace Common::Content
 
             ResultStr<AssetHeader> ReadHeader( std::istream& in, const AssetHeaderReadContext& ) const override
             {
-                std::string prefix( kMeshBinaryPrefixV3, '\0' );
+                std::string prefix( kMeshBinaryPrefixSize, '\0' );
                 in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+                // AN OLDER GENERATION IS REFUSED BY ITS VERSION, before anything is read at v5 offsets: a v3-4
+                // mesh has a 64-byte header, so its GUID is not where ReadMeshHeaderGuid looks and "null GUID"
+                // would name a defect the file does not have. Recognises() already read the version.
+                {
+                    uint32_t version = 0;
+                    std::memcpy( &version, prefix.data() + offsetof( MeshBinaryFileHeader, Version ), 4 );
+                    if ( version < kMeshBinaryVersion )
+                        return MakeFormattedError<AssetHeader>(
+                             "mesh header: mesh version {}, this build reads only version {} - raise it with "
+                             "Tools/SceneMigrator (scripts/Dev/migrate.sh)",
+                             version, kMeshBinaryVersion );
+                }
                 if ( static_cast<std::size_t>( in.gcount() ) != prefix.size() )
                     return MakeFormattedError<AssetHeader>( "mesh header: {} bytes where the prefix is {}",
-                                                            in.gcount(), kMeshBinaryPrefixV3 );
+                                                            in.gcount(), kMeshBinaryPrefixSize );
                 MeshBinaryFileHeader header{};
                 std::memcpy( &header, prefix.data(), sizeof( header ) );
                 // Recognises() claims every version from 3 up, so that a later mesh is REFUSED here by name
                 // rather than passed over as "states no header": nothing says a later layout keeps the GUID
                 // at byte 64, and reading it from there would state an identity the file never wrote.
                 if ( header.Version > kMeshBinaryVersion )
-                    return MakeFormattedError<AssetHeader>( "mesh header: mesh version {}, this build reads 1..{}",
-                                                            header.Version, kMeshBinaryVersion );
+                    return MakeFormattedError<AssetHeader>(
+                         "mesh header: mesh version {}, this build reads only version {} - it was written by a "
+                         "later build",
+                         header.Version, kMeshBinaryVersion );
                 const std::optional<AssetGuid> guid = ReadMeshHeaderGuid( prefix );
                 if ( !guid || guid->IsNull() )
-                    return MakeError<AssetHeader>( "mesh header: a version 3 mesh states a null GUID" );
+                    return MakeFormattedError<AssetHeader>( "mesh header: a version {} mesh states a null GUID",
+                                                            kMeshBinaryVersion );
                 AssetHeader stated;
                 stated.Kind = ( header.Flags & kMeshFlagIsSkinned ) != 0 ? ContentKind::SkinnedMesh
                                                                          : ContentKind::StaticMesh;
@@ -676,6 +692,14 @@ namespace Common::Content
                 if ( !materials )
                     return MakeError<AssetHeader>( materials.GetError() );
                 stated.Dependencies = std::move( materials.GetValue() );
+                // THE SKELETON IS AN EDGE, as a clip's is (its text header lists it): a skinned mesh cannot
+                // draw without the rig its header names, so the registry's dependency closure reaches the
+                // .skeleton from the mesh's row without reading the body (UE: USkeletalMesh imports its
+                // USkeleton). Null = no skeleton named (every static mesh) - no edge.
+                if ( !header.SkeletonGuid.IsNull() &&
+                     std::find( stated.Dependencies.begin(), stated.Dependencies.end(), header.SkeletonGuid ) ==
+                          stated.Dependencies.end() )
+                    stated.Dependencies.push_back( header.SkeletonGuid );
                 return MakeSuccess( std::move( stated ) );
             }
         };

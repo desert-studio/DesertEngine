@@ -52,9 +52,6 @@ project(test_name)
         defines { "DESERT_PLATFORM_WINDOWS" }
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        -- Common contains Objective-C (file dialog), and the tool this suite runs writes through Common's
-        -- file primitives.
-        links { "Cocoa.framework", "Foundation.framework" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
