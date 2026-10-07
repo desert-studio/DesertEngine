@@ -216,7 +216,8 @@ TEST( PackagedContent, APackageIsTheProjectContentPlusTheEngineRuntimeContentOnl
     };
 
     // The engine's runtime trees, by name: the editor's own (Branding, Splash of the editor) are not among them.
-    const std::set<std::string> runtimeEngineTrees = { "Shaders", "Engine", "Fonts", "Icons" };
+    // Config: the engine data tables (Scalability.json) the Runtime reads as well as the editor (SCAL1).
+    const std::set<std::string> runtimeEngineTrees = { "Shaders", "Engine", "Fonts", "Icons", "Config" };
 
     std::size_t projectTrees = 0;
     for ( const auto& tree : Desert::Editor::PackagedContentTrees() )
