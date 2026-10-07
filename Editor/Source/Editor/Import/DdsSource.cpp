@@ -7,7 +7,20 @@
 #define BCDEC_STATIC
 #define BCDEC_BC4BC5_PRECISE
 #define BCDEC_IMPLEMENTATION
+// BCDEC_STATIC makes the float BC4/BC5 entry points this file does not call unused statics.
+#if defined( __clang__ ) || defined( __GNUC__ )
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#elif defined( _MSC_VER )
+#pragma warning( push )
+#pragma warning( disable : 4505 )
+#endif
 #include "../../../../ThirdParty/bcdec/bcdec.h" // vendored, MIT (ThirdParty/bcdec/LICENSE)
+#if defined( __clang__ ) || defined( __GNUC__ )
+#pragma GCC diagnostic pop
+#elif defined( _MSC_VER )
+#pragma warning( pop )
+#endif
 
 #include <glm/gtc/packing.hpp>
 
