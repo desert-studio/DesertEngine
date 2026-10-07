@@ -794,10 +794,15 @@ namespace Desert::Assets
     /// `coreField` is the CLUSTER rank beside it (a body voxel's own cell rank, before the softness term): an
     /// air voxel that takes a cone takes the core rank of that cone's source with it (FARWX-b12), so the march
     /// knows how far the cover has run past the cluster the voxel's cloud grew from.
+    /// THE RIDGE FILLS LAST (FARWX-b14): an air voxel whose lowest cone of a DIFFERENT cluster (another core)
+    /// comes within `ridgeSoftness` of its own is lifted, continuously in that margin, by up to the field's
+    /// whole span plus `ridgeSoftness` — so the bisector between two neighbouring clusters takes the top bytes
+    /// of the column CDF and the gap between them survives every local cover under one. Bodies are not lifted.
     void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, std::vector<float>& coreField,
                                          const std::vector<uint8_t>&    ownerSlot,
                                          const std::vector<glm::uvec2>& bandRows, uint32_t width, uint32_t height,
-                                         uint32_t depth, const glm::vec3& voxelKm, float risePerKm );
+                                         uint32_t depth, const glm::vec3& voxelKm, float risePerKm,
+                                         float ridgeSoftness );
 
     /// The seed of the layer's world weather — one per layer, since the march keeps per voxel after the
     /// max over species.
@@ -860,7 +865,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000009ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000000aULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.

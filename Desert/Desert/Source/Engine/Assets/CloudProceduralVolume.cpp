@@ -1703,7 +1703,8 @@ namespace Desert::Assets
     void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, std::vector<float>& coreField,
                                          const std::vector<uint8_t>&    ownerSlot,
                                          const std::vector<glm::uvec2>& bandRows, uint32_t width, uint32_t height,
-                                         uint32_t depth, const glm::vec3& voxelKm, float risePerKm )
+                                         uint32_t depth, const glm::vec3& voxelKm, float risePerKm,
+                                         float ridgeSoftness )
     {
         const size_t count  = rankField.size();
         const int    w      = static_cast<int>( width );
@@ -1716,8 +1717,12 @@ namespace Desert::Assets
 
         std::vector<float> grown( count, std::numeric_limits<float>::infinity() );
         std::vector<float> grownCore( count, std::numeric_limits<float>::infinity() );
+        // The lowest cone over the sources of a DIFFERENT cluster than the winner's (FARWX-b14): where it
+        // comes within ridgeSoftness of the winning cone the voxel is near the ridge between two clusters.
+        std::vector<float> grownRival( count, std::numeric_limits<float>::infinity() );
         std::vector<float> cost( count );
         std::vector<int>   feature( count );
+        std::vector<int>   rival( count );
 
         // ONE AXIS AT A TIME, lines independent of each other: Y and X inside a z slice, Z across them.
         auto axis = [&]( int lines, int length, bool wraps, double spacingKm,
@@ -1764,6 +1769,7 @@ namespace Desert::Assets
                 const bool source = std::isfinite( rankField[at] ) && ownerSlot[at] == slot;
                 cost[at]          = source ? 0.0f : std::numeric_limits<float>::infinity();
                 feature[at]       = source ? static_cast<int>( at ) : -1;
+                rival[at]         = -1;
                 anySource         = anySource || source;
             }
             if ( !anySource )
@@ -1794,7 +1800,10 @@ namespace Desert::Assets
                     highest = std::max( highest, rankField[at] );
                 }
             const float minVoxelKm  = std::min( { voxelKm.x, voxelKm.y, voxelKm.z } );
-            const float reachVoxels = risePerKm > 0.0f ? ( highest - lowest ) / ( risePerKm * minVoxelKm ) : 0.0f;
+            // The rival must travel from the ridge as far as its margin stays under ridgeSoftness, so the
+            // flood's first step covers that distance too, not only the rank range's.
+            const float reachVoxels =
+                 risePerKm > 0.0f ? ( highest - lowest + ridgeSoftness ) / ( risePerKm * minVoxelKm ) : 0.0f;
             const int   reach       = static_cast<int>(
                  std::min( std::ceil( reachVoxels ), static_cast<float>( std::max( { w, h, d } ) ) ) );
 
@@ -1820,10 +1829,17 @@ namespace Desert::Assets
                 steps.push_back( step );
             steps.push_back( 1 );
 
+            // JUMP FLOODING CARRIES TWO FEATURES: the lowest cone, and the lowest cone of a source whose
+            // cluster (core rank) differs from the winner's — the rival. Lumps of one cluster share its core,
+            // so a rival is another cloud, and rival - winner is how far the voxel is from the ridge between
+            // the two (Worley's F2 - F1 on the cones).
+            const auto coreOf = [&]( int source ) { return coreField[static_cast<size_t>( source )]; };
             std::vector<int> next;
+            std::vector<int> nextRival;
             for ( const int step : steps )
             {
-                next = feature;
+                next      = feature;
+                nextRival = rival;
                 Common::JobSystem::Get().ParallelRanges(
                      static_cast<size_t>( d ), 1u,
                      [&]( size_t begin, size_t end )
@@ -1833,9 +1849,38 @@ namespace Desert::Assets
                                  for ( int x = 0; x < w; ++x )
                                  {
                                      const size_t at       = index( x, y, z );
-                                     int          best     = feature[at];
-                                     float        bestCone = best >= 0 ? coneAt( best, x, y, z )
-                                                                       : std::numeric_limits<float>::infinity();
+                                     int          best     = -1;
+                                     float        bestCone = std::numeric_limits<float>::infinity();
+                                     int          second   = -1;
+                                     float        secondCone = std::numeric_limits<float>::infinity();
+                                     const auto   offer      = [&]( int candidate )
+                                     {
+                                         if ( candidate < 0 || candidate == best || candidate == second )
+                                             return;
+                                         const float cone = coneAt( candidate, x, y, z );
+                                         if ( cone < bestCone )
+                                         {
+                                             if ( best >= 0 && coreOf( best ) != coreOf( candidate ) )
+                                             {
+                                                 second     = best;
+                                                 secondCone = bestCone;
+                                             }
+                                             else if ( second >= 0 && coreOf( second ) == coreOf( candidate ) )
+                                             {
+                                                 second     = -1;
+                                                 secondCone = std::numeric_limits<float>::infinity();
+                                             }
+                                             best     = candidate;
+                                             bestCone = cone;
+                                         }
+                                         else if ( cone < secondCone && coreOf( candidate ) != coreOf( best ) )
+                                         {
+                                             second     = candidate;
+                                             secondCone = cone;
+                                         }
+                                     };
+                                     offer( feature[at] );
+                                     offer( rival[at] );
                                      for ( int oz = -1; oz <= 1; ++oz )
                                          for ( int oy = -1; oy <= 1; ++oy )
                                              for ( int ox = -1; ox <= 1; ++ox )
@@ -1843,22 +1888,18 @@ namespace Desert::Assets
                                                  const int ny = y + oy * step;
                                                  if ( ( ox | oy | oz ) == 0 || ny < bandLo || ny >= bandHi )
                                                      continue;
-                                                 const int nx        = ( ( x + ox * step ) % w + w ) % w;
-                                                 const int nz        = ( ( z + oz * step ) % d + d ) % d;
-                                                 const int candidate = feature[index( nx, ny, nz )];
-                                                 if ( candidate < 0 || candidate == best )
-                                                     continue;
-                                                 const float cone = coneAt( candidate, x, y, z );
-                                                 if ( cone < bestCone )
-                                                 {
-                                                     best     = candidate;
-                                                     bestCone = cone;
-                                                 }
+                                                 const int    nx    = ( ( x + ox * step ) % w + w ) % w;
+                                                 const int    nz    = ( ( z + oz * step ) % d + d ) % d;
+                                                 const size_t other = index( nx, ny, nz );
+                                                 offer( feature[other] );
+                                                 offer( rival[other] );
                                              }
-                                     next[at] = best;
+                                     next[at]      = best;
+                                     nextRival[at] = second;
                                  }
                      } );
                 feature.swap( next );
+                rival.swap( nextRival );
             }
 
             for ( int z = 0; z < d; ++z )
@@ -1868,12 +1909,21 @@ namespace Desert::Assets
                         const size_t at = index( x, y, z );
                         if ( feature[at] < 0 )
                             continue;
-                        const float cone = coneAt( feature[at], x, y, z );
+                        const float cone      = coneAt( feature[at], x, y, z );
+                        const float core      = coreOf( feature[at] );
+                        const float rivalCone = rival[at] >= 0 ? coneAt( rival[at], x, y, z )
+                                                               : std::numeric_limits<float>::infinity();
                         if ( cone < grown[at] )
                         {
-                            grown[at]     = cone;
-                            grownCore[at] = coreField[static_cast<size_t>( feature[at] )];
+                            // The species' winner takes the voxel; the old winner is its rival when it was
+                            // another cluster, else the old rival stays the nearer of the two.
+                            const float previousRival = grownCore[at] != core ? grown[at] : grownRival[at];
+                            grownRival[at]            = std::min( rivalCone, previousRival );
+                            grown[at]                 = cone;
+                            grownCore[at]             = core;
                         }
+                        else
+                            grownRival[at] = std::min( grownRival[at], grownCore[at] != core ? cone : rivalCone );
                     }
         }
 
@@ -1884,13 +1934,38 @@ namespace Desert::Assets
         // showed the kept columns as one connected sheet with a slowly varying rank). Two DIFFERENT
         // clusters touching are two clouds and may keep two ranks; lumps of one cluster share its cell rank,
         // so a fused cluster has no wall inside it.
+        //
+        // THE RIDGE BETWEEN TWO CLUSTERS FILLS LAST (FARWX-b14). The lowest cone alone ranks the air on the
+        // bisector of two clusters just above their cores, so a busy weather patch (local cover ~0.94 at
+        // PatchStrength 0.70) kept every gap between neighbouring clusters and the march drew one grey deck over
+        // the camera (FARWX-b13 Demo_h/Showcase_h). Growing clouds merge AT their boundaries last: an air voxel
+        // within ridgeSoftness of a rival cluster's cone is lifted by up to the field's whole span, so a ridge
+        // outranks every unlifted voxel and the column CDF hands it the top bytes — the gap survives any local
+        // cover under one (Coverage 1 is still the whole sky; the kept fraction at c is still c). The lift is
+        // continuous in rival - winner (both cones are continuous), so the cut has no jump on the ridge.
+        float lowest  = std::numeric_limits<float>::infinity();
+        float highest = -std::numeric_limits<float>::infinity();
+        for ( size_t at = 0; at < count; ++at )
+        {
+            const float rank = std::isfinite( rankField[at] ) ? rankField[at] : grown[at];
+            if ( std::isfinite( rank ) )
+            {
+                lowest  = std::min( lowest, rank );
+                highest = std::max( highest, rank );
+            }
+        }
+        const float lift = std::isfinite( lowest ) ? highest - lowest + ridgeSoftness : 0.0f;
         for ( size_t at = 0; at < count; ++at )
             if ( !std::isfinite( rankField[at] ) )
             {
-                rankField[at] = grown[at];
-                coreField[at] = grownCore[at];
+                const float margin = grownRival[at] - grown[at];
+                const float onRidge = ridgeSoftness > 0.0f && std::isfinite( margin )
+                                          ? 1.0f - std::clamp( margin / ridgeSoftness, 0.0f, 1.0f )
+                                          : 0.0f;
+                rankField[at]       = grown[at] + lift * onRidge;
+                coreField[at]       = grownCore[at];
             }
-        }
+    }
 
         namespace
         {
@@ -2328,7 +2403,7 @@ namespace Desert::Assets
         }
         CloudProceduralGrowRankIntoAir( rankField, coreField, rankOwner, bandRows, width, height, depth,
                                         glm::vec3( voxelXKm, voxelYKm, voxelZKm ),
-                                        rankSoftness / params.ProfileDepthKm );
+                                        rankSoftness / params.ProfileDepthKm, rankSoftness );
         out.Ranks = CloudProceduralRankColumnCdf( rankField, coreField, width, height, depth, rankSoftness,
                                                   out.RankRise );
         return Common::MakeSuccess( std::move( out ) );

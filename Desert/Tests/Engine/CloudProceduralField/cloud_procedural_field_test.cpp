@@ -1317,8 +1317,9 @@ TEST( CloudProceduralRankGrowth, TheRankIsContinuousAcrossTheBisectorOfTwoBodies
 
     // The slabs are their own cores (no softness term in this synthetic field); the air takes its source's.
     std::vector<float> core = rank;
+    // The ridge lift stands down (ridgeSoftness 0): this test pins the cone alone; the lift has its own below.
     Desert::Assets::CloudProceduralGrowRankIntoAir( rank, core, owner, { glm::uvec2( 0u, h ) }, w, h, d, voxelKm,
-                                                    rise );
+                                                    rise, 0.0f );
 
     size_t walls = 0;
     for ( uint32_t z = 0; z < d; ++z )
@@ -1353,4 +1354,52 @@ TEST( CloudProceduralRankGrowth, TheRankIsContinuousAcrossTheBisectorOfTwoBodies
     for ( size_t at = 0; at < rank.size(); ++at )
         inverted += core[at] > rank[at] + 1e-6f ? 1u : 0u;
     EXPECT_EQ( inverted, 0u ) << "a voxel's core rank sits above its own rank";
+}
+
+// THE RIDGE BETWEEN TWO CLUSTERS FILLS LAST (FARWX-b14). Two slabs of EQUAL rank 0.2 with air between: the
+// lowest cone alone ranks the bisector at 0.2 + rise x 1.5 km = 0.575, far under a busy weather patch's
+// local cover, so the cut kept the whole gap and the march drew one deck (FARWX-b13 Demo_h/Showcase_h). When
+// the slabs are two clusters (two cores) the bisector must outrank every unlifted voxel — the column CDF then
+// gives it the top bytes and the gap lives at any local cover under one; when they are lumps of ONE cluster
+// (one core) the air between them fuses as before. Mutation: drop the lift (`lift * onRidge` -> 0) and the
+// first half goes red; lift regardless of the core and the second half does.
+TEST( CloudProceduralRankGrowth, TheRidgeBetweenTwoClustersFillsLast )
+{
+    constexpr uint32_t w = 64, h = 4, d = 4;
+    const glm::vec3    voxelKm( 0.1f, 0.2f, 0.1f );
+    constexpr float    rise     = 0.25f;
+    constexpr float    softness = 0.25f;
+    const auto index = [&]( uint32_t x, uint32_t y, uint32_t z ) { return ( size_t( z ) * h + y ) * w + x; };
+
+    const auto grow = [&]( float secondCore )
+    {
+        std::vector<float> rank( size_t( w ) * h * d, std::numeric_limits<float>::infinity() );
+        std::vector<float> core = rank;
+        for ( uint32_t z = 0; z < d; ++z )
+            for ( uint32_t y = 0; y < h; ++y )
+                for ( uint32_t x = 0; x < 2; ++x )
+                {
+                    rank[index( 10 + x, y, z )] = 0.2f;
+                    core[index( 10 + x, y, z )] = 0.2f;
+                    rank[index( 42 + x, y, z )] = 0.2f;
+                    core[index( 42 + x, y, z )] = secondCore;
+                }
+        std::vector<uint8_t> owner( rank.size(), 0u );
+        Desert::Assets::CloudProceduralGrowRankIntoAir( rank, core, owner, { glm::uvec2( 0u, h ) }, w, h, d,
+                                                        voxelKm, rise, softness );
+        return rank;
+    };
+
+    // Two clusters (cores 0.2 and 0.1, ranks equal): the bisector x 26/27 is lifted past the whole span.
+    const std::vector<float> two = grow( 0.1f );
+    float                    unliftedTop = 0.0f;
+    for ( uint32_t x = 12; x < 20; ++x )
+        unliftedTop = std::max( unliftedTop, two[index( x, 1, 1 )] );
+    EXPECT_GT( two[index( 26, 1, 1 )], unliftedTop + softness )
+         << "the bisector of two clusters ranks with the air beside them: the cut fills the gap with one deck";
+    EXPECT_NEAR( two[index( 16, 1, 1 )], 0.2f + rise * 0.5f, 1e-4f ) << "air away from the ridge was lifted";
+
+    // One cluster (one core): the same geometry is lumps of one cloud — no lift, the cone alone.
+    const std::vector<float> one = grow( 0.2f );
+    EXPECT_NEAR( one[index( 26, 1, 1 )], 0.2f + rise * 1.5f, 1e-4f ) << "lumps of one cluster were split";
 }
