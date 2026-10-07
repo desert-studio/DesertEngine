@@ -315,10 +315,11 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // The engine's one single-subpass builder: a pipeline built against a framebuffer's render pass (MSAA
-        // with its resolves, or single-sample), or against RdgCompatibleRenderPassKey, is compatible with this one.
+        // with its resolves, or single-sample), or against RdgCompatibleRenderPassKey, is compatible with this
+        // one.
         VkRenderPass   renderPass = VK_NULL_HANDLE;
         const VkResult result     = CreateSinglePassRenderPass( device, attachments, colourRefs, resolveRefs,
-                                                                key.Depth ? &depthRef : nullptr, false, renderPass );
+                                                            key.Depth ? &depthRef : nullptr, false, renderPass );
         if ( result != VK_SUCCESS )
             return Common::MakeFormattedError<VkRenderPass>( "vkCreateRenderPass failed ({})",
                                                              static_cast<int>( result ) );
@@ -1278,12 +1279,12 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<std::pair<VkImageView, VkClearValue>> colourViews( colourCount,
                                                                        { VK_NULL_HANDLE, VkClearValue{} } );
         std::pair<VkImageView, VkClearValue>              depthView{ VK_NULL_HANDLE, VkClearValue{} };
-        std::vector<VkImageView>                          resolveViews( resolves ? colourCount : 0u, VK_NULL_HANDLE );
+        std::vector<VkImageView> resolveViews( resolves ? colourCount : 0u, VK_NULL_HANDLE );
         if ( resolves )
             key.Resolves.resize( colourCount, RdgAttachmentKey{} );
-        std::vector<std::weak_ptr<VulkanRdgTexture>>      textures;
-        VkExtent2D                                        extent{ 0, 0 };
-        uint32_t                                          layers = 1;
+        std::vector<std::weak_ptr<VulkanRdgTexture>> textures;
+        VkExtent2D                                   extent{ 0, 0 };
+        uint32_t                                     layers = 1;
         for ( const RDG::AttachmentDecision& attachment : pass.Attachments )
         {
             const std::shared_ptr<VulkanRdgTexture>& texture = m_Textures[attachment.Resource];
@@ -1305,8 +1306,8 @@ namespace Desert::Graphic::API::Vulkan
             VkClearValue           clear{};
             if ( attachment.IsResolve )
             {
-                key.Resolves[attachment.Slot]   = described;
-                resolveViews[attachment.Slot]   = view.GetValue();
+                key.Resolves[attachment.Slot] = described;
+                resolveViews[attachment.Slot] = view.GetValue();
                 continue;
             }
             key.Samples = std::max( 1u, desc.Samples );
@@ -1399,7 +1400,7 @@ namespace Desert::Graphic::API::Vulkan
                                    -static_cast<float>( extent.height ),
                                    0.0f,
                                    1.0f };
-        const VkRect2D scissor{ { 0, 0 }, extent };
+        const VkRect2D   scissor{ { 0, 0 }, extent };
         vkCmdSetViewport( m_CommandBuffer, 0, 1, &viewport );
         vkCmdSetScissor( m_CommandBuffer, 0, 1, &scissor );
         return Common::MakeSuccess( true );

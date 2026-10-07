@@ -63,7 +63,8 @@ namespace Desert::Editor::UI
         }
 
         return m_Ids.Acquire(
-             image, vulkanImage->GetResourceGeneration(), [&res]() -> ImTextureID
+             image, vulkanImage->GetResourceGeneration(),
+             [&res]() -> ImTextureID
              {
                  // ImGui samples the image in its fragment shader: the descriptor names the layout of that
                  // declared access, not the layout the image happens to record when it is first shown (a
@@ -73,7 +74,8 @@ namespace Desert::Editor::UI
                  const VkImageLayout sampled = Graphic::API::Vulkan::RdgVulkanLayout(
                       Graphic::RDG::GetAccessState( Graphic::RDG::Access::SampledGraphics ).Layout );
                  return ImGui_ImplVulkan_AddTexture( res.Sampler, res.ImageView, sampled );
-             }, retire );
+             },
+             retire );
     }
 
     std::size_t UICacheTextureImGui::RetireReleased()

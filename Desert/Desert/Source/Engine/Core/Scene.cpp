@@ -461,9 +461,9 @@ namespace Desert::Core
 
         // THE WORLD'S CLOCK TICKS FIRST, once, before anything reads it: the systems below, and every
         // view's renderer after them, see the same Delta and GameTime this frame.
-        m_WorldTime.Tick( ts.GetSeconds(),
-                          WorldTime::ClockModeFor( TicksGameplay(), m_State == SceneState::Paused && !TicksGameplay(),
-                                                   m_PreviewRealtime ) );
+        m_WorldTime.Tick( ts.GetSeconds(), WorldTime::ClockModeFor(
+                                                TicksGameplay(), m_State == SceneState::Paused && !TicksGameplay(),
+                                                m_PreviewRealtime ) );
 
         // The renderers step by the world's Delta; the wall-clock step goes beside it for what is about
         // the machine rather than the world (the sky's re-bake debounce).

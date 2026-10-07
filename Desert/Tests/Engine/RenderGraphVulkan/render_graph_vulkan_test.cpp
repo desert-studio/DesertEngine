@@ -80,12 +80,12 @@ namespace
         vkb::Instance   Instance;
         vkb::Device     Device;
         DeviceCaps      Caps;
-        VkQueue         Queue       = VK_NULL_HANDLE;
-        uint32_t        QueueFamily = 0;
+        VkQueue         Queue         = VK_NULL_HANDLE;
+        uint32_t        QueueFamily   = 0;
         VkQueue         ComputeQueue  = VK_NULL_HANDLE; // a queue of a family other than QueueFamily, if any
         uint32_t        ComputeFamily = 0;
-        VmaAllocator    Allocator   = nullptr;
-        VkCommandPool   CommandPool = VK_NULL_HANDLE;
+        VmaAllocator    Allocator     = nullptr;
+        VkCommandPool   CommandPool   = VK_NULL_HANDLE;
         VulkanRdgDevice Rdg;
         std::string     Error;
     };
@@ -537,8 +537,8 @@ void main()
                  auto image = VulkanRdgBackend::TextureOf( texture.GetValue() );
                  if ( !image )
                      return Fail( image.GetError() );
-                 run.Images[0]              = image.GetValue()->GetImage();
-                 auto recorded              = VulkanRdgBackend::CommandBufferOf( context );
+                 run.Images[0] = image.GetValue()->GetImage();
+                 auto recorded = VulkanRdgBackend::CommandBufferOf( context );
                  run.CommandBufferOfMatched =
                       recorded && recorded.GetValue() != VK_NULL_HANDLE && recorded.GetValue() != cmd;
                  return Common::MakeSuccess( true ); // the render pass's load op is the whole pass
@@ -624,8 +624,8 @@ void main()
                  }
                  vkUpdateDescriptorSets( gpu.Device.device, 2, writes.data(), 0, nullptr );
                  vkCmdBindPipeline( passCmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.Compute );
-                 vkCmdBindDescriptorSets( passCmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.ComputePipeLayout, 0, 1,
-                                          &programs.ComputeSet, 0, nullptr );
+                 vkCmdBindDescriptorSets( passCmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.ComputePipeLayout, 0,
+                                          1, &programs.ComputeSet, 0, nullptr );
                  vkCmdDispatch( passCmd, kSize / 8, kSize / 8, 1 );
                  return Common::MakeSuccess( true );
              } );
@@ -652,8 +652,9 @@ void main()
                  VkBufferImageCopy region{};
                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                  region.imageExtent      = { kSize, kSize, 1 };
-                 vkCmdCopyImageToBuffer( passCmd, image.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                         buffer.GetValue()->GetBuffer(), 1, &region );
+                 vkCmdCopyImageToBuffer( passCmd, image.GetValue()->GetImage(),
+                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(), 1,
+                                         &region );
                  return Common::MakeSuccess( true );
              } );
         graph.Extract( bytes, readback, RDG::Access::HostRead );
@@ -954,9 +955,9 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
             RDG::ExternalTexture target;
             target.Desc = Target();
             target.SubresourceStates.assign( target.Desc.SubresourceCount(), RDG::RecordedLayoutState( *from ) );
-            target.Physical          = wrapped;
-            int writeBacks           = 0;
-            target.RecordStates      = [&]( const std::vector<RDG::AccessState>& states,
+            target.Physical     = wrapped;
+            int writeBacks      = 0;
+            target.RecordStates = [&]( const std::vector<RDG::AccessState>& states,
                                        bool                                 graphEnded ) -> Common::BoolResultStr
             {
                 if ( !graphEnded )
@@ -1171,8 +1172,8 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         target.Desc = Target();
         target.SubresourceStates.assign( target.Desc.SubresourceCount(),
                                          RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
-        target.Physical          = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, Target() );
-        target.RecordStates      = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
+        target.Physical     = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, Target() );
+        target.RecordStates = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
         { return Common::MakeSuccess( true ); };
 
         VkCommandBuffer             cmd = VK_NULL_HANDLE;
@@ -1263,8 +1264,8 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
     EXPECT_EQ( row( kSize - 1 ), ( std::vector<uint8_t>{ 0, 255, 0, 255 } ) ) << "the bottom row keeps the clear";
 }
 
-// An MSAA framebuffer imported into the graph: the render pass the graph opens declares the multisampled colour AND
-// the single-sample image it resolves into (PassBuilder::ResolveTarget), built through the same
+// An MSAA framebuffer imported into the graph: the render pass the graph opens declares the multisampled colour
+// AND the single-sample image it resolves into (PassBuilder::ResolveTarget), built through the same
 // CreateSinglePassRenderPass as the engine's MSAA framebuffer (VulkanFramebuffer: 4x colour, finalLayout
 // COLOR_ATTACHMENT, plus a 1x resolve). A pipeline built against the ENGINE's MSAA render pass draws in it with no
 // validation message, and the resolve image receives the picture. Without the resolve in the graph's pass the
@@ -1273,27 +1274,27 @@ TEST( RenderGraphVulkan, AnEnginePipelineDrawsIntoAnImportedMsaaFramebufferAndTh
 {
     Gpu& gpu = GetGpu();
     ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
-    const VkDevice                  device  = gpu.Device.device;
+    const VkDevice                  device   = gpu.Device.device;
     constexpr VkSampleCountFlagBits kSamples = VK_SAMPLE_COUNT_4_BIT;
 
     // The engine's MSAA framebuffer render pass, described as VulkanFramebuffer::RT_Invalidate describes it.
     std::array<VkAttachmentDescription, 2> engineAttachments{};
-    engineAttachments[0].format         = VK_FORMAT_R8G8B8A8_UNORM;
-    engineAttachments[0].samples        = kSamples;
-    engineAttachments[0].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    engineAttachments[0].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    engineAttachments[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    engineAttachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    engineAttachments[0].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    engineAttachments[0].finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    engineAttachments[1]                = engineAttachments[0];
-    engineAttachments[1].samples        = VK_SAMPLE_COUNT_1_BIT;
-    engineAttachments[1].loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    engineAttachments[1].finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    const std::array<VkAttachmentReference, 1> colourRefs  = { VkAttachmentReference{
-         0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
-    const std::array<VkAttachmentReference, 1> resolveRefs = { VkAttachmentReference{
-         1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
+    engineAttachments[0].format                           = VK_FORMAT_R8G8B8A8_UNORM;
+    engineAttachments[0].samples                          = kSamples;
+    engineAttachments[0].loadOp                           = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    engineAttachments[0].storeOp                          = VK_ATTACHMENT_STORE_OP_STORE;
+    engineAttachments[0].stencilLoadOp                    = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    engineAttachments[0].stencilStoreOp                   = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    engineAttachments[0].initialLayout                    = VK_IMAGE_LAYOUT_UNDEFINED;
+    engineAttachments[0].finalLayout                      = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    engineAttachments[1]                                  = engineAttachments[0];
+    engineAttachments[1].samples                          = VK_SAMPLE_COUNT_1_BIT;
+    engineAttachments[1].loadOp                           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    engineAttachments[1].finalLayout                      = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    const std::array<VkAttachmentReference, 1> colourRefs = {
+         VkAttachmentReference{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
+    const std::array<VkAttachmentReference, 1> resolveRefs = {
+         VkAttachmentReference{ 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
     VkRenderPass engineRenderPass = VK_NULL_HANDLE;
     ASSERT_EQ( CreateSinglePassRenderPass( device, engineAttachments, colourRefs, resolveRefs, nullptr, false,
                                            engineRenderPass ),
@@ -1391,8 +1392,8 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
             external.Desc = desc;
             external.SubresourceStates.assign( desc.SubresourceCount(),
                                                RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
-            external.Physical          = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
-            external.RecordStates      = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
+            external.Physical     = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
+            external.RecordStates = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
             { return Common::MakeSuccess( true ); };
             return external;
         };
@@ -1543,7 +1544,7 @@ TEST( RenderGraphVulkan, ASampleCountChangeOpensTheNextRenderPassAtTheNewCount )
                 external.Desc = desc;
                 external.SubresourceStates.assign( desc.SubresourceCount(),
                                                    RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
-                external.Physical = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
+                external.Physical     = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
                 external.RecordStates = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
                 { return Common::MakeSuccess( true ); };
                 return external;
@@ -1926,7 +1927,7 @@ TEST( RenderGraphVulkan, AResizedImportedImageKeepsItsViewsUntilTheFramesUsingTh
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        VulkanRdgBackend backend( gpu.Rdg, pool );
+        VulkanRdgBackend            backend( gpu.Rdg, pool );
         const Common::BoolResultStr begun = BeginFrameSlot( frameObjects, backend, pool, slot );
         EXPECT_TRUE( begun ) << begun.GetError();
         RDG::ExternalTexture external( texture->GetDesc(), RDG::Access::None );
@@ -2300,9 +2301,10 @@ namespace
 {
     // One async graph: "Produce" (Compute | AsyncCompute) writes a transient through a storage-buffer dispatch - a
     // constant fill, or with @p source a shader copy of that external at position 0 (amendment B: the graphics
-    // prologue releases it) - and "Consume" (Compute, graphics pipe) copies it by dispatch into a host-read buffer.
-    // Both passes are dispatches: an AsyncCompute pass is a Compute pass, and a Compute pass may not declare
-    // CopySrc/CopyDst (RdgPassKindAllows). The readback is a storage buffer so the second graph can read it.
+    // prologue releases it) - and "Consume" (Compute, graphics pipe) copies it by dispatch into a host-read
+    // buffer. Both passes are dispatches: an AsyncCompute pass is a Compute pass, and a Compute pass may not
+    // declare CopySrc/CopyDst (RdgPassKindAllows). The readback is a storage buffer so the second graph can read
+    // it.
     struct AsyncCopyRun
     {
         std::string          Error;
@@ -2350,10 +2352,10 @@ void main() { Words[gl_GlobalInvocationID.x] = From[gl_GlobalInvocationID.x]; })
                 return;
             }
             const std::array<VkDescriptorSetLayoutBinding, 2> bindings = {
-                 VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
-                                               nullptr },
-                 VkDescriptorSetLayoutBinding{ 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
-                                               nullptr } };
+                 VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, nullptr },
+                 VkDescriptorSetLayoutBinding{ 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, nullptr } };
             VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             layoutInfo.bindingCount = static_cast<uint32_t>( bindings.size() );
             layoutInfo.pBindings    = bindings.data();
@@ -2396,7 +2398,8 @@ void main() { Words[gl_GlobalInvocationID.x] = From[gl_GlobalInvocationID.x]; })
             setInfo.descriptorSetCount = 1;
             setInfo.pSetLayouts        = &SetLayout;
             VkDescriptorSet set        = VK_NULL_HANDLE;
-            if ( const VkResult allocated = vkAllocateDescriptorSets( Device, &setInfo, &set ); allocated != VK_SUCCESS )
+            if ( const VkResult allocated = vkAllocateDescriptorSets( Device, &setInfo, &set );
+                 allocated != VK_SUCCESS )
                 return Fail( std::format( "async dispatch: vkAllocateDescriptorSets returned {}",
                                           static_cast<int>( allocated ) ) );
             const VkDescriptorBufferInfo        source{ from, 0, kAsyncBytes };

@@ -418,9 +418,10 @@ namespace Desert::Graphic::System
         {
             static bool s_Unresolved = false;
             if ( !std::exchange( s_Unresolved, true ) )
-                LOG_ERROR( "[MeshRenderer] no default surface template: {}; a material whose pipeline is not ready "
-                           "yet is not drawn",
-                           key.GetError() );
+                LOG_ERROR(
+                     "[MeshRenderer] no default surface template: {}; a material whose pipeline is not ready "
+                     "yet is not drawn",
+                     key.GetError() );
             return nullptr;
         }
         auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( key.GetValue() );
@@ -616,7 +617,7 @@ namespace Desert::Graphic::System
         if ( m_StaticQueue.empty() && m_InstancedQueue.empty() )
             return BOOLSUCCESS;
 
-        auto* const camera   = m_SceneRenderer->GetMainCamera();
+        auto* const camera = m_SceneRenderer->GetMainCamera();
         if ( camera == nullptr )
             return BOOLSUCCESS;
 
@@ -726,8 +727,8 @@ namespace Desert::Graphic::System
             if ( !instancingOn || group == nullptr )
                 return nullptr;
 
-            auto*        materials = Runtime::ResourceRegistry::GetMaterialService();
-            const bool   hasAsset  = materials != nullptr && materials->Owns( group );
+            auto*               materials = Runtime::ResourceRegistry::GetMaterialService();
+            const bool          hasAsset  = materials != nullptr && materials->Owns( group );
             DataDrivenMaterial* variant =
                  hasAsset ? materials->GetVariant( group, MeshVertexPath::Instanced, instancedPass ) : nullptr;
 
@@ -1176,7 +1177,7 @@ namespace Desert::Graphic::System
         if ( m_SkinnedQueue.empty() )
             return BOOLSUCCESS;
 
-        auto* const camera   = m_SceneRenderer->GetMainCamera();
+        auto* const camera = m_SceneRenderer->GetMainCamera();
 
         // The SAME snapshot, from the SAME gather, that lights every static mesh in this frame — the
         // cascades and the environment cubes included. Skinned meshes have no G-buffer variant, so in a

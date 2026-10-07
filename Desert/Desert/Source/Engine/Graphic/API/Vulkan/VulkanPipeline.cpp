@@ -408,7 +408,7 @@ namespace Desert::Graphic::API::Vulkan
 
     VkPipeline VulkanPipeline::GetVkPipelineFor( const RdgRenderPassKey& openPass )
     {
-        const VkPipeline base = GetVkPipeline();
+        const VkPipeline base    = GetVkPipeline();
         const uint32_t   samples = std::max( 1u, openPass.Samples );
         if ( base == VK_NULL_HANDLE || samples == m_BuiltSamples )
             return base;

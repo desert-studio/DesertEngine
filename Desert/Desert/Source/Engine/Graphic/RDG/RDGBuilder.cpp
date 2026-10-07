@@ -416,10 +416,9 @@ namespace Desert::Graphic::RDG
                      static_cast<uint32_t>( other.Format ), other.Size.Width, other.Size.Height, self.Samples,
                      static_cast<uint32_t>( self.Format ), self.Size.Width, self.Size.Height ) );
             if ( !isResolve && !existing.IsResolve && other.Samples != self.Samples )
-                return m_Builder.RecordError(
-                     fmt::format( "graph '{}' pass '{}': {}('{}') has {} sample(s), '{}' in the same pass has {}",
-                                  graph, pass.Name, call, resource->Name, self.Samples, otherRecord.Name,
-                                  other.Samples ) );
+                return m_Builder.RecordError( fmt::format(
+                     "graph '{}' pass '{}': {}('{}') has {} sample(s), '{}' in the same pass has {}", graph,
+                     pass.Name, call, resource->Name, self.Samples, otherRecord.Name, other.Samples ) );
         }
         if ( isResolve &&
              std::none_of( pass.Attachments.begin(), pass.Attachments.end(),

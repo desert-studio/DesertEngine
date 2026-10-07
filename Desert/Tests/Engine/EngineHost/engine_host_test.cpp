@@ -54,7 +54,8 @@ namespace
         return ( i * 2654435761u ) ^ 0xA5A5A5A5u;
     }
 
-    constexpr const char* kFillShader = R"DSL(// DesertAsset {"Kind":"Shader","Guid":"e46f0a5b1c2d4e3f8a9b0c1d2e3f4a5b","Versions":{"SHDR":1},"Dependencies":[]}
+    constexpr const char* kFillShader =
+         R"DSL(// DesertAsset {"Kind":"Shader","Guid":"e46f0a5b1c2d4e3f8a9b0c1d2e3f4a5b","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "EngineHostFill"
 {
     Compute
@@ -147,7 +148,8 @@ Shader "EngineHostFill"
 
     // Each pixel writes its own texel coordinate from the interpolated v_TexCoord: (x, y, 255, 255). A triangle
     // that misses a pixel leaves the clear colour; a flipped or shifted uv writes another pixel's coordinate.
-    constexpr const char* kCoordShader = R"DSL(// DesertAsset {"Kind":"Shader","Guid":"7c1d2e3f4a5b46c7d8e9f0a1b2c3d4e5","Versions":{"SHDR":1},"Dependencies":[]}
+    constexpr const char* kCoordShader =
+         R"DSL(// DesertAsset {"Kind":"Shader","Guid":"7c1d2e3f4a5b46c7d8e9f0a1b2c3d4e5","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "EngineHostCoord"
 {
     Fragment
@@ -340,8 +342,7 @@ namespace
         const RDG::TextureRef target = graph.CreateTexture( desc, "Target" );
         const RDG::BufferRef  bytes  = graph.CreateBuffer( RDG::BufferDesc{ kSide * kSide * 4u }, "Readback" );
         graph.AddPass(
-             "Draw", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
+             "Draw", RDG::PassFlags::Raster, [&]( RDG::PassBuilder& pass )
              { pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ); },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

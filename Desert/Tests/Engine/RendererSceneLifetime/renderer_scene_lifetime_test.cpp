@@ -444,7 +444,7 @@ TEST( RendererSceneLifetime, TheCaptureCountStartsOnATemporalReset )
     EXPECT_NE( cut.find( "->ResetTemporalHistory()" ), std::string::npos )
          << "the first recorded frame does not cut the views' temporal history.";
 
-    const std::string count = BodyAfter( director, "ShotDirector::CountRenderedFrame(" );
+    const std::string count   = BodyAfter( director, "ShotDirector::CountRenderedFrame(" );
     const std::size_t counted = count.find( "++m_ShotFrame" );
     ASSERT_NE( counted, std::string::npos ) << "ShotDirector::CountRenderedFrame no longer counts frames.";
     const std::size_t gate = count.rfind( "recordedFrame", counted );

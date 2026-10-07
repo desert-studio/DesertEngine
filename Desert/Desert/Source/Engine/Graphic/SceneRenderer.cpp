@@ -823,11 +823,11 @@ namespace Desert::Graphic
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
         // Execute, after the whole graph is built, so a value one pass hands a later one travels through `values`,
         // which outlives Execute; everything else they need is captured by value.
-        RDG::Builder        graph( "SceneView" );
+        RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
-        FrameTextures       textures( graph );
+        FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
-        const auto          values = std::make_shared<FrameValues>();
+        const auto values = std::make_shared<FrameValues>();
 
         const auto sceneColor = [this, &textures]()
         {
@@ -1385,9 +1385,9 @@ namespace Desert::Graphic
                     return;
 
                 RenderGraphBuilder::PassConfig config;
-                config.Name              = m_Spec.Name;
-                config.Phase             = m_Spec.Phase;
-                config.ExecuteFunc       = [this]( RDG::PassContext& pass, const FrameGraphRefs& refs )
+                config.Name        = m_Spec.Name;
+                config.Phase       = m_Spec.Phase;
+                config.ExecuteFunc = [this]( RDG::PassContext& pass, const FrameGraphRefs& refs )
                 { return m_Spec.Execute( Context( refs ), pass ); };
                 config.PipelineSpec      = m_Spec.PipelineSpecification;
                 config.TargetFramebuffer = target;

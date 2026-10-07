@@ -567,7 +567,7 @@ namespace Desert::Core
         mutable uint32_t              m_ViewportHeight = 720;
         SceneState                    m_State = SceneState::Edit;
         WorldTime                     m_WorldTime;
-        bool                          m_PreviewRealtime = true;
+        bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget

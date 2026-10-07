@@ -58,7 +58,7 @@ namespace Desert::Graphic::RDG
             AccessState GroupBefore; // state the current group was entered from
             AccessState Group;       // current (possibly merged) state
             uint32_t    GroupPosition = 0;
-            int32_t     GroupRaw      = -1; // index of the group's transition in its pass's raw list
+            int32_t     GroupRaw      = -1;             // index of the group's transition in its pass's raw list
             Pipe        GroupPipe     = Pipe::Graphics; // the pipe that owns the subresource now
             uint32_t    LastTouch     = 0;              // last position that used it (on GroupPipe)
             // When the group was opened by an ownership acquire: its release half, widened together with it.
@@ -758,7 +758,7 @@ namespace Desert::Graphic::RDG
         std::vector<std::vector<RdgRawTransition>> raws( executedCount );
         std::vector<std::vector<RdgRawTransition>> epilogueRaws(
              executedCount + 1 ); // ownership releases; [executedCount]: the prologue's (amendment B)
-        auto                                       isAliased = [&]( uint32_t resource )
+        auto isAliased = [&]( uint32_t resource )
         {
             const Allocation* allocation = result.FindAllocation( resource );
             return allocation && !allocation->AliasPredecessors.empty();
@@ -907,8 +907,8 @@ namespace Desert::Graphic::RDG
             // Load: a transient attachment nothing has written yet has nothing to load.
             const PassRecord& pass = m_Passes[p];
             CompiledPass      compiled;
-            compiled.Pass  = p;
-            compiled.Name  = pass.Name;
+            compiled.Pass        = p;
+            compiled.Name        = pass.Name;
             compiled.Flags       = pass.Flags;
             compiled.OnPipe      = pipeAt[position];
             compiled.WaitSyncs   = waitAt[position];
@@ -988,9 +988,8 @@ namespace Desert::Graphic::RDG
             auto sameAttachment = []( const AttachmentDecision& a, const AttachmentDecision& b )
             {
                 return a.IsDepth == b.IsDepth && a.IsResolve == b.IsResolve && a.Slot == b.Slot &&
-                       a.Usage == b.Usage &&
-                       a.Resource == b.Resource && a.Mip == b.Mip && a.BaseLayer == b.BaseLayer &&
-                       a.LayerCount == b.LayerCount;
+                       a.Usage == b.Usage && a.Resource == b.Resource && a.Mip == b.Mip &&
+                       a.BaseLayer == b.BaseLayer && a.LayerCount == b.LayerCount;
             };
             auto sameAttachments = [&]( const CompiledPass& a, const CompiledPass& b )
             {
@@ -1135,11 +1134,11 @@ namespace Desert::Graphic::RDG
                 if ( barrier.BarrierType != BarrierKind::OwnershipAcquire )
                     continue;
                 QueueOwnershipTransfer transfer;
-                transfer.Resource        = barrier.Resource;
-                transfer.Kind            = barrier.Kind;
-                transfer.Range           = barrier.Range;
-                transfer.From            = barrier.SrcPipe;
-                transfer.To              = barrier.DstPipe;
+                transfer.Resource = barrier.Resource;
+                transfer.Kind     = barrier.Kind;
+                transfer.Range    = barrier.Range;
+                transfer.From     = barrier.SrcPipe;
+                transfer.To       = barrier.DstPipe;
                 transfer.ReleasePosition =
                      partners[b] == executedCount ? CrossPipeSync::kForkAtGraphStart : partners[b];
                 transfer.AcquirePosition = acquirePosition;

@@ -125,8 +125,7 @@ namespace Desert::Graphic
                 imported.Colors.push_back(
                      Import( framebuffer->GetColorAttachmentImage( i ), std::format( "{}.Color{}", name, i ) ) );
             if ( framebuffer->GetDepthAttachmentCount() > 0 )
-                imported.Depth =
-                     Import( framebuffer->GetDepthAttachmentImage(), std::format( "{}.Depth", name ) );
+                imported.Depth = Import( framebuffer->GetDepthAttachmentImage(), std::format( "{}.Depth", name ) );
             return imported;
         }
 
@@ -245,7 +244,7 @@ namespace Desert::Graphic
     // What one node hands a later one inside the same frame graph (the nodes record at Execute).
     struct FrameValues
     {
-        SunScreen                Sun{ glm::vec2( 0.5f ), 0.0f };
+        SunScreen Sun{ glm::vec2( 0.5f ), 0.0f };
     };
 
     // The graph textures of every image @p declared names, in order, each through the frame's one import of it

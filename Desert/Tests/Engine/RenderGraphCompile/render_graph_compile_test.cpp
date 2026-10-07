@@ -1831,11 +1831,12 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBarriers )
 {
     const fs::path root = RepoRoot();
-    std::ifstream               file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    std::ifstream  file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
     ASSERT_TRUE( file );
     std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
-    text.erase( std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
-                text.end() );
+    text.erase(
+         std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+         text.end() );
     const size_t begin = text.find( "voidSceneRenderer::AddFrameDepthResolve(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
@@ -1993,8 +1994,8 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
 
 TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )
 {
-    ExternalTexture color   = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
-    color.RecordStates      = []( const std::vector<AccessState>&, bool )
+    ExternalTexture color = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
+    color.RecordStates    = []( const std::vector<AccessState>&, bool )
     { return Common::BoolResultStr( Common::MakeError( "record gone" ) ); };
     Builder                   graph( "import" );
     ExternalTexture* const    colors[] = { &color };

@@ -262,14 +262,14 @@ namespace Desert::Graphic::RDG
 
         struct AttachmentRecord
         {
-            uint32_t Slot     = 0;
-            bool     IsDepth   = false;
-            bool     IsResolve = false;
-            uint32_t Resource  = kInvalidResource;
-            LoadOp   Load;
-            uint32_t Mip        = 0;
-            uint32_t BaseLayer  = 0;
-            uint32_t LayerCount = 1;
+            uint32_t    Slot      = 0;
+            bool        IsDepth   = false;
+            bool        IsResolve = false;
+            uint32_t    Resource  = kInvalidResource;
+            LoadOp      Load;
+            uint32_t    Mip        = 0;
+            uint32_t    BaseLayer  = 0;
+            uint32_t    LayerCount = 1;
             StoreAction Store      = StoreAction::Store; // declared; Compile may still discard
         };
 

@@ -920,7 +920,7 @@ namespace Desert::Graphic::API::Vulkan
             m_CurrentCommandBuffer = nullptr;
             return Common::MakeError( "the device is lost; the graph is not recorded" );
         }
-            // The sink the profiler holds now: GPU timing can be switched on and off between frames.
+        // The sink the profiler holds now: GPU timing can be switched on and off between frames.
 #if DESERT_DEV_INSTRUMENTS
         m_RdgDevice.Profiler = ::Common::Profiling::Profiler::Get().GetGpuSink();
 #endif
@@ -990,8 +990,8 @@ namespace Desert::Graphic::API::Vulkan
             // (ended before the graph) or another segment's. ExecuteGraph re-arms a fresh one after.
             m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
                                                 { SetGraphRecordingTarget( commandBuffer ); } );
-            m_RdgTransients           = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
-            m_RdgDescriptors          = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
+            m_RdgTransients  = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
+            m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
 
             // The compute queue is the graph's AsyncCompute pipe only when its family differs from the
             // graphics one (VulkanPhysicalDevice falls back to the graphics family when there is none);
@@ -1168,13 +1168,13 @@ namespace Desert::Graphic::API::Vulkan
         // G-buffer depth by copy (that needs a depth resolve, which this is not).
         const uint32_t srcSamples = src->GetImageSpecification().Samples;
         const uint32_t dstSamples = dst->GetImageSpecification().Samples;
-        if ( srcSamples != dstSamples || src->GetWidth() != dst->GetWidth() || src->GetHeight() != dst->GetHeight() )
+        if ( srcSamples != dstSamples || src->GetWidth() != dst->GetWidth() ||
+             src->GetHeight() != dst->GetHeight() )
         {
-            const std::string message =
-                 std::format( "CopyDepthImage: the source depth is {}x{} with {} sample(s), the destination {}x{} with "
-                              "{} sample(s); a copy needs the same size and sample count",
-                              src->GetWidth(), src->GetHeight(), srcSamples, dst->GetWidth(), dst->GetHeight(),
-                              dstSamples );
+            const std::string message = std::format(
+                 "CopyDepthImage: the source depth is {}x{} with {} sample(s), the destination {}x{} with "
+                 "{} sample(s); a copy needs the same size and sample count",
+                 src->GetWidth(), src->GetHeight(), srcSamples, dst->GetWidth(), dst->GetHeight(), dstSamples );
             LOG_ERROR( "[Renderer] {}", message );
             return Common::MakeError( message );
         }

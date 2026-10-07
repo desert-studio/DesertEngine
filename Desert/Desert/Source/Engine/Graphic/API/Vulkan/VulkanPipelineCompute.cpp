@@ -137,8 +137,7 @@ namespace Desert::Graphic::API::Vulkan
             const VkImageLayout layout = RdgVulkanLayout( declaredLayout );
 
             if ( kind == SampledImageKind::Volume &&
-                 ( view == VK_NULL_HANDLE || r.Sampler == VK_NULL_HANDLE ||
-                   layout == VK_IMAGE_LAYOUT_UNDEFINED ) )
+                 ( view == VK_NULL_HANDLE || r.Sampler == VK_NULL_HANDLE || layout == VK_IMAGE_LAYOUT_UNDEFINED ) )
             {
                 // No fallback exists for a volume, and dispatching with a stale descriptor would read
                 // whatever the previous user of this ring slot bound. Say exactly what is missing and

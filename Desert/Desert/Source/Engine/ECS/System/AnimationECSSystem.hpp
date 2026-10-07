@@ -1137,8 +1137,8 @@ namespace Desert::ECS
         // Non-owning: the manager belongs to the host, which outlives its scene. MAY BE NULL — a host
         // that builds no asset manager simply has no rigs, and SyncControlRig says so once.
         Assets::AssetManager*                 m_AssetManager = nullptr;
-        /// The editor world's preview step (Scene::SetEditorTick): the world's Delta in Edit (0 with Realtime off),
-        /// 0 in Play/Paused.
+        /// The editor world's preview step (Scene::SetEditorTick): the world's Delta in Edit (0 with Realtime
+        /// off), 0 in Play/Paused.
         float m_EditorSeconds = 0.0f;
 
         // ONE dedupe store for every complaint this system makes, and it remembers the MESSAGE rather than

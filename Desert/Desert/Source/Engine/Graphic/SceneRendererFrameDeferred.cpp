@@ -107,9 +107,9 @@ namespace Desert::Graphic
                  if ( target.Depth.IsValid() )
                  {
                      const glm::vec2 depthStencil = RenderPassSpecification{}.ClearColor.DepthStencil;
-                     pass.DepthTarget( target.Depth,
-                                       RDG::LoadOp::ClearDepth( depthStencil.x,
-                                                                static_cast<uint32_t>( depthStencil.y ) ) );
+                     pass.DepthTarget(
+                          target.Depth,
+                          RDG::LoadOp::ClearDepth( depthStencil.x, static_cast<uint32_t>( depthStencil.y ) ) );
                  }
                  for ( uint32_t i = 0; i < target.Resolves.size(); ++i )
                      pass.ResolveTarget( i, target.Resolves[i] );
@@ -327,13 +327,13 @@ namespace Desert::Graphic
         // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not RSM, fewer cascades).
         const FrameGraphRefs            refs = textures.GraphRefs();
         System::DeferredCompositeInputs inputs;
-        inputs.GBufferA         = gbuffer[0];
-        inputs.GBufferB         = gbuffer[1];
-        inputs.GBufferC         = gbuffer[2];
-        inputs.GBufferEmissive  = gbuffer[3];
-        inputs.SSAO             = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
-        inputs.GI               = giAccum.IsValid() ? giAccum : refs.System.Black;
-        inputs.View                        = SceneViewInputsOf( refs );
+        inputs.GBufferA        = gbuffer[0];
+        inputs.GBufferB        = gbuffer[1];
+        inputs.GBufferC        = gbuffer[2];
+        inputs.GBufferEmissive = gbuffer[3];
+        inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
+        inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
+        inputs.View            = SceneViewInputsOf( refs );
         std::vector<RDG::TextureRef> reads = shadowReads;
         for ( const RDG::TextureRef ref : { inputs.GBufferA, inputs.GBufferB, inputs.GBufferC,
                                             inputs.GBufferEmissive, inputs.SSAO, inputs.GI } )
@@ -442,10 +442,10 @@ namespace Desert::Graphic
         if ( !traceTargets )
             return;
         // Transients of this graph, sized from this frame's view: written by the trace, read by the tiled passes.
-        const RDG::TextureRef          trace   = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
-        const RDG::TextureRef          tiles   = graph.CreateTexture( traceTargets->TileMask, "SSR.TileMask" );
-        const RDG::TextureRef          accum   = textures.Import( ssr->GetAccumImage(), "SSR" );
-        const RDG::TextureRef          history = textures.Import( ssr->GetHistoryImage(), "SSR.History" );
+        const RDG::TextureRef trace   = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
+        const RDG::TextureRef tiles   = graph.CreateTexture( traceTargets->TileMask, "SSR.TileMask" );
+        const RDG::TextureRef accum   = textures.Import( ssr->GetAccumImage(), "SSR" );
+        const RDG::TextureRef history = textures.Import( ssr->GetHistoryImage(), "SSR.History" );
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: SSRComposite" );
         if ( !targets )
             return;

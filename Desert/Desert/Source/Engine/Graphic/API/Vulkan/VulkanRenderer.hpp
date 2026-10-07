@@ -44,10 +44,10 @@ namespace Desert::Graphic::API::Vulkan
 
         virtual void BeginDebugLabel( const char* name ) override;
         virtual void EndDebugLabel() override;
-        Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph ) override;
-        Common::BoolResultStr                  ImportImage( const std::shared_ptr<Image>& image,
-                                                            RDG::ExternalTexture&         into ) override;
-        Common::BoolResultStr                  ImportBackBuffer( RDG::ExternalTexture& into ) override;
+        Common::BoolResultStr ExecuteGraph( RDG::Builder& graph ) override;
+        Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image,
+                                           RDG::ExternalTexture&         into ) override;
+        Common::BoolResultStr ImportBackBuffer( RDG::ExternalTexture& into ) override;
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into ) override;
 
@@ -183,8 +183,8 @@ namespace Desert::Graphic::API::Vulkan
         // The frame-graph executor, made on the first ExecuteGraph (the device exists by then). The pool
         // holds transient images per frame in flight; the backend is re-pointed at the frame's command
         // buffer on every graph.
-        VulkanRdgDevice                   m_RdgDevice;
-        std::unique_ptr<VulkanRdgPool>    m_RdgPool;
+        VulkanRdgDevice                m_RdgDevice;
+        std::unique_ptr<VulkanRdgPool> m_RdgPool;
         // RDG-CONTRACTS A/B frame objects, per frame slot and re-begun by BeginFrame after the slot's fence:
         // transient heaps, per-pass descriptor pools, the frame loop (slot fences + segment command pools and
         // semaphores: the frame's one submission path, windowed or not), and the queues.
