@@ -50,6 +50,7 @@
 #include <shaderc/shaderc.hpp>
 
 #include <format>
+#include <iterator>
 #include <iostream>
 
 #include <algorithm>
@@ -469,6 +470,79 @@ TEST_F( ShaderCacheKeyShaderRoot, ASubstitutingVariantNeverHashesToTheDefaultsVa
     const Desert::Core::ShaderVariant substituting{ { { "Generated/CloudMedium.glslh", "" } } };
     EXPECT_NE( substituting.Hash(), 0u );
     EXPECT_FALSE( substituting.IsDefault() );
+}
+
+// A ShaderVariant's DEFINES are the permutation axis of a pass that draws one program into a different
+// target (the reflective shadow map draws the G-buffer program under DESERT_GBUFFER_RSM). The program's
+// text and every header on disk are identical between the two permutations; only the macro differs, so
+// the key must carry it or the first permutation compiled is served to the other from the disk cache.
+
+TEST_F( ShaderCacheKeyShaderRoot, ADefineSeparatesTheKeyOfOneProgramText )
+{
+    const std::string source = "#version 450\n#ifndef DESERT_GBUFFER_RSM\nlayout(location = 2) out uint oWord;\n"
+                               "#endif\nvoid main() {}\n";
+    const auto        path   = ShaderPath( "Fog/HeightFog.shader" );
+
+    Desert::Core::ShaderVariant rsm;
+    rsm.Defines = { "DESERT_GBUFFER_RSM" };
+
+    EXPECT_FALSE( rsm.IsDefault() );
+    EXPECT_NE( rsm.Hash(), 0u );
+    EXPECT_NE( ComputeShaderCacheKey( ShaderStage::Fragment, source, path ),
+               ComputeShaderCacheKey( ShaderStage::Fragment, source, path, rsm ) )
+         << "the DESERT_GBUFFER_RSM permutation and the plain program produced ONE cache key, so whichever "
+            "compiled first would be served to the other.";
+    EXPECT_NE( ComputeShaderMapKey( source, path, "", false ), ComputeShaderMapKey( source, path, "", false, rsm ) )
+         << "the shader-map key does not separate the permutation either.";
+
+    // A define's value is part of it, and a define is not a virtual source of the same spelling.
+    Desert::Core::ShaderVariant valued;
+    valued.Defines = { "DESERT_GBUFFER_RSM=1" };
+    EXPECT_NE( rsm.Hash(), valued.Hash() );
+    const Desert::Core::ShaderVariant asSource{ { { "DESERT_GBUFFER_RSM", "" } } };
+    EXPECT_NE( rsm.Hash(), asSource.Hash() );
+
+    // The same macro set assembled in another order is the same permutation.
+    Desert::Core::ShaderVariant ab;
+    ab.Defines = { "A", "B=2" };
+    Desert::Core::ShaderVariant ba;
+    ba.Defines = { "B=2", "A" };
+    EXPECT_EQ( ab.Hash(), ba.Hash() );
+}
+
+TEST( ShaderVariantDefines, NameAndValueSplitAtTheFirstEquals )
+{
+    EXPECT_EQ( Desert::Core::ShaderDefineName( "DESERT_GBUFFER_RSM" ), "DESERT_GBUFFER_RSM" );
+    EXPECT_EQ( Desert::Core::ShaderDefineValue( "DESERT_GBUFFER_RSM" ), "" );
+    EXPECT_EQ( Desert::Core::ShaderDefineName( "N=a=b" ), "N" );
+    EXPECT_EQ( Desert::Core::ShaderDefineValue( "N=a=b" ), "a=b" );
+}
+
+// The key carrying a define is worth nothing if the compile never sees it (the deleted ShaderDefines did
+// exactly that: Shader.hpp records why). ShaderCompiler's options are local to its compile lambda, so this
+// is a census of that body: every define of the variant goes to CompileOptions::AddMacroDefinition with
+// the name and value split by the same helpers the test above checks. Mutation: drop the loop -> red.
+TEST( ShaderVariantDefines, EveryDefineOfTheVariantReachesTheCompileOptions )
+{
+    const auto file = Desert::TestSupport::RepositoryRoot() /
+                      "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp";
+    std::ifstream     in( file, std::ios::binary );
+    ASSERT_TRUE( in ) << file.string();
+    std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+
+    const auto body = text.find( "shaderc::CompileOptionsoptions;" );
+    ASSERT_NE( body, std::string::npos );
+    const auto compile = text.find( "compiler.CompileGlslToSpv(source,", body );
+    ASSERT_NE( compile, std::string::npos );
+    const std::string between = text.substr( body, compile - body );
+    EXPECT_NE( between.find( "for(conststd::string&define:variant.Defines)" ), std::string::npos )
+         << "the compile options are built without walking the variant's defines.";
+    EXPECT_NE( between.find( "conststd::string_viewname=ShaderDefineName(define);" ), std::string::npos );
+    EXPECT_NE( between.find( "conststd::string_viewvalue=ShaderDefineValue(define);" ), std::string::npos );
+    EXPECT_NE( between.find( "options.AddMacroDefinition(name.data(),name.size(),value.data(),value.size());" ),
+               std::string::npos )
+         << "a define of the variant does not reach CompileOptions::AddMacroDefinition.";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheClosureFollowsASubstitutedBodyRatherThanTheFileOnDisk )
