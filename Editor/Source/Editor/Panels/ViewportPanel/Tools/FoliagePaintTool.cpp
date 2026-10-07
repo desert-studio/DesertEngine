@@ -1234,8 +1234,8 @@ namespace Desert::Editor::Tools
             const auto  it   = std::find( volume.FoliageTypes.begin(), volume.FoliageTypes.end(), type );
             if ( it != volume.FoliageTypes.end() )
                 field.TypeIndex = static_cast<uint32_t>( it - volume.FoliageTypes.begin() );
-            if ( host.CellSize.has_value() )
-                field.Cell = CellOfField( entity, *host.CellSize );
+            if ( const auto& cellSize = host.CellSize; cellSize.has_value() )
+                field.Cell = CellOfField( entity, *cellSize );
             host.Existing.push_back( field );
             fieldIds.push_back( entity.GetComponent<ECS::UUIDComponent>().UUID );
         }
@@ -1302,9 +1302,9 @@ namespace Desert::Editor::Tools
             auto& field = scene.CreateNewEntity( std::move( tag ) );
             // FO-6: a cell field stands at its cell's centre; a world that is not partitioned keeps the field
             // where a painted one stands, at the origin (instances are world transforms either way).
-            if ( host.CellSize.has_value() )
+            if ( const auto& cellSize = host.CellSize; cellSize.has_value() )
                 field.GetComponent<ECS::TransformComponent>().Translation =
-                     World::Foliage::FoliageCellAnchor( fresh.Cell, *host.CellSize );
+                     World::Foliage::FoliageCellAnchor( fresh.Cell, *cellSize );
             field.AddComponent<ECS::FoliageComponent>().FoliageType = type->GetMetadata().Handle;
             auto& ism              = field.AddComponent<ECS::InstancedStaticMeshComponent>();
             ism.MeshHandle         = type->GetMeshHandle();
