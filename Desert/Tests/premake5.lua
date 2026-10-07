@@ -128,6 +128,22 @@ local kRunners = {
         -- Optick: Common's JobSystem registers its worker threads with it. ReflectCpp: CanonicalText's
         -- writer reads and spells through yyjson, which ReflectCpp carries.
         links { "Common", "ReflectCpp", "Optick" }
+        -- Subsystems: the header tool generates the sample owners' subsystem tables before the compile, and
+        -- --check holds Owner/ to the tool's rules.
+        local subsystems = "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Common/Subsystems"
+        dependson { "DesertHeaderTool" }
+        prebuildcommands {
+            DesertPlatform.BuiltToolPath("DesertHeaderTool")
+                .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+                .. ' --check "' .. subsystems .. '/Owner"'
+                .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source/Common/Core/Events"'
+                .. ' --subsystems Sample SubsystemSamples::SampleOwner SampleOwner.hpp'
+                .. ' "' .. subsystems .. '/Generated/SampleSubsystems.gen.cpp"'
+                .. ' --subsystems SampleWorld SubsystemSamples::SampleWorld SampleOwner.hpp'
+                .. ' "' .. subsystems .. '/Generated/SampleWorldSubsystems.gen.cpp"'
+        }
+        files { subsystems .. "/Owner/*.hpp", subsystems .. "/Generated/*.gen.cpp" }
+        includedirs { subsystems .. "/Owner" }
     end,
     Runtime = function(deps)
         -- PackagedMount tests the packaged game's mount. Runtime is an executable, so the one source it
@@ -157,6 +173,8 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source/CrashReport.cpp",
             -- WorldCells holds the world cook's cell partition (the file has no main of its own).
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source/WorldCookMain.cpp",
+            -- HeaderToolChecks: the header tool's scanner.
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/HeaderScan.cpp",
             -- BuildScriptContract holds the editor's asset-reference scan to the build scripts.
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
@@ -166,6 +184,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source",
         }
     end,
     Engine = function(deps)
@@ -185,6 +204,9 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/LatticePeak/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
         }
+        -- MediaPlayback / StartupMovie play the committed test clips.
+        defines { 'DESERT_MEDIA_TEST_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/red_440hz_1s.webm"',
+                  'DESERT_MEDIA_PATTERN_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/testsrc2_1080p_5s.webm"' }
     end,
     Editor = function(deps)
         DesertRunnerSettings(deps)
@@ -196,7 +218,6 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/InstanceFold.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/LandscapeEditLayerEdits.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/PoseEditTransaction.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/UIClipEdit.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Control/ControlSocket.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/EditorPreferences.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/FuzzyMatch.cpp",
@@ -239,6 +260,17 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/PoseGraphEdit.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailFoliage.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/AssimpImporter.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/EmbeddedSourceTexture.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceAlphaMode.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceMaterialAdapter.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceTexturePath.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportManager.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MaterialImportContract.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureChannelPack.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SkeletonBindEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp",
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp",
         }
         includedirs {
