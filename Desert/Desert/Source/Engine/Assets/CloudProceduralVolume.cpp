@@ -9,6 +9,7 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <mutex>
 
@@ -53,16 +54,14 @@ namespace Desert::Assets
 
         /// A cluster's footprint radius in cell means, before the size draw and the density compensation.
         ///
-        /// THE BAKE HAS TO COVER THE WHOLE SKY, because since FARWX-a it holds EVERY cell and the slider is
-        /// the march's cut through the rank's column CDF — and a CDF can only hand out the columns that have
-        /// cloud in them. At the 0.72 that sized a cluster for "an alive cell is mostly full" the bake of all
-        /// cells covered 0.69 of the columns, so a Coverage of 0.75 delivered 0.69 and every setting under
-        /// it lost the part of the weather's spread that rose above that ceiling. 1.6 raises the clusters'
-        /// summed area per cell about 4.9-fold, from a Boolean-model cover of 1 - e^-1.17 = 0.69 to
-        /// 1 - e^-5.7 > 0.99, so Coverage 1 is cloud over the whole sky and every lower setting is exactly
-        /// its own fraction of it. Pinned by CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne
-        /// (Desert/Tests/Engine/CloudProceduralField), which reads the bake's column cover at Coverage 1.
-        constexpr float kClusterFootprintCells = 1.6f;
+        /// SIZED FOR THE BODY AND NOT FOR THE SKY. 0.72 is the cluster an alive cell is mostly full of, and
+        /// the bake of every cell covers about 0.69 of the columns with it (Boolean model, 1 - e^-1.17). The
+        /// rest of the sky up to Coverage 1 is NOT bought by inflating the bodies — that glued neighbouring
+        /// clusters into one and moved the size law, the body widths and the anisotropy's cover with the
+        /// slider (FARWX-a2, five red CloudPlacementSpectrum tests). It is bought the way Nubis buys it: the
+        /// bake carries the profile on past the body's edge in the rank (CloudProceduralGrowRankIntoAir), and
+        /// the march's cut GROWS the clouds into that falloff, lowest rank first, as the cover rises.
+        constexpr float kClusterFootprintCells = 0.72f;
 
         /// How many lumps one cluster is built from. A COUNT AND NOT A CEILING ANY MORE, and the change is
         /// the visible half of §SIL.
@@ -1599,6 +1598,149 @@ namespace Desert::Assets
 
     namespace
     {
+        /// One line of the exact squared Euclidean distance transform with its feature (Felzenszwalb &
+        /// Huttenlocher's lower envelope of parabolas), at a sample spacing whose square is @p spacing2.
+        /// @p cost is the squared distance carried in from the earlier axes (infinity where no source is
+        /// known yet), @p feature the source each sample's cost leads to; both are rewritten in place.
+        struct EnvelopeScratch
+        {
+            std::vector<int>    Sites;
+            std::vector<double> Bounds;
+            std::vector<float>  Cost;
+            std::vector<int>    Feature;
+        };
+
+        void SquaredDistanceLine( float* cost, int* feature, int n, double spacing2, EnvelopeScratch& scratch )
+        {
+            scratch.Sites.resize( static_cast<size_t>( n ) );
+            scratch.Bounds.resize( static_cast<size_t>( n ) + 1u );
+            scratch.Cost.assign( cost, cost + n );
+            scratch.Feature.assign( feature, feature + n );
+            const std::vector<float>& g = scratch.Cost;
+
+            int k = -1;
+            for ( int q = 0; q < n; ++q )
+            {
+                if ( !std::isfinite( g[q] ) )
+                    continue;
+                if ( k < 0 )
+                {
+                    k                  = 0;
+                    scratch.Sites[0]   = q;
+                    scratch.Bounds[0]  = -std::numeric_limits<double>::infinity();
+                    scratch.Bounds[1]  = std::numeric_limits<double>::infinity();
+                    continue;
+                }
+                double cut = 0.0;
+                for ( ;; )
+                {
+                    const int p = scratch.Sites[static_cast<size_t>( k )];
+                    cut         = ( ( static_cast<double>( g[q] ) + spacing2 * q * q ) -
+                            ( static_cast<double>( g[p] ) + spacing2 * p * p ) ) /
+                          ( 2.0 * spacing2 * ( q - p ) );
+                    // Bounds[0] is minus infinity, so the first parabola is never popped.
+                    if ( cut > scratch.Bounds[static_cast<size_t>( k )] )
+                        break;
+                    --k;
+                }
+                ++k;
+                scratch.Sites[static_cast<size_t>( k )]      = q;
+                scratch.Bounds[static_cast<size_t>( k )]     = cut;
+                scratch.Bounds[static_cast<size_t>( k ) + 1] = std::numeric_limits<double>::infinity();
+            }
+            if ( k < 0 )
+                return;
+
+            int at = 0;
+            for ( int q = 0; q < n; ++q )
+            {
+                while ( scratch.Bounds[static_cast<size_t>( at ) + 1] < static_cast<double>( q ) )
+                    ++at;
+                const int p = scratch.Sites[static_cast<size_t>( at )];
+                cost[q]     = static_cast<float>( spacing2 * ( q - p ) * ( q - p ) + g[p] );
+                feature[q]  = scratch.Feature[static_cast<size_t>( p )];
+            }
+        }
+
+        /// THE PROFILE PAST THE BODY'S EDGE, carried in the rank. Inside a body the rank is the nearest
+        /// lump's cell rank plus `softness x (1 - profile)`, so it rises at `softness / ProfileDepth` per
+        /// kilometre toward the surface; this continues that rise outward at the same rate from the nearest
+        /// body voxel into every air voxel of the region. It is Nubis's coverage remap read from the other
+        /// side: the bodies are the shape at the cover where a cell is just alive, and a higher cover keeps
+        /// the falloff around them, lowest rank first, until at Coverage 1 the column CDF hands out the
+        /// whole sky — without one body growing in the bake, so the sizes, the size law and the lattice are
+        /// the same at every cover.
+        ///
+        /// THE EXACT EUCLIDEAN DISTANCE with its nearest source, separable over the three axes, in
+        /// kilometres (the voxel is not a cube). X and Z WRAP because the region is periodic and the rank
+        /// must be as seamless as the profile — a line is unrolled three times and its middle copy read —
+        /// and Y does not. Body voxels are the sources and keep the rank they have.
+        void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, uint32_t width, uint32_t height,
+                                             uint32_t depth, const glm::vec3& voxelKm, float risePerKm )
+        {
+            const size_t       count = rankField.size();
+            std::vector<float> cost( count, std::numeric_limits<float>::infinity() );
+            std::vector<int>   feature( count, -1 );
+            bool               anySource = false;
+            for ( size_t at = 0; at < count; ++at )
+                if ( std::isfinite( rankField[at] ) )
+                {
+                    cost[at]    = 0.0f;
+                    feature[at] = static_cast<int>( at );
+                    anySource   = true;
+                }
+            if ( !anySource )
+                return;
+
+            const int    w      = static_cast<int>( width );
+            const int    h      = static_cast<int>( height );
+            const int    d      = static_cast<int>( depth );
+            const size_t stride = static_cast<size_t>( width ) * height; // one z slice
+            auto         index  = [&]( int x, int y, int z )
+            { return static_cast<size_t>( z ) * stride + static_cast<size_t>( y ) * width + static_cast<size_t>( x ); };
+
+            // ONE AXIS AT A TIME, lines independent of each other: Y and X inside a z slice, Z across them.
+            auto axis = [&]( int lines, int length, bool wraps, double spacingKm,
+                             const std::function<size_t( int line, int i )>& at )
+            {
+                const int unrolled = wraps ? 3 * length : length;
+                Common::JobSystem::Get().ParallelRanges(
+                     static_cast<size_t>( lines ), 16u,
+                     [&]( size_t begin, size_t end )
+                     {
+                         EnvelopeScratch    scratch;
+                         std::vector<float> lineCost( static_cast<size_t>( unrolled ) );
+                         std::vector<int>   lineFeature( static_cast<size_t>( unrolled ) );
+                         for ( size_t line = begin; line < end; ++line )
+                         {
+                             for ( int i = 0; i < unrolled; ++i )
+                             {
+                                 const size_t from = at( static_cast<int>( line ), i % length );
+                                 lineCost[static_cast<size_t>( i )]    = cost[from];
+                                 lineFeature[static_cast<size_t>( i )] = feature[from];
+                             }
+                             SquaredDistanceLine( lineCost.data(), lineFeature.data(), unrolled,
+                                                  spacingKm * spacingKm, scratch );
+                             const int offset = wraps ? length : 0;
+                             for ( int i = 0; i < length; ++i )
+                             {
+                                 const size_t to = at( static_cast<int>( line ), i );
+                                 cost[to]        = lineCost[static_cast<size_t>( offset + i )];
+                                 feature[to]     = lineFeature[static_cast<size_t>( offset + i )];
+                             }
+                         }
+                     } );
+            };
+
+            axis( w * d, h, false, voxelKm.y, [&]( int line, int i ) { return index( line % w, i, line / w ); } );
+            axis( h * d, w, true, voxelKm.x, [&]( int line, int i ) { return index( i, line % h, line / h ); } );
+            axis( w * h, d, true, voxelKm.z, [&]( int line, int i ) { return index( line % w, line / w, i ); } );
+
+            for ( size_t at = 0; at < count; ++at )
+                if ( !std::isfinite( rankField[at] ) && feature[at] >= 0 )
+                    rankField[at] = rankField[static_cast<size_t>( feature[at] )] + risePerKm * std::sqrt( cost[at] );
+        }
+
         /// The column CDF of the rank field, as bytes. Every column's rank is the MINIMUM over its voxels
         /// (the first cloud a sight line straight up meets is the one with the lowest rank), and the byte a
         /// voxel stores is the fraction of the region's columns whose minimum lies strictly below the
@@ -1975,6 +2117,8 @@ namespace Desert::Assets
 
         CloudProceduralVolumeBake out;
         out.Voxels = std::move( voxels );
+        CloudProceduralGrowRankIntoAir( rankField, width, height, depth, glm::vec3( voxelXKm, voxelYKm, voxelZKm ),
+                                        rankSoftness / params.ProfileDepthKm );
         out.Ranks  = CloudProceduralRankColumnCdf( rankField, width, height, depth );
         return Common::MakeSuccess( std::move( out ) );
     }

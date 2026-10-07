@@ -256,10 +256,11 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                 if ( solid )
                     ++filled;
 
-                // THE RANK BLOCK DESCRIBES THE SAME CLOUD: a voxel has a rank exactly where it has a
-                // profile, or the march would keep cloud that is not there or cut cloud that is.
+                // THE RANK BLOCK REACHES EVERY VOXEL: a body's own and the air's, which carries the
+                // falloff of its nearest body so that the march can grow the clouds into it. A voxel with
+                // no rank in a bake that has cloud is a hole no Coverage can fill.
                 const unsigned char rank = baked.GetValue().Ranks[VoxelIndex( x, y, z ) / 4u];
-                if ( solid != ( rank != kCloudProceduralNoRank ) )
+                if ( rank == kCloudProceduralNoRank )
                     ++rankMismatches;
 
                 std::vector<glm::u32vec3>& bucket = solid ? inside : outside;
@@ -274,8 +275,8 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                  inside.size(), outside.size() );
 
     EXPECT_EQ( rankMismatches, 0u ) << rankMismatches
-                                    << " voxels have a rank without cloud or cloud without a rank, so the "
-                                       "march's cut and the profile it cuts disagree about where the cloud is";
+                                    << " voxels have no rank, so no Coverage can put cloud there and the "
+                                       "slider's top end is not the whole sky";
 
     ASSERT_GE( inside.size(), 50u ) << "the bake produced almost no cloud, so there is nothing to compare";
 
@@ -721,9 +722,9 @@ TEST( CloudProceduralField, CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne )
     params.Coverage        = 1.0f;
     const double fullCover = KeptCover( params, 4 );
 
-    // FULL IS THE WHOLE SKY, which is what the bake's cluster size is for: the rank's column CDF can only
-    // hand out the columns the bake of every cell put cloud in, so a bake that covered 0.69 of them capped
-    // the slider at 0.69 whatever it said.
+    // FULL IS THE WHOLE SKY, which is what the rank's falloff past the bodies is for: the column CDF can
+    // only hand out the columns that hold a rank, and the bodies alone cover 0.69 of them — the march
+    // grows the clouds into the rest instead of the bake inflating them (FARWX-a3).
     EXPECT_GE( fullCover, 0.99 ) << "a coverage of one kept cloud over only " << fullCover
                                  << " of the sky, so the bake of every cell leaves holes no setting can fill";
 

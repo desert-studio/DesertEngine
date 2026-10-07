@@ -192,7 +192,8 @@ namespace Desert::Assets
 
     inline constexpr uint32_t kCloudProceduralBytesPerVoxel = 4u;
 
-    /// The rank a voxel with no cloud stores. CloudProceduralKeep never keeps it at any cover.
+    /// The rank of a voxel no body reaches — only in a bake with no cloud at all, since air carries the
+    /// falloff of its nearest body. CloudProceduralKeep never keeps it at any cover.
     inline constexpr unsigned char kCloudProceduralNoRank = 255u;
 
     /// How far the rank rises from a body's core to its surface, at CoverageContrast 1 (the rise is this
@@ -755,7 +756,9 @@ namespace Desert::Assets
 
     /// The bake's two blocks: the RGBA8 Dimensional Profile per species (the bytes it always returned) and
     /// the R8 RANK of the cloud each voxel belongs to, remapped by the region's column CDF so that the
-    /// fraction of columns CloudProceduralKeep keeps at a cover c is c. Empty voxels hold kCloudProceduralNoRank.
+    /// fraction of columns CloudProceduralKeep keeps at a cover c is c. AIR HAS A RANK TOO: the profile's
+    /// falloff past the nearest body's edge (the march grows the clouds into it as the cover rises, so
+    /// Coverage 1 is the whole sky); only a bake with no cloud at all holds kCloudProceduralNoRank.
     struct CloudProceduralVolumeBake
     {
         std::vector<unsigned char> Voxels;
@@ -810,7 +813,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000003ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000004ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
