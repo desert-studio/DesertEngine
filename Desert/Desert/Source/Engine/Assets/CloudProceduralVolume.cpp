@@ -701,7 +701,7 @@ namespace Desert::Assets
         // A NEW FIELD HAS TO BE CONSIDERED HERE, not silently left out of the key: these sizes are the field
         // lists SerializeCloudProceduralBakeInputs writes. Growing either struct fails the build right here.
         static_assert( sizeof( Graphic::CloudTypeShape ) ==
-                            ( 13u + Graphic::kCloudProfileSamples ) * sizeof( float ),
+                            ( 13u + 2u * Graphic::kCloudProfileSamples ) * sizeof( float ),
                        "CloudTypeShape gained a field: add it to SerializeCloudProceduralBakeInputs" );
         static_assert( sizeof( CloudLayoutPlacement ) == 2u * sizeof( uint32_t ) + 4u * sizeof( float ),
                        "CloudLayoutPlacement gained a field: add it to SerializeCloudProceduralBakeInputs" );
