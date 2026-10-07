@@ -59,6 +59,16 @@ namespace Desert::Assets
         Generate,
         None,
     };
+    // What an FBX file's Specular map (FbxSurfaceMaterial::sSpecular, assimp aiTextureType_SPECULAR) holds. FBX
+    // defines it as a specular-colour image and UE links it to the material's Specular input
+    // (FFbxImporter::CreateUnrealMaterial); the file states nothing else, so a different use is the user's
+    // statement: `OcclusionRoughnessMetallic` = the image packs ambient occlusion in R, roughness in G and
+    // metalness in B (Amazon Lumberyard Bistro / NVIDIA ORCA, Falcor's metal-rough convention).
+    enum class FbxSpecularMap : uint8_t
+    {
+        Specular,
+        OcclusionRoughnessMetallic,
+    };
     // Where SRCE came from. `Imported` names a file (key + hash); `Recovered` is a source rebuilt from an older
     // render-form asset whose original file is not known — an explicit state, never an empty string.
     enum class MeshSourceProvenance : uint8_t
@@ -91,7 +101,9 @@ namespace Desert::Assets
         // (FindSkeletonsBySignature, exactly one), else writes a new .skeleton. Set = that skeleton or a refused
         // import (CheckSkeletonAssignment) - never a new .skeleton in its place.
         std::optional<Common::Content::AssetGuid> Skeleton;
-        bool                                      operator==( const SourceImportSettings& ) const = default;
+        // How the file's FBX Specular map enters the material (ImportManager, before the template fill).
+        FbxSpecularMap SpecularMap                                     = FbxSpecularMap::Specular;
+        bool           operator==( const SourceImportSettings& ) const = default;
     };
 
     struct MeshImportInfo
@@ -189,6 +201,8 @@ namespace Desert::Assets
     std::optional<MeshSourceUpAxis>     MeshSourceUpAxisFromName( std::string_view name );
     std::string_view                    MeshLodPolicyName( MeshLodPolicy policy );
     std::optional<MeshLodPolicy>        MeshLodPolicyFromName( std::string_view name );
+    std::string_view                    FbxSpecularMapName( FbxSpecularMap meaning );
+    std::optional<FbxSpecularMap>       FbxSpecularMapFromName( std::string_view name );
     std::string_view                    MeshSourceProvenanceName( MeshSourceProvenance provenance );
     std::optional<MeshSourceProvenance> MeshSourceProvenanceFromName( std::string_view name );
 } // namespace Desert::Assets

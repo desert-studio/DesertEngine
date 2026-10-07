@@ -54,6 +54,9 @@ namespace Desert::Assets::Serialization
         std::string LodPolicy;
         /// SourceImportSettings::Skeleton as its GUID's text; absent = none chosen.
         std::optional<std::string> Skeleton;
+        /// SourceImportSettings::SpecularMap by FbxSpecularMapName; absent = `Specular` (FBX's own meaning, UE's
+        /// default), so a record that never chose otherwise states nothing new.
+        std::optional<std::string> SpecularMap;
     };
     [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
     /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.

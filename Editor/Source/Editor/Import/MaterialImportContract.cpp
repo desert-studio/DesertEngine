@@ -179,6 +179,28 @@ namespace Desert::Editor
                 fill.UnreadKeys.push_back( key );
         return fill;
     }
+    SourceMaterial WithFbxSpecularMap( SourceMaterial material, const Assets::FbxSpecularMap meaning )
+    {
+        if ( meaning != Assets::FbxSpecularMap::OcclusionRoughnessMetallic )
+            return material;
+        if ( const auto found = material.Entries.find( kFbxSpecularMapKey ); found != material.Entries.end() )
+        {
+            auto node  = material.Entries.extract( found );
+            node.key() = std::string( kFbxOcclusionRoughnessMetalKey );
+            material.Entries.insert( std::move( node ) );
+        }
+        return material;
+    }
+
+    std::string_view UnreadKeyHint( const std::string_view key )
+    {
+        if ( key == kFbxSpecularMapKey )
+            return "the FBX Specular map is a specular-colour image as FBX defines it, and the template has no "
+                   "Specular input; if this file packs AO/roughness/metalness in R/G/B there (Lumberyard Bistro, "
+                   "ORCA), set Import Settings > FBX Specular Map to Packed and re-import with the .demat deleted";
+        return {};
+    }
+
     Assets::MaterialData ImportedMaterialDocument( const ImportTemplate& chosen, const TemplateFill& fill )
     {
         Assets::MaterialData data;

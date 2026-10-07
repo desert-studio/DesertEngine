@@ -488,8 +488,14 @@ namespace Desert::Editor
         // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
         // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
         // thumbnails.
+        // The FBX Specular map means what the user stated it means (SourceImportSettings::SpecularMap); the
+        // template's rows then route it like any other key.
         for ( const auto& material : resolved.Materials )
-            record( SerializeMaterialAsset( material, sourcePath ) );
+        {
+            ImportedMaterial stated = material;
+            stated.Source           = WithFbxSpecularMap( std::move( stated.Source ), settings.SpecularMap );
+            record( SerializeMaterialAsset( stated, sourcePath ) );
+        }
 
         if ( !firstFailure.empty() )
             return Common::MakeError<bool>( firstFailure );
@@ -670,9 +676,13 @@ namespace Desert::Editor
         const ImportTemplate& chosen = templates[choice.GetValue()];
         const TemplateFill    fill   = FillFromTemplate( material.Source, chosen );
         for ( const std::string& key : fill.UnreadKeys )
+        {
+            const std::string_view hint = UnreadKeyHint( key );
             LOG_WARN( "[Import][Material] '{}' in '{}': template '{}' has no Import row for '{}', so it is NOT "
-                      "imported",
-                      material.Name, sourcePath.generic_string(), chosen.ShaderName, key );
+                      "imported{}{}",
+                      material.Name, sourcePath.generic_string(), chosen.ShaderName, key, hint.empty() ? "" : ": ",
+                      hint );
+        }
 
         Assets::MaterialData data = ImportedMaterialDocument( chosen, fill );
         for ( const ImportedTextureSlot& slot : fill.Textures )
