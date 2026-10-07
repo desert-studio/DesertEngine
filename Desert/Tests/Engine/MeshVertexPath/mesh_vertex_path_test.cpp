@@ -35,6 +35,7 @@
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
@@ -375,6 +376,19 @@ TEST_F( MeshVertexPathShaderRoot, TheInstancedGBufferCellIsTheStaticOnePlusItsOw
          << ", so it is not fetching a per-instance model matrix at all";
     instancedBindings.erase( ownBinding );
 
+    // The static cell reads its world from the view's motion row (ObjectMotions, Common/ObjectMotion.glslh); the
+    // instanced cell deliberately does not: a batch is world-static (moving an instance rebuilds it), so its
+    // previous world IS its world and only the wind moves it, re-evaluated at the view's previous time
+    // (Vertex_Instanced.glslh, InstanceWindPush::B.z). The row is the static path's vertex-factory input, not
+    // surface data, so it leaves the comparison after both halves of that rule are checked.
+    EXPECT_TRUE( staticBindings.count( Desert::Core::kObjectMotionsBinding ) )
+         << staticName << " does not read its motion row, so its velocity has no previous world";
+    EXPECT_FALSE( instancedBindings.count( Desert::Core::kObjectMotionsBinding ) )
+         << instancedName
+         << " reads a motion row; an instanced batch derives its previous position from its "
+            "own transforms and the previous wind";
+    staticBindings.erase( Desert::Core::kObjectMotionsBinding );
+
     EXPECT_EQ( Describe( instancedBindings ), Describe( staticBindings ) )
          << "the two G-buffer cells declare different surfaces, so one of them is writing the G-buffer "
             "from data the other does not have";
@@ -400,10 +414,31 @@ TEST_F( MeshVertexPathShaderRoot, TheForwardVariantsAreOneSurfacePlusExactlyTheP
         ASSERT_FALSE( bindings[path].empty() ) << name;
     }
 
+    // In a VIEW pass the skinned path reads both frames' palettes from the view's one ObjectBones buffer at the
+    // offsets its motion row names (TAA1-VEL: every pass drawing the primitive skins it from the same bytes); the
+    // `Bones` binding MeshPathOwnBinding names belongs to its light-view caster cell, which
+    // TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBinding holds. A forward cell declaring it would be a
+    // second palette nobody fills.
+    const auto viewOwnBinding = []( MeshVertexPath path ) -> std::optional<uint32_t>
+    {
+        if ( path == MeshVertexPath::Skinned )
+            return Desert::Core::kObjectBonesBinding;
+        return MeshPathOwnBinding( path );
+    };
+    EXPECT_FALSE(
+         bindings[MeshVertexPath::Skinned].count( MeshPathOwnBinding( MeshVertexPath::Skinned ).value_or( 0 ) ) )
+         << "the Skinned forward cell declares the light-view Bones binding next to ObjectBones";
+    // The motion row: Static and Skinned read their world from it; Instanced derives its previous position from
+    // its world-static batch and the previous wind (Vertex_Instanced.glslh) and reads no row. It is vertex-factory
+    // data, so after this check it leaves the surface comparison.
+    EXPECT_TRUE( bindings[MeshVertexPath::Static].count( Desert::Core::kObjectMotionsBinding ) );
+    EXPECT_TRUE( bindings[MeshVertexPath::Skinned].count( Desert::Core::kObjectMotionsBinding ) );
+    EXPECT_FALSE( bindings[MeshVertexPath::Instanced].count( Desert::Core::kObjectMotionsBinding ) );
+
     // Every path's own binding is declared by that path...
     for ( const auto path : kAllPaths )
     {
-        const auto own = MeshPathOwnBinding( path );
+        const auto own = viewOwnBinding( path );
         if ( !own )
         {
             // Only the static path adds nothing — it reads its model matrix from the push constant.
@@ -427,8 +462,11 @@ TEST_F( MeshVertexPathShaderRoot, TheForwardVariantsAreOneSurfacePlusExactlyTheP
     // And with each path's own slot removed, the three sets are the SAME surface — same slots, same names.
     std::map<MeshVertexPath, std::map<uint32_t, std::string>> surfaceOnly = bindings;
     for ( const auto path : kAllPaths )
-        if ( const auto own = MeshPathOwnBinding( path ) )
+    {
+        if ( const auto own = viewOwnBinding( path ) )
             surfaceOnly[path].erase( *own );
+        surfaceOnly[path].erase( Desert::Core::kObjectMotionsBinding );
+    }
 
     for ( const auto path : kAllPaths )
     {

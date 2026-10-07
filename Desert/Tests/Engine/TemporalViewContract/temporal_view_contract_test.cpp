@@ -501,10 +501,16 @@ TEST( TemporalViewContract, ASceneChangeClearsMotion )
     EXPECT_EQ( state.Motion().PreviousTransform( { 1, 0 }, glm::mat4( 6.0f ) ), glm::mat4( 6.0f ) );
 }
 
-TEST( TemporalViewContract, GpuObjectMotionIsTwoMatrices )
+// The row is the two world matrices plus the two palette offsets TAA1-VEL added (skinned primitives skin every
+// view pass from the view's one ObjectBones buffer, so the row names both frames' palette slices), padded to a
+// 16-byte std430 stride. VelocityTarget.GpuObjectMotionHasAStd430TwinInGlsl pins the GLSL twin member by member.
+TEST( TemporalViewContract, GpuObjectMotionIsTwoMatricesAndTwoPaletteOffsets )
 {
-    EXPECT_EQ( sizeof( GpuObjectMotion ), 128u );
+    EXPECT_EQ( sizeof( GpuObjectMotion ), 144u );
     EXPECT_EQ( offsetof( GpuObjectMotion, PrevWorld ), 64u );
+    EXPECT_EQ( offsetof( GpuObjectMotion, BoneOffset ), 128u );
+    EXPECT_EQ( offsetof( GpuObjectMotion, PrevBoneOffset ), 132u );
+    EXPECT_EQ( sizeof( GpuObjectMotion ) % 16u, 0u );
 }
 
 // ---- TAA1-I2: the contract-header fixes -----------------------------------------------------------------------

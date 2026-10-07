@@ -1175,10 +1175,16 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteA
     const auto gbuffer = GraphicsSetZero( ShaderPath( "PBR/StandardSurface.shader" ), "Static.GBuffer" );
     ASSERT_FALSE( gbuffer.empty() );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( gbuffer ), 7u )
+    // TAA1-VEL: the G-buffer pass writes the view's velocity (slot 4), so the static cell reads its world and
+    // previous world from the view's motion row (ObjectMotions, Core::kObjectMotionsBinding) — the eighth slot.
+    EXPECT_TRUE( std::any_of( gbuffer.begin(), gbuffer.end(), []( const VkDescriptorSetLayoutBinding& b )
+                              { return b.binding == Desert::Core::kObjectMotionsBinding; } ) )
+         << "StandardSurface/Static.GBuffer writes velocity and declares no motion row";
+    EXPECT_EQ( ShaderReflection::CountDescriptors( gbuffer ), 8u )
          << "StandardSurface/Static.GBuffer's set 0 is " << DescribeBindings( gbuffer )
-         << " — a G-buffer write reads the camera, the material rows and the surface's five maps, and an "
-            "eighth descriptor is either a lighting slot that came back or a surface input nobody fills";
+         << " — a G-buffer write reads the camera, the material rows, the surface's five maps and the motion row "
+            "its velocity needs, and a ninth descriptor is either a lighting slot that came back or a surface "
+            "input nobody fills";
 
     EXPECT_TRUE( HasBinding( gbuffer, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // CameraUB (vertex)
     EXPECT_TRUE( HasBinding( gbuffer, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // Materials[]

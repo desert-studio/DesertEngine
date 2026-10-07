@@ -21,6 +21,7 @@
 
 #include <shaderc/shaderc.hpp>
 
+#include "../../TestSupport/runner.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 
 #include <gtest/gtest.h>
@@ -63,7 +64,9 @@ namespace VelocityTargetTest
         std::smatch                                      match;
         if ( !std::regex_search( source, match, head ) )
             return members;
-        const std::string body = match[1].str();
+        // Line comments go first: the twin's member comments are prose ("... palette in objectBones; 0
+        // otherwise"), and a `word word;` inside one would otherwise read as a member.
+        const std::string body = std::regex_replace( match[1].str(), std::regex( "//[^\\n]*" ), "" );
         const std::regex  member( "(\\w+)\\s+(\\w+)\\s*;" );
         for ( auto it = std::sregex_iterator( body.begin(), body.end(), member ); it != std::sregex_iterator();
               ++it )
@@ -172,10 +175,12 @@ TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
     }
 
     const std::string gbuffer = noWs( ReadFile( root / "Pass_GBuffer.glslh" ) );
-    const auto        gate    = gbuffer.find( "#ifndefDESERT_GBUFFER_RSM" );
     const auto        output  = gbuffer.find( "layout(location=4)outvec2oVelocity;" );
-    ASSERT_NE( gate, std::string::npos );
     ASSERT_NE( output, std::string::npos );
+    // The NEAREST gate before the output: the pass has more than one RSM gate (GBUF1 also gates the shading word
+    // at slot 2), and the one that matters is the one whose #endif must come after oVelocity.
+    const auto gate = gbuffer.rfind( "#ifndefDESERT_GBUFFER_RSM", output );
+    ASSERT_NE( gate, std::string::npos );
     EXPECT_LT( gate, output );
     EXPECT_EQ( gbuffer.find( "#endif", gate ) > output, true ) << "oVelocity sits outside the RSM gate";
 
@@ -480,8 +485,10 @@ TEST( VelocityTarget, EveryViewPassDrawIndexesItsMotionRowAndPushesARelativeTran
          "void MeshRenderer::BuildStaticDraws(",
          "void MeshRenderer::BuildSkinnedDraws(",
     };
-    const std::regex designated( "\.Transform\s*=\s*([^,\n]+)," );
-    const std::regex pushed( "SetPushMatrix\(\s*([^;]+?)\s*\);" );
+    // Raw strings: as plain literals `\(` and `\s` are unknown escapes MSVC turns into `(` and `s`, so the pattern
+    // silently became a different one (an extra capture group took the call's parentheses).
+    const std::regex designated( R"(\.Transform\s*=\s*([^,\n]+),)" );
+    const std::regex pushed( R"(SetPushMatrix\(\s*([^;]+?)\s*\);)" );
     for ( const auto& head : builders )
     {
         const std::string body = FunctionBody( forward, head );
@@ -1014,3 +1021,10 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
         }
     }
 }
+
+namespace
+{
+    // The depth-writer census parses every shipped program, and a surface program's includes resolve against
+    // ShaderDir(), which derives from the engine directory (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace
