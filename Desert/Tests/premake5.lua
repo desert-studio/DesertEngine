@@ -82,7 +82,7 @@ local function DesertRunnerSettings(deps)
         externalincludedirs { p }
     end
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
-    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus" }
+    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus", "Voro" }
     filter "system:windows"
         buildoptions { "/bigobj" }
     -- gmake does not link a static library's own dependencies transitively (Visual Studio does, through
