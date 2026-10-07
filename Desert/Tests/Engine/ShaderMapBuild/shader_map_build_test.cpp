@@ -346,7 +346,7 @@ TEST_F( ShaderMapBuildFixture, EveryShippedProgramCompilesToStages )
     ASSERT_EQ( builtPasses.size(), passes.size() );
     for ( size_t i = 0; i < passes.size(); ++i )
     {
-        SCOPED_TRACE( std::format( "{} / {}", passes[i].Path.generic_string(), passes[i].Pass ) );
+        SCOPED_TRACE( std::format( "{} / {}", passes[i].Path.generic_string(), passes[i].PassName ) );
         EXPECT_TRUE( builtPasses[i].Error.empty() ) << builtPasses[i].Error;
         EXPECT_FALSE( builtPasses[i].Map.Stages.empty() ) << "the pass has no compiled stages";
     }
