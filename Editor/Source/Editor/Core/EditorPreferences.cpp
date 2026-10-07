@@ -12,11 +12,13 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
 #include <optional>
 #include <sstream>
+#include <string_view>
 
 namespace Desert::Editor
 {
@@ -222,14 +224,48 @@ namespace Desert::Editor
     //
     // EXPIRY: a row leaves this list when no config in circulation can still carry the key. It costs one
     // string compare per unknown key per read, and a read has neither in the ordinary case.
-    static bool IsRetiredKey( const std::string& key )
+    //
+    // A row is (block, key): the block is "" for the file's top level, or the name of the nested struct
+    // the key lived in (`DebugView`, `PreviewScene`) — every level carries unknown keys, so every level
+    // can retire one.
+    struct RetiredKey
     {
-        static const std::vector<std::string> retired = { "PhotogrammetryCaptureCommand", "PhotogrammetryMode",
-                                                          "MSAASamples" };
-        return std::find( retired.begin(), retired.end(), key ) != retired.end();
+        std::string_view Block;
+        std::string_view Key;
+    };
+
+    static bool IsRetiredKey( std::string_view block, const std::string& key )
+    {
+        static constexpr RetiredKey retired[] = {
+             { "", "PhotogrammetryCaptureCommand" }, { "", "PhotogrammetryMode" }, { "", "MSAASamples" } };
+        return std::any_of( std::begin( retired ), std::end( retired ),
+                            [&]( const RetiredKey& row ) { return row.Block == block && row.Key == key; } );
     }
 
-    // Drops the retired keys from `p`, naming each in `raised` when one is given.
+    // EVERY LEVEL OF editor.json THAT CARRIES ANOTHER BUILD'S KEYS. Json::Read refuses an undeclared key
+    // at any depth, so a nested struct without a carrier would make one new field of a newer build turn
+    // the whole file into "corrupt -> defaults -> overwritten on the next save" for every older build.
+    // A nested struct added to EditorPreferences gets a CarriedKeys member AND a row here;
+    // Desert/Tests/Editor/PreferenceOwnership round-trips a foreign key through each row.
+    struct KeyCarrier
+    {
+        std::string_view           Block; // "" = the top level
+        Common::Json::CarriedKeys* Keys;
+    };
+
+    static std::array<KeyCarrier, 3> CarriersOf( EditorPreferences& p )
+    {
+        return { { { "", &p.UnknownKeys },
+                   { "DebugView", &p.DebugView.UnknownKeys },
+                   { "PreviewScene", &p.PreviewScene.UnknownKeys } } };
+    }
+
+    static std::string QualifiedKey( std::string_view block, const std::string& key )
+    {
+        return block.empty() ? key : std::string( block ) + "." + key;
+    }
+
+    // Drops the retired keys from every carrier of `p`, naming each in `raised` when one is given.
     //
     // BOTH PATHS THAT TAKE UNKNOWN KEYS OFF DISK CALL THIS, and they have to: MigrateLoaded() for the read
     // at startup, AdoptUnknownKeysFromDisk() for the re-read at the moment of writing. One rule, one
@@ -241,21 +277,25 @@ namespace Desert::Editor
     // compares the serialized TEXT.
     static void DropRetiredKeys( EditorPreferences& p, std::vector<std::string>* raised )
     {
-        if ( p.UnknownKeys.empty() )
-            return;
-
-        Common::Json::KeyedValues kept;
-        for ( const auto& [key, value] : p.UnknownKeys )
+        for ( const KeyCarrier& carrier : CarriersOf( p ) )
         {
-            if ( !IsRetiredKey( key ) )
-            {
-                kept.insert( key, value );
+            if ( carrier.Keys->empty() )
                 continue;
+
+            Common::Json::CarriedKeys kept;
+            for ( const auto& [key, value] : *carrier.Keys )
+            {
+                if ( !IsRetiredKey( carrier.Block, key ) )
+                {
+                    kept.insert( key, value );
+                    continue;
+                }
+                if ( raised != nullptr )
+                    raised->push_back( "retired key '" + QualifiedKey( carrier.Block, key ) +
+                                       "' dropped (this build does not declare it)" );
             }
-            if ( raised != nullptr )
-                raised->push_back( "retired key '" + key + "' dropped (this build does not declare it)" );
+            *carrier.Keys = std::move( kept );
         }
-        p.UnknownKeys = std::move( kept );
     }
 
     // WHAT editor.json HOLDS AT THIS INSTANT, and the unknown keys taken from it — refreshed into
@@ -307,7 +347,12 @@ namespace Desert::Editor
         const std::string canonical = Common::Json::Write( fromDisk );
 
         DropRetiredKeys( fromDisk, nullptr );
-        EditorPreferences::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
+        // Every level, not only the top: a key a newer build added inside DebugView after this process
+        // started is as much another build's as a top-level one.
+        const std::array<KeyCarrier, 3> current = CarriersOf( EditorPreferences::Get() );
+        const std::array<KeyCarrier, 3> onDisk  = CarriersOf( fromDisk );
+        for ( std::size_t i = 0; i < current.size(); ++i )
+            *current[i].Keys = std::move( *onDisk[i].Keys );
         return canonical;
     }
 
@@ -553,8 +598,8 @@ namespace Desert::Editor
             {
                 LOG_WARN( "[Prefs] {} is empty; using defaults.", PrefsFile() );
             }
-            // Lenient (DESERT_JSON_LENIENT in the header): prefs written by older builds (fewer fields) keep
-            // loading — new fields just take their in-struct defaults instead of failing the whole file.
+            // Prefs written by older builds (fewer fields) keep loading — Json::Read gives every field the file
+            // does not state its in-struct default; keys of a newer build land in UnknownKeys.
             else if ( auto parsed = Common::Json::Read<EditorPreferences>( raw.GetValue() ); parsed )
             {
                 Get() = parsed.GetValue();
@@ -585,15 +630,20 @@ namespace Desert::Editor
             // cannot show or edit, and the only symptom otherwise available is the one К9 came from: nobody
             // noticing until the values were already gone. Named rather than counted, because "3 unknown
             // keys" tells a reader nothing about whether to go and look for the build that wrote them.
-            if ( !Get().UnknownKeys.empty() )
+            std::string names;
+            std::size_t count = 0;
+            for ( const KeyCarrier& carrier : CarriersOf( Get() ) )
             {
-                std::string names = Get().UnknownKeys.begin()->first;
-                for ( auto it = std::next( Get().UnknownKeys.begin() ); it != Get().UnknownKeys.end(); ++it )
-                    names += ", " + it->first;
-
+                for ( const auto& [key, value] : *carrier.Keys )
+                {
+                    names += ( count++ == 0 ? "" : ", " ) + QualifiedKey( carrier.Block, key );
+                }
+            }
+            if ( count != 0 )
+            {
                 LOG_INFO( "[Prefs] {} holds {} key(s) this build does not know ({}); they belong to another "
                           "build and are preserved on save, not dropped.",
-                          PrefsFile(), Get().UnknownKeys.size(), names );
+                          PrefsFile(), count, names );
             }
         }
 

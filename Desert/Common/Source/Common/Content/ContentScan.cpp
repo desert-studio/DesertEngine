@@ -250,7 +250,7 @@ namespace Common::Content
         {
             std::optional<StatedBox> Bounds;
         };
-        DESERT_JSON_LENIENT( StatedPrefabBounds, "reads the one Bounds member of a whole prefab document; every "
+        DESERT_JSON_PARTIAL( StatedPrefabBounds, "reads the one Bounds member of a whole prefab document; every "
                                                  "other key is the rest of that prefab, not damage" )
     } // namespace StatedMembers
 
@@ -273,7 +273,7 @@ namespace Common::Content
         {
             std::optional<StatedClipSkeletonRef> Skeleton;
         };
-        DESERT_JSON_LENIENT( StatedClipSkeleton,
+        DESERT_JSON_PARTIAL( StatedClipSkeleton,
                              "reads the one Skeleton member of a whole clip document; the "
                              "channels, notifies and curves are the rest of that clip, not damage" )
         AssetGuid StatedClipSkeletonGuid( const std::filesystem::path& file )
@@ -300,7 +300,7 @@ namespace Common::Content
         {
             std::optional<std::vector<std::string>> Nodes;
         };
-        DESERT_JSON_LENIENT( StatedImportNodes, "reads the one Nodes member of a whole import record; the source, "
+        DESERT_JSON_PARTIAL( StatedImportNodes, "reads the one Nodes member of a whole import record; the source, "
                                                 "settings and bounds are the rest of that record, not damage" )
         bool ImportRecordStatesNodes( const std::filesystem::path& record )
         {

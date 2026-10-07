@@ -197,9 +197,6 @@ namespace Common::Settings
         static void DropRetiredKeys( MachineSettings& settings );
     };
     DESERT_JSON_STRUCT( MachineSettings, "MachineSettings", 1 )
-    DESERT_JSON_LENIENT( MachineSettings,
-                         "one machine-wide file written by every build and worktree on this machine at once: a "
-                         "field an older build has not got yet is that build's normal output, not damage" )
 
     // Where a PACKAGED GAME keeps what belongs to this player on this machine — its save games, and this
     // file beside them. Created on demand.

@@ -1,5 +1,5 @@
 // EVERY COMMITTED TEXT ASSET READS STRICTLY (JS1b). The asset formats moved onto Common::Json, whose reads
-// refuse a missing field and an unknown key instead of filling in a default. That move is only safe if no
+// refuse an unknown key (a missing field is the struct's default, owner 2026-10-07). That move is only safe if no
 // file the repository ships leans on the old leniency, so this walks every committed file of each moved kind
 // (git ls-files: the editor's assets, the cooked meshes, the test fixtures) and reads it through the format's own
 // parser. A file that fails here is either migrated or its field is made std::optional with a reason, never read

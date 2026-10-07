@@ -168,8 +168,8 @@ namespace Common::Json
         // A DECIMAL STRING: a 64-bit id does not survive JSON's double, so ids are written as text.
         [[nodiscard]] ResultStr<UUID> AsUuid() const;
 
-        // STRICT typed extraction, Json::Read's rules: missing member and unknown key are errors (unless T is
-        // DESERT_JSON_LENIENT, or declares CarriedKeys, which captures the unknown keys).
+        // Typed extraction under Json::Read's rules: a missing member takes T's in-struct default, an unknown key
+        // is an error (unless T is DESERT_JSON_PARTIAL, or declares CarriedKeys, which captures the unknown keys).
         template <typename T>
         [[nodiscard]] ResultStr<T> As() const
         {
@@ -177,10 +177,10 @@ namespace Common::Json
             {
                 auto parsed = [&]
                 {
-                    if constexpr ( IsLenient<T> )
+                    if constexpr ( IsPartial<T> )
                         return rfl::from_generic<T, rfl::DefaultIfMissing>( *m_Value );
                     else
-                        return rfl::from_generic<T, rfl::NoExtraFields>( *m_Value );
+                        return rfl::from_generic<T, rfl::DefaultIfMissing, rfl::NoExtraFields>( *m_Value );
                 }();
                 if ( !parsed )
                     return MakeError<T>( Located( Detail::DescribeReadError( parsed.error().what() ) ) );
