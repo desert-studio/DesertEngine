@@ -3702,7 +3702,16 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
     // where a cell's shader has slots for them; RDG-PSO: one block per cell), plus the scene copy it refracts.
     const std::string glass =
          read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
-    EXPECT_NE( glass.find( "m_GlassDraws.Declare( pass, view," ), std::string::npos )
+    // The call's arguments are matched with every whitespace run read as one space: clang-format may wrap them.
+    std::string glassFlat;
+    for ( const char c : glass )
+    {
+        if ( std::isspace( static_cast<unsigned char>( c ) ) == 0 )
+            glassFlat += c;
+        else if ( !glassFlat.empty() && glassFlat.back() != ' ' )
+            glassFlat += ' ';
+    }
+    EXPECT_NE( glassFlat.find( "m_GlassDraws.Declare( pass, view," ), std::string::npos )
          << "Deferred: Glass no longer declares the scene/view inputs in its binding blocks";
     EXPECT_NE( frame.find( "meshRenderer->DeclareGlassBindings( pass, sceneCopy, view );" ), std::string::npos );
 
