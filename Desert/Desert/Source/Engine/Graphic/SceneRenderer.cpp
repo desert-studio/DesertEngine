@@ -130,7 +130,7 @@ namespace Desert::Graphic
         uint32_t samples =
              static_cast<uint32_t>( std::clamp( requested, 1, RenderConfig::MaxMSAASamples.load() ) );
         const uint32_t mask = EngineContext::GetInstance().GetCapabilities().MSAASampleMask;
-        while ( samples > 1 && !( mask & samples ) )
+        while ( samples > 1 && ( mask & samples ) == 0u )
             samples >>= 1;
         return std::max( 1u, samples );
     }
@@ -656,8 +656,10 @@ namespace Desert::Graphic
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
              ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
@@ -877,7 +879,7 @@ namespace Desert::Graphic
 
             RDG::TextureRef giAccum;
 
-            if ( m_GIMode == Core::GIMode::RSM && meshRenderer && EnsureGIResources() )
+            if ( m_GIMode == Core::GIMode::RSM && meshRenderer != nullptr && EnsureGIResources() )
             {
                 const std::vector<RDG::TextureRef> rsm = textures.Colors( m_RSMBuffer, "RSM" );
                 const glm::vec3                    sunDir( lightDir );
@@ -901,6 +903,7 @@ namespace Desert::Graphic
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
             const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy );
 
@@ -1341,9 +1344,11 @@ namespace Desert::Graphic
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
     {
         // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.
-        const char* finalSystem = ( m_AAMode == Common::Settings::AntiAliasingMethod::FXAA )   ? "FXAASystem"
-                                  : ( m_AAMode == Common::Settings::AntiAliasingMethod::SMAA ) ? "SMAASystem"
-                                                                                               : "TonemapSystem";
+        const char* finalSystem = "TonemapSystem";
+        if ( m_AAMode == Common::Settings::AntiAliasingMethod::FXAA )
+            finalSystem = "FXAASystem";
+        else if ( m_AAMode == Common::Settings::AntiAliasingMethod::SMAA )
+            finalSystem = "SMAASystem";
 
         return std::static_pointer_cast<System::RenderSystem>( m_RenderSystems[finalSystem] )
              ->GetSystemFramebuffer()
@@ -1400,7 +1405,7 @@ namespace Desert::Graphic
             }
 
         private:
-            ExternalPassContext Context( const FrameGraphRefs& refs ) const
+            [[nodiscard]] ExternalPassContext Context( const FrameGraphRefs& refs ) const
             {
                 const auto&         target = m_Renderer->GetTargetFramebuffer();
                 ExternalPassContext ctx;
@@ -1568,7 +1573,7 @@ namespace Desert::Graphic
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
-            if ( mesh && mesh->AreShadowsEnabled() )
+            if ( mesh != nullptr && mesh->AreShadowsEnabled() )
                 for ( uint32_t c = 0; c < mesh->GetValidCascadeCount(); ++c )
                     declared.Read( mesh->GetCascadeShadowImage( c ), RDG::Access::SampledGraphics,
                                    std::format( "ShadowCascade{}", c ) );
@@ -1577,7 +1582,7 @@ namespace Desert::Graphic
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             const auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second );
-            if ( clouds && clouds->HasShadowMap() )
+            if ( clouds != nullptr && clouds->HasShadowMap() )
                 declared.Read( clouds->GetShadowMap(), RDG::Access::SampledGraphics, "Clouds.ShadowMap" );
         }
     }

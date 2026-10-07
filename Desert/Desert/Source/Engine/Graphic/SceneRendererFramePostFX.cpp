@@ -38,23 +38,16 @@
 
 namespace Desert::Graphic
 {
-    namespace
-    {
-        void ReadEach( RDG::PassBuilder& pass, const std::vector<RDG::TextureRef>& refs, RDG::Access access )
-        {
-            for ( const RDG::TextureRef ref : refs )
-                pass.Read( ref, access );
-        }
-    } // namespace
-
     void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* jfa = UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-        if ( !jfa )
+        if ( jfa == nullptr )
             return;
         // Whether anything is outlined is known once the mesh draws of this frame are gathered, before the
         // graph is built: it decides which nodes exist.
         jfa->SetOutlineActive(
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
              UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
         if ( !jfa->Prepare() )
             return;
@@ -123,14 +116,16 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                               const std::vector<RDG::TextureRef>& sceneColor )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
-        if ( !autoExp || sceneColor.empty() )
+        if ( autoExp == nullptr || sceneColor.empty() )
             return;
         // Prepare picks which 1x1 image this frame writes, which the graph must know to import it and the tonemap
         // to sample it: a build-time decision.
         if ( !autoExp->Prepare() )
             return;
         // The tonemap samples the luminance this frame writes; that image is known when the graph is built.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetAutoExposureImage( autoExp->GetAdaptedLuminanceImage() );
         const RDG::TextureRef previous =
@@ -178,8 +173,9 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                                        const std::vector<RDG::TextureRef>& sceneColor )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] );
-        if ( !bloom || sceneColor.empty() )
+        if ( bloom == nullptr || sceneColor.empty() )
             return;
         const std::optional<RDG::TextureDesc> desc = bloom->GetChainDesc();
         if ( !desc )
@@ -226,16 +222,18 @@ namespace Desert::Graphic
         // are); the shafts here and the lens flare after them read it from the frame's shared values, whether or
         // not the shafts run.
         const AtmosphereEnv& atmosphere = GetAtmosphere();
-        if ( m_SceneInfo.ActiveCamera && atmosphere.Valid )
+        if ( m_SceneInfo.ActiveCamera != nullptr && atmosphere.Valid )
         {
             const glm::mat4 viewProjection =
                  m_SceneInfo.ActiveCamera->GetProjectionMatrix() * m_SceneInfo.ActiveCamera->GetViewMatrix();
             values->Sun = ComputeSunScreen( viewProjection, atmosphere.SunDirection );
         }
 
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* shafts  = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
-        if ( !shafts || !tonemap || sceneColor.empty() )
+        if ( shafts == nullptr || tonemap == nullptr || sceneColor.empty() )
             return;
 
         // The params and the tonemap's shaft intensity come from the same numbers that decide whether the nodes
@@ -297,9 +295,11 @@ namespace Desert::Graphic
                                            const std::vector<RDG::TextureRef>& sceneColor,
                                            const std::shared_ptr<FrameValues>& values )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* flare   = UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
-        if ( !flare || !tonemap || sceneColor.empty() )
+        if ( flare == nullptr || tonemap == nullptr || sceneColor.empty() )
             return;
 
         // The sun is the frame's (AddFrameLightShafts put it in the shared values when the graph was built).
@@ -353,8 +353,9 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
-        if ( !tonemap )
+        if ( tonemap == nullptr )
             return;
         const System::TonemapRenderer::Inputs inputs = tonemap->GetInputs();
         const RDG::TextureRef                 source = textures.Import( inputs.Source, "Tonemap.Source" );
@@ -411,8 +412,9 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* fxaa = UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] );
-        if ( !fxaa )
+        if ( fxaa == nullptr )
             return;
         const RDG::TextureRef input  = textures.Import( fxaa->GetInputImage(), "Tonemap" );
         const RDG::TextureRef output = textures.Import( fxaa->GetOutputImage(), "FXAA" );
@@ -429,8 +431,9 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* smaa = UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] );
-        if ( !smaa )
+        if ( smaa == nullptr )
             return;
         const std::optional<RDG::TextureDesc> desc = smaa->GetIntermediateDesc();
         if ( !desc )
@@ -480,8 +483,9 @@ namespace Desert::Graphic
     RDG::TextureRef SceneRenderer::AddFrameBackdropBlur( RDG::Builder& graph, FrameTextures& textures,
                                                          const std::vector<RDG::TextureRef>& sceneColor )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* backdrop = UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );
-        if ( !backdrop || sceneColor.empty() )
+        if ( backdrop == nullptr || sceneColor.empty() )
             return {};
         const std::optional<RDG::TextureDesc> desc = backdrop->GetPyramidDesc();
         if ( !desc )

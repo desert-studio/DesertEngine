@@ -84,7 +84,7 @@ namespace Desert::Graphic
 
         // A null @p parameterSchema means the shader's OWN ProgramMeta.
         static std::unique_ptr<MaterialExecutor>
-        Create( std::string&& debugName, std::string&& shaderName,
+        Create( std::string&& debugName, const std::string& shaderName,
                 const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
         static std::unique_ptr<MaterialExecutor>
         Create( std::string&& debugName, const std::shared_ptr<Shader>& shader,

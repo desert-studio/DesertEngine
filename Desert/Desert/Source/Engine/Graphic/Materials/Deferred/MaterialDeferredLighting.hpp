@@ -107,8 +107,8 @@ namespace Desert::Graphic
                 const ShaderProtocols::PointLightPayload noPoint{};
                 const bool                               anyPoint = !pointLights.PointLights.empty();
                 if ( auto* sb = Get<StorageBufferProperty>( ShaderProtocols::PointLight::Name ) )
-                    sb->SetRawData( anyPoint ? (const std::byte*)pointLights.PointLights.data()
-                                             : (const std::byte*)&noPoint,
+                    sb->SetRawData( anyPoint ? static_cast<const void*>( pointLights.PointLights.data() )
+                                             : static_cast<const void*>( &noPoint ),
                                     static_cast<uint32_t>( ( anyPoint ? pointLights.PointLights.size() : 1u ) *
                                                            sizeof( ShaderProtocols::PointLightPayload ) ) );
             }
@@ -116,8 +116,8 @@ namespace Desert::Graphic
                 const ShaderProtocols::SpotLightPayload noSpot{};
                 const bool                              anySpot = !spotLights.SpotLights.empty();
                 if ( auto* sb = Get<StorageBufferProperty>( ShaderProtocols::SpotLight::Name ) )
-                    sb->SetRawData( anySpot ? (const std::byte*)spotLights.SpotLights.data()
-                                            : (const std::byte*)&noSpot,
+                    sb->SetRawData( anySpot ? static_cast<const void*>( spotLights.SpotLights.data() )
+                                            : static_cast<const void*>( &noSpot ),
                                     static_cast<uint32_t>( ( anySpot ? spotLights.SpotLights.size() : 1u ) *
                                                            sizeof( ShaderProtocols::SpotLightPayload ) ) );
             }

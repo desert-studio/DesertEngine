@@ -30,7 +30,7 @@ namespace Desert::Graphic::System
 
         FramebufferSpecification spec;
         spec.DebugName = "JFA_Output";
-        spec.Attachments.Attachments.push_back( kSeedFormat );
+        spec.Attachments.Attachments.emplace_back( kSeedFormat );
         m_Framebuffer = Graphic::Framebuffer::Create( spec );
         if ( !m_Framebuffer )
         {
@@ -71,7 +71,8 @@ namespace Desert::Graphic::System
             if ( framebuffer )
                 spec.Framebuffer = framebuffer;
             else
-                spec.TargetLayout = RenderTargetLayout{ .ColorFormats = { kSeedFormat } };
+                spec.TargetLayout =
+                     RenderTargetLayout{ .ColorFormats = { kSeedFormat }, .DepthFormat = std::nullopt };
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
             spec.CullMode          = CullMode::None;

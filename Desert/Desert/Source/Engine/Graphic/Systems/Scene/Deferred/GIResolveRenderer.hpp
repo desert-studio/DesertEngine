@@ -61,7 +61,8 @@ namespace Desert::Graphic::System
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "GIResolve";
             // The gather is a graph transient: built against the graph's canonical pass for that one target.
-            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kGIResolve } };
+            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kGIResolve },
+                                                         .DepthFormat  = std::nullopt };
             spec.Shader            = m_Shader;
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
@@ -187,11 +188,11 @@ namespace Desert::Graphic::System
         }
 
         // Before RecordTemporal: the target it writes this frame, the one it reprojects.
-        std::shared_ptr<Image2D> GetAccumImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetAccumImage() const
         {
             return m_AccumFB[m_AccumIndex] ? m_AccumFB[m_AccumIndex]->GetColorAttachmentImage( 0 ) : nullptr;
         }
-        std::shared_ptr<Image2D> GetHistoryImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetHistoryImage() const
         {
             const uint32_t prv = 1u - m_AccumIndex;
             return m_AccumFB[prv] ? m_AccumFB[prv]->GetColorAttachmentImage( 0 ) : nullptr;

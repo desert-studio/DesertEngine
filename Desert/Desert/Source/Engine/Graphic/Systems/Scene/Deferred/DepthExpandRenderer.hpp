@@ -24,7 +24,7 @@ namespace Desert::Graphic::System
     public:
         using RenderSystem::RenderSystem;
 
-        virtual Common::BoolResultStr Initialize() override
+        Common::BoolResultStr Initialize() override
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
@@ -64,7 +64,7 @@ namespace Desert::Graphic::System
         }
 
         // Whether the scene target needs an expansion and one was built for it.
-        bool IsReady() const
+        [[nodiscard]] bool IsReady() const
         {
             return m_Pipeline && m_Material;
         }

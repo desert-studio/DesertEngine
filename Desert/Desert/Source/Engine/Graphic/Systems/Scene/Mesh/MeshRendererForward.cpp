@@ -265,6 +265,8 @@ namespace Desert::Graphic::System
                     auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
                     if ( tex == nullptr )
                         continue;
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
+                    // type
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
                     if ( img != nullptr && !material->SetTexture( name, img ) )
@@ -491,9 +493,9 @@ namespace Desert::Graphic::System
         {
             return BOOLSUCCESS;
         }
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        const auto  camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
-        if ( !target || !camera )
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( !target || camera == nullptr )
         {
             return BOOLSUCCESS;
         }
@@ -654,7 +656,7 @@ namespace Desert::Graphic::System
         for ( const auto& data : m_StaticQueue )
         {
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() ||
-                 !data.MaterialSlots->Slots[0] )
+                 data.MaterialSlots->Slots[0] == nullptr )
                 continue;
 
             if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
@@ -1373,7 +1375,7 @@ namespace Desert::Graphic::System
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_Translucent[cellShader];
 
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         auto        shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
         if ( !shader || !target )
         {

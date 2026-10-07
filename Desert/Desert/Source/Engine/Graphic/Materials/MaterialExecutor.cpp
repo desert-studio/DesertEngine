@@ -170,7 +170,7 @@ namespace Desert::Graphic
     }
 
     std::unique_ptr<MaterialExecutor>
-    MaterialExecutor::Create( std::string&& debugName, std::string&& shaderName,
+    MaterialExecutor::Create( std::string&& debugName, const std::string& shaderName,
                               const Core::Formats::ShaderProgramMeta* parameterSchema )
     {
         const auto& resolvedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
@@ -188,7 +188,7 @@ namespace Desert::Graphic
             {
                 return std::make_unique<MaterialExecutor>(
                      std::move( debugName ), resolvedShader,
-                     parameterSchema ? *parameterSchema : resolvedShader->GetProgramMeta(),
+                     parameterSchema != nullptr ? *parameterSchema : resolvedShader->GetProgramMeta(),
                      std::make_unique<API::Vulkan::VulkanMaterialBackend>( resolvedShader ),
                      VulkanPushBlockSize( resolvedShader ) );
             }
@@ -208,7 +208,8 @@ namespace Desert::Graphic
             case RendererAPIType::Vulkan:
             {
                 return std::make_unique<MaterialExecutor>(
-                     std::move( debugName ), shader, parameterSchema ? *parameterSchema : shader->GetProgramMeta(),
+                     std::move( debugName ), shader,
+                     parameterSchema != nullptr ? *parameterSchema : shader->GetProgramMeta(),
                      std::make_unique<API::Vulkan::VulkanMaterialBackend>( shader ),
                      VulkanPushBlockSize( shader ) );
             }

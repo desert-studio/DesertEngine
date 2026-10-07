@@ -88,7 +88,7 @@ namespace Desert::Graphic
 
     std::shared_ptr<Image2D> DefaultTextures::Share( Core::Formats::DefaultTextureKind kind )
     {
-        if ( !Resolve( kind ) )
+        if ( Resolve( kind ) == nullptr )
             return nullptr;
         return m_Images[static_cast<std::size_t>( kind )];
     }

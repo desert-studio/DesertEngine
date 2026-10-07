@@ -122,9 +122,14 @@ namespace Desert::Graphic::System
                   uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0, uint32_t lodLevel = 0 )
         {
             if ( pipeline == nullptr || mesh == nullptr || material == nullptr )
-                return Common::MakeFormattedError( "mesh draw refused: no {}", pipeline == nullptr ? "pipeline"
-                                                                               : mesh == nullptr   ? "mesh"
-                                                                                                   : "material" );
+            {
+                const char* missing = "material";
+                if ( pipeline == nullptr )
+                    missing = "pipeline";
+                else if ( mesh == nullptr )
+                    missing = "mesh";
+                return Common::MakeFormattedError( "mesh draw refused: no {}", missing );
+            }
             return Renderer::GetInstance().RenderMesh( pass.For( *material ), *pipeline, *mesh, transform,
                                                        *material, instanceCount, firstInstance, hiddenSubmeshMask,
                                                        lodLevel );
