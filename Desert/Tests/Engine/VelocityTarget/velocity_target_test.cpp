@@ -426,3 +426,62 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
     EXPECT_NE( captureBody.find( "frame.ObjectMotions = m_ObjectMotions;" ), std::string::npos );
     EXPECT_NE( captureBody.find( "frame.ObjectBones   = m_ObjectBones;" ), std::string::npos );
 }
+
+namespace VelocityTargetTest
+{
+    // The body of `<head>` in a source (CR stripped): from the head to the next top-level `    }` line of the namespace.
+    std::string FunctionBody( const std::string& crlfOrLf, const std::string& head )
+    {
+        std::string source = crlfOrLf;
+        source.erase( std::remove( source.begin(), source.end(), '\r' ), source.end() );
+        const auto begin = source.find( head );
+        if ( begin == std::string::npos )
+            return {};
+        const auto end = source.find( "
+    }
+", begin );
+        return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+    }
+} // namespace VelocityTargetTest
+
+// Step B: every view-pass draw builder indexes the object's motion row and pushes the submesh transform RELATIVE to
+// it (identity), and the skinned view path skins from the row's ObjectBones slices instead of uploading its own
+// palette. Mutations: drop a SetPrimitiveIndex (static / generic / glass / skinned) -> red; push obj->Transform or
+// g.Transform again (as `.Transform` or SetPushMatrix) -> red; restore UploadSkinnedBones or SetSkinnedBoneOffset in
+// BuildSkinnedDraws -> red.
+TEST( VelocityTarget, EveryViewPassDrawIndexesItsMotionRowAndPushesARelativeTransform )
+{
+    using VelocityTargetTest::FunctionBody;
+    using VelocityTargetTest::ReadFile;
+    const auto        root    = Desert::TestSupport::RepositoryRoot();
+    const std::string forward = ReadFile(
+         root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
+    const std::vector<std::string> builders = {
+         "void MeshRenderer::BuildGenericDraws(",
+         "void MeshRenderer::DeclareGlassBindings(",
+         "void MeshRenderer::BuildStaticDraws(",
+         "void MeshRenderer::BuildSkinnedDraws(",
+    };
+    const std::regex designated( "\.Transform\s*=\s*([^,\n]+)," );
+    const std::regex pushed( "SetPushMatrix\(\s*([^;]+?)\s*\);" );
+    for ( const auto& head : builders )
+    {
+        const std::string body = FunctionBody( forward, head );
+        ASSERT_FALSE( body.empty() ) << head;
+        EXPECT_NE( body.find( "SetPrimitiveIndex(" ), std::string::npos ) << head << " must push the motion row";
+        for ( auto it = std::sregex_iterator( body.begin(), body.end(), designated ); it != std::sregex_iterator();
+              ++it )
+        {
+            const std::string value = ( *it )[1].str();
+            EXPECT_TRUE( value.rfind( "glm::mat4( 1.0f )", 0 ) == 0 || value == "unusedModelTransform" )
+                 << head << " draws with a world transform in the push (`.Transform = " << value
+                 << "`): the cell reads World from the row, so the push must be relative to it";
+        }
+        for ( auto it = std::sregex_iterator( body.begin(), body.end(), pushed ); it != std::sregex_iterator(); ++it )
+            EXPECT_EQ( ( *it )[1].str(), "glm::mat4( 1.0f )" ) << head << " SetPushMatrix with a world transform";
+    }
+    const std::string skinned = FunctionBody( forward, "void MeshRenderer::BuildSkinnedDraws(" );
+    EXPECT_EQ( skinned.find( "UploadSkinnedBones" ), std::string::npos )
+         << "the skinned view cell reads ObjectBones (the row's BoneOffset / PrevBoneOffset), not a group palette";
+    EXPECT_EQ( skinned.find( "SetSkinnedBoneOffset" ), std::string::npos );
+}

@@ -348,11 +348,17 @@ namespace Desert::Graphic::System
             const auto& g = *d.Data;
             list.Add( { .Pipeline          = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() ),
                         .Mesh              = g.Mesh,
-                        .Transform         = g.Transform,
+                        // View pass: World / PrevWorld from the motion row; the push is the submesh transform
+                        // relative to it (identity, RenderMesh multiplies the submesh's in).
+                        .Transform         = glm::mat4( 1.0f ),
                         .Material          = d.Material->GetMaterialExecutor(),
                         .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
                         .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
-                        .BindState = [material = &*d.Material, row = d.Row] { material->SetMaterialIndex( row ); } } );
+                        .BindState         = [material = &*d.Material, row = d.Row, motionRow = g.MotionRow]
+                        {
+                            material->SetPrimitiveIndex( motionRow );
+                            material->SetMaterialIndex( row );
+                        } } );
         }
     }
 
@@ -579,14 +585,18 @@ namespace Desert::Graphic::System
             MaterialInstance*   instance = draw.State->Instance.get();
             m_GlassDraws.Add( { .Pipeline          = draw.State->Pipeline.get(),
                                 .Mesh              = obj->Mesh,
-                                .Transform         = obj->Transform,
+                                // View pass: World / PrevWorld come from the object's motion row
+                                // (Common/ObjectMotion.glslh); the push carries the submesh transform RELATIVE
+                                // to it (identity here, RenderMesh multiplies the submesh's in).
+                                .Transform         = glm::mat4( 1.0f ),
                                 .Material          = material->GetMaterialExecutor(),
                                 .HiddenSubmeshMask = obj->HiddenSubmeshes,
                                 .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
                                 .BindState =
-                                     [material, instance, transform = obj->Transform, row = draw.Row]
+                                     [material, instance, motionRow = obj->MotionRow, row = draw.Row]
                                 {
-                                    material->SetPushMatrix( transform );
+                                    material->SetPushMatrix( glm::mat4( 1.0f ) );
+                                    material->SetPrimitiveIndex( motionRow );
                                     material->SetMaterialIndex( row );
                                     material->Bind( instance );
                                 } } );
@@ -1032,17 +1042,19 @@ namespace Desert::Graphic::System
                                                                 : WireframePipelineOr( m_StaticPipeline.get() ),
                                                            *drawMat );
                 pipeline = CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
-                const glm::mat4 transform = obj->Transform;
+                // View pass (forward or G-buffer): World / PrevWorld come from the object's motion row; the push
+                // carries the submesh transform RELATIVE to it (identity, RenderMesh multiplies the submesh's in).
                 list.Add( { .Pipeline          = pipeline,
                             .Mesh              = obj->Mesh,
-                            .Transform         = transform,
+                            .Transform         = glm::mat4( 1.0f ),
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj->HiddenSubmeshes,
                             .LodLevel          = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .BindState         = [drawMat, inst, transform, i]
+                            .BindState         = [drawMat, inst, motionRow = obj->MotionRow, i]
                             {
                                 DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
-                                drawMat->SetPushMatrix( transform );
+                                drawMat->SetPushMatrix( glm::mat4( 1.0f ) );
+                                drawMat->SetPrimitiveIndex( motionRow );
                                 drawMat->SetMaterialIndex( i );
                                 drawMat->Bind( inst );
                             } } );
@@ -1260,27 +1272,19 @@ namespace Desert::Graphic::System
             if ( data.Mesh != nullptr && data.Material != nullptr && data.Instance != nullptr )
                 groupFor( data.Material ).push_back( &data );
 
-        auto& bones        = m_ScratchBones;
         auto& gpuMaterials = m_ScratchGpuMaterials;
 
+        // The view pass skins from the view's ObjectBones (both frames' palettes, named by the object's motion
+        // row — MeshRenderer::BuildObjectMotions); the group uploads only its material rows.
         for ( auto& [mat, objects] : groups )
         {
-            bones.clear();
             gpuMaterials.clear();
             gpuMaterials.reserve( objects.size() );
-
-            std::vector<uint32_t> boneOffsets;
-            boneOffsets.reserve( objects.size() );
             for ( const auto* obj : objects )
-            {
-                boneOffsets.push_back( static_cast<uint32_t>( bones.size() ) );
-                bones.insert( bones.end(), obj->BoneMatrices.begin(), obj->BoneMatrices.end() );
                 AppendRow( gpuMaterials, EffectiveRow( mat, obj->Instance ) );
-            }
 
-            // Both buffers at FINAL size before any draw is recorded, so the descriptor points at the
-            // buffer the draws will actually read (a later grow reallocates it).
-            mat->UploadSkinnedBones( bones.data(), bones.size() );
+            // At FINAL size before any draw is recorded, so the descriptor points at the buffer the draws will
+            // actually read (a later grow reallocates it).
             if ( auto* sb = mat->Get<StorageBufferProperty>( "Materials" ) )
                 sb->SetRawData( gpuMaterials.data(),
                                 static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
@@ -1296,14 +1300,13 @@ namespace Desert::Graphic::System
                                       obj->Instance != nullptr ? obj->Instance->IsTwoSided() : mat->IsTwoSided() );
                 list.Add( { .Pipeline  = twin,
                             .Mesh      = obj->Mesh,
-                            .Transform = obj->Transform,
+                            .Transform = glm::mat4( 1.0f ), // relative to the motion row's World
                             .Material  = mat->GetMaterialExecutor(),
-                            .BindState = [mat = &*mat, inst = &*obj->Instance, transform = obj->Transform, i,
-                                          bones = boneOffsets[i]]
+                            .BindState = [mat = &*mat, inst = &*obj->Instance, motionRow = obj->MotionRow, i]
                             {
-                                mat->SetPushMatrix( transform );
+                                mat->SetPushMatrix( glm::mat4( 1.0f ) );
+                                mat->SetPrimitiveIndex( motionRow );
                                 mat->SetMaterialIndex( i );
-                                mat->SetSkinnedBoneOffset( bones );
                                 mat->Bind( inst );
                             } } );
             }
