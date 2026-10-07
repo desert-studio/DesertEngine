@@ -334,11 +334,11 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             const auto declaredSize = static_cast<uint32_t>( compiler.get_declared_struct_size( type ) );
             // The engine's push-block cap (ShaderReflectionTypes.hpp): a block past it is refused here, at
             // compile time, by name and size, so it never reaches a device that may not hold it.
-            if ( declaredSize > ShaderResources::ShaderLayout::kMaxPushBlockBytes )
+            if ( declaredSize > ShaderResources::ShaderLayout::kMaxPushConstantBytes )
             {
                 diagnostics.push_back( std::format( "push block '{}' is {} bytes; the engine cap is {} bytes",
                                                     res.name, declaredSize,
-                                                    ShaderResources::ShaderLayout::kMaxPushBlockBytes ) );
+                                                    ShaderResources::ShaderLayout::kMaxPushConstantBytes ) );
                 return diagnostics;
             }
             if ( !data.PushConstantRanges )

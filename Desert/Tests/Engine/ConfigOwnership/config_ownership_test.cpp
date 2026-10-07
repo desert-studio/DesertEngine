@@ -400,8 +400,9 @@ namespace
          // SCAL1: the six image-quality fields (AAMethod, MSAASamples, TextureFilterMode, Anisotropy, MeshLOD,
          // CloudQualityTier) are one QualitySelection now - group levels plus per-parameter overrides -
          // handed to QualityState, the one apply point every renderer's ResolvedQuality comes from. Each
-         // still passes the mis-authored/rendered-worse test on the "rendered worse" side.
-         { "Quality", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },
+         // still passes the mis-authored/rendered-worse test on the "rendered worse" side. Read by
+         // MachineSettings::StartFrom (a saved selection wins over the benchmark); QualityBoot passes it on.
+         { "Quality", Owner::Machine, kMachineSettingsImpl },
          // The benchmark's stored recommendation for this device (SCAL1). Read by MachineSettings::StartFrom:
          // a machine with no saved selection starts on it when its cache key is this device's.
          { "Recommended", Owner::Machine, kMachineSettingsImpl },
