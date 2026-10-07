@@ -1488,7 +1488,7 @@ namespace Desert::Assets
                         blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
                         blob.DensityScale = 1.0f;
 
-                        blobs.push_back( CloudProceduralLump{ blob, cellRank } );
+                        blobs.push_back( CloudProceduralLump{ blob, cellRank, clusterXZ } );
                     }
 
                     // THE ANVIL, and it is the shape no vertical curve could express: a lobe of cloud at the
@@ -1537,7 +1537,7 @@ namespace Desert::Assets
                         // per-voxel field over the crease between the anvil and the body.
                         anvil.DensityScale = std::clamp( shape.AnvilStrength, 0.0f, 1.0f );
 
-                        blobs.push_back( CloudProceduralLump{ anvil, cellRank } );
+                        blobs.push_back( CloudProceduralLump{ anvil, cellRank, clusterXZ } );
                     }
                 }
             }

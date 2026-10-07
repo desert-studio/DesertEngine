@@ -671,8 +671,14 @@ namespace
         return map;
     }
 
-    double KeptCover( const CloudProceduralFieldParams& params, int shifts )
+    double KeptCover( const CloudProceduralFieldParams& shipped, int shifts )
     {
+        // AT THE COARSEST GRID THE COMPONENT OFFERS: the cover is the same sky sampled more coarsely
+        // (ACoarserGridIsTheSameSkySampledMoreCoarsely holds it within a hundredth), and the bake and the
+        // world weather per column are the whole cost of this measurement — a quarter of it at 128.
+        CloudProceduralFieldParams params = shipped;
+        params.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
+
         const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
         const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
         if ( !baked )

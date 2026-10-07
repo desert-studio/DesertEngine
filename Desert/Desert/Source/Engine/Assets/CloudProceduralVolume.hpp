@@ -884,6 +884,9 @@ namespace Desert::Assets
     {
         CloudModellingBlob Blob;
         float              Rank = 0.0f;
+        /// Where the cluster this lump belongs to was placed — its lattice site plus the scatter — so the
+        /// placement can be measured apart from the shape drawn around it.
+        glm::vec2 ClusterKm{ 0.0f };
     };
 
     std::vector<CloudProceduralLump> GenerateCloudProceduralLumps( const CloudProceduralFieldParams& params,
