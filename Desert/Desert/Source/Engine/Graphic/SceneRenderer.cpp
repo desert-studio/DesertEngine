@@ -854,15 +854,28 @@ namespace Desert::Graphic
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
-        // The view's velocity: one transient of this graph at the scene target's size, a colour slot of the scene
-        // target (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
+        // The view's velocity: one transient of this graph at the VIEW EXTENT (the one extent source: the scene
+        // target and the G-buffer are built and resized at m_ViewExtent too), a colour slot of the scene target
+        // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
         // kGBufferVelocitySlot) — never of a light view (RSM, cascades) or a debug target. Created before any node
         // is added; its first writer (ClearMainFramebuffer, the first node on both paths) clears it to no motion.
+        // A target at another extent than the view's is refused by name: the frame is not drawn.
         if ( m_TargetFramebuffer )
         {
-            const FramebufferSpecification& target  = m_TargetFramebuffer->GetSpecification();
-            const ViewVelocity              velocity = CreateViewVelocity(
-                 graph, RDG::Extent3D{ target.Width, target.Height, 1 }, target.Samples );
+            const FramebufferSpecification& target   = m_TargetFramebuffer->GetSpecification();
+            std::string                     mismatch = ViewTargetExtentMismatch(
+                 m_ViewExtent.Width, m_ViewExtent.Height, "scene target", target.Width, target.Height );
+            if ( mismatch.empty() && m_GBuffer )
+                mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height, "G-buffer",
+                                                     m_GBuffer->GetSpecification().Width,
+                                                     m_GBuffer->GetSpecification().Height );
+            if ( !mismatch.empty() )
+            {
+                LOG_ERROR( "[SceneRenderer] view '{}' frame refused: {}", m_ViewResources.GetName(), mismatch );
+                return;
+            }
+            const ViewVelocity velocity = CreateViewVelocity(
+                 graph, RDG::Extent3D{ m_ViewExtent.Width, m_ViewExtent.Height, 1 }, target.Samples );
             textures.Transients.Velocity = velocity.Resolved;
             textures.AddGraphColor( m_TargetFramebuffer, VelocityColor( velocity, target.Samples ) );
             textures.AddGraphColor( m_GBuffer, VelocityColor( velocity, 1 ) );

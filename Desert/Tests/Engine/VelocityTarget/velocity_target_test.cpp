@@ -910,6 +910,40 @@ namespace VelocityTargetTest
 // source and reflected, and the velocity slot of SceneTargetLayout must come out unwritten with mask 0; and the C++
 // site that builds its pipeline must load it by that name against SceneTargetLayout. Mutation: give Skybox.shader
 // (or any named program) an `Out(1) vec2 oVelocity` -> red; rename a site's shader -> red.
+// ONE extent source (lead decision): the scene target, the G-buffer and the velocity transient all take the view
+// extent. ViewTargetExtentMismatch names a target at another extent; SceneRenderer::OnUpdate refuses that frame,
+// creates the velocity from m_ViewExtent, and Resize resizes both targets at the one extent. Mutations: make the
+// mismatch check compare only widths / create the velocity from the target spec again / drop the G-buffer check
+// or its Resize -> red.
+TEST( VelocityTarget, SceneTargetGBufferAndVelocityShareTheViewExtent )
+{
+    using Desert::Graphic::ViewTargetExtentMismatch;
+    EXPECT_TRUE( ViewTargetExtentMismatch( 1920, 1080, "G-buffer", 1920, 1080 ).empty() );
+    const std::string height = ViewTargetExtentMismatch( 1920, 1080, "G-buffer", 1920, 1079 );
+    EXPECT_NE( height.find( "G-buffer is 1920x1079" ), std::string::npos ) << height;
+    EXPECT_NE( height.find( "1920x1080" ), std::string::npos ) << height;
+    EXPECT_FALSE( ViewTargetExtentMismatch( 1920, 1080, "scene target", 1280, 1080 ).empty() );
+
+    const std::string scene = VelocityTargetTest::ReadFile( Desert::TestSupport::RepositoryRoot() /
+                                                            "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+    const auto velocity = scene.find( "CreateViewVelocity(" );
+    ASSERT_NE( velocity, std::string::npos );
+    const std::string call = scene.substr( velocity, 160 );
+    EXPECT_NE( call.find( "m_ViewExtent.Width, m_ViewExtent.Height" ), std::string::npos )
+         << "the velocity is not created at the view extent: " << call;
+    const auto refusal = scene.find( "ViewTargetExtentMismatch(", scene.rfind( "if ( m_TargetFramebuffer )", velocity ) );
+    ASSERT_LT( refusal, velocity ) << "the extent check must run before the velocity is created";
+    EXPECT_NE( scene.find( "\"G-buffer\",", refusal ), std::string::npos ) << "the G-buffer extent is not checked";
+    EXPECT_NE( scene.find( "\"scene target\"", refusal ), std::string::npos );
+    const auto resize = scene.find( "void SceneRenderer::Resize(" );
+    ASSERT_NE( resize, std::string::npos );
+    const auto targetResize = scene.find( "m_TargetFramebuffer->Resize( width, height );", resize );
+    const auto gbufferResize = scene.find( "m_GBuffer->Resize( width, height );", resize );
+    ASSERT_NE( targetResize, std::string::npos );
+    ASSERT_NE( gbufferResize, std::string::npos );
+    EXPECT_LT( gbufferResize - targetResize, 200u ) << "Resize must resize the G-buffer with the scene target";
+}
+
 TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
 {
     using namespace Desert::Graphic::API::Vulkan;

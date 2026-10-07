@@ -11,6 +11,7 @@
 #include <set>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Graphic
@@ -142,6 +143,21 @@ namespace Desert::Graphic
         RDG::TextureRef Resolved;
         RDG::TextureRef Multisample; // invalid at one sample
     };
+
+    // ONE extent source for a view's raster targets: the view's render extent (SceneRenderer::m_ViewExtent). The
+    // scene target and the G-buffer are created and resized at it, and the velocity transient is created from it,
+    // so the slot every target shares has the size of every target. A target at another extent is a defect the
+    // frame is refused over: empty when @p target is at the view extent, else the named error.
+    inline std::string ViewTargetExtentMismatch( const uint32_t viewWidth, const uint32_t viewHeight,
+                                                 const std::string_view target, const uint32_t width,
+                                                 const uint32_t height )
+    {
+        if ( width == viewWidth && height == viewHeight )
+            return {};
+        return std::format( "the {} is {}x{} but the view renders at {}x{}: the view's targets and its velocity "
+                            "must share one extent",
+                            target, width, height, viewWidth, viewHeight );
+    }
 
     inline ViewVelocity CreateViewVelocity( RDG::Builder& graph, const RDG::Extent3D extent,
                                             const uint32_t samples )
