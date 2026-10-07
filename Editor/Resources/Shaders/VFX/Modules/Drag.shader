@@ -4,7 +4,7 @@
 // linear one into the exact exponential solve (port of NiagaraStatelessModule_SolveVelocitiesAndForces.ush:76-90:
 // terminal velocity a / drag, lambda = (1 - e^(-drag dt)) / drag); UpdateRotation decays the rotation rate by the
 // rotational one. Mass-independent, as in UE. The solver clears both after the step. Update group.
-Shader "VFX/Modules/Drag"
+Shader "Drag"
 {
     Domain Particle
     Particle

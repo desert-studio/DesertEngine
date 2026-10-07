@@ -141,6 +141,14 @@ namespace
               "it picks the mesh a collider is built from and carries the entity scale into its "
               "points (M22); it serves PhysicsECSSystem, whose verdict it shares: a hidden body is "
               "still simulated, so hiding must not change the shape it collides with." },
+         Row{ "DestructibleLifetime.hpp", Verdict::MustNot,
+              "it adds a destructible's fracture to the destruction world on Play and releases it on "
+              "destroy; the pieces are simulated like PhysicsECSSystem's bodies, so a destructible hidden "
+              "in the outliner must neither stay out of the simulation nor leave it." },
+         Row{ "DestructionFields.hpp", Verdict::MustNot,
+              "it fires a placed field entity into the destruction world (UE: AFieldSystemActor, which is "
+              "never drawn); a field is an event acting on bodies, and hiding it must not change what a "
+              "Sequencer event or a script breaks." },
          Row{ "HeightFogECSSystem.hpp", Verdict::Honours,
               "emits the frame's fog; the renderer keeps fog state across frames, so a hidden volume "
               "that is still collected stays on screen forever." },

@@ -7,7 +7,7 @@
 // x' = x + v dt + a dt^2 / 2. SpeedLimit (<= 0: unlimited) caps the new speed, and a capped step moves at the capped
 // velocity. The step's accumulators — force, drag, rotational drag — are cleared for the next step. Ageing and
 // retiring the particle is UpdateAge's (UE: Particle State), not the solver's.
-Shader "VFX/Modules/SolveForcesAndVelocity"
+Shader "SolveForcesAndVelocity"
 {
     Domain Particle
     Particle

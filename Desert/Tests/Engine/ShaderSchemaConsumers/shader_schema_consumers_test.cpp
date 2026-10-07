@@ -380,6 +380,10 @@ namespace
          // ShaderService is the consumer: it recognises a medium at registration, keeps its text, and
          // hands it to the cloud renderer as the substitution for one virtual include.
          { "ShaderProgramMeta", "MediumSource", kShaderSvc, nullptr },
+         // A VFX MODULE's body (Particle domain) — a program FRAGMENT spliced into the emitter's
+         // simulation program; the stack compiler takes it module by module.
+         { "ShaderProgramMeta", "ParticleSource", "Desert/Desert/Source/Engine/VFX/VFXStackCompiler.cpp",
+           nullptr },
          // Binding(n)/TextureBinding(n): BuildMaterialLayout derives the row and texture layout from them,
          // on a shader-map cache hit as on a parse (MAT1h-2).
          { "ShaderProgramMeta", "LayoutBindings", "Desert/Desert/Source/Engine/Core/Formats/MaterialLayout.hpp",
@@ -608,13 +612,14 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // which is a program FRAGMENT rather than a program: ShaderService recognises it at registration and
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
+    // FORTY-EIGHT since the VFX stack added `ShaderProgramMeta::ParticleSource` (read by VFXStackCompiler).
     // FORTY-SEVEN since the render graph's MESH-PB1 added `ShaderParam::EngineSet` (read by Material Edit's
     // parameter groups; ForEachMaterialTextureSlot and BindManifestSamplers skip it as a pass parameter).
     // FORTY-SIX since SURF2 added `ShaderProgramMeta::Blend` (read by MeshRenderer's pass routing).
     // FORTY-FIVE since SURF1c added `DShaderParseResult::Surface` (read by the cell expansion in
     // DShaderParser.cpp). FORTY-FOUR since MAT1s added `ShaderParam::Sampler` (read by BindManifestSamplers).
     // FORTY-THREE since MAT1h-2 added `ShaderProgramMeta::LayoutBindings` (read by BuildMaterialLayout).
-    EXPECT_EQ( std::size( k_Census ), 47u )
+    EXPECT_EQ( std::size( k_Census ), 48u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 

@@ -3,7 +3,7 @@
 // point inside a box of Size centred on the origin, or — SurfaceOnly — on one of its six faces picked uniformly,
 // the face pushed out by up to Thickness (UE: BoxSize + Thickness * P0.z). UE's box rotation is the simulation
 // space's business here (Local space rides the emitter). Centimetres. Spawn group.
-Shader "VFX/Modules/ShapeBox"
+Shader "ShapeBox"
 {
     Domain Particle
     Particle

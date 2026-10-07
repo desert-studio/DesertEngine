@@ -4,7 +4,7 @@
 // rotation around it, times Speed (cm/s); Falloff in [0, 1] slows the directions far from the axis
 // (UE: Speed * lerp(1, cos(angle)^(Falloff * 10), Falloff)). Speed and Angle are ordinary inputs — a Random-source
 // range is UE's RandomScaleBiasFloat on them. Adds to the velocity, so it stacks. Spawn group.
-Shader "VFX/Modules/AddVelocityInCone"
+Shader "AddVelocityInCone"
 {
     Domain Particle
     Particle

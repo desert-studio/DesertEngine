@@ -2,7 +2,7 @@
 // Engine VFX module `engine:ColorOverLife` (port of UE NiagaraStatelessModule_ScaleColor.ush:5-11): the colour is
 // the initial colour times Scale, which is a Curve over the particle's normalised age (VFX-05) or a Value.
 // Recomputed from InitialColor every step, so it never compounds. InitializeColor sets the base. Update group.
-Shader "VFX/Modules/ColorOverLife"
+Shader "ColorOverLife"
 {
     Domain Particle
     Particle

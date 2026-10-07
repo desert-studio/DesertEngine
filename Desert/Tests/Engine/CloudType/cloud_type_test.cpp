@@ -307,7 +307,7 @@ TEST( CloudTypeFormat, ATypeSurvivesBeingWrittenAndReadBack )
     EXPECT_FLOAT_EQ( round.Shape.ExtinctionFactor, original.Shape.ExtinctionFactor );
 }
 
-TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
+TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndAMissingShapeFieldTakesItsDefault )
 {
     // A file an artist wrote by hand, with nothing in it but the numbers that have no answer.
     const std::string minimal =
@@ -322,15 +322,19 @@ TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
     EXPECT_FALSE( parsed.GetValue().DisplayName.has_value() );
     EXPECT_FALSE( parsed.GetValue().NoiseVolume.has_value() );
 
-    // And the other way round: a shape with a field MISSING is refused rather than defaulted, because a
-    // number nobody wrote is not a number anybody chose.
+    // And a shape with a field MISSING reads as the struct's own default (owner decision 2026-10-07,
+    // Common/Json/Json.hpp: the member initialiser IS the format's default, the way UE fills an unstated
+    // property from the class default object) — the shape is still validated, the field is not invented.
     const std::string incomplete =
          R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":5},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
         "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,
         "PlacementScale":1.0,"PlacementAnisotropy":1.0}})";
-    EXPECT_FALSE( ParseCloudType( incomplete ) ) << "a shape missing ExtinctionFactor was accepted";
+    const auto defaulted = ParseCloudType( incomplete );
+    ASSERT_TRUE( defaulted ) << defaulted.GetError();
+    EXPECT_FLOAT_EQ( defaulted.GetValue().Shape.ExtinctionFactor, 1.0f )
+         << "a shape missing ExtinctionFactor did not take the struct default";
 
     // A VERSION-1 FILE IS REFUSED, NOT FILLED IN. It carries the twelve numbers T1 shipped and neither of
     // the two T3 added, and a fibrous cirrus and a round-patched one are different KINDS of cloud — so

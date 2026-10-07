@@ -6,7 +6,7 @@
 // the analytic one of UE JacobianSimplex_ALU (Common/VFXNoise.glslh), evaluated at the particle every step — UE's
 // stateless noise LUT exists only because a stateless particle has no position to sample (plan §5.5.1). Not
 // normalised, so the field stays divergence-free. A force: SolveForcesAndVelocity divides by the mass. Update group.
-Shader "VFX/Modules/CurlNoiseForce"
+Shader "CurlNoiseForce"
 {
     Domain Particle
     Particle

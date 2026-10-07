@@ -4,7 +4,7 @@
 // cone velocity draws it (NiagaraStatelessModule_SolveVelocitiesAndForces.ush:104-121: angle uniform in
 // [0, Angle], rotation uniform around the axis). Length is an ordinary input: a Random-source range fills the
 // cone's volume between two distances, a Value is its cap. Centimetres. Spawn group.
-Shader "VFX/Modules/ShapeCone"
+Shader "ShapeCone"
 {
     Domain Particle
     Particle

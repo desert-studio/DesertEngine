@@ -2,7 +2,7 @@
 // Engine VFX module `engine:Gravity` (UE Niagara Content/Modules/Update/Forces/GravityForce): adds a constant
 // acceleration to the particle's accumulated force. Centimetres per second squared (world units = cm).
 // SolveForcesAndVelocity integrates the sum.
-Shader "VFX/Modules/Gravity"
+Shader "Gravity"
 {
     Domain Particle
     Particle

@@ -2,7 +2,7 @@
 // Engine VFX module `engine:UpdateAge` (UE Content Modules/Update/Lifetime "Particle State"): ages the particle by
 // the step and retires it once its age reaches its lifetime. A particle with no lifetime (InitializeLifetime not in
 // the stack) never dies of age. Update group.
-Shader "VFX/Modules/UpdateAge"
+Shader "UpdateAge"
 {
     Domain Particle
     Particle
