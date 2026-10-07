@@ -102,6 +102,28 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
      */
     std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv );
 
+    /**
+     * The colour output locations ONE fragment stage's SPIR-V declares, sorted and unique (an array output
+     * occupies one location per element). ReflectStage stores this for the fragment stage in
+     * ReflectionData::FragmentOutputLocations.
+     */
+    std::vector<uint32_t> ReflectFragmentOutputLocations( const std::vector<uint32_t>& spirv );
+
+    /**
+     * A graphics pipeline's per-attachment colour state: one entry per colour slot of the target, and a slot
+     * the fragment stage does not write has colour write mask 0 and blending off.
+     *
+     * Vulkan leaves an attachment with no matching fragment output UNDEFINED after the draw unless its write
+     * mask is 0. So a target that carries a slot only some programs write (the view's velocity target next to
+     * scene colour: sky, grid, debug lines and translucent surfaces do not write it — UE draws those with the
+     * velocity render target masked) gets that slot masked from the program itself, not from a per-call-site
+     * flag someone has to remember. The pipeline-wide blend (@p blend, @p srcColor, @p dstColor) applies to the
+     * slots the stage writes. Pure — the ShaderReflection suite evaluates it for compiled GLSL with no Vulkan.
+     */
+    std::vector<VkPipelineColorBlendAttachmentState>
+    BuildColorBlendAttachments( uint32_t colorAttachmentCount, const std::vector<uint32_t>& writtenLocations,
+                                bool blend, VkBlendFactor srcColor, VkBlendFactor dstColor );
+
     /** The Vulkan format one vertex attribute of @p type is read as; VK_FORMAT_UNDEFINED = no mapping. */
     VkFormat VertexAttributeFormat( ShaderDataType type );
 

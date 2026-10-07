@@ -484,23 +484,14 @@ namespace Desert::Graphic::API::Vulkan
         else if ( m_Specification.TargetLayout )
             colorAttachmentCount = static_cast<uint32_t>( m_Specification.TargetLayout->ColorFormats.size() );
 
-        const VkBool32       blend  = m_Specification.BlendEnable ? VK_TRUE : VK_FALSE;
-        const VkBlendFactor  srcCol = ConvertBlendFactor( m_Specification.SrcColorBlendFactor );
-        const VkBlendFactor  dstCol = ConvertBlendFactor( m_Specification.DstColorBlendFactor );
-
-        m_ColorBlendAttachments.resize( colorAttachmentCount );
-        for ( auto& attachment : m_ColorBlendAttachments )
-        {
-            attachment = { .blendEnable         = blend,
-                           .srcColorBlendFactor = srcCol,
-                           .dstColorBlendFactor = dstCol,
-                           .colorBlendOp        = VK_BLEND_OP_ADD,
-                           .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                           .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                           .alphaBlendOp        = VK_BLEND_OP_ADD,
-                           .colorWriteMask      = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT };
-        }
+        // A slot the fragment stage does not write is masked (write mask 0), so a target carrying the view's
+        // velocity next to scene colour keeps the velocity the depth-writing passes left there.
+        const auto* vulkanShader =
+             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
+        m_ColorBlendAttachments = ShaderReflection::BuildColorBlendAttachments(
+             colorAttachmentCount, vulkanShader->GetFragmentOutputLocations(), m_Specification.BlendEnable,
+             ConvertBlendFactor( m_Specification.SrcColorBlendFactor ),
+             ConvertBlendFactor( m_Specification.DstColorBlendFactor ) );
 
         m_ColorBlending = VkPipelineColorBlendStateCreateInfo{
              .sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,

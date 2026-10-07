@@ -651,3 +651,48 @@ void main() { gl_Position = vec4(a_Position, 1.0) + a_Unfed; }
                                                           kStreamsVertex, shaderc_glsl_vertex_shader ) ) ) );
     EXPECT_FALSE( clean.has_value() ) << clean.value_or( std::string() );
 }
+
+// TAA1-VEL — a colour slot the fragment stage does not write is masked. The view's velocity target sits next
+// to scene colour; sky, grid, debug lines and translucent surfaces draw into that target without a velocity
+// output, and Vulkan leaves an unwritten, unmasked attachment UNDEFINED. Mutation that turns this red: build
+// every slot with the full RGBA mask again (the pre-TAA CreateColorBlendState), or drop the `written` test
+// from the blend enable.
+TEST( ShaderReflection, AColourSlotTheFragmentStageDoesNotWriteIsMasked )
+{
+    constexpr const char* kSceneColourOnly = R"(#version 450
+layout(location = 0) out vec4 oColor;
+void main() { oColor = vec4(1.0); }
+)";
+    constexpr const char* kColourAndVelocity = R"(#version 450
+layout(location = 0) out vec4 oColor;
+layout(location = 1) out vec2 oVelocity;
+void main() { oColor = vec4(1.0); oVelocity = vec2(0.0); }
+)";
+
+    const auto colourOnly =
+         ShaderReflection::ReflectFragmentOutputLocations( Compile( kSceneColourOnly, shaderc_glsl_fragment_shader ) );
+    const auto both =
+         ShaderReflection::ReflectFragmentOutputLocations( Compile( kColourAndVelocity, shaderc_glsl_fragment_shader ) );
+    ASSERT_EQ( colourOnly, ( std::vector<uint32_t>{ 0u } ) );
+    ASSERT_EQ( both, ( std::vector<uint32_t>{ 0u, 1u } ) );
+
+    constexpr VkColorComponentFlags kRgba =
+         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    // A blended sky/translucent program on the two-slot scene target: slot 0 blends, slot 1 is untouched.
+    const auto sky = ShaderReflection::BuildColorBlendAttachments(
+         2, colourOnly, true, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA );
+    ASSERT_EQ( sky.size(), 2u );
+    EXPECT_EQ( sky[0].colorWriteMask, kRgba );
+    EXPECT_EQ( sky[0].blendEnable, VK_TRUE );
+    EXPECT_EQ( sky[1].colorWriteMask, 0u );
+    EXPECT_EQ( sky[1].blendEnable, VK_FALSE );
+
+    // An opaque depth-writing program writes both.
+    const auto opaque = ShaderReflection::BuildColorBlendAttachments(
+         2, both, false, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA );
+    ASSERT_EQ( opaque.size(), 2u );
+    EXPECT_EQ( opaque[0].colorWriteMask, kRgba );
+    EXPECT_EQ( opaque[1].colorWriteMask, kRgba );
+    EXPECT_EQ( opaque[1].blendEnable, VK_FALSE );
+}
