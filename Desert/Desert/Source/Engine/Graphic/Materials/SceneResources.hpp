@@ -53,6 +53,7 @@ namespace Desert::Graphic::SceneResources
     inline constexpr const char* kTimeBlockName                = "TimeUB";
     inline constexpr const char* kCloudShadowBlockName         = "CloudShadowUB";
     inline constexpr const char* kCloudShadowMapName           = "u_CloudShadowMap";
+    inline constexpr const char* kObjectMotionsName            = "ObjectMotions";
 
     struct Entry
     {
@@ -82,6 +83,7 @@ namespace Desert::Graphic::SceneResources
                  { kSkyLookBlockName, SceneRead::Environment },
                  { kCloudShadowBlockName, SceneRead::CloudShadow },
                  { kCloudShadowMapName, SceneRead::CloudShadow },
+                 { kObjectMotionsName, SceneRead::ObjectMotion },
             };
             for ( const char* map : kShadowMapNames )
                 t.push_back( { map, SceneRead::Shadow } );

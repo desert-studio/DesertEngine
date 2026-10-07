@@ -154,8 +154,15 @@ namespace Desert::Graphic
     {
         glm::mat4 World{ 1.0f };
         glm::mat4 PrevWorld{ 1.0f };
+        // Skinned: where the PREVIOUS palette (MotionHistory::PreviousBones) starts in the draw's Bones buffer,
+        // packed after this frame's palettes; 0 for a rigid primitive.
+        uint32_t PrevBoneOffset = 0;
+        uint32_t Pad0           = 0;
+        uint32_t Pad1           = 0;
+        uint32_t Pad2           = 0;
     };
-    static_assert( sizeof( GpuObjectMotion ) == 128, "std430 twin in Common/ObjectMotion.glslh" );
+    static_assert( sizeof( GpuObjectMotion ) == 144, "std430 twin in Common/ObjectMotion.glslh" );
+    static_assert( offsetof( GpuObjectMotion, PrevBoneOffset ) == 128, "std430 twin in Common/ObjectMotion.glslh" );
 
     // ---- Velocity --------------------------------------------------------------------------------------------
     //

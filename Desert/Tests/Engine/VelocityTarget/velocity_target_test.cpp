@@ -13,6 +13,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -86,22 +88,67 @@ TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
          ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
     ASSERT_FALSE( source.empty() );
     const auto members = GlslStructMembers( source, "GpuObjectMotion" );
-    ASSERT_EQ( members.size(), 2u );
+    ASSERT_EQ( members.size(), 6u );
     EXPECT_EQ( members[0].second, "World" );
     EXPECT_EQ( members[1].second, "PrevWorld" );
+    EXPECT_EQ( members[2].second, "PrevBoneOffset" );
 
-    std::size_t offset = 0;
-    std::size_t prevAt = 0;
+    std::size_t offset     = 0;
+    std::size_t prevAt     = 0;
+    std::size_t prevBoneAt = 0;
     for ( const auto& [type, name] : members )
     {
         const std::size_t size = Std430Size( type );
         ASSERT_NE( size, 0u ) << "unknown GLSL type " << type << " of " << name;
         if ( name == "PrevWorld" )
             prevAt = offset;
+        if ( name == "PrevBoneOffset" )
+            prevBoneAt = offset;
         offset += size;
     }
     EXPECT_EQ( offset, sizeof( GpuObjectMotion ) );
     EXPECT_EQ( prevAt, offsetof( GpuObjectMotion, PrevWorld ) );
+    EXPECT_EQ( prevBoneAt, offsetof( GpuObjectMotion, PrevBoneOffset ) );
+}
+
+// The view-pass vertex contract: the static and skinned surface templates read their world from the object's
+// motion row and hand the fragment stage both unjittered clip positions; the G-buffer pass writes velocity at
+// slot 4 except in its RSM permutation; the forward opaque pass writes it at slot 1; the translucent pass never.
+// Mutation: drop `row.PrevWorld` from a template / write oVelocity in the RSM permutation / give the translucent
+// pass a velocity output -> red.
+TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
+{
+    const auto root   = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Mesh/Surface";
+    const auto noWs   = []( std::string s )
+    {
+        s.erase( std::remove_if( s.begin(), s.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+                 s.end() );
+        return s;
+    };
+    for ( const char* vertex : { "Vertex_Static.glslh", "Vertex_Skinned.glslh" } )
+    {
+        const std::string src = noWs( ReadFile( root / vertex ) );
+        ASSERT_FALSE( src.empty() ) << vertex;
+        EXPECT_NE( src.find( "objectMotions.Motions[m_PushConstants.PrimitiveIndex]" ), std::string::npos ) << vertex;
+        EXPECT_NE( src.find( "row.World*m_PushConstants.Transform" ), std::string::npos ) << vertex;
+        EXPECT_NE( src.find( "row.PrevWorld*m_PushConstants.Transform" ), std::string::npos ) << vertex;
+        EXPECT_NE( src.find( "v_Surface.Clip=cameraUB.ViewProjection*" ), std::string::npos ) << vertex;
+        EXPECT_NE( src.find( "v_Surface.PrevClip=cameraUB.PrevViewProjection*" ), std::string::npos ) << vertex;
+    }
+    EXPECT_NE( noWs( ReadFile( root / "Vertex_Skinned.glslh" ) ).find( "row.PrevBoneOffset" ), std::string::npos );
+
+    const std::string gbuffer = noWs( ReadFile( root / "Pass_GBuffer.glslh" ) );
+    const auto        gate    = gbuffer.find( "#ifndefDESERT_GBUFFER_RSM" );
+    const auto        output  = gbuffer.find( "layout(location=4)outvec2oVelocity;" );
+    ASSERT_NE( gate, std::string::npos );
+    ASSERT_NE( output, std::string::npos );
+    EXPECT_LT( gate, output );
+    EXPECT_EQ( gbuffer.find( "#endif", gate ) > output, true ) << "oVelocity sits outside the RSM gate";
+
+    const std::string forward = noWs( ReadFile( root / "Pass_Forward.glslh" ) );
+    EXPECT_NE( forward.find( "layout(location=1)outvec2oVelocity;" ), std::string::npos );
+    EXPECT_NE( forward.find( "oVelocity=DesertVelocity(v_Surface.Clip,v_Surface.PrevClip);" ), std::string::npos );
+    EXPECT_EQ( ReadFile( root / "Pass_Forward_Translucent.glslh" ).find( "oVelocity" ), std::string::npos );
 }
 
 // Mutation: DesertVelocity / VelocityNdc swap the operands or drop the w-divide -> red (the GLSL check reads the

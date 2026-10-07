@@ -71,6 +71,9 @@ namespace Desert::Core::Formats
         Shadow      = 1u << 3,
         Environment = 1u << 4,
         CloudShadow = 1u << 5,
+        // The view's per-primitive motion rows (Common/ObjectMotion.glslh `ObjectMotions`): every view-pass
+        // static / skinned surface vertex stage reads its world from them.
+        ObjectMotion = 1u << 6,
     };
     constexpr SceneRead operator|( SceneRead a, SceneRead b )
     {

@@ -12,8 +12,8 @@ layout( location = 2 ) out vec4 oGBufferC;        // WorldPosition.xyz, shading 
 layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the deferred resolve adds it), AO.a
 // The view's velocity (Graphic::kVelocityFormat, slot 4 of the G-buffer target): this pass writes the view's depth,
 // so it writes the same surface's motion. DESERT_GBUFFER_RSM is the RSM permutation of this pass (a light view with
-// its own attachment set and no previous frame): it compiles without the output, so the RSM pipeline has no slot 4.
-#if !DESERT_GBUFFER_RSM
+// its own attachment set and no previous frame): defined (to 1) only there, it compiles without the output.
+#ifndef DESERT_GBUFFER_RSM
 #include <Common/ObjectMotion.glslh>
 layout( location = 4 ) out vec2 oVelocity;
 #endif
@@ -31,7 +31,7 @@ void main()
     oGBufferB        = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
     oGBufferC        = vec4( i.WorldPosition, DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ) );
     oGBufferEmissive = vec4( s.Emissive, s.AmbientOcclusion );
-#if !DESERT_GBUFFER_RSM
+#ifndef DESERT_GBUFFER_RSM
     oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
 #endif
 }
