@@ -57,7 +57,6 @@
 //
 // A suite declares its steps once; a second declaration in the same suite aborts the runner at startup.
 
-#include <source_location>
 #include <string_view>
 
 namespace testing
@@ -90,13 +89,17 @@ namespace Desert::TestSupport
         ChildEntry& operator=( const ChildEntry& ) = delete;
     };
 
+    // THE CALLER'S FILE COMES FROM __builtin_FILE(), NOT std::source_location::current(): Apple clang 15
+    // (macos-14, Xcode 15) evaluates current() as a constructor's default argument at the DECLARATION, so
+    // every registration named runner.hpp and the runner aborted at startup; __builtin_FILE() is taken at
+    // the call site by clang, gcc and MSVC alike.
     // Maps every test whose source path ends with `pathSuffix` ('/'-separated) to the suite of the file
     // this object is constructed in. Namespace scope only; `pathSuffix` must be a literal.
     class AdoptedTestSource
     {
     public:
         explicit AdoptedTestSource( std::string_view     pathSuffix,
-                                    std::source_location where = std::source_location::current() );
+                                    const char* where = __builtin_FILE() );
 
         AdoptedTestSource( const AdoptedTestSource& )            = delete;
         AdoptedTestSource& operator=( const AdoptedTestSource& ) = delete;
@@ -106,7 +109,7 @@ namespace Desert::TestSupport
     class SuiteHost
     {
     public:
-        explicit SuiteHost( SuiteHostSteps steps, std::source_location where = std::source_location::current() );
+        explicit SuiteHost( SuiteHostSteps steps, const char* where = __builtin_FILE() );
 
         SuiteHost( const SuiteHost& )            = delete;
         SuiteHost& operator=( const SuiteHost& ) = delete;
@@ -120,7 +123,7 @@ namespace Desert::TestSupport
     {
     public:
         explicit SuiteEnvironment( EnvironmentFactory   make,
-                                   std::source_location where = std::source_location::current() );
+                                   const char* where = __builtin_FILE() );
 
         SuiteEnvironment( const SuiteEnvironment& )            = delete;
         SuiteEnvironment& operator=( const SuiteEnvironment& ) = delete;
