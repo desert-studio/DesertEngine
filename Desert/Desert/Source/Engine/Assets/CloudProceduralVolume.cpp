@@ -2234,7 +2234,7 @@ namespace Desert::Assets
         // against Coverage itself.
         const CloudLayoutData* patternSource = params.PatternSource.get();
         const bool             painted       = patternSource != nullptr && patternSource->HasPattern() &&
-                                params.LayoutPlacement.PatternStrength > 1e-4f;
+                             params.LayoutPlacement.PatternStrength > 1e-4f;
         const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
         const float rho      = ( painted || strength <= 1e-4f ) ? 0.0f : std::sqrt( strength );
 
