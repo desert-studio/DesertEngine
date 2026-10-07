@@ -1283,9 +1283,9 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
             // AND THE CHARACTER IS THE WINNER'S WISPY BASE TIMES ITS OWN (H-BASE): from 0 where its band
             // starts to DetailCharacter where its altitude density first stands at its maximum, the span
             // taken from the packer's own Graphic::CloudSpeciesWispSpan rather than read back out of params.
-            const bool             deckWins = deck >= tower;
-            const CloudTypeShape&  winner   = deckWins ? kDeck : kTower;
-            const glm::vec2        wisp     = Desert::Graphic::CloudSpeciesWispSpan(
+            const bool            deckWins = deck >= tower;
+            const CloudTypeShape& winner   = deckWins ? kDeck : kTower;
+            const glm::vec2       wisp     = Desert::Graphic::CloudSpeciesWispSpan(
                  winner, ModellingVolume().Params.LayerBottomKm, ModellingVolume().Params.LayerThicknessKm );
             const float wispCharacter =
                  glm::clamp( ( fraction - wisp.x ) / std::max( wisp.y - wisp.x, 1e-4f ), 0.0f, 1.0f );
