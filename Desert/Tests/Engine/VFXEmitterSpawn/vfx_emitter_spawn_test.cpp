@@ -110,7 +110,7 @@ TEST( VFXEmitterSpawn, RatesAddAndADisabledModuleBearsNothing )
 {
     auto system = System( { Rate( 35.0f ), Rate( 90.0f ), Rate( 1000.0f ) } );
     system.Emitters[0].Stack.EmitterUpdate[2].Enabled = false;
-    const auto plan = Plan( system );
+    const auto plan                                   = Plan( system );
     EXPECT_DOUBLE_EQ( plan.Rate, 125.0 );
     EXPECT_EQ( Sum( Births( plan, 61 ) ), 127u ); // floor(61 / 60 * 125) = floor(127.08)
 }
@@ -136,8 +136,8 @@ TEST( VFXEmitterSpawn, ABurstFiresOncePerLoopInTheStepThatHoldsItsTime )
 
 TEST( VFXEmitterSpawn, TheLifecycleClipsRateAndBursts )
 {
-    // Once, 1.01 s, after a 0.505 s delay (inside step 30): nothing before step 30 nor after step 90 (the loop ends
-    // at 1.515 s, inside step 90); the burst at 0 fires in step 30; the rate bears floor(60 * 1.01) = 60.
+    // Once, 1.01 s, after a 0.505 s delay (inside step 30): nothing before step 30 nor after step 90 (the loop
+    // ends at 1.515 s, inside step 90); the burst at 0 fires in step 30; the rate bears floor(60 * 1.01) = 60.
     S::VFXEmitterLifecycle once;
     once.Delay        = 0.505f;
     once.LoopDuration = 1.01f;

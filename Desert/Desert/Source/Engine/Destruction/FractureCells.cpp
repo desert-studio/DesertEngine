@@ -166,15 +166,16 @@ namespace Desert::Destruction
         InitBox( *regions[0], bounds );
         for ( const CutPlane& plane : planes )
         {
-            const double                   d = glm::dot( plane.Normal, plane.Point );
+            const double                                    d = glm::dot( plane.Normal, plane.Point );
             std::vector<std::unique_ptr<voro::voronoicell>> next;
             for ( auto& region : regions )
             {
-                // voro++ cells own raw arrays and have no copy constructor (a copy would share them); operator= deep-copies.
+                // voro++ cells own raw arrays and have no copy constructor (a copy would share them); operator=
+                // deep-copies.
                 auto below = std::make_unique<voro::voronoicell>();
                 auto above = std::make_unique<voro::voronoicell>();
-                *below = *region;
-                *above = *region;
+                *below     = *region;
+                *above     = *region;
                 if ( below->plane( plane.Normal.x, plane.Normal.y, plane.Normal.z, 2.0 * d ) )
                     next.push_back( std::move( below ) );
                 if ( above->plane( -plane.Normal.x, -plane.Normal.y, -plane.Normal.z, -2.0 * d ) )

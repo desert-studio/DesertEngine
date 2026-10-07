@@ -38,11 +38,10 @@ namespace Desert::Assets
         if ( text.empty() )
         {
             m_Ready = false;
-            return Common::MakeFormattedError<bool>( "VFX system '{}' is empty or could not be opened",
-                                                     path );
+            return Common::MakeFormattedError<bool>( "VFX system '{}' is empty or could not be opened", path );
         }
-        const std::filesystem::path registerPath =
-             Common::Constants::Path::CurrentProjectRoot().ProjectDir / "Config" / Serialization::kVFXCategoriesFileName;
+        const std::filesystem::path registerPath = Common::Constants::Path::CurrentProjectRoot().ProjectDir /
+                                                   "Config" / Serialization::kVFXCategoriesFileName;
         auto categories = Serialization::ReadVFXCategories( registerPath );
         if ( !categories )
         {
@@ -71,8 +70,8 @@ namespace Desert::Assets
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr VFXSystemAsset::Save( const Common::Filepath&                      filepath,
-                                                         const Serialization::VFXSystemData& data )
+    Common::BoolResultStr VFXSystemAsset::Save( const Common::Filepath&             filepath,
+                                                const Serialization::VFXSystemData& data )
     {
         if ( auto ok = Serialization::SaveVFXSystemFile( filepath, data ); !ok )
             return ok;

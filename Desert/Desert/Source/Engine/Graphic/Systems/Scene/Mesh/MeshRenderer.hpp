@@ -97,10 +97,9 @@ namespace Desert::Graphic::System
             // @p perBlock adds the node's own pass parameters to EVERY block after the scene/view inputs (the
             // translucency node's scene snapshot), handed the block's layout so it binds only the slots that
             // shader has: a node whose cells are several shaders binds them once each.
-            void Declare(
-                 RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
-                 const std::function<void( RDG::BindingBlockBuilder&, const RDG::ShaderBindingLayout& )>& perBlock )
-                 const;
+            void Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
+                          const std::function<void( RDG::BindingBlockBuilder&, const RDG::ShaderBindingLayout& )>&
+                               perBlock ) const;
             void Declare( RenderPassDeclaration& declared, const std::optional<SceneViewInputs>& view ) const;
 
             [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const;
@@ -275,7 +274,7 @@ namespace Desert::Graphic::System
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
         // SETUP of the G-buffer node: builds the frame's G-buffer draw list and declares its binding blocks (the
         // G-buffer shaders sample no scene/view input). The exec records that list.
-        void DeclareGBufferDraws( RDG::PassBuilder& pass );
+        void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
@@ -572,8 +571,8 @@ namespace Desert::Graphic::System
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
         // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
-        MeshRendererDetail::MeshDrawList m_GlassDraws; // "Deferred: Glass" (block 0 = the glass executor's)
-        MeshRendererDetail::MeshDrawList m_RSMDraws;   // "Deferred: RSM"
+        MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
+        MeshRendererDetail::MeshDrawList m_RSMDraws;        // "Deferred: RSM"
         MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
         MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"
 

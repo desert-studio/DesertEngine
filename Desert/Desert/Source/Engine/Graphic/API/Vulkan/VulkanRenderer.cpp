@@ -968,8 +968,8 @@ namespace Desert::Graphic::API::Vulkan
                 if ( texture->GetAspect() != VK_IMAGE_ASPECT_COLOR_BIT )
                     return Common::MakeError( "frame fault: a FrameFatal external that is not a colour image" );
 
-                const RDG::TextureDesc&          desc        = external->Desc;
-                const RDG::AccessState           dst         = RDG::GetAccessState( RDG::Access::CopyDst );
+                const RDG::TextureDesc& desc = external->Desc;
+                const RDG::AccessState  dst  = RDG::GetAccessState( RDG::Access::CopyDst );
                 const RDG::AccessState after = entry.FinalAccess ? RDG::GetAccessState( *entry.FinalAccess ) : dst;
 
                 std::vector<VkImageSubresourceRange> ranges;

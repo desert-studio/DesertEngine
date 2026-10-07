@@ -152,4 +152,3 @@ TEST( LogView, CollapseRepeatsComparesAnUnparsedLineWhole )
     EXPECT_EQ( runs[0].Count, 2 );
     EXPECT_TRUE( runs[0].FirstTime.empty() );
 }
-

@@ -805,8 +805,8 @@ namespace
 
     // A destructible object (DST-03b): every field is read by ECS::DestructibleLifetime::Sync into the
     // DestructibleDesc the scene's DestructionWorld is given.
-    constexpr const char* kDestructibleSync = "Desert/Desert/Source/Engine/ECS/System/DestructibleLifetime.cpp";
-    constexpr Row kDestructibleRows[] = {
+    constexpr const char* kDestructibleSync   = "Desert/Desert/Source/Engine/ECS/System/DestructibleLifetime.cpp";
+    constexpr Row         kDestructibleRows[] = {
          { "Fracture", kDestructibleSync },
          { "DamageThreshold", kDestructibleSync },
          { "AnchoredNodes", kDestructibleSync },

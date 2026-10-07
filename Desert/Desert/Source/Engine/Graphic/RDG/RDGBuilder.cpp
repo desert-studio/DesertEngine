@@ -284,14 +284,15 @@ namespace Desert::Graphic::RDG
         const auto pass = static_cast<uint32_t>( m_Passes.size() - 1 );
         // A malformed pass faults itself (RDG-FAULT1), the graph goes on without it.
         if ( kinds != 1 )
-            RecordPassError( pass,
+            RecordPassError(
+                 pass,
                  fmt::format( "graph '{}': pass '{}' names {} of Raster/Compute/Copy; exactly one is required",
                               m_Name, name, kinds ) );
         if ( HasFlag( flags, PassFlags::AsyncCompute ) && !HasFlag( flags, PassFlags::Compute ) )
-            RecordPassError( pass,
-                 std::format( "graph '{}': pass '{}' declares AsyncCompute without Compute; only a compute "
-                              "pass can run on the async compute queue",
-                              m_Name, name ) );
+            RecordPassError(
+                 pass, std::format( "graph '{}': pass '{}' declares AsyncCompute without Compute; only a compute "
+                                    "pass can run on the async compute queue",
+                                    m_Name, name ) );
         return { *this, pass };
     }
 
@@ -920,12 +921,12 @@ namespace Desert::Graphic::RDG
         if ( !begun )
             return frameFault( std::format( "graph '{}': {}", m_Name, begun.GetError() ), {} );
 
-        // RDG-FAULT1 late faults. lostRoot[p] >= 0: pass p did not produce its outputs this frame (its exec failed,
-        // or it was skipped for a lost input); the value is the pass the chain starts at.
+        // RDG-FAULT1 late faults. lostRoot[p] >= 0: pass p did not produce its outputs this frame (its exec
+        // failed, or it was skipped for a lost input); the value is the pass the chain starts at.
         std::vector<int32_t> lostRoot( m_Passes.size(), -1 );
         bool                 renderPassOpen = false;
-        const auto lateFault = [&]( uint32_t pass, PassFaultStage stage, std::string reason,
-                                    std::optional<uint32_t> root )
+        const auto           lateFault =
+             [&]( uint32_t pass, PassFaultStage stage, std::string reason, std::optional<uint32_t> root )
         {
             lostRoot[pass] = static_cast<int32_t>( root ? *root : pass );
             m_Report.Faults.push_back( { pass, m_Passes[pass].Name, stage, std::move( reason ), root } );
@@ -946,11 +947,11 @@ namespace Desert::Graphic::RDG
                 if ( edge.To != p || edge.Kind != DependencyKind::ReadAfterWrite || lostRoot[edge.From] < 0 ||
                      skipRoot )
                     continue;
-                const ResourceRecord& record = m_Resources[edge.Resource];
+                const ResourceRecord& record     = m_Resources[edge.Resource];
                 const uint32_t        source     = record.Kind == ResourceKind::Texture && !record.IsExternal()
                                                         ? m_FaultDefaults.GetSource( record.Default )
                                                         : kInvalidResource;
-                bool attachment = false, sampled = false, other = false;
+                bool                  attachment = false, sampled = false, other = false;
                 for ( const ResourceUse& use : m_Passes[p].Uses )
                 {
                     if ( use.Resource != edge.Resource )

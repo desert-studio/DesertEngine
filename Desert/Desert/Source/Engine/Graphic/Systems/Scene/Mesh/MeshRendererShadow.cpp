@@ -396,8 +396,8 @@ namespace Desert::Graphic::System
         spec.DebugName                     = std::format( "{} {}", spec.DebugName, key.CellShader );
         // The pass's own program is an engine pipeline the reveal waits for; any other program is a CONTENT
         // material's cell, compiled on demand (AL1-12) and drawn only once ChooseCellDraw says it is Ready.
-        const bool content  = shader != spec.Shader;
-        spec.Shader         = shader;
+        const bool content = shader != spec.Shader;
+        spec.Shader        = shader;
         // Reached through the one spelling the tree uses for the pipeline cache, which is how the shipping
         // pipeline register (ShippingPipelines suite) recognises a creation site; each answer is RETURNED
         // into `pipeline`, which is how the refusal scanner (GraphicsPipelineRefusal) sees it read.
@@ -614,8 +614,7 @@ namespace Desert::Graphic::System
             set.Transforms.clear();
             return set;
         };
-        const auto isMasked = []( const DataDrivenMaterial* material )
-        {
+        const auto isMasked = []( const DataDrivenMaterial* material ) {
             return material != nullptr &&
                    ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
         };
@@ -623,13 +622,14 @@ namespace Desert::Graphic::System
         for ( const auto& rd : m_StaticQueue )
         {
             if ( rd.Mesh == nullptr || !rd.CastShadows ||
-                 !IsVisibleInView( cascadeFrustum, rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+                 !IsVisibleInView( cascadeFrustum, rd.Transform,
+                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
             {
                 continue;
             }
-            const PBRSlot slot = rd.MaterialSlots != nullptr
-                                      ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                      : PBRSlot{};
+            const PBRSlot             slot = rd.MaterialSlots != nullptr
+                                                  ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                                  : PBRSlot{};
             MaterialInstance*         inst = slot.Instance;
             const DataDrivenMaterial* mat  = slot.Surface;
             if ( !isMasked( mat ) )
@@ -737,9 +737,9 @@ namespace Desert::Graphic::System
                 // A MASKED ISM - foliage, grass cards - casts through its own template's (Instanced x
                 // ShadowDepth) cell, never the shared batch that casts whole quads.
                 MaterialInstance* ismInst = ism.Material.get();
-                const auto*       ismMat =
-                     ismInst != nullptr ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
-                                        : nullptr;
+                const auto*       ismMat  = ismInst != nullptr
+                                                 ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
+                                                 : nullptr;
                 if ( isMasked( ismMat ) )
                 {
                     auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );

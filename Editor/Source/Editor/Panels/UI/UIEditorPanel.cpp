@@ -272,7 +272,8 @@ namespace Desert::Editor
         // The panel shows this image: without its writer the preview has no picture (cleared to black).
         graph.SetFaultPolicy( target, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
         graph.AddPass(
-             "UIEditorPreview", Graphic::RDG::PassFlags::Raster, [&]( Graphic::RDG::PassBuilder& pass )
+             "UIEditorPreview", Graphic::RDG::PassFlags::Raster,
+             [&]( Graphic::RDG::PassBuilder& pass )
              {
                  pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::ClearColor( 0.094f, 0.098f, 0.118f, 1.0f ) );
                  // The preview's draw list is its only binding work: its blocks start at 0. Retained images the

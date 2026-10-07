@@ -346,13 +346,14 @@ namespace Desert::Graphic::System
         for ( const auto& d : draws )
         {
             const auto& g = *d.Data;
-            list.Add( { .Pipeline          = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() ),
-                        .Mesh              = g.Mesh,
-                        .Transform         = g.Transform,
-                        .Material          = d.Material->GetMaterialExecutor(),
-                        .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
-                        .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
-                        .BindState = [material = &*d.Material, row = d.Row] { material->SetMaterialIndex( row ); } } );
+            list.Add(
+                 { .Pipeline          = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() ),
+                   .Mesh              = g.Mesh,
+                   .Transform         = g.Transform,
+                   .Material          = d.Material->GetMaterialExecutor(),
+                   .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
+                   .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
+                   .BindState = [material = &*d.Material, row = d.Row] { material->SetMaterialIndex( row ); } } );
         }
     }
 
@@ -599,9 +600,8 @@ namespace Desert::Graphic::System
                                 .Transform         = obj->Transform,
                                 .Material          = material->GetMaterialExecutor(),
                                 .HiddenSubmeshMask = obj->HiddenSubmeshes,
-                                .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                .BindState =
-                                     [material, instance, transform = obj->Transform, row = draw.Row]
+                                .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                                .BindState = [material, instance, transform = obj->Transform, row = draw.Row]
                                 {
                                     material->SetPushMatrix( transform );
                                     material->SetMaterialIndex( row );
@@ -614,14 +614,14 @@ namespace Desert::Graphic::System
         // bound only where the cell's layout HAS the slot, as the scene/view inputs are (UE's pass parameters: a
         // shader receives what it declares). The default-surface stand-in (RDG-PSO) samples no scene copy, and
         // naming one to it fails the node ("is not a resource of shader").
-        m_GlassDraws.Declare( pass, view,
-                              [sceneCopy]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
-                              {
-                                  if ( SceneViewDetail::LayoutSamples( layout, "u_SceneColor" ) )
-                                      block.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
-                                                     RDG::SubresourceRange::All(),
-                                                     RDG::SamplerDesc::LinearRepeat() );
-                              } );
+        m_GlassDraws.Declare(
+             pass, view,
+             [sceneCopy]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
+             {
+                 if ( SceneViewDetail::LayoutSamples( layout, "u_SceneColor" ) )
+                     block.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
+                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+             } );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context ) const
@@ -1136,15 +1136,16 @@ namespace Desert::Graphic::System
                                                                 ? m_StaticGBufferPipeline.get()
                                                                 : WireframePipelineOr( m_StaticPipeline.get() ),
                                                            *drawMat );
-                pipeline = CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
+                pipeline =
+                     CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
                 const glm::mat4 transform = obj->Transform;
                 list.Add( { .Pipeline          = pipeline,
                             .Mesh              = obj->Mesh,
                             .Transform         = transform,
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj->HiddenSubmeshes,
-                            .LodLevel          = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .BindState         = [drawMat, inst, transform, i]
+                            .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                            .BindState = [drawMat, inst, transform, i]
                             {
                                 DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
                                 drawMat->SetPushMatrix( transform );
@@ -1296,8 +1297,8 @@ namespace Desert::Graphic::System
                                 .InstanceCount = d.InstanceCount,
                                 .FirstInstance = d.FirstInstance,
                                 .LodLevel      = d.LodLevel,
-                                .BindState     = [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex,
-                                              wind = d.Wind]
+                                .BindState =
+                                     [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex, wind = d.Wind]
                                 {
                                     mat->SetMaterialIndex( index );
                                     mat->SetInstancedWind( wind );
@@ -1435,7 +1436,7 @@ namespace Desert::Graphic::System
 
             for ( uint32_t i = 0; i < static_cast<uint32_t>( objects.size() ); ++i )
             {
-                const auto* obj = objects[i];
+                const auto*             obj = objects[i];
                 const GraphicsPipeline* twin =
                      CullPermutation( CellPipeline( pipeline, *mat ),
                                       instOf( obj ) != nullptr ? instOf( obj )->IsTwoSided() : mat->IsTwoSided() );

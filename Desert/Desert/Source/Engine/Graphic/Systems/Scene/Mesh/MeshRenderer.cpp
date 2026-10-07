@@ -306,7 +306,8 @@ namespace Desert::Graphic::System
             std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
             blocks.reserve( m_Blocks.size() );
             for ( uint32_t index = 0; index < m_Blocks.size(); ++index )
-                blocks.push_back( std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
+                blocks.push_back(
+                     std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
             for ( size_t i = 0; i < m_Commands.size(); ++i )
             {
                 const MeshDrawCommand& draw = m_Commands[i];

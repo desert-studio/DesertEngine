@@ -387,8 +387,8 @@ namespace Desert::Graphic::RDG
             ExternalBuffer*  ExtractBuf     = nullptr;
             bool             HasFinalAccess = false;
             Access           FinalAccess    = Access::None;
-            FaultDefault        Default = FaultDefault::None;                 // SetFaultDefault (transients)
-            ExternalFaultPolicy Policy  = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
+            FaultDefault        Default        = FaultDefault::None; // SetFaultDefault (transients)
+            ExternalFaultPolicy Policy         = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
 
             [[nodiscard]] bool IsExternal() const
             {

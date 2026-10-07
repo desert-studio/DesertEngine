@@ -305,14 +305,14 @@ TEST( VFXStackCompile, EveryStructuralChangeMovesTheKey )
     // A constant and a User.* parameter are both ONE parameter-buffer row read the same way: the program is
     // rightly the same and only the slot's filler (CPU side) differs. A Particles.* binding reads the attribute
     // instead, so that source change is structural.
-    auto valueNotUser                                         = Sparks();
-    valueNotUser.Emitters[0].Stack.ParticleUpdate[1].Inputs[0] = ValueInput( "SpeedLimit", S::VFXValueType::Float,
-                                                                             glm::vec4( 5000.0f, 0, 0, 0 ) );
+    auto valueNotUser = Sparks();
+    valueNotUser.Emitters[0].Stack.ParticleUpdate[1].Inputs[0] =
+         ValueInput( "SpeedLimit", S::VFXValueType::Float, glm::vec4( 5000.0f, 0, 0, 0 ) );
     const auto valueRow = Compile( valueNotUser );
     EXPECT_EQ( valueRow.Key, base );
     EXPECT_EQ( valueRow.Slots.back().SlotKind, VFX::VFXParamSlot::Kind::Value );
 
-    auto attributeNotUser                                         = Sparks();
+    auto attributeNotUser = Sparks();
     attributeNotUser.Emitters[0].Stack.ParticleUpdate[1].Inputs[0] =
          BindingInput( "SpeedLimit", S::VFXValueType::Float, "Particles.Age" );
     moved( attributeNotUser, "input source: parameter row -> attribute" );
@@ -446,7 +446,8 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
                                    "InitializeLifetime", "UpdateAge", "Gravity", "SolveForcesAndVelocity", "Drag",
                                    "CurlNoiseForce", "InitializeColor", "ColorOverLife", "InitializeSpriteSize",
                                    "SizeOverLife", "InitializeRotation", "UpdateRotation", "SubUVAnimation" } )
-        EXPECT_NE( std::find( paths.begin(), paths.end(), VFX::EngineModuleDir() / std::format( "{}.shader", expected ) ),
+        EXPECT_NE( std::find( paths.begin(), paths.end(),
+                              VFX::EngineModuleDir() / std::format( "{}.shader", expected ) ),
                    paths.end() )
              << expected;
 
@@ -476,21 +477,22 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
     }
 }
 
-// Two calls of one module draw their own numbers: each call's key is its place in the stack with the top bit up, so
-// it differs from the other call's and from every input slot (slots count from zero).
+// Two calls of one module draw their own numbers: each call's key is its place in the stack with the top bit up,
+// so it differs from the other call's and from every input slot (slots count from zero).
 TEST( VFXStackCompile, EveryModuleCallHasItsOwnRandomKey )
 {
     S::VFXSystemData  system;
     S::VFXEmitterData emitter;
     emitter.Name = "Two spheres";
-    const auto sphere = Use( "engine:ShapeSphere", { ValueInput( "Radius", S::VFXValueType::Float, glm::vec4( 10.0f, 0, 0, 0 ) ),
-                                                     ValueInput( "Offset", S::VFXValueType::Vec3, glm::vec4( 0.0f ) ) } );
+    const auto sphere =
+         Use( "engine:ShapeSphere", { ValueInput( "Radius", S::VFXValueType::Float, glm::vec4( 10.0f, 0, 0, 0 ) ),
+                                      ValueInput( "Offset", S::VFXValueType::Vec3, glm::vec4( 0.0f ) ) } );
     emitter.Stack.ParticleSpawn  = { sphere, sphere };
     emitter.Stack.ParticleUpdate = { sphere };
     system.Emitters.push_back( emitter );
     const auto compiled = Compile( system );
-    for ( const char* key : { "i.VFXModuleKey = 2147483648u;", "i.VFXModuleKey = 2147483664u;",
-                              "i.VFXModuleKey = 2147549184u;" } )
+    for ( const char* key :
+          { "i.VFXModuleKey = 2147483648u;", "i.VFXModuleKey = 2147483664u;", "i.VFXModuleKey = 2147549184u;" } )
         EXPECT_NE( compiled.ShaderText.find( key ), std::string::npos ) << key << "\n" << compiled.ShaderText;
 }
 
@@ -538,7 +540,8 @@ TEST( VFXStackCompile, EveryOverLifeAndForceModuleWritesItsAttributes )
             const auto* attribute = compiled.Layout.Find( name );
             ASSERT_NE( attribute, nullptr ) << row.Module << " does not declare " << name;
             EXPECT_EQ( attribute->FloatCount, S::ComponentCount( type ) ) << row.Module << " " << name;
-            EXPECT_NE( compiled.ShaderText.find( std::format( "p.{}", name ) ), std::string::npos ) << row.Module << " " << name;
+            EXPECT_NE( compiled.ShaderText.find( std::format( "p.{}", name ) ), std::string::npos )
+                 << row.Module << " " << name;
         }
     }
 }

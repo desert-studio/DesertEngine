@@ -925,7 +925,8 @@ TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )
     const Editor::ImportOutcome outcome = ImportManager().ImportWithSettings( m_Lamps, combine );
     ASSERT_EQ( outcome.Verdict, Editor::CookVerdict::Cooked );
     // A combined static mesh is built into the DDC keyed by the source (ImportedMeshAsset.hpp
-    // WriteImportedMeshAsset), never a file beside it: the outcome lists no file, the loader reads it by the source.
+    // WriteImportedMeshAsset), never a file beside it: the outcome lists no file, the loader reads it by the
+    // source.
     EXPECT_TRUE( outcome.WrittenMeshes.empty() );
     const auto asset = Assets::LoadMeshSourceAsset( Editor::CookPaths::MeshAsset( m_Lamps ) );
     ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();

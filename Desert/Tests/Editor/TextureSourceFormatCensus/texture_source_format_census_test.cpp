@@ -36,8 +36,8 @@ using Desert::Editor::kTextureSourceExtensions;
 using Desert::Editor::TextureSourceFormatRank;
 
 // --- 1. The order itself, compile-time. Lossless (.tga/.png/.bmp) < lossy (.jpg/.jpeg) < GPU blocks
-// (.dds) < extended range (.exr/.hdr); .tga first by the owner's decision recorded in the header. If any of these fires,
-// somebody reordered the list — the header says a reason must be written there when that happens.
+// (.dds) < extended range (.exr/.hdr); .tga first by the owner's decision recorded in the header. If any of these
+// fires, somebody reordered the list — the header says a reason must be written there when that happens.
 static_assert( TextureSourceFormatRank( ".tga" ) == 0, "TGA is the preferred source format" );
 static_assert( TextureSourceFormatRank( ".tga" ) < TextureSourceFormatRank( ".jpg" ) );
 static_assert( TextureSourceFormatRank( ".png" ) < TextureSourceFormatRank( ".jpg" ) );

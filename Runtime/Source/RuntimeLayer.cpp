@@ -162,7 +162,8 @@ namespace Desert::Player
         // The machine's quality, from this player's own directory (per PRODUCT: two games are two budgets), BEFORE
         // the renderer: SceneRenderer::Init bakes the MSAA sample count into its pipelines.
         m_QualityStart = Graphic::QualityBoot::Start(
-             Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "machine.json" );
+             Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) /
+             "machine.json" );
         // The game's view IS the window, so here — and only here — the window's size is the view's.
         const auto window = EngineContext::GetInstance().GetWindow();
         m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(

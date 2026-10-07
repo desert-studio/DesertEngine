@@ -348,7 +348,7 @@ namespace Desert::Graphic::Render2D
         // THE ONE PREPARATION of this frame's draws (PreparedDraws): Resolve - and for a UI material
         // UIMaterialCache::DrawableOrDefault's PrepareDraw - runs here once per command; Flush records the result.
         const bool backdropValid = backdrop.IsValid();
-        m_PreparedList = &list;
+        m_PreparedList           = &list;
         m_Prepared.Prepare( list.GetCommands(),
                             [&]( const DrawCommand& cmd ) -> std::optional<ResolvedCommand>
                             {
@@ -368,8 +368,8 @@ namespace Desert::Graphic::Render2D
                 // The composite samples the layer (and its mask) the retained pass drew: graph textures, read by
                 // name through this block. A masked composite's push block goes through the graph too; a
                 // mask-less one is carried by the retainer executor (u_Mask = white), written here.
-                const DrawCommand&     cmd    = list.GetCommands()[draw.Command];
-                const RetainedPicture& pic    = *resolved.Retained;
+                const DrawCommand&     cmd = list.GetCommands()[draw.Command];
+                const RetainedPicture& pic = *resolved.Retained;
                 if ( pic.Mask.IsValid() )
                 {
                     declared
@@ -424,7 +424,8 @@ namespace Desert::Graphic::Render2D
         DeclareInto( declared, m_DrawList, backdrop );
     }
 
-    void Render2D::DeclareListBindings( RDG::PassBuilder& pass, const DrawList2D& list, const RDG::TextureRef backdrop )
+    void Render2D::DeclareListBindings( RDG::PassBuilder& pass, const DrawList2D& list,
+                                        const RDG::TextureRef backdrop )
     {
         DeclareInto( pass, list, backdrop );
     }

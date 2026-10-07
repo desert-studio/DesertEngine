@@ -165,7 +165,8 @@ namespace Common::Content
              /* LevelSequence        */ { "LevelSequence", ".dseq", &P::LEVEL_SEQUENCE_PATH },
              // UE's UNiagaraSystem with its emitters embedded (Engine/Assets/Serialization/VFXSystem.hpp).
              /* VFXSystem            */ { "VFXSystem", ".dfx", &P::VFX_PATH },
-             // UE's fractured UGeometryCollection: a DFRC payload in the asset envelope (Destruction/FractureFormat.hpp).
+             // UE's fractured UGeometryCollection: a DFRC payload in the asset envelope
+             // (Destruction/FractureFormat.hpp).
              /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
         } };
     }

@@ -249,8 +249,8 @@ namespace Desert::Editor
         // renderer initialises its own copy of these values from this store, so one built before the load
         // would hold the schema defaults and push two of them into global sampler state.
         // The device exists here (the layer attaches after it), so the quality starts in one step.
-        m_QualityStart =
-             Graphic::QualityBoot::Start( std::filesystem::path( ProjectContext::ConfigDirectory() ) / "machine.json" );
+        m_QualityStart = Graphic::QualityBoot::Start( std::filesystem::path( ProjectContext::ConfigDirectory() ) /
+                                                      "machine.json" );
 
         // Filled by the "Indexing animation clips" stage above, from the registry's clip rows.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );

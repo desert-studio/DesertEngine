@@ -351,8 +351,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
               content.BasePak.empty() ? std::string( "none — loose files" ) : content.BasePak.string(),
               content.Patches.size() );
 
-    // machine.json (WHAT THIS MACHINE CAN AFFORD) is loaded by RuntimeLayer through Graphic::QualityBoot::Start, once
-    // the device exists: the quality resolves against the device's CapabilityCatalog.
+    // machine.json (WHAT THIS MACHINE CAN AFFORD) is loaded by RuntimeLayer through Graphic::QualityBoot::Start,
+    // once the device exists: the quality resolves against the device's CapabilityCatalog.
 
     // The driver pipeline cache goes beside machine.json, in this player's directory, never the install
     // (PKG1). Before the application: the device reads it while it is being created.

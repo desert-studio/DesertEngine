@@ -65,8 +65,8 @@ namespace Desert::Destruction
         std::vector<int32_t> AnchoredNodes; ///< Each node, and every leaf below it, never moves
         /// UE component DamageThreshold: entry L replaces the bake's threshold of every level-L node; the
         /// levels past the list keep the bake's (UE ApplyAssetDefaults: the asset is the default)
-        std::vector<float>   DamageThreshold;
-        DestructionSettings  Settings;
+        std::vector<float>  DamageThreshold;
+        DestructionSettings Settings;
     };
 
     using DestructibleHandle                                 = uint32_t;
@@ -136,7 +136,7 @@ namespace Desert::Destruction
             std::vector<int32_t> Neighbours; // leaves only: the leaves whose hulls touch this one's
             float                InternalStrain   = 0.0f;
             float                CollisionImpulse = 0.0f;
-            float                ExternalStrain   = 0.0f; // a field's strain, this instant only
+            float                ExternalStrain   = 0.0f;  // a field's strain, this instant only
             bool                 Anchored         = false; // the subtree holds an anchored leaf
             int32_t              Body             = -1;    // index into Object::Bodies
         };
@@ -168,7 +168,7 @@ namespace Desert::Destruction
 
         void Advance( float dt );
         /// Breaks every unit of @p strained bodies whose applied strain reaches its internal strain.
-        void Release( std::vector<BodyRef> strained );
+        void                    Release( std::vector<BodyRef> strained );
         [[nodiscard]] glm::vec3 WorldPoint( const BodyState& body, const glm::dvec3& local ) const;
         void Break( uint32_t objectIndex, uint32_t bodyIndex, const std::vector<int32_t>& released );
         Common::ResultStr<uint32_t> SpawnBody( uint32_t objectIndex, std::vector<int32_t> members,

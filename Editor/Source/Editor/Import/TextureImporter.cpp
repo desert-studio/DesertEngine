@@ -575,8 +575,9 @@ namespace Desert::Editor
         }
         const bool isEXR = IsExrSource( sourceBytesStorage, sourceKey );
         const bool isDDS = !isEXR && IsDdsSource( sourceBytesStorage, sourceKey );
-        const bool isHDR = !isEXR && !isDDS && stbi_is_hdr_from_memory( stbSource.data(),
-                                                              static_cast<int>( sourceBytesStorage.size() ) ) != 0;
+        const bool isHDR =
+             !isEXR && !isDDS &&
+             stbi_is_hdr_from_memory( stbSource.data(), static_cast<int>( sourceBytesStorage.size() ) ) != 0;
 
         int                                w = 0, h = 0, ch = 0;
         std::vector<unsigned char>         base;

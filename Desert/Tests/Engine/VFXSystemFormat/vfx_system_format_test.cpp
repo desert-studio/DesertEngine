@@ -113,15 +113,15 @@ TEST( VFXSystemFormat, RefusesABrokenFile )
 
 TEST( VFXSystemFormat, RefusesWhatNoStageCouldHonour )
 {
-    VFXSystemData d = Campfire();
+    VFXSystemData d                                        = Campfire();
     d.Emitters[0].Stack.EmitterUpdate[0].Inputs[0].Binding = "User.Missing";
     EXPECT_NE( Refusal( d ), "<accepted>" );
 
-    d = Campfire();
+    d                                            = Campfire();
     d.Emitters[0].Stack.ParticleUpdate[1].Module = "local:nowhere";
     EXPECT_NE( Refusal( d ), "<accepted>" );
 
-    d = Campfire();
+    d                                                    = Campfire();
     d.Emitters[0].Stack.ParticleSpawn[0].Inputs[1].Curve = std::vector<std::vector<VFXCurveKey>>{};
     EXPECT_NE( Refusal( d ), "<accepted>" ) << "two sources on one input";
 
@@ -133,7 +133,7 @@ TEST( VFXSystemFormat, RefusesWhatNoStageCouldHonour )
     d.Emitters.push_back( d.Emitters[0] );
     EXPECT_NE( Refusal( d ), "<accepted>" ) << "two emitters of one name";
 
-    d = Campfire();
+    d                      = Campfire();
     d.Emitters[0].Capacity = 0;
     EXPECT_NE( Refusal( d ), "<accepted>" );
 }

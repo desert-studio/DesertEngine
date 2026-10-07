@@ -317,7 +317,7 @@ namespace Desert::Graphic::Render2D
             }
         }
 
-        built.AssetName     = materialService->AssetNameOf( handle );
+        built.AssetName = materialService->AssetNameOf( handle );
         if ( built.AssetName.empty() )
             built.AssetName = std::format( "<material {}>", static_cast<uint64_t>( handle ) );
         return built;

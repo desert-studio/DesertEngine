@@ -33,7 +33,7 @@ namespace
         std::uint64_t First;
         std::uint32_t Count;
         bool          Seeking;
-        bool operator==( const Record& ) const = default;
+        bool          operator==( const Record& ) const = default;
     };
 
     Record Of( const TickPlan& p )
@@ -46,7 +46,7 @@ namespace
 
 TEST( VFXClock, AFloatFrameOfOneStepRunsExactlyOneStepEveryFrame )
 {
-    Clock clock;
+    Clock       clock;
     const float frame = 1.0f / 60.0f; // what Common::Timestep carries under --play
     for ( int i = 0; i < 6000; ++i )
     {
@@ -59,7 +59,7 @@ TEST( VFXClock, AFloatFrameOfOneStepRunsExactlyOneStepEveryFrame )
 
 TEST( VFXClock, AFasterFrameRateCarriesTheFractionAndRunsTheSameStepsOverASecond )
 {
-    Clock clock;
+    Clock         clock;
     std::uint64_t total = 0;
     for ( int i = 0; i < 144; ++i )
     {
@@ -108,7 +108,7 @@ TEST( VFXClock, ASeekBackwardIsAResetAndAReplayFromZero )
 
 TEST( VFXClock, TheAgeReachedBySeekingIsTheAgeReachedByPlaying )
 {
-    Clock played;
+    Clock                      played;
     std::vector<std::uint64_t> playedSteps;
     for ( int i = 0; i < 45; ++i )
     {
@@ -119,7 +119,7 @@ TEST( VFXClock, TheAgeReachedBySeekingIsTheAgeReachedByPlaying )
 
     Clock sought;
     sought.SeekTo( 45 * kStep );
-    const TickPlan p = sought.Advance( 0.0 );
+    const TickPlan             p = sought.Advance( 0.0 );
     std::vector<std::uint64_t> soughtSteps;
     for ( std::uint32_t s = 0; s < p.StepCount; ++s )
         soughtSteps.push_back( p.FirstStep + s );
@@ -163,7 +163,8 @@ TEST( VFXClock, ALongSeekIsSpreadOverTicksAndSaysSo )
     for ( int i = 0; i < 3; ++i )
         plans.push_back( Of( clock.Advance( kStep ) ) );
 
-    const std::vector<Record> expected = { { false, 0, 50, true }, { false, 50, 50, true }, { false, 100, 20, false } };
+    const std::vector<Record> expected = {
+         { false, 0, 50, true }, { false, 50, 50, true }, { false, 100, 20, false } };
     EXPECT_EQ( plans, expected );
     EXPECT_FALSE( clock.IsSeeking() );
     EXPECT_EQ( clock.Advance( kStep ).StepCount, 1u ) << "ordinary time resumes after the seek lands";
@@ -175,11 +176,11 @@ TEST( VFXClock, TheSameDeltasGiveTheSamePlansSpawnsAndRandomNumbers )
 {
     const auto run = []()
     {
-        Clock            clock;
-        SpawnAccumulator spawn;
+        Clock                      clock;
+        SpawnAccumulator           spawn;
         std::vector<std::uint64_t> trace;
-        std::uint32_t    nextId = 0;
-        const double     deltas[] = { 0.016, 0.017, 0.033, 0.0, 0.25, 0.008, 0.008, 0.016 };
+        std::uint32_t              nextId   = 0;
+        const double               deltas[] = { 0.016, 0.017, 0.033, 0.0, 0.25, 0.008, 0.008, 0.016 };
         for ( int frame = 0; frame < 400; ++frame )
         {
             if ( frame == 200 )

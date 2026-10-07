@@ -1220,7 +1220,8 @@ namespace
     // The shipped level table: MachineSettings::Load needs the High values to migrate retired keys.
     Common::Scalability::ScalabilityTable ShippedTable()
     {
-        const std::string text = ReadAll( std::filesystem::path( RepoRoot() ) / "Editor/Resources/Config/Scalability.json" );
+        const std::string text =
+             ReadAll( std::filesystem::path( RepoRoot() ) / "Editor/Resources/Config/Scalability.json" );
         EXPECT_FALSE( text.empty() ) << "Editor/Resources/Config/Scalability.json was not found";
         auto table = Common::Scalability::ScalabilityTable::Parse( text );
         EXPECT_TRUE( table.IsSuccess() );
@@ -1339,8 +1340,8 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     }
 
     // QualityBoot::Start is the one host start: it loads the store and hands the selection to QualityState.
-    const std::string boot =
-         StripCommentsAndLiterals( ReadAll( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" ) );
+    const std::string boot = StripCommentsAndLiterals(
+         ReadAll( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" ) );
     EXPECT_TRUE( CallsFunction( boot, "MachineSettings", "Load" ) );
     EXPECT_TRUE( CallsFunction( boot, "QualityState", "Initialize" ) );
 

@@ -252,7 +252,8 @@ TEST( InstanceFold, TheStaticMeshPassDoesNotReturnBeforeItReachesTheInstancedQue
             break; // the FIRST early-out is the one that can skip the instanced batches
     }
 
-    ASSERT_TRUE( inside ) << "MeshRenderer::BuildStaticDraws (RDG-FAULT1: DrawStaticMeshes builds its draw list in setup now) was not found -- the census aimed at nothing";
+    ASSERT_TRUE( inside ) << "MeshRenderer::BuildStaticDraws (RDG-FAULT1: DrawStaticMeshes builds its draw list "
+                             "in setup now) was not found -- the census aimed at nothing";
     EXPECT_NE( guard.find( "m_StaticQueue" ), std::string::npos ) << guard;
     EXPECT_NE( guard.find( "m_InstancedQueue" ), std::string::npos )
          << "the first early-out of DrawStaticMeshes does not ask about the instanced queue it also "

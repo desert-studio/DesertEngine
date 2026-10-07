@@ -127,9 +127,9 @@ namespace Desert::Graphic::System
             // Same arrangement as JumpFloodOutlineRenderer's per-step materials.
             std::unique_ptr<MaterialParticleBillboard> Material;
 
-            int      MaxParticles  = 0;
-            uint32_t StepCapacity  = 0;
-            uint64_t Generation    = 0; // the VFXWorld instance generation this state belongs to; 0 = fresh
+            int      MaxParticles = 0;
+            uint32_t StepCapacity = 0;
+            uint64_t Generation   = 0; // the VFXWorld instance generation this state belongs to; 0 = fresh
         };
 
         // This frame's active emitters (built by PrepareFrame, consumed by Simulate + the draw pass).
@@ -157,7 +157,7 @@ namespace Desert::Graphic::System
         static bool RunsStep( const FrameEmitter& fe, uint32_t step );
         // The billboard pipeline of @p fe's blend (null when that pipeline failed to build).
         GraphicsPipeline* BillboardPipeline( const FrameEmitter& fe ) const;
-        EmitterGpu& GetOrCreate( uint32_t entityId, int maxParticles, uint32_t stepCapacity );
+        EmitterGpu&       GetOrCreate( uint32_t entityId, int maxParticles, uint32_t stepCapacity );
 
         std::shared_ptr<ComputePipeline>  m_SimPipeline;
         std::shared_ptr<GraphicsPipeline> m_AddPipeline;   // additive blend

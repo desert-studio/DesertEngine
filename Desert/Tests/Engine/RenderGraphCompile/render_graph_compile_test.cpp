@@ -2777,17 +2777,20 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     ASSERT_NE( begin, std::string::npos );
     const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
     // One node per fixed VFX step of the frame (VFXWorld), so step s+1 reads step s across a graph barrier.
-    EXPECT_NE( body.find( "for(uint32_tstep=0;step<steps;++step)graph.AddPass(std::format(\"Particles:Simulate{}\","
-                          "step),RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
-               std::string::npos );
+    EXPECT_NE(
+         body.find( "for(uint32_tstep=0;step<steps;++step)graph.AddPass(std::format(\"Particles:Simulate{}\","
+                    "step),RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
+         std::string::npos );
     EXPECT_NE( body.find( "constuint32_tsteps=particles->SimulationStepCount();" ), std::string::npos );
 
     // The node declares the emitters' buffers: imported through Renderer::ImportBuffer, written StorageWrite by
-    // the setup's binding blocks (ParticleRenderer::DeclareSimulateBindings, one per imported emitter running the step).
+    // the setup's binding blocks (ParticleRenderer::DeclareSimulateBindings, one per imported emitter running the
+    // step).
     EXPECT_NE( body.find( "particles->ImportSimulationBuffers(graph)" ), std::string::npos )
          << "the simulation node does not import the emitters' buffers";
-    EXPECT_NE( body.find( "[particles,step](RDG::PassBuilder&pass){particles->DeclareSimulateBindings(pass,step);}" ),
-               std::string::npos )
+    EXPECT_NE(
+         body.find( "[particles,step](RDG::PassBuilder&pass){particles->DeclareSimulateBindings(pass,step);}" ),
+         std::string::npos )
          << "the simulation node does not declare its writes in its setup";
     EXPECT_EQ( body.find( "[](RDG::PassBuilder&){}" ), std::string::npos )
          << "the simulation node declares nothing";
@@ -2815,8 +2818,8 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     // The setup declares one block per imported emitter: this frame's graph handles of both buffers by their
     // shader names, StorageWrite, and the push bytes; the exec opens the n-th declared emitter's block n and
     // dispatches through DispatchCompute (no pipeline setter carries a graph buffer, no name is bound in it).
-    const size_t declareAt =
-         particleText.find( "voidParticleRenderer::DeclareSimulateBindings(RDG::PassBuilder&pass,constuint32_tstep)const" );
+    const size_t declareAt = particleText.find(
+         "voidParticleRenderer::DeclareSimulateBindings(RDG::PassBuilder&pass,constuint32_tstep)const" );
     ASSERT_NE( declareAt, std::string::npos );
     const std::string declareBody =
          particleText.substr( declareAt, particleText.find( "ParticleRenderer::", declareAt + 5 ) - declareAt );
@@ -4135,8 +4138,8 @@ TEST( RenderGraphCompile, FrameExecutesWithoutTheFaultedPassAndReportsOnce )
 TEST( RenderGraphCompile, FaultThatLeavesAFrameFatalExternalUnwrittenIsAFrameFault )
 {
     // No default for GlassBlur: Composite, the backbuffer's only writer, is culled too.
-    RecordingBackend    backend;
-    GlassFrame          frame( FaultDefault::None, ExternalFaultPolicy::FrameFatal );
+    RecordingBackend backend;
+    GlassFrame       frame( FaultDefault::None, ExternalFaultPolicy::FrameFatal );
     frame.graph.Extract( frame.back, frame.backbuffer, Access::Present );
     const CompileResult result = CompileOrFail( frame.graph );
     ASSERT_TRUE( result.Frame.has_value() );

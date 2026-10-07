@@ -130,8 +130,8 @@ namespace Desert::Destruction
         // Leaves bottom-up: children come after parents, so a reverse walk sees every child first.
         for ( int32_t i = count - 1; i >= 0; --i )
         {
-            NodeState& node     = object.Nodes[i];
-            const uint32_t level    = nodes[i].Level;
+            NodeState&     node  = object.Nodes[i];
+            const uint32_t level = nodes[i].Level;
             node.InternalStrain =
                  level < desc.DamageThreshold.size() ? desc.DamageThreshold[level] : nodes[i].DamageThreshold;
             if ( node.Children.empty() )
@@ -467,8 +467,8 @@ namespace Desert::Destruction
                     {
                         if ( body.Handle == Physics::kInvalidBody || body.Static )
                             continue;
-                        const glm::vec3 j =
-                             Evaluate( command.Vector, WorldPoint( body, CenterOfMass( m_Objects[o], body.Members ) ) );
+                        const glm::vec3 j = Evaluate(
+                             command.Vector, WorldPoint( body, CenterOfMass( m_Objects[o], body.Members ) ) );
                         if ( !( glm::length( j ) > 0.0f ) )
                             continue;
                         m_Physics.AddImpulse( body.Handle, j );
@@ -485,9 +485,10 @@ namespace Desert::Destruction
                             0.0f ) )
                         continue;
                     for ( const int32_t m : body.Members )
-                        m_Events.push_back( DestructionEvent{ DestructionEventKind::Removed, ref.Object, m,
-                                                              WorldPoint( body, object.Data->Nodes[m].CenterOfMass ),
-                                                              m_Physics.GetLinearVelocity( body.Handle ) } );
+                        m_Events.push_back(
+                             DestructionEvent{ DestructionEventKind::Removed, ref.Object, m,
+                                               WorldPoint( body, object.Data->Nodes[m].CenterOfMass ),
+                                               m_Physics.GetLinearVelocity( body.Handle ) } );
                     DestroyBody( ref.Object, ref.Body );
                     ++acted;
                 }
@@ -501,8 +502,8 @@ namespace Desert::Destruction
                     for ( const int32_t leaf : body.PartLeaf )
                     {
                         if ( object.Nodes[leaf].Anchored ||
-                             !( Evaluate( command.Scalar, WorldPoint( body, object.Data->Nodes[leaf].CenterOfMass ) ) >
-                                0.0f ) )
+                             !( Evaluate( command.Scalar,
+                                          WorldPoint( body, object.Data->Nodes[leaf].CenterOfMass ) ) > 0.0f ) )
                             continue;
                         for ( int32_t up = leaf; up >= 0; up = object.Nodes[up].Parent )
                             object.Nodes[up].Anchored = true;
@@ -510,7 +511,8 @@ namespace Desert::Destruction
                     }
                     if ( !newly || body.Static )
                         continue;
-                    // The body holds an anchored leaf now: it stays where it is, static (SpawnBody reads Anchored).
+                    // The body holds an anchored leaf now: it stays where it is, static (SpawnBody reads
+                    // Anchored).
                     const glm::vec3 position = m_Physics.GetPosition( body.Handle );
                     const glm::quat rotation = m_Physics.GetRotation( body.Handle );
                     DestroyBody( ref.Object, ref.Body );

@@ -180,9 +180,9 @@ namespace Desert::Graphic
         // method every frame (ApplySceneSampleCount, from BeginScene); this is the count it starts at.
         //
         // ONE SAMPLE HERE, whatever the machine chose: MSAA applies only on the forward path (AA2,
-        // Scalability::ResolveAntiAliasingForPath) and no scene — so no path — is known until the first BeginScene,
-        // which raises the count for a forward scene under MSAA. Starting at 1 means a deferred scene never
-        // allocates a multisampled target it cannot use.
+        // Scalability::ResolveAntiAliasingForPath) and no scene — so no path — is known until the first
+        // BeginScene, which raises the count for a forward scene under MSAA. Starting at 1 means a deferred scene
+        // never allocates a multisampled target it cannot use.
         FramebufferSpecification fbSpec;
         fbSpec.DebugName = "Composite framebuffer";
         fbSpec.Samples   = 1;
@@ -693,7 +693,8 @@ namespace Desert::Graphic
              ->SetBackdropVisible( m_DebugView.ShowSkyBackdrop );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWireframe( m_DebugView.WireframeMode );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+             ->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetShadows( shadows.Enabled, shadows.Bias, static_cast<int>( m_DebugView.ShadowDebug ),
                            shadows.CascadeSplitLambda );

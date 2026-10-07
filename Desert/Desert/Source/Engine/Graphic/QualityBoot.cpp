@@ -25,8 +25,8 @@ namespace Desert::Graphic::QualityBoot
         {
             Common::Settings::MachineSettings::Get().Quality = selection;
             if ( !Common::Settings::MachineSettings::Save() )
-                return Common::MakeError<bool>( std::format( "{} was not written",
-                                                             Common::Settings::MachineSettings::File().string() ) );
+                return Common::MakeError<bool>(
+                     std::format( "{} was not written", Common::Settings::MachineSettings::File().string() ) );
             return Common::MakeSuccess( true );
         }
 

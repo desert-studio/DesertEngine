@@ -41,12 +41,12 @@ namespace Desert::Assets
         }
 
         /// Writes a VFX system to disk (creating the directory). Static because saving is what CREATES one.
-        static Common::BoolResultStr Save( const Common::Filepath&                      filepath,
+        static Common::BoolResultStr Save( const Common::Filepath&             filepath,
                                            const Serialization::VFXSystemData& data );
 
     private:
-        Common::Content::AssetGuid            m_Guid;
+        Common::Content::AssetGuid   m_Guid;
         Serialization::VFXSystemData m_Data;
-        bool                                  m_Ready = false;
+        bool                         m_Ready = false;
     };
 } // namespace Desert::Assets

@@ -282,7 +282,7 @@ namespace Desert::Graphic::RDG
     private:
         [[nodiscard]] std::string DescribeSub( uint32_t sub ) const;
         void Fault( uint32_t p, PassFaultStage stage, std::string reason, std::optional<uint32_t> root );
-        [[nodiscard]] bool    LoadsAttachment( uint32_t p, uint32_t resource ) const;
+        [[nodiscard]] bool        LoadsAttachment( uint32_t p, uint32_t resource ) const;
         void                  FoldUse( const PassRecord& pass, const ResourceUse& use, std::vector<int32_t>& slot,
                                        std::vector<RdgSubUse>& uses, std::string& error ) const;
         Common::BoolResultStr CollectAliasCandidates( std::vector<RdgAliasCandidate>& candidates ) const;

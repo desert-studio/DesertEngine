@@ -76,9 +76,9 @@ namespace Common::Constants
                 if ( engineDir.empty() )
                     return {}; // unset: nothing to derive from (see UNSET IS AN ERROR above)
                 const std::filesystem::path resources = engineDir / "Resources";
-                return EngineResourcePaths{ resources / "", resources / "Shaders" / "", resources / "Fonts" / "",
-                                            resources / "Icons" / "", resources / "Engine" / "",
-                                            resources / "Config" / "" };
+                return EngineResourcePaths{
+                     resources / "",           resources / "Shaders" / "", resources / "Fonts" / "",
+                     resources / "Icons" / "", resources / "Engine" / "",  resources / "Config" / "" };
             }
 
             inline std::filesystem::path s_EngineDir;

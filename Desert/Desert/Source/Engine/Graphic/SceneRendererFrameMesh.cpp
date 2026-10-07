@@ -137,11 +137,12 @@ namespace Desert::Graphic
             return;
         // ZERO, not the default 0.1 grey: empty texels need a zero normal, the lighting pass tells geometry from
         // sky by dot(normal, normal).
-        AddRaster( graph, "Deferred: GBuffer", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
-                   RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
-                   [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGBufferManual( context ); },
-                   [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGBufferDraws( pass ); } );
+        AddRaster(
+             graph, "Deferred: GBuffer", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+             RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGBufferManual( context ); },
+             [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGBufferDraws( pass ); } );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )

@@ -115,9 +115,9 @@ namespace Desert::Graphic
         struct BlockUse
         {
             std::shared_ptr<const RDG::ShaderBindingLayout> Layout;
-            RDG::OtherRouteFill      Other;
-            std::vector<BlockEntry>  Entries;
-            uint32_t                 PushConstantBytes = 0;
+            RDG::OtherRouteFill                             Other;
+            std::vector<BlockEntry>                         Entries;
+            uint32_t                                        PushConstantBytes = 0;
         };
         // Fills the block Bindings opened; mirrors RDG::BindingBlockBuilder. Holds the declaration and the index,
         // not the block, so a later Bindings call (which may grow the list) does not invalidate it.

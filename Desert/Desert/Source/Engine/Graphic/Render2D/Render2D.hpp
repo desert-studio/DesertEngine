@@ -237,9 +237,9 @@ namespace Desert::Graphic::Render2D
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_TextPipeline;
         std::shared_ptr<GraphicsPipeline> m_GlassPipeline;
-        ShaderBindingLayoutCache          m_PlainLayout; // keyed on m_Pipeline's shader
-        ShaderBindingLayoutCache          m_TextLayout;  // keyed on m_TextPipeline's shader
-        ShaderBindingLayoutCache          m_GlassLayout; // keyed on m_GlassPipeline's shader
+        ShaderBindingLayoutCache          m_PlainLayout;    // keyed on m_Pipeline's shader
+        ShaderBindingLayoutCache          m_TextLayout;     // keyed on m_TextPipeline's shader
+        ShaderBindingLayoutCache          m_GlassLayout;    // keyed on m_GlassPipeline's shader
         ShaderBindingLayoutCache          m_RetainerLayout; // keyed on m_RetainerPipeline's shader
         std::shared_ptr<VertexBuffer>     m_VertexBuffer;
         std::shared_ptr<IndexBuffer>      m_IndexBuffer;

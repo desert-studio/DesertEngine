@@ -268,7 +268,7 @@ namespace Common::Settings
             std::string_view                      Name;
             std::optional<Scalability::Parameter> Becomes;
         };
-        constexpr std::size_t kRetiredMethod = 0, kRetiredSamples = 1, kRetiredPostAA = 6;
+        constexpr std::size_t               kRetiredMethod = 0, kRetiredSamples = 1, kRetiredPostAA = 6;
         constexpr std::array<RetiredKey, 7> kRetiredKeys{ {
              { "AAMethod", Scalability::Parameter::AntiAliasingMethod },
              { "MSAASamples", Scalability::Parameter::AntiAliasingSamples },
@@ -327,8 +327,9 @@ namespace Common::Settings
         }
     } // namespace
 
-    MachineSettings::RetiredKeyMigration MachineSettings::MigrateRetiredKeys(
-         MachineSettings& settings, std::string_view rawJson, const Scalability::ScalabilityTable& table )
+    MachineSettings::RetiredKeyMigration
+    MachineSettings::MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson,
+                                         const Scalability::ScalabilityTable& table )
     {
         RetiredKeyMigration result;
         const auto          members = Json::ObjectMembers( rawJson );

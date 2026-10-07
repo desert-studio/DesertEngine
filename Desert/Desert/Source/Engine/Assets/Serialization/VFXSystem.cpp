@@ -50,11 +50,13 @@ namespace Desert::Assets::Serialization
             if ( in.Name.empty() )
                 return Common::MakeFormattedError<bool>( "{} input has an empty Name", where );
             const bool value = in.Source == VFXInputSource::Value, curve = in.Source == VFXInputSource::Curve,
-                       binding = in.Source == VFXInputSource::Binding, random = in.Source == VFXInputSource::Random;
+                       binding = in.Source == VFXInputSource::Binding,
+                       random  = in.Source == VFXInputSource::Random;
             if ( in.Value.has_value() != value || in.Curve.has_value() != curve ||
                  in.Binding.has_value() != binding || in.Random.has_value() != random )
                 return Common::MakeFormattedError<bool>(
-                     "{}: exactly the member its Source names must be present (Value/Curve/Binding/Random)", what );
+                     "{}: exactly the member its Source names must be present (Value/Curve/Binding/Random)",
+                     what );
             if ( value )
                 return CheckValue( *in.Value, in.Type, what );
             if ( random )
@@ -87,8 +89,8 @@ namespace Desert::Assets::Serialization
                         const VFXCurveKey& key = keys[k];
                         if ( !std::isfinite( key.Time ) || !std::isfinite( key.Value ) ||
                              !std::isfinite( key.ArriveTangent ) || !std::isfinite( key.LeaveTangent ) )
-                            return Common::MakeFormattedError<bool>( "{}: channel {} key {} is not finite", what, c,
-                                                                     k );
+                            return Common::MakeFormattedError<bool>( "{}: channel {} key {} is not finite", what,
+                                                                     c, k );
                         if ( k > 0 && !( keys[k - 1].Time < key.Time ) )
                             return Common::MakeFormattedError<bool>(
                                  "{}: channel {} key {} at {} does not follow {}", what, c, k, key.Time,
@@ -112,9 +114,10 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>( "{}: '{}' names no UserParams row", what, b );
             }
             if ( b.starts_with( kVFXParticlesPrefix ) && b.size() > kVFXParticlesPrefix.size() )
-                return BOOLSUCCESS; // attributes are derived from the stack (VFX-04); the name is all a file states
-            return Common::MakeFormattedError<bool>( "{}: Binding '{}' is neither User.<param> nor Particles.<attr>",
-                                                     what, b );
+                return BOOLSUCCESS; // attributes are derived from the stack (VFX-04); the name is all a file
+                                    // states
+            return Common::MakeFormattedError<bool>(
+                 "{}: Binding '{}' is neither User.<param> nor Particles.<attr>", what, b );
         }
 
         Common::BoolResultStr CheckGroup( const std::vector<VFXModuleUse>& group, const VFXSystemData& system,
@@ -175,9 +178,11 @@ namespace Desert::Assets::Serialization
     Common::BoolResultStr ValidateVFXSystemData( const VFXSystemData& data )
     {
         if ( !std::isfinite( data.Duration ) || data.Duration < 0.0f )
-            return Common::MakeFormattedError<bool>( "Duration {} is not a finite non-negative time", data.Duration );
+            return Common::MakeFormattedError<bool>( "Duration {} is not a finite non-negative time",
+                                                     data.Duration );
         if ( data.Loop && data.Duration <= 0.0f )
-            return Common::MakeFormattedError<bool>( "a looping system needs Duration > 0, has {}", data.Duration );
+            return Common::MakeFormattedError<bool>( "a looping system needs Duration > 0, has {}",
+                                                     data.Duration );
         if ( !Finite( data.Bounds.Min ) || !Finite( data.Bounds.Max ) || data.Bounds.Min.x > data.Bounds.Max.x ||
              data.Bounds.Min.y > data.Bounds.Max.y || data.Bounds.Min.z > data.Bounds.Max.z )
             return Common::MakeFormattedError<bool>( "Bounds are not a finite box with Min <= Max" );
@@ -191,7 +196,8 @@ namespace Desert::Assets::Serialization
         for ( const VFXUserParam& p : data.UserParams )
         {
             if ( p.Name.empty() || p.Name.find( '.' ) != std::string::npos || !params.insert( p.Name ).second )
-                return Common::MakeFormattedError<bool>( "user parameter '{}' is empty, dotted or repeated", p.Name );
+                return Common::MakeFormattedError<bool>( "user parameter '{}' is empty, dotted or repeated",
+                                                         p.Name );
             if ( auto ok = CheckValue( p.Default, p.Type, std::format( "User.{} Default", p.Name ) ); !ok )
                 return ok;
         }
@@ -220,7 +226,8 @@ namespace Desert::Assets::Serialization
                 return ok;
             if ( auto ok = CheckGroup( e.Stack.ParticleSpawn, data, std::format( "{} ParticleSpawn", at ) ); !ok )
                 return ok;
-            if ( auto ok = CheckGroup( e.Stack.ParticleUpdate, data, std::format( "{} ParticleUpdate", at ) ); !ok )
+            if ( auto ok = CheckGroup( e.Stack.ParticleUpdate, data, std::format( "{} ParticleUpdate", at ) );
+                 !ok )
                 return ok;
         }
         return BOOLSUCCESS;
@@ -243,7 +250,7 @@ namespace Desert::Assets::Serialization
         auto read = Common::Json::ReadFile<VFXCategoryRegister>( path );
         if ( !read )
             return Common::MakeFormattedError<VFXCategoryRegister>( "{}", read.GetError() );
-        VFXCategoryRegister reg = read.ExtractValue();
+        VFXCategoryRegister   reg = read.ExtractValue();
         std::set<std::string> ids;
         for ( const VFXCategory& cat : reg.Categories )
             if ( cat.Id.empty() || !ids.insert( cat.Id ).second || !Finite( cat.Color ) )
@@ -253,7 +260,8 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( std::move( reg ) );
     }
 
-    Common::ResultStr<VFXSystemData> ParseVFXSystem( const std::string& text, const VFXCategoryRegister& categories )
+    Common::ResultStr<VFXSystemData> ParseVFXSystem( const std::string&         text,
+                                                     const VFXCategoryRegister& categories )
     {
         if ( text.empty() )
             return Common::MakeFormattedError<VFXSystemData>( "the file is empty" );
@@ -291,8 +299,8 @@ namespace Desert::Assets::Serialization
     std::string WriteVFXSystem( const VFXSystemData& data )
     {
         VFXSystemData out = data;
-        out.Header =
-             Assets::StampTextHeader( data.Header, Common::Content::ContentKind::VFXSystem, VFXSystemTextSubsystems() );
+        out.Header        = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::VFXSystem,
+                                                     VFXSystemTextSubsystems() );
         out.Header->Dependencies.clear();
         return Common::Json::Write( out );
     }

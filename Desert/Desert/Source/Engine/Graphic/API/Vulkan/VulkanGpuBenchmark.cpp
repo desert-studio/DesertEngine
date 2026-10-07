@@ -43,24 +43,25 @@ namespace Desert::Graphic::API::Vulkan
 
         std::string AluSource()
         {
-            return std::format( "#version 450\n"
-                                "layout(local_size_x = {}) in;\n"
-                                "layout(std430, set = 0, binding = 1) writeonly buffer Out {{ vec4 Values[]; }} o;\n"
-                                "void main()\n"
-                                "{{\n"
-                                "    float seed = float(gl_GlobalInvocationID.x) * 1.0e-6;\n"
-                                "    vec4 a = vec4(seed, seed + 0.1, seed + 0.2, seed + 0.3);\n"
-                                "    vec4 b = a + 0.5, c = a + 0.25, d = a + 0.75;\n"
-                                "    for (uint i = 0u; i < {}u; ++i)\n"
-                                "    {{\n"
-                                "        a = fma(a, vec4(0.9999), vec4(1.0e-4));\n"
-                                "        b = fma(b, vec4(0.9998), vec4(2.0e-4));\n"
-                                "        c = fma(c, vec4(0.9997), vec4(3.0e-4));\n"
-                                "        d = fma(d, vec4(0.9996), vec4(4.0e-4));\n"
-                                "    }}\n"
-                                "    o.Values[gl_GlobalInvocationID.x] = a + b + c + d;\n"
-                                "}}\n",
-                                kGroupSize, kAluIterations );
+            return std::format(
+                 "#version 450\n"
+                 "layout(local_size_x = {}) in;\n"
+                 "layout(std430, set = 0, binding = 1) writeonly buffer Out {{ vec4 Values[]; }} o;\n"
+                 "void main()\n"
+                 "{{\n"
+                 "    float seed = float(gl_GlobalInvocationID.x) * 1.0e-6;\n"
+                 "    vec4 a = vec4(seed, seed + 0.1, seed + 0.2, seed + 0.3);\n"
+                 "    vec4 b = a + 0.5, c = a + 0.25, d = a + 0.75;\n"
+                 "    for (uint i = 0u; i < {}u; ++i)\n"
+                 "    {{\n"
+                 "        a = fma(a, vec4(0.9999), vec4(1.0e-4));\n"
+                 "        b = fma(b, vec4(0.9998), vec4(2.0e-4));\n"
+                 "        c = fma(c, vec4(0.9997), vec4(3.0e-4));\n"
+                 "        d = fma(d, vec4(0.9996), vec4(4.0e-4));\n"
+                 "    }}\n"
+                 "    o.Values[gl_GlobalInvocationID.x] = a + b + c + d;\n"
+                 "}}\n",
+                 kGroupSize, kAluIterations );
         }
         // kAluChains vec4 FMAs per iteration: 4 lanes x 2 FLOPs each.
         constexpr double kAluFlopsPerDispatch =

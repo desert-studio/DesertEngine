@@ -239,7 +239,7 @@ namespace Desert::Physics
         void SetTransform( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         void SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity );
         /// Adds @p impulse (kg*cm/s) at the centre of mass and wakes the body; a static body ignores it.
-        void AddImpulse( BodyHandle handle, const glm::vec3& impulse );
+        void                    AddImpulse( BodyHandle handle, const glm::vec3& impulse );
         [[nodiscard]] glm::vec3 GetLinearVelocity( BodyHandle handle ) const;  ///< cm/s, at the centre of mass
         [[nodiscard]] glm::vec3 GetAngularVelocity( BodyHandle handle ) const; ///< rad/s
         /// The velocity of the body's material at the world point @p point (zero for a static body).

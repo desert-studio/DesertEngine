@@ -61,8 +61,9 @@ namespace Desert::Editor
 
     struct CollectionManifest
     {
-        // Absent means a manifest written before the format was versioned, which has no reader: the one member whose
-        // absence MEANS something (Json.hpp's rule), so it is optional and the writer stamps the current version.
+        // Absent means a manifest written before the format was versioned, which has no reader: the one member
+        // whose absence MEANS something (Json.hpp's rule), so it is optional and the writer stamps the current
+        // version.
         std::optional<int>                                     Version;
         std::string                                            Name;
         std::optional<std::string>                             Author;

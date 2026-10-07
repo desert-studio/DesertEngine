@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-// RDG-FAULT1. The setup-time declaration of a pass's shader parameter block: what PassBuilder::Bindings records and
-// Builder::Compile validates (ValidatePassBindings) before anything is recorded. Split out of RDGPassBindings.hpp
-// because the builder stores these per pass, and RDGPassBindings.hpp itself needs the builder.
+// RDG-FAULT1. The setup-time declaration of a pass's shader parameter block: what PassBuilder::Bindings records
+// and Builder::Compile validates (ValidatePassBindings) before anything is recorded. Split out of
+// RDGPassBindings.hpp because the builder stores these per pass, and RDGPassBindings.hpp itself needs the builder.
 namespace Desert::Graphic::RDG
 {
     enum class SamplerFilter : uint8_t
@@ -135,8 +135,8 @@ namespace Desert::Graphic::RDG
         // per-frame copy of the slot list; null is refused by ValidatePassBindings.
         std::shared_ptr<const ShaderBindingLayout> Layout;
         OtherRouteFill                             Other;
-        std::vector<DeclaredBindingEntry> Entries;
-        uint32_t                          PushConstantBytes = 0; // what the exec will push
+        std::vector<DeclaredBindingEntry>          Entries;
+        uint32_t                                   PushConstantBytes = 0; // what the exec will push
     };
 
     // A declared block of one pass: the exec's handle to it. Meaningless outside the graph that declared it.

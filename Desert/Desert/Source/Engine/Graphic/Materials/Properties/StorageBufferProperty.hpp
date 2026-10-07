@@ -52,8 +52,9 @@ namespace Desert::Graphic
         }
 
         // Whether anything ever filled this buffer (SetRawData / SetBuffer). The reflection-created buffer of an
-        // unwritten property holds no copy to bind, so a draw would be refused at record time; the material's route
-        // fill leaves it out instead (MaterialExecutor::GetRouteFill) and the pass's setup refuses the block.
+        // unwritten property holds no copy to bind, so a draw would be refused at record time; the material's
+        // route fill leaves it out instead (MaterialExecutor::GetRouteFill) and the pass's setup refuses the
+        // block.
         [[nodiscard]] bool IsWritten() const noexcept
         {
             return m_Written;

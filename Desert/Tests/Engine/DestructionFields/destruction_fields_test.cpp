@@ -86,10 +86,9 @@ namespace
 
     FieldCommand Strain( float magnitude )
     {
-        return FieldCommand{ .Type   = FieldPhysicsType::ExternalStrain,
-                             .Scalar = RadialFalloff{ .Magnitude = magnitude,
-                                                      .Radius    = 1000.0f,
-                                                      .Falloff   = FieldFalloff::None } };
+        return FieldCommand{
+             .Type   = FieldPhysicsType::ExternalStrain,
+             .Scalar = RadialFalloff{ .Magnitude = magnitude, .Radius = 1000.0f, .Falloff = FieldFalloff::None } };
     }
 } // namespace
 

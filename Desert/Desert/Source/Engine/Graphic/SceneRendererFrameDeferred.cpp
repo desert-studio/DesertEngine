@@ -237,9 +237,10 @@ namespace Desert::Graphic
                  ssao->DeclareBindings( pass, worldPos, normal );
                  pass.ColorTarget( 0, ao, EngineClearColor() ); // AO is fully recomputed each frame
              },
-             [ssao, viewProj, cameraPos, samples = m_SSAOSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 return ssao->Record( context, viewProj, cameraPos, kSSAORadius, kSSAOBias, /*power*/ 1.5f, samples );
+             [ssao, viewProj, cameraPos,
+              samples = m_SSAOSamples]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                 return ssao->Record( context, viewProj, cameraPos, kSSAORadius, kSSAOBias, /*power*/ 1.5f,
+                                      samples );
              } );
     }
 
@@ -293,10 +294,12 @@ namespace Desert::Graphic
                  gi->DeclareGatherBindings( pass, inputs );
                  pass.ColorTarget( 0, gather, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [gi, meshRenderer, lightColor, giIntensity, giSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [gi, meshRenderer, lightColor, giIntensity,
+              giSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  // Read when the node runs: the RSM node before it is what sets this frame's light matrix.
-                 return gi->RecordGather( context, meshRenderer->GetRSMViewProj(), lightColor, giIntensity, giSamples );
+                 return gi->RecordGather( context, meshRenderer->GetRSMViewProj(), lightColor, giIntensity,
+                                          giSamples );
              } );
         const RDG::TextureRef worldPos = gbuffer[2];
         graph.AddPass(
@@ -474,8 +477,8 @@ namespace Desert::Graphic
              [this, ssr, viewProj, cameraPos]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
-                 return ssr->RecordTrace( context, viewProj, cameraPos, m_SSRMaxSteps, m_SSRMaxDistance, m_SSRIntensity,
-                                          kSSRThickness );
+                 return ssr->RecordTrace( context, viewProj, cameraPos, m_SSRMaxSteps, m_SSRMaxDistance,
+                                          m_SSRIntensity, kSSRThickness );
              } );
         graph.AddPass(
              "Deferred: SSRResolve", RDG::PassFlags::Raster,

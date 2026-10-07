@@ -582,7 +582,8 @@ namespace Desert::VFX
                                     a.FloatStart + c, a.Name, kLane[c] );
                 }
         }
-        std::format_to( std::back_inserter( body ), "{}    return p;\n}}\n{}}}\n{}    return p;\n}}\n", read, write, zero );
+        std::format_to( std::back_inserter( body ), "{}    return p;\n}}\n{}}}\n{}    return p;\n}}\n", read,
+                        write, zero );
         std::format_to( std::back_inserter( body ),
                         "\nvoid VFX_SimulateParticle( uint particle, inout VFXSim sim )\n{{\n"
                         "    ParticleCtx p = sim.Spawned ? VFX_ZeroParticle() : VFX_ReadParticle( particle );\n"

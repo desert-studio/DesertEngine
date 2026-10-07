@@ -105,7 +105,8 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    ParticleRenderer::EmitterGpu& ParticleRenderer::GetOrCreate( uint32_t entityId, int maxParticles, uint32_t stepCapacity )
+    ParticleRenderer::EmitterGpu& ParticleRenderer::GetOrCreate( uint32_t entityId, int maxParticles,
+                                                                 uint32_t stepCapacity )
     {
         auto&     e   = m_Emitters[entityId];
         const int cap = std::max( 1, maxParticles );
@@ -213,9 +214,8 @@ namespace Desert::Graphic::System
                  {
                      if ( gpu.Generation != 0 )
                      {
-                         const std::vector<uint8_t> zeros( static_cast<size_t>( gpu.MaxParticles ) *
-                                                                kParticleStride,
-                                                           0 );
+                         const std::vector<uint8_t> zeros(
+                              static_cast<size_t>( gpu.MaxParticles ) * kParticleStride, 0 );
                          const auto cleared =
                               gpu.Particles->SetData( zeros.data(), static_cast<uint32_t>( zeros.size() ) );
                          if ( !cleared.IsSuccess() )
@@ -240,8 +240,8 @@ namespace Desert::Graphic::System
                      std::vector<StepGpu> table( stepCount );
                      for ( uint32_t s = 0; s < stepCount; ++s )
                          table[s] = { 0u, instance->Steps[s].IdBase, instance->Seed, instance->Steps[s].Budget };
-                     const auto uploaded =
-                          gpu.Steps->SetData( table.data(), stepCount * static_cast<uint32_t>( sizeof( StepGpu ) ) );
+                     const auto uploaded = gpu.Steps->SetData(
+                          table.data(), stepCount * static_cast<uint32_t>( sizeof( StepGpu ) ) );
                      if ( !uploaded.IsSuccess() )
                      {
                          LOG_ERROR( "[Particles] emitter {} does not simulate this frame, its step table did "
@@ -273,7 +273,8 @@ namespace Desert::Graphic::System
                  // the whole system rides a moving emitter instead of trailing behind it. (Only the
                  // TRANSLATION rides; the emitter's rotation is not applied to the cloud.) Counts.y, the
                  // step, is set per dispatch.
-                 fe.Push.Counts = glm::uvec4( static_cast<uint32_t>( gpu.MaxParticles ), 0u, 0u, d.WorldSpace ? 0u : 1u );
+                 fe.Push.Counts =
+                      glm::uvec4( static_cast<uint32_t>( gpu.MaxParticles ), 0u, 0u, d.WorldSpace ? 0u : 1u );
 
                  m_FrameEmitters.push_back( fe );
              } );

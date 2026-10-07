@@ -91,7 +91,7 @@ namespace Desert::ECS
                 m_World->Init( m_AppliedGravity );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
-                m_Destruction = std::make_unique<Destruction::DestructionWorld>( *m_World );
+                m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
                 m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )

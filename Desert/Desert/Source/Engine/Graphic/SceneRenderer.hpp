@@ -616,7 +616,7 @@ namespace Desert::Graphic
         ShaderProtocols::SpotLight      m_SpotLight;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
-        Common::Scalability::AntiAliasingMethod m_AAMode    = Common::Scalability::AntiAliasingMethod::FXAA;
+        Common::Scalability::AntiAliasingMethod m_AAMode       = Common::Scalability::AntiAliasingMethod::FXAA;
         bool                               m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest

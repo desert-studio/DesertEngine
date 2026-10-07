@@ -60,7 +60,8 @@ namespace Desert::Graphic
         const uint32_t steps = particles->SimulationStepCount();
         for ( uint32_t step = 0; step < steps; ++step )
             graph.AddPass(
-                 std::format( "Particles: Simulate {}", step ), RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
+                 std::format( "Particles: Simulate {}", step ),
+                 RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
                  [particles, step]( RDG::PassBuilder& pass ) { particles->DeclareSimulateBindings( pass, step ); },
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->Simulate( context, step ); } );

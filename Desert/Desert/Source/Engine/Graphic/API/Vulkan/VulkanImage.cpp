@@ -101,10 +101,10 @@ namespace Desert::Graphic::API::Vulkan
             const int  mode        = Graphic::RenderConfig::TextureFilter.load();
             // Filter and mip mode from the one derivation a graph entry reading this image also names; a material
             // slot that asks for Nearest (Core::Formats::SamplerState) samples nearest whatever the global filter.
-            const RDG::SamplerDesc desc    = forceLinear ? VolumeSampler() : GlobalTextureFilterSampler();
-            const bool             nearest = !forceLinear && ( desc.MinFilter == RDG::SamplerFilter::Nearest ||
-                                                               slot.Filter == Core::Formats::SamplerFilter::Nearest );
-            const VkFilter         filter  = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+            const RDG::SamplerDesc    desc    = forceLinear ? VolumeSampler() : GlobalTextureFilterSampler();
+            const bool                nearest = !forceLinear && ( desc.MinFilter == RDG::SamplerFilter::Nearest ||
+                                                   slot.Filter == Core::Formats::SamplerFilter::Nearest );
+            const VkFilter            filter  = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
             const VkSamplerMipmapMode mipMode = desc.MipMode == RDG::SamplerMipMode::Linear
                                                      ? VK_SAMPLER_MIPMAP_MODE_LINEAR
                                                      : VK_SAMPLER_MIPMAP_MODE_NEAREST;
@@ -113,8 +113,8 @@ namespace Desert::Graphic::API::Vulkan
             // CapabilityCatalog::AnisotropyLevels, which is {1} on a device without samplerAnisotropy, so a
             // level above 1 means the device runs it. Never for a volume: anisotropic filtering of a 3D noise
             // field buys nothing and is not guaranteed for VK_IMAGE_TYPE_3D.
-            const int   anisoLevel = Graphic::RenderConfig::AnisotropyLevel.load();
-            const bool  useAniso =
+            const int  anisoLevel = Graphic::RenderConfig::AnisotropyLevel.load();
+            const bool useAniso =
                  !forceLinear && !nearest && mode == static_cast<int>( FM::Anisotropic ) && anisoLevel > 1;
             const float maxAniso = useAniso ? static_cast<float>( anisoLevel ) : 1.0f;
 
@@ -1612,9 +1612,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         // The resolved anisotropy level already folds in the device's limit (Scalability::Resolve narrows it to
         // CapabilityCatalog::AnisotropyLevels), so the global filter state is TextureFilter + AnisotropyLevel.
-        const uint64_t key = static_cast<uint64_t>( state.Key() ) |
-                             ( static_cast<uint64_t>( Graphic::RenderConfig::TextureFilter.load() & 0xFF ) << 16 ) |
-                             ( static_cast<uint64_t>( Graphic::RenderConfig::AnisotropyLevel.load() & 0xFF ) << 24 );
+        const uint64_t key =
+             static_cast<uint64_t>( state.Key() ) |
+             ( static_cast<uint64_t>( Graphic::RenderConfig::TextureFilter.load() & 0xFF ) << 16 ) |
+             ( static_cast<uint64_t>( Graphic::RenderConfig::AnisotropyLevel.load() & 0xFF ) << 24 );
         auto&                             cache = SlotSamplers();
         const std::lock_guard<std::mutex> lock( cache.Mutex );
         if ( const auto it = cache.Samplers.find( key ); it != cache.Samplers.end() )

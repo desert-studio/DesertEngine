@@ -289,17 +289,20 @@ namespace Desert::Assets::Serialization
 
 namespace rfl::config
 {
-    template <typename T> struct enum_range;
+    template <typename T>
+    struct enum_range;
 
     /// The curve key's interpolation and tangent rule are persisted BY NAME. Their underlying type is
     /// uint8_t and reflect-cpp's default scan range is `int`, so the range is given in their own type (the
     /// LoopMode precedent, Timeline/Player.hpp).
-    template <> struct enum_range<Desert::Animation::KeyInterp>
+    template <>
+    struct enum_range<Desert::Animation::KeyInterp>
     {
         static constexpr uint8_t min = 0;
         static constexpr uint8_t max = 2;
     };
-    template <> struct enum_range<Desert::Animation::TangentMode>
+    template <>
+    struct enum_range<Desert::Animation::TangentMode>
     {
         static constexpr uint8_t min = 0;
         static constexpr uint8_t max = 2;
