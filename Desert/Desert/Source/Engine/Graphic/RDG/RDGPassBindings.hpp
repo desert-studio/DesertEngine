@@ -101,7 +101,7 @@ namespace Desert::Graphic::RDG
         }
 
         // One value per distinct description: the key of the backend's sampler cache.
-        constexpr uint32_t GetKey() const
+        [[nodiscard]] constexpr uint32_t GetKey() const
         {
             return static_cast<uint32_t>( MinFilter ) | ( static_cast<uint32_t>( MagFilter ) << 2 ) |
                    ( static_cast<uint32_t>( MipMode ) << 4 ) | ( static_cast<uint32_t>( AddressU ) << 6 ) |
@@ -174,12 +174,12 @@ namespace Desert::Graphic::RDG
         PassBindings& PushConstants( const void* data, uint32_t size );
 
         // Success, or the first failed entry: "<pass>: '<shader name>' <- '<resource>': <why>".
-        Common::BoolResultStr GetStatus() const;
+        [[nodiscard]] Common::BoolResultStr GetStatus() const;
 
-        const PassContext&            GetContext() const;
-        std::span<const BoundTexture> GetTextures() const;
-        std::span<const BoundBuffer>  GetBuffers() const;
-        std::span<const std::byte>    GetPushConstants() const;
+        [[nodiscard]] const PassContext&            GetContext() const;
+        [[nodiscard]] std::span<const BoundTexture> GetTextures() const;
+        [[nodiscard]] std::span<const BoundBuffer>  GetBuffers() const;
+        [[nodiscard]] std::span<const std::byte>    GetPushConstants() const;
 
     private:
         const PassContext&        m_Context;

@@ -43,7 +43,7 @@ namespace Desert::Graphic::RDG
             Pipe        DstPipe = Pipe::Graphics;
             uint32_t    Partner = 0;
 
-            bool SameTransition( const RdgRawTransition& other ) const
+            [[nodiscard]] bool SameTransition( const RdgRawTransition& other ) const
             {
                 return Before == other.Before && After == other.After && Discard == other.Discard &&
                        Kind == other.Kind && SrcPipe == other.SrcPipe && DstPipe == other.DstPipe &&
@@ -761,7 +761,7 @@ namespace Desert::Graphic::RDG
         auto isAliased = [&]( uint32_t resource )
         {
             const Allocation* allocation = result.FindAllocation( resource );
-            return allocation && !allocation->AliasPredecessors.empty();
+            return allocation != nullptr && !allocation->AliasPredecessors.empty();
         };
 
         // The state a subresource is in before the graph touches it. For transient memory that is
@@ -926,7 +926,7 @@ namespace Desert::Graphic::RDG
                 decision.Slot                 = attachment.Slot;
                 decision.IsDepth              = attachment.IsDepth;
                 decision.IsResolve            = attachment.IsResolve;
-                const int32_t attachmentIndex = static_cast<int32_t>( &attachment - pass.Attachments.data() );
+                const auto attachmentIndex    = static_cast<int32_t>( &attachment - pass.Attachments.data() );
                 for ( const ResourceUse& use : pass.Uses )
                 {
                     if ( use.Attachment == attachmentIndex )
@@ -1009,13 +1009,13 @@ namespace Desert::Graphic::RDG
                 const uint32_t     local = raw.Sub - subBase[raw.Resource];
                 const uint32_t     mip   = local % desc.Mips;
                 const uint32_t     layer = local / desc.Mips;
-                for ( const AttachmentDecision& attachment : pass.Attachments )
-                {
-                    if ( attachment.Resource == raw.Resource && attachment.Mip == mip &&
-                         layer >= attachment.BaseLayer && layer < attachment.BaseLayer + attachment.LayerCount )
-                        return true;
-                }
-                return false;
+                return std::ranges::any_of( pass.Attachments,
+                                            [&]( const AttachmentDecision& attachment )
+                                            {
+                                                return attachment.Resource == raw.Resource &&
+                                                       attachment.Mip == mip && layer >= attachment.BaseLayer &&
+                                                       layer < attachment.BaseLayer + attachment.LayerCount;
+                                            } );
             };
             uint32_t opener = 0;
             for ( uint32_t position = 1; position < executedCount; ++position )
@@ -1194,8 +1194,8 @@ namespace Desert::Graphic::RDG
         // position order, a segment comes after every segment it waits on.
         // Amendment B: the graphics prologue (no passes) signals every fork from the graph start, first.
         {
-            PipeSegment prologue{ Pipe::Graphics, CrossPipeSync::kForkAtGraphStart,
-                                  CrossPipeSync::kForkAtGraphStart };
+            PipeSegment prologue{
+                 Pipe::Graphics, CrossPipeSync::kForkAtGraphStart, CrossPipeSync::kForkAtGraphStart, {}, {} };
             for ( uint32_t sync = 0; sync < result.Syncs.size(); ++sync )
             {
                 if ( result.Syncs[sync].SignalPosition == CrossPipeSync::kForkAtGraphStart )
@@ -1211,7 +1211,7 @@ namespace Desert::Graphic::RDG
                                ( pass.OnPipe == Pipe::Graphics &&
                                  ( !pass.WaitSyncs.empty() || !result.Passes[position - 1].SignalSyncs.empty() ) );
             if ( split )
-                result.Segments.push_back( { pass.OnPipe, position, position } );
+                result.Segments.push_back( { pass.OnPipe, position, position, {}, {} } );
             PipeSegment& segment = result.Segments.back();
             segment.LastPosition = position;
             segment.WaitSyncs.insert( segment.WaitSyncs.end(), pass.WaitSyncs.begin(), pass.WaitSyncs.end() );

@@ -75,12 +75,12 @@ namespace Desert::Graphic::API::Vulkan
         // with none). vkBeginCommandBuffer cannot report VK_ERROR_DEVICE_LOST (only out-of-memory), so its
         // failure is the refusal below and nothing more.
         m_FrameSubmissions.clear();
-        if ( Common::BoolResultStr rdg = BeginRdgFrame(); !rdg )
+        if ( const Common::BoolResultStr rdg = BeginRdgFrame(); !rdg )
         {
             m_CurrentCommandBuffer = nullptr;
             return Common::MakeFormattedError<bool>( "render graph frame: {}", rdg.GetError() );
         }
-        Common::ResultStr<VkCommandBuffer> frame =
+        const Common::ResultStr<VkCommandBuffer> frame =
              m_FrameLoop->GetQueueObjects().BeginCommandBuffer( RDG::Pipe::Graphics );
         if ( !frame )
         {
@@ -146,7 +146,7 @@ namespace Desert::Graphic::API::Vulkan
              window ? SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetOutput().get() : nullptr;
         const uint32_t                   slot = EngineContext::GetInstance().GetCurrentFrameIndex();
         std::optional<VulkanFrameOutput> frameOutput;
-        if ( output )
+        if ( output != nullptr )
             frameOutput = output->GetFrameOutput();
         const Common::BoolResultStr submitted =
              m_FrameLoop->Submit( slot, m_FrameSubmissions, frameOutput ? &*frameOutput : nullptr );
@@ -156,9 +156,9 @@ namespace Desert::Graphic::API::Vulkan
 
         // With an output, present. Without one the frame is synchronous: THIS slot's fence is waited, so the
         // caller may read back what the frame wrote (EngineHost) -- the slot's fence, not the device.
-        if ( output )
+        if ( output != nullptr )
             output->Present();
-        else if ( Common::BoolResultStr waited = m_FrameLoop->WaitSlot( slot ); !waited )
+        else if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( slot ); !waited )
             return Common::MakeFormattedError<bool>( "the frame's slot: {}", waited.GetError() );
 
         // The submit and the present are where an asynchronous loss surfaces. Saying so HERE, in this
@@ -171,7 +171,7 @@ namespace Desert::Graphic::API::Vulkan
         // before anything that frame used is destroyed (the deletion queue's per-frame drain).
         Engine::FrameManager::GetInstance().NextFrame();
         const uint32_t next = EngineContext::GetInstance().GetCurrentFrameIndex();
-        if ( Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
+        if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
             return Common::MakeFormattedError<bool>( "the next frame's slot: {}", waited.GetError() );
         SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
              ->GetVulkanAllocator()
@@ -297,11 +297,15 @@ namespace Desert::Graphic::API::Vulkan
         // lambda records inside a graph-opened pass, else the one this API opened. Not const: a pass at another
         // sample count than the pipeline was built at creates (once) the variant for it.
         const RdgRenderPassKey* openPass = nullptr;
-        if ( m_RdgBackend && m_RdgBackend->GetOpenRenderPass() )
-            openPass = &*m_RdgBackend->GetOpenRenderPass();
-        else if ( m_OpenRenderPass )
+        if ( m_RdgBackend )
+        {
+            if ( const std::optional<RdgRenderPassKey>& graphPass = m_RdgBackend->GetOpenRenderPass();
+                 graphPass.has_value() )
+                openPass = &*graphPass;
+        }
+        if ( openPass == nullptr && m_OpenRenderPass.has_value() )
             openPass = &*m_OpenRenderPass;
-        if ( !openPass )
+        if ( openPass == nullptr )
         {
             // No pass, so nothing to resolve the pipeline against. Latched by name like an unbuilt pipeline.
             if ( m_WarnedUnbuiltPipelines
@@ -311,8 +315,10 @@ namespace Desert::Graphic::API::Vulkan
                            pipeline->GetSpecification().DebugName );
             return false;
         }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast,cppcoreguidelines-pro-type-static-cast-downcast):
+        // only the Vulkan API makes pipelines; binding builds the per-pass variant into the pipeline's own cache
         auto* vulkanPipeline = const_cast<VulkanPipeline*>( static_cast<const VulkanPipeline*>( pipeline ) );
-        if ( const VkPipeline bound = vulkanPipeline->GetVkPipelineFor( *openPass ); bound != VK_NULL_HANDLE )
+        if ( VkPipeline bound = vulkanPipeline->GetVkPipelineFor( *openPass ); bound != VK_NULL_HANDLE )
         {
             vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bound );
             return true;
@@ -440,7 +446,7 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !layouts[index] )
                     return Common::MakeFormattedError<Sets>( "{}: the pipeline has no layout for set {}", pass,
                                                              index );
-                Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
+                const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
                 if ( !set )
                     return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
                 sets.push_back( set.GetValue() );
@@ -459,7 +465,7 @@ namespace Desert::Graphic::API::Vulkan
                     return Common::MakeFormattedError<Sets>(
                          "{}: '{}' (set {}, binding {}) is not in the pipeline's layout", pass, name,
                          entry.Slot.Set, entry.Slot.Binding );
-                const VkDescriptorSet set     = sets[entry.Slot.Set];
+                VkDescriptorSet       set     = sets[entry.Slot.Set];
                 Common::BoolResultStr written = Common::MakeSuccess( true );
                 if ( entry.Texture != nullptr )
                 {
@@ -474,7 +480,7 @@ namespace Desert::Graphic::API::Vulkan
                         if ( !texture.Sampler )
                             return Common::MakeFormattedError<Sets>( "{}: '{}' is sampled but names no sampler",
                                                                      pass, name );
-                        Common::ResultStr<VkSampler> made = descriptors.GetSampler( *texture.Sampler );
+                        const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *texture.Sampler );
                         if ( !made )
                             return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
                         sampler = made.GetValue();
@@ -517,9 +523,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( !descriptors )
             return Common::MakeError( descriptors.GetError() );
 
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         auto& compute =
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast,cppcoreguidelines-pro-type-static-cast-downcast):
+             // only the Vulkan API makes pipelines; dispatch writes the pipeline's own descriptor ring
              const_cast<VulkanPipelineCompute&>( static_cast<const VulkanPipelineCompute&>( pipeline ) );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         auto* shader = static_cast<VulkanShader*>( compute.GetShader().get() );
         if ( shader == nullptr || compute.GetVkPipeline() == VK_NULL_HANDLE )
             return Common::MakeFormattedError( "{}: compute pipeline '{}' is not built", pass,
@@ -590,10 +598,10 @@ namespace Desert::Graphic::API::Vulkan
             return bound;
         const VkDeviceSize offsets[] = { 0 };
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
-        const VkBuffer vbuffer = static_cast<API::Vulkan::VulkanVertexBuffer&>( vertexBuffer ).GetVulkanBuffer();
+        VkBuffer vbuffer = static_cast<API::Vulkan::VulkanVertexBuffer&>( vertexBuffer ).GetVulkanBuffer();
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
-        const VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
+        VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
         vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
         // Vertices are addressed absolutely, only firstIndex selects the batch's slice.
         DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
@@ -627,8 +635,7 @@ namespace Desert::Graphic::API::Vulkan
         auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
 
         const VkDeviceSize offsets[] = { 0 };
-        const VkBuffer     vbuffer =
-             sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetVertexBuffer() )->GetVulkanBuffer();
+        VkBuffer vbuffer = sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetVertexBuffer() )->GetVulkanBuffer();
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
         // Binding 1, the optional streams (MeshVertexLayout): the mesh's own, or the shared default holding at
         // least as many vertices as this mesh - one pipeline, one stride either way. HasVertexStreams is read off
@@ -639,7 +646,7 @@ namespace Desert::Graphic::API::Vulkan
              graphics->HasVertexStreams() && layout.has_value() )
         {
             const auto&    own = mesh.GetStreamBuffer();
-            const VkBuffer sbuffer =
+            VkBuffer       sbuffer =
                  sp_cast<API::Vulkan::VulkanVertexBuffer>(
                       own != nullptr ? own
                                      : DefaultVertexStreams(
@@ -649,10 +656,10 @@ namespace Desert::Graphic::API::Vulkan
                       ->GetVulkanBuffer();
             vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, offsets );
         }
-        const auto indexBuffer = mesh.GetIndexBuffer();
+        const auto& indexBuffer = mesh.GetIndexBuffer();
         if ( indexBuffer )
         {
-            const VkBuffer ibuffer = sp_cast<API::Vulkan::VulkanIndexBuffer>( indexBuffer )->GetVulkanBuffer();
+            VkBuffer ibuffer = sp_cast<API::Vulkan::VulkanIndexBuffer>( indexBuffer )->GetVulkanBuffer();
             vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
         }
 
@@ -679,7 +686,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto& submeshes = mesh.GetSubmeshes();
         for ( size_t si = 0; si < submeshes.size(); ++si )
         {
-            if ( si < 64 && ( ( hiddenSubmeshMask >> si ) & 1ull ) )
+            if ( si < 64 && ( ( hiddenSubmeshMask >> si ) & 1ull ) != 0 )
                 continue;
             const auto&     submesh        = submeshes[si];
             const glm::mat4 finalTransform = transform * submesh.Transform;
@@ -736,6 +743,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         auto*       shader   = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
         if ( shader == nullptr )
             return Common::MakeFormattedError( "{}: pipeline '{}' has no shader", pass,
@@ -749,6 +757,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( material != nullptr )
         {
             material->Apply();
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes material
+            // backends
             auto* backend = static_cast<VulkanMaterialBackend*>( material->GetMaterialBackend().get() );
             if ( backend->HasDescriptorSets() )
             {
@@ -763,6 +773,8 @@ namespace Desert::Graphic::API::Vulkan
             const auto& pc = material->GetPushConstantBuffer();
             if ( pc.Size != 0u )
             {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a byte view of the push-constant
+                // block (std::byte may alias any object)
                 materialPush        = std::span<const std::byte>( reinterpret_cast<const std::byte*>( pc.Data ),
                                                                   static_cast<size_t>( pc.Size ) );
                 other.PushConstants = true;
@@ -792,7 +804,8 @@ namespace Desert::Graphic::API::Vulkan
                 if ( entry == nullptr )
                     return Common::MakeFormattedError( "{}: material binding {} is not in the pipeline's set 0",
                                                        pass, binding );
-                VkCopyDescriptorSet copy{ VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET };
+                VkCopyDescriptorSet copy{};
+                copy.sType           = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
                 copy.srcSet          = materialSlots.Set;
                 copy.srcBinding      = binding;
                 copy.dstSet          = sets.GetValue()[0];
@@ -800,8 +813,8 @@ namespace Desert::Graphic::API::Vulkan
                 copy.descriptorCount = entry->descriptorCount;
                 copies.push_back( copy );
             }
-            const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                         ->GetVulkanLogicalDevice();
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                   ->GetVulkanLogicalDevice();
             vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
         }
 
@@ -938,7 +951,7 @@ namespace Desert::Graphic::API::Vulkan
              { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
         // Ended: from here until the graph backend arms its first buffer nothing may record into it.
         m_CurrentCommandBuffer                    = nullptr;
-        const Common::BoolResultStr      executed = graph.Execute( *m_RdgBackend );
+        Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
         std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
         m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
                                    std::make_move_iterator( segments.end() ) );
@@ -950,7 +963,7 @@ namespace Desert::Graphic::API::Vulkan
             m_CurrentCommandBuffer = nullptr;
             return Common::MakeError( "the device was lost while the graph recorded" );
         }
-        Common::ResultStr<VkCommandBuffer> next =
+        const Common::ResultStr<VkCommandBuffer> next =
              m_FrameLoop->GetQueueObjects().BeginCommandBuffer( RDG::Pipe::Graphics );
         if ( !next )
         {
@@ -1036,8 +1049,8 @@ namespace Desert::Graphic::API::Vulkan
             if ( !image.GetGraphTexture() )
             {
                 const VulkanImageResource& resource = image.GetResource();
-                const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                             ->GetVulkanLogicalDevice();
+                VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                       ->GetVulkanLogicalDevice();
                 image.SetGraphTexture(
                      VulkanRdgTexture::Wrap( device, resource.Image, resource.Format, image.GetGraphDesc() ) );
             }

@@ -54,7 +54,7 @@ namespace Desert::Graphic::API::Vulkan
     VkBufferUsageFlags RdgBufferUsage( uint32_t accessMask );
 
     // The Vulkan translation of the graph's own state enums; one table each, no second copy.
-    VkPipelineStageFlags RdgVulkanStages( RDG::PipelineStageFlags stages );
+    // RdgVulkanStages is declared in VulkanRdgQueues.hpp (included above).
     VkAccessFlags        RdgVulkanAccess( RDG::MemoryAccessFlags access );
     VkImageLayout        RdgVulkanLayout( RDG::ImageLayout layout );
     // The inverse of RdgVulkanLayout, for an image imported from its own layout record. A layout the graph
@@ -141,7 +141,7 @@ namespace Desert::Graphic::API::Vulkan
             return m_Desc;
         }
         // The same description and usage: an image created for one can stand in for the other.
-        bool                   Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const;
+        [[nodiscard]] bool     Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const;
         [[nodiscard]] uint32_t GetAccessMask() const
         {
             return m_AccessMask;

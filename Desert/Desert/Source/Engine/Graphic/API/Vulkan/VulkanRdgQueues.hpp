@@ -66,9 +66,9 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t ComputeFamily         = 0;
         VulkanRdgQueueObjects* Objects = nullptr; // per-slot command pools and semaphores
 
-        RDG::PipeCapabilities GetCapabilities() const;
-        VkQueue               QueueOf( RDG::Pipe pipe ) const;
-        uint32_t              FamilyOf( RDG::Pipe pipe ) const;
+        [[nodiscard]] RDG::PipeCapabilities GetCapabilities() const;
+        [[nodiscard]] VkQueue               QueueOf( RDG::Pipe pipe ) const;
+        [[nodiscard]] uint32_t              FamilyOf( RDG::Pipe pipe ) const;
     };
 
     // RDG-CONTRACTS B(3). One queue submission the backend assembled from a PipeSegment. The caller submits the

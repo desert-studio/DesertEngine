@@ -378,15 +378,16 @@ namespace Desert::Graphic::API::Vulkan
     {
         // The pipeline must rasterize at its target framebuffer's sample count (MSAA) — a
         // mismatch is a validation error and a black frame.
-        const uint32_t samples = m_Specification.Framebuffer
-                                      ? m_Specification.Framebuffer->GetSpecification().Samples
-                                 : m_Specification.TargetLayout ? m_Specification.TargetLayout->Samples
-                                                                : 1;
+        uint32_t samples = 1;
+        if ( m_Specification.Framebuffer )
+            samples = m_Specification.Framebuffer->GetSpecification().Samples;
+        else if ( m_Specification.TargetLayout.has_value() )
+            samples = m_Specification.TargetLayout->Samples;
         m_BuiltSamples         = samples > 1 ? samples : 1;
-        m_Multisampling        = VkPipelineMultisampleStateCreateInfo{
-                    .sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-                    .rasterizationSamples = static_cast<VkSampleCountFlagBits>( m_BuiltSamples ),
-                    .sampleShadingEnable  = VK_FALSE };
+        m_Multisampling                      = {};
+        m_Multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        m_Multisampling.rasterizationSamples = static_cast<VkSampleCountFlagBits>( m_BuiltSamples );
+        m_Multisampling.sampleShadingEnable  = VK_FALSE;
     }
 
     RdgRenderPassKey CompatibleRenderPassKeyOf( const FramebufferSpecification& spec, const uint32_t samples )
@@ -408,7 +409,7 @@ namespace Desert::Graphic::API::Vulkan
 
     VkPipeline VulkanPipeline::GetVkPipelineFor( const RdgRenderPassKey& openPass )
     {
-        const VkPipeline base    = GetVkPipeline();
+        VkPipeline       base    = GetVkPipeline();
         const uint32_t   samples = std::max( 1u, openPass.Samples );
         if ( base == VK_NULL_HANDLE || samples == m_BuiltSamples )
             return base;
@@ -524,7 +525,7 @@ namespace Desert::Graphic::API::Vulkan
                  std::static_pointer_cast<API::Vulkan::VulkanFramebuffer>( m_Specification.Framebuffer );
             renderPass = m_Specification.UseLoadRenderPass ? vkFb->GetVKRenderPassLoad() : vkFb->GetVKRenderPass();
         }
-        else
+        else if ( m_Specification.TargetLayout.has_value() )
         {
             // A render-graph pass: built against the canonical render pass of the TargetLayout.
             const RenderTargetLayout& layout = *m_Specification.TargetLayout;
