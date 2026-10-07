@@ -342,9 +342,19 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
     params.ShadowRay = CLOUD_RAY_VIEW;
 
     for ( int slot = 0; slot < CLOUD_SPECIES_SLOTS; ++slot )
-        params.SpeciesEdge[slot] = vec4( 0.0f );
+    {
+        params.SpeciesEdge[slot]     = vec4( 0.0f );
+        params.SpeciesWispBase[slot] = 0.0f;
+        params.SpeciesWispTop[slot]  = 0.0f;
+    }
     params.SpeciesEdge[0] =
          vec4( shape.DetailCharacter, shape.DetailFactor, shape.DensityFactor, shape.ExtinctionFactor );
+    {
+        const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan( shape, ModellingVolume().Params.LayerBottomKm,
+                                                                      ModellingVolume().Params.LayerThicknessKm );
+        params.SpeciesWispBase[0] = wisp.x;
+        params.SpeciesWispTop[0]  = wisp.y;
+    }
 
     params.RegionOriginKm  = ModellingVolume().OriginKm;
     params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;

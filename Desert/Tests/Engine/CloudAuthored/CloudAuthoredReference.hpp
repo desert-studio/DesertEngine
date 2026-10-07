@@ -543,11 +543,20 @@ namespace Desert::Tests::CloudAuthoredRef
                 // One species and therefore one volume, which is what a layer of one type resolves to and
                 // what every scene in the repository is in. The point of the assertion this suite adds is
                 // that the SCULPTED side asks for this slot too.
-                params.SpeciesNoise[slot] = 0;
+                params.SpeciesNoise[slot]    = 0;
+                params.SpeciesWispBase[slot] = 0.0f;
+                params.SpeciesWispTop[slot]  = 0.0f;
             }
 
             params.SpeciesEdge[0] =
                  vec4( shape.DetailCharacter, shape.DetailFactor, shape.DensityFactor, shape.ExtinctionFactor );
+            {
+                const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan(
+                     shape, Procedural( BoundCoverage() ).Params.LayerBottomKm,
+                     Procedural( BoundCoverage() ).Params.LayerThicknessKm );
+                params.SpeciesWispBase[0] = wisp.x;
+                params.SpeciesWispTop[0]  = wisp.y;
+            }
 
             // WHERE THE PROCEDURAL VOLUME IS, which is what the placement basis used to be. The tile, the
             // coverage and its contrast are not fields of this struct any more: they decide what is IN the

@@ -1234,6 +1234,18 @@ TEST( VolumetricCloudPayload, TheNoiseVolumesAreDeduplicatedAndEverySlotStaysBin
                  << " reaches the march pointing at a different volume from the one the "
                     "renderer bound for it";
         }
+
+        // THE WISPY BASE reaches the march through the one function the C++ mirrors bind it with, and the
+        // shipped base ramp gives every filled slot a rise (top above base) for the erosion to fray.
+        for ( uint32_t k = 0; k < kCloudSpeciesSlots; ++k )
+        {
+            const int       at   = static_cast<int>( k );
+            const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan( shapes[k], payload.Layer.y, payload.Layer.z );
+            EXPECT_FLOAT_EQ( payload.SpeciesWispBase[at], wisp.x ) << "species " << k;
+            EXPECT_FLOAT_EQ( payload.SpeciesWispTop[at], wisp.y ) << "species " << k;
+            EXPECT_GT( payload.SpeciesWispTop[at], payload.SpeciesWispBase[at] )
+                 << "species " << k << " has no wispy base: its altitude density peaks at the band's floor";
+        }
     }
 
     // A LAYER WITH NO SPECIES AT ALL still binds one volume, because the alternative is an invalid

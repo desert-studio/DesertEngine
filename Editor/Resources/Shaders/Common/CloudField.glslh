@@ -114,6 +114,13 @@ struct CloudFieldParams
     // uniform across the wave. That is what makes this cost nothing where nothing was asked for.
     int SpeciesNoise[CLOUD_SPECIES_SLOTS];
 
+    // Per species k: the wispy base in the LAYER's height fraction — where the type's band starts and where
+    // its altitude density H first reaches its maximum (Graphic::CloudProfileWispTopFraction). Between the
+    // two the winner's DetailCharacter rises from 0 (wispy) to its own: Nubis' wispy-at-the-base erosion,
+    // driven by the curve the bake multiplies the profile by.
+    float SpeciesWispBase[CLOUD_SPECIES_SLOTS];
+    float SpeciesWispTop[CLOUD_SPECIES_SLOTS];
+
     // WHERE THE MODELLING VOLUME IS, and it is two numbers rather than a matrix because the region is
     // axis-aligned by construction: the minimum corner of the region in world kilometres, and the
     // reciprocal of its side. Both are the CPU's — Assets::CloudProceduralRegionOriginKm decides the
@@ -460,7 +467,12 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
         vec4 edge = params.SpeciesEdge[slot];
 
         result.Profile          = cutProfile;
-        result.DetailType       = clamp( edge.x, 0.0f, 1.0f );
+        // WISPY AT THE BASE, the type's own character above the top of H's rise. A band whose H peaks at
+        // its first sample has top == base and the step returns 1 everywhere above the base.
+        float wispBase          = params.SpeciesWispBase[slot];
+        float wispRise          = max( params.SpeciesWispTop[slot] - wispBase, 1e-4f );
+        float wispCharacter     = clamp( ( heightFraction - wispBase ) / wispRise, 0.0f, 1.0f );
+        result.DetailType       = clamp( edge.x, 0.0f, 1.0f ) * wispCharacter;
         result.DetailFactor     = CLOUD_MATERIAL_FACTOR( edge.y );
         result.DensityScale     = CLOUD_MATERIAL_FACTOR( params.DensityScale ) * CLOUD_MATERIAL_FACTOR( edge.z );
         result.ExtinctionFactor = CLOUD_MATERIAL_FACTOR( edge.w );

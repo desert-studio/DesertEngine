@@ -600,7 +600,9 @@ namespace Desert::Tests::CloudFieldRef
 
                 if ( slot >= count )
                 {
-                    params.SpeciesEdge[slot] = vec4( 0.0f );
+                    params.SpeciesEdge[slot]     = vec4( 0.0f );
+                    params.SpeciesWispBase[slot] = 0.0f;
+                    params.SpeciesWispTop[slot]  = 0.0f;
                     continue;
                 }
 
@@ -614,6 +616,15 @@ namespace Desert::Tests::CloudFieldRef
             // read the coverage noise in each species' own frame; the lumps are placed on a lattice in
             // that frame at BAKE time now, so what the march is handed is where the volume is instead.
             CloudModellingVolumeSelectSet( shapes, count, coverage, contrast, windDirection );
+
+            // THE WISPY BASE through the packer's own function, against the layer the bake was made for.
+            for ( std::uint32_t slot = 0; slot < count && slot < CLOUD_SPECIES_SLOTS; ++slot )
+            {
+                const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan(
+                     shapes[slot], ModellingVolume().Params.LayerBottomKm, ModellingVolume().Params.LayerThicknessKm );
+                params.SpeciesWispBase[slot] = wisp.x;
+                params.SpeciesWispTop[slot]  = wisp.y;
+            }
 
             params.RegionOriginKm  = ModellingVolume().OriginKm;
             params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;

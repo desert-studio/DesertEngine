@@ -28,15 +28,16 @@ namespace Desert::Graphic
      * Units: KILOMETRES throughout. This packer is where the component's world-unit distances are
      * converted, exactly once.
      *
-     * EVERY SLOT IS READ, OR IT HAS A ROW IN kUnreadSlots SAYING WHY NOT. The block is 71 floats with no
+     * EVERY SLOT IS READ, OR IT HAS A ROW IN kUnreadSlots SAYING WHY NOT. The block is 83 floats with no
      * reserved field and no padding, and that is a deliberate constraint rather than an accident of
      * packing: a spare slot is where a future parameter gets quietly stashed without a name, a range or a
-     * tooltip. Two of the 71 are not read, both of them the toll std430 charges for storing a
+     * tooltip. Two of the 83 are not read, both of them the toll std430 charges for storing a
      * three-component COLOUR in a grid of vec4s — see kUnreadSlots below, which is the register a test
      * checks the shader text against. It is a register with a reason per row and not a count: a count is
      * the number the next author adjusts instead of explaining.
      *
-     * TWENTY OF THE SEVENTY-ONE ARE THE FOUR SPECIES' — SpeciesEdge's sixteen and SpeciesNoise's four. The
+     * TWENTY-EIGHT OF THE EIGHTY-THREE ARE THE FOUR SPECIES' — SpeciesEdge's sixteen, SpeciesNoise's four and
+     * the wispy base's eight (SpeciesWispBase, SpeciesWispTop). The
      * three slots T3 freed by moving a type's factors out of the layer's own vec4s were spent rather than
      * kept: `Weather.w` held the one species' DetailCharacter, `Detail.y` and `Detail.z` held the products
      * of the layer's strength and density with that species' factors, and `March.w` held the product with
@@ -127,6 +128,15 @@ namespace Desert::Graphic
         // the CPU half of the same comparison. Before the trailing vec3 for the reason Albedo is.
         glm::vec4 Weather;
 
+        // THE WISPY BASE, PER SPECIES (x species 0 .. w species 3), in the LAYER's height fraction (the
+        // march's own `heightFraction`): where the type's band starts and where its altitude density H
+        // first reaches its maximum (CloudProfileWispTopFraction). Between the two the march blends the
+        // winner's DetailCharacter from 0 (wispy) up to the type's own — Nubis' wispy-at-the-base,
+        // billowy-above erosion, driven by the same curve the bake multiplies the profile by, so the base
+        // that H thins is the base the erosion frays. Slots at or past the species count are zero.
+        glm::vec4 SpeciesWispBase;
+        glm::vec4 SpeciesWispTop;
+
         // A vec3 AND LAST, which is the only shape in which three values can be three values. It was a
         // vec4 whose fourth slot carried the cloud type's variance, and then briefly the domain warp's
         // amount; the warp was measured and taken out again (Common/CloudField.glslh has the numbers), and
@@ -159,8 +169,10 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudGpuPayload, SpeciesNoise ) == 240 );
     static_assert( offsetof( CloudGpuPayload, Albedo ) == 256 );
     static_assert( offsetof( CloudGpuPayload, Weather ) == 272 );
-    static_assert( offsetof( CloudGpuPayload, Aerial ) == 288 );
-    // 300, NOT 304, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
+    static_assert( offsetof( CloudGpuPayload, SpeciesWispBase ) == 288 );
+    static_assert( offsetof( CloudGpuPayload, SpeciesWispTop ) == 304 );
+    static_assert( offsetof( CloudGpuPayload, Aerial ) == 320 );
+    // 332, NOT 336, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
     // 16, but a stride only exists for an ARRAY of blocks and this is a single one — the shader never
     // reads past the last member, so the block ends at 300 and so does this. glm::vec3 aligns to 4 rather
     // than to 16, so the C++ struct ends there too and there is no trailing padding to explain. Same
@@ -170,6 +182,9 @@ namespace Desert::Graphic
     // was appended to replace them: the region took the weather settings' slot, and the settings that
     // moved to the bake left the block rather than travelling to a march that would not read them.
     //
+    // AND IT GREW BY THIRTY-TWO FOR THE WISPY BASE (H-BASE): two vec4s, the band's base and the top of the
+    // altitude density's rise per species, before the trailing vec3 for the reason Albedo is.
+    //
     // AND IT GREW BY SIXTEEN THREE TIMES. The third is Weather — the cut the march makes against the rank,
     // which the bake stopped making when the world weather moved to the march (FARWX).
     //
@@ -177,8 +192,8 @@ namespace Desert::Graphic
     // reaching the march at all; until it was paid, three of a layer's four slots could name a volume the frame
     // never read. Once for Albedo, which is the price of the scattering albedo being a COLOUR: a vec4 is
     // the smallest shape three contiguous components fit in.
-    static_assert( sizeof( CloudGpuPayload ) == 300,
-                   "Eleven vec4s, a vec4[4], three more vec4s and a vec3 — the shader reads exactly this and "
+    static_assert( sizeof( CloudGpuPayload ) == 332,
+                   "Eleven vec4s, a vec4[4], five more vec4s and a vec3 — the shader reads exactly this and "
                    "nothing more." );
 
     inline constexpr uint32_t kCloudPayloadBytes = sizeof( CloudGpuPayload );
@@ -735,6 +750,20 @@ namespace Desert::Graphic
                atmosphere.TransmittanceLut != nullptr && atmosphere.DistantSkyLight != nullptr;
     }
 
+    /// THE WISPY BASE OF ONE SPECIES, in the layer's height fraction: x where the type's band starts, y where
+    /// its altitude density H first stands at its maximum (CloudProfileWispTopFraction). The packer sends it
+    /// as CloudGpuPayload::SpeciesWispBase/Top and the C++ mirrors of the march bind it through this same
+    /// function. A curve that peaks at its first sample gives y == x: no wispy base, the type's character
+    /// throughout.
+    inline glm::vec2 CloudSpeciesWispSpan( const CloudTypeShape& shape, float layerBottomKm, float layerThicknessKm )
+    {
+        const float thicknessKm = std::max( layerThicknessKm, 1e-3f );
+        const float bandKm      = std::max( shape.TopAltitudeKm - shape.BaseAltitudeKm, 0.0f );
+        const float wispTopKm   = shape.BaseAltitudeKm + CloudProfileWispTopFraction( shape.Profile ) * bandKm;
+        return glm::vec2( ( shape.BaseAltitudeKm - layerBottomKm ) / thicknessKm,
+                          ( wispTopKm - layerBottomKm ) / thicknessKm );
+    }
+
     /**
      * @brief HOW HIGH THIS SCENE HANGS ITS DECK — applied to the TYPES, before anything derives anything.
      *
@@ -906,16 +935,23 @@ namespace Desert::Graphic
         // types as they are"; what changed is where the multiplication happens, not what it means.
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
         {
+            const int at = static_cast<int>( slot );
             if ( slot >= species )
             {
                 // Zero rather than the default type's numbers. An unfilled slot must not be able to put
                 // cloud in the sky if the count is ever wrong, and a zero density factor is the state in
                 // which it cannot.
-                p.SpeciesEdge[slot] = glm::vec4( 0.0f );
+                p.SpeciesEdge[slot]     = glm::vec4( 0.0f );
+                p.SpeciesWispBase[at] = 0.0f;
+                p.SpeciesWispTop[at]  = 0.0f;
                 continue;
             }
 
             const CloudTypeShape& shape = shapes[slot];
+
+            const glm::vec2 wisp  = CloudSpeciesWispSpan( shape, bottomKm, thicknessKm );
+            p.SpeciesWispBase[at] = wisp.x;
+            p.SpeciesWispTop[at]  = wisp.y;
 
             p.SpeciesEdge[slot] =
                  glm::vec4( std::clamp( shape.DetailCharacter, 0.0f, 1.0f ), std::max( shape.DetailFactor, 0.0f ),
