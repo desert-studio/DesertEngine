@@ -507,13 +507,20 @@ namespace Desert::Tests::CloudFieldRef
             return plane( z0 ) * ( 1.0f - fz ) + plane( z1 ) * fz;
         }
 
+        // The bound rank, BY REFERENCE. A conditional between `*Ranks` and a temporary vector is a prvalue,
+        // so the earlier spelling copied the whole R8 volume on every sample — the reason the coverage
+        // sweeps never finished.
+        float CloudSampleBoundRank( vec3 uvw )
+        {
+            const ModellingVoxels& ranks = ModellingVolume().Ranks;
+            return ranks ? CloudSampleRankBytes( *ranks, uvw ) : 1.0f;
+        }
+
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleModellingTexture( p )
         // The cut's three inputs, from the very functions the renderer uploads: the bake's rank, the world
         // weather at its point (the map IS this field — Assets::BakeCloudFarWeatherMap samples it), and
         // CloudFarWeatherUniform of the bound bake's parameters.
-#define CLOUD_SAMPLE_MODELLING_RANK( p )                                                                          \
-    CloudSampleRankBytes( ModellingVolume().Ranks ? *ModellingVolume().Ranks : std::vector<unsigned char>{},      \
-                          ( p ) )
+#define CLOUD_SAMPLE_MODELLING_RANK( p ) CloudSampleBoundRank( p )
 #define CLOUD_SAMPLE_WEATHER( uv )                                                                                \
     Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( ModellingVolume().Params ),             \
                                      ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \

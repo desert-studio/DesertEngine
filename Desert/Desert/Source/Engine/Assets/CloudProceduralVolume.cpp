@@ -1675,8 +1675,18 @@ namespace Desert::Assets
         /// kilometres (the voxel is not a cube). X and Z WRAP because the region is periodic and the rank
         /// must be as seamless as the profile — a line is unrolled three times and its middle copy read —
         /// and Y does not. Body voxels are the sources and keep the rank they have.
-        void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, uint32_t width, uint32_t height,
-                                             uint32_t depth, const glm::vec3& voxelKm, float risePerKm )
+        ///
+        /// THE GROWTH STAYS INSIDE ITS SPECIES' BAND. An air voxel takes its nearest body's rank only when
+        /// its row lies within the altitudes of the species that owns that body (`ownerSlot` per voxel,
+        /// `bandRows[slot]` the half-open row range from CloudTypeBaseKm to CloudTypeTopKm) — Nubis's
+        /// height gradient per cloud type, which is what keeps the coverage remap a statement about how
+        /// WIDE the clouds are and not about how high the sky is. Without it a layer taller than its types
+        /// grew cloud straight up to its ceiling at a high cover (731 of 2304 columns at the top of an 8 km
+        /// layer whose cumulus spans 0.9-1.9 km, cloud_field_test TheLayersCeilingDoesNotWrapOntoItsFloor).
+        void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, const std::vector<uint8_t>& ownerSlot,
+                                             const std::vector<glm::uvec2>& bandRows, uint32_t width,
+                                             uint32_t height, uint32_t depth, const glm::vec3& voxelKm,
+                                             float risePerKm )
         {
             const size_t       count = rankField.size();
             std::vector<float> cost( count, std::numeric_limits<float>::infinity() );
@@ -1739,9 +1749,16 @@ namespace Desert::Assets
             axis( w * h, d, true, voxelKm.z, [&]( int line, int i ) { return index( line % w, line / w, i ); } );
 
             for ( size_t at = 0; at < count; ++at )
-                if ( !std::isfinite( rankField[at] ) && feature[at] >= 0 )
-                    rankField[at] =
-                         rankField[static_cast<size_t>( feature[at] )] + risePerKm * std::sqrt( cost[at] );
+            {
+                if ( std::isfinite( rankField[at] ) || feature[at] < 0 )
+                    continue;
+                const size_t   source = static_cast<size_t>( feature[at] );
+                const uint32_t row    = static_cast<uint32_t>( ( at % stride ) / width );
+                const glm::uvec2 band = bandRows[ownerSlot[source]];
+                if ( row < band.x || row >= band.y )
+                    continue;
+                rankField[at] = rankField[source] + risePerKm * std::sqrt( cost[at] );
+            }
         }
 
         /// The column CDF of the rank field, as bytes. Every column's rank is the MINIMUM over its voxels
@@ -1821,6 +1838,9 @@ namespace Desert::Assets
         const float        rankSoftness = kCloudRankSoftness / std::max( params.CoverageContrast, 1e-2f );
         std::vector<float> rankField( static_cast<size_t>( width ) * height * depth,
                                       std::numeric_limits<float>::infinity() );
+        // Which species set each finite rank — the band the growth into air may fill (see
+        // CloudProceduralGrowRankIntoAir). Written beside rankField, by the same thread.
+        std::vector<uint8_t> rankOwner( rankField.size(), 0u );
 
         // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
         // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
@@ -2100,8 +2120,11 @@ namespace Desert::Assets
                                  for ( uint32_t earlier = 0; earlier < slot; ++earlier )
                                      best = std::max( best, voxels[at + earlier] );
                                  if ( byte > best )
+                                 {
                                      rankField[at / kCloudProceduralBytesPerVoxel] =
                                           nearestRank + rankSoftness * ( 1.0f - profile );
+                                     rankOwner[at / kCloudProceduralBytesPerVoxel] = static_cast<uint8_t>( slot );
+                                 }
                              }
                          }
                      }
@@ -2120,7 +2143,19 @@ namespace Desert::Assets
 
         CloudProceduralVolumeBake out;
         out.Voxels = std::move( voxels );
-        CloudProceduralGrowRankIntoAir( rankField, width, height, depth, glm::vec3( voxelXKm, voxelYKm, voxelZKm ),
+        // Each species' band as rows: every row whose voxel overlaps [CloudTypeBaseKm, CloudTypeTopKm].
+        std::vector<glm::uvec2> bandRows( params.Species.size() );
+        for ( size_t slot = 0; slot < params.Species.size(); ++slot )
+        {
+            const Graphic::CloudTypeShape& shape = params.Species[slot].Shape;
+            const float lo = ( Graphic::CloudTypeBaseKm( shape ) - params.LayerBottomKm ) / voxelYKm;
+            const float hi = ( Graphic::CloudTypeTopKm( shape ) - params.LayerBottomKm ) / voxelYKm;
+            const auto  row = [&]( float r )
+            { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( height ) ) ); };
+            bandRows[slot] = glm::uvec2( row( std::floor( lo ) ), row( std::ceil( hi ) ) );
+        }
+        CloudProceduralGrowRankIntoAir( rankField, rankOwner, bandRows, width, height, depth,
+                                        glm::vec3( voxelXKm, voxelYKm, voxelZKm ),
                                         rankSoftness / params.ProfileDepthKm );
         out.Ranks  = CloudProceduralRankColumnCdf( rankField, width, height, depth );
         return Common::MakeSuccess( std::move( out ) );
@@ -2210,7 +2245,20 @@ namespace Desert::Assets
         const double fx = std::fmod( static_cast<double>( worldKm.x ), period ) / period;
         const double fz = std::fmod( static_cast<double>( worldKm.y ), period ) / period;
 
-        return CloudFarWeatherAt( CloudFarWeatherWaves( seed, tileKm ), fx, fz );
+        // THE WAVES ARE DRAWN ONCE PER (seed, tile) AND PER THREAD, not per point: every caller asks about
+        // many points of one weather (a bake's columns, a reference march's samples), and redrawing the
+        // waves — a hash, a pow and an allocation per wave — was the whole cost of a point.
+        struct Drawn
+        {
+            uint32_t                         Seed   = 0u;
+            float                            TileKm = -1.0f;
+            std::vector<CloudFarWeatherWave> Waves;
+        };
+        thread_local Drawn drawn;
+        if ( drawn.TileKm != tileKm || drawn.Seed != seed )
+            drawn = Drawn{ seed, tileKm, CloudFarWeatherWaves( seed, tileKm ) };
+
+        return CloudFarWeatherAt( drawn.Waves, fx, fz );
     }
 
     std::vector<float> BakeCloudFarWeatherMap( uint32_t seed, float tileKm )
