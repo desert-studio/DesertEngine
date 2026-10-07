@@ -858,12 +858,12 @@ TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
     std::filesystem::remove_all( root, ec );
 }
 
-// IMP-INST: A MESH THE SOURCE SHARES BETWEEN NODES IS IMPORTED ONCE PER NODE, at that node's own transform (UE: the
-// static mesh import bakes every mesh-bearing node, FbxStaticMeshImport ImportStaticMeshAsSingle; with Combine
+// IMP-INST: A MESH THE SOURCE SHARES BETWEEN NODES IS IMPORTED ONCE PER NODE, at that node's own transform (UE:
+// the static mesh import bakes every mesh-bearing node, FbxStaticMeshImport ImportStaticMeshAsSingle; with Combine
 // Meshes off each node is its own asset). The file is written here: one glTF mesh (a 1 m triangle) placed by three
-// nodes - LampA at the origin, LampB 5 m along +X, LampC 3 m along -Z and turned 90 degrees about Y. Before the fix
-// the importer kept the FIRST node only (Bistro's string lights and repeated chairs vanished).
-// Mutation: AssimpImporter.cpp ProcessScene walk -> `if ( !meshPlacements[mi].empty() ) continue;` for every mesh
+// nodes - LampA at the origin, LampB 5 m along +X, LampC 3 m along -Z and turned 90 degrees about Y. Before the
+// fix the importer kept the FIRST node only (Bistro's string lights and repeated chairs vanished). Mutation:
+// AssimpImporter.cpp ProcessScene walk -> `if ( !meshPlacements[mi].empty() ) continue;` for every mesh
 // => one node, one mesh written => red in both tests. Mutation: the static bake reading the mesh's first placement
 // for every copy => the three triangles coincide => red in CombinedHoldsEveryNodeAtItsOwnTransform.
 namespace
@@ -918,7 +918,7 @@ TEST_F( InstancedNodeImport, EveryNodeOfASharedMeshIsItsOwnMesh )
 TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )
 {
     Assets::SourceImportSettings combine;
-    combine.CombineMeshes             = true;
+    combine.CombineMeshes               = true;
     const Editor::ImportOutcome outcome = ImportManager().ImportWithSettings( m_Lamps, combine );
     ASSERT_EQ( outcome.Verdict, Editor::CookVerdict::Cooked );
     ASSERT_EQ( outcome.WrittenMeshes.size(), 1u );
@@ -928,9 +928,9 @@ TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )
     ASSERT_EQ( mesh.Triangles.size(), 9u ) << "one triangle per node";
 
     // Each triangle's centroid and its first edge (the authored +X edge), in cm.
-    const auto at = [&]( int index )
-    {
-        return glm::vec3( mesh.Positions[3 * index], mesh.Positions[3 * index + 1], mesh.Positions[3 * index + 2] );
+    const auto at = [&]( int index ) {
+        return glm::vec3( mesh.Positions[3 * index], mesh.Positions[3 * index + 1],
+                          mesh.Positions[3 * index + 2] );
     };
     std::vector<glm::vec3> centre;
     std::vector<glm::vec3> edge;

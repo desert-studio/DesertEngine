@@ -534,11 +534,11 @@ namespace Desert::Editor
             glm::mat4   World{ 1.0f };
             std::string Node;
         };
-        // One entry per submesh of the imported mesh: mesh-index major, then the mesh's placements in node-walk order, so
-        // a source that shares no mesh keeps the submesh order it always had.
+        // One entry per submesh of the imported mesh: mesh-index major, then the mesh's placements in node-walk
+        // order, so a source that shares no mesh keeps the submesh order it always had.
         std::vector<MeshPlacement> placements;
         {
-            std::vector<std::vector<MeshPlacement>> meshPlacements( scene->mNumMeshes );
+            std::vector<std::vector<MeshPlacement>>                meshPlacements( scene->mNumMeshes );
             std::function<void( const aiNode*, const glm::mat4& )> walk =
                  [&]( const aiNode* node, const glm::mat4& parent )
             {
