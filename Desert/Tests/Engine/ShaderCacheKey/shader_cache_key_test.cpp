@@ -727,7 +727,7 @@ TEST_F( ShaderRootFixture, TheDistantSkyLightDeclaresFourDescriptorsInSetZero )
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // multi-scatter LUT
 }
 
-TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresNineDescriptorsInSetZero )
+TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresElevenDescriptorsInSetZero )
 {
     // THE PRODUCER OF THE CLOUD SHADOW MAP, and the reason it is pinned here rather than trusted: its
     // inputs are bound by NUMBER and not by reflection (ComputePipeline::SetInput takes the binding
@@ -748,9 +748,18 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresNineDescriptorsInSetZero )
     // debt and a dead setting in three slots of four. THE SHADOW PASS TAKES ALL FOUR TOO, and that is the
     // relation worth pinning here rather than the count: a cirrus eroded by the fine volume for the eye
     // and by the default one for the shadow map would be two different clouds in one frame.
+    //
+    // ELEVEN SINCE FARWX-b2. The two that arrived are the march's own: the modelling volume's R8 RANK
+    // (kCloudShadowModellingRankBinding, 15) and the WORLD WEATHER map (kCloudShadowFarWeatherBinding, 16).
+    // The shadow map must cut the field by the same rank against the same local cover the view march does,
+    // or the ground is shaded by a sky that is not the one drawn. Both are sampled images, so the stage now
+    // holds eleven sampled images at most — inside Vulkan's guaranteed maxPerStageDescriptorSampledImages
+    // and maxPerStageDescriptorSamplers (16 on every conformant device), so no device budget is spent.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudShadowMap.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 9u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 11u );
+    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // modelling rank
+    EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
 
     for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
     {
@@ -773,7 +782,7 @@ TEST_F( ShaderRootFixture, TheCloudShadowMapDeclaresNineDescriptorsInSetZero )
                              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // the sculpted body
 }
 
-TEST_F( ShaderRootFixture, TheCloudMarchDeclaresFifteenDescriptorsInSetZero )
+TEST_F( ShaderRootFixture, TheCloudMarchDeclaresSeventeenDescriptorsInSetZero )
 {
     // THE VIEW MARCH, pinned on the same terms and for the same reason, and it was NOT pinned before slot
     // A landed — which is precisely why it is worth doing now: two of its ten descriptors are new, both
@@ -796,9 +805,19 @@ TEST_F( ShaderRootFixture, TheCloudMarchDeclaresFifteenDescriptorsInSetZero )
     // SKY's texture, read by the cloud march so that the sun's colour can be re-evaluated at each sample's
     // own altitude instead of once at sea level. Bound on the same terms again, and in the shipped scene
     // it is the FALLBACK that is bound, because the field it serves is off by default.
+    //
+    // SEVENTEEN SINCE FARWX-b2. The two that arrived are the R8 RANK of the modelling volume at binding 15
+    // and the WORLD WEATHER map at binding 16: the bake keeps every cell and the march makes the cut, the
+    // rank against the cover the weather leaves the column (CloudField.glslh CloudRankProfile /
+    // CloudLocalCover). Bound ALWAYS, on the terms above. Within the device's budget: the set is one
+    // storage buffer and images, and the sampled ones stay at or under the 16 that Vulkan guarantees per
+    // stage (maxPerStageDescriptorSamplers / SampledImages); every device this engine targets reports
+    // far more, so the count is pinned as the binding contract, not as a limit being approached.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudRaymarch.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 15u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 17u );
+    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // modelling rank
+    EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // world weather
 
     for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
     {

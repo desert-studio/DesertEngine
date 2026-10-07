@@ -22,6 +22,7 @@
 #include <functional>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <cstdio>
 #include <random>
 #include <string>
@@ -1280,4 +1281,49 @@ TEST( CloudProceduralCacheKey, TheDeriverVersionChangesTheKey )
     const glm::vec2                  origin( 0.0f, 0.0f );
     EXPECT_NE( CloudProceduralVolumeCacheKey( params, origin ),
                CloudProceduralVolumeCacheKey( params, origin, kNextVersion ) );
+}
+
+// THE RANK IS CONTINUOUS ACROSS THE BISECTOR OF TWO BODIES (FARWX-b7). Two slabs of one species, rank 0
+// and rank 0.9, with air between: the nearest-body rank jumped by 0.9 on the plane halfway between them,
+// and the march's cut drew that plane as a straight vertical wall of cloud (the Showcase/Demo frames from
+// the horizon). The lowest cone is risePerKm-Lipschitz, so no two neighbouring voxels of the band may
+// differ by more than the rise over their distance — and the high slab's own voxels nearest the low one are
+// lowered to the low slab's cone.
+TEST( CloudProceduralRankGrowth, TheRankIsContinuousAcrossTheBisectorOfTwoBodies )
+{
+    constexpr uint32_t w = 64, h = 8, d = 16;
+    const glm::vec3    voxelKm( 0.1f, 0.2f, 0.1f );
+    constexpr float    rise = 0.25f;
+    const auto index = [&]( uint32_t x, uint32_t y, uint32_t z ) { return ( size_t( z ) * h + y ) * w + x; };
+
+    std::vector<float>   rank( size_t( w ) * h * d, std::numeric_limits<float>::infinity() );
+    std::vector<uint8_t> owner( rank.size(), 0u );
+    for ( uint32_t z = 0; z < d; ++z )
+        for ( uint32_t y = 2; y < 6; ++y )
+            for ( uint32_t x = 0; x < 3; ++x )
+            {
+                rank[index( 10 + x, y, z )] = 0.0f;
+                rank[index( 30 + x, y, z )] = 0.9f;
+            }
+
+    Desert::Assets::CloudProceduralGrowRankIntoAir( rank, owner, { glm::uvec2( 0u, h ) }, w, h, d, voxelKm, rise );
+
+    size_t walls = 0;
+    for ( uint32_t z = 0; z < d; ++z )
+        for ( uint32_t y = 0; y < h; ++y )
+            for ( uint32_t x = 0; x < w; ++x )
+            {
+                const float here = rank[index( x, y, z )];
+                ASSERT_TRUE( std::isfinite( here ) ) << x << "," << y << "," << z;
+                const float stepX = std::abs( rank[index( ( x + 1 ) % w, y, z )] - here );
+                const float stepZ = std::abs( rank[index( x, y, ( z + 1 ) % d )] - here );
+                const float stepY = y + 1 < h ? std::abs( rank[index( x, y + 1, z )] - here ) : 0.0f;
+                if ( stepX > rise * voxelKm.x * 1.001f + 1e-5f || stepZ > rise * voxelKm.z * 1.001f + 1e-5f ||
+                     stepY > rise * voxelKm.y * 1.001f + 1e-5f )
+                    ++walls;
+            }
+    EXPECT_EQ( walls, 0u ) << "the rank jumps between neighbouring voxels: a straight wall in the cut";
+
+    // 18 voxels of 0.1 km from the low slab's edge (x 12) to the high slab's (x 30): 0.45 < 0.9.
+    EXPECT_NEAR( rank[index( 30, 3, 5 )], rise * 1.8f, 1e-4f );
 }

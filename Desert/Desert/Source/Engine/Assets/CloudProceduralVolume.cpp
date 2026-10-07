@@ -1661,11 +1661,13 @@ namespace Desert::Assets
                 feature[q]  = scratch.Feature[static_cast<size_t>( p )];
             }
         }
+    } // namespace
 
         /// THE PROFILE PAST THE BODY'S EDGE, carried in the rank. Inside a body the rank is the nearest
         /// lump's cell rank plus `softness x (1 - profile)`, so it rises at `softness / ProfileDepth` per
-        /// kilometre toward the surface; this continues that rise outward at the same rate from the nearest
-        /// body voxel into every air voxel of the region. It is Nubis's coverage remap read from the other
+        /// kilometre toward the surface; this continues that rise outward at the same rate, as the LOWEST
+        /// cone over the body voxels (min_s rank_s + rise |v - s|, not the nearest body's — that one jumps on
+        /// the bisector), into every air voxel of the region and into the bodies themselves. It is Nubis's coverage remap read from the other
         /// side: the bodies are the shape at the cover where a cell is just alive, and a higher cover keeps
         /// the falloff around them, lowest rank first, until at Coverage 1 the column CDF hands out the
         /// whole sky — without one body growing in the bake, so the sizes, the size law and the lattice are
@@ -1767,6 +1769,93 @@ namespace Desert::Assets
                 axis( w * rows, d, true, voxelKm.z,
                       [&]( int line, int i ) { return index( line % w, bandLo + line / w, i ); } );
 
+                // THE LOWEST CONE, NOT THE NEAREST BODY'S. The distance transform hands every voxel its
+                // NEAREST source, and `rank[nearest] + rise x distance` jumps on the bisector between two
+                // bodies by the difference of their ranks — a flat vertical wall in the air (and through a
+                // fused body), which the march's cut drew as a straight-edged slab of cloud (FARWX-b7: the
+                // Showcase/Demo frames from the horizon). The rank a voxel needs is the lowest cone over the
+                // species' sources, min_s(rank_s + rise |v - s|), which is continuous by construction (rise-
+                // Lipschitz). A source can only beat the nearest one within (rank range) / rise, so jump
+                // flooding from the nearest feature at steps from that reach down to one voxel, evaluating
+                // each candidate's cone exactly, finds it.
+                float lowest  = std::numeric_limits<float>::infinity();
+                float highest = -std::numeric_limits<float>::infinity();
+                for ( size_t at = 0; at < count; ++at )
+                    if ( std::isfinite( rankField[at] ) && ownerSlot[at] == slot )
+                    {
+                        lowest  = std::min( lowest, rankField[at] );
+                        highest = std::max( highest, rankField[at] );
+                    }
+                const float minVoxelKm = std::min( { voxelKm.x, voxelKm.y, voxelKm.z } );
+                const float reachVoxels =
+                     risePerKm > 0.0f ? ( highest - lowest ) / ( risePerKm * minVoxelKm ) : 0.0f;
+                const int reach = static_cast<int>(
+                     std::min( std::ceil( reachVoxels ), static_cast<float>( std::max( { w, h, d } ) ) ) );
+
+                auto coneAt = [&]( int source, int x, int y, int z )
+                {
+                    const int sx   = source % w;
+                    const int sy   = ( source / w ) % h;
+                    const int sz   = source / static_cast<int>( stride );
+                    int       dx   = std::abs( x - sx );
+                    int       dz   = std::abs( z - sz );
+                    dx             = std::min( dx, w - dx );
+                    dz             = std::min( dz, d - dz );
+                    const float ex = static_cast<float>( dx ) * voxelKm.x;
+                    const float ey = static_cast<float>( y - sy ) * voxelKm.y;
+                    const float ez = static_cast<float>( dz ) * voxelKm.z;
+                    return rankField[static_cast<size_t>( source )] +
+                           risePerKm * std::sqrt( ex * ex + ey * ey + ez * ez );
+                };
+
+                std::vector<int> steps;
+                for ( int step = reach > 1 ? static_cast<int>( std::bit_ceil( static_cast<unsigned>( reach ) ) )
+                                           : 1;
+                      step >= 1; step /= 2 )
+                    steps.push_back( step );
+                steps.push_back( 1 );
+
+                std::vector<int> next;
+                for ( const int step : steps )
+                {
+                    next = feature;
+                    Common::JobSystem::Get().ParallelRanges(
+                         static_cast<size_t>( d ), 1u,
+                         [&]( size_t begin, size_t end )
+                         {
+                             for ( int z = static_cast<int>( begin ); z < static_cast<int>( end ); ++z )
+                                 for ( int y = bandLo; y < bandHi; ++y )
+                                     for ( int x = 0; x < w; ++x )
+                                     {
+                                         const size_t at       = index( x, y, z );
+                                         int          best     = feature[at];
+                                         float        bestCone = best >= 0 ? coneAt( best, x, y, z )
+                                                                           : std::numeric_limits<float>::infinity();
+                                         for ( int oz = -1; oz <= 1; ++oz )
+                                             for ( int oy = -1; oy <= 1; ++oy )
+                                                 for ( int ox = -1; ox <= 1; ++ox )
+                                                 {
+                                                     const int ny = y + oy * step;
+                                                     if ( ( ox | oy | oz ) == 0 || ny < bandLo || ny >= bandHi )
+                                                         continue;
+                                                     const int nx        = ( ( x + ox * step ) % w + w ) % w;
+                                                     const int nz        = ( ( z + oz * step ) % d + d ) % d;
+                                                     const int candidate = feature[index( nx, ny, nz )];
+                                                     if ( candidate < 0 || candidate == best )
+                                                         continue;
+                                                     const float cone = coneAt( candidate, x, y, z );
+                                                     if ( cone < bestCone )
+                                                     {
+                                                         best     = candidate;
+                                                         bestCone = cone;
+                                                     }
+                                                 }
+                                         next[at] = best;
+                                     }
+                         } );
+                    feature.swap( next );
+                }
+
                 for ( int z = 0; z < d; ++z )
                     for ( int y = bandLo; y < bandHi; ++y )
                         for ( int x = 0; x < w; ++x )
@@ -1774,16 +1863,19 @@ namespace Desert::Assets
                             const size_t at = index( x, y, z );
                             if ( feature[at] < 0 )
                                 continue;
-                            const float rank =
-                                 rankField[static_cast<size_t>( feature[at] )] + risePerKm * std::sqrt( cost[at] );
-                            grown[at] = std::min( grown[at], rank );
+                            grown[at] = std::min( grown[at], coneAt( feature[at], x, y, z ) );
                         }
             }
 
+            // A BODY VOXEL TAKES THE LOWEST CONE TOO, not only air: two fused lumps of different cell ranks
+            // otherwise keep the wall between them inside the body (the nearest lump's rank, jumping on their
+            // bisector). Its own rank is one of the cones, so a lone body is unchanged.
             for ( size_t at = 0; at < count; ++at )
-                if ( !std::isfinite( rankField[at] ) )
-                    rankField[at] = grown[at];
+                rankField[at] = std::min( rankField[at], grown[at] );
         }
+
+    namespace
+    {
 
         /// The column CDF of the rank field, as bytes. Every column's rank is the MINIMUM over its voxels
         /// (the first cloud a sight line straight up meets is the one with the lowest rank), and the byte a

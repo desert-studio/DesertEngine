@@ -774,6 +774,16 @@ namespace Desert::Assets
     BakeCloudProceduralVolumeRanked( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
                                      const CloudProceduralBakeProgressFn& onProgress );
 
+    /// The bake's rank past (and across) the bodies, before its column CDF: every voxel of species `slot`'s
+    /// band rows (`bandRows[slot]`, half-open) takes the LOWEST cone over that species' finite-rank voxels
+    /// (`ownerSlot`), min_s rank_s + risePerKm |v - s| in kilometres (`voxelKm` per axis, X and Z periodic),
+    /// and keeps the lowest over the species whose band holds its row; voxels outside every band stay as
+    /// they were (infinite in air). The result is continuous — risePerKm-Lipschitz inside a band — which is
+    /// what keeps the march's cut from drawing a straight wall where the nearest body changes.
+    void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, const std::vector<uint8_t>& ownerSlot,
+                                         const std::vector<glm::uvec2>& bandRows, uint32_t width, uint32_t height,
+                                         uint32_t depth, const glm::vec3& voxelKm, float risePerKm );
+
     /// The seed of the layer's world weather — one per layer, since the march keeps per voxel after the
     /// max over species.
     uint32_t CloudFarWeatherSeed( const CloudProceduralFieldParams& params );
@@ -835,7 +845,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000005ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000006ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
