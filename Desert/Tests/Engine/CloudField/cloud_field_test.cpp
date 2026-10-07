@@ -1280,7 +1280,16 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
             // walks the slots in order taking a species only when it STRICTLY exceeds the best so far, so
             // a tie is won by the EARLIER slot. A mirror written with `>` disagrees with the shader on
             // exactly those ties, which is a defect in the mirror and not in the union.
-            const float expected = deck >= tower ? kDeck.DetailCharacter : kTower.DetailCharacter;
+            // AND THE CHARACTER IS THE WINNER'S WISPY BASE TIMES ITS OWN (H-BASE): from 0 where its band
+            // starts to DetailCharacter where its altitude density first stands at its maximum, the span
+            // taken from the packer's own Graphic::CloudSpeciesWispSpan rather than read back out of params.
+            const bool             deckWins = deck >= tower;
+            const CloudTypeShape&  winner   = deckWins ? kDeck : kTower;
+            const glm::vec2        wisp     = Desert::Graphic::CloudSpeciesWispSpan(
+                 winner, ModellingVolume().Params.LayerBottomKm, ModellingVolume().Params.LayerThicknessKm );
+            const float wispCharacter =
+                 glm::clamp( ( fraction - wisp.x ) / std::max( wisp.y - wisp.x, 1e-4f ), 0.0f, 1.0f );
+            const float expected = glm::clamp( winner.DetailCharacter, 0.0f, 1.0f ) * wispCharacter;
             if ( std::abs( united.DetailType - expected ) > 1e-5f )
                 ++winnerWrong;
         }

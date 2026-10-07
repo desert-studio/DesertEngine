@@ -310,9 +310,9 @@ TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
 {
     // A file an artist wrote by hand, with nothing in it but the numbers that have no answer.
     const std::string minimal =
-         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":5},"Dependencies":[]},"Shape":{
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":6},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
-        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
+        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368],"Density":[0.0,0.25925928,0.7407408,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,"ExtinctionFactor":1.0,
         "PlacementScale":1.0,"PlacementAnisotropy":1.0}})";
 
@@ -324,12 +324,23 @@ TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
     // And the other way round: a shape with a field MISSING is refused rather than defaulted, because a
     // number nobody wrote is not a number anybody chose.
     const std::string incomplete =
-         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":5},"Dependencies":[]},"Shape":{
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":6},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
-        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
+        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368],"Density":[0.0,0.25925928,0.7407408,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,
         "PlacementScale":1.0,"PlacementAnisotropy":1.0}})";
     EXPECT_FALSE( ParseCloudType( incomplete ) ) << "a shape missing ExtinctionFactor was accepted";
+
+    // THE ALTITUDE DENSITY ROW IS PART OF THE SHAPE (CLTY 6): a profile carrying the silhouette and not
+    // the density is refused, not handed the base ramp — the ramp is what the migrator wrote into the
+    // shipped files once, not what the reader assumes for a file that does not say.
+    const std::string noDensity =
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":6},"Dependencies":[]},"Shape":{
+        "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
+        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
+        "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,"ExtinctionFactor":1.0,
+        "PlacementScale":1.0,"PlacementAnisotropy":1.0}})";
+    EXPECT_FALSE( ParseCloudType( noDensity ) ) << "a profile missing its Density row was accepted";
 
     // A VERSION-1 FILE IS REFUSED, NOT FILLED IN. It carries the twelve numbers T1 shipped and neither of
     // the two T3 added, and a fibrous cirrus and a round-patched one are different KINDS of cloud — so
