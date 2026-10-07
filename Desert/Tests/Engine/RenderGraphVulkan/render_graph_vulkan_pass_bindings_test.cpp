@@ -88,6 +88,10 @@ namespace
         {
             return {};
         }
+        PassFaultReporter& GetPassFaultReporter() override
+        {
+            return m_FaultReporter;
+        }
         AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override
         {
             return m_FallbackLog;
@@ -147,6 +151,7 @@ namespace
         FixedEstimate           m_Memory;
         NoPlacementAllocator    m_Allocator;
         AsyncComputeFallbackLog m_FallbackLog{ []( std::string_view ) {} };
+        PassFaultReporter       m_FaultReporter{ []( PassFaultReporter::Severity, std::string_view ) {} };
     };
 
     // A bloom-upsample-like compute shader: u_Source (sampled 2D, binding 0), u_Output (storage image,

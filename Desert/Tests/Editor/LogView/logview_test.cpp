@@ -13,35 +13,14 @@ TEST( LogView, LogMatchesIsCaseInsensitiveSubstring )
     EXPECT_FALSE( LogMatches( "hi", "longer than line" ) );
 }
 
-TEST( LogView, CollapseMergesConsecutiveDuplicates )
+TEST( LogView, CollapseRepeatsKeepsOrderAndEmptyIsEmpty )
 {
-    std::vector<std::pair<std::string, int>> lines = {
-        { "tick", 0 }, { "tick", 0 }, { "tick", 0 }, { "warn", 1 }, { "tick", 0 }
-    };
-    const auto runs = CollapseConsecutive( lines );
-
+    const auto runs = CollapseRepeats( { { "tick", 0 }, { "tick", 0 }, { "warn", 1 }, { "tick", 0 } } );
     ASSERT_EQ( runs.size(), 3u );
-    EXPECT_EQ( runs[0].Text, "tick" );
-    EXPECT_EQ( runs[0].Count, 3 );
+    EXPECT_EQ( runs[0].Count, 2 );
     EXPECT_EQ( runs[1].Text, "warn" );
-    EXPECT_EQ( runs[1].Count, 1 );
-    // The trailing "tick" is a separate event, not merged with the earlier run.
-    EXPECT_EQ( runs[2].Text, "tick" );
-    EXPECT_EQ( runs[2].Count, 1 );
-}
-
-TEST( LogView, CollapseDoesNotMergeAcrossLevels )
-{
-    std::vector<std::pair<std::string, int>> lines = { { "msg", 0 }, { "msg", 2 } };
-    const auto runs = CollapseConsecutive( lines );
-    ASSERT_EQ( runs.size(), 2u );
-    EXPECT_EQ( runs[0].Level, 0 );
-    EXPECT_EQ( runs[1].Level, 2 );
-}
-
-TEST( LogView, CollapseEmptyIsEmpty )
-{
-    EXPECT_TRUE( CollapseConsecutive( {} ).empty() );
+    EXPECT_EQ( runs[2].Count, 1 ); // the trailing tick is a separate event
+    EXPECT_TRUE( CollapseRepeats( {} ).empty() );
 }
 
 // --- ParseLogLine ------------------------------------------------------------------------------

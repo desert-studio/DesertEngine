@@ -127,8 +127,8 @@ namespace Desert::Graphic::Render2D
         return entry;
     }
 
-    template <class Rebuild>
-    void UIMaterialCache::FollowShaderReload( Entry& entry, Rebuild&& rebuild )
+    template <class RebuildFn>
+    void UIMaterialCache::FollowShaderReload( Entry& entry, RebuildFn&& rebuild )
     {
         if ( !entry.Pipeline || !entry.Pipeline->GetSpecification().Shader )
         {

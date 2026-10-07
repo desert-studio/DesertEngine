@@ -199,7 +199,7 @@ namespace Desert::Editor
             ImGui::SetTooltip( "Clear the log" );
     }
 
-    void LogsPanel::DrawRow( const LogRun& row )
+    void LogsPanel::DrawRow( const LogRepeatRun& row )
     {
         const LogLineParts parts = ParseLogLine( row.Text );
 
@@ -272,9 +272,14 @@ namespace Desert::Editor
         if ( row.Count > 1 )
         {
             // The collapse count stays attached to the message, not to the row: it counts repeats of the
-            // TEXT, and putting it at the right edge would let it drift away from what it counts.
+            // EVENT (CollapseRepeats: same level, category and message, any time), and putting it at the right
+            // edge would let it drift away from what it counts. The time span says how long it repeated.
             const std::string message( parts.Message );
-            ImGui::Text( "%s  (x%d)", message.c_str(), row.Count );
+            if ( row.FirstTime.empty() )
+                ImGui::Text( "%s  (x%d)", message.c_str(), row.Count );
+            else
+                ImGui::Text( "%s  (x%d  %s .. %s)", message.c_str(), row.Count, row.FirstTime.c_str(),
+                             row.LastTime.c_str() );
         }
         else
         {
@@ -317,14 +322,17 @@ namespace Desert::Editor
 
             if ( m_Collapse )
             {
-                m_Rows = CollapseConsecutive( filtered );
+                m_Rows = CollapseRepeats( filtered );
             }
             else
             {
                 m_Rows.clear();
                 m_Rows.reserve( filtered.size() );
                 for ( auto& [text, level] : filtered )
-                    m_Rows.push_back( { std::move( text ), level, 1 } );
+                {
+                    const std::string time( ParseLogLine( text ).Time );
+                    m_Rows.push_back( { std::move( text ), level, 1, time, time } );
+                }
             }
 
             m_RowsBuiltFromCount = m_Entries.size();
@@ -335,7 +343,7 @@ namespace Desert::Editor
             std::memcpy( m_RowsFilter, m_Filter, sizeof( m_RowsFilter ) );
         }
 
-        const std::vector<LogRun>& rows = m_Rows;
+        const std::vector<LogRepeatRun>& rows = m_Rows;
 
         ImGuiListClipper clipper;
         clipper.Begin( static_cast<int>( rows.size() ) );

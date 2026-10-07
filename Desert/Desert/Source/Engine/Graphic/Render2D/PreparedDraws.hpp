@@ -29,8 +29,8 @@ namespace Desert::Graphic::Render2D
 
         // Prepare every command of @p commands ONCE: @p prepare( command ) -> std::optional<Prepared>, nullopt for
         // a command that draws nothing (it declares no block and records nothing). Replaces the previous list.
-        template <class Commands, class Prepare>
-        void Prepare( const Commands& commands, Prepare&& prepare )
+        template <class Commands, class PrepareFn>
+        void Prepare( const Commands& commands, PrepareFn&& prepare )
         {
             m_Draws.clear();
             uint32_t index = 0;

@@ -402,7 +402,6 @@ namespace Desert::Graphic
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->Record( context ); } );
-    } );
     }
 
     RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,

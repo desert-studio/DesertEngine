@@ -58,7 +58,7 @@ namespace Desert::Graphic::System
 
         // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM). The
         // per-object transform, material row and instance bind are each draw's state, written right before it.
-        MaterialPBR* const rsmMaterial = m_RSMMaterial.get();
+        DataDrivenMaterial* const rsmMaterial = m_RSMMaterial.get();
         for ( uint32_t i = 0; i < static_cast<uint32_t>( objs.size() ); ++i )
         {
             const auto* obj = objs[i];
