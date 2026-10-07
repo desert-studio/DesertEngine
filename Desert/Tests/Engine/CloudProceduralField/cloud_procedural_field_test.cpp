@@ -728,25 +728,9 @@ namespace
     using namespace Desert::Assets;
 
     // THE SKY THE MARCH KEEPS (FARWX-a): the bake holds every cell with its rank, and a column has cloud
-    // when its lowest rank is under the local cover at the column's WORLD site. Measured at many whole-region
+    // when any of its voxels is kept at the local cover of the column's WORLD site — rank under the cover and
+    // within the air's reach of its body (CloudProceduralColumnKept, FARWX-b15). Measured at many whole-region
     // shifts, because the weather is a world field and one region holds only a couple of its systems.
-    std::vector<unsigned char> ColumnMinRanks( const CloudProceduralVolumeBake& bake, uint32_t side )
-    {
-        std::vector<unsigned char> minima( static_cast<size_t>( side ) * side, kCloudProceduralNoRank );
-        for ( uint32_t z = 0; z < side; ++z )
-            for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-                for ( uint32_t x = 0; x < side; ++x )
-                {
-                    unsigned char& lowest = minima[static_cast<size_t>( z ) * side + x];
-                    lowest                = std::min(
-                         lowest,
-                         bake.Ranks[( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side +
-                                      x ) *
-                                    Desert::Assets::kCloudProceduralRankChannels] );
-                }
-        return minima;
-    }
-
     glm::vec2 RegionShiftKm( const CloudProceduralFieldParams& params, int shift )
     {
         // Whole regions, so the bake's column index is unchanged; scattered so the weather is not.
@@ -755,20 +739,21 @@ namespace
     }
 
     std::vector<float> KeptColumns( const CloudProceduralFieldParams& params,
-                                    const std::vector<unsigned char>& minima, const glm::vec2& origin, int shift )
+                                    const CloudProceduralVolumeBake& bake, const glm::vec2& origin, int shift )
     {
         const uint32_t     side  = params.VolumeSideVoxels;
         const float        voxel = params.RegionSizeKm / static_cast<float>( side );
         const glm::vec2    base  = origin + RegionShiftKm( params, shift );
-        std::vector<float> map( minima.size(), 0.0f );
+        std::vector<float> map( static_cast<size_t>( side ) * side, 0.0f );
         for ( uint32_t z = 0; z < side; ++z )
             for ( uint32_t x = 0; x < side; ++x )
             {
                 const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
                                                           ( static_cast<float>( z ) + 0.5f ) * voxel );
                 const size_t    at    = static_cast<size_t>( z ) * side + x;
-                map[at] =
-                     CloudProceduralKeep( minima[at], CloudProceduralLocalCover( params, world ) ) ? 1.0f : 0.0f;
+                map[at] = CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalCover( params, world ) )
+                               ? 1.0f
+                               : 0.0f;
             }
         return map;
     }
@@ -785,15 +770,15 @@ namespace
         const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
         if ( !baked )
             return -1.0;
-        const std::vector<unsigned char> minima = ColumnMinRanks( baked.GetValue(), params.VolumeSideVoxels );
-        double                           sum    = 0.0;
+        const size_t columns = static_cast<size_t>( params.VolumeSideVoxels ) * params.VolumeSideVoxels;
+        double       sum     = 0.0;
         for ( int shift = 0; shift < shifts; ++shift )
         {
-            const std::vector<float> map = KeptColumns( params, minima, origin, shift );
+            const std::vector<float> map = KeptColumns( params, baked.GetValue(), origin, shift );
             for ( float v : map )
                 sum += v;
         }
-        return sum / ( static_cast<double>( shifts ) * static_cast<double>( minima.size() ) );
+        return sum / ( static_cast<double>( shifts ) * static_cast<double>( columns ) );
     }
 } // namespace
 

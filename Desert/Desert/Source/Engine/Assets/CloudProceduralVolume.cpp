@@ -2043,6 +2043,21 @@ namespace Desert::Assets
             }
         } // namespace
 
+    bool CloudProceduralColumnKept( const CloudProceduralVolumeBake& bake, uint32_t side, uint32_t x, uint32_t z,
+                                    float localCover )
+    {
+        for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+        {
+            const size_t at =
+                 ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x ) *
+                 kCloudProceduralRankChannels;
+            if ( at + 1u < bake.Ranks.size() &&
+                 CloudProceduralKeep( bake.Ranks[at], bake.Ranks[at + 1u], localCover, bake.RankRise ) )
+                return true;
+        }
+        return false;
+    }
+
     Common::ResultStr<std::vector<unsigned char>>
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
     {

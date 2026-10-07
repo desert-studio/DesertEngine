@@ -387,11 +387,23 @@ float CloudLocalCover( vec4 weather, vec2 windPosXz )
 // rise) erodes to its core as before; one the cover has overrun keeps a gradient across ALL of its kept
 // extent instead of saturating — FARWX-b11 measured the old (cover - rank.x) / rankRise clamped at one over
 // the whole body as soon as the run exceeded a rise, which drew flat, edgeless masses over the camera.
+//
+// THE AIR FADES WITHIN A REACH OF THE BODY (FARWX-b15) — Assets::CloudProceduralAirFalloff, written for the GPU.
+// The remap above extends the body's form past its surface without end, so under a busy weather patch (local
+// cover 0.9) air kilometres from any body was kept at profile 0.5-0.6: an even grey deck. Nubis fades the
+// profile past the surface within one ProfileDepth; here the reach is 1 / sqrt(1 - cover) ProfileDepths, which
+// is Nubis's one at no cover, 3.16 at 0.9 — dense weather is tightly packed bodies with gaps — and unbounded at
+// Coverage 1, which stays the whole sky. Inside a body (depth <= 0) the factor is one.
 float CloudRankProfile( vec2 rank, float localCover, float rankRise )
 {
+    float core   = min( rank.y, rank.x );
+    float rise   = max( rankRise, 1e-4f );
     float excess = localCover - rank.x - 0.5f / 255.0f;
-    float run    = localCover - min( rank.y, rank.x ) - 0.5f / 255.0f;
-    return clamp( excess / max( run, max( rankRise, 1e-4f ) ), 0.0f, 1.0f );
+    float run    = localCover - core - 0.5f / 255.0f;
+    float remap  = clamp( excess / max( run, rise ), 0.0f, 1.0f );
+    float depth  = max( ( rank.x - core ) / rise - 1.0f, 0.0f );
+    float fade   = clamp( 1.0f - depth * sqrt( max( 1.0f - localCover, 0.0f ) ), 0.0f, 1.0f );
+    return remap * fade;
 }
 
 // The procedural producer — ONE FETCH, four species.
