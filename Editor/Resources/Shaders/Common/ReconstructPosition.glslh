@@ -1,0 +1,30 @@
+// #pragma once
+//
+// THE WORLD POSITION OF A SCREEN PIXEL, FROM ITS DEPTH (UE: SceneDepth + ScreenToWorld / SvPositionToWorld).
+// Every pass that needs the world position of an opaque G-buffer pixel calls this; there is no world-position
+// target (GBUF1 deleted GBufferC, RGBA32F, 16 bytes a pixel).
+//
+//   uv          — the pixel's screen texture coordinate, (0,0) top-left (Common/ScreenUV.glslh);
+//   deviceDepth — the depth attachment's stored value at that pixel, as sampled. The scene is reversed-Z
+//                 zero-to-one (Core/Projection.hpp: 1 at the near plane, 0 at the far plane), but nothing here
+//                 assumes it: the convention lives in the matrix, so a standard-Z matrix (the shadow cascades)
+//                 reconstructs through the same text;
+//   invJitteredViewProjection — the inverse of the matrix the depth was RASTERISED with. ViewFrame.hpp's rule:
+//                 reconstructing the current frame's pixels uses InvJitteredViewProjection, because the
+//                 G-buffer is drawn jittered once TAA is on. Without TAA the jittered and unjittered matrices
+//                 are the same matrix.
+//
+// Returns world units, centimetres. Perspective and orthographic alike: the divide by w is 1 for an ortho matrix.
+// A texel the G-buffer never wrote has deviceDepth == the clear value (the far plane under reversed-Z); its
+// position is the far-plane point on that pixel's ray, and the readers gate such texels by the zero normal before
+// they read a position, as they did with the cleared world-position target.
+//
+// The text is compiled as C++ too (Desert/Tests/Engine/DepthConvention/ReconstructPositionReference.hpp), so the
+// round-trip test there is a statement about these lines.
+#include <Common/ScreenUV.glslh>
+
+vec3 ReconstructWorldPosition(vec2 uv, float deviceDepth, mat4 invJitteredViewProjection)
+{
+	const vec4 world = invJitteredViewProjection * vec4(ScreenUVToNdc(uv), deviceDepth, 1.0f);
+	return vec3(world) / world.w;
+}

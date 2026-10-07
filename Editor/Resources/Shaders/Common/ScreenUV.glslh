@@ -1,0 +1,15 @@
+// #pragma once
+//
+// Screen texture coordinate -> NDC xy: the one mapping every screen-space stage shares — the fullscreen triangle
+// and the SSR tiles (vertex stages, through Common/FullscreenTriangle.glslh) and the world-position
+// reconstruction from depth (fragment stages, through Common/ReconstructPosition.glslh).
+//
+// uv (0,0) is the top-left texel: the engine's viewport has a negative height
+// (VulkanRendererAPI::SetViewportAndScissor), so NDC y = +1 is the top row.
+//
+// It is its own file because FullscreenTriangle.glslh reads gl_VertexIndex, which a fragment stage (and the C++
+// compile of this text in Desert/Tests/Engine/DepthConvention) cannot see; the mapping itself is stage-free.
+vec2 ScreenUVToNdc(vec2 uv)
+{
+	return vec2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
+}
