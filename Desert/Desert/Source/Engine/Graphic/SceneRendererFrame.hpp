@@ -76,7 +76,8 @@ namespace Desert::Graphic
                     refs.emplace_back();
                     continue;
                 }
-                if ( const RDG::TextureRef ref = Import( image, std::format( "{}.Color{}", name, i ) ); ref.IsValid() )
+                if ( const RDG::TextureRef ref = Import( image, std::format( "{}.Color{}", name, i ) );
+                     ref.IsValid() )
                     refs.push_back( ref );
             }
             return refs;

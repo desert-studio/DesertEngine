@@ -174,9 +174,9 @@ namespace Desert::Graphic::System
             glm::vec4 Params;    // x = maxSteps, y = maxDistance, z = intensity, w = thickness
         };
 
-        // The trace's uniform block (SSR.shader SSRTraceUB, std140: one mat4). The inverse is computed HERE, on the
-        // CPU, once per frame from the view's matrix - never per workgroup in the shader. The field keeps the name
-        // every reconstructing reader uses (SSRResolveUB, DeferredUB) so the camera block can take it over.
+        // The trace's uniform block (SSR.shader SSRTraceUB, std140: one mat4). The inverse is computed HERE, on
+        // the CPU, once per frame from the view's matrix - never per workgroup in the shader. The field keeps the
+        // name every reconstructing reader uses (SSRResolveUB, DeferredUB) so the camera block can take it over.
         struct TraceUniforms
         {
             glm::mat4 InvJitteredViewProjection;
@@ -246,9 +246,9 @@ namespace Desert::Graphic::System
         // resolve of @p trace (read bilinearly - the upscale) over @p history (GetHistoryImage(), imported),
         // drawn over the tiles @p tiles marks.
         //
-        // SETUP of "Deferred: SSRResolve": its one block (block 0) - u_History linear REPEAT, u_GBufferDepth point CLAMP,
-        // u_Trace (the bilinear upscale) linear CLAMP, u_SSRTileMask point CLAMP, mip 0 of both - the samplers
-        // the exec bound before; the resolve material is the other route.
+        // SETUP of "Deferred: SSRResolve": its one block (block 0) - u_History linear REPEAT, u_GBufferDepth point
+        // CLAMP, u_Trace (the bilinear upscale) linear CLAMP, u_SSRTileMask point CLAMP, mip 0 of both - the
+        // samplers the exec bound before; the resolve material is the other route.
         void DeclareResolveBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef tiles,
                                      RDG::TextureRef history, const GBufferInputs& gbuffer ) const
         {

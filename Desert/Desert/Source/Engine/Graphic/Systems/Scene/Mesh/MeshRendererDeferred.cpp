@@ -82,9 +82,9 @@ namespace Desert::Graphic::System
         // (VK_ATTACHMENT_UNUSED), which no render pass with an image in that slot is compatible with.
         rsmSpec.Framebuffer.reset();
         rsmSpec.TargetLayout = RenderTargetLayout{
-             .ColorFormats = std::vector<std::optional<Core::Formats::ImageFormat>>( ViewTargetFormats::kRSMColourSlots.begin(),
-                                                                      ViewTargetFormats::kRSMColourSlots.end() ),
-             .DepthFormat  = ViewTargetFormats::kRSMDepth };
+             .ColorFormats = std::vector<std::optional<Core::Formats::ImageFormat>>(
+                  ViewTargetFormats::kRSMColourSlots.begin(), ViewTargetFormats::kRSMColourSlots.end() ),
+             .DepthFormat = ViewTargetFormats::kRSMDepth };
         rsmSpec.DepthCompareOp                = CompareOp::LessOrEqual;
         const auto rsmPipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( rsmSpec );
         if ( !rsmPipeline )

@@ -159,7 +159,8 @@ namespace Desert::Graphic::System
                                kSampler );
             };
             // The two depths through a nearest sampler: DEPTH32F is not guaranteed linear-filterable (MoltenVK).
-            const auto depth = [&]( std::string_view name, RDG::TextureRef texture ) {
+            const auto depth = [&]( std::string_view name, RDG::TextureRef texture )
+            {
                 block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                                RDG::SamplerDesc::PointClamp() );
             };

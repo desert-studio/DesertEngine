@@ -300,8 +300,8 @@ namespace Desert::Graphic
               viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  // Read when the node runs: the RSM node before it is what sets this frame's light matrix.
-                 return gi->RecordGather( context, meshRenderer->GetRSMViewProj(), viewProj, lightColor, giIntensity,
-                                          giSamples );
+                 return gi->RecordGather( context, meshRenderer->GetRSMViewProj(), viewProj, lightColor,
+                                          giIntensity, giSamples );
              } );
         graph.AddPass(
              "Deferred: GITemporal", RDG::PassFlags::Raster,

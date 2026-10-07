@@ -119,8 +119,8 @@ namespace Desert::Graphic::System
             if ( !m_Material )
                 return;
             ReportEnvironmentGap( environment );
-            m_Material->BindInputs( lightDir, lightColor, cameraPos, viewProj, debugMode, pointCount, spotCount, shadow,
-                                    giIntensity, ssaoEnabled, giMode, cloudShadow, environment );
+            m_Material->BindInputs( lightDir, lightColor, cameraPos, viewProj, debugMode, pointCount, spotCount,
+                                    shadow, giIntensity, ssaoEnabled, giMode, cloudShadow, environment );
         }
 
         // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). The G-buffer, AO and

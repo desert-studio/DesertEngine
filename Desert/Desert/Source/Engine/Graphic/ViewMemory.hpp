@@ -366,8 +366,9 @@ namespace Desert::Graphic
         {
             add( { "GI.Gather", "SceneRendererFrameDeferred.cpp", F::kGIResolve, width, height } );
             add( { "GI.Accum x2", "GIResolveRenderer.hpp", F::kGIAccum, width, height, 1, 2 } );
-            // SceneRenderer::kRSMResolution = 512, one row per attachment WITH AN IMAGE: they mirror the G-buffer's
-            // formats, which need not all be the same. Colour slot 2 is an unused slot (no image, no row).
+            // SceneRenderer::kRSMResolution = 512, one row per attachment WITH AN IMAGE: they mirror the
+            // G-buffer's formats, which need not all be the same. Colour slot 2 is an unused slot (no image, no
+            // row).
             for ( ViewTarget rsm : { ViewTarget{ "RSM.Albedo", "SceneRenderer.cpp", F::kRSMAlbedo, 512, 512 },
                                      ViewTarget{ "RSM.Normal", "SceneRenderer.cpp", F::kRSMNormal, 512, 512 },
                                      ViewTarget{ "RSM.Emissive", "SceneRenderer.cpp", F::kRSMEmissive, 512, 512 },

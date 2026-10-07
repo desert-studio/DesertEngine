@@ -100,7 +100,8 @@ namespace Desert::Graphic::System
                                                               const ShaderVariant& variant )
         {
             const auto name = DefaultSurfaceShaderName( path, pass );
-            return name ? Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( *name, variant ) : nullptr;
+            return name ? Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( *name, variant )
+                        : nullptr;
         }
 
         // A renderer-owned material of one (path x pass) cell of the default surface template — the same

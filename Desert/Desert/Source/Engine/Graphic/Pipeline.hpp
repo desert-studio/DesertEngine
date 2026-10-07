@@ -264,7 +264,8 @@ namespace Desert::Graphic
 
     // The colour attachment formats @p spec is built against, by colour slot (std::nullopt: an unused slot): the
     // TargetLayout's, or the Framebuffer's own colour attachments in order (depth left out) followed by its
-    // external colour attachments (VulkanFramebuffer::GetColorAttachmentCount counts own + external in that order).
+    // external colour attachments (VulkanFramebuffer::GetColorAttachmentCount counts own + external in that
+    // order).
     [[nodiscard]] inline std::vector<std::optional<Core::Formats::ImageFormat>>
     ColourAttachmentFormats( const GraphicsPipelineSpecification& spec )
     {
@@ -302,7 +303,8 @@ namespace Desert::Graphic
     // CreateColorBlendState takes its blendEnable from here and from nowhere else - PipelineBlendState census).
     // An unused slot still has an entry (Vulkan wants one blend state per colour reference) and never blends.
     [[nodiscard]] inline std::vector<bool>
-    ColourAttachmentBlendEnables( std::span<const std::optional<Core::Formats::ImageFormat>> formats, bool requested )
+    ColourAttachmentBlendEnables( std::span<const std::optional<Core::Formats::ImageFormat>> formats,
+                                  bool                                                       requested )
     {
         std::vector<bool> blends;
         blends.reserve( formats.size() );

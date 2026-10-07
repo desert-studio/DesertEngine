@@ -171,7 +171,8 @@ namespace Desert::Runtime
             {
                 programName                = name.substr( 0, slash );
                 const auto programHandleIt = m_NameToHandleMap.find( programName );
-                if ( programHandleIt != m_NameToHandleMap.end() && Get( programHandleIt->second ) != passIt->second )
+                if ( programHandleIt != m_NameToHandleMap.end() &&
+                     Get( programHandleIt->second ) != passIt->second )
                     passName = name.substr( slash + 1 );
             }
         }

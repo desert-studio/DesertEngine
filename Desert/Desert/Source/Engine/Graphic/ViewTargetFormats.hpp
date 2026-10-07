@@ -62,8 +62,9 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kSSRTileMask = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA16F;
-    // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output locations,
-    // so its attachments are the G-buffer's formats by construction rather than a second spelling of them.
+    // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output
+    // locations, so its attachments are the G-buffer's formats by construction rather than a second spelling of
+    // them.
     inline constexpr ImageFormat kRSMAlbedo   = kGBufferA;
     inline constexpr ImageFormat kRSMNormal   = kGBufferB;
     inline constexpr ImageFormat kRSMEmissive = kGBufferEmissive;
@@ -73,7 +74,7 @@ namespace Desert::Graphic::ViewTargetFormats
     // (std::nullopt; FramebufferAttachment::UnusedColourSlot): the permutation writes no shading word and GI reads
     // VPL positions from kRSMDepth, so it has no image.
     inline constexpr std::array<std::optional<ImageFormat>, 4> kRSMColourSlots = { kRSMAlbedo, kRSMNormal,
-                                                                                    std::nullopt, kRSMEmissive };
+                                                                                   std::nullopt, kRSMEmissive };
 
     // MeshRenderer::SetupShadowPass, one of each per cascade.
     inline constexpr ImageFormat kShadowColor = ImageFormat::R32F;

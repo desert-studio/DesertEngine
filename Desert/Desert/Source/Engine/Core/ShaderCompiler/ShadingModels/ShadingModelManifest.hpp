@@ -94,7 +94,8 @@ namespace Desert::Core::ShadingModels
     // ------------------------------------------------------------------------------------------------------------
     // Where the payload lives: the shading word, the G-buffer's R32_UINT target (kGBufferShadingWord,
     // Pass_GBuffer.glslh location 2), written and read with integer operations. ShadingModelContract.glslh
-    // (DESERT_SHADING_WORD_*) is the GLSL half of this table, and the ShadingModelContract suite holds the two equal.
+    // (DESERT_SHADING_WORD_*) is the GLSL half of this table, and the ShadingModelContract suite holds the two
+    // equal.
     struct ShadingWordField
     {
         std::string_view Name;
@@ -105,10 +106,10 @@ namespace Desert::Core::ShadingModels
     inline constexpr std::uint8_t kShadingWordBits = 32;
 
     inline constexpr std::array<ShadingWordField, 5> kShadingWordFields{ {
-         { "INDEX", 0, 4 },         // shading-model index, 0..15
-         { "TEXTURES", 4, 4 },      // sampled-texture count (Material Complexity), clamped to 15
-         { "PAYLOAD0", 8, 8 },      // CustomData0, unorm8
-         { "PAYLOAD1", 16, 8 },     // CustomData1, unorm8
+         { "INDEX", 0, 4 },          // shading-model index, 0..15
+         { "TEXTURES", 4, 4 },       // sampled-texture count (Material Complexity), clamped to 15
+         { "PAYLOAD0", 8, 8 },       // CustomData0, unorm8
+         { "PAYLOAD1", 16, 8 },      // CustomData1, unorm8
          { "NO_SUN_SHADOWS", 24, 1 } // set = the sun's cascades do not shadow the surface
                                      // (SurfaceOutput.ReceiveSunShadows < 0.5); 0, the clear value, receives
     } };

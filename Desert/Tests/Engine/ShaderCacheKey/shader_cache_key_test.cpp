@@ -493,7 +493,8 @@ TEST_F( ShaderCacheKeyShaderRoot, ADefineSeparatesTheKeyOfOneProgramText )
                ComputeShaderCacheKey( ShaderStage::Fragment, source, path, rsm ) )
          << "the DESERT_GBUFFER_RSM permutation and the plain program produced ONE cache key, so whichever "
             "compiled first would be served to the other.";
-    EXPECT_NE( ComputeShaderMapKey( source, path, "", false ), ComputeShaderMapKey( source, path, "", false, rsm ) )
+    EXPECT_NE( ComputeShaderMapKey( source, path, "", false ),
+               ComputeShaderMapKey( source, path, "", false, rsm ) )
          << "the shader-map key does not separate the permutation either.";
 
     // A define's value is part of it, and a define is not a virtual source of the same spelling.
@@ -527,7 +528,7 @@ TEST( ShaderVariantDefines, EveryDefineOfTheVariantReachesTheCompileOptions )
 {
     const auto file = Desert::TestSupport::RepositoryRoot() /
                       "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp";
-    std::ifstream     in( file, std::ios::binary );
+    std::ifstream in( file, std::ios::binary );
     ASSERT_TRUE( in ) << file.string();
     std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
     std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
@@ -567,7 +568,8 @@ TEST( ShaderVariantDefines, TheRSMPipelineIsBuiltFromTheRSMPermutation )
     ASSERT_FALSE( deferred.empty() );
     const auto acquire = deferred.find( "m_RSMShader=DefaultSurfaceProgramVariant(MeshVertexPath::Static,"
                                         "MeshPass::GBuffer,ShaderVariant{.Defines={\"DESERT_GBUFFER_RSM\"}});" );
-    ASSERT_NE( acquire, std::string::npos ) << "the RSM program is not the G-buffer cell under DESERT_GBUFFER_RSM.";
+    ASSERT_NE( acquire, std::string::npos )
+         << "the RSM program is not the G-buffer cell under DESERT_GBUFFER_RSM.";
     const auto copy = deferred.find( "GraphicsPipelineSpecificationrsmSpec=spec;", acquire );
     ASSERT_NE( copy, std::string::npos );
     const auto create = deferred.find( "GetPipelineCache().GetOrCreate(rsmSpec)", copy );
@@ -590,10 +592,11 @@ TEST( ShaderVariantDefines, TheRSMPipelineIsBuiltFromTheRSMPermutation )
 TEST( ShaderVariantDefines, OnlyTheMeshRendererDrawsTheRSM )
 {
     // The RSM framebuffer's colour slot 2 is unused (ViewTargetFormats::kRSMColourSlots), so every pipeline that
-    // draws into it must be built from the DESERT_GBUFFER_RSM permutation (TheRSMPipelineIsBuiltFromTheRSMPermutation).
-    // That holds because exactly one drawer exists: the "Deferred: RSM" pass records MeshRenderer's RSM draw list and
-    // nothing else, every draw on that list is m_RSMPipeline, and no other renderer (terrain, foliage, particles)
-    // reaches the RSM framebuffer. A second drawer must come with its own RSM permutation — this census goes red first.
+    // draws into it must be built from the DESERT_GBUFFER_RSM permutation
+    // (TheRSMPipelineIsBuiltFromTheRSMPermutation). That holds because exactly one drawer exists: the "Deferred:
+    // RSM" pass records MeshRenderer's RSM draw list and nothing else, every draw on that list is m_RSMPipeline,
+    // and no other renderer (terrain, foliage, particles) reaches the RSM framebuffer. A second drawer must come
+    // with its own RSM permutation — this census goes red first.
     const auto read = []( const std::filesystem::path& path )
     {
         std::ifstream in( path, std::ios::binary );
@@ -638,7 +641,7 @@ TEST( ShaderVariantDefines, OnlyTheMeshRendererDrawsTheRSM )
                 continue;
             const std::string text  = read( entry.path() );
             const bool        named = text.find( "GetRSMBuffer(" ) != std::string::npos ||
-                                text.find( "m_RSMBuffer" ) != std::string::npos;
+                               text.find( "m_RSMBuffer" ) != std::string::npos;
             if ( named && !allowed.contains( entry.path().filename().string() ) )
                 reach.push_back( entry.path().filename().string() );
         }
@@ -651,7 +654,8 @@ TEST( ShaderVariantDefines, OnlyTheMeshRendererDrawsTheRSM )
         if ( entry.is_regular_file() )
             EXPECT_EQ( read( entry.path() ).find( "RSM" ), std::string::npos )
                  << entry.path().filename().string()
-                 << " mentions the RSM: a terrain RSM draw needs the DESERT_GBUFFER_RSM permutation and kRSMColourSlots.";
+                 << " mentions the RSM: a terrain RSM draw needs the DESERT_GBUFFER_RSM permutation and "
+                    "kRSMColourSlots.";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheClosureFollowsASubstitutedBodyRatherThanTheFileOnDisk )

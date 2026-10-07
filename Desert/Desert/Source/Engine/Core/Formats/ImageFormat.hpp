@@ -265,7 +265,8 @@ namespace Desert::Core::Formats
                 break; // the sentinel is not a format
         }
 
-        LOG_ERROR( "IsIntegerFormat: ImageFormat value {} is outside the enumeration", static_cast<uint32_t>( format ) );
+        LOG_ERROR( "IsIntegerFormat: ImageFormat value {} is outside the enumeration",
+                   static_cast<uint32_t>( format ) );
         DESERT_VERIFY( false, "ImageFormat outside the enumeration" );
     }
 

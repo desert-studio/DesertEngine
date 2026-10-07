@@ -645,7 +645,7 @@ namespace Desert::Graphic::System
         // (Static x GBuffer) — the RSM is literally a G-buffer rasterized from the sun.
         std::shared_ptr<DataDrivenMaterial> m_RSMMaterial;
         MaterialInstancePtr                m_RSMInstance;
-        std::shared_ptr<Shader>            m_RSMShader; // the G-buffer cell under DESERT_GBUFFER_RSM
+        std::shared_ptr<Shader>             m_RSMShader; // the G-buffer cell under DESERT_GBUFFER_RSM
         std::shared_ptr<GraphicsPipeline>  m_RSMPipeline;
         glm::mat4                          m_RSMViewProj = glm::mat4( 1.0f );
         glm::vec3                          m_RSMEye      = glm::vec3( 0.0f );

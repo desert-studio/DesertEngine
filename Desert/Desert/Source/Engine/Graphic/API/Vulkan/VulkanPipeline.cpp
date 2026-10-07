@@ -481,8 +481,8 @@ namespace Desert::Graphic::API::Vulkan
     {
         m_ColorBlendAttachments.clear();
         // Per attachment, by its format: an integer target never blends (ColourAttachmentBlendEnables).
-        const std::vector<bool> blends =
-             ColourAttachmentBlendEnables( ColourAttachmentFormats( m_Specification ), m_Specification.BlendEnable );
+        const std::vector<bool> blends = ColourAttachmentBlendEnables( ColourAttachmentFormats( m_Specification ),
+                                                                       m_Specification.BlendEnable );
 
         const VkBlendFactor  srcCol = ConvertBlendFactor( m_Specification.SrcColorBlendFactor );
         const VkBlendFactor  dstCol = ConvertBlendFactor( m_Specification.DstColorBlendFactor );
@@ -491,14 +491,15 @@ namespace Desert::Graphic::API::Vulkan
         for ( size_t slot = 0; slot < blends.size(); ++slot )
         {
             m_ColorBlendAttachments[slot] = { .blendEnable         = blends[slot] ? VK_TRUE : VK_FALSE,
-                           .srcColorBlendFactor = srcCol,
-                           .dstColorBlendFactor = dstCol,
-                           .colorBlendOp        = VK_BLEND_OP_ADD,
-                           .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                           .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                           .alphaBlendOp        = VK_BLEND_OP_ADD,
-                           .colorWriteMask      = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT };
+                                              .srcColorBlendFactor = srcCol,
+                                              .dstColorBlendFactor = dstCol,
+                                              .colorBlendOp        = VK_BLEND_OP_ADD,
+                                              .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+                                              .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                                              .alphaBlendOp        = VK_BLEND_OP_ADD,
+                                              .colorWriteMask =
+                                                   VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                                   VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT };
         }
 
         m_ColorBlending = VkPipelineColorBlendStateCreateInfo{
@@ -530,9 +531,11 @@ namespace Desert::Graphic::API::Vulkan
             const RenderTargetLayout& layout = *m_Specification.TargetLayout;
             std::vector<VkFormat>     colourFormats;
             colourFormats.reserve( layout.ColorFormats.size() );
-            // An unused colour slot is VK_FORMAT_UNDEFINED: CreateRdgRenderPass references it as VK_ATTACHMENT_UNUSED.
+            // An unused colour slot is VK_FORMAT_UNDEFINED: CreateRdgRenderPass references it as
+            // VK_ATTACHMENT_UNUSED.
             for ( const std::optional<Core::Formats::ImageFormat>& format : layout.ColorFormats )
-                colourFormats.push_back( format ? API::Vulkan::GetImageVulkanFormat( *format ) : VK_FORMAT_UNDEFINED );
+                colourFormats.push_back( format ? API::Vulkan::GetImageVulkanFormat( *format )
+                                                : VK_FORMAT_UNDEFINED );
             VkFormat depthFormat = VK_FORMAT_UNDEFINED;
             if ( layout.DepthFormat.has_value() )
                 depthFormat = API::Vulkan::GetImageVulkanFormat( layout.DepthFormat.value() );

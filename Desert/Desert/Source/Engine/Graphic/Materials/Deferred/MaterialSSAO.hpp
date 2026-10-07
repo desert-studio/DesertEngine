@@ -16,7 +16,8 @@ namespace Desert::Graphic
         {
         }
 
-        // The SSAOUB (SSAO.shader) block, std140, member for member (census: Desert/Tests/Engine/UniformBlockLayout).
+        // The SSAOUB (SSAO.shader) block, std140, member for member (census:
+        // Desert/Tests/Engine/UniformBlockLayout).
         struct SSAOUBData
         {
             glm::mat4 ViewProj;
