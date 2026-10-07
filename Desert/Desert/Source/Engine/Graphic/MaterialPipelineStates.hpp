@@ -136,6 +136,47 @@ namespace Desert::Graphic
             return { false, announce };
         }
 
+        // What a GRAPH PASS records for one content cell (AL1-12 inside RDG). A pass records only pipelines it can
+        // bind: binding one still in the driver fails the pass, and a failed pass drops the WHOLE frame graph —
+        // every view of the frame, for one material. So the cell's own pipeline only when it is Ready; otherwise
+        // the pass's default surface, and nothing only while that stand-in is not Ready either (before the reveal,
+        // which waits for it). @p key names the cell's PIPELINE (pass state x cell x cull permutation): one shader
+        // has a pipeline per pass, and those are ready at different moments.
+        enum class CellDraw : uint8_t
+        {
+            Own,            ///< the material's own pipeline, Ready
+            DefaultSurface, ///< the pass's default surface stands in
+            Nothing,        ///< neither is Ready yet: the object is not recorded this frame
+        };
+        struct CellChoice
+        {
+            CellDraw Draw     = CellDraw::Nothing;
+            bool     Announce = false; ///< first time for this cell in this state: the caller logs once
+        };
+        CellChoice ChooseCell( const std::string& key, const MaterialPipelineState ownReports,
+                               const bool defaultSurfaceReady )
+        {
+            switch ( ownReports )
+            {
+                case MaterialPipelineState::Requested:
+                    Request( key );
+                    break;
+                case MaterialPipelineState::Compiling:
+                    OnCompiling( key );
+                    break;
+                case MaterialPipelineState::Ready:
+                    OnReady( key );
+                    break;
+                case MaterialPipelineState::Failed:
+                    OnFailed( key );
+                    break;
+            }
+            const DrawChoice choice = Choose( key );
+            if ( choice.UseOwnPipeline )
+                return { CellDraw::Own, false };
+            return { defaultSurfaceReady ? CellDraw::DefaultSurface : CellDraw::Nothing, choice.Announce };
+        }
+
         [[nodiscard]] size_t Count( const MaterialPipelineState state ) const
         {
             size_t n = 0;

@@ -683,6 +683,34 @@ namespace Desert::Graphic::System
         size_t                              m_MaterialRequestCursor = 0;
         std::unique_ptr<DataDrivenMaterial> m_DefaultSurfaceMaterial;
 
+        // AL1-12 INSIDE THE GRAPH (RDG-PSO). A graph pass records only pipelines it can bind: binding a content
+        // cell's pipeline still in the driver fails the pass, and a failed pass drops the WHOLE frame graph. So
+        // every mesh pass asks this before it records a content cell through @p passState: Own when the cell's
+        // pipeline (with its cull permutation) is Ready; DefaultSurface when @p standIn — the pass's default
+        // surface — is Ready to draw it instead; Nothing while neither is (before the reveal). The stand-in is
+        // announced once per cell per state (LOG_INFO), as DrawGenericMeshes does.
+        [[nodiscard]] MaterialPipelineTracker::CellDraw ChooseCellDraw( GraphicsPipeline*         passState,
+                                                                        const DataDrivenMaterial& cell,
+                                                                        bool                      twoSided,
+                                                                        const GraphicsPipeline*   standIn );
+        // The same choice for a pipeline the caller already holds (the glass pass's per-cell pipelines); @p key
+        // names it in the tracker and the log.
+        [[nodiscard]] MaterialPipelineTracker::CellDraw
+        ChoosePipelineDraw( const GraphicsPipeline* own, const std::string& key, const GraphicsPipeline* standIn );
+        // The default surface's cell of (@p path x @p pass) as a RECORDING material of its own: its Materials[]
+        // rows, per-frame blocks and (skinned) bones are written once per pass by the objects standing in, never
+        // shared with the renderer's spare materials, whose buffers other groups fill in the same pass.
+        struct StandInCell
+        {
+            std::shared_ptr<DataDrivenMaterial> Material;
+            MaterialInstancePtr                 Instance;
+        };
+        StandInCell*                              StandIn( MeshVertexPath path, MeshPass pass );
+        std::unordered_map<uint32_t, StandInCell> m_StandIns; // key: path * 16 + pass; Material null = refused
+        // The glass pass's stand-in: the default surface's (Static x Forward) cell with the translucent draw
+        // state.
+        TranslucentDraw* TranslucentStandIn();
+
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
