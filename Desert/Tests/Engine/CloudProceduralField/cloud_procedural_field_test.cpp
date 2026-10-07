@@ -206,6 +206,91 @@ TEST( CloudProceduralField, TheGeneratorIsAPureFunctionOfItsInputs )
 // in whatever order the lattice emitted them, and it must give the answer a gather over the whole list in
 // canonical order gives. If the bake's culling were too tight, or the bin lists lost the canonical order,
 // or the join were order-sensitive, this is where it shows.
+namespace
+{
+    /// The lumps grouped by cluster (exact site), each group in the canonical order, keeping only the clusters
+    /// whose rank is under @p cover (2 keeps them all).
+    std::vector<std::vector<CloudModellingBlob>> ClustersOf( const std::vector<CloudProceduralLump>& lumps, float cover )
+    {
+        std::vector<glm::vec2>                       sites;
+        std::vector<std::vector<CloudModellingBlob>> groups;
+        for ( const CloudProceduralLump& lump : lumps )
+        {
+            if ( cover <= 1.0f && !Desert::Assets::CloudProceduralKeep(
+                                       static_cast<unsigned char>( std::floor( lump.Rank * 255.0f ) ), cover ) )
+                continue;
+            const auto found = std::find( sites.begin(), sites.end(), lump.ClusterKm );
+            if ( found == sites.end() )
+            {
+                sites.push_back( lump.ClusterKm );
+                groups.emplace_back();
+                groups.back().push_back( lump.Blob );
+            }
+            else
+                groups[static_cast<size_t>( found - sites.begin() )].push_back( lump.Blob );
+        }
+        for ( std::vector<CloudModellingBlob>& group : groups )
+            SortCloudModellingBlobs( group );
+        return groups;
+    }
+
+    float ClusteredProfile( const std::vector<std::vector<CloudModellingBlob>>& clusters, const glm::vec3& pointKm,
+                            const CloudProceduralFieldParams& params )
+    {
+        float best = 0.0f;
+        for ( const std::vector<CloudModellingBlob>& cluster : clusters )
+            best = std::max( best, ReferenceProfile( cluster, pointKm, params.BlendRadiusKm, params.ProfileDepthKm,
+                                                     params.RegionSizeKm ) );
+        return best;
+    }
+} // namespace
+
+// A DEAD NEIGHBOUR LEAVES NO VOXELS AT A LIVING CLUSTER (JOIN-PER-CLUSTER, CLOUD-AUDIT S6). The smooth minimum
+// over every lump of a species bridged neighbouring clusters, and when one of them was cut by the cover the
+// march kept the living one's half of the bridge — cut flat on the bisector. With the join per cluster, every
+// voxel the cut keeps lies inside a body of a living cluster on its own.
+//
+// MUTATION: make the bake's per-cluster test `placed[column[j]].Cluster == cluster` always true
+// (CloudProceduralVolume.cpp, the sum loop) and the bridge voxels go red here.
+TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
+{
+    const CloudProceduralFieldParams params = MakeParams();
+    const glm::vec2                  origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+    const auto                       baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
+    ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
+
+    constexpr float cover = 0.4f;
+    const auto      lumps = GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::EveryCell );
+    const std::vector<std::vector<CloudModellingBlob>> living = ClustersOf( lumps, cover );
+    ASSERT_FALSE( living.empty() );
+
+    const float voxelXKm = params.RegionSizeKm / static_cast<float>( kCloudProceduralVolumeSide );
+    const float voxelYKm = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
+
+    size_t kept = 0, orphaned = 0;
+    for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; z += 3u )
+        for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; x += 3u )
+            {
+                const size_t        at      = VoxelIndex( x, y, z );
+                const unsigned char profile = baked.GetValue().Voxels[at];
+                const unsigned char core =
+                     baked.GetValue().Ranks[at / 4u * Desert::Assets::kCloudProceduralRankChannels];
+                if ( profile <= 1u || !Desert::Assets::CloudProceduralKeep( core, cover ) )
+                    continue;
+                ++kept;
+                const glm::vec3 point( origin.x + ( static_cast<float>( x ) + 0.5f ) * voxelXKm,
+                                       params.LayerBottomKm + ( static_cast<float>( y ) + 0.5f ) * voxelYKm,
+                                       origin.y + ( static_cast<float>( z ) + 0.5f ) * voxelXKm );
+                if ( ClusteredProfile( living, point, params ) <= 0.0f )
+                    ++orphaned;
+            }
+
+    EXPECT_GT( kept, 0u ) << "the cover kept nothing, so the test is vacuous";
+    EXPECT_EQ( orphaned, 0u ) << orphaned << " of " << kept
+                              << " kept voxels lie in no living cluster's body — a dead neighbour's bridge";
+}
+
 TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrder )
 {
     const CloudProceduralFieldParams params = MakeParams();
@@ -219,9 +304,13 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     // EVERY CELL'S LUMPS, because that is what the bake holds since FARWX-a: the Coverage cut is the
     // march's, through the rank, so a reference over only the kept cells would be a different field.
     std::vector<CloudModellingBlob> blobs;
-    for ( const CloudProceduralLump& lump :
-          GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::EveryCell ) )
+    const std::vector<CloudProceduralLump> lumps =
+         GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::EveryCell );
+    for ( const CloudProceduralLump& lump : lumps )
         blobs.push_back( lump.Blob );
+    // THE JOIN IS PER CLUSTER (JOIN-PER-CLUSTER): the reference is the max over clusters of each one's own
+    // smooth minimum, each list in the canonical order.
+    const std::vector<std::vector<CloudModellingBlob>> clusters = ClustersOf( lumps, 2.0f );
     ASSERT_FALSE( blobs.empty() );
 
     // SHUFFLED, then sorted back by the SAME canonical sort the bake uses. The join is commutative in real
@@ -247,24 +336,9 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     std::vector<glm::u32vec3> inside;
     std::vector<glm::u32vec3> outside;
 
-    // THE SPECIES' BAND AS ROWS, the bake's own rule (every row whose voxel overlaps [CloudTypeBaseKm,
-    // CloudTypeTopKm]). The fixture has ONE species, so inside this band every air voxel's nearest body is
-    // that species' and must carry a rank; outside it no air voxel may.
-    const Desert::Graphic::CloudTypeShape& bandShape = params.Species.front().Shape;
-    const float rowKm   = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
-    const auto  bandRow = [&]( float r )
-    { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( kCloudProceduralVolumeHeight ) ) ); };
-    const uint32_t bandLo =
-         bandRow( std::floor( ( Desert::Graphic::CloudTypeBaseKm( bandShape ) - params.LayerBottomKm ) / rowKm ) );
-    const uint32_t bandHi =
-         bandRow( std::ceil( ( Desert::Graphic::CloudTypeTopKm( bandShape ) - params.LayerBottomKm ) / rowKm ) );
-    ASSERT_LT( bandLo, bandHi ) << "the fixture's species occupies no row of the layer";
-    ASSERT_TRUE( bandLo > 0u || bandHi < kCloudProceduralVolumeHeight )
-         << "the band fills the whole layer, so the ceiling half of this test is vacuous";
 
     size_t filled         = 0;
     size_t rankMismatches = 0;
-    size_t ceilingRanks   = 0;
     for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
         for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
             for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
@@ -273,22 +347,12 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                 if ( solid )
                     ++filled;
 
-                // THE RANK BLOCK REACHES EVERY VOXEL OF THE SPECIES' BAND: a body's own and the air's, which
-                // carries the falloff of its nearest body so that the march can grow the clouds into it. A
-                // voxel of the band with no rank is a hole no Coverage can fill.
-                //
-                // AND NOTHING ABOVE OR BELOW IT (FARWX-b3, Nubis's height gradient per type): an air voxel
-                // outside the band with a rank is cloud grown up to the layer's ceiling at a high cover —
-                // the 1048576 voxels this used to call holes are exactly the 16 rows of 65536 columns the
-                // band leaves out, and they are empty on purpose.
+                // EVERY BODY VOXEL NAMES ITS CLUSTER: a body with no core rank is a cloud no Coverage keeps.
                 const unsigned char rank =
                      baked.GetValue()
                           .Ranks[VoxelIndex( x, y, z ) / 4u * Desert::Assets::kCloudProceduralRankChannels];
-                const bool          inBand = y >= bandLo && y < bandHi;
-                if ( ( inBand || solid ) && rank == kCloudProceduralNoRank )
+                if ( solid && rank == kCloudProceduralNoRank )
                     ++rankMismatches;
-                if ( !inBand && !solid && rank != kCloudProceduralNoRank )
-                    ++ceilingRanks;
 
                 std::vector<glm::u32vec3>& bucket = solid ? inside : outside;
                 if ( bucket.size() < 200u && ( ( x * 7u + y * 13u + z * 31u ) % 97u ) == 0u )
@@ -301,12 +365,7 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                       static_cast<double>( CloudProceduralVoxelBytes( kCloudProceduralVolumeSide ) / 4u ),
                  inside.size(), outside.size() );
 
-    EXPECT_EQ( rankMismatches, 0u ) << rankMismatches
-                                    << " voxels have no rank, so no Coverage can put cloud there and the "
-                                       "slider's top end is not the whole sky";
-    EXPECT_EQ( ceilingRanks, 0u ) << ceilingRanks
-                                  << " air voxels outside the species' band carry a rank, so a high "
-                                     "Coverage grows cloud where the type cannot stand";
+    EXPECT_EQ( rankMismatches, 0u ) << rankMismatches << " body voxels carry no core rank";
 
     ASSERT_GE( inside.size(), 50u ) << "the bake produced almost no cloud, so there is nothing to compare";
 
@@ -325,8 +384,7 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                                    params.LayerBottomKm + ( static_cast<float>( at.y ) + 0.5f ) * voxelYKm,
                                    origin.y + ( static_cast<float>( at.z ) + 0.5f ) * voxelZKm );
 
-            const float expected = ReferenceProfile( shuffled, point, params.BlendRadiusKm, params.ProfileDepthKm,
-                                                     params.RegionSizeKm );
+            const float expected = ClusteredProfile( clusters, point, params );
 
             const unsigned char actual = baked.GetValue().Voxels[VoxelIndex( at.x, at.y, at.z )];
             const double        steps  = std::abs( static_cast<double>( actual ) / 255.0 - expected ) * 255.0;
@@ -352,75 +410,6 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     EXPECT_GT( filled, ( CloudProceduralVoxelBytes( kCloudProceduralVolumeSide ) / 4u ) / 400u )
          << "under a quarter of a per cent of the volume has cloud in it, so the sky this agreed about is "
             "not one anybody would look at";
-}
-
-// TWO SPECIES IN ONE COLUMN, BANDS OVERLAPPING AND NOT EQUAL (FARWX-b5). The rank grows into the air
-// per species — from that species' own bodies, inside its own band — and an air voxel keeps the lowest of
-// those ranks. With one shared nearest body the air just under the dense upper species' base, inside the
-// sparse lower species' band but outside its own, took the upper species as its nearest body, was dropped
-// as out of that body's band, and stayed rankless: a hole no Coverage could fill.
-TEST( CloudProceduralField, TwoSpeciesInOneColumnLeaveNoVoxelOfEitherBandWithoutARank )
-{
-    CloudProceduralFieldParams params           = MakeParams();
-    params.Species.front().CellKm               = 6.0f;
-    params.Species.front().Shape.BaseAltitudeKm = 1.8f;
-    params.Species.front().Shape.TopAltitudeKm  = 2.6f;
-    CloudProceduralSpecies upper                = params.Species.front();
-    upper.CellKm                                = 3.0f;
-    upper.Shape.BaseAltitudeKm                  = 2.2f;
-    upper.Shape.TopAltitudeKm                   = 3.4f;
-    params.Species.push_back( upper );
-
-    const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-    const auto      baked  = BakeCloudProceduralVolumeRanked( params, origin, {} );
-    ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
-
-    // Each species' band as rows, the bake's own rule.
-    const float rowKm    = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
-    const auto  clampRow = [&]( float r )
-    { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( kCloudProceduralVolumeHeight ) ) ); };
-    std::vector<glm::uvec2> bands;
-    for ( const CloudProceduralSpecies& species : params.Species )
-        bands.emplace_back(
-             clampRow( std::floor( ( Desert::Graphic::CloudTypeBaseKm( species.Shape ) - params.LayerBottomKm ) /
-                                   rowKm ) ),
-             clampRow( std::ceil( ( Desert::Graphic::CloudTypeTopKm( species.Shape ) - params.LayerBottomKm ) /
-                                  rowKm ) ) );
-    ASSERT_LT( bands[0].x, bands[1].x ) << "the lower species' band does not start below the upper's";
-    ASSERT_LT( bands[0].y, bands[1].y ) << "the upper species' band does not end above the lower's";
-    ASSERT_GT( bands[0].y, bands[1].x ) << "the bands do not overlap, so the column holds one species per row";
-    ASSERT_TRUE( bands[0].x > 0u || bands[1].y < kCloudProceduralVolumeHeight )
-         << "the bands fill the whole layer, so the ceiling half of this test is vacuous";
-
-    size_t holes        = 0;
-    size_t lowerOnly    = 0;
-    size_t ceilingRanks = 0;
-    for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
-        for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
-            {
-                const bool          solid   = baked.GetValue().Voxels[VoxelIndex( x, y, z )] != 0u;
-                const bool          inLower = y >= bands[0].x && y < bands[0].y;
-                const bool          inUpper = y >= bands[1].x && y < bands[1].y;
-                const unsigned char rank =
-                     baked.GetValue()
-                          .Ranks[VoxelIndex( x, y, z ) / 4u * Desert::Assets::kCloudProceduralRankChannels];
-                if ( ( inLower || inUpper || solid ) && rank == kCloudProceduralNoRank )
-                {
-                    ++holes;
-                    if ( inLower && !inUpper )
-                        ++lowerOnly;
-                }
-                if ( !inLower && !inUpper && !solid && rank != kCloudProceduralNoRank )
-                    ++ceilingRanks;
-            }
-
-    EXPECT_EQ( holes, 0u ) << holes << " voxels of the two bands have no rank (" << lowerOnly
-                           << " of them in the lower species' rows below the upper's base), so Coverage 1 "
-                              "is not the whole sky";
-    EXPECT_EQ( ceilingRanks, 0u ) << ceilingRanks
-                                  << " air voxels outside both bands carry a rank, so a high Coverage grows "
-                                     "cloud where neither type can stand";
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -1274,117 +1263,3 @@ TEST( CloudProceduralCacheKey, TheDeriverVersionChangesTheKey )
                CloudProceduralVolumeCacheKey( params, origin, kNextVersion ) );
 }
 
-// THE AIR'S RANK IS CONTINUOUS ACROSS THE BISECTOR OF TWO BODIES, AND A BODY KEEPS ITS OWN (FARWX-b7, b9).
-// Two slabs of one species, rank 0 and rank 0.9, with air between: the nearest-body rank jumped by 0.9 on the
-// plane halfway between them, and the march's cut drew that plane as a straight vertical wall of cloud. The
-// lowest cone is risePerKm-Lipschitz, so no two neighbouring AIR voxels may differ by more than the rise over
-// their distance. A body voxel is not lowered to its neighbour's cone (b9: that smoothed the rank over
-// kilometres into one kept deck) — two clusters are two clouds and the step at a body's own edge is its edge.
-TEST( CloudProceduralRankGrowth, TheRankIsContinuousAcrossTheBisectorOfTwoBodies )
-{
-    constexpr uint32_t w = 64, h = 8, d = 16;
-    const glm::vec3    voxelKm( 0.1f, 0.2f, 0.1f );
-    constexpr float    rise = 0.25f;
-    const auto index = [&]( uint32_t x, uint32_t y, uint32_t z ) { return ( size_t( z ) * h + y ) * w + x; };
-
-    std::vector<float>   rank( size_t( w ) * h * d, std::numeric_limits<float>::infinity() );
-    std::vector<uint8_t> owner( rank.size(), 0u );
-    for ( uint32_t z = 0; z < d; ++z )
-        for ( uint32_t y = 2; y < 6; ++y )
-            for ( uint32_t x = 0; x < 3; ++x )
-            {
-                rank[index( 10 + x, y, z )] = 0.0f;
-                rank[index( 30 + x, y, z )] = 0.9f;
-            }
-    std::vector<bool> body( rank.size() );
-    for ( size_t at = 0; at < rank.size(); ++at )
-        body[at] = std::isfinite( rank[at] );
-
-    // The slabs are their own cores (no softness term in this synthetic field); the air takes its source's.
-    std::vector<float> core = rank;
-    // The ridge lift stands down (ridgeSoftness 0): this test pins the cone alone; the lift has its own below.
-    Desert::Assets::CloudProceduralGrowRankIntoAir( rank, core, owner, { glm::uvec2( 0u, h ) }, w, h, d, voxelKm,
-                                                    rise, 0.0f );
-
-    size_t walls = 0;
-    for ( uint32_t z = 0; z < d; ++z )
-        for ( uint32_t y = 0; y < h; ++y )
-            for ( uint32_t x = 0; x < w; ++x )
-            {
-                const size_t at   = index( x, y, z );
-                const float  here = rank[at];
-                ASSERT_TRUE( std::isfinite( here ) ) << x << "," << y << "," << z;
-                if ( body[at] )
-                    continue;
-                const auto step = [&]( size_t other, float km )
-                { return !body[other] && std::abs( rank[other] - here ) > rise * km * 1.001f + 1e-5f; };
-                if ( step( index( ( x + 1 ) % w, y, z ), voxelKm.x ) ||
-                     step( index( x, y, ( z + 1 ) % d ), voxelKm.z ) ||
-                     ( y + 1 < h && step( index( x, y + 1, z ), voxelKm.y ) ) )
-                    ++walls;
-            }
-    EXPECT_EQ( walls, 0u ) << "the air's rank jumps between neighbouring voxels: a straight wall in the cut";
-
-    // The high slab keeps its own rank; the air just before it carries the low slab's cone, 17 voxels of
-    // 0.1 km from the low slab's edge (x 12) to x 29: 0.425 < 0.9 + 0.025.
-    EXPECT_FLOAT_EQ( rank[index( 30, 3, 5 )], 0.9f );
-    EXPECT_NEAR( rank[index( 29, 3, 5 )], rise * 1.7f, 1e-4f );
-
-    // THE CORE TRAVELS WITH THE CONE (FARWX-b12): the air before the high slab grew from the LOW slab, so it
-    // carries the low slab's core 0 — the march measures the cover's run past THAT cluster, not past 0.9 —
-    // and no voxel's core is above its own rank (the pair the march's remap divides).
-    EXPECT_FLOAT_EQ( core[index( 29, 3, 5 )], 0.0f );
-    EXPECT_FLOAT_EQ( core[index( 30, 3, 5 )], 0.9f );
-    size_t inverted = 0;
-    for ( size_t at = 0; at < rank.size(); ++at )
-        inverted += core[at] > rank[at] + 1e-6f ? 1u : 0u;
-    EXPECT_EQ( inverted, 0u ) << "a voxel's core rank sits above its own rank";
-}
-
-// THE RIDGE BETWEEN TWO CLUSTERS FILLS LAST (FARWX-b14). Two slabs of EQUAL rank 0.2 with air between: the
-// lowest cone alone ranks the bisector at 0.2 + rise x 1.5 km = 0.575, far under a busy weather patch's
-// local cover, so the cut kept the whole gap and the march drew one deck (FARWX-b13 Demo_h/Showcase_h). When
-// the slabs are two clusters (two cores) the bisector must outrank every unlifted voxel — the column CDF then
-// gives it the top bytes and the gap lives at any local cover under one; when they are lumps of ONE cluster
-// (one core) the air between them fuses as before. Mutation: drop the lift (`lift * onRidge` -> 0) and the
-// first half goes red; lift regardless of the core and the second half does.
-TEST( CloudProceduralRankGrowth, TheRidgeBetweenTwoClustersFillsLast )
-{
-    constexpr uint32_t w = 64, h = 4, d = 4;
-    const glm::vec3    voxelKm( 0.1f, 0.2f, 0.1f );
-    constexpr float    rise     = 0.25f;
-    constexpr float    softness = 0.25f;
-    const auto index = [&]( uint32_t x, uint32_t y, uint32_t z ) { return ( size_t( z ) * h + y ) * w + x; };
-
-    const auto grow = [&]( float secondCore )
-    {
-        std::vector<float> rank( size_t( w ) * h * d, std::numeric_limits<float>::infinity() );
-        std::vector<float> core = rank;
-        for ( uint32_t z = 0; z < d; ++z )
-            for ( uint32_t y = 0; y < h; ++y )
-                for ( uint32_t x = 0; x < 2; ++x )
-                {
-                    rank[index( 10 + x, y, z )] = 0.2f;
-                    core[index( 10 + x, y, z )] = 0.2f;
-                    rank[index( 42 + x, y, z )] = 0.2f;
-                    core[index( 42 + x, y, z )] = secondCore;
-                }
-        std::vector<uint8_t> owner( rank.size(), 0u );
-        Desert::Assets::CloudProceduralGrowRankIntoAir( rank, core, owner, { glm::uvec2( 0u, h ) }, w, h, d,
-                                                        voxelKm, rise, softness );
-        return rank;
-    };
-
-    // Two clusters (cores 0.2 and 0.1, ranks equal): the bisector x 26/27 is lifted past the whole span.
-    const std::vector<float> two         = grow( 0.1f );
-    float                    unliftedTop = 0.0f;
-    for ( uint32_t x = 12; x < 20; ++x )
-        unliftedTop = std::max( unliftedTop, two[index( x, 1, 1 )] );
-    EXPECT_GT( two[index( 26, 1, 1 )], unliftedTop + softness )
-         << "the bisector of two clusters ranks with the air beside them: the cut fills the gap with one deck";
-    EXPECT_NEAR( two[index( 16, 1, 1 )], 0.2f + rise * 0.5f, 1e-4f ) << "air away from the ridge was lifted";
-
-    // One cluster (one core): the same geometry is lumps of one cloud — no lift, the cone alone.
-    const std::vector<float> one = grow( 0.2f );
-    EXPECT_NEAR( one[index( 26, 1, 1 )], 0.2f + rise * 1.5f, 1e-4f ) << "lumps of one cluster were split";
-}

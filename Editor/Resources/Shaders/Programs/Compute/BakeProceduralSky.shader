@@ -148,7 +148,7 @@ Shader "BakeProceduralSky"
         // is undefined. Both volumes have one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
-        #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).rg
+        #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
         #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
 

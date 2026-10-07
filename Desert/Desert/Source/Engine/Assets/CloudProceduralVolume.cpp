@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
-#include <cstring>
 #include <functional>
 #include <limits>
 #include <mutex>
@@ -59,8 +58,8 @@ namespace Desert::Assets
         /// rest of the sky up to Coverage 1 is NOT bought by inflating the bodies — that glued neighbouring
         /// clusters into one and moved the size law, the body widths and the anisotropy's cover with the
         /// slider (FARWX-a2, five red CloudPlacementSpectrum tests). It is bought the way Nubis buys it: the
-        /// bake carries the profile on past the body's edge in the rank (CloudProceduralGrowRankIntoAir), and
-        /// the march's cut GROWS the clouds into that falloff, lowest rank first, as the cover rises.
+        /// weather decides which clusters exist (CUT-CORE: Nubis's localCover = Coverage x W, piece WX-NUBIS),
+        /// and the air between them is never grown into cloud.
         constexpr float kClusterFootprintCells = 0.72f;
 
         /// How many lumps one cluster is built from. A COUNT AND NOT A CEILING ANY MORE, and the change is
@@ -162,8 +161,8 @@ namespace Desert::Assets
         /// golden angle apart on a disc of `0.48 * (1 - 0.55 t)` cluster radii, each `(0.62 - 0.16 t)` wide
         /// and scaled by a wobble on [0.85, 1.15], each displaced by up to 0.18 radii — with the union taken
         /// in projection. NOTHING IN THEM IS FITTED TO A SKY: no coverage, no cell, no genus and no seed
-        /// enters the calculation. The packing gain that once stood beside them is gone: the slider is now held by
-        /// the rank's column CDF (BakeCloudProceduralVolumeRanked), not by a fitted widening.
+        /// enters the calculation. The packing gain that once stood beside them is gone: the slider decides which
+        /// clusters exist (their core rank against the local cover, CUT-CORE), not a fitted widening.
         ///
         /// THE LAW BETWEEN THE ENDS IS LINEAR TO 0.2 PER CENT — the quadrature gives 0.9363 at a taper of
         /// 0.4 against the 0.9377 the line predicts, and 0.9254 at 0.6 against 0.9268 — so a table would be
@@ -808,19 +807,17 @@ namespace Desert::Assets
         {
             const uint64_t voxelBytes = CloudProceduralVoxelBytes( params.VolumeSideVoxels );
             const uint64_t rankBytes  = CloudProceduralRankBytes( params.VolumeSideVoxels );
-            const uint64_t expected   = voxelBytes + rankBytes + sizeof( float );
+            const uint64_t expected   = voxelBytes + rankBytes;
             if ( hit->size() != expected )
                 return Common::MakeFormattedError<CloudProceduralCachedBake>(
                      "the cached modelling volume '{}' holds {} bytes where a {}-voxel grid is {} — the entry is "
                      "damaged; delete it to re-bake",
                      Common::DDC::PathFor( kCloudModellingDeriver, result.Key ).string(), hit->size(),
                      params.VolumeSideVoxels, expected );
-            // ONE ENTRY, PROFILE THEN RANK THEN THE RANK'S RISE: one bake, never served from two keys.
+            // ONE ENTRY, PROFILE THEN RANK: one bake, never served from two keys.
             const auto ranksAt = hit->begin() + static_cast<std::ptrdiff_t>( voxelBytes );
-            const auto riseAt  = ranksAt + static_cast<std::ptrdiff_t>( rankBytes );
             result.Voxels.assign( hit->begin(), ranksAt );
-            result.Ranks.assign( ranksAt, riseAt );
-            std::memcpy( &result.RankRise, &*riseAt, sizeof( float ) );
+            result.Ranks.assign( ranksAt, hit->end() );
             result.FromCache = true;
             return Common::MakeSuccess( std::move( result ) );
         }
@@ -830,14 +827,10 @@ namespace Desert::Assets
             return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
         // A copy: Result hands out a const reference only (ResultWithCodes.hpp), so a move would be one in name.
         result.Voxels = baked.GetValue().Voxels;
-        result.Ranks    = baked.GetValue().Ranks;
-        result.RankRise = baked.GetValue().RankRise;
+        result.Ranks  = baked.GetValue().Ranks;
 
         std::vector<unsigned char> entry( result.Voxels );
         entry.insert( entry.end(), result.Ranks.begin(), result.Ranks.end() );
-        unsigned char rise[sizeof( float )];
-        std::memcpy( rise, &result.RankRise, sizeof( float ) );
-        entry.insert( entry.end(), rise, rise + sizeof( float ) );
 
         // The DDC stores bytes as chars; viewing uint8_t voxels through char is the one aliasing the language
         // permits, and a copy into a std::string would double an 8 MiB payload for nothing.
@@ -1249,10 +1242,11 @@ namespace Desert::Assets
                 // EVERY CELL IS BAKED, AND THE SLIDER IS APPLIED AT THE MARCH (FARWX-a). The cell keeps its
                 // hash as a RANK, and the march keeps the cloud whose rank falls under the local cover —
                 // CloudProceduralKeep against CloudProceduralLocalCover, the weather read in WORLD space.
-                // Nothing here is calibrated: the bake's column CDF turns the rank into a fraction of sky,
-                // so the slider means the sky exactly and the density, the size spread and the scatter
-                // cannot move it. A painted pattern or mask still enters HERE, by scaling the rank, because
-                // a painting is a property of the region and not of the world.
+                // The rank is the CLUSTER's (CUT-CORE): a cluster exists whole or not at all, and its form
+                // is its profile, which no cover moves. KeptCells asks the cover at the cluster's centre —
+                // the march asks it per column, which differs only across a weather gradient inside one
+                // cluster (the weather's waves are tens of kilometres). A painted pattern or mask still
+                // enters HERE, by scaling the rank, because a painting is a property of the region.
                 const float cellRank = CloudProceduralCellRank( params, slot, cellSeed, centre );
                 if ( !( cellRank < 1.0f ) )
                     continue;
@@ -1604,458 +1598,23 @@ namespace Desert::Assets
         return total;
     }
 
-    namespace
+    bool CloudProceduralColumnKept( const CloudProceduralVolumeBake& bake, uint32_t side, uint32_t x, uint32_t z,
+                                    float localCover )
     {
-        /// One line of the exact squared Euclidean distance transform with its feature (Felzenszwalb &
-        /// Huttenlocher's lower envelope of parabolas), at a sample spacing whose square is @p spacing2.
-        /// @p cost is the squared distance carried in from the earlier axes (infinity where no source is
-        /// known yet), @p feature the source each sample's cost leads to; both are rewritten in place.
-        struct EnvelopeScratch
+        for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
         {
-            std::vector<int>    Sites;
-            std::vector<double> Bounds;
-            std::vector<float>  Cost;
-            std::vector<int>    Feature;
-        };
-
-        void SquaredDistanceLine( float* cost, int* feature, int n, double spacing2, EnvelopeScratch& scratch )
-        {
-            scratch.Sites.resize( static_cast<size_t>( n ) );
-            scratch.Bounds.resize( static_cast<size_t>( n ) + 1u );
-            scratch.Cost.assign( cost, cost + n );
-            scratch.Feature.assign( feature, feature + n );
-            const std::vector<float>& g = scratch.Cost;
-
-            int k = -1;
-            for ( int q = 0; q < n; ++q )
-            {
-                if ( !std::isfinite( g[q] ) )
-                    continue;
-                if ( k < 0 )
-                {
-                    k                 = 0;
-                    scratch.Sites[0]  = q;
-                    scratch.Bounds[0] = -std::numeric_limits<double>::infinity();
-                    scratch.Bounds[1] = std::numeric_limits<double>::infinity();
-                    continue;
-                }
-                double cut = 0.0;
-                for ( ;; )
-                {
-                    const int p = scratch.Sites[static_cast<size_t>( k )];
-                    cut         = ( ( static_cast<double>( g[q] ) + spacing2 * q * q ) -
-                            ( static_cast<double>( g[p] ) + spacing2 * p * p ) ) /
-                          ( 2.0 * spacing2 * ( q - p ) );
-                    // Bounds[0] is minus infinity, so the first parabola is never popped.
-                    if ( cut > scratch.Bounds[static_cast<size_t>( k )] )
-                        break;
-                    --k;
-                }
-                ++k;
-                scratch.Sites[static_cast<size_t>( k )]      = q;
-                scratch.Bounds[static_cast<size_t>( k )]     = cut;
-                scratch.Bounds[static_cast<size_t>( k ) + 1] = std::numeric_limits<double>::infinity();
-            }
-            if ( k < 0 )
-                return;
-
-            int at = 0;
-            for ( int q = 0; q < n; ++q )
-            {
-                while ( scratch.Bounds[static_cast<size_t>( at ) + 1] < static_cast<double>( q ) )
-                    ++at;
-                const int p = scratch.Sites[static_cast<size_t>( at )];
-                cost[q]     = static_cast<float>( spacing2 * ( q - p ) * ( q - p ) + g[p] );
-                feature[q]  = scratch.Feature[static_cast<size_t>( p )];
-            }
-        }
-    } // namespace
-
-    /// THE PROFILE PAST THE BODY'S EDGE, carried in the rank. Inside a body the rank is the nearest
-    /// lump's cell rank plus `softness x (1 - profile)`, so it rises at `softness / ProfileDepth` per
-    /// kilometre toward the surface; this continues that rise outward at the same rate, as the LOWEST
-    /// cone over the body voxels (min_s rank_s + rise |v - s|, not the nearest body's — that one jumps on
-    /// the bisector), into every air voxel of the region and into the bodies themselves. It is Nubis's coverage
-    /// remap read from the other side: the bodies are the shape at the cover where a cell is just alive, and a
-    /// higher cover keeps the falloff around them, lowest rank first, until at Coverage 1 the column CDF hands out
-    /// the whole sky — without one body growing in the bake, so the sizes, the size law and the lattice are the
-    /// same at every cover.
-    ///
-    /// THE EXACT EUCLIDEAN DISTANCE with its nearest source, separable over the three axes, in
-    /// kilometres (the voxel is not a cube). X and Z WRAP because the region is periodic and the rank
-    /// must be as seamless as the profile — a line is unrolled three times and its middle copy read —
-    /// and Y does not. Body voxels are the sources and keep the rank they have.
-    ///
-    /// THE GROWTH STAYS INSIDE ITS SPECIES' BAND, ONE DISTANCE PER SPECIES. Each species (`ownerSlot`
-    /// per body voxel) grows from its own bodies only, and only into the rows of its own altitudes
-    /// (`bandRows[slot]`, the half-open row range from CloudTypeBaseKm to CloudTypeTopKm) — Nubis's
-    /// height gradient per cloud type, which keeps the coverage remap a statement about how WIDE the
-    /// clouds are and not about how high the sky is. An air voxel takes the LOWEST rank over the species
-    /// whose band holds its row. Without the band a layer taller than its types grew cloud straight up
-    /// to its ceiling at a high cover (cloud_field_test TheLayersCeilingDoesNotWrapOntoItsFloor); with
-    /// one shared nearest body instead of one per species, an air voxel in A's band whose nearest body
-    /// was B's got no rank at all, a hole at Coverage 1 (cloud_procedural_field_test
-    /// TwoSpeciesInOneColumn...).
-    ///
-    /// Y runs over the whole column (a source a few rows outside its band still reaches into it); X and
-    /// Z then only over the band's rows, because those passes never mix rows and the rows outside the
-    /// band are never read.
-    void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, std::vector<float>& coreField,
-                                         const std::vector<uint8_t>&    ownerSlot,
-                                         const std::vector<glm::uvec2>& bandRows, uint32_t width, uint32_t height,
-                                         uint32_t depth, const glm::vec3& voxelKm, float risePerKm,
-                                         float ridgeSoftness )
-    {
-        const size_t count  = rankField.size();
-        const int    w      = static_cast<int>( width );
-        const int    h      = static_cast<int>( height );
-        const int    d      = static_cast<int>( depth );
-        const size_t stride = static_cast<size_t>( width ) * height; // one z slice
-        auto         index  = [&]( int x, int y, int z ) {
-            return static_cast<size_t>( z ) * stride + static_cast<size_t>( y ) * width + static_cast<size_t>( x );
-        };
-
-        std::vector<float> grown( count, std::numeric_limits<float>::infinity() );
-        std::vector<float> grownCore( count, std::numeric_limits<float>::infinity() );
-        // The lowest cone over the sources of a DIFFERENT cluster than the winner's (FARWX-b14): where it
-        // comes within ridgeSoftness of the winning cone the voxel is near the ridge between two clusters.
-        std::vector<float> grownRival( count, std::numeric_limits<float>::infinity() );
-        std::vector<float> cost( count );
-        std::vector<int>   feature( count );
-        std::vector<int>   rival( count );
-
-        // ONE AXIS AT A TIME, lines independent of each other: Y and X inside a z slice, Z across them.
-        auto axis = [&]( int lines, int length, bool wraps, double spacingKm,
-                         const std::function<size_t( int line, int i )>& at )
-        {
-            const int unrolled = wraps ? 3 * length : length;
-            Common::JobSystem::Get().ParallelRanges(
-                 static_cast<size_t>( lines ), 16u,
-                 [&]( size_t begin, size_t end )
-                 {
-                     EnvelopeScratch    scratch;
-                     std::vector<float> lineCost( static_cast<size_t>( unrolled ) );
-                     std::vector<int>   lineFeature( static_cast<size_t>( unrolled ) );
-                     for ( size_t line = begin; line < end; ++line )
-                     {
-                         for ( int i = 0; i < unrolled; ++i )
-                         {
-                             const size_t from                     = at( static_cast<int>( line ), i % length );
-                             lineCost[static_cast<size_t>( i )]    = cost[from];
-                             lineFeature[static_cast<size_t>( i )] = feature[from];
-                         }
-                         SquaredDistanceLine( lineCost.data(), lineFeature.data(), unrolled, spacingKm * spacingKm,
-                                              scratch );
-                         const int offset = wraps ? length : 0;
-                         for ( int i = 0; i < length; ++i )
-                         {
-                             const size_t to = at( static_cast<int>( line ), i );
-                             cost[to]        = lineCost[static_cast<size_t>( offset + i )];
-                             feature[to]     = lineFeature[static_cast<size_t>( offset + i )];
-                         }
-                     }
-                 } );
-        };
-
-        for ( size_t slot = 0; slot < bandRows.size(); ++slot )
-        {
-            const int bandLo = static_cast<int>( bandRows[slot].x );
-            const int bandHi = static_cast<int>( bandRows[slot].y );
-            if ( bandHi <= bandLo )
+            const size_t voxel = ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x;
+            const size_t at    = voxel * kCloudProceduralBytesPerVoxel;
+            if ( voxel >= bake.Ranks.size() || at + kCloudProceduralBytesPerVoxel > bake.Voxels.size() )
                 continue;
-            bool anySource = false;
-            for ( size_t at = 0; at < count; ++at )
-            {
-                const bool source = std::isfinite( rankField[at] ) && ownerSlot[at] == slot;
-                cost[at]          = source ? 0.0f : std::numeric_limits<float>::infinity();
-                feature[at]       = source ? static_cast<int>( at ) : -1;
-                rival[at]         = -1;
-                anySource         = anySource || source;
-            }
-            if ( !anySource )
-                continue;
-
-            const int rows = bandHi - bandLo;
-            axis( w * d, h, false, voxelKm.y, [&]( int line, int i ) { return index( line % w, i, line / w ); } );
-            axis( rows * d, w, true, voxelKm.x,
-                  [&]( int line, int i ) { return index( i, bandLo + line % rows, line / rows ); } );
-            axis( w * rows, d, true, voxelKm.z,
-                  [&]( int line, int i ) { return index( line % w, bandLo + line / w, i ); } );
-
-            // THE LOWEST CONE, NOT THE NEAREST BODY'S. The distance transform hands every voxel its
-            // NEAREST source, and `rank[nearest] + rise x distance` jumps on the bisector between two
-            // bodies by the difference of their ranks — a flat vertical wall in the air (and through a
-            // fused body), which the march's cut drew as a straight-edged slab of cloud (FARWX-b7: the
-            // Showcase/Demo frames from the horizon). The rank a voxel needs is the lowest cone over the
-            // species' sources, min_s(rank_s + rise |v - s|), which is continuous by construction (rise-
-            // Lipschitz). A source can only beat the nearest one within (rank range) / rise, so jump
-            // flooding from the nearest feature at steps from that reach down to one voxel, evaluating
-            // each candidate's cone exactly, finds it.
-            float lowest  = std::numeric_limits<float>::infinity();
-            float highest = -std::numeric_limits<float>::infinity();
-            for ( size_t at = 0; at < count; ++at )
-                if ( std::isfinite( rankField[at] ) && ownerSlot[at] == slot )
-                {
-                    lowest  = std::min( lowest, rankField[at] );
-                    highest = std::max( highest, rankField[at] );
-                }
-            const float minVoxelKm  = std::min( { voxelKm.x, voxelKm.y, voxelKm.z } );
-            // The rival must travel from the ridge as far as its margin stays under ridgeSoftness, so the
-            // flood's first step covers that distance too, not only the rank range's.
-            const float reachVoxels =
-                 risePerKm > 0.0f ? ( highest - lowest + ridgeSoftness ) / ( risePerKm * minVoxelKm ) : 0.0f;
-            const int   reach       = static_cast<int>(
-                 std::min( std::ceil( reachVoxels ), static_cast<float>( std::max( { w, h, d } ) ) ) );
-
-            auto coneAt = [&]( int source, int x, int y, int z )
-            {
-                const int sx   = source % w;
-                const int sy   = ( source / w ) % h;
-                const int sz   = source / static_cast<int>( stride );
-                int       dx   = std::abs( x - sx );
-                int       dz   = std::abs( z - sz );
-                dx             = std::min( dx, w - dx );
-                dz             = std::min( dz, d - dz );
-                const float ex = static_cast<float>( dx ) * voxelKm.x;
-                const float ey = static_cast<float>( y - sy ) * voxelKm.y;
-                const float ez = static_cast<float>( dz ) * voxelKm.z;
-                return rankField[static_cast<size_t>( source )] +
-                       risePerKm * std::sqrt( ex * ex + ey * ey + ez * ez );
-            };
-
-            std::vector<int> steps;
-            for ( int step = reach > 1 ? static_cast<int>( std::bit_ceil( static_cast<unsigned>( reach ) ) ) : 1;
-                  step >= 1; step /= 2 )
-                steps.push_back( step );
-            steps.push_back( 1 );
-
-            // JUMP FLOODING CARRIES TWO FEATURES: the lowest cone, and the lowest cone of a source whose
-            // cluster (core rank) differs from the winner's — the rival. Lumps of one cluster share its core,
-            // so a rival is another cloud, and rival - winner is how far the voxel is from the ridge between
-            // the two (Worley's F2 - F1 on the cones).
-            const auto       coreOf = [&]( int source ) { return coreField[static_cast<size_t>( source )]; };
-            std::vector<int> next;
-            std::vector<int> nextRival;
-            for ( const int step : steps )
-            {
-                next      = feature;
-                nextRival = rival;
-                Common::JobSystem::Get().ParallelRanges(
-                     static_cast<size_t>( d ), 1u,
-                     [&]( size_t begin, size_t end )
-                     {
-                         for ( int z = static_cast<int>( begin ); z < static_cast<int>( end ); ++z )
-                             for ( int y = bandLo; y < bandHi; ++y )
-                                 for ( int x = 0; x < w; ++x )
-                                 {
-                                     const size_t at       = index( x, y, z );
-                                     int          best       = -1;
-                                     float        bestCone   = std::numeric_limits<float>::infinity();
-                                     int          second     = -1;
-                                     float        secondCone = std::numeric_limits<float>::infinity();
-                                     const auto   offer      = [&]( int candidate )
-                                     {
-                                         if ( candidate < 0 || candidate == best || candidate == second )
-                                             return;
-                                         const float cone = coneAt( candidate, x, y, z );
-                                         if ( cone < bestCone )
-                                         {
-                                             if ( best >= 0 && coreOf( best ) != coreOf( candidate ) )
-                                             {
-                                                 second     = best;
-                                                 secondCone = bestCone;
-                                             }
-                                             else if ( second >= 0 && coreOf( second ) == coreOf( candidate ) )
-                                             {
-                                                 second     = -1;
-                                                 secondCone = std::numeric_limits<float>::infinity();
-                                             }
-                                             best     = candidate;
-                                             bestCone = cone;
-                                         }
-                                         else if ( cone < secondCone && coreOf( candidate ) != coreOf( best ) )
-                                         {
-                                             second     = candidate;
-                                             secondCone = cone;
-                                         }
-                                     };
-                                     offer( feature[at] );
-                                     offer( rival[at] );
-                                     for ( int oz = -1; oz <= 1; ++oz )
-                                         for ( int oy = -1; oy <= 1; ++oy )
-                                             for ( int ox = -1; ox <= 1; ++ox )
-                                             {
-                                                 const int ny = y + oy * step;
-                                                 if ( ( ox | oy | oz ) == 0 || ny < bandLo || ny >= bandHi )
-                                                     continue;
-                                                 const int    nx    = ( ( x + ox * step ) % w + w ) % w;
-                                                 const int    nz    = ( ( z + oz * step ) % d + d ) % d;
-                                                 const size_t other = index( nx, ny, nz );
-                                                 offer( feature[other] );
-                                                 offer( rival[other] );
-                                             }
-                                     next[at]      = best;
-                                     nextRival[at] = second;
-                                 }
-                     } );
-                feature.swap( next );
-                rival.swap( nextRival );
-            }
-
-            for ( int z = 0; z < d; ++z )
-                for ( int y = bandLo; y < bandHi; ++y )
-                    for ( int x = 0; x < w; ++x )
-                    {
-                        const size_t at = index( x, y, z );
-                        if ( feature[at] < 0 )
-                            continue;
-                        const float cone      = coneAt( feature[at], x, y, z );
-                        const float core      = coreOf( feature[at] );
-                        const float rivalCone = rival[at] >= 0 ? coneAt( rival[at], x, y, z )
-                                                               : std::numeric_limits<float>::infinity();
-                        if ( cone < grown[at] )
-                        {
-                            // The species' winner takes the voxel; the old winner is its rival when it was
-                            // another cluster, else the old rival stays the nearer of the two.
-                            const float previousRival = grownCore[at] != core ? grown[at] : grownRival[at];
-                            grownRival[at]            = std::min( rivalCone, previousRival );
-                            grown[at]                 = cone;
-                            grownCore[at]             = core;
-                        }
-                        else
-                            grownRival[at] = std::min( grownRival[at], grownCore[at] != core ? cone : rivalCone );
-                    }
+            // A BODY voxel of a kept cluster: the rank alone also names the air beside a body.
+            const bool body = bake.Voxels[at] > 0u || bake.Voxels[at + 1u] > 0u || bake.Voxels[at + 2u] > 0u ||
+                              bake.Voxels[at + 3u] > 0u;
+            if ( body && CloudProceduralKeep( bake.Ranks[voxel], localCover ) )
+                return true;
         }
-
-        // ONLY AIR TAKES THE CONE; A BODY KEEPS ITS OWN RANK (FARWX-b9). Letting a body voxel take the
-        // lowest cone too (b7) handed every body within (rank difference) / rise of a low-rank neighbour
-        // that neighbour's rank: the rank went smooth over kilometres, the column CDF turned it into whole
-        // contiguous regions, and the cut kept them as one dark deck over the camera (--cloud-visualize 1
-        // showed the kept columns as one connected sheet with a slowly varying rank). Two DIFFERENT
-        // clusters touching are two clouds and may keep two ranks; lumps of one cluster share its cell rank,
-        // so a fused cluster has no wall inside it.
-        //
-        // THE RIDGE BETWEEN TWO CLUSTERS FILLS LAST (FARWX-b14). The lowest cone alone ranks the air on the
-        // bisector of two clusters just above their cores, so a busy weather patch (local cover ~0.94 at
-        // PatchStrength 0.70) kept every gap between neighbouring clusters and the march drew one grey deck over
-        // the camera (FARWX-b13 Demo_h/Showcase_h). Growing clouds merge AT their boundaries last: an air voxel
-        // within ridgeSoftness of a rival cluster's cone is lifted by up to the field's whole span, so a ridge
-        // outranks every unlifted voxel and the column CDF hands it the top bytes — the gap survives any local
-        // cover under one (Coverage 1 is still the whole sky; the kept fraction at c is still c). The lift is
-        // continuous in rival - winner (both cones are continuous), so the cut has no jump on the ridge.
-        float lowest  = std::numeric_limits<float>::infinity();
-        float highest = -std::numeric_limits<float>::infinity();
-        for ( size_t at = 0; at < count; ++at )
-        {
-            const float rank = std::isfinite( rankField[at] ) ? rankField[at] : grown[at];
-            if ( std::isfinite( rank ) )
-            {
-                lowest  = std::min( lowest, rank );
-                highest = std::max( highest, rank );
-            }
-        }
-        const float lift = std::isfinite( lowest ) ? highest - lowest + ridgeSoftness : 0.0f;
-        for ( size_t at = 0; at < count; ++at )
-            if ( !std::isfinite( rankField[at] ) )
-            {
-                const float margin  = grownRival[at] - grown[at];
-                const float onRidge = ridgeSoftness > 0.0f && std::isfinite( margin )
-                                           ? 1.0f - std::clamp( margin / ridgeSoftness, 0.0f, 1.0f )
-                                           : 0.0f;
-                rankField[at]       = grown[at] + lift * onRidge;
-                coreField[at]       = grownCore[at];
-            }
+        return false;
     }
-
-        namespace
-        {
-
-            /// The column CDF of the rank field, as bytes. Every column's rank is the MINIMUM over its voxels
-            /// (the first cloud a sight line straight up meets is the one with the lowest rank), and the byte a
-            /// voxel stores is the fraction of the region's columns whose minimum lies strictly below the
-            /// voxel's own rank. The map is monotone, so the column minimum of the bytes is the byte of the
-            /// column minimum, and the fraction of columns that CloudProceduralKeep keeps at a cover c is c to
-            /// within one 255th — for any density, size spread, scatter, species mix or seed. That is what the
-            /// pow(cover, 0.68) and the packing gain used to fake, and why neither exists any more.
-            ///
-            /// THE RAMP IN THE SAME UNITS (FARWX-b11). The march's ramp (CloudRankProfile) divides the cover's
-            /// excess over a byte by the rank's rise across ProfileDepth, and that rise is `softness` in RAW
-            /// rank — but the byte is a column fraction. @p riseOut receives the softness carried through the
-            /// same map: the mean over the region's columns of F(min + softness) - F(min). Handing the march
-            /// the raw 0.25 instead (b10) compared a raw width against a fraction: on Clouds_Demo the column
-            /// minima are packed, F stretches them, every kept body sat a whole ramp past its threshold and
-            /// was drawn at profile 1 — a flat, featureless mass with only its halo for an edge.
-            std::vector<unsigned char> CloudProceduralRankColumnCdf( const std::vector<float>& rankField,
-                                                                     const std::vector<float>& coreField,
-                                                                     uint32_t width, uint32_t height,
-                                                                     uint32_t depth, float softness,
-                                                                     float& riseOut )
-            {
-                const size_t       columns = static_cast<size_t>( width ) * depth;
-                std::vector<float> minima;
-                minima.reserve( columns );
-                for ( uint32_t z = 0; z < depth; ++z )
-                    for ( uint32_t x = 0; x < width; ++x )
-                    {
-                        float lowest = std::numeric_limits<float>::infinity();
-                        for ( uint32_t y = 0; y < height; ++y )
-                            lowest = std::min( lowest,
-                                               rankField[( static_cast<size_t>( z ) * height + y ) * width + x] );
-                        if ( std::isfinite( lowest ) )
-                            minima.push_back( lowest );
-                    }
-                std::sort( minima.begin(), minima.end() );
-
-                double riseSum = 0.0;
-                for ( const float lowest : minima )
-                {
-                    const auto from = std::lower_bound( minima.begin(), minima.end(), lowest );
-                    const auto to   = std::lower_bound( from, minima.end(), lowest + softness );
-                    riseSum += static_cast<double>( to - from );
-                }
-                // One 255th at the least: the march divides by it, and a byte cannot resolve a narrower ramp.
-                riseOut = minima.empty() ? 1.0f
-                                         : std::max( static_cast<float>( riseSum / static_cast<double>( columns ) /
-                                                                         static_cast<double>( minima.size() ) ),
-                                                     1.0f / 255.0f );
-
-                // BOTH RANKS THROUGH THE ONE MAP: the core is a rank of the same field (the cell rank a body's
-                // voxels rise from), so F is monotone across the pair and byte 1 never exceeds byte 0.
-                const auto toByte = [&]( float rank )
-                {
-                    const size_t below = static_cast<size_t>(
-                         std::lower_bound( minima.begin(), minima.end(), rank ) - minima.begin() );
-                    const double fraction = static_cast<double>( below ) / static_cast<double>( columns );
-                    return static_cast<unsigned char>( std::min( 254.0, std::floor( fraction * 255.0 ) ) );
-                };
-                std::vector<unsigned char> ranks( rankField.size() * kCloudProceduralRankChannels,
-                                                  kCloudProceduralNoRank );
-                for ( size_t at = 0; at < rankField.size(); ++at )
-                {
-                    if ( !std::isfinite( rankField[at] ) )
-                        continue;
-                    const unsigned char own                  = toByte( rankField[at] );
-                    ranks[at * kCloudProceduralRankChannels] = own;
-                    ranks[at * kCloudProceduralRankChannels + 1u] =
-                         std::isfinite( coreField[at] ) ? std::min( own, toByte( coreField[at] ) ) : own;
-                }
-                return ranks;
-            }
-        } // namespace
-
-        bool CloudProceduralColumnKept( const CloudProceduralVolumeBake& bake, uint32_t side, uint32_t x,
-                                        uint32_t z, float localCover )
-        {
-            for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-            {
-                const size_t at = ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x ) *
-                                  kCloudProceduralRankChannels;
-                if ( at + 1u < bake.Ranks.size() &&
-                     CloudProceduralKeep( bake.Ranks[at], bake.Ranks[at + 1u], localCover, bake.RankRise ) )
-                    return true;
-            }
-            return false;
-        }
 
     Common::ResultStr<std::vector<unsigned char>>
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
@@ -2088,19 +1647,14 @@ namespace Desert::Assets
         std::vector<unsigned char> voxels(
              static_cast<size_t>( CloudProceduralVoxelBytes( params.VolumeSideVoxels ) ), 0u );
 
-        // THE RANK OF THE CLOUD EACH VOXEL BELONGS TO, before its column CDF: the cell rank of the nearest
-        // lump of the WINNING species (the same max over species the march takes, CloudField.glslh), plus
-        // a rise toward the body's edge so that a cloud near the slider's threshold erodes to its core.
-        // Infinity is "no cloud here".
-        const float        rankSoftness = kCloudRankSoftness / std::max( params.CoverageContrast, 1e-2f );
-        std::vector<float> rankField( static_cast<size_t>( width ) * height * depth,
+        // THE CORE RANK OF THE CLUSTER EACH VOXEL BELONGS TO (CUT-CORE): the cell rank of the cluster whose
+        // profile wins the voxel — max over the clusters of a species, then over species, the join the march
+        // takes. The rank says only WHETHER that cluster exists at a cover; the form is the profile channels.
+        // Air within a lump's reach takes its nearest cluster's rank too, so the device's trilinear read of
+        // the rank at a body's surface blends the body's own rank and not "no cloud"; air never becomes cloud,
+        // because its profile is zero. Infinity is "no cluster reaches here".
+        std::vector<float> coreField( static_cast<size_t>( width ) * height * depth,
                                       std::numeric_limits<float>::infinity() );
-        // Which species set each finite rank — the band the growth into air may fill (see
-        // CloudProceduralGrowRankIntoAir). Written beside rankField, by the same thread.
-        std::vector<uint8_t> rankOwner( rankField.size(), 0u );
-        // The CLUSTER's rank beside each voxel's own (the cell rank before the softness term) — what the
-        // march measures the cover's run past (CloudRankProfile, FARWX-b12). Written beside rankField.
-        std::vector<float> coreField( rankField.size(), std::numeric_limits<float>::infinity() );
 
         // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
         // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
@@ -2160,10 +1714,27 @@ namespace Desert::Assets
                 glm::vec3                  MinKm;
                 glm::vec3                  MaxKm;
                 float                      Rank = 0.0f;
+                /// The cluster this copy belongs to — the lumps' cluster site at this wrap. The smooth
+                /// minimum joins only lumps of one cluster (JOIN-PER-CLUSTER).
+                uint32_t Cluster = 0u;
             };
 
             std::vector<Placed> placed;
             placed.reserve( blobs.size() * 2u );
+
+            // ONE ID PER CLUSTER AT EACH WRAP, in order of first appearance — the lumps are canonically
+            // ordered, so the ids are too. A cluster's site is exact (the lattice site plus its scatter, one
+            // float pair shared by its lumps), so equality of the pair is identity of the cluster.
+            std::vector<glm::vec4> clusterKeys;
+            const auto             clusterOf = [&clusterKeys]( const glm::vec2& siteKm, int wx, int wz )
+            {
+                const glm::vec4 key( siteKm.x, siteKm.y, static_cast<float>( wx ), static_cast<float>( wz ) );
+                for ( size_t k = clusterKeys.size(); k-- > 0; )
+                    if ( clusterKeys[k] == key )
+                        return static_cast<uint32_t>( k );
+                clusterKeys.push_back( key );
+                return static_cast<uint32_t>( clusterKeys.size() - 1u );
+            };
 
             for ( const CloudProceduralLump& lump : blobs )
             {
@@ -2191,8 +1762,8 @@ namespace Desert::Assets
                              minKm.y >= params.LayerBottomKm + params.LayerThicknessKm )
                             continue;
 
-                        placed.push_back(
-                             Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, lump.Rank } );
+                        placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, lump.Rank,
+                                                  clusterOf( lump.ClusterKm, wx, wz ) } );
                     }
                 }
             }
@@ -2315,52 +1886,75 @@ namespace Desert::Assets
 
                                  const glm::vec3 point( worldX, worldY, worldZ );
 
-                                 // THE SAME TWO LOOPS THE SCULPTED BAKE PERFORMS, in the same order, over the same
-                                 // three shared functions — the nearest distance, then the shifted sum. Only the
-                                 // SET is different, and it is a subset chosen so that everything left out is
-                                 // below the quantisation floor.
+                                 // THE SAME TWO LOOPS THE SCULPTED BAKE PERFORMS — the nearest distance, then the
+                                 // shifted sum — but PER CLUSTER (JOIN-PER-CLUSTER): the smooth minimum fuses the
+                                 // lumps of one cluster, and clusters meet by `max`, as species do. A bridge
+                                 // between two clusters belonged to neither, so a dead neighbour left a stub of
+                                 // it on the living one, cut flat on the bisector (CLOUD-AUDIT S6).
                                  distances.clear();
-
-                                 float nearest     = 0.0f;
-                                 float nearestRank = 1.0f;
-                                 bool  any         = false;
-
                                  for ( uint32_t index : column )
                                  {
                                      const Placed& item = placed[index];
-
-                                     if ( point.y < item.MinKm.y || point.y > item.MaxKm.y )
-                                     {
-                                         distances.push_back( std::numeric_limits<float>::infinity() );
-                                         continue;
-                                     }
-
-                                     const float distance = CloudModellingBlobDistanceKm( item.Blob, point );
-                                     distances.push_back( distance );
-
-                                     if ( !any || distance < nearest )
-                                     {
-                                         nearest     = distance;
-                                         nearestRank = item.Rank;
-                                     }
-                                     any = true;
+                                     distances.push_back( point.y < item.MinKm.y || point.y > item.MaxKm.y
+                                                               ? std::numeric_limits<float>::infinity()
+                                                               : CloudModellingBlobDistanceKm( item.Blob, point ) );
                                  }
 
-                                 if ( !any )
-                                     continue;
+                                 float joined   = 0.0f;
+                                 float bodyRank = 1.0f;
+                                 bool  body     = false;
+                                 float airNear  = std::numeric_limits<float>::infinity();
+                                 float airRank  = std::numeric_limits<float>::infinity();
 
-                                 float sum = 0.0f;
-                                 for ( size_t k = 0; k < distances.size(); ++k )
+                                 for ( size_t k = 0; k < column.size(); ++k )
                                  {
                                      if ( !std::isfinite( distances[k] ) )
                                          continue;
-                                     sum += CloudModellingJoinTerm( placed[column[k]].Blob.Weight, distances[k],
-                                                                    nearest, invBlend );
+                                     const uint32_t cluster = placed[column[k]].Cluster;
+                                     bool           seen    = false;
+                                     for ( size_t j = 0; j < k && !seen; ++j )
+                                         seen = std::isfinite( distances[j] ) && placed[column[j]].Cluster == cluster;
+                                     if ( seen )
+                                         continue;
+
+                                     float nearest = distances[k];
+                                     for ( size_t j = k + 1u; j < column.size(); ++j )
+                                         if ( placed[column[j]].Cluster == cluster && distances[j] < nearest )
+                                             nearest = distances[j];
+
+                                     float sum = 0.0f;
+                                     for ( size_t j = k; j < column.size(); ++j )
+                                         if ( placed[column[j]].Cluster == cluster && std::isfinite( distances[j] ) )
+                                             sum += CloudModellingJoinTerm( placed[column[j]].Blob.Weight,
+                                                                            distances[j], nearest, invBlend );
+
+                                     const float clusterJoined =
+                                          CloudModellingJoinKm( nearest, sum, params.BlendRadiusKm );
+                                     if ( clusterJoined < 0.0f )
+                                     {
+                                         if ( !body || clusterJoined < joined )
+                                         {
+                                             joined   = clusterJoined;
+                                             bodyRank = placed[column[k]].Rank;
+                                         }
+                                         body = true;
+                                     }
+                                     else if ( nearest < airNear )
+                                     {
+                                         airNear = nearest;
+                                         airRank = placed[column[k]].Rank;
+                                     }
                                  }
 
-                                 const float joined = CloudModellingJoinKm( nearest, sum, params.BlendRadiusKm );
-                                 if ( joined >= 0.0f )
+                                 const size_t voxel = ( static_cast<size_t>( z ) * height + y ) * width + x;
+                                 if ( !body )
+                                 {
+                                     // Air beside a body: its nearest cluster's rank, unless a body of an
+                                     // earlier species or a nearer cluster already named one.
+                                     if ( std::isfinite( airRank ) && !std::isfinite( coreField[voxel] ) )
+                                         coreField[voxel] = airRank;
                                      continue;
+                                 }
 
                                  // The Dimensional Profile: 0 at the surface and 1 at ProfileDepth inside, which
                                  // is Guerrilla's own quantity (deck p.85) obtained analytically rather than by a
@@ -2380,12 +1974,7 @@ namespace Desert::Assets
                                  for ( uint32_t earlier = 0; earlier < slot; ++earlier )
                                      best = std::max( best, voxels[at + earlier] );
                                  if ( byte > best )
-                                 {
-                                     rankField[at / kCloudProceduralBytesPerVoxel] =
-                                          nearestRank + rankSoftness * ( 1.0f - profile );
-                                     coreField[at / kCloudProceduralBytesPerVoxel] = nearestRank;
-                                     rankOwner[at / kCloudProceduralBytesPerVoxel] = static_cast<uint8_t>( slot );
-                                 }
+                                     coreField[voxel] = bodyRank;
                              }
                          }
                      }
@@ -2404,22 +1993,14 @@ namespace Desert::Assets
 
         CloudProceduralVolumeBake out;
         out.Voxels = std::move( voxels );
-        // Each species' band as rows: every row whose voxel overlaps [CloudTypeBaseKm, CloudTypeTopKm].
-        std::vector<glm::uvec2> bandRows( params.Species.size() );
-        for ( size_t slot = 0; slot < params.Species.size(); ++slot )
-        {
-            const Graphic::CloudTypeShape& shape = params.Species[slot].Shape;
-            const float lo  = ( Graphic::CloudTypeBaseKm( shape ) - params.LayerBottomKm ) / voxelYKm;
-            const float hi  = ( Graphic::CloudTypeTopKm( shape ) - params.LayerBottomKm ) / voxelYKm;
-            const auto  row = [&]( float r )
-            { return static_cast<uint32_t>( std::clamp( r, 0.0f, static_cast<float>( height ) ) ); };
-            bandRows[slot] = glm::uvec2( row( std::floor( lo ) ), row( std::ceil( hi ) ) );
-        }
-        CloudProceduralGrowRankIntoAir( rankField, coreField, rankOwner, bandRows, width, height, depth,
-                                        glm::vec3( voxelXKm, voxelYKm, voxelZKm ),
-                                        rankSoftness / params.ProfileDepthKm, rankSoftness );
-        out.Ranks = CloudProceduralRankColumnCdf( rankField, coreField, width, height, depth, rankSoftness,
-                                                  out.RankRise );
+        // THE R8 CORE RANK: the cell rank in byte steps, floor so that a rank under one never reads as
+        // kCloudProceduralNoRank — CloudProceduralKeep keeps byte b at a cover above (b + 0.5) / 255.
+        out.Ranks.resize( coreField.size() );
+        for ( size_t at = 0; at < coreField.size(); ++at )
+            out.Ranks[at] = std::isfinite( coreField[at] )
+                                 ? static_cast<unsigned char>( std::clamp( std::floor( coreField[at] * 255.0f ), 0.0f,
+                                                                           254.0f ) )
+                                 : kCloudProceduralNoRank;
         return Common::MakeSuccess( std::move( out ) );
     }
 
@@ -2536,7 +2117,7 @@ namespace Desert::Assets
         return map;
     }
 
-    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params, float rankRise )
+    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params )
     {
         const float cover = std::clamp( params.Coverage, 0.0f, 1.0f );
 
@@ -2548,7 +2129,7 @@ namespace Desert::Assets
         const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
         const float rho      = ( painted || strength <= 1e-4f ) ? 0.0f : std::sqrt( strength );
 
-        return glm::vec4( cover, rho, rankRise, 1.0f / kCloudFarWeatherPeriodKm );
+        return glm::vec4( cover, rho, CloudProceduralRankSoftness( params ), 1.0f / kCloudFarWeatherPeriodKm );
     }
 
     float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )

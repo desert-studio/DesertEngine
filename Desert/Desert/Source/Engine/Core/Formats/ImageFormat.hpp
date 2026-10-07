@@ -96,8 +96,7 @@ namespace Desert::Core::Formats
         /// hands it over (Engine/Media/MediaTexture.hpp), converted to RGB on the GPU. APPENDED for the
         /// same renumbering reason as R16_UNORM.
         R8_UNORM,
-        /// `VK_FORMAT_R8G8_UNORM`. Two 8-bit channels: the cloud modelling volume's rank pair (a voxel's own
-        /// rank and its cluster's core rank, Assets::CloudProceduralVolumeBake::Ranks), read in ONE fetch.
+        /// `VK_FORMAT_R8G8_UNORM`. Two 8-bit channels (a pair of unit scalars read in ONE fetch).
         /// APPENDED for the same renumbering reason as R16_UNORM.
         RG8_UNORM,
 

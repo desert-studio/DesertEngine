@@ -279,7 +279,7 @@ Shader "CloudRaymarch"
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
         // textureLod for the reason the authored atlas gives below, and for the same reason.
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
-        #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).rg
+        #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
         #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
         // textureLod AND NOT texture: a compute shader has no derivatives, so the implicit level of
         // detail is undefined. The volume has one level, so every implementation happens to pick it — but
@@ -511,7 +511,7 @@ Shader "CloudRaymarch"
             //      heights of the column, B 1 where that column is kept (rank under cover).
             //   2: along the ray, 32 samples — R the share the cut keeps, G the largest rank step between
             //      neighbours x 8 (a seam reads bright), B the share inside a baked body (species profile
-            //      > 0), so R without B is cloud the cut grew into air.
+            //      > 0); R is at most B, since air is never cloud (CUT-CORE).
             int visualize = int(u_CloudVisualize.x + 0.5f);
             if (visualize != 0)
             {
@@ -525,7 +525,7 @@ Shader "CloudRaymarch"
                     for (int k = 0; k < 8; ++k)
                     {
                         vec3 uvw = CloudProceduralVolumeUvw(params, (float(k) + 0.5f) / 8.0f, windPos);
-                        lowest   = min(lowest, CLOUD_SAMPLE_MODELLING_RANK(uvw).x);
+                        lowest   = min(lowest, CLOUD_SAMPLE_MODELLING_RANK(uvw));
                     }
                     shown = vec3(cover, lowest, lowest + 0.5f / 255.0f < cover ? 1.0f : 0.0f);
                 }
@@ -539,12 +539,12 @@ Shader "CloudRaymarch"
                         float hf      = CloudHeightFraction(layer, p);
                         vec3  windPos = vec3(p.x, length(p) - layer.BottomRadiusKm, p.z) - params.WindOffsetKm;
                         vec3  uvw     = CloudProceduralVolumeUvw(params, hf, windPos);
-                        vec2  rankPair = CLOUD_SAMPLE_MODELLING_RANK(uvw);
-                        float rank    = rankPair.x;
+                        float rank    = CLOUD_SAMPLE_MODELLING_RANK(uvw);
                         float cover   = CloudLocalCover(params.Weather, windPos.xz);
                         vec4  volume  = CLOUD_SAMPLE_MODELLING(uvw);
-                        kept += CloudRankProfile(rankPair, cover, params.Weather.z) > 0.0f ? 1.0f : 0.0f;
-                        body += max(max(volume.x, volume.y), max(volume.z, volume.w)) > 0.0f ? 1.0f : 0.0f;
+                        float profile = max(max(volume.x, volume.y), max(volume.z, volume.w));
+                        kept += CloudCoverProfile(profile, rank, cover, params.Weather.z) > 0.0f ? 1.0f : 0.0f;
+                        body += profile > 0.0f ? 1.0f : 0.0f;
                         if (previous >= 0.0f)
                             seam = max(seam, abs(rank - previous));
                         previous = rank;

@@ -122,8 +122,8 @@ namespace Desert::Graphic
 
         // THE WORLD WEATHER'S CUT, as Assets::CloudFarWeatherUniform packs it: x the slider's Coverage, y rho
         // = sqrt(PatchStrength) (ZERO when a painted pattern is the weather or the strength is nil), z the
-        // rank's rise across ProfileDepth in CDF units, w 1 / kCloudFarWeatherPeriodKm. The march keeps a
-        // voxel where its R8 rank is under the local cover this decides — Assets::CloudProceduralKeep is the
+        // cover's softness past a cluster's core rank, w 1 / kCloudFarWeatherPeriodKm. The march keeps a
+        // cluster where its R8 core rank is under the local cover this decides — Assets::CloudProceduralKeep is the
         // CPU half of the same comparison. Before the trailing vec3 for the reason Albedo is.
         glm::vec4 Weather;
 
@@ -279,8 +279,8 @@ namespace Desert::Graphic
     // (Graphic::kSkyTransmittanceLutBinding), so it applies this feature through that descriptor and only
     // its gate travels — see CloudBakeBinding::PerSampleSunTransmittance.
     inline constexpr uint32_t kCloudSunTransmittanceLutBinding = 14;
-    // THE RG8 RANK PAIR beside the modelling volume (Assets::CloudProceduralVolumeBake::Ranks), same extent and
-    // region: the column-CDF rank of the cloud each voxel belongs to. The march keeps a voxel where this is
+    // THE R8 CORE RANK beside the modelling volume (Assets::CloudProceduralVolumeBake::Ranks), same extent and
+    // region: the cell rank of the cluster each voxel belongs to. The march keeps a voxel where this is
     // under the local cover (CloudGpuPayload::Weather), which is where the Coverage slider and the world
     // weather act now that the bake keeps every cell.
     inline constexpr uint32_t kCloudModellingRankBinding = 15;
@@ -618,7 +618,7 @@ namespace Desert::Graphic
         glm::vec2 OriginKm{ 0.0f }; ///< the region's minimum corner, world kilometres
         float     SideKm = 1.0f;    ///< its horizontal side, and the period the volume tiles with
         /// The cut the march makes against the bake's rank — Assets::CloudFarWeatherUniform of the SAME
-        /// parameters the bound volume was baked from, so the cover and the rank's rise belong to the bytes
+        /// parameters the bound volume was baked from, so the cover and the softness belong to the bytes
         /// they are compared with. Zero (the default) keeps nothing: no bake, no cut to make.
         glm::vec4 Weather{ 0.0f };
     };

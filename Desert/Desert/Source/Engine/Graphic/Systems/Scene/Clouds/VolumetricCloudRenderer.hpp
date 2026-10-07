@@ -620,11 +620,9 @@ namespace Desert::Graphic::System
         // happens to be, and the two would re-bake each other's region every frame. A renderer with no
         // cloud component never allocates it, which is every asset thumbnail and every mesh preview.
         std::shared_ptr<Image3D> m_ModellingVolume;
-        // The RG8 rank pair of the same bake (Assets::CloudProceduralVolumeBake::Ranks): created and dropped with
+        // The R8 core rank of the same bake (Assets::CloudProceduralVolumeBake::Ranks): created and dropped with
         // m_ModellingVolume, never one without the other.
         std::shared_ptr<Image3D> m_ModellingRank;
-        // The bake's RankRise beside the rank it measures (CloudFarWeatherUniform's z).
-        float m_ModellingRankRise = 1.0f;
         // The world weather over one kCloudFarWeatherPeriodKm torus (Assets::BakeCloudFarWeatherMap), rebuilt
         // only when its seed or its shortest wave moves — see EnsureFarWeatherMap.
         std::shared_ptr<Image2D> m_FarWeatherMap;

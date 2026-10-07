@@ -561,12 +561,11 @@ namespace Desert::Graphic::System
                  .Width      = bakedSide,
                  .Height     = Assets::kCloudProceduralVolumeHeight,
                  .Depth      = bakedSide,
-                 .Format     = Core::Formats::ImageFormat::RG8_UNORM,
+                 .Format     = Core::Formats::ImageFormat::R8_UNORM,
                  .Data       = baked.GetValue().Ranks,
                  .Properties = Core::Formats::Sample,
             };
             m_ModellingRank = m_ModellingVolume ? Image3D::Create( rankSpec ) : nullptr;
-            m_ModellingRankRise = baked.GetValue().RankRise;
             if ( !m_ModellingRank )
                 m_ModellingVolume.reset();
 
@@ -1014,7 +1013,7 @@ namespace Desert::Graphic::System
         payload = PackCloudParams(
              m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
              CloudRegionBinding{ m_ModellingOriginKm, m_ModellingParams.RegionSizeKm,
-                                 Assets::CloudFarWeatherUniform( m_ModellingParams, m_ModellingRankRise ) },
+                                 Assets::CloudFarWeatherUniform( m_ModellingParams ) },
              quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
         return true;
     }

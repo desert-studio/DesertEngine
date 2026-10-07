@@ -348,8 +348,7 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
 
     params.RegionOriginKm  = ModellingVolume().OriginKm;
     params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
-    params.Weather =
-         Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params, ModellingVolume().RankRise );
+    params.Weather         = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
 
     // FIRST: the coordinate itself never reaches either face.
     const vec3 atTop    = CloudProceduralVolumeUvw( params, 1.0f, vec3( 0.0f ) );
@@ -1220,11 +1219,10 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
     int winnerWrong = 0;
 
     // THE DEPTH IS THE RANK'S, NOT A SPECIES'. Since the rank copula (FARWX-b2) the bake keeps every cell
-    // and the march cuts it: Profile is CloudRankProfile of the voxel's rank against the cover the world
-    // weather leaves the column, ONE number for the point whichever species are present there. The
-    // channels only name the owner. So the union this test holds the producer to is: one cut, read through
-    // the same rank and weather macros the GPU defines — and never the larger of two species' depths, which
-    // is what it was while each channel was a profile of its own (8283 of 9216 columns differ from that now).
+    // and the march cuts it: Profile is CloudCoverProfile of the DEEPER species' profile, against the core
+    // rank of the cluster that owns the point and the cover the world weather leaves the column (CUT-CORE).
+    // So the union this test holds the producer to is: the max over species, cut once, read through the
+    // same rank and weather macros the GPU defines.
     const vec4 weather = params.Weather;
 
     constexpr int kColumns = 96;
@@ -1244,7 +1242,8 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
 
             const CloudFieldSample united = SampleCloudField( params, fraction, position );
 
-            const float cut = CloudRankProfile(
+            const float cut = CloudCoverProfile(
+                 std::max( deck, tower ),
                  CLOUD_SAMPLE_MODELLING_RANK( CloudProceduralVolumeUvw( params, fraction, position ) ),
                  CloudLocalCover( weather, vec2( position.x, position.z ) ), weather.z );
             if ( std::abs( united.Profile - cut ) > 1e-5f )
@@ -2501,15 +2500,14 @@ TEST( CloudField, TheShippedErosionAndAGraphReadTheVolumeAtTheSameCOORDINATE )
          << "a Detail Tile Size of zero produced a non-finite noise coordinate";
 }
 
-// THE SHADER'S CUT IS Assets::CloudProceduralKeep AGAINST Assets::CloudProceduralLocalCover. The march reads
-// the rank and the world weather through the same macros the GPU defines, and keeps a voxel where its
-// CloudRankProfile is above zero; the CPU's statement of the same decision is the pair named above. Walked
-// at voxel CENTRES, where the trilinear read is the byte itself, and with the weather switched ON so the
-// copula is exercised and not stood down. A mismatch is forgiven only within 1e-4 of the threshold, which
-// is the float-vs-double distance of the two CDFs and far inside one rank byte.
+// THE SHADER'S CUT IS Assets::CloudProceduralCoverProfile AGAINST Assets::CloudProceduralLocalCover (CUT-CORE).
+// The march reads the core rank, the profile and the world weather through the same macros the GPU defines;
+// the CPU's statement of the same decision is the pair named above. Walked at voxel CENTRES, where the
+// trilinear read is the byte itself, with the weather switched ON so the copula is exercised. A mismatch is
+// forgiven only within 1e-4 of the threshold — the float-vs-double distance of the two normal CDFs.
 //
 // MUTATION: drop `- rho * w` in CloudLocalCover (Common/CloudField.glslh) and this goes red.
-TEST( CloudFieldCut, TheShadersCutIsCloudProceduralKeepAgainstTheLocalCover )
+TEST( CloudFieldCut, TheShadersCutIsTheCoverProfileAgainstTheLocalCover )
 {
     using namespace Desert::Tests::CloudFieldRef;
 
@@ -2520,9 +2518,11 @@ TEST( CloudFieldCut, TheShadersCutIsCloudProceduralKeepAgainstTheLocalCover )
     state.Params.PatchStrength  = 0.6f;
     state.Params.PatchTileKm    = 20.0f;
     ASSERT_TRUE( state.Ranks && !state.Ranks->empty() ) << "the bake returned no rank block";
+    ASSERT_TRUE( state.Voxels && !state.Voxels->empty() ) << "the bake returned no profile block";
 
-    const vec4 weather = Desert::Assets::CloudFarWeatherUniform( state.Params, state.RankRise );
+    const vec4 weather = Desert::Assets::CloudFarWeatherUniform( state.Params );
     ASSERT_GT( weather.y, 0.0f ) << "the weather stood down, so the copula is not under test";
+    EXPECT_FLOAT_EQ( weather.z, Desert::Assets::CloudProceduralRankSoftness( state.Params ) );
 
     constexpr int side   = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
     constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
@@ -2538,105 +2538,80 @@ TEST( CloudFieldCut, TheShadersCutIsCloudProceduralKeepAgainstTheLocalCover )
 
             for ( int iy = 0; iy < height; iy += 3 )
             {
-                const vec3          uvw( ( ix + 0.5f ) / side, ( iy + 0.5f ) / height, ( iz + 0.5f ) / side );
-                const size_t        voxel = ( ( static_cast<size_t>( iz ) * height + iy ) * side + ix ) *
-                                     Desert::Assets::kCloudProceduralRankChannels;
-                const unsigned char rank = ( *state.Ranks )[voxel];
-                const unsigned char core = ( *state.Ranks )[voxel + 1u];
+                const vec3   uvw( ( ix + 0.5f ) / side, ( iy + 0.5f ) / height, ( iz + 0.5f ) / side );
+                const size_t voxel = ( static_cast<size_t>( iz ) * height + iy ) * side + ix;
+                const unsigned char core = ( *state.Ranks )[voxel * Desert::Assets::kCloudProceduralRankChannels];
+                const float profile = ( *state.Voxels )[voxel * Desert::Assets::kCloudProceduralBytesPerVoxel] / 255.0f;
 
-                const bool gpuKeeps =
-                     CloudRankProfile( CLOUD_SAMPLE_MODELLING_RANK( uvw ), gpuCover, weather.z ) > 0.0f;
-                const bool cpuKeeps = Desert::Assets::CloudProceduralKeep( rank, core, cpuCover, state.RankRise );
-
-                // Forgiven within 1e-4 of EITHER threshold: the rank against the cover, and the air's reach.
-                const float reachEdge = Desert::Assets::CloudProceduralAirFalloff( rank / 255.0f, core / 255.0f,
-                                                                                   cpuCover, state.RankRise );
-                const bool  onEdge    = std::abs( cpuCover - ( rank + 0.5f ) / 255.0f ) <= 1e-4f ||
-                                    ( reachEdge < 1e-3f && cpuCover - ( rank + 0.5f ) / 255.0f > 0.0f );
+                const float gpu =
+                     CloudCoverProfile( profile, CLOUD_SAMPLE_MODELLING_RANK( uvw ), gpuCover, weather.z );
+                const float cpu =
+                     Desert::Assets::CloudProceduralCoverProfile( profile, core / 255.0f, cpuCover, weather.z );
+                const bool onEdge = std::abs( cpuCover - ( core + 0.5f ) / 255.0f ) <= 1e-4f;
 
                 ++compared;
-                kept += cpuKeeps ? 1 : 0;
-                if ( gpuKeeps != cpuKeeps && !onEdge )
+                kept += cpu > 0.0f ? 1 : 0;
+                if ( ( gpu > 0.0f ) != ( cpu > 0.0f ) && !onEdge )
                     ++mismatched;
+                else if ( !onEdge )
+                    EXPECT_NEAR( gpu, cpu, 1e-4f ) << "voxel " << ix << "," << iy << "," << iz;
+                if ( cpu > 0.0f )
+                    EXPECT_TRUE( Desert::Assets::CloudProceduralKeep( core, cpuCover ) || onEdge );
             }
         }
 
     EXPECT_GT( kept, 0 ) << "nothing was kept, so the comparison is vacuous";
     EXPECT_LT( kept, compared ) << "everything was kept, so the comparison is vacuous";
-    EXPECT_EQ( mismatched, 0 ) << "of " << compared << " voxels the shader's cut and CloudProceduralKeep disagree";
+    EXPECT_EQ( mismatched, 0 ) << "of " << compared << " voxels the shader's cut and the CPU's disagree";
 }
 
-// THE CUT IS NUBIS'S COVERAGE REMAP ON THE SIGNED PROFILE, NOT A RAMP THAT SATURATES (FARWX-b12). A cluster the
-// cover has overrun by many rises must keep a gradient across its kept extent — core 1, cut surface 0, the
-// voxel halfway along its rank run at one half — where the b11 ramp (cover - rank) / rise clamped the whole
-// body to one and drew a flat, edgeless mass. A cluster just past its threshold still erodes to its core.
-TEST( CloudFieldCut, AnOverrunClusterKeepsItsGradientAndAJustKeptOneErodesToItsCore )
-{
-    constexpr float h     = 0.5f / 255.0f;
-    constexpr float rise  = 0.05f;
-    constexpr float cover = 1.0f;
-    constexpr float core  = 0.1f;
-
-    // Overrun: the run past the core is 18 rises. At Coverage 1, where the air's reach is unbounded (FARWX-b15),
-    // so the remap's own gradient is what is read; below one the air fade multiplies it (next test).
-    EXPECT_NEAR( CloudRankProfile( vec2( core, core ), cover, rise ), 1.0f, 1e-6f );
-    EXPECT_NEAR( CloudRankProfile( vec2( 0.5f * ( cover - h + core ), core ), cover, rise ), 0.5f, 1e-4f )
-         << "the halfway voxel of an overrun cluster saturated: the ramp is back";
-    EXPECT_EQ( CloudRankProfile( vec2( cover, core ), cover, rise ), 0.0f );
-
-    // Just kept: the run is half a rise, so the core sits at half and the profile is the old erosion ramp.
-    const float justCore = cover - h - 0.5f * rise;
-    EXPECT_NEAR( CloudRankProfile( vec2( justCore, justCore ), cover, rise ), 0.5f, 1e-4f );
-
-    // The keep set is the one CloudProceduralKeep makes, at this cover and at a busy patch's 0.9.
-    for ( const float at : { cover, 0.9f } )
-        for ( int byte = 0; byte < 255; ++byte )
-        {
-            const float rank = static_cast<float>( byte ) / 255.0f;
-            EXPECT_EQ( CloudRankProfile( vec2( rank, 0.0f ), at, rise ) > 0.0f,
-                       Desert::Assets::CloudProceduralKeep( static_cast<unsigned char>( byte ), 0u, at, rise ) )
-                 << "byte " << byte << " at cover " << at;
-        }
-}
-
-// THE AIR FADES WITHIN A REACH OF THE BODY, AND THE REACH IS UNBOUNDED ONLY AT COVERAGE 1 (FARWX-b15). FARWX-b14's
-// grey deck was grown air kilometres from any body kept at profile 0.5-0.6 under a local cover of 0.9; Nubis
-// fades the profile past the surface. Read on one cluster: the body itself is untouched by the fade, air
-// 1 ProfileDepth out still keeps cloud at 0.9, air 4 ProfileDepths out (past the 3.16 reach) is sky at 0.9 —
-// the gap between packed bodies — and the SAME voxel is cloud at Coverage 1, which is the whole sky.
+// THE CUT IS NUBIS'S COVERAGE REMAP ON THE CLUSTER'S OWN PROFILE (CUT-CORE): ValueRemap(profile, 1 - g, 1, 0, 1),
+// g = saturate((cover - core) / softness). A cluster the cover has overrun by a softness stands at its own
+// profile, whatever the cover beyond that; one just past its threshold shows only its core; a cluster whose
+// core is over the cover does not exist; and air (profile 0) is never cloud, even at Coverage 1.
 //
-// MUTATION: drop `* fade` in CloudRankProfile (Common/CloudField.glslh) and the 0.9 gap goes red.
-TEST( CloudFieldCut, AirFadesWithinAReachThatOnlyCoverageOneMakesUnbounded )
+// MUTATION: replace `( profile - ( 1.0f - g ) ) / g` by `profile` in CloudCoverProfile (Common/CloudField.glslh)
+// and the just-kept checks go red; drop `profile <= 0.0f ||` and the air check goes red.
+TEST( CloudFieldCut, AnOverrunClusterStandsAtItsOwnProfileAndAJustKeptOneShowsItsCore )
 {
-    constexpr float rise = 0.02f;
-    constexpr float core = 0.05f;
-    const auto      past = [&]( float depthPd ) { return core + rise * ( 1.0f + depthPd ); };
+    using namespace Desert::Tests::CloudFieldRef;
 
-    // Inside the body (half a ProfileDepth in) the fade is one: the remap alone.
-    const float inside = core + 0.5f * rise;
-    const float run    = 0.9f - core - 0.5f / 255.0f;
-    EXPECT_NEAR( CloudRankProfile( vec2( inside, core ), 0.9f, rise ), ( 0.9f - inside - 0.5f / 255.0f ) / run,
-                 1e-5f )
-         << "the air fade reached inside a body";
+    const float soft = 0.25f;
+    const float core = 0.3f;
 
-    // One ProfileDepth past the surface: cloud at 0.9, faded by 1 - sqrt(0.1).
-    EXPECT_GT( CloudRankProfile( vec2( past( 1.0f ), core ), 0.9f, rise ), 0.0f );
-    EXPECT_LT( CloudRankProfile( vec2( past( 1.0f ), core ), 0.9f, rise ),
-               ( 0.9f - past( 1.0f ) - 0.5f / 255.0f ) / run - 0.2f )
-         << "air past the surface was not faded at a cover of 0.9";
+    // Overrun by a softness or more: the form is the profile, and the cover beyond that does not move it.
+    for ( float cover : { core + soft + 0.01f, 0.8f, 1.0f } )
+        for ( float profile : { 0.1f, 0.5f, 0.9f } )
+            EXPECT_NEAR( CloudCoverProfile( profile, core, cover, soft ), profile, 1e-5f )
+                 << "cover " << cover << " moved the form of an overrun cluster";
 
-    // Four ProfileDepths past (beyond the 3.16 reach): sky at 0.9 — bodies with gaps, not a deck.
-    EXPECT_EQ( CloudRankProfile( vec2( past( 4.0f ), core ), 0.9f, rise ), 0.0f )
-         << "air four ProfileDepths from its body stayed cloud at a cover of 0.9: the grey deck is back";
-    EXPECT_FALSE( Desert::Assets::CloudProceduralKeep( static_cast<unsigned char>( past( 4.0f ) * 255.0f + 0.5f ),
-                                                       static_cast<unsigned char>( core * 255.0f + 0.5f ), 0.9f,
-                                                       rise ) )
-         << "the CPU's cut kept the air the shader fades";
+    // Just past the threshold, g = 0.1: only the deepest tenth of the profile survives, and the core is 1.
+    const float justCover = core + 0.5f / 255.0f + 0.1f * soft;
+    EXPECT_NEAR( CloudCoverProfile( 1.0f, core, justCover, soft ), 1.0f, 1e-4f );
+    EXPECT_NEAR( CloudCoverProfile( 0.95f, core, justCover, soft ), 0.5f, 1e-3f );
+    EXPECT_EQ( CloudCoverProfile( 0.85f, core, justCover, soft ), 0.0f );
 
-    // Coverage 1 is the whole sky: every rank under one is cloud however far from its body.
-    for ( const float depth : { 4.0f, 20.0f, 40.0f } )
-        EXPECT_GT( CloudRankProfile( vec2( past( depth ), core ), 1.0f, rise ), 0.0f )
-             << "Coverage 1 left a hole " << depth << " ProfileDepths from a body";
+    // A cluster over the cover does not exist, at any depth.
+    EXPECT_EQ( CloudCoverProfile( 1.0f, core, core, soft ), 0.0f );
+    EXPECT_FALSE( Desert::Assets::CloudProceduralKeep( static_cast<unsigned char>( core * 255.0f ), core - 0.01f ) );
+
+    // Air is never cloud, and "no cluster" is never kept.
+    EXPECT_EQ( CloudCoverProfile( 0.0f, 0.0f, 1.0f, soft ), 0.0f );
+    EXPECT_FALSE( Desert::Assets::CloudProceduralKeep( Desert::Assets::kCloudProceduralNoRank, 1.0f ) );
+
+    // Monotone in the cover, and the CPU mirror agrees with the shader.
+    for ( float profile : { 0.2f, 0.6f, 1.0f } )
+    {
+        float previous = 0.0f;
+        for ( int step = 0; step <= 40; ++step )
+        {
+            const float cover = step / 40.0f;
+            const float value = CloudCoverProfile( profile, core, cover, soft );
+            EXPECT_GE( value + 1e-6f, previous ) << "the cut fell as the cover rose";
+            EXPECT_NEAR( value, Desert::Assets::CloudProceduralCoverProfile( profile, core, cover, soft ), 1e-6f );
+            previous = value;
+        }
+    }
 }
 
 int main( int argc, char** argv )

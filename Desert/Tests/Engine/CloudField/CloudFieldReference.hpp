@@ -223,8 +223,6 @@ namespace Desert::Tests::CloudFieldRef
             ModellingVoxels                            Voxels;
             /// The R8 rank of the same bake (CloudProceduralVolumeBake::Ranks) — what the cut reads.
             ModellingVoxels                            Ranks;
-            /// The same bake's CloudProceduralVolumeBake::RankRise — the ramp the cut divides by.
-            float                                      RankRise = 1.0f;
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
         };
@@ -274,7 +272,6 @@ namespace Desert::Tests::CloudFieldRef
             glm::vec2                                  OriginKm{ 0.0f };
             ModellingVoxels                            Voxels;
             ModellingVoxels                            Ranks;
-            float                                      RankRise = 1.0f;
         };
 
         std::vector<BakedVolume>& BakedVolumeCache()
@@ -305,8 +302,7 @@ namespace Desert::Tests::CloudFieldRef
 
         /// Bake @p params over @p originKm, or hand back the bytes an identical request already made.
         ModellingVoxels CloudModellingBake( const Desert::Assets::CloudProceduralFieldParams& params,
-                                            const glm::vec2& originKm, ModellingVoxels* ranksOut = nullptr,
-                                            float* riseOut = nullptr )
+                                            const glm::vec2& originKm, ModellingVoxels* ranksOut = nullptr )
         {
             std::vector<BakedVolume>& cache = BakedVolumeCache();
 
@@ -318,8 +314,6 @@ namespace Desert::Tests::CloudFieldRef
                     ++BakeCounts().Served;
                     if ( ranksOut != nullptr )
                         *ranksOut = entry.Ranks;
-                    if ( riseOut != nullptr )
-                        *riseOut = entry.RankRise;
                     return entry.Voxels;
                 }
             }
@@ -337,9 +331,6 @@ namespace Desert::Tests::CloudFieldRef
                  baked ? baked.GetValue().Ranks : std::vector<unsigned char>{} );
             if ( ranksOut != nullptr )
                 *ranksOut = ranks;
-            const float rise = baked ? baked.GetValue().RankRise : 1.0f;
-            if ( riseOut != nullptr )
-                *riseOut = rise;
 
             if ( cache.size() >= kMaxBakedVolumes )
                 cache.erase( cache.begin() );
@@ -393,7 +384,7 @@ namespace Desert::Tests::CloudFieldRef
 
             state.Params   = CloudModellingParams( shapes, count, coverage, contrast, windDirection );
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
-            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks, &state.RankRise );
+            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks );
         }
 
         /// The same bake over a layer WIDER than the species' own band, which is what makes the vertical
@@ -415,15 +406,15 @@ namespace Desert::Tests::CloudFieldRef
             state.Params.LayerThicknessKm = thicknessKm;
 
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
-            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks, &state.RankRise );
+            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks );
         }
 
-        // THE RG8 RANK PAIR, read as the device reads an RG8_UNORM volume: trilinear, REPEAT, byte / 255 —
-        // x the voxel's own rank, y its cluster's core rank (Assets::kCloudProceduralRankChannels).
-        vec2 CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
+        // THE R8 CORE RANK, read as the device reads an R8_UNORM volume: trilinear, REPEAT, byte / 255 — the
+        // rank of the cluster that owns the voxel (Assets::kCloudProceduralRankChannels).
+        float CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
         {
             if ( ranks.empty() )
-                return vec2( 1.0f );
+                return 1.0f;
 
             constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
             constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
@@ -454,13 +445,13 @@ namespace Desert::Tests::CloudFieldRef
             {
                 const size_t at = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
                                   Desert::Assets::kCloudProceduralRankChannels;
-                return vec2( ranks[at] / 255.0f, ranks[at + 1u] / 255.0f );
+                return static_cast<float>( ranks[at] ) / 255.0f;
             };
 
             const auto plane = [&]( int iz )
             {
-                const vec2 top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
-                const vec2 bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
+                const float top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
+                const float bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
                 return top * ( 1.0f - fy ) + bottom * fy;
             };
 
@@ -524,10 +515,10 @@ namespace Desert::Tests::CloudFieldRef
         // The bound rank, BY REFERENCE. A conditional between `*Ranks` and a temporary vector is a prvalue,
         // so the earlier spelling copied the whole R8 volume on every sample — the reason the coverage
         // sweeps never finished.
-        vec2 CloudSampleBoundRank( vec3 uvw )
+        float CloudSampleBoundRank( vec3 uvw )
         {
             const ModellingVoxels& ranks = ModellingVolume().Ranks;
-            return ranks ? CloudSampleRankBytes( *ranks, uvw ) : vec2( 1.0f );
+            return ranks ? CloudSampleRankBytes( *ranks, uvw ) : 1.0f;
         }
 
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleModellingTexture( p )
@@ -626,8 +617,7 @@ namespace Desert::Tests::CloudFieldRef
 
             params.RegionOriginKm  = ModellingVolume().OriginKm;
             params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
-            params.Weather =
-                 Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params, ModellingVolume().RankRise );
+            params.Weather         = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
         }
 
         /**

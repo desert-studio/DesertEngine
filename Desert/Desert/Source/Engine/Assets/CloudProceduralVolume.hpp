@@ -193,13 +193,13 @@ namespace Desert::Assets
 
     inline constexpr uint32_t kCloudProceduralBytesPerVoxel = 4u;
 
-    /// The rank of a voxel no body reaches — only in a bake with no cloud at all, since air carries the
-    /// falloff of its nearest body. CloudProceduralKeep never keeps it at any cover.
+    /// The rank of a voxel no cluster reaches. CloudProceduralKeep never keeps it at any cover.
     inline constexpr unsigned char kCloudProceduralNoRank = 255u;
 
-    /// How far the rank rises from a body's core to its surface, at CoverageContrast 1 (the rise is this
-    /// over the contrast). It is what makes a cloud near the slider's threshold ERODE to its core instead
-    /// of vanishing whole — the role the old per-cell `fill` radius played, now carried by the march.
+    /// How far past a cluster's core rank the local cover must run before the cluster stands at its full
+    /// profile, at CoverageContrast 1 (the softness is this over the contrast). It is what makes a cloud near
+    /// its threshold ERODE to its core instead of vanishing whole — Nubis's remap threshold 1 - g, with
+    /// g = (cover - core) / softness (CloudProceduralCoverProfile).
     inline constexpr float kCloudRankSoftness = 0.25f;
 
     /// THE PERIOD OF THE WORLD WEATHER, kilometres. 997 is prime and shares no small factor with any
@@ -208,11 +208,11 @@ namespace Desert::Assets
     /// was, fmod(world, region)) closed every horizon gap with the gap's own copy one region further out.
     inline constexpr float kCloudFarWeatherPeriodKm = 997.0f;
 
-    /// The rank block is RG8: per voxel its OWN rank (byte 0, what CloudProceduralKeep compares) and the CORE
-    /// rank of the cluster it belongs to or grew from (byte 1, never above byte 0) — FARWX-b12.
-    inline constexpr uint32_t kCloudProceduralRankChannels = 2u;
+    /// The rank block is R8: per voxel the CORE rank of the cluster that owns it (CUT-CORE) — whether that
+    /// cluster exists at a cover, and nothing about its form.
+    inline constexpr uint32_t kCloudProceduralRankChannels = 1u;
 
-    /// The size of the RG8 rank block beside the RGBA8 profile block: two bytes per voxel.
+    /// The size of the R8 rank block beside the RGBA8 profile block: one byte per voxel.
     inline constexpr uint64_t CloudProceduralRankBytes( uint32_t sideVoxels )
     {
         return static_cast<uint64_t>( sideVoxels ) * sideVoxels * kCloudProceduralVolumeHeight *
@@ -764,21 +764,15 @@ namespace Desert::Assets
     using CloudProceduralBakeProgressFn = std::function<bool( float fraction )>;
 
     /// The bake's two blocks: the RGBA8 Dimensional Profile per species (the bytes it always returned) and
-    /// the RG8 RANK PAIR (kCloudProceduralRankChannels: the voxel's own rank, then its cluster's core rank),
-    /// remapped by the region's column CDF so that the fraction of columns whose rank is under a cover c is c
-    /// (the air's reach, CloudProceduralAirFalloff, then clears the air far from every body below Coverage 1). AIR
-    /// HAS A RANK TOO: the profile's falloff past the nearest body's edge (the march grows the clouds into it as
-    /// the cover rises, so Coverage 1 is the whole sky) — but only within the altitudes of the species that owns
-    /// that body; air above or below its band, and every voxel of a bake with no cloud at all, holds
-    /// kCloudProceduralNoRank.
+    /// the R8 CORE RANK (kCloudProceduralRankChannels): the cell rank of the cluster whose profile wins each
+    /// voxel — clusters of a species joined by max, as species are. Air within a lump's reach carries its
+    /// nearest cluster's rank, so the trilinear read at a surface does not blend toward "no cloud"; air
+    /// out of every reach holds kCloudProceduralNoRank. The rank decides existence only — the march's
+    /// density is the profile, remapped (CloudProceduralCoverProfile).
     struct CloudProceduralVolumeBake
     {
         std::vector<unsigned char> Voxels;
         std::vector<unsigned char> Ranks;
-        /// The rank's rise across ProfileDepth IN THE UNITS OF Ranks — kCloudRankSoftness / CoverageContrast
-        /// carried through the column CDF (mean over the columns of F(min + softness) - F(min)); what the
-        /// march's ramp divides by (CloudFarWeatherUniform's z).
-        float RankRise = 1.0f;
     };
 
     /// THE bake; the vector-returning overloads below are its Voxels. EVERY cell of the lattice is baked —
@@ -786,25 +780,6 @@ namespace Desert::Assets
     Common::ResultStr<CloudProceduralVolumeBake>
     BakeCloudProceduralVolumeRanked( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
                                      const CloudProceduralBakeProgressFn& onProgress );
-
-    /// The bake's rank past (and across) the bodies, before its column CDF: every voxel of species `slot`'s
-    /// band rows (`bandRows[slot]`, half-open) takes the LOWEST cone over that species' finite-rank voxels
-    /// (`ownerSlot`), min_s rank_s + risePerKm |v - s| in kilometres (`voxelKm` per axis, X and Z periodic),
-    /// and keeps the lowest over the species whose band holds its row; voxels outside every band stay as
-    /// they were (infinite in air). The result is continuous — risePerKm-Lipschitz inside a band — which is
-    /// what keeps the march's cut from drawing a straight wall where the nearest body changes.
-    /// `coreField` is the CLUSTER rank beside it (a body voxel's own cell rank, before the softness term): an
-    /// air voxel that takes a cone takes the core rank of that cone's source with it (FARWX-b12), so the march
-    /// knows how far the cover has run past the cluster the voxel's cloud grew from.
-    /// THE RIDGE FILLS LAST (FARWX-b14): an air voxel whose lowest cone of a DIFFERENT cluster (another core)
-    /// comes within `ridgeSoftness` of its own is lifted, continuously in that margin, by up to the field's
-    /// whole span plus `ridgeSoftness` — so the bisector between two neighbouring clusters takes the top bytes
-    /// of the column CDF and the gap between them survives every local cover under one. Bodies are not lifted.
-    void CloudProceduralGrowRankIntoAir( std::vector<float>& rankField, std::vector<float>& coreField,
-                                         const std::vector<uint8_t>&    ownerSlot,
-                                         const std::vector<glm::uvec2>& bandRows, uint32_t width, uint32_t height,
-                                         uint32_t depth, const glm::vec3& voxelKm, float risePerKm,
-                                         float ridgeSoftness );
 
     /// The seed of the layer's world weather — one per layer, since the march keeps per voxel after the
     /// max over species.
@@ -829,9 +804,15 @@ namespace Desert::Assets
     /// What the march needs to turn a rank and a weather sample into a cut, as the GPU block carries it
     /// (CloudGpuPayload::Weather / u_CloudWeather): x the slider's Coverage, y rho = sqrt(PatchStrength)
     /// — ZERO when the weather stands down (no strength, or a painted pattern is the weather, exactly as
-    /// CloudProceduralLocalCover decides), z the rank's rise across ProfileDepth in CDF units — @p rankRise,
-    /// the bake's CloudProceduralVolumeBake::RankRise, w 1 / kCloudFarWeatherPeriodKm.
-    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params, float rankRise );
+    /// CloudProceduralLocalCover decides), z the cover's softness past a core
+    /// (CloudProceduralRankSoftness), w 1 / kCloudFarWeatherPeriodKm.
+    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params );
+
+    /// How far the local cover runs past a cluster's core rank before the cluster stands at its full profile.
+    inline float CloudProceduralRankSoftness( const CloudProceduralFieldParams& params )
+    {
+        return kCloudRankSoftness / ( params.CoverageContrast > 1e-2f ? params.CoverageContrast : 1e-2f );
+    }
 
     /// The cover the march compares a rank against at a world column: Coverage redistributed by the world
     /// weather (the Gaussian copula, mean exactly Coverage), or Coverage itself when a painted pattern is
@@ -842,35 +823,29 @@ namespace Desert::Assets
     float CloudProceduralCellRank( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t cellSeed,
                                    const glm::vec2& centreKm );
 
-    /// THE AIR'S FALLOFF PAST A BODY'S SURFACE (FARWX-b15) — Nubis's coverage remap read on the air side: the
-    /// profile past the surface fades to nothing within a REACH of it, so air far from every body never becomes
-    /// cloud and dense weather is tightly packed bodies rather than an even grey deck (FARWX-b14 measured the deck
-    /// as grown air at profile 0.5-0.6 kilometres from any body under a local cover of 0.9).
-    ///
-    /// The air depth is in ProfileDepths: a body's voxel rises from its core by one rise to its surface, so
-    /// (own - core) / rise - 1 is how far past the surface the voxel lies (zero or less inside the body, which the
-    /// falloff never touches). The reach is 1 / sqrt(1 - cover) ProfileDepths: Nubis's one ProfileDepth with no
-    /// cover, 3.16 (1.1 km at the shipped 0.35 km) at a cover of 0.9, and unbounded at 1, so Coverage 1 is still
-    /// the whole sky. Written as a product with sqrt(1 - cover) so that the end is exact and not a division by
-    /// zero. Ranks as fractions (byte / 255) — what the shader's UNORM read of the R8G8 block returns.
-    inline float CloudProceduralAirFalloff( float ownRank, float coreRank, float localCover, float rankRise )
+    /// THE CUT the march makes (the CPU mirror of the shader's keep): a cluster exists when its core rank is
+    /// under the local cover. Half a byte of offset so that a cover of 0 keeps nothing and 1 keeps every
+    /// cluster; kCloudProceduralNoRank is never kept.
+    inline bool CloudProceduralKeep( unsigned char core, float localCover )
     {
-        const float rise  = rankRise > 1e-4f ? rankRise : 1e-4f;
-        const float core  = coreRank < ownRank ? coreRank : ownRank;
-        const float depth = ( ownRank - core ) / rise - 1.0f;
-        const float clear = localCover < 1.0f ? 1.0f - localCover : 0.0f;
-        const float fade  = 1.0f - ( depth > 0.0f ? depth : 0.0f ) * std::sqrt( clear );
-        return fade < 0.0f ? 0.0f : ( fade > 1.0f ? 1.0f : fade );
+        return ( static_cast<float>( core ) + 0.5f ) / 255.0f < localCover;
     }
 
-    /// THE CUT the march makes (the CPU mirror of the shader's CloudRankProfile > 0): a voxel stays when its own
-    /// rank is under the local cover AND it lies within the air's reach of its body. Half a byte of offset so
-    /// that a cover of 0 keeps nothing and 1 keeps every cloud.
-    inline bool CloudProceduralKeep( unsigned char rank, unsigned char core, float localCover, float rankRise )
+    /// THE DENSITY the march draws (the CPU mirror of the shader's CloudCoverProfile): Nubis's coverage
+    /// remap ValueRemap(profile, 1 - g, 1, 0, 1) with g = saturate((cover - core) / softness) — the cluster's
+    /// own Dimensional Profile @p profile, cut by how far the cover has run past its core rank @p core
+    /// (byte / 255, what the UNORM read returns). Zero wherever CloudProceduralKeep is false or the profile
+    /// is zero (air is never cloud); a cluster just past its threshold shows its core, one the cover has
+    /// overrun by a softness stands whole with its own edge. The form does not depend on the cover beyond
+    /// that threshold — erosion is calibrated against a fixed gradient.
+    inline float CloudProceduralCoverProfile( float profile, float core, float localCover, float softness )
     {
-        return ( static_cast<float>( rank ) + 0.5f ) / 255.0f < localCover &&
-               CloudProceduralAirFalloff( static_cast<float>( rank ) / 255.0f, static_cast<float>( core ) / 255.0f,
-                                          localCover, rankRise ) > 0.0f;
+        const float run = localCover - core - 0.5f / 255.0f;
+        if ( run <= 0.0f || profile <= 0.0f )
+            return 0.0f;
+        const float g     = run < softness ? run / ( softness > 1e-4f ? softness : 1e-4f ) : 1.0f;
+        const float value = ( profile - ( 1.0f - g ) ) / g;
+        return value < 0.0f ? 0.0f : ( value > 1.0f ? 1.0f : value );
     }
 
     /// Whether column (@p x, @p z) of @p bake shows sky or cloud at @p localCover: cloud when ANY voxel of it is
@@ -896,7 +871,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000000aULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000000bULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
@@ -917,10 +892,8 @@ namespace Desert::Assets
     struct CloudProceduralCachedBake
     {
         std::vector<unsigned char> Voxels;
-        /// The RG8 rank block, CloudProceduralRankBytes long (CloudProceduralVolumeBake::Ranks).
+        /// The R8 core-rank block, CloudProceduralRankBytes long (CloudProceduralVolumeBake::Ranks).
         std::vector<unsigned char> Ranks;
-        /// CloudProceduralVolumeBake::RankRise, stored after the rank block (deriver v8).
-        float                      RankRise  = 1.0f;
         bool                       FromCache = false;
         uint64_t                   Key       = 0;
         /// Why a fresh bake could not be stored (the file system's own reason), empty when it was — the

@@ -147,8 +147,7 @@ namespace Desert::Tests::CloudAuthoredRef
         struct ProceduralState
         {
             std::vector<unsigned char>                 Voxels;
-            std::vector<unsigned char>                 Ranks; // the R8 rank the cut reads
-            float                                      RankRise = 1.0f; // the bake's ramp in the rank's units
+            std::vector<unsigned char>                 Ranks; // the R8 core rank the cut reads
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
         };
@@ -200,7 +199,6 @@ namespace Desert::Tests::CloudAuthoredRef
             {
                 built.Voxels = baked.GetValue().Voxels;
                 built.Ranks  = baked.GetValue().Ranks;
-                built.RankRise = baked.GetValue().RankRise;
             }
 
             return cache.emplace( key, std::move( built ) ).first->second;
@@ -264,12 +262,12 @@ namespace Desert::Tests::CloudAuthoredRef
             return plane( z0 ) * ( 1.0f - fz ) + plane( z1 ) * fz;
         }
 
-        // THE RG8 RANK PAIR, read as the device reads an RG8_UNORM volume: trilinear, REPEAT, byte / 255 —
-        // x the voxel's own rank, y its cluster's core rank (Assets::kCloudProceduralRankChannels).
-        vec2 CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
+        // THE R8 CORE RANK, read as the device reads an R8_UNORM volume: trilinear, REPEAT, byte / 255 — the
+        // rank of the cluster that owns the voxel (Assets::kCloudProceduralRankChannels).
+        float CloudSampleRankBytes( const std::vector<unsigned char>& ranks, vec3 uvw )
         {
             if ( ranks.empty() )
-                return vec2( 1.0f );
+                return 1.0f;
 
             constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
             constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
@@ -300,13 +298,13 @@ namespace Desert::Tests::CloudAuthoredRef
             {
                 const size_t at = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
                                   Desert::Assets::kCloudProceduralRankChannels;
-                return vec2( ranks[at] / 255.0f, ranks[at + 1u] / 255.0f );
+                return static_cast<float>( ranks[at] ) / 255.0f;
             };
 
             const auto plane = [&]( int iz )
             {
-                const vec2 top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
-                const vec2 bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
+                const float top    = texel( x0, y0, iz ) * ( 1.0f - fx ) + texel( x1, y0, iz ) * fx;
+                const float bottom = texel( x0, y1, iz ) * ( 1.0f - fx ) + texel( x1, y1, iz ) * fx;
                 return top * ( 1.0f - fy ) + bottom * fy;
             };
 
@@ -557,8 +555,7 @@ namespace Desert::Tests::CloudAuthoredRef
             // seam through the bytes.
             params.RegionOriginKm  = Procedural( BoundCoverage() ).OriginKm;
             params.InvRegionSizeKm = 1.0f / Procedural( BoundCoverage() ).Params.RegionSizeKm;
-            params.Weather         = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params,
-                                                                             Procedural( BoundCoverage() ).RankRise );
+            params.Weather         = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params );
 
             return params;
         }
