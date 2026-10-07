@@ -51,10 +51,10 @@ namespace Desert::Graphic
 
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection )
     {
-        ShaderProtocols::Camera cameraUB;
-        cameraUB.Projection = projection;
-        cameraUB.View       = view;
-        cameraUB.CameraPos  = glm::vec3( 0.0f );
+        // A light camera is not a view: no jitter, no previous frame (MakeStillViewFrame); the camera block still
+        // has its one writer. Its position is the light camera's eye.
+        const ShaderProtocols::Camera cameraUB = ShaderProtocols::MakeCameraUB(
+             MakeStillViewFrame( view, projection, glm::vec3( glm::inverse( view )[3] ), 0.0 ) );
 
         if ( auto* camera = material.Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
         {
