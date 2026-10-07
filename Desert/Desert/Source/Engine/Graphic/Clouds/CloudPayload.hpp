@@ -301,6 +301,7 @@ namespace Desert::Graphic
     inline constexpr uint32_t kCloudResolveOutputBinding       = 4; // half-res reconstructed scatter
     inline constexpr uint32_t kCloudResolveGuideOutputBinding  = 5; // half-res reconstructed guide
     inline constexpr uint32_t kCloudResolveParamsBinding       = 6; // CloudResolveParams
+    inline constexpr uint32_t kCloudResolveSceneDepthBinding   = 7; // full-res scene depth, the march's image
 
     /**
      * Per-dispatch data: everything that changes with the CAMERA rather than with the cloud settings.

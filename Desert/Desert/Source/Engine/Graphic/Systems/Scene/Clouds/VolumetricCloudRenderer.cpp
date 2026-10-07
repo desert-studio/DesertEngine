@@ -2074,6 +2074,9 @@ namespace Desert::Graphic::System
         temporal.Name = "Clouds: TemporalResolve";
         temporal.Access.Read( trace, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         temporal.Access.Read( traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        // The march's depth image again: the resolve gives every half-res pixel its OWN scene distance
+        // rather than the one the jitter cycle's traced sub-pixel saw (CloudTemporalResolve.shader, u_SceneDepth).
+        temporal.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
         if ( m_HistoryValid )
         {
             temporal.Access.Read( m_HistoryImage[readIndex], RDG::Access::SampledCompute,
@@ -2085,10 +2088,14 @@ namespace Desert::Graphic::System
                                std::format( "Clouds.History{}", writeIndex ) );
         temporal.Access.Write( m_HistoryGuideImage[writeIndex], RDG::Access::StorageWrite,
                                std::format( "Clouds.HistoryGuide{}", writeIndex ) );
-        temporal.Record = [this, writeIndex, readIndex, trace, traceGuide, historyValid = m_HistoryValid](
-                               RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        temporal.Record = [this, writeIndex, readIndex, trace, traceGuide, historyValid = m_HistoryValid,
+                           depthImage = depth.get()]( RDG::PassContext&     context,
+                                                      const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             auto& renderer = Renderer::GetInstance();
+
+            m_ResolvePipeline->SetInput( kCloudResolveSceneDepthBinding, depthImage, RDG::Access::SampledCompute,
+                                         RDG::SubresourceRange::All() );
 
             m_ResolvePipeline->SetOutput( kCloudResolveOutputBinding, m_HistoryImage[writeIndex].get(), 0 );
             m_ResolvePipeline->SetOutput( kCloudResolveGuideOutputBinding, m_HistoryGuideImage[writeIndex].get(),
