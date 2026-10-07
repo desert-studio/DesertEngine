@@ -37,6 +37,11 @@
 //     CLOUD_SAMPLE_MODELLING( vec3 uvw )           ->  vec4, the procedural MODELLING VOLUME — ONE CHANNEL
 //                                                      PER SPECIES, in the order of the layer's slots,
 //                                                      each of them that species' Dimensional Profile
+//     CLOUD_SAMPLE_MODELLING_RANK( vec3 uvw )      ->  float, the R8 RANK of the same bake (unorm): the
+//                                                      column-CDF rank of the cloud each voxel belongs to
+//     CLOUD_SAMPLE_WEATHER( vec2 uv )              ->  float, the world weather W (standard normal) at
+//                                                      uv = windPos.xz / its period, REPEAT
+//     CLOUD_WEATHER                                ->  vec4, the cut (Graphic::CloudGpuPayload::Weather)
 //     CLOUD_SAMPLE_AUTHORED( vec3 uvw )            ->  vec4, four channels of the sculpted-body ATLAS
 //
 // The third arrives on the same terms as the first two, and the instance list it is addressed with — plus
@@ -280,7 +285,93 @@ vec3 CloudProceduralVolumeUvw( CloudFieldParams params, float heightFraction, ve
                  ( windPos.z - params.RegionOriginKm.y ) * params.InvRegionSizeKm );
 }
 
-#if defined( CLOUD_SAMPLE_NOISE ) && defined( CLOUD_SAMPLE_MODELLING ) && defined( CLOUD_SAMPLE_AUTHORED )
+#if defined( CLOUD_SAMPLE_NOISE ) && defined( CLOUD_SAMPLE_MODELLING ) && defined( CLOUD_SAMPLE_AUTHORED ) && \
+     defined( CLOUD_SAMPLE_MODELLING_RANK ) && defined( CLOUD_SAMPLE_WEATHER ) && defined( CLOUD_WEATHER )
+
+// ---------------------------------------------------------------------------------------------------
+// THE CUT — the GPU half of Assets::CloudProceduralKeep against Assets::CloudProceduralLocalCover
+// ---------------------------------------------------------------------------------------------------
+
+// The standard normal's CDF, Abramowitz & Stegun 7.1.26 for erf (absolute error 1.5e-7). The CPU's is
+// std::erfc in double; the two agree far inside one rank byte (1/255), which is the only resolution the
+// comparison below has.
+float CloudNormalCdf( float x )
+{
+    float z = abs( x ) * 0.7071067811865476f;
+    float t = 1.0f / ( 1.0f + 0.3275911f * z );
+    float poly =
+         ( ( ( ( 1.061405429f * t - 1.453152027f ) * t + 1.421413741f ) * t - 0.284496736f ) * t + 0.254829592f ) *
+         t;
+    float erfAbs = 1.0f - poly * exp( -z * z );
+    return x >= 0.0f ? 0.5f * ( 1.0f + erfAbs ) : 0.5f * ( 1.0f - erfAbs );
+}
+
+// The standard normal's quantile — Acklam's rational approximation, the CPU's NormalQuantile without its
+// double-precision polish (relative error 1.15e-9 before it, far below float).
+float CloudNormalQuantile( float p )
+{
+    p = clamp( p, 1e-7f, 1.0f - 1e-7f );
+    if ( p < 0.02425f || p > 1.0f - 0.02425f )
+    {
+        float q   = sqrt( -2.0f * log( p < 0.5f ? p : 1.0f - p ) );
+        float num = ( ( ( ( -7.784894002430293e-03f * q - 3.223964580411365e-01f ) * q - 2.400758277161838e+00f ) *
+                             q -
+                        2.549732539343734e+00f ) *
+                           q +
+                      4.374664141464968e+00f ) *
+                         q +
+                    2.938163982698783e+00f;
+        float den = ( ( ( 7.784695709041462e-03f * q + 3.224671290700398e-01f ) * q + 2.445134137142996e+00f ) * q +
+                      3.754408661907416e+00f ) *
+                         q +
+                    1.0f;
+        return p < 0.5f ? num / den : -num / den;
+    }
+    float q   = p - 0.5f;
+    float r   = q * q;
+    float num = ( ( ( ( ( -3.969683028665376e+01f * r + 2.209460984245205e+02f ) * r - 2.759285104469687e+02f ) * r +
+                      1.383577518672690e+02f ) *
+                         r -
+                    3.066479806614716e+01f ) *
+                       r +
+                  2.506628277459239e+00f ) *
+                q;
+    float den = ( ( ( ( -5.447609879822406e+01f * r + 1.615858368580409e+02f ) * r - 1.556989798598866e+02f ) * r +
+                    6.680131188771972e+01f ) *
+                       r -
+                  1.328068155288572e+01f ) *
+                     r +
+                1.0f;
+    return num / den;
+}
+
+// THE LOCAL COVER at a world column — Assets::CloudProceduralLocalCover, written for the GPU. The Gaussian
+// copula Phi((Phi^-1(cover) - rho W) / sqrt(1 - rho^2)), whose mean over the weather is the slider exactly;
+// rho = 0 (no strength, or a painted pattern is the weather) is the slider itself, and rho = 1 the step
+// the expression tends to. The same three stand-downs the CPU's WeatherLocalCover makes, in its order.
+float CloudLocalCover( vec4 weather, vec2 windPosXz )
+{
+    float cover = clamp( weather.x, 0.0f, 1.0f );
+    float rho   = weather.y;
+    if ( cover <= 0.0f || cover >= 1.0f || rho * rho <= 1e-4f )
+        return cover;
+
+    float w        = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.w, windPosXz.y * weather.w ) );
+    float residual = sqrt( max( 1.0f - rho * rho, 0.0f ) );
+    float quantile = CloudNormalQuantile( cover );
+    if ( residual < 1e-6f )
+        return rho * w < quantile ? 1.0f : 0.0f;
+    return CloudNormalCdf( ( quantile - rho * w ) / residual );
+}
+
+// THE CUT ITSELF: how far past the keep threshold a voxel's rank sits, over the rank's rise across
+// ProfileDepth — so zero EXACTLY where Assets::CloudProceduralKeep is false ((rank + 0.5) / 255 < cover),
+// one a ProfileDepth inside the kept body, and a cloud near the threshold erodes to its core instead of
+// vanishing whole. `rank` is the unorm read, rank byte / 255.
+float CloudRankProfile( float rank, float localCover, float rankRise )
+{
+    return clamp( ( localCover - rank - 0.5f / 255.0f ) / max( rankRise, 1e-4f ), 0.0f, 1.0f );
+}
 
 // The procedural producer — ONE FETCH, four species.
 //
@@ -321,19 +412,41 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
     vec3 windPos = vec3( positionKm.x - params.WindOffsetKm.x, positionKm.y - params.WindOffsetKm.y,
                          positionKm.z - params.WindOffsetKm.z );
 
-    vec4 volume = CLOUD_SAMPLE_MODELLING( CloudProceduralVolumeUvw( params, heightFraction, windPos ) );
+    vec3 uvw    = CloudProceduralVolumeUvw( params, heightFraction, windPos );
+    vec4 volume = CLOUD_SAMPLE_MODELLING( uvw );
+
+    // THE BAKE KEEPS EVERY CELL; THE CUT IS MADE HERE. The rank of the cloud this voxel belongs to,
+    // against the cover the world weather leaves this column — the comparison Assets::CloudProceduralKeep
+    // makes on the CPU — decides how deep inside a kept body the point is. The species channels then only
+    // name WHICH species owns the point; when all are zero (air the cover has grown the clouds into) the
+    // owner is slot 0, the one index that is always bound.
+    vec4  weather    = CLOUD_WEATHER;
+    float cutProfile = CloudRankProfile( CLOUD_SAMPLE_MODELLING_RANK( uvw ),
+                                         CloudLocalCover( weather, vec2( windPos.x, windPos.z ) ), weather.z );
+    if ( cutProfile <= 0.0f )
+        return result;
 
     int speciesCount = min( params.SpeciesCount, CLOUD_SPECIES_SLOTS );
+    if ( speciesCount <= 0 )
+        return result;
+
+    int   winner = 0;
+    float best   = -1.0f;
 
     for ( int slot = 0; slot < speciesCount; ++slot )
     {
         float speciesProfile = clamp( volume[slot], 0.0f, 1.0f );
-        if ( speciesProfile <= result.Profile )
+        if ( speciesProfile <= best )
             continue;
+        best   = speciesProfile;
+        winner = slot;
+    }
 
+    {
+        int  slot = winner;
         vec4 edge = params.SpeciesEdge[slot];
 
-        result.Profile          = speciesProfile;
+        result.Profile          = cutProfile;
         result.DetailType       = clamp( edge.x, 0.0f, 1.0f );
         result.DetailFactor     = CLOUD_MATERIAL_FACTOR( edge.y );
         result.DensityScale     = CLOUD_MATERIAL_FACTOR( params.DensityScale ) * CLOUD_MATERIAL_FACTOR( edge.z );

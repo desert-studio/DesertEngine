@@ -165,6 +165,14 @@ namespace Desert::Graphic
         pipeline->SetInput( kSkyBakeCloudModellingBinding,
                             cloudsBound && clouds.Modelling != nullptr ? clouds.Modelling : volumeFallback,
                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        pipeline->SetInput( kSkyBakeCloudModellingRankBinding,
+                            cloudsBound && clouds.ModellingRank != nullptr ? clouds.ModellingRank : volumeFallback,
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        pipeline->SetInput( kSkyBakeCloudFarWeatherBinding,
+                            cloudsBound && clouds.FarWeather != nullptr
+                                 ? clouds.FarWeather
+                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA16F ).get(),
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetInput( kSkyBakeCloudAuthoredAtlasBinding,
                             cloudsBound && clouds.AuthoredAtlas != nullptr ? clouds.AuthoredAtlas : volumeFallback,
                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );

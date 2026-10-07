@@ -370,6 +370,9 @@ namespace Desert::Graphic::System
          * @return false, having logged the reason, when the image could not be created at all.
          */
         bool EnsureModellingVolume();
+        /// Build the world weather map for m_ModellingParams if its seed or shortest wave moved; false when
+        /// the device refused the image.
+        bool EnsureFarWeatherMap();
 
         /// The parameters this view's volume was baked from, as a pure function of the layer and the
         /// resolved species. Separated out because it is asked for twice — once to compare against what
@@ -617,6 +620,14 @@ namespace Desert::Graphic::System
         // happens to be, and the two would re-bake each other's region every frame. A renderer with no
         // cloud component never allocates it, which is every asset thumbnail and every mesh preview.
         std::shared_ptr<Image3D> m_ModellingVolume;
+        // The R8 rank of the same bake (Assets::CloudProceduralVolumeBake::Ranks): created and dropped with
+        // m_ModellingVolume, never one without the other.
+        std::shared_ptr<Image3D> m_ModellingRank;
+        // The world weather over one kCloudFarWeatherPeriodKm torus (Assets::BakeCloudFarWeatherMap), rebuilt
+        // only when its seed or its shortest wave moves — see EnsureFarWeatherMap.
+        std::shared_ptr<Image2D> m_FarWeatherMap;
+        uint32_t                 m_FarWeatherSeed   = 0u;
+        float                    m_FarWeatherTileKm = 0.0f;
 
         // A BAKE IN FLIGHT, on Common::JobSystem. A future rather than a raw thread so the result is
         // collected exactly once — the same arrangement, for the same reason, that the sculpting panel's

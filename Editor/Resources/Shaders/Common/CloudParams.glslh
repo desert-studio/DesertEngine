@@ -112,6 +112,10 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // 268 in Graphic::CloudGpuPayload — a silent divergence between the two halves of one layout, which is
     // the failure this whole file exists to prevent. Same reason the species array is where it is.
     vec4  u_CloudAlbedo;
+    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x Coverage, y rho, z the rank's rise
+    // across ProfileDepth in CDF units, w 1 / the weather's period in km. Read through CLOUD_WEATHER by
+    // Common/CloudField.glslh's procedural producer. Before u_CloudAerial for the reason u_CloudAlbedo is.
+    vec4  u_CloudWeather;
     // x = aerial-perspective volume far extent (km), y = its read-side view-distance scale,
     // z = 1 when the volume exists and must be sampled.
     //
@@ -119,12 +123,12 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // used to be a vec4 whose fourth slot carried the cloud type's variance, and then the domain warp's
     // amount; the warp was measured and taken out (see the note in Common/CloudField.glslh), so rather
     // than leave a float nobody reads — which is where the next parameter would get stashed without a
-    // name, a range or a tooltip — the block ends in a vec3. std430 puts it at offset 272 and the block
-    // is 284 bytes; Graphic::CloudGpuPayload pins exactly that with a static_assert.
+    // name, a range or a tooltip — the block ends in a vec3. std430 puts it at offset 288 and the block
+    // is 300 bytes; Graphic::CloudGpuPayload pins exactly that with a static_assert.
     vec3  u_CloudAerial;
 };
 
-// The block is ELEVEN vec4s, a vec4[4], two more vec4s and a vec3, and it stops there. Seeds and octave counts are absent
+// The block is ELEVEN vec4s, a vec4[4], three more vec4s and a vec3, and it stops there. Seeds and octave counts are absent
 // on purpose: they decide what the baked volumes CONTAIN, not how the march reads them, so they belong to
 // the generators and would be four values copied into every dispatch here for nothing.
 

@@ -120,6 +120,13 @@ namespace Desert::Graphic
         // static_assert.
         glm::vec4 Albedo;
 
+        // THE WORLD WEATHER'S CUT, as Assets::CloudFarWeatherUniform packs it: x the slider's Coverage, y rho
+        // = sqrt(PatchStrength) (ZERO when a painted pattern is the weather or the strength is nil), z the
+        // rank's rise across ProfileDepth in CDF units, w 1 / kCloudFarWeatherPeriodKm. The march keeps a
+        // voxel where its R8 rank is under the local cover this decides — Assets::CloudProceduralKeep is the
+        // CPU half of the same comparison. Before the trailing vec3 for the reason Albedo is.
+        glm::vec4 Weather;
+
         // A vec3 AND LAST, which is the only shape in which three values can be three values. It was a
         // vec4 whose fourth slot carried the cloud type's variance, and then briefly the domain warp's
         // amount; the warp was measured and taken out again (Common/CloudField.glslh has the numbers), and
@@ -151,10 +158,11 @@ namespace Desert::Graphic
     // would start at 256 and leave four bytes nobody wrote.
     static_assert( offsetof( CloudGpuPayload, SpeciesNoise ) == 240 );
     static_assert( offsetof( CloudGpuPayload, Albedo ) == 256 );
-    static_assert( offsetof( CloudGpuPayload, Aerial ) == 272 );
-    // 284, NOT 288, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
+    static_assert( offsetof( CloudGpuPayload, Weather ) == 272 );
+    static_assert( offsetof( CloudGpuPayload, Aerial ) == 288 );
+    // 300, NOT 304, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
     // 16, but a stride only exists for an ARRAY of blocks and this is a single one — the shader never
-    // reads past the last member, so the block ends at 284 and so does this. glm::vec3 aligns to 4 rather
+    // reads past the last member, so the block ends at 300 and so does this. glm::vec3 aligns to 4 rather
     // than to 16, so the C++ struct ends there too and there is no trailing padding to explain. Same
     // arrangement, and the same reasoning, as CloudResolveParams below.
     //
@@ -162,12 +170,15 @@ namespace Desert::Graphic
     // was appended to replace them: the region took the weather settings' slot, and the settings that
     // moved to the bake left the block rather than travelling to a march that would not read them.
     //
-    // AND IT GREW BY SIXTEEN TWICE. Once for SpeciesNoise — the price of a type's noise volume reaching
+    // AND IT GREW BY SIXTEEN THREE TIMES. The third is Weather — the cut the march makes against the rank,
+    // which the bake stopped making when the world weather moved to the march (FARWX).
+    //
+    // AND IT GREW BY SIXTEEN TWICE BEFORE THAT. Once for SpeciesNoise — the price of a type's noise volume reaching
     // the march at all; until it was paid, three of a layer's four slots could name a volume the frame
     // never read. Once for Albedo, which is the price of the scattering albedo being a COLOUR: a vec4 is
     // the smallest shape three contiguous components fit in.
-    static_assert( sizeof( CloudGpuPayload ) == 284,
-                   "Eleven vec4s, a vec4[4], two more vec4s and a vec3 — the shader reads exactly this and "
+    static_assert( sizeof( CloudGpuPayload ) == 300,
+                   "Eleven vec4s, a vec4[4], three more vec4s and a vec3 — the shader reads exactly this and "
                    "nothing more." );
 
     inline constexpr uint32_t kCloudPayloadBytes = sizeof( CloudGpuPayload );
@@ -268,6 +279,14 @@ namespace Desert::Graphic
     // (Graphic::kSkyTransmittanceLutBinding), so it applies this feature through that descriptor and only
     // its gate travels — see CloudBakeBinding::PerSampleSunTransmittance.
     inline constexpr uint32_t kCloudSunTransmittanceLutBinding = 14;
+    // THE R8 RANK beside the modelling volume (Assets::CloudProceduralVolumeBake::Ranks), same extent and
+    // region: the column-CDF rank of the cloud each voxel belongs to. The march keeps a voxel where this is
+    // under the local cover (CloudGpuPayload::Weather), which is where the Coverage slider and the world
+    // weather act now that the bake keeps every cell.
+    inline constexpr uint32_t kCloudModellingRankBinding = 15;
+    // THE WORLD WEATHER MAP (Assets::BakeCloudFarWeatherMap): 512^2 over one kCloudFarWeatherPeriodKm torus,
+    // W in .r, sampled with REPEAT at `windPosKm.xz * Weather.w`. Bound always; rho = 0 stops it being read.
+    inline constexpr uint32_t kCloudFarWeatherBinding = 16;
 
     /**
      * @brief The FOUR noise volumes a layer can bind, by descriptor number, in the order CloudGpuPayload::
@@ -596,6 +615,10 @@ namespace Desert::Graphic
     {
         glm::vec2 OriginKm{ 0.0f }; ///< the region's minimum corner, world kilometres
         float     SideKm = 1.0f;    ///< its horizontal side, and the period the volume tiles with
+        /// The cut the march makes against the bake's rank — Assets::CloudFarWeatherUniform of the SAME
+        /// parameters the bound volume was baked from, so the cover and the rank's rise belong to the bytes
+        /// they are compared with. Zero (the default) keeps nothing: no bake, no cut to make.
+        glm::vec4 Weather{ 0.0f };
     };
 
     /**
@@ -941,6 +964,8 @@ namespace Desert::Graphic
         // from the cloud component because they describe the VOLUME, and the volume belongs to the sky —
         // a second authored copy here is how the fill and the read end up disagreeing about the slice
         // mapping.
+        p.Weather = region.Weather;
+
         p.Aerial = glm::vec3( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
                               atmosphere.AerialPerspectiveVolume != nullptr ? 1.0f : 0.0f );
 

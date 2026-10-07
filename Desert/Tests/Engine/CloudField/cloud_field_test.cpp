@@ -2469,6 +2469,62 @@ TEST( CloudField, TheShippedErosionAndAGraphReadTheVolumeAtTheSameCOORDINATE )
          << "a Detail Tile Size of zero produced a non-finite noise coordinate";
 }
 
+// THE SHADER'S CUT IS Assets::CloudProceduralKeep AGAINST Assets::CloudProceduralLocalCover. The march reads
+// the rank and the world weather through the same macros the GPU defines, and keeps a voxel where its
+// CloudRankProfile is above zero; the CPU's statement of the same decision is the pair named above. Walked
+// at voxel CENTRES, where the trilinear read is the byte itself, and with the weather switched ON so the
+// copula is exercised and not stood down. A mismatch is forgiven only within 1e-4 of the threshold, which
+// is the float-vs-double distance of the two CDFs and far inside one rank byte.
+//
+// MUTATION: drop `- rho * w` in CloudLocalCover (Common/CloudField.glslh) and this goes red.
+TEST( CloudFieldCut, TheShadersCutIsCloudProceduralKeepAgainstTheLocalCover )
+{
+    using namespace Desert::Tests::CloudFieldRef;
+
+    const Desert::Graphic::CloudTypeShape shape = Desert::Assets::CloudTypeDefaultShape();
+    CloudModellingVolumeSelectSet( &shape, 1u, 0.45f, 1.0f, vec3( 1.0f, 0.0f, 0.0f ) );
+
+    ModellingVolumeState& state = ModellingVolume();
+    state.Params.PatchStrength  = 0.6f;
+    state.Params.PatchTileKm    = 20.0f;
+    ASSERT_TRUE( state.Ranks && !state.Ranks->empty() ) << "the bake returned no rank block";
+
+    const vec4 weather = CLOUD_WEATHER;
+    ASSERT_GT( weather.y, 0.0f ) << "the weather stood down, so the copula is not under test";
+
+    constexpr int side   = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
+    constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
+
+    int compared = 0, kept = 0, mismatched = 0;
+    for ( int iz = 0; iz < side; iz += 5 )
+        for ( int ix = 0; ix < side; ix += 5 )
+        {
+            const vec2  worldKm = state.OriginKm + vec2( ( ix + 0.5f ) / side, ( iz + 0.5f ) / side ) *
+                                                       state.Params.RegionSizeKm;
+            const float gpuCover = CloudLocalCover( weather, worldKm );
+            const float cpuCover = Desert::Assets::CloudProceduralLocalCover( state.Params, worldKm );
+
+            for ( int iy = 0; iy < height; iy += 3 )
+            {
+                const vec3 uvw( ( ix + 0.5f ) / side, ( iy + 0.5f ) / height, ( iz + 0.5f ) / side );
+                const unsigned char rank =
+                     ( *state.Ranks )[( static_cast<size_t>( iz ) * height + iy ) * side + ix];
+
+                const bool gpuKeeps = CloudRankProfile( CLOUD_SAMPLE_MODELLING_RANK( uvw ), gpuCover, weather.z ) > 0.0f;
+                const bool cpuKeeps = Desert::Assets::CloudProceduralKeep( rank, cpuCover );
+
+                ++compared;
+                kept += cpuKeeps ? 1 : 0;
+                if ( gpuKeeps != cpuKeeps && std::abs( cpuCover - ( rank + 0.5f ) / 255.0f ) > 1e-4f )
+                    ++mismatched;
+            }
+        }
+
+    EXPECT_GT( kept, 0 ) << "nothing was kept, so the comparison is vacuous";
+    EXPECT_LT( kept, compared ) << "everything was kept, so the comparison is vacuous";
+    EXPECT_EQ( mismatched, 0 ) << "of " << compared << " voxels the shader's cut and CloudProceduralKeep disagree";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

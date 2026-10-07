@@ -17,6 +17,8 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 
+#include <glm/gtc/packing.hpp>
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -549,6 +551,23 @@ namespace Desert::Graphic::System
             };
 
             m_ModellingVolume = Image3D::Create( spec );
+
+            // THE RANK BESIDE IT, one byte a voxel over the same extent: what the march compares against
+            // the local cover (CloudGpuPayload::Weather). Without it the bake's every-cell profile would be
+            // drawn whole, which is a solid sky.
+            const Core::Formats::Image3DSpecification rankSpec{
+                 .Tag        = "CloudModellingRank",
+                 .Width      = bakedSide,
+                 .Height     = Assets::kCloudProceduralVolumeHeight,
+                 .Depth      = bakedSide,
+                 .Format     = Core::Formats::ImageFormat::R8_UNORM,
+                 .Data       = baked.GetValue().Ranks,
+                 .Properties = Core::Formats::Sample,
+            };
+            m_ModellingRank = m_ModellingVolume ? Image3D::Create( rankSpec ) : nullptr;
+            if ( !m_ModellingRank )
+                m_ModellingVolume.reset();
+
             if ( !m_ModellingVolume )
             {
                 // A device allocation failure is about the SIZE, so blaming the pending parameters keeps the
@@ -557,8 +576,8 @@ namespace Desert::Graphic::System
                 m_ModellingFailed = true;
                 m_FailedParams    = m_PendingParams;
                 m_FailedOriginKm  = m_PendingOriginKm;
-                LOG_ERROR( "[Clouds] The {}x{}x{} RGBA8 procedural modelling volume could not be created on "
-                           "the device; the clouds will not render for this view.",
+                LOG_ERROR( "[Clouds] The {}x{}x{} RGBA8 procedural modelling volume or its R8 rank could not "
+                           "be created on the device; the clouds will not render for this view.",
                            bakedSide, Assets::kCloudProceduralVolumeHeight, bakedSide );
                 m_ModellingValid = false;
                 return false;
@@ -574,6 +593,12 @@ namespace Desert::Graphic::System
             m_ModellingParams   = m_PendingParams;
             m_ModellingOriginKm = m_PendingOriginKm;
             m_ModellingValid    = true;
+
+            if ( !EnsureFarWeatherMap() )
+            {
+                m_ModellingValid = false;
+                return false;
+            }
 
             // FROM THE PENDING SET AND NOT FROM THIS FRAME'S, which is the same statement m_ModellingParams
             // above it makes: what is recorded as "what the volume on the device was built from" has to be
@@ -985,8 +1010,58 @@ namespace Desert::Graphic::System
         const CloudQualityScale quality = CloudQualityFor( m_Quality );
 
         payload = PackCloudParams( m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
-                                   CloudRegionBinding{ m_ModellingOriginKm, m_ModellingParams.RegionSizeKm },
+                                   CloudRegionBinding{ m_ModellingOriginKm, m_ModellingParams.RegionSizeKm,
+                                                       Assets::CloudFarWeatherUniform( m_ModellingParams ) },
                                    quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
+        return true;
+    }
+
+    bool VolumetricCloudRenderer::EnsureFarWeatherMap()
+    {
+        // KEYED ON WHAT THE MAP IS A FUNCTION OF, and nothing else: the seed and the shortest wave. The
+        // cover and the strength are read by the march through CloudGpuPayload::Weather, so moving the
+        // Coverage slider re-uploads nothing here.
+        const uint32_t seed   = Assets::CloudFarWeatherSeed( m_ModellingParams );
+        const float    tileKm = m_ModellingParams.PatchTileKm;
+
+        if ( m_FarWeatherMap && m_FarWeatherSeed == seed && m_FarWeatherTileKm == tileKm )
+            return true;
+
+        const std::vector<float> weather = Assets::BakeCloudFarWeatherMap( seed, tileKm );
+
+        // RGBA16F WITH W IN .r: a half keeps W (|W| < 5) to 2e-3, a thousandth of the copula's sensitivity
+        // band, and is filterable on every device this engine targets where R32F is not.
+        std::vector<unsigned char> texels( weather.size() * 4u * sizeof( uint16_t ), 0u );
+        for ( size_t i = 0; i < weather.size(); ++i )
+        {
+            const uint16_t half = static_cast<uint16_t>( glm::packHalf1x16( weather[i] ) );
+            std::memcpy( texels.data() + i * 4u * sizeof( uint16_t ), &half, sizeof( half ) );
+        }
+
+        const Core::Formats::Image2DSpecification spec{
+             .Tag        = "CloudFarWeatherMap",
+             .Width      = Assets::kCloudFarWeatherMapSide,
+             .Height     = Assets::kCloudFarWeatherMapSide,
+             .Format     = Core::Formats::ImageFormat::RGBA16F,
+             .Data       = std::move( texels ),
+             .Usage      = Core::Formats::Image2DUsage::Image2D,
+             .Properties = Core::Formats::Sample,
+        };
+
+        if ( m_FarWeatherMap )
+            Renderer::GetInstance().WaitDeviceIdle();
+
+        m_FarWeatherMap = Image2D::Create( spec );
+        if ( !m_FarWeatherMap )
+        {
+            LOG_ERROR( "[Clouds] The {}^2 world weather map could not be created on the device; the clouds will "
+                       "not render for this view.",
+                       Assets::kCloudFarWeatherMapSide );
+            return false;
+        }
+
+        m_FarWeatherSeed   = seed;
+        m_FarWeatherTileKm = tileKm;
         return true;
     }
 
@@ -1021,6 +1096,8 @@ namespace Desert::Graphic::System
             bake.Noise[slot] = m_NoiseVolume[slot].get();
 
         bake.Modelling     = m_ModellingVolume.get();
+        bake.ModellingRank = m_ModellingRank.get();
+        bake.FarWeather    = m_FarWeatherMap.get();
         bake.AuthoredAtlas = m_AuthoredAtlas.get();
 
         // THE PREVIOUS FRAME'S VOLUME, and it can be nothing else: this runs before the frame's own
@@ -1155,6 +1232,10 @@ namespace Desert::Graphic::System
                 m_ShadowMapPipeline->SetInput( kCloudShadowNoiseBindings[slot], m_NoiseVolume[slot].get(),
                                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_ShadowMapPipeline->SetInput( kCloudShadowModellingBinding, m_ModellingVolume.get(),
+                                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_ShadowMapPipeline->SetInput( kCloudShadowModellingRankBinding, m_ModellingRank.get(),
+                                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_ShadowMapPipeline->SetInput( kCloudShadowFarWeatherBinding, m_FarWeatherMap.get(),
                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowAuthoredBinding, m_ShadowAuthoredBuffer.get() );
             // ALWAYS bound, fallback included — see the note at the march's own binding of it.
@@ -1867,6 +1948,10 @@ namespace Desert::Graphic::System
                                                       RDG::SubresourceRange::All() );
                 m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionModellingBinding, m_ModellingVolume.get(),
                                                   RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionModellingRankBinding, m_ModellingRank.get(),
+                                                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionFarWeatherBinding, m_FarWeatherMap.get(),
+                                                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
                 m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionAuthoredBinding,
                                                           m_AuthoredBuffer.get() );
                 // The same buffer the march binds, and legitimately so: this dispatch is issued inside
@@ -1973,6 +2058,10 @@ namespace Desert::Graphic::System
                 m_MarchPipeline->SetInput( kCloudNoiseBindings[slot], m_NoiseVolume[slot].get(),
                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_MarchPipeline->SetInput( kCloudModellingBinding, m_ModellingVolume.get(),
+                                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_MarchPipeline->SetInput( kCloudModellingRankBinding, m_ModellingRank.get(),
+                                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_MarchPipeline->SetInput( kCloudFarWeatherBinding, m_FarWeatherMap.get(),
                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
             // ALWAYS bound, even when the payload's gate says it will not be read: a declared sampler with no
@@ -2168,6 +2257,8 @@ namespace Desert::Graphic::System
     void VolumetricCloudRenderer::DeclareVolumeReads( RenderPassDeclaration& declared ) const
     {
         declared.Read( m_ModellingVolume, RDG::Access::SampledCompute, "Clouds.Modelling" );
+        declared.Read( m_ModellingRank, RDG::Access::SampledCompute, "Clouds.ModellingRank" );
+        declared.Read( m_FarWeatherMap, RDG::Access::SampledCompute, "Clouds.FarWeather" );
         declared.Read( m_AuthoredAtlas, RDG::Access::SampledCompute, "Clouds.AuthoredAtlas" );
         // The noise volumes: the first m_NoiseNeeded slots are the distinct images, the rest repeat slot 0
         // and are one graph resource already, so each image is declared once.

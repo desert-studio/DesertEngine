@@ -47,6 +47,11 @@ Shader "CloudSkyOcclusionVolume"
         Uniform(11) sampler3D u_CloudNoise2;
         Uniform(12) sampler3D u_CloudNoise3;
         Uniform(7) sampler3D u_CloudModelling;
+        // The R8 RANK of the same bake (Graphic::kCloudModellingRankBinding) and the WORLD WEATHER map
+        // (Graphic::kCloudFarWeatherBinding): the cut Common/CloudField.glslh makes against u_CloudWeather.
+        // Always bound, on the terms every sampler here is.
+        Uniform(15) sampler3D u_CloudModellingRank;
+        Uniform(16) sampler2D u_CloudFarWeather;
         Uniform(9) sampler3D u_CloudAuthoredAtlas;
 
         // The same four-way select the other two passes declare, repeated for the same reason:
@@ -64,6 +69,9 @@ Shader "CloudSkyOcclusionVolume"
 
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
+        #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
+        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
+        #define CLOUD_WEATHER u_CloudWeather
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
 
         #define CLOUD_AUTHORED_BUFFER_BINDING 8

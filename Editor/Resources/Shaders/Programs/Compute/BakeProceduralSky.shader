@@ -111,6 +111,11 @@ Shader "BakeProceduralSky"
         // sculpted hero-cloud ATLAS beside it. Both borrowed from the VolumetricCloudRenderer of the same
         // SceneRenderer, so the panorama is baked from the field the frame is about to march.
         Uniform(9)  sampler3D u_CloudModelling;
+        // The R8 RANK of the same bake (Graphic::kCloudModellingRankBinding) and the WORLD WEATHER map
+        // (Graphic::kCloudFarWeatherBinding): the cut Common/CloudField.glslh makes against u_CloudWeather.
+        // Always bound, on the terms every sampler here is.
+        Uniform(14) sampler3D u_CloudModellingRank;
+        Uniform(15) sampler2D u_CloudFarWeather;
         Uniform(10) sampler3D u_CloudAuthoredAtlas;
 
         // The sky's DISTANT SKY LIGHT: one texel holding the average radiance of the whole sky. It is the
@@ -143,6 +148,9 @@ Shader "BakeProceduralSky"
         // is undefined. Both volumes have one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
+        #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
+        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
+        #define CLOUD_WEATHER u_CloudWeather
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
 
         // Slot A's instance list, included BEFORE the seam because the seam's authored producer reads the
