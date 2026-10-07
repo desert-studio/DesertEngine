@@ -550,7 +550,7 @@ namespace Desert::Tests::CloudAuthoredRef
             // seam through the bytes.
             params.RegionOriginKm  = Procedural( BoundCoverage() ).OriginKm;
             params.InvRegionSizeKm = 1.0f / Procedural( BoundCoverage() ).Params.RegionSizeKm;
-            params.Weather         = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params );
+            params.Weather = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params );
 
             return params;
         }

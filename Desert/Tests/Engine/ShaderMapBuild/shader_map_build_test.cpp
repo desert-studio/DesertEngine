@@ -299,7 +299,8 @@ TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
 // cloud, and every cloud suite stayed green: they compile the headers as C++, where the seam's macros are the
 // test's own, and no suite handed those four programs to glslang. The round above lists eight directories for
 // overlap and never reached Clouds/ or Compute/. This one lists them all, as the content registry does, and asks
-// each for stages — the editor's own answer to "did it compile", logged as "registered but has no compiled stages".
+// each for stages — the editor's own answer to "did it compile", logged as "registered but has no compiled
+// stages".
 //
 // MUTATION: restore `#define CLOUD_WEATHER u_CloudWeather` in Programs/Clouds/CloudRaymarch.shader and read it
 // as `vec4 weather = CLOUD_WEATHER;` in Common/CloudField.glslh's producer — CloudRaymarch goes red here, naming
