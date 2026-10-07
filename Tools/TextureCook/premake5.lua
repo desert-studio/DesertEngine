@@ -17,6 +17,7 @@ project "TextureCook"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",

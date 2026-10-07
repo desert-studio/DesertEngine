@@ -52,6 +52,7 @@ project(test_name)
         -- measures its own output against, and stb_image as the one decoder in the closure. The same
         -- four files Tests/Editor/TextureImport compiles, so nothing here is a second texture cook.
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",

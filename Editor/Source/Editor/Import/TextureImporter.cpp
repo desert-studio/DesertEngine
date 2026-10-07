@@ -12,6 +12,7 @@
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Editor/Import/TextureSourceFormats.hpp>
+#include <Editor/Import/DdsSource.hpp>
 
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
@@ -573,7 +574,8 @@ namespace Desert::Editor
             return { handle, TextureCookOutcome::Fresh };
         }
         const bool isEXR = IsExrSource( sourceBytesStorage, sourceKey );
-        const bool isHDR = !isEXR && stbi_is_hdr_from_memory( stbSource.data(),
+        const bool isDDS = !isEXR && IsDdsSource( sourceBytesStorage, sourceKey );
+        const bool isHDR = !isEXR && !isDDS && stbi_is_hdr_from_memory( stbSource.data(),
                                                               static_cast<int>( sourceBytesStorage.size() ) ) != 0;
 
         int                                w = 0, h = 0, ch = 0;
@@ -603,6 +605,36 @@ namespace Desert::Editor
                 format = Desert::Core::Formats::ImageFormat::RGBA32F;
                 base.resize( exr.Rgba.size() * sizeof( float ) );
                 std::memcpy( base.data(), exr.Rgba.data(), base.size() );
+            }
+        }
+        else if ( isDDS )
+        {
+            // stb has no DDS decoder either (it answers "unknown image type"); DdsSource.cpp is the one.
+            // Same refusal shape as EXR: nothing written, nothing cached, the path and the format logged.
+            auto dds = DecodeDdsSource( stbSource.data(), stbSource.size() );
+            if ( !dds.IsSuccess() )
+            {
+                LOG_ERROR( "[TextureImporter] DDS decode failed for '{0}' ({1}); no cooked texture was "
+                           "written and the null handle is returned.",
+                           abs, dds.GetError() );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+            }
+            DdsSourceImage image = dds.ExtractValue();
+            w                    = static_cast<int>( image.Width );
+            h                    = static_cast<int>( image.Height );
+            if ( !image.IsFloat )
+            {
+                base = std::move( image.Rgba8 );
+            }
+            else if ( authored.Intent == Fmt::TextureIntent::NormalMap )
+            {
+                base = QuantiseToUnorm8( image.RgbaF );
+            }
+            else
+            {
+                format = Desert::Core::Formats::ImageFormat::RGBA32F;
+                base.resize( image.RgbaF.size() * sizeof( float ) );
+                std::memcpy( base.data(), image.RgbaF.data(), base.size() );
             }
         }
         else if ( isHDR )

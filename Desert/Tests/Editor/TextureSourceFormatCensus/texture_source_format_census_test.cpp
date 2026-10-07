@@ -34,8 +34,8 @@ using Desert::Editor::kTextureSourceExtensionCount;
 using Desert::Editor::kTextureSourceExtensions;
 using Desert::Editor::TextureSourceFormatRank;
 
-// --- 1. The order itself, compile-time. Lossless (.tga/.png/.bmp) < lossy (.jpg/.jpeg) < extended
-// range (.exr/.hdr); .tga first by the owner's decision recorded in the header. If any of these fires,
+// --- 1. The order itself, compile-time. Lossless (.tga/.png/.bmp) < lossy (.jpg/.jpeg) < GPU blocks
+// (.dds) < extended range (.exr/.hdr); .tga first by the owner's decision recorded in the header. If any of these fires,
 // somebody reordered the list — the header says a reason must be written there when that happens.
 static_assert( TextureSourceFormatRank( ".tga" ) == 0, "TGA is the preferred source format" );
 static_assert( TextureSourceFormatRank( ".tga" ) < TextureSourceFormatRank( ".jpg" ) );
@@ -44,7 +44,10 @@ static_assert( TextureSourceFormatRank( ".bmp" ) < TextureSourceFormatRank( ".jp
 static_assert( TextureSourceFormatRank( ".jpg" ) < TextureSourceFormatRank( ".exr" ) );
 static_assert( TextureSourceFormatRank( ".jpeg" ) < TextureSourceFormatRank( ".exr" ) );
 static_assert( TextureSourceFormatRank( ".jpeg" ) < TextureSourceFormatRank( ".hdr" ) );
-static_assert( TextureSourceFormatRank( ".dds" ) == kTextureSourceExtensionCount, "unknown ext -> count" );
+static_assert( TextureSourceFormatRank( ".jpeg" ) < TextureSourceFormatRank( ".dds" ),
+               "a .dds holds GPU blocks — a lossy export — so every LDR sibling outranks it" );
+static_assert( TextureSourceFormatRank( ".dds" ) < TextureSourceFormatRank( ".exr" ) );
+static_assert( TextureSourceFormatRank( ".ktx" ) == kTextureSourceExtensionCount, "unknown ext -> count" );
 static_assert( TextureSourceFormatRank( ".TGA" ) == kTextureSourceExtensionCount,
                "the rank function expects a lower-cased extension; callers lower-case first" );
 

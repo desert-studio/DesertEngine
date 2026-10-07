@@ -123,6 +123,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureChannelPack.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/EmbeddedSourceTexture.cpp", -- the file's embedded textures
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
     }
