@@ -1019,7 +1019,18 @@ TEST( CloudPlacementSpectrum, TheTowersFootprintConstantsSayWhatTheLayoutActuall
         params.Species[0].Shape.AnvilStrength = 0.0f;
         params.Species[0].Shape.Profile       = Desert::Graphic::CloudProfileFromTaper( taper );
         params.Coverage                       = 0.5f;
-        return SkyCover( params );
+        // THE BODIES' FOOTPRINT AND NOT THE SKY THE MARCH KEEPS. Since FARWX-a3 the cut grows the clouds
+        // into the rank's falloff until the column CDF hands out exactly the slider, so the kept sky is
+        // the same at every taper by construction (0.5166 / 0.5167 measured) and says nothing about the
+        // footprint. What the constants predict is the area of the BODIES the alive cells place — the
+        // lumps of the cells under the local cover, rasterised the way the bake draws them.
+        const glm::vec2          origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+        const std::vector<float> map =
+             RasteriseColumns( GenerateCloudProceduralBlobs( params, 0u, origin ), origin, params.RegionSizeKm );
+        size_t covered = 0;
+        for ( float v : map )
+            covered += ( v > 0.0f ) ? 1u : 0u;
+        return static_cast<double>( covered ) / static_cast<double>( map.size() );
     };
 
     const double flat    = skyAtTaper( 0.4f );
