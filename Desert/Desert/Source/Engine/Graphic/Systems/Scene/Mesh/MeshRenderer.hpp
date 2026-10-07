@@ -591,9 +591,9 @@ namespace Desert::Graphic::System
         // per-group material state (Materials[] / bones / instance SSBOs, the shared scene state) is written
         // here, at final size, before any draw is recorded; a refused build is the list's error.
         void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
-        void BuildSkinnedDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
+        void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
         // per-object data-driven materials (v3 slots + overrides)
-        void BuildGenericDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
+        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list );
         void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
@@ -615,13 +615,10 @@ namespace Desert::Graphic::System
         // Material pipelines on demand (AL1-12). The spec a data-driven material draws with in this renderer;
         // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,
         // which is what a draw uses until its own pipeline is Ready.
-        [[nodiscard]] static GraphicsPipelineSpecification
-        GenericPipelineSpec( const std::shared_ptr<Shader>& shader, const std::shared_ptr<Framebuffer>& target,
-                             bool useLoadPass );
-        void PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target, bool useLoadPass );
+        [[nodiscard]] static GraphicsPipelineSpecification GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
+        void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
-        std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target,
-                                                                  bool useLoadPass );
+        std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         void RegisterSilhouettePass( RenderGraphBuilder& builder );
         void RegisterShadowPass( RenderGraphBuilder& builder );
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell

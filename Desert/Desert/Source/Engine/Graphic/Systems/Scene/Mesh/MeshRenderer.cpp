@@ -369,8 +369,8 @@ namespace Desert::Graphic::System
             if ( deferred || m_SceneRenderer->GetMainCamera() == nullptr )
                 return;
             BuildStaticDraws( m_ForwardDraws );
-            BuildSkinnedDraws( /*useLoadPass*/ false, m_ForwardDraws );
-            BuildGenericDraws( /*useLoadPass*/ false, m_ForwardDraws );
+            BuildSkinnedDraws( m_ForwardDraws );
+            BuildGenericDraws( m_ForwardDraws );
             m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
         };
 

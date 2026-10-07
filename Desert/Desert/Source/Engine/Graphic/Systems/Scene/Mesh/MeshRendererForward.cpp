@@ -45,14 +45,13 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
-    void MeshRenderer::BuildGenericDraws( const bool useLoadPass, MeshDrawList& list )
+    void MeshRenderer::BuildGenericDraws( MeshDrawList& list )
     {
-        const auto  targetFb = m_TargetFramebuffer.lock();
-        const auto* camera   = m_SceneRenderer->GetMainCamera();
-        if ( !targetFb || camera == nullptr )
+        const auto* camera = m_SceneRenderer->GetMainCamera();
+        if ( m_TargetFramebuffer.expired() || camera == nullptr )
             return;
 
-        PrecacheRequestedMaterials( targetFb, useLoadPass );
+        PrecacheRequestedMaterials();
         if ( m_GenericQueue.empty() )
             return;
 
@@ -198,7 +197,7 @@ namespace Desert::Graphic::System
             // NAMED ONCE PER SHADER, for the reason the domain refusal above gives: this runs per frame
             // per submesh group. The cache remembers the refusal itself, so the rebuild happens once;
             // this set is only about the log line.
-            GraphicsPipelineSpecification spec = GenericPipelineSpec( shader, targetFb, useLoadPass );
+            GraphicsPipelineSpecification spec = GenericPipelineSpec( shader );
             spec.DebugName                     = std::format( kGenericMeshNameFormat, shader->GetName() );
             const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
             if ( built )
@@ -231,7 +230,7 @@ namespace Desert::Graphic::System
                               "ready (pipeline {})",
                               shaderName,
                               MaterialPipelineStateName( *m_MaterialPipelines.StateOf( shaderName ) ) );
-                pipeline = DefaultSurfacePipeline( targetFb, useLoadPass );
+                pipeline = DefaultSurfacePipeline();
                 if ( !pipeline || pipeline->GetReadiness() != PipelineReadiness::Ready )
                     continue;
                 material = m_DefaultSurfaceMaterial.get();
@@ -363,16 +362,13 @@ namespace Desert::Graphic::System
         }
     }
 
-    GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>&      shader,
-                                                                     const std::shared_ptr<Framebuffer>& target,
-                                                                     const bool useLoadPass )
+    GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>& shader )
     {
         GraphicsPipelineSpecification spec;
-        spec.DebugName         = std::format( kGenericMeshNameFormat, shader->GetName() );
-        spec.Shader            = shader;
+        spec.DebugName    = std::format( kGenericMeshNameFormat, shader->GetName() );
+        spec.Shader       = shader;
         spec.TargetLayout = SceneTargetLayout();
-        spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
-        spec.UseLoadRenderPass = useLoadPass; // deferred manual pass begins with LOAD
+        spec.Layout       = MeshVertexLayout( MeshVertexPath::Static );
         ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
         return spec;
     }
@@ -396,10 +392,9 @@ namespace Desert::Graphic::System
     // Every frame, before the queue is looked at: the stand-in is an ENGINE pipeline, requested with the first
     // frame whatever the scene holds, so the reveal waits for it; then every material that LOADED since the
     // last frame gets its compile handed to a worker here, before any mesh using it is drawn.
-    void MeshRenderer::PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target,
-                                                   const bool                          useLoadPass )
+    void MeshRenderer::PrecacheRequestedMaterials()
     {
-        (void)DefaultSurfacePipeline( target, useLoadPass );
+        (void)DefaultSurfacePipeline();
         for ( const auto& name : MaterialPipelineRequests::Get().Since( m_MaterialRequestCursor ) )
         {
             m_MaterialPipelines.Request( name );
@@ -407,8 +402,7 @@ namespace Desert::Graphic::System
             auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
             if ( !shader || !shader->IsCompiled() )
                 continue;
-            const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial(
-                 GenericPipelineSpec( shader, target, useLoadPass ) );
+            const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( GenericPipelineSpec( shader ) );
             if ( built )
                 TrackMaterialPipeline( name, *built.GetValue() );
             else
@@ -416,8 +410,7 @@ namespace Desert::Graphic::System
         }
     }
 
-    std::shared_ptr<GraphicsPipeline>
-    MeshRenderer::DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target, const bool useLoadPass )
+    std::shared_ptr<GraphicsPipeline> MeshRenderer::DefaultSurfacePipeline()
     {
         // Found by ROLE (the project's DefaultSurfaceTemplate, else the shader declaring `Default Surface`),
         // never by a template name.
@@ -442,7 +435,7 @@ namespace Desert::Graphic::System
                            key.GetValue() );
             return nullptr;
         }
-        GraphicsPipelineSpecification spec = GenericPipelineSpec( shader, target, useLoadPass );
+        GraphicsPipelineSpecification spec = GenericPipelineSpec( shader );
         spec.DebugName                     = "DefaultSurfaceFallback";
         const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !built )
@@ -484,16 +477,16 @@ namespace Desert::Graphic::System
     void MeshRenderer::DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
         m_GenericDraws.Clear();
-        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
+        if ( m_SceneRenderer == nullptr || !m_SceneRenderer->GetTargetFramebuffer() ||
+             m_SceneRenderer->GetMainCamera() == nullptr )
             return;
         if ( m_GenericQueue.empty() )
         {
-            PrecacheRequestedMaterials( target, /*useLoadPass*/ true );
+            PrecacheRequestedMaterials();
             return;
         }
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        BuildGenericDraws( /*useLoadPass*/ true, m_GenericDraws );
+        BuildGenericDraws( m_GenericDraws );
         m_GenericDraws.Declare( pass, view );
     }
 
@@ -1209,7 +1202,7 @@ namespace Desert::Graphic::System
         return;
     }
 
-    void MeshRenderer::BuildSkinnedDraws( const bool useLoadPass, MeshDrawList& list )
+    void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list )
     {
         if ( m_SkinnedQueue.empty() )
             return;
@@ -1223,32 +1216,9 @@ namespace Desert::Graphic::System
         // layer's shadow reach them at all.
         const PBRSceneFrame frameState = CaptureFrameState( camera );
 
-        // Deferred forward-over-composite: a LOAD-render-pass variant of the skinned pipeline (built once via
-        // the pipeline cache), so skinned meshes draw OVER the deferred scene instead of clearing it. Same
-        // mechanism the generic + glass passes use. Forward path keeps the plain pipeline (no load).
+        // One pipeline on both paths: it is built against SceneTargetLayout, and the graph opens the pass with
+        // each slot's load op (LOAD over the deferred composite, CLEAR on the forward path's first writer).
         GraphicsPipeline* pipeline = m_SkinnedPipeline.get();
-        if ( useLoadPass && m_SkinnedPipeline )
-        {
-            GraphicsPipelineSpecification spec = m_SkinnedPipeline->GetSpecification();
-            spec.UseLoadRenderPass             = true;
-            spec.DebugName                     = "SkinnedMesh_Load";
-            // A refusal here is not fatal: `pipeline` still holds the non-LOAD skinned pipeline, which
-            // draws over a cleared target instead of the composited one. Named once, because this runs
-            // every frame.
-            const auto loadVariant = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
-            if ( loadVariant )
-            {
-                pipeline = loadVariant.GetValue().get();
-            }
-            else
-            {
-                static bool s_Warned = false;
-                if ( !std::exchange( s_Warned, true ) )
-                    LOG_ERROR( "[MeshRenderer] skinned meshes draw through the non-LOAD pipeline in the "
-                               "deferred path: {}",
-                               loadVariant.GetError() );
-            }
-        }
 
         // Grouped by material, exactly like DrawStaticMeshes — and for the same two reasons, which the
         // skinned path did not have before and paid for twice:
@@ -1320,11 +1290,11 @@ namespace Desert::Graphic::System
         m_SkinnedDraws.Clear();
         if ( m_SkinnedQueue.empty() )
             return;
-        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
+        if ( m_SceneRenderer == nullptr || !m_SceneRenderer->GetTargetFramebuffer() ||
+             m_SceneRenderer->GetMainCamera() == nullptr )
             return;
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        BuildSkinnedDraws( /*useLoadPass*/ true, m_SkinnedDraws );
+        BuildSkinnedDraws( m_SkinnedDraws );
         m_SkinnedDraws.Declare( pass, view );
     }
 

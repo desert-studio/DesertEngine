@@ -400,8 +400,6 @@ namespace
                "material or instance with TwoSided draws on it (foliage, glass panes); authored content reaches "
                "it" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
-               "\"SkinnedMesh_Load\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
                "\"StaticMeshGeometry\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
                "\"StaticMeshGeometryInstanced\"", Verdict::Shipped, "" },
