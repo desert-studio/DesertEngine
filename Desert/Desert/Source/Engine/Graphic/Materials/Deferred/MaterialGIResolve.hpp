@@ -17,19 +17,22 @@ namespace Desert::Graphic
         {
         }
 
+        // The GIResolveUB (GIResolve.shader) block, std140, member for member (census: Desert/Tests/Engine/UniformBlockLayout).
+        struct GIResolveUBData
+        {
+            glm::mat4 RSMViewProj;
+            glm::mat4 InvRSMViewProj;            // the VPL positions from the RSM depth
+            glm::mat4 InvJitteredViewProjection; // the pixel's position from the G-buffer depth
+            glm::vec4 SunColor; // rgb = colour, a = intensity
+            glm::vec4 Params;   // x = GI intensity, y = enabled, z = gather taps, w = jitter seed
+        };
+
         // The GIResolveUB values only: u_GBufferB/Depth and u_RSMAlbedo/Normal/Depth are graph resources, bound
         // by name through RDG::PassBindings (GIResolveRenderer::RecordGather).
         void BindInputs( const glm::mat4& rsmViewProj, const glm::mat4& cameraViewProj, const glm::vec4& sunColorIntensity, float giIntensity,
                          float jitterSeed, int samples )
         {
-            struct GIResolveUBData
-            {
-                glm::mat4 RSMViewProj;
-                glm::mat4 InvRSMViewProj;            // the VPL positions from the RSM depth
-                glm::mat4 InvJitteredViewProjection; // the pixel's position from the G-buffer depth
-                glm::vec4 SunColor; // rgb = colour, a = intensity
-                glm::vec4 Params;   // x = GI intensity, y = enabled, z = gather taps, w = jitter seed
-            } data;
+            GIResolveUBData data;
             data.RSMViewProj    = rsmViewProj;
             data.InvRSMViewProj = glm::inverse( rsmViewProj );
             // The G-buffer is rasterised with cameraViewProj (jittered == unjittered until TAA lands).
