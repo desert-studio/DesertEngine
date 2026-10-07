@@ -32,7 +32,8 @@ namespace Desert::Editor
         // Rebuild the authored level from its snapshot.
         using RestoreAuthored = std::function<Common::BoolResultStr( const std::string& snapshot )>;
 
-        explicit PlayWorldTravel( ::Desert::Core::LevelTravel& travel = ::Desert::Core::LevelTravel::Get() ) : m_Travel( travel )
+        explicit PlayWorldTravel( ::Desert::Core::LevelTravel& travel = ::Desert::Core::LevelTravel::Get() )
+             : m_Travel( travel )
         {
         }
 
@@ -111,7 +112,7 @@ namespace Desert::Editor
 
     private:
         ::Desert::Core::LevelTravel& m_Travel;
-        std::string        m_Snapshot;   // the authored level, serialized when Play began
-        std::string        m_CurrentMap; // resolved path of the last travel; empty = the authored level
+        std::string                  m_Snapshot;   // the authored level, serialized when Play began
+        std::string                  m_CurrentMap; // resolved path of the last travel; empty = the authored level
     };
 } // namespace Desert::Editor

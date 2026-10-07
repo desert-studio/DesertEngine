@@ -226,8 +226,8 @@ namespace
 {
     struct PieWorld
     {
-        std::string                Played = "authored";
-        std::vector<std::string>   Loads;
+        std::string                     Played = "authored";
+        std::vector<std::string>        Loads;
         Desert::Editor::PlayWorldTravel Pie;
 
         Common::BoolResultStr Tick()
@@ -276,7 +276,8 @@ TEST( PlayInEditorTravel, ATravelInPlayLoadsTheLevelIntoThePlayedWorldAtTheBound
     EXPECT_TRUE( r.GetValue() );
     EXPECT_EQ( w.Played, Abs( dir, "Content/Scenes/Arena.desce" ) );
     EXPECT_EQ( w.Pie.CurrentMap(), Abs( dir, "Content/Scenes/Arena.desce" ) );
-    EXPECT_EQ( w.Pie.AuthoredSnapshot(), "authored" ) << "a travel replaced the authored level, not the played one";
+    EXPECT_EQ( w.Pie.AuthoredSnapshot(), "authored" )
+         << "a travel replaced the authored level, not the played one";
 }
 
 TEST( PlayInEditorTravel, StopReturnsTheAuthoredLevelWhicheverMapWasPlayedLast )

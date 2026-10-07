@@ -111,9 +111,8 @@ namespace Desert::Editor
             return;
         }
         phases.Lap( "spawn the player's pawn", scene->GetAllEntities().size() );
-        auto streamer =
-             Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, m_PlayWorld.AuthoredSnapshot(),
-                                                 InstrumentStreamingSources() );
+        auto streamer = Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, m_PlayWorld.AuthoredSnapshot(),
+                                                            InstrumentStreamingSources() );
         phases.Lap( "begin the world streamer", scene->GetAllEntities().size() );
         phases.LogSummary();
         if ( !streamer )
@@ -236,7 +235,8 @@ namespace Desert::Editor
         };
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), path ); !loaded )
-            return stayInPlay( std::format( "Travel to '{}' failed after teardown: {}", path, loaded.GetError() ) );
+            return stayInPlay(
+                 std::format( "Travel to '{}' failed after teardown: {}", path, loaded.GetError() ) );
         (void)Runtime::AwaitSceneClosure( *scene ); // the new level's dependency closure, read by the workers
         if ( const auto inited = scene->Init(); !inited.IsSuccess() )
             return stayInPlay( std::format( "Travel to '{}': init failed: {}", path, inited.GetError() ) );
@@ -245,7 +245,8 @@ namespace Desert::Editor
         // Play first: the spawned pawn is the source the streamer begins around (PawnIsAStreamingSource).
         if ( const auto began = Desert::Core::BeginPlay( *scene, *m_Assets, {} ); !began )
             return stayInPlay( std::format( "Play refused for '{}': {}", path, began.GetError() ) );
-        auto streamer = Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, json, InstrumentStreamingSources() );
+        auto streamer =
+             Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, json, InstrumentStreamingSources() );
         if ( !streamer )
             return stayInPlay(
                  std::format( "Travel to '{}' could not stream the world: {}", path, streamer.GetError() ) );

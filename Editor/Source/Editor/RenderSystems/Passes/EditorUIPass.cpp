@@ -179,11 +179,11 @@ namespace Desert::Editor::Render
                 return flushed;
 
             // A button fired in preview: report it; quit / open-URL are NOT executed here — they would close
-            // the editor or leave it. Scene-load is, in Play, through Core::OpenLevel (below). Interactive toggles/sliders/inputs already mutated in
-            // the walk. Everything that is NOT one of those three process-level encodings is a gameplay
-            // message and goes on the same queue as the pointer events below, because a preview whose
-            // buttons are heard by scripts and whose pointer events are heard by scripts is one preview;
-            // dropping the button half was the defect this replaces.
+            // the editor or leave it. Scene-load is, in Play, through Core::OpenLevel (below). Interactive
+            // toggles/sliders/inputs already mutated in the walk. Everything that is NOT one of those three
+            // process-level encodings is a gameplay message and goes on the same queue as the pointer events
+            // below, because a preview whose buttons are heard by scripts and whose pointer events are heard by
+            // scripts is one preview; dropping the button half was the defect this replaces.
             if ( feed && !clicked.empty() )
             {
                 LOG_INFO( "[UI Preview] button action: {}", clicked );
@@ -193,7 +193,8 @@ namespace Desert::Editor::Render
                 // authored one. A preview of the authored level (Edit) has no game world to travel.
                 if ( clicked.rfind( kScene, 0 ) == 0 && m_UIView.GameWorld )
                 {
-                    if ( const auto queued = ::Desert::Core::OpenLevel( clicked.substr( kScene.size() ) ); !queued )
+                    if ( const auto queued = ::Desert::Core::OpenLevel( clicked.substr( kScene.size() ) );
+                         !queued )
                         LOG_ERROR( "[UI Preview] {}", queued.GetError() );
                 }
                 const bool processLevel =
