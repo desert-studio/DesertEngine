@@ -545,6 +545,47 @@ TEST( ShaderVariantDefines, EveryDefineOfTheVariantReachesTheCompileOptions )
          << "a define of the variant does not reach CompileOptions::AddMacroDefinition.";
 }
 
+// The permutation is worth nothing if the RSM pipeline is built from the plain G-buffer program: the RSM
+// would then write the shading word into its colour slot 2, which is an UNUSED slot (no image). This is a
+// census of MeshRenderer::SetupGBufferPass's RSM block: the program is acquired as the G-buffer cell under the
+// DESERT_GBUFFER_RSM variant, and the RSM spec - copied from the G-buffer spec - has its Shader replaced by
+// that program BEFORE the pipeline is asked for. Mutation: drop `rsmSpec.Shader = m_RSMShader;` (the copy
+// keeps the plain cell) -> red. And the shader side: Pass_GBuffer gates the word output on the macro.
+TEST( ShaderVariantDefines, TheRSMPipelineIsBuiltFromTheRSMPermutation )
+{
+    const auto read = []( const char* relative )
+    {
+        std::ifstream in( Desert::TestSupport::RepositoryRoot() / relative, std::ios::binary );
+        std::string   text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+        return text;
+    };
+
+    const std::string deferred =
+         read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDeferred.cpp" );
+    ASSERT_FALSE( deferred.empty() );
+    const auto acquire = deferred.find( "m_RSMShader=DefaultSurfaceProgramVariant(MeshVertexPath::Static,"
+                                        "MeshPass::GBuffer,ShaderVariant{.Defines={\"DESERT_GBUFFER_RSM\"}});" );
+    ASSERT_NE( acquire, std::string::npos ) << "the RSM program is not the G-buffer cell under DESERT_GBUFFER_RSM.";
+    const auto copy = deferred.find( "GraphicsPipelineSpecificationrsmSpec=spec;", acquire );
+    ASSERT_NE( copy, std::string::npos );
+    const auto create = deferred.find( "GetPipelineCache().GetOrCreate(rsmSpec)", copy );
+    ASSERT_NE( create, std::string::npos );
+    const std::string block = deferred.substr( copy, create - copy );
+    EXPECT_NE( block.find( "rsmSpec.Shader=m_RSMShader;" ), std::string::npos )
+         << "the RSM pipeline keeps the G-buffer spec's plain program: it would write the shading word into the "
+            "RSM's unused colour slot 2.";
+    EXPECT_EQ( block.find( "rsmSpec.Shader=m_StaticGBufferShader" ), std::string::npos );
+
+    const std::string pass = read( "Editor/Resources/Shaders/Mesh/Surface/Pass_GBuffer.glslh" );
+    ASSERT_FALSE( pass.empty() );
+    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMlayout(location=2)outuintoGBufferShadingWord;" ),
+               std::string::npos )
+         << "Pass_GBuffer declares the shading word in the RSM permutation too.";
+    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMconstuintword=" ), std::string::npos )
+         << "Pass_GBuffer writes the shading word in the RSM permutation too.";
+}
+
 TEST_F( ShaderCacheKeyShaderRoot, TheClosureFollowsASubstitutedBodyRatherThanTheFileOnDisk )
 {
     // A generated medium may include a header of its own. Walking the FILE instead would leave that
