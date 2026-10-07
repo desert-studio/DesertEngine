@@ -293,11 +293,11 @@ namespace
                 float thickness = 0.0f;
                 for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
                 {
-                    const size_t at =
-                         ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * kMapSide +
-                         static_cast<size_t>( x );
+                    const size_t at = ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * kMapSide +
+                                      static_cast<size_t>( x );
                     if ( CloudProceduralKeep( bake.Ranks[at], cover ) )
-                        thickness += static_cast<float>( bake.Voxels[at * kCloudProceduralBytesPerVoxel] ) / 255.0f;
+                        thickness +=
+                             static_cast<float>( bake.Voxels[at * kCloudProceduralBytesPerVoxel] ) / 255.0f;
                 }
                 map[static_cast<size_t>( z ) * kMapSide + x] = thickness;
             }

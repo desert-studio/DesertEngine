@@ -28,12 +28,12 @@
 #include <vector>
 
 using Desert::Assets::BakeCloudProceduralVolume;
+using Desert::Assets::BakeCloudProceduralVolumeRanked;
 using Desert::Assets::CloudModellingBlob;
 using Desert::Assets::CloudModellingBlobDistanceKm;
 using Desert::Assets::CloudModellingJoinKm;
 using Desert::Assets::CloudModellingJoinTerm;
 using Desert::Assets::CloudModellingPreparedBlob;
-using Desert::Assets::BakeCloudProceduralVolumeRanked;
 using Desert::Assets::CloudProceduralFieldParams;
 using Desert::Assets::CloudProceduralLump;
 using Desert::Assets::CloudProceduralLumpSet;
@@ -723,7 +723,6 @@ TEST( CloudProceduralField, CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne )
 
     std::printf( "[CloudProceduralField] coverage 0 / 1 keeps %.4f / %.4f of the sky\n", emptyCover, fullCover );
 
-    const std::vector<CloudModellingBlob> full = GenerateCloudProceduralBlobs( params, 0u, origin );
     const std::vector<CloudModellingBlob> full = GenerateCloudProceduralBlobs( params, 0u, origin );
 
     params.Coverage                            = 0.5f;
