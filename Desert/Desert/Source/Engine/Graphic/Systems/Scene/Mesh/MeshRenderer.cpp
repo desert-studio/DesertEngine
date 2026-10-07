@@ -277,17 +277,18 @@ namespace Desert::Graphic::System
                 {
                     BindSceneViewInputs( block, *view, *layout );
                 }
-                perBlock( block );
+                perBlock( block, *layout );
             }
         }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const
         {
-            DeclareBlocks( pass, view, []( auto& ) {} );
+            DeclareBlocks( pass, view, []( auto&, const auto& ) {} );
         }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
-                                    const std::function<void( RDG::BindingBlockBuilder& )>& perBlock ) const
+                                    const std::function<void( RDG::BindingBlockBuilder&,
+                                                              const RDG::ShaderBindingLayout& )>& perBlock ) const
         {
             DeclareBlocks( pass, view, perBlock );
         }
@@ -295,7 +296,7 @@ namespace Desert::Graphic::System
         void MeshDrawList::Declare( RenderPassDeclaration&                declared,
                                     const std::optional<SceneViewInputs>& view ) const
         {
-            DeclareBlocks( declared, view, []( auto& ) {} );
+            DeclareBlocks( declared, view, []( auto&, const auto& ) {} );
         }
 
         Common::BoolResultStr MeshDrawList::Record( const RDG::PassContext& context ) const
