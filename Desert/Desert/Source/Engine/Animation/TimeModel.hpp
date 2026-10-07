@@ -31,6 +31,7 @@
  * them is what makes a 30 fps timeline unable to represent a 24 fps clip without resampling it.
  */
 
+#include <cmath>
 #include <cstdint>
 
 namespace Desert::Animation
@@ -142,6 +143,20 @@ namespace Desert::Animation
         [[nodiscard]] double AsTicks() const
         {
             return static_cast<double>( Frame.Value ) + static_cast<double>( Subframe );
+        }
+
+        /// The inverse of AsTicks: the whole tick and the fraction past it. A fraction a hair under 1 that
+        /// rounds to 1.0f in float is the next tick, not a subframe.
+        [[nodiscard]] static FrameTime FromTicks( const double ticks )
+        {
+            const double whole = std::floor( ticks );
+            FrameTime    out{ FrameNumber{ static_cast<int32_t>( whole ) }, static_cast<float>( ticks - whole ) };
+            if ( out.Subframe >= 1.0F )
+            {
+                out.Frame.Value += 1;
+                out.Subframe = 0.0F;
+            }
+            return out;
         }
     };
 

@@ -27,6 +27,8 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace
 {
@@ -154,5 +156,12 @@ namespace
         return 0;
     }
 
-    const Desert::TestSupport::ChildEntry kPrintHandle{ "cloud-noise-print-handle", &PrintHandleChild };
+    const Desert::TestSupport::ChildEntry kPrintHandle{ "cloud-noise-print-handle", &PrintHandleChild,
+                                                        { .EngineDir = true, .Project = true } };
+} // namespace
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
 } // namespace

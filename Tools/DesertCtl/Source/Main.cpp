@@ -32,6 +32,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
@@ -116,6 +117,14 @@ namespace
                     break;
             }
         }
+        return out;
+    }
+
+    std::string QuotedList( const std::vector<std::string>& items, std::size_t from )
+    {
+        std::string out;
+        for ( std::size_t i = from; i < items.size(); ++i )
+            std::format_to( std::back_inserter( out ), R"({}"{}")", out.empty() ? "" : ",", Escape( items[i] ) );
         return out;
     }
 
@@ -369,10 +378,7 @@ static int RunTool( int argc, char** argv )
     }
     else if ( operation == "state" )
     {
-        std::string sections;
-        for ( std::size_t i = 1; i < rest.size(); ++i )
-            sections += ( sections.empty() ? "\"" : ",\"" ) + Escape( rest[i] ) + "\"";
-        request = R"({"id":1,"op":"state","sections":[)" + sections + "]}";
+        request = std::format( R"({{"id":1,"op":"state","sections":[{}]}})", QuotedList( rest, 1 ) );
     }
     else if ( operation == "shot-window" || operation == "shot-viewport" )
     {
@@ -398,6 +404,23 @@ static int RunTool( int argc, char** argv )
         request                 = std::format( R"({{"id":1,"op":"drag","value":[{},{}],"steps":{}{}}})",
                                                from.substr( 1, from.size() - 2 ), to.substr( 1, to.size() - 2 ), steps,
                                                SubjectField( subject ) );
+    }
+    else if ( operation == "input" )
+    {
+        std::string point = "[0,0]";
+        if ( rest.size() < 4 || ( rest[3] != "-" && !NumberArray( rest[3], point ) ) )
+        {
+            std::fprintf( stderr, "desertctl: input <move|click|press|release|key|drop> <panel|-> <x,y|-> "
+                                  "[key | path...]\n" );
+            return kNoEditor;
+        }
+        const std::string panel = rest[2] == "-" ? std::string() : rest[2];
+        const bool        isKey = rest[1] == "key";
+        const std::string key   = isKey && rest.size() > 4 ? rest.back() : std::string();
+        const std::string paths = isKey ? std::string() : QuotedList( rest, 4 );
+        request =
+             std::format( R"({{"id":1,"op":"input","kind":"{}","panel":"{}","value":{},"key":"{}","paths":[{}]}})",
+                          Escape( rest[1] ), Escape( panel ), point, Escape( key ), paths );
     }
     else if ( operation == "quit" )
     {

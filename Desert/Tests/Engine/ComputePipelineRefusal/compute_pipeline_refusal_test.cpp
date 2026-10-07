@@ -29,6 +29,8 @@
 
 #include <gtest/gtest.h>
 
+#include <Engine/Core/Formats/MaterialLayout.hpp>
+
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -102,6 +104,10 @@ namespace
         {
             return m_Meta;
         }
+        [[nodiscard]] const Desert::Core::Formats::MaterialLayout& GetMaterialLayout() const override
+        {
+            return m_Layout;
+        }
 
         bool IsCompiled() const override
         {
@@ -114,6 +120,7 @@ namespace
         Desert::Graphic::ShaderVariant           m_Variant;
         Common::Filepath                         m_Path;
         Desert::Core::Formats::ShaderProgramMeta m_Meta;
+        Desert::Core::Formats::MaterialLayout    m_Layout;
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -282,6 +289,15 @@ TEST( ComputePipelineRefusal, NoCallSiteCanIgnoreTheRefusal )
         {
             // Walk back over whitespace to the character that decides what happens to the result.
             std::size_t back = at;
+            // A namespace qualifier (`Graphic::ComputePipeline::Create`) is part of the name, not the
+            // character that decides the result's fate: step back over every `Name::` before it.
+            while ( back >= 2 && text[back - 1] == ':' && text[back - 2] == ':' )
+            {
+                back -= 2;
+                while ( back > 0 && ( std::isalnum( static_cast<unsigned char>( text[back - 1] ) ) != 0 ||
+                                      text[back - 1] == '_' ) )
+                    --back;
+            }
             while ( back > 0 && std::isspace( static_cast<unsigned char>( text[back - 1] ) ) )
                 --back;
             if ( back == 0 )

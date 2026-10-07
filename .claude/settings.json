@@ -29,6 +29,15 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/format_on_edit.py\""
           }
         ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/lead_watch.py\""
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -47,6 +56,16 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/agent_guard.py\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/lead_watch.py\""
           }
         ]
       }

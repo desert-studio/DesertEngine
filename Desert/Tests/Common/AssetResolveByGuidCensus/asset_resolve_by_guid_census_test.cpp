@@ -20,7 +20,7 @@
 // that fails is red, and a kind INSIDE the register that now resolves by GUID is red too, so the
 // register cannot outlive the defect it names.
 //
-// FIXTURES ARE THE SHIPPED FILES where the corpus has one (`Editor/Resources/Assets`), because the
+// FIXTURES ARE THE SHIPPED FILES where the corpus has one (`Projects/Desert/Content`), because the
 // question "does this format state a GUID" is a question about the real files, not about what a
 // fixture writer can produce. Only kinds with no committed sample are synthesised (meshes are imported
 // into Cooked/ and never committed; skeletons, animations, shaders and world cells likewise), and the
@@ -48,6 +48,7 @@
 #include <bit>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -115,7 +116,10 @@ namespace
          ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture, ContentKind::Material,
          ContentKind::Skybox, ContentKind::CloudType, ContentKind::CloudLayout, ContentKind::Shader,
          // FO-1: a Foliage block states FoliageTypeGuid beside the path (ComponentRegistry.cpp).
-         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo };
+         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo,
+         // ANIM-I11: a LevelSequence block states SequenceGuid beside SequencePath and reads the GUID first
+         // (ComponentRegistry.cpp's LevelSequence serializer, CreateFromRegistryGuid).
+         ContentKind::LevelSequence };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )
@@ -137,7 +141,7 @@ namespace
     fs::path RepoRoot()
     {
         for ( fs::path prefix = "."; prefix.string().size() < 20; prefix /= ".." )
-            if ( fs::exists( prefix / "Editor" / "Resources" / "Assets" ) )
+            if ( fs::exists( prefix / "Projects" / "Desert" / "Content" ) )
                 return prefix;
         return {};
     }
@@ -158,7 +162,7 @@ namespace
     // The committed sample of `kind`, found by extension under the kind's directory of the corpus.
     std::optional<fs::path> CorpusSample( ContentKind kind )
     {
-        const fs::path  corpus = RepoRoot() / "Editor/Resources/Assets";
+        const fs::path  corpus = RepoRoot() / "Projects/Desert/Content";
         const auto&     spec   = Common::Content::KindSpec( kind );
         std::error_code ec;
         for ( auto it = fs::recursive_directory_iterator( corpus, ec );
@@ -185,7 +189,7 @@ namespace
         header.ByteOrder = Common::Content::kMeshBinaryByteOrderTag;
         header.Version   = Common::Content::kMeshBinaryVersion;
         constexpr std::size_t kTableEnd =
-             Common::Content::kMeshBinaryPrefixV3 + Common::Content::kMeshBinarySectionRowSize;
+             Common::Content::kMeshBinaryPrefixSize + Common::Content::kMeshBinarySectionRowSize;
         header.FileSize     = kTableEnd;
         header.SectionCount = 1;
         header.Flags        = skinned ? Common::Content::kMeshFlagIsSkinned : 0u;
@@ -195,7 +199,7 @@ namespace
         const uint32_t elementSize = Common::Content::kMeshBinarySubmeshSizeV3;
         const uint64_t offset      = kTableEnd;
         const uint64_t count       = 0;
-        const auto     rowAt       = bytes.begin() + Common::Content::kMeshBinaryPrefixV3;
+        const auto     rowAt       = bytes.begin() + Common::Content::kMeshBinaryPrefixSize;
         const auto     idBytes     = std::bit_cast<std::array<char, 4>>( id );
         const auto     sizeBytes   = std::bit_cast<std::array<char, 4>>( elementSize );
         const auto     offsetBytes = std::bit_cast<std::array<char, 8>>( offset );
@@ -258,6 +262,16 @@ namespace
                                          Common::Content::AssetGuidToText( guid ) +
                                          "\",\"Versions\":{\"LLYI\":3},\"Dependencies\":[]},"
                                          "\"LayerName\":\"AF10a_Probe\"}\n";
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::LevelSequence:
+            {
+                // No sequence ships with the corpus yet; the least `.dseq` header (a TMLN block whose header
+                // states this kind, LevelSequenceAsset.hpp) - the header reader is all the scan consults.
+                const std::string text = std::format(
+                     R"({{"Header":{{"Kind":"LevelSequence","Guid":"{}","Versions":{{"TMLN":2}},"Dependencies":[]}}}})"
+                     "\n",
+                     Common::Content::AssetGuidToText( guid ) );
                 return { text.begin(), text.end() };
             }
             default:
@@ -404,7 +418,7 @@ namespace
 TEST( AssetResolveByGuidCensus, EveryKindSurvivesAMoveOrIsANamedRegisterRow )
 {
     const ProjectRootGuard guard;
-    ASSERT_FALSE( RepoRoot().empty() ) << "no Editor/Resources/Assets above the working directory";
+    ASSERT_FALSE( RepoRoot().empty() ) << "no Projects/Desert/Content above the working directory";
     const fs::path         project = fs::temp_directory_path() / "AF10a_ResolveByGuid";
     fs::remove_all( project );
     fs::create_directories( project );

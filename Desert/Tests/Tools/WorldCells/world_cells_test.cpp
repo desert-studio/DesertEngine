@@ -52,6 +52,9 @@
 #include <thread>
 #include <vector>
 #include <optional>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace
 {
@@ -504,9 +507,9 @@ TEST( WorldCells, NoSourceSpellsTheRetiredWp8Magic )
 {
     namespace fs  = std::filesystem;
     fs::path root = ".";
-    for ( int up = 0; up < 8 && !fs::exists( root / "Editor" / "Desert.deproj" ); ++up )
+    for ( int up = 0; up < 8 && !fs::exists( root / "Projects" / "Desert" / "Desert.deproj" ); ++up )
         root /= "..";
-    ASSERT_TRUE( fs::exists( root / "Editor" / "Desert.deproj" ) ) << "repository root not found";
+    ASSERT_TRUE( fs::exists( root / "Projects" / "Desert" / "Desert.deproj" ) ) << "repository root not found";
 
     std::vector<std::string> needles;
     for ( const std::string magic : { std::string( "DW" ) + "CL", std::string( "DW" ) + "IX" } )
@@ -758,7 +761,7 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
 TEST( WorldCells, TheCorpusPrefabStatesTheBoxItsBodyHas )
 {
     const std::filesystem::path file =
-         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
+         Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content/Prefabs/UI_Card.deprefab";
     ASSERT_TRUE( std::filesystem::exists( file ) ) << file.string();
     std::ifstream     in( file );
     const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
@@ -1105,3 +1108,9 @@ TEST( WorldCells, AWrongTypedOrUnknownIndexMemberIsRefusedByItsPath )
 
     EXPECT_TRUE( Common::Json::Read<Cells::WorldIndex>( text ).IsSuccess() );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

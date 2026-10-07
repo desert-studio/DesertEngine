@@ -12,6 +12,8 @@
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 
+#include "../../TestSupport/engine_dir.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -22,6 +24,9 @@
 #include <sstream>
 #include <optional>
 #include <string>
+#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace Path = Common::Constants::Path;
 namespace fs   = std::filesystem;
@@ -102,44 +107,65 @@ TEST( PathCensus, NoRowSurvivesARemapPointingAtThePreviousProject )
     }
 }
 
-TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
+TEST( PathCensus, TheProjectLayoutIsPinned )
 {
-    ProjectRootGuard guard;
-    Path::ResetToSandbox();
+    const ProjectRootGuard guard;
+    const fs::path         project = "/ann/work/Game";
+    Path::SetProjectRoot( project, "Content" );
 
-    // Byte-for-byte the spellings the engine shipped with before the census existed. Every asset
-    // registry, cooked file and saved scene in the sandbox depends on these exact strings; a census
-    // edit that shifts one is a data migration, not a refactor, and must fail here first.
-    const std::array<std::pair<const fs::path*, const char*>, 23> expected = { {
-         { &Path::ASSETS_PATH, "Resources/Assets/" },
-         { &Path::MESH_PATH, "Resources/Assets/Meshes/" },
-         { &Path::MATERIAL_PATH, "Resources/Assets/Materials/" },
-         { &Path::TEXTUREDIR_PATH, "Resources/Assets/Textures/" },
-         { &Path::SKYBOX_PATH, "Resources/Assets/Textures/HDR/" },
-         { &Path::SCENE_PATH, "Resources/Assets/Scenes/" },
-         { &Path::PREFAB_PATH, "Resources/Assets/Prefabs/" },
-         { &Path::SCRIPT_PATH, "Resources/Assets/Scripts/" },
-         { &Path::COLLECTIONS_PATH, "Resources/Assets/Collections/" },
-         { &Path::LOCALIZATION_PATH, "Resources/Assets/Localization/" },
-         { &Path::CLOUD_NOISE_PATH, "Resources/Assets/Clouds/" },
-         { &Path::CLOUD_TYPE_PATH, "Resources/Assets/Clouds/Types/" },
-         { &Path::CLOUD_VOLUME_PATH, "Resources/Assets/Clouds/Volumes/" },
-         { &Path::CLOUD_LAYOUT_PATH, "Resources/Assets/Clouds/Layouts/" },
-         { &Path::UI_THEME_PATH, "Resources/Assets/UI/Themes/" },
-         { &Path::CONTROL_RIG_PATH, "Resources/Assets/Rigs/" },
-         { &Path::SHADER_GRAPH_PATH, "Resources/Assets/ShaderGraphs/" },
-         { &Path::ANIM_GRAPH_PATH, "Resources/Assets/AnimGraphs/" },
-         { &Path::RETARGET_PATH, "Resources/Assets/Retargets/" },
-         { &Path::FOLIAGE_TYPE_PATH, "Resources/Assets/Foliage/" },
-         { &Path::LANDSCAPE_LAYER_INFO_PATH, "Resources/Assets/Landscape/Layers/" },
-         { &Path::ANIMATION_PATH, "Resources/Assets/Animations/" },
+    // Byte-for-byte the spellings below a project's assets root. Every asset registry, cooked file and
+    // saved scene of every project depends on these exact strings; a census edit that shifts one is a
+    // data migration, not a refactor, and must fail here first.
+    const std::array<std::pair<const fs::path*, const char*>, 24> expected = { {
+         { &Path::ASSETS_PATH, "Content/" },
+         { &Path::MESH_PATH, "Content/Meshes/" },
+         { &Path::MATERIAL_PATH, "Content/Materials/" },
+         { &Path::TEXTUREDIR_PATH, "Content/Textures/" },
+         { &Path::SKYBOX_PATH, "Content/Textures/HDR/" },
+         { &Path::SCENE_PATH, "Content/Scenes/" },
+         { &Path::PREFAB_PATH, "Content/Prefabs/" },
+         { &Path::SCRIPT_PATH, "Content/Scripts/" },
+         { &Path::COLLECTIONS_PATH, "Content/Collections/" },
+         { &Path::LOCALIZATION_PATH, "Content/Localization/" },
+         { &Path::CLOUD_NOISE_PATH, "Content/Clouds/" },
+         { &Path::CLOUD_TYPE_PATH, "Content/Clouds/Types/" },
+         { &Path::CLOUD_VOLUME_PATH, "Content/Clouds/Volumes/" },
+         { &Path::CLOUD_LAYOUT_PATH, "Content/Clouds/Layouts/" },
+         { &Path::UI_THEME_PATH, "Content/UI/Themes/" },
+         { &Path::CONTROL_RIG_PATH, "Content/Rigs/" },
+         { &Path::SHADER_GRAPH_PATH, "Content/ShaderGraphs/" },
+         { &Path::ANIM_GRAPH_PATH, "Content/AnimGraphs/" },
+         { &Path::RETARGET_PATH, "Content/Retargets/" },
+         { &Path::FOLIAGE_TYPE_PATH, "Content/Foliage/" },
+         { &Path::LANDSCAPE_LAYER_INFO_PATH, "Content/Landscape/Layers/" },
+         { &Path::ANIMATION_PATH, "Content/Animations/" },
+         { &Path::LEVEL_SEQUENCE_PATH, "Content/Sequences/" },
          { &Path::COOKED_PATH, "Cooked/" },
     } };
     static_assert( expected.size() == Path::CONTENT_DIR_COUNT,
-                   "a census row was added without pinning its sandbox spelling here" );
+                   "a census row was added without pinning its project spelling here" );
 
     for ( const auto& [view, spelling] : expected )
-        EXPECT_EQ( view->generic_string(), spelling );
+        // Each spelling is read off the project directory, never the engine's or the working one.
+        EXPECT_EQ( view->generic_string(), ( project / spelling ).generic_string() );
+}
+
+// No project, no content (UE): with no .deproj open every census row is empty, a checked read stops the
+// process naming its reader, and a relative content path has nothing to resolve against. The engine
+// directory being set changes none of that — there is no built-in content root to fall back to.
+TEST( PathCensus, WithoutAProjectThereIsNoContent )
+{
+    const ProjectRootGuard                    guard;
+    const Desert::TestSupport::EngineDirScope engineDir;
+    Path::ClearProject();
+
+    EXPECT_FALSE( Path::HasProject() );
+    for ( std::size_t i = 0; i < Path::CONTENT_DIR_COUNT; ++i )
+        EXPECT_TRUE( Path::Detail::Slot( static_cast<Path::ContentDir>( i ) ).empty() )
+             << "census row " << i << " invented a content root without a project";
+    EXPECT_THROW( (void)Path::FullPath( "Scenes/Level.desce" ), std::logic_error );
+    EXPECT_DEATH( (void)Path::Dir( Path::ContentDir::Scene ), "no project is open" );
+    EXPECT_DEATH( (void)Path::ProjectDir(), "no project is open" );
 }
 
 TEST( PathCensus, ANamedViewIsTheCensusRowItNames )
@@ -148,6 +174,8 @@ TEST( PathCensus, ANamedViewIsTheCensusRowItNames )
     // AssetHandle's root table, the runtime scan roots and the packager's tree census hold a
     // `const fs::path*` and follow a project switch for free. Compare addresses, not spellings: two
     // equal copies would pass a value comparison and silently stop following remaps.
+    const ProjectRootGuard guard;
+    Path::SetProjectRoot( "/ann/work/Game", "Content" );
     EXPECT_EQ( &Path::ASSETS_PATH, &Path::Dir( Path::ContentDir::Assets ) );
     EXPECT_EQ( &Path::COOKED_PATH, &Path::Dir( Path::ContentDir::Cooked ) );
     EXPECT_EQ( &Path::CLOUD_LAYOUT_PATH, &Path::Dir( Path::ContentDir::CloudLayout ) );
@@ -234,11 +262,10 @@ TEST( PathCensus, TheInverseRecoversTheRootEveryRowWasDerivedFrom )
 // belongs to a tree the process has not opened.
 TEST( PathCensus, TheInverseResolvesAgainstTheNearestFolderOfThatName )
 {
-    const fs::path nested = "/home/me/Scenes/proj/Editor/Resources/Assets/Scenes/Levels/x.desce";
+    const fs::path nested = "/home/me/Scenes/proj/Projects/Desert/Content/Scenes/Levels/x.desce";
     const auto     root   = Path::RootForContentPath( Path::ContentDir::Scene, nested );
 
-    ASSERT_TRUE( root.has_value() );
-    EXPECT_EQ( *root, fs::path( "/home/me/Scenes/proj/Editor/Resources/Assets" ) );
+    EXPECT_EQ( root, std::optional<fs::path>( "/home/me/Scenes/proj/Projects/Desert/Content" ) );
 }
 
 // The two answers that are not paths. A file under no such folder gets nothing back — the caller has to
@@ -269,18 +296,10 @@ TEST( PathCensus, TheInverseRefusesAPathOutsideTheRowAndKeepsACallerRelativeFram
 
 namespace
 {
-    // The checkout root: the nearest ancestor of the working directory holding `.gitignore` and `Desert/`.
+    // The checkout, baked by the build (DESERT_TEST_REPO_ROOT).
     std::optional<fs::path> RepoRoot()
     {
-        std::error_code ec;
-        for ( fs::path here = fs::current_path( ec ); !here.empty(); here = here.parent_path() )
-        {
-            if ( fs::exists( here / ".gitignore", ec ) && fs::exists( here / "Desert", ec ) )
-                return here;
-            if ( here == here.parent_path() )
-                break;
-        }
-        return std::nullopt;
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadText( const fs::path& file )
@@ -330,7 +349,7 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
 
     const auto root = RepoRoot();
     ASSERT_TRUE( root.has_value() ) << "run from inside the checkout (no .gitignore + Desert/ above "
-                                    << fs::current_path().generic_string() << ")";
+                                    << Desert::TestSupport::RepositoryRoot().generic_string() << ")";
 
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the ASSERT above returns on nullopt
     const fs::path& repo = root.value();
@@ -383,18 +402,28 @@ TEST( PathCensus, NoAuthoredDocumentReferencesAFileUnderACookedFolder )
     const std::set<std::string> extensions = { ".desce", ".retarget", ".deproj" };
     std::size_t                 read       = 0;
     std::error_code             ec;
-    for ( auto it = fs::recursive_directory_iterator( repo / "Editor" / "Resources", ec );
-          it != fs::recursive_directory_iterator(); it.increment( ec ) )
+    // Project content (Projects/) and the engine's own content (Editor/Resources).
+    for ( const fs::path& tree : { repo / "Projects", repo / "Editor" / "Resources" } )
     {
-        if ( ec )
-            break;
-        if ( !it->is_regular_file() || !extensions.contains( it->path().extension().string() ) )
-            continue;
-        ++read;
-        const std::string text = ReadText( it->path() );
-        EXPECT_EQ( text.find( "Cooked/" ), std::string::npos )
-             << it->path().lexically_relative( repo ).generic_string()
-             << " references a file under a Cooked folder, which git ignores";
+        for ( auto it = fs::recursive_directory_iterator( tree, ec ); it != fs::recursive_directory_iterator();
+              it.increment( ec ) )
+        {
+            if ( ec )
+                break;
+            if ( !it->is_regular_file() || !extensions.contains( it->path().extension().string() ) )
+                continue;
+            ++read;
+            const std::string text = ReadText( it->path() );
+            EXPECT_EQ( text.find( "Cooked/" ), std::string::npos )
+                 << it->path().lexically_relative( repo ).generic_string()
+                 << " references a file under a Cooked folder, which git ignores";
+        }
     }
-    EXPECT_GT( read, 0u ) << "no scene was read under " << ( repo / "Editor" / "Resources" ).generic_string();
+    EXPECT_GT( read, 0u ) << "no scene was read under " << ( repo / "Projects" ).generic_string();
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

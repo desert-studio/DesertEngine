@@ -165,6 +165,13 @@ namespace Desert::Assets::Serialization
                  data.Name, data.SourceSkeleton.Path, data.SourceSkeleton.Guid );
         }
 
+        if ( auto target =
+                  CheckTargetSkeletonRef( data.TargetSkeleton, std::format( "retarget '{}'", data.Name ) );
+             !target )
+        {
+            return Common::MakeFormattedError<bool>( "{}", target.GetError() );
+        }
+
         if ( data.SourcePelvisBone.empty() || data.TargetPelvisBone.empty() )
         {
             return Common::MakeFormattedError<bool>(
@@ -374,11 +381,12 @@ namespace Desert::Assets::Serialization
     }
 
     RetargetAssetData BuildDataFromRetargetSetup( const std::string& name, const AssetGuidRef& sourceSkeleton,
-                                                  const RetargetSetup& setup )
+                                                  const AssetGuidRef& targetSkeleton, const RetargetSetup& setup )
     {
         RetargetAssetData out;
         out.Name               = name;
         out.SourceSkeleton     = sourceSkeleton;
+        out.TargetSkeleton     = targetSkeleton;
         out.SourcePelvisBone   = setup.SourcePelvisBone;
         out.TargetPelvisBone   = setup.TargetPelvisBone;
         out.SourceRetargetPose = PoseDataFrom( setup.SourceRetargetPose );

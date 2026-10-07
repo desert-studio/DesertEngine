@@ -16,6 +16,7 @@ project "WorldGen"
 
     files {
         "Source/**.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
 
         -- THE SETTINGS BLOCK, WRITTEN BY THE ENGINE'S OWN TABLE. SceneMigrator already owns the one
         -- function that turns "no Settings block" into the exact bytes the saver produces; a second copy
@@ -64,8 +65,6 @@ project "WorldGen"
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        -- Common contains Objective-C (file dialog); linking it needs AppKit + the ObjC runtime.
-        links { "Cocoa.framework", "Foundation.framework" }
 
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }

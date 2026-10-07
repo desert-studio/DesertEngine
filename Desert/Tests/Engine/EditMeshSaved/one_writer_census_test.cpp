@@ -56,10 +56,6 @@ namespace
            "SkinnedMeshComponent built by Convert to Skinned" },
          { "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp", "c",
            "InstancedStaticMeshComponent: dropping its primitive cache when the shape or mesh changes" },
-         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp", "ctx",
-           "MeshDetailsWidget::Context, a per-call view, not a component" },
-         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/StaticMeshComponent.cpp", "ctx",
-           "MeshDetailsWidget::Context, a per-call view, not a component" },
     };
 
     std::string StripLineComments( const std::string& line )

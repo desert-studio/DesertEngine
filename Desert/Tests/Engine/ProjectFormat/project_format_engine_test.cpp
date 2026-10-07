@@ -13,6 +13,7 @@
 #include <DesertShared/EngineRegistry.hpp>
 #include <DesertShared/ProjectFormat.hpp>
 #include <Engine/Project/EngineRegistration.hpp>
+#include <Engine/Project/GameSettings.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 
 #include <chrono>
@@ -325,4 +326,53 @@ TEST( ProjectContextRecent, ARegistryReadAndWrittenBackUnchangedIsByteIdentical 
 
     std::error_code ec;
     std::filesystem::remove_all( config, ec );
+}
+
+// ── PRJ-MOVIES: <project>/Config/Game.json has a writer now (Project Settings ▸ Game / Movies) ──────────
+
+TEST( GameSettingsFile, WhatIsSavedIsWhatTheNextReadAndTheFileReturn )
+{
+    // The project has no Config/ folder at all: the save must create it, and a read from the FILE (a fresh
+    // directory key forces the cache to re-read) must return every field the save was given.
+    const std::filesystem::path project = TempConfigDirectory( "game-settings-save" );
+    const std::filesystem::path deproj  = project / "Game.deproj";
+    {
+        std::ofstream out( deproj );
+        out << R"({"FileVersion":1,"Name":"Game","AssetsRoot":"Assets","DefaultScene":"",)"
+               R"("Description":"","EngineVersion":""})";
+    }
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( deproj.string(),
+                                                        Desert::Project::ProjectContext::RecordInRecent::No ) );
+    EXPECT_TRUE( Desert::Project::CurrentGameSettings().StartupMovies.empty() )
+         << "a project with no Config/Game.json declares no movies";
+
+    Desert::Project::GameSettings saved;
+    saved.Company                 = "Desert Studio";
+    saved.StartupMovies           = { "Content/Movies/B.webm", "Content/Movies/A.webm" }; // order is data
+    saved.MoviesAreSkippable      = false;
+    saved.WaitForMoviesToComplete = false;
+    const auto result             = Desert::Project::SaveGameSettings( saved );
+    ASSERT_TRUE( result.IsSuccess() ) << result.GetError();
+
+    // The cache answers the saved value without a re-read ...
+    const auto& cached = Desert::Project::CurrentGameSettings();
+    EXPECT_EQ( cached.Company, saved.Company );
+    EXPECT_EQ( cached.StartupMovies, saved.StartupMovies );
+    EXPECT_FALSE( cached.MoviesAreSkippable );
+    EXPECT_FALSE( cached.WaitForMoviesToComplete );
+
+    // ... and the file says the same: reopen the project from a copy so the reader parses it from disk.
+    const std::filesystem::path copy = TempConfigDirectory( "game-settings-reread" );
+    std::filesystem::copy( project, copy, std::filesystem::copy_options::recursive );
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( copy / "Game.deproj" ).string(),
+                                                        Desert::Project::ProjectContext::RecordInRecent::No ) );
+    const auto& reread = Desert::Project::CurrentGameSettings();
+    EXPECT_EQ( reread.Company, saved.Company ) << ReadWhole( copy / "Config" / "Game.json" );
+    EXPECT_EQ( reread.StartupMovies, saved.StartupMovies );
+    EXPECT_FALSE( reread.MoviesAreSkippable );
+    EXPECT_FALSE( reread.WaitForMoviesToComplete );
+
+    std::error_code ec;
+    std::filesystem::remove_all( project, ec );
+    std::filesystem::remove_all( copy, ec );
 }

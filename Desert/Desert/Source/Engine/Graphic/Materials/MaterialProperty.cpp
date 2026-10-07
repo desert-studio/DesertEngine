@@ -51,6 +51,14 @@ namespace Desert::Graphic
         return m_Properties.find( name ) != m_Properties.end();
     }
 
+    bool MaterialPropertySet::RemoveProperty( const std::string& name )
+    {
+        if ( m_Properties.erase( name ) == 0 )
+            return false;
+        m_bIsDirty = true;
+        return true;
+    }
+
     void MaterialPropertySet::ResetToDefaults()
     {
         for ( auto& [name, prop] : m_Properties )

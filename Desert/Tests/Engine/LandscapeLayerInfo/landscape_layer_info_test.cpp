@@ -137,7 +137,7 @@ TEST( LandscapeLayerInfo, RefusesAnotherVersion )
 TEST( LandscapeLayerInfo, TheCorpusLayerInfosParse )
 {
     const std::filesystem::path dir =
-         Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Landscape" / "Layers";
+         Desert::TestSupport::RepositoryRoot() / "Projects" / "Desert" / "Content" / "Landscape" / "Layers";
     ASSERT_TRUE( std::filesystem::is_directory( dir ) ) << std::filesystem::absolute( dir );
     std::set<std::string> names;
     for ( const auto& entry : std::filesystem::directory_iterator( dir ) )

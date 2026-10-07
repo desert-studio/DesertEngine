@@ -20,7 +20,8 @@ namespace Desert::Reflection
         // other type still stores its key alone.
         bool IsStoredByGuid( const std::string& assetType )
         {
-            return assetType == "SkyboxAsset" || assetType == "TextureAsset" || assetType == "PrefabAsset";
+            return assetType == "SkyboxAsset" || assetType == "TextureAsset" || assetType == "PrefabAsset" ||
+                   assetType == "FoliageTypeAsset";
         }
 
         void WriteVec( Common::Json::Object& out, const std::string& name, const float* v, int count )
@@ -90,6 +91,24 @@ namespace Desert::Reflection
         void WriteField( Common::Json::Object& out, const FieldInfo& field, const void* p,
                          const AssetResolver* resolver )
         {
+            // A vector of asset handles under a resolver: each element in the SAME reference form a single
+            // handle of that asset type is written in (the element is written as a one-handle field).
+            if ( field.IsContainer && field.ContainerHandles && resolver != nullptr )
+            {
+                FieldInfo element   = field;
+                element.IsContainer = false;
+                element.Type        = FieldType::AssetHandle;
+                element.Name        = "Element";
+                Common::Json::Value::Array array;
+                for ( const uint64_t handle : field.ContainerHandles( p ) )
+                {
+                    Common::Json::Object one;
+                    WriteField( one, element, &handle, resolver );
+                    array.push_back( std::move( one["Element"] ) );
+                }
+                out[field.Name] = Common::Json::Value( std::move( array ) );
+                return;
+            }
             // Containers route through the codegen-emitted typed lambda (the switch can't iterate vectors).
             if ( field.IsContainer && field.SerializeContainer )
             {
@@ -238,6 +257,28 @@ namespace Desert::Reflection
                         const AssetResolver* resolver )
         {
             using Common::Json::Kind;
+            // The reader of the writer's handle-vector form above. A vector is ONE field (ReadContainer's
+            // rule): an element that does not resolve cleanly leaves the whole vector as it was.
+            if ( field.IsContainer && field.AssignHandles && resolver != nullptr )
+            {
+                if ( !g.ExpectKind( Kind::Array, issues ) )
+                    return;
+                FieldInfo element   = field;
+                element.IsContainer = false;
+                element.Type        = FieldType::AssetHandle;
+                std::vector<uint64_t> read;
+                const std::size_t     before = issues.size();
+                g.ForEachElement(
+                     [&]( std::size_t, const Common::Json::Node& node )
+                     {
+                         uint64_t handle = 0;
+                         ReadField( element, &handle, node, issues, resolver );
+                         read.push_back( handle );
+                     } );
+                if ( issues.size() == before )
+                    field.AssignHandles( p, read );
+                return;
+            }
             if ( field.IsContainer && field.DeserializeContainer )
             {
                 field.DeserializeContainer( p, g, issues );

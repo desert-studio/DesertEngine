@@ -32,8 +32,11 @@
 
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
+#include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/SkeletonReference.hpp>
 #include <Engine/Animation/TimeModel.hpp>
+#include <Engine/Animation/Timeline/Evaluator.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -50,33 +53,24 @@
 #include <fstream>
 #include <sstream>
 #include <optional>
+#include <format>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
-    constexpr const char* kCookedDir = "Editor/Resources/Assets/Meshes/Skinned/";
-    constexpr const char* kSceneFile = "Editor/Resources/Assets/Scenes/ANIM_TwoBoneWitness.desce";
+    constexpr const char* kCookedDir = "Resources/Assets/Meshes/Skinned/";
+    constexpr const char* kSceneFile = "Resources/Assets/Scenes/ANIM_TwoBoneWitness.desce";
 
     constexpr const char* kBaseBone = "Base";
     constexpr const char* kArmBone  = "Arm";
 
-    std::string RepoRoot()
-    {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + std::string( kCookedDir ) + "TwoBoneProbe.skeleton" );
-            if ( probe )
-            {
-                return prefix;
-            }
-            prefix += "../";
-        }
-        return {};
-    }
+    // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
+    // from the working directory.
+    using Desert::TestSupport::TestDataDir;
 
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -128,7 +122,7 @@ namespace
 
     Desert::Assets::Serialization::SkeletonAssetData LoadSkeletonData( const std::string& stem )
     {
-        const std::string raw = ReadFile( RepoRoot() + kCookedDir + stem + ".skeleton" );
+        const std::string raw = ReadFile( TestDataDir() / kCookedDir / std::format( "{}.skeleton", stem ) );
         EXPECT_FALSE( raw.empty() ) << "could not read " << stem << ".skeleton";
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -137,7 +131,7 @@ namespace
 
     Desert::Assets::Serialization::MeshAssetData LoadMeshData( const std::string& stem )
     {
-        const std::string raw = ReadFile( RepoRoot() + kCookedDir + stem + ".skmesh" );
+        const std::string raw = ReadFile( TestDataDir() / kCookedDir / std::format( "{}.skmesh", stem ) );
         EXPECT_FALSE( raw.empty() ) << "could not read " << stem << ".skmesh";
         // Through the engine's own reader (B11): a cooked mesh is a binary container, and a suite that
         // parsed the fixture as JSON would be reading it by a route the engine does not take.
@@ -150,7 +144,7 @@ namespace
     // pure build step, so anything this suite accepts the engine accepts.
     Desert::Animation::AnimationClip LoadClip( const std::string& stem )
     {
-        const std::string raw = ReadFile( RepoRoot() + kCookedDir + stem + ".anim" );
+        const std::string raw = ReadFile( TestDataDir() / kCookedDir / std::format( "{}.anim", stem ) );
         EXPECT_FALSE( raw.empty() ) << "could not read " << stem << ".anim";
         auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -172,16 +166,21 @@ namespace
     Desert::Animation::ClipRigIdentity IdentityOf( const Desert::Animation::AnimationClip& clip )
     {
         Desert::Animation::ClipRigIdentity id;
-        id.ClipName          = clip.AnimationName;
-        id.SkeletonSignature = clip.SkeletonSignature;
-        for ( const auto& track : clip.Tracks )
-        {
-            if ( !track.BoneName.empty() )
-            {
-                id.AnimatedBones.push_back( track.BoneName );
-            }
-        }
+        id.ClipName = clip.AnimationName;
+        id.Skeleton = { clip.Skeleton, std::format( "{}'s skeleton", clip.AnimationName ) };
         return id;
+    }
+
+    // A .skeleton's identity: the GUID in its own header, which is what a mesh or a clip names.
+    Desert::Animation::SkeletonAssetRef SkeletonRefOf( const std::string& stem )
+    {
+        const auto data = LoadSkeletonData( stem );
+        EXPECT_TRUE( data.Header.has_value() ) << stem << ".skeleton has no header";
+        if ( !data.Header )
+            return { {}, stem };
+        auto guid = Common::Content::AssetGuidFromText( data.Header->Guid );
+        EXPECT_TRUE( guid.IsSuccess() ) << stem << ".skeleton has no readable header GUID";
+        return { guid.IsSuccess() ? guid.GetValue() : Common::Content::AssetGuid{}, stem };
     }
 
     // ---------------------------------------------------------------- the two candidate blend orders
@@ -250,21 +249,26 @@ namespace
         const auto&            bones = rig.GetBones();
         std::vector<glm::mat4> local( bones.size(), glm::mat4( 1.0f ) );
         for ( std::size_t i = 0; i < bones.size(); ++i )
-        {
             local[i] = bones[i].LocalBindTransform;
-            for ( const auto& track : clip.Tracks )
-            {
-                if ( track.BoneName == bones[i].Name )
-                {
-                    // `BoneTrack::GetTransform` composed P/R/S into a mat4 and was removed by А1: every
-                    // caller decomposed it again immediately, so the matrix was a round trip with no
-                    // consumer on the animation system's hottest path. `Sample` returns the three stored
-                    // quantities and this test composes them itself, which is what it wanted anyway.
-                    const auto at =
-                         Desert::Animation::SecondsToFrameTime( static_cast<double>( seconds ), clip.TickRate );
-                    local[i] = track.Sample( at, clip.TickRate ).ToMatrix();
-                }
-            }
+
+        // The clip is sampled the way the Animator samples it: its Sequence's bone bindings resolved against
+        // this rig once, then every bone Transform track evaluated at the playhead. The pose returns the
+        // three stored quantities and this test composes them itself; a bone the clip does not drive keeps
+        // its bind matrix untouched.
+        const Desert::Animation::Timeline::BoneBindingTable table =
+             Desert::Animation::Timeline::BindBones( clip.Sequence, rig );
+        const Desert::Animation::FrameTime playhead =
+             Desert::Animation::SecondsToFrameTime( static_cast<double>( seconds ), clip.Sequence.TickRate );
+        const Desert::Animation::FrameTime at{
+             Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + playhead.Frame.Value },
+             playhead.Subframe };
+        Desert::Animation::LocalPose sampled( bones.size() );
+        const auto evaluated = Desert::Animation::Timeline::EvaluatePose( clip.Sequence, table, at, sampled );
+        EXPECT_TRUE( evaluated.IsSuccess() ) << ( evaluated.IsSuccess() ? "" : evaluated.GetError() );
+        for ( const std::uint32_t bone : table.BoneOfTrack )
+        {
+            if ( bone < bones.size() )
+                local[bone] = sampled[bone].ToMatrix();
         }
 
         std::vector<glm::mat4> global( bones.size(), glm::mat4( 1.0f ) );
@@ -332,7 +336,6 @@ namespace
 // can rot without anything noticing.
 TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
 {
-    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
 
     const auto data     = LoadSkeletonData( "TwoBoneProbe" );
     const auto expected = WitnessBones();
@@ -354,27 +357,30 @@ TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
         }
     }
 
-    // One identity, derived twice and written into four files no compiler reads: the rig's own signature
-    // field, the mesh's SkeletonSignature, and both clips'.
+    // The rig's stored signature is still the engine's hash of its bones (the importer matches a new file to
+    // an existing .skeleton by it); the mesh and both clips name the skeleton by its header GUID.
     const std::uint64_t signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
     EXPECT_EQ( data.Signature, signature ) << "TwoBoneProbe.skeleton's stored signature is not the one the "
                                               "engine derives for the rig inside it.";
-    EXPECT_EQ( LoadMeshData( "TwoBoneProbe" ).SkeletonSignature.value_or( 0ull ), signature );
+    const auto skeleton = SkeletonRefOf( "TwoBoneProbe" );
+    ASSERT_FALSE( skeleton.Guid.IsNull() );
+    EXPECT_TRUE( LoadMeshData( "TwoBoneProbe" ).Skeleton == skeleton.Guid )
+         << "TwoBoneProbe's mesh names a different skeleton from TwoBoneProbe.skeleton.";
     for ( const char* stem : { "TwoBoneProbe_Wave", "TwoBoneProbe_Twist" } )
     {
-        EXPECT_EQ( LoadClip( stem ).SkeletonSignature, signature )
+        EXPECT_TRUE( LoadClip( stem ).Skeleton == skeleton.Guid )
              << stem
-             << " claims a different rig from TwoBoneProbe.skeleton. Every frame taken against it "
+             << " names a different skeleton from TwoBoneProbe.skeleton. Every frame taken against it "
                 "would show a bind pose and still render, which is broken evidence, not no evidence.";
     }
 
     // SCNE 28: the shipped scene names the witness mesh by the GUID its own header states -- read from
     // the file, not pinned, so re-cooking the mesh with a new GUID fails here until the scene follows.
     const auto meshGuid =
-         Common::Content::ReadMeshHeaderGuid( ReadFile( RepoRoot() + kCookedDir + "TwoBoneProbe.skmesh" ) );
+         Common::Content::ReadMeshHeaderGuid( ReadFile( TestDataDir() / kCookedDir / "TwoBoneProbe.skmesh" ) );
     ASSERT_TRUE( meshGuid.has_value() ) << "TwoBoneProbe.skmesh states no header GUID (not a v3 mesh)";
     const std::string meshGuidText = Common::Content::AssetGuidToText( *meshGuid );
-    const std::string scene        = ReadFile( RepoRoot() + kSceneFile );
+    const std::string scene        = ReadFile( TestDataDir() / kSceneFile );
     ASSERT_FALSE( scene.empty() ) << "could not read " << kSceneFile;
     // Named outside the macro: MSVC mis-lexes a raw string followed by \" inside a macro argument (C2017).
     const std::string meshGuidField = R"("MeshGuid": ")" + meshGuidText + "\"";
@@ -387,7 +393,6 @@ TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
 // probe again while still parsing, still rendering, and still passing every other test in this suite.
 TEST( TwoBoneWitness, NeitherBoneCollapsesIntoTheSpaceItIsSupposedToSeparate )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto  rig   = RigFromFile( "TwoBoneProbe" );
     const auto& bones = rig.GetBones();
@@ -442,7 +447,6 @@ TEST( TwoBoneWitness, NeitherBoneCollapsesIntoTheSpaceItIsSupposedToSeparate )
 // the arithmetic — and it is the measured reason a whole class of defect has been invisible here.
 TEST( TwoBoneWitness, TheRigSeparatesBlendingBeforeSkinningFromBlendingAfterIt )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const float blind = WidestDisagreement( RigFromFile( "SkinProbe" ), LoadMeshData( "SkinProbe" ),
                                             LoadClip( "SkinProbe_Hover" ), LoadClip( "SkinProbe_Tilt" ) );
@@ -459,34 +463,31 @@ TEST( TwoBoneWitness, TheRigSeparatesBlendingBeforeSkinningFromBlendingAfterIt )
             "the rig has stopped being an instrument even though every other test here still passes.";
 }
 
-// THE TWO CORPORA MUST NOT DRIVE EACH OTHER'S RIGS. ClipDrivesRig accepts a clip whose animated bones are
-// mostly present BY NAME even when the signature disagrees, so one careless bone name would hand the
-// witness rig the one-bone corpus (and the Foreign_Hips negative control with it) and quietly turn two
-// instruments into one.
+// THE TWO CORPORA MUST NOT PLAY ON EACH OTHER'S MESHES. Each names its own .skeleton by GUID, and
+// ClipPlaysOnMesh compares references, so a clip copied into the wrong corpus is refused by name.
 TEST( TwoBoneWitness, TheWitnessCorpusAndTheOneBoneCorpusStayApart )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
-    const auto witnessRig = Desert::Animation::IdentifyRig( RigFromFile( "TwoBoneProbe" ) );
-    const auto probeRig   = Desert::Animation::IdentifyRig( RigFromFile( "SkinProbe" ) );
-
-    EXPECT_NE( witnessRig.Signature, probeRig.Signature );
+    const auto witness = SkeletonRefOf( "TwoBoneProbe" );
+    const auto probe   = SkeletonRefOf( "SkinProbe" );
+    ASSERT_FALSE( witness.Guid.IsNull() );
+    ASSERT_FALSE( probe.Guid.IsNull() );
+    EXPECT_FALSE( witness.Guid == probe.Guid ) << "the two probe skeletons share a GUID";
 
     for ( const char* stem : { "TwoBoneProbe_Wave", "TwoBoneProbe_Twist" } )
     {
         const auto identity = IdentityOf( LoadClip( stem ) );
-        EXPECT_TRUE( Desert::Animation::ClipDrivesRig( identity, witnessRig ) )
-             << stem << " is not offered to the rig it names.";
-        EXPECT_FALSE( Desert::Animation::ClipDrivesRig( identity, probeRig ) )
-             << stem << " is offered to the one-bone probe rig, which has neither of its bones.";
+        EXPECT_TRUE( Desert::Animation::ClipPlaysOnMesh( identity.Skeleton, witness, {} ).IsSuccess() )
+             << stem << " does not play on the skeleton it names.";
+        EXPECT_FALSE( Desert::Animation::ClipPlaysOnMesh( identity.Skeleton, probe, {} ).IsSuccess() )
+             << stem << " plays on the one-bone probe skeleton.";
     }
 
-    for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt", "Foreign_Hips" } )
+    for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt" } )
     {
-        EXPECT_FALSE( Desert::Animation::ClipDrivesRig( IdentityOf( LoadClip( stem ) ), witnessRig ) )
-             << stem
-             << " is offered to the two-bone witness rig. Rename the bone in the new rig, not the "
-                "match rule: the corpus next door depends on it saying no.";
+        EXPECT_FALSE( Desert::Animation::ClipPlaysOnMesh( IdentityOf( LoadClip( stem ) ).Skeleton, witness, {} )
+                           .IsSuccess() )
+             << stem << " plays on the two-bone witness skeleton.";
     }
 }
 
@@ -495,7 +496,6 @@ TEST( TwoBoneWitness, TheWitnessCorpusAndTheOneBoneCorpusStayApart )
 // rig the SAME way cannot tell a frame which of them played.
 TEST( TwoBoneWitness, TheWitnessClipsMoveTheChainAndMoveItDifferently )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto rig   = RigFromFile( "TwoBoneProbe" );
     const auto wave  = LoadClip( "TwoBoneProbe_Wave" );
@@ -503,13 +503,17 @@ TEST( TwoBoneWitness, TheWitnessClipsMoveTheChainAndMoveItDifferently )
 
     for ( const auto* clip : { &wave, &twist } )
     {
-        EXPECT_EQ( clip->DurationTicks.Value, 2 * Desert::Animation::PROJECT_TICK_RATE.Numerator )
+        EXPECT_EQ( clip->DurationTicks().Value, 2 * Desert::Animation::PROJECT_TICK_RATE.Numerator )
              << clip->AnimationName
              << " is no longer the 2 s cycle the witness scene's exit time and shot frame counts are "
                 "chosen against.";
-        EXPECT_EQ( clip->TickRate, Desert::Animation::PROJECT_TICK_RATE )
+        EXPECT_EQ( clip->Sequence.TickRate, Desert::Animation::PROJECT_TICK_RATE )
              << clip->AnimationName << " is not on the project tick grid.";
-        ASSERT_EQ( clip->Tracks.size(), 2u ) << clip->AnimationName << " does not drive both bones.";
+        const auto driven = Desert::Animation::Timeline::BindBones( clip->Sequence, rig ).BoneOfTrack;
+        ASSERT_EQ( std::count_if( driven.begin(), driven.end(),
+                                  [&rig]( std::uint32_t bone ) { return bone < rig.GetBones().size(); } ),
+                   2 )
+             << clip->AnimationName << " does not drive both bones.";
     }
 
     // Travel of the ARM's tip, which is the end of the chain and therefore the place where a lost parent

@@ -1,10 +1,10 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 
-#include <Engine/Assets/Mesh/SurfaceShaderNames.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -351,14 +351,9 @@ namespace Desert::Core::WorldCells
                     const auto* row = byHandle( dependency );
                     if ( row == nullptr )
                         continue;
+                    // The shader's manifest role, as the registry's Role tag carries it — never its name.
                     if ( row->Kind == "Shader" )
-                    {
-                        const std::string_view key   = row->Key;
-                        const std::size_t      colon = key.find( ':' );
-                        const std::string      stem =
-                             std::filesystem::path( std::string( key.substr( colon + 1 ) ) ).stem().string();
-                        return !Assets::IsPBRSurfaceShader( stem );
-                    }
+                        return row->Role != CC::kPBRSurfaceRole;
                     if ( row->Kind == "Material" && parent == nullptr )
                         parent = row;
                 }

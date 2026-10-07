@@ -12,6 +12,8 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -182,3 +184,26 @@ TEST( SceneAssetGuidRoundTrip, AWellFormedReferenceReadsWithNoIssue )
     EXPECT_EQ( ref->Path, "Scenes/A.desce" );
     EXPECT_TRUE( issues.empty() );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+
+    // No project, no content: the table's assets are spelled under an explicit throwaway project.
+    class ThrowawayProjectEnvironment final : public ::testing::Environment
+    {
+    public:
+        void SetUp() override
+        {
+            Common::Constants::Path::SetProjectRoot(
+                 std::filesystem::temp_directory_path() / "SceneAssetGuidRoundTrip", "Content" );
+        }
+    };
+
+    const Desert::TestSupport::SuiteEnvironment kThrowawayProject{
+         +[]() -> ::testing::Environment*
+         {
+             return new ThrowawayProjectEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
+} // namespace

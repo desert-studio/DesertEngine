@@ -27,6 +27,7 @@
 #include <typeinfo>
 
 #include <Engine/Core/Projection.hpp>
+#include <Engine/Geometry/PosedBounds.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 
 namespace Desert::Core
@@ -57,34 +58,12 @@ namespace Desert::Core
             return nullptr;
         }
 
-        // Mesh-local AABB of a skinned mesh deformed by `skin` (linear blend). A skinned submesh's stored
-        // BoundingBox is in RAW-vertex space (which only matches the rendered mesh when bind == identity), so
-        // picking must deform the retained CPU vertices by the current pose instead of using that box.
+        // Mesh-local AABB of a skinned mesh deformed by `skin`: the stored submesh box is raw-vertex space, so
+        // picking measures the posed vertices (Geometry::MeasurePosedVertices, shared with the pose thumbnail).
         Common::Math::AABB SkinnedLocalBounds( const SkinnedMesh& mesh, const std::vector<glm::mat4>& skin )
         {
-            glm::vec3 mn( FLT_MAX ), mx( -FLT_MAX );
-            for ( const auto& sv : mesh.GetVertices() )
-            {
-                glm::vec3 pos( 0.0f );
-                float     wsum = 0.0f;
-                for ( size_t j = 0; j < SkinnedVertex::MAX_BONE_INFLUENCES; ++j )
-                {
-                    const float w = sv.BoneWeights[j];
-                    if ( w <= 0.0f )
-                        continue;
-                    const uint32_t b = sv.BoneIDs[j];
-                    if ( b < skin.size() )
-                        pos += w * glm::vec3( skin[b] * glm::vec4( sv.StaticVertex.Position, 1.0f ) );
-                    wsum += w;
-                }
-                if ( wsum > 1e-5f )
-                    pos /= wsum; // weighted average (robust to weights that don't sum to exactly 1)
-                else
-                    pos = sv.StaticVertex.Position;
-                mn = glm::min( mn, pos );
-                mx = glm::max( mx, pos );
-            }
-            return { mn, mx };
+            const auto box = Geometry::MeasurePosedVertices( mesh.GetVertices(), skin );
+            return { box.Min, box.Max };
         }
     } // namespace
 
@@ -274,6 +253,7 @@ namespace Desert::Core
     Scene::Scene()
     {
         LiveSceneList().push_back( this );
+        m_Subsystems.Begin();
     }
 
     Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
@@ -290,10 +270,14 @@ namespace Desert::Core
         // raw pointer that nothing ever checked, and the first frame dereferenced it.
         if ( sceneRenderer != nullptr && !m_Views.Add( sceneRenderer, nullptr ) )
             LOG_ERROR( "[Scene] '{}' refused its own renderer as view 0.", m_SceneName );
+
+        m_Subsystems.Begin();
     }
 
     Scene::~Scene()
     {
+        m_Subsystems.End();
+
         // Erased in the destructor and nowhere else, so an entry cannot outlive the object it points at.
         // That is the whole reason the list holds raw pointers rather than weak_ptrs: a Scene is in it for
         // exactly its own lifetime and there is no window in which a reader could see a dead one.
@@ -477,9 +461,9 @@ namespace Desert::Core
 
         // THE WORLD'S CLOCK TICKS FIRST, once, before anything reads it: the systems below, and every
         // view's renderer after them, see the same Delta and GameTime this frame.
-        m_WorldTime.Tick( ts.GetSeconds(),
-                          WorldTime::ClockModeFor( m_State == SceneState::Play, m_State == SceneState::Paused,
-                                                   m_PreviewRealtime ) );
+        m_WorldTime.Tick( ts.GetSeconds(), WorldTime::ClockModeFor(
+                                                TicksGameplay(), m_State == SceneState::Paused && !TicksGameplay(),
+                                                m_PreviewRealtime ) );
 
         // The renderers step by the world's Delta; the wall-clock step goes beside it for what is about
         // the machine rather than the world (the sky's re-bake debounce).
@@ -487,12 +471,12 @@ namespace Desert::Core
         sceneRendererInfo.Timestep     = Common::Timestep( m_WorldTime.GetDeltaSeconds() );
         sceneRendererInfo.RealTimestep = ts;
 
-        // Gameplay systems (animation, physics, scripts) advance only in Play, by the world's Delta — so a
-        // pause or a time dilation reaches them from the same clock as the picture. Systems still RUN every
-        // frame (they collect render data); they see a zero step while editing. The preview time that moves
-        // the look of an edited world reaches its consumers through SetWorldTime below, not through this.
-        const Common::Timestep gameplayTs( ( m_State == SceneState::Play ) ? m_WorldTime.GetDeltaSeconds()
-                                                                           : 0.0f );
+        // Gameplay systems (animation, physics, scripts) advance only when the world TICKS GAMEPLAY — Play,
+        // or the one stepped frame of a pause (TicksGameplay) — and by the world's Delta, so a pause or a
+        // time dilation reaches them from the same clock as the picture. Systems still RUN every frame (they
+        // collect render data); they see a zero step otherwise. The world's preview time reaches its
+        // consumers through SetWorldTime below; the editor-world animation preview through SetEditorTick.
+        const Common::Timestep gameplayTs( TicksGameplay() ? m_WorldTime.GetDeltaSeconds() : 0.0f );
 
         // Push the active-camera snapshot to systems that lay out camera-relative geometry (billboarded
         // text). Done on the main thread before ExecuteSystems so the parallel system group reads it
@@ -512,6 +496,14 @@ namespace Desert::Core
         }
         for ( auto& system : m_Systems )
             system->SetWorldTime( m_WorldTime );
+
+        // THE EDITOR WORLD'S PREVIEW STEP, separate from gameplay's (WorldTime::EditorPreviewSeconds). A system
+        // previews in the editor only on the author's request (UE bUpdateAnimationInEditor), so it needs to know
+        // which world this is — a zero gameplay timestep alone cannot tell Edit from Paused. With Realtime off
+        // the character holds still with the wind, the particles and the material Time.
+        const Common::Timestep editorTs( m_WorldTime.EditorPreviewSeconds( m_State == SceneState::Edit ) );
+        for ( auto& system : m_Systems )
+            system->SetEditorTick( editorTs );
 
         // Prefab foliage (FO-8) before the systems: a field's instances are entities, and the systems below must
         // see them where the field's transforms say they stand this frame — after a stroke, an undo or a cell
@@ -664,6 +656,10 @@ namespace Desert::Core
                 buffer->Clear();
         }
 
+        // The stepped frame of a pause is THIS update, whatever it reported: consumed here, after every
+        // system has asked TicksGameplay(), so the world holds again from the next frame.
+        m_SingleFramePending = false;
+
         // The buffers are cleared FIRST and the failure reported after: a frame that refused still has to
         // leave the arena rewound, or the next frame records on top of this one's commands.
         if ( !firstError.empty() )
@@ -726,6 +722,9 @@ namespace Desert::Core
         r.prepare<ECS::TwoBoneIKComponent>();
         r.prepare<ECS::ControlRigComponent>();
         r.prepare<ECS::RetargetComponent>();
+        // LevelSequenceSystem views every LevelSequenceComponent; a level with no sequence actor would
+        // otherwise create this pool inside the parallel phase.
+        r.prepare<ECS::LevelSequenceComponent>();
         r.prepare<ECS::TextComponent>();
         r.prepare<ECS::LandscapeMaterialComponent>();
 
@@ -739,6 +738,8 @@ namespace Desert::Core
         r.prepare<ECS::PostProcessVolumeComponent>();
         r.prepare<ECS::VolumetricCloudComponent>();
         r.prepare<ECS::HeroCloudComponent>();
+        r.prepare<ECS::ProceduralFoliageComponent>();
+        r.prepare<ECS::ProceduralFoliageFieldComponent>();
 
         // Gameplay -- serial systems today, and prepared all the same: what makes a type safe is that its
         // pool exists before the first parallel group, not which system happens to be serial this week.
@@ -1005,6 +1006,7 @@ namespace Desert::Core
 
     void Scene::Clear()
     {
+        m_Subsystems.End();
         m_Registry.clear();
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
@@ -1013,6 +1015,7 @@ namespace Desert::Core
         m_Entities.Clear();
 
         SetupRegistryCallbacks();
+        m_Subsystems.Begin();
     }
 
     void Scene::SetupRegistryCallbacks()

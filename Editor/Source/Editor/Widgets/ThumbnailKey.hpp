@@ -130,4 +130,12 @@ namespace Desert::Editor::ThumbnailKey
                  FileName( assetPath ) )
              .string();
     }
+
+    /// THE LIVE PREVIEW'S PICTURE (Edit Thumbnail while a gesture runs, UE's realtime thumbnail): one file per
+    /// asset, OUTSIDE the versioned cache, so a picture taken with an orbit nobody has stated yet can never be
+    /// read as the asset's cached thumbnail, judged fresh, or recorded. Rewritten by every preview of the asset.
+    inline std::string PreviewPath( const std::string& assetPath )
+    {
+        return ( Common::DDC::BucketDir( "ThumbnailPreviews" ) / FileName( assetPath ) ).string();
+    }
 } // namespace Desert::Editor::ThumbnailKey

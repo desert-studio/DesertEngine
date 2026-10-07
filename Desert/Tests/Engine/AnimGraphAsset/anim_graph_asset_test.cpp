@@ -9,6 +9,7 @@
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -32,13 +33,14 @@ namespace
 {
     AnimGraph Locomotion()
     {
-        AnimGraph g;
+        AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
         g.Name = "Locomotion";
+        g.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Locomotion.skeleton" };
         State idle;
         idle.Name = "Idle";
         idle.Clip = "Anim_Idle";
-        g.States.push_back( idle );
-        g.Entry = "Idle";
+        OutputMachine( g )->States.push_back( idle );
+        OutputMachine( g )->Entry = "Idle";
         return g;
     }
 
@@ -89,9 +91,9 @@ TEST( AnimGraphAsset, SaveThenLoadIsTheSameGraph )
     ASSERT_NE( asset.GetGraph(), nullptr );
 
     EXPECT_EQ( asset.GetGraph()->Name, "Locomotion" );
-    EXPECT_EQ( asset.GetGraph()->Entry, "Idle" );
-    ASSERT_EQ( asset.GetGraph()->States.size(), 1u );
-    EXPECT_EQ( asset.GetGraph()->States[0].Clip, "Anim_Idle" );
+    EXPECT_EQ( OutputMachine( *asset.GetGraph() )->Entry, "Idle" );
+    ASSERT_EQ( OutputMachine( *asset.GetGraph() )->States.size(), 1u );
+    EXPECT_EQ( OutputMachine( *asset.GetGraph() )->States[0].Clip, "Anim_Idle" );
 
     // The DISPLAY name is the graph's own, not the file's stem — the file here is called something else
     // entirely, so a slot showing "desert_animgraph_roundtrip" would mean the wrong half won.
@@ -118,8 +120,8 @@ TEST( AnimGraphAsset, THE_RELATION_OneFileIsOneObjectAndNotACopyPerCaller )
     // And an edit through one of them is visible through the other, which is the property a copy breaks.
     State extra;
     extra.Name = "Run";
-    first->States.push_back( extra );
-    EXPECT_EQ( second->States.size(), 2u );
+    OutputMachine( *first )->States.push_back( extra );
+    EXPECT_EQ( OutputMachine( *second )->States.size(), 2u );
 }
 
 TEST( AnimGraphAsset, AnEditBumpsTheRevisionSoEveryEntitySharingItResyncs )
@@ -161,14 +163,14 @@ TEST( AnimGraphAsset, AReloadReplacesTheObjectRatherThanRewritingItUnderARunning
     AnimGraph edited = Locomotion();
     State     run;
     run.Name = "Run";
-    edited.States.push_back( run );
+    OutputMachine( edited )->States.push_back( run );
     ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), edited ).IsSuccess() );
     ASSERT_TRUE( asset.Load().IsSuccess() );
 
     EXPECT_NE( asset.GetGraph().get(), held.get() ) << "the reload wrote into the object a live evaluator "
                                                        "was holding";
-    EXPECT_EQ( held->States.size(), 1u ) << "the old object changed under its holder";
-    EXPECT_EQ( asset.GetGraph()->States.size(), 2u );
+    EXPECT_EQ( OutputMachine( *held )->States.size(), 1u ) << "the old object changed under its holder";
+    EXPECT_EQ( OutputMachine( *asset.GetGraph() )->States.size(), 2u );
 }
 
 TEST( AnimGraphAsset, TheObjectItHandsOutIsWhatAnEvaluatorCanBeBuiltFrom )
@@ -320,7 +322,9 @@ TEST( AnimGraphAsset, ASaveStatesTheHeaderAndAResaveKeepsItsGuid )
     EXPECT_EQ( first.GetValue().Kind, Common::Content::ContentKind::AnimGraph );
     ASSERT_FALSE( first.GetValue().Guid.IsNull() );
     ASSERT_EQ( first.GetValue().Subsystems.size(), 1u );
-    EXPECT_EQ( first.GetValue().Subsystems[0].Version, 1u );
+    EXPECT_EQ( first.GetValue().Subsystems[0].Tag, Desert::Assets::kAnimGraphSchemaTag );
+    EXPECT_EQ( first.GetValue().Subsystems[0].Version, Desert::Assets::kAnimGraphSchemaVersion )
+         << "a save states the layout this build writes";
 
     AnimGraphAsset asset( file.Path() );
     EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),
@@ -345,4 +349,86 @@ TEST( AnimGraphAsset, AGraphWithNoHeaderIsRefusedByNameAndPointsAtTheMigrator )
     EXPECT_EQ( asset.GetGraph(), nullptr );
     EXPECT_NE( loaded.GetError().find( "format version 0" ), std::string::npos ) << loaded.GetError();
     EXPECT_NE( loaded.GetError().find( "SceneMigrator" ), std::string::npos ) << loaded.GetError();
+}
+
+// The linked-layer half of a graph (ANIM-I14) survives the file; a file without it is a graph without layers.
+TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
+{
+    namespace PG       = Desert::Animation::Graph;
+    AnimGraph    graph = PG::MakeStateMachineGraph( "Rifle" );
+    graph.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Locomotion.skeleton" };
+    PG::PoseNode input;
+    input.Name   = "In";
+    input.Kind   = static_cast<int>( PG::PoseNodeKind::LinkedInputPose );
+    graph.Layers = PG::AnimGraphLayers{ { PG::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
+                                        { PG::AnimLayerGraph{ "Weapon", "UpperBody", { input }, "In" } } };
+
+    const auto read = PG::Deserialize( PG::Serialize( graph ) );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    const auto& layers = read.GetValue().Layers;
+    if ( !layers )
+    {
+        FAIL() << "the layers did not survive the round trip";
+    }
+    ASSERT_EQ( layers->Implemented.size(), 1u );
+    EXPECT_EQ( layers->Interfaces[0].Layers, std::vector<std::string>{ "UpperBody" } );
+    EXPECT_EQ( layers->Implemented[0].Nodes[0].Kind, input.Kind );
+
+    AnimGraph plainGraph      = PG::MakeStateMachineGraph( "Plain" );
+    plainGraph.TargetSkeleton = graph.TargetSkeleton;
+    const auto plain          = PG::Deserialize( PG::Serialize( plainGraph ) );
+    ASSERT_TRUE( plain.IsSuccess() ) << plain.GetError();
+    EXPECT_FALSE( plain.GetValue().Layers.has_value() );
+}
+
+// A graph that names no skeleton is refused on read: the binding is part of the asset (ANIM-SKELREF).
+TEST( AnimGraphAsset, GraphWithoutTargetSkeletonIsRefused )
+{
+    namespace PG    = Desert::Animation::Graph;
+    const auto read = PG::Deserialize( PG::Serialize( PG::MakeStateMachineGraph( "NoSkeleton" ) ) );
+    EXPECT_FALSE( read.IsSuccess() );
+}
+
+// ANIM-FIX10: the skeletal control nodes' setups (Two Bone IK, Look At) survive the .danimgraph file, targets,
+// space bones and Alpha included.
+TEST( AnimGraphAsset, TwoBoneIKAndLookAtNodesRoundTrip )
+{
+    namespace PG         = Desert::Animation::Graph;
+    AnimGraph graph      = PG::MakeStateMachineGraph( "Reach" );
+    graph.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/Locomotion.skeleton" };
+
+    PG::PoseNode ik;
+    ik.Name                     = "IK";
+    ik.Kind                     = static_cast<int>( PG::PoseNodeKind::TwoBoneIK );
+    ik.PoseInputs               = { graph.OutputPose };
+    ik.TwoBoneIK                = PG::TwoBoneIKNode{};
+    ik.TwoBoneIK->EndBone       = "Hand";
+    ik.TwoBoneIK->Goal.Position = { 30.0F, 70.0F, 20.0F };
+    ik.TwoBoneIK->PoleTarget    = PG::BoneControlTarget{ { 0.0F, 0.0F, 50.0F }, "Spine" };
+    ik.TwoBoneIK->Alpha         = 0.25F;
+    PG::PoseNode look;
+    look.Name                    = "Look";
+    look.Kind                    = static_cast<int>( PG::PoseNodeKind::LookAt );
+    look.PoseInputs              = { "IK" };
+    look.LookAt                  = PG::LookAtNode{};
+    look.LookAt->Bone            = "Head";
+    look.LookAt->Target.Position = { 1.0F, 2.0F, 3.0F };
+    look.LookAt->AimAxis         = { 1.0F, 0.0F, 0.0F };
+    graph.Nodes.push_back( ik );
+    graph.Nodes.push_back( look );
+    graph.OutputPose = "Look";
+
+    const auto read = PG::Deserialize( PG::Serialize( graph ) );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    ASSERT_EQ( read.GetValue().Nodes.size(), 3u );
+    const PG::PoseNode& readIK   = read.GetValue().Nodes[1];
+    const PG::PoseNode& readLook = read.GetValue().Nodes[2];
+    ASSERT_TRUE( readIK.TwoBoneIK.has_value() );
+    EXPECT_EQ( readIK.TwoBoneIK->EndBone, "Hand" );
+    EXPECT_EQ( readIK.TwoBoneIK->Goal.Position, ik.TwoBoneIK->Goal.Position );
+    EXPECT_EQ( readIK.TwoBoneIK->PoleTarget.Bone, "Spine" );
+    EXPECT_EQ( readIK.TwoBoneIK->Alpha, 0.25F );
+    ASSERT_TRUE( readLook.LookAt.has_value() );
+    EXPECT_EQ( readLook.LookAt->Bone, "Head" );
+    EXPECT_EQ( readLook.LookAt->AimAxis, look.LookAt->AimAxis );
 }

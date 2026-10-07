@@ -12,7 +12,8 @@
 namespace Desert::Assets
 {
     /**
-     * @brief A root the eviction sweep keeps that no scene names: an asset an open editor window is editing.
+     * @brief A root the eviction sweep keeps that no scene names: an asset an open editor window is editing, or
+     * one the engine itself holds for its whole life (the Default Surface template, MaterialService).
      *
      * The sweep traces from the live scenes' components (CollectAssetRootsFromLiveScenes). An asset editor's
      * subject is in no scene — the Animation Editor's clip is played by a preview entity only while the preview

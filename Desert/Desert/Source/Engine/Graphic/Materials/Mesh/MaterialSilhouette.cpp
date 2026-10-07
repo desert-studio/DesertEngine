@@ -53,9 +53,8 @@ namespace Desert::Graphic
 
     void MaterialSilhouetteSkinned::SetBoneOffset( uint32_t firstBone )
     {
-        // Offset 64 in Silhouette_Skinned's push block, straight after the transform that
-        // Renderer::RenderMesh writes; the whole reflected range is pushed per draw.
-        if ( m_MaterialExecutor )
-            m_MaterialExecutor->PushConstant( &firstBone, sizeof( uint32_t ), sizeof( glm::mat4 ) );
+        // `BoneOffset` in Silhouette_Skinned's push block, found by name in the cell's layout; the whole
+        // reflected range is pushed per draw.
+        WritePushField( "BoneOffset", &firstBone, sizeof( uint32_t ) );
     }
 } // namespace Desert::Graphic

@@ -19,9 +19,9 @@ namespace Desert::UI
         return Runtime::ResourceRegistry::GetAnimatedImageService()->Resolve( sprite );
     }
 
-    Graphic::Image2D* RegistryUICanvasResources::VideoFrame( uint64_t video )
+    Graphic::Image2D* RegistryUICanvasResources::VideoFrame( uint64_t video, float volume, bool muted )
     {
-        return Runtime::ResourceRegistry::GetVideoService()->Resolve( video );
+        return Runtime::ResourceRegistry::GetVideoService()->Resolve( video, { .Volume = volume, .Muted = muted } );
     }
 
     const Assets::UIThemeRuntime* RegistryUICanvasResources::Theme( const Assets::AssetHandle& theme )

@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <map>
 #include <set>
@@ -160,8 +161,8 @@ namespace
            "vkWaitForFences" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp",
            "VulkanSwapChain::CreateSwapChain", "vkCreateSwapchainKHR -- the line that aborted" },
-         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp", "VulkanSwapChain::OnResize",
-           "the whole teardown-and-rebuild" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp",
+           "VulkanSwapChain::ApplyRequestedRebuild", "the whole teardown-and-rebuild" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp",
            "VulkanSwapChain::AcquireNextImage", "vkAcquireNextImageKHR" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp",
@@ -574,11 +575,12 @@ TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )
             ++end;
         const std::string name = src.substr( at + qualifier.size(), end - at - qualifier.size() );
         if ( !name.empty() && !bodies.contains( name ) )
-            bodies[name] = BodyOf( src, qualifier + name + "(" );
+            bodies[name] = BodyOf( src, std::format( "{}{}(", qualifier, name ) );
     }
     const auto calls = []( const std::string& body, const std::string& callee )
     {
-        for ( std::size_t at = 0; ( at = body.find( callee + "(", at ) ) != std::string::npos; ++at )
+        for ( std::size_t at = 0; ( at = body.find( std::format( "{}(", callee ), at ) ) != std::string::npos;
+              ++at )
             if ( at == 0 || !IsIdentChar( body[at - 1] ) )
                 return true;
         return false;

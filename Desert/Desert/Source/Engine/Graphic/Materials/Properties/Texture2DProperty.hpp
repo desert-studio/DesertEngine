@@ -4,6 +4,7 @@
 
 #include <Engine/Core/Formats/DefaultTexture.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/ShaderResources/UniformImage2D.hpp>
 
@@ -23,7 +24,7 @@ namespace Desert::Graphic
         // else was assigned, so no slot of a material ever shows "whatever was bound last".
         Texture2DProperty( std::shared_ptr<ShaderResources::UniformImage2D> uniform,
                            Core::Formats::DefaultTextureKind                defaultTexture )
-             : m_Uniform( uniform ), m_Default( defaultTexture )
+             : m_Uniform( std::move( uniform ) ), m_Default( defaultTexture )
         {
         }
 
@@ -32,13 +33,13 @@ namespace Desert::Graphic
         bool RestoreDefault()
         {
             const Image2D* image = DefaultTextures::Get().Resolve( m_Default );
-            if ( !image )
+            if ( image == nullptr )
                 return false;
             SetImage( image, RDG::Access::SampledGraphics );
             return true;
         }
 
-        Core::Formats::DefaultTextureKind GetDefault() const
+        [[nodiscard]] Core::Formats::DefaultTextureKind GetDefault() const
         {
             return m_Default;
         }
@@ -99,6 +100,22 @@ namespace Desert::Graphic
             NoteWritten();
         }
 
+        /// The slot's sampling state (MAT1s): the material's override or the template's, as
+        /// Assets::MaterialData::SlotSampler resolved it. The backend binds the cached sampler for a
+        /// non-default state and the image's own sampler for the default one.
+        void SetSamplerState( const Core::Formats::SamplerState& state )
+        {
+            if ( state == m_Sampler )
+                return;
+            m_Sampler = state;
+            NoteWritten();
+        }
+
+        [[nodiscard]] const Core::Formats::SamplerState& GetSamplerState() const
+        {
+            return m_Sampler;
+        }
+
         const auto& GetUniform() const
         {
             return m_Uniform;
@@ -109,6 +126,7 @@ namespace Desert::Graphic
         Core::Formats::DefaultTextureKind                m_Default;
         const Image2D*                                   m_Texture        = nullptr;
         RDG::Access m_Declared = RDG::Access::SampledGraphics; // the access m_Texture is read under
+        Core::Formats::SamplerState                      m_Sampler;
         uint64_t                                         m_UniformVersion = PropertyVersion::kNeverWritten;
     };
 } // namespace Desert::Graphic

@@ -73,7 +73,7 @@ namespace
             const double seconds =
                  span * static_cast<double>( rate.Denominator ) / static_cast<double>( rate.Numerator );
             return EvaluateSegment( keys[i - 1].Value, keys[i - 1].LeaveTangent, keys[i].Value,
-                                    keys[i].ArriveTangent, keys[i].Interp, seconds, t );
+                                    keys[i].ArriveTangent, keys[i - 1].Interp, seconds, t );
         }
         return keys.back().Value;
     }
@@ -104,6 +104,8 @@ TEST( KeyInterpolation, ConstantHoldsTheWholeSegmentAndStepsAtTheLaterKey )
     EXPECT_FLOAT_EQ( EvaluateSegment( 10.0F, 0.0F, 20.0F, 0.0F, KeyInterp::Constant, 1.0, 0.0F ), 10.0F );
     EXPECT_FLOAT_EQ( EvaluateSegment( 10.0F, 0.0F, 20.0F, 0.0F, KeyInterp::Constant, 1.0, 0.49F ), 10.0F );
     EXPECT_FLOAT_EQ( EvaluateSegment( 10.0F, 0.0F, 20.0F, 0.0F, KeyInterp::Constant, 1.0, 0.99F ), 10.0F );
+    // ...and ON the later key the step has happened: a sample exactly on a key's tick reads that key.
+    EXPECT_FLOAT_EQ( EvaluateSegment( 10.0F, 0.0F, 20.0F, 0.0F, KeyInterp::Constant, 1.0, 1.0F ), 20.0F );
 }
 
 TEST( KeyInterpolation, LinearIsTheStraightLineThisEngineUsedToHaveEverywhere )
@@ -294,17 +296,18 @@ TEST( KeyInterpolation, TheSeededSlopeIsTheCURVESSlopeAndIsZeroOutsideTheKeyedRa
     std::vector<ScalarKey> keys{ Key( 0, 0.0F ), Key( 24000, 100.0F ) };
 
     // On a LINEAR segment the curve's slope IS the secant: 100 units over one second (24000 ticks).
-    keys[1].Interp = KeyInterp::Linear;
+    // The segment's mode is its EARLIER key's (UE's rule, ANIM v6).
+    keys[0].Interp = KeyInterp::Linear;
     EXPECT_NEAR( SlopeAt( keys, FrameNumber{ 12000 }, PROJECT_TICK_RATE ), 100.0F, 1.0e-3F );
 
     // On a CONSTANT one there is no slope at all — seeding a key inside a deliberate hold with anything
     // else would tilt a segment the animator made flat on purpose.
-    keys[1].Interp = KeyInterp::Constant;
+    keys[0].Interp = KeyInterp::Constant;
     EXPECT_FLOAT_EQ( SlopeAt( keys, FrameNumber{ 12000 }, PROJECT_TICK_RATE ), 0.0F );
 
     // And on a cubic with flat endpoints the midpoint is the steepest point of the S, which is FASTER
     // than the secant — the number that tells the two rules apart.
-    keys[1].Interp = KeyInterp::Cubic;
+    keys[0].Interp = KeyInterp::Cubic;
     AutoSetTangents( keys, PROJECT_TICK_RATE );
     EXPECT_GT( SlopeAt( keys, FrameNumber{ 12000 }, PROJECT_TICK_RATE ), 110.0F );
 

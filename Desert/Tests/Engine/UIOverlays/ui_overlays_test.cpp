@@ -151,12 +151,12 @@ namespace
 
         // ONE FRAME of @p view over every canvas in authored order — what a host does. Returns every
         // message the frame fired, in order.
-        std::vector<std::string> Frame( UIViewContext& view, const UIInput& input )
+        std::vector<std::string> Frame( UIViewContext& view, const UIInput& input, float dtSeconds = 0.0f )
         {
             R2D::DrawList2D          dl;
             std::vector<std::string> out;
             std::string              clicked;
-            DUI::BeginUIFrame( view, Registry, kViewport );
+            DUI::BeginUIFrame( view, Registry, kViewport, dtSeconds );
             for ( const entt::entity c : DUI::CanvasesInDrawOrder( Registry ) )
             {
                 const auto drawn =
@@ -191,22 +191,12 @@ namespace
         return fired;
     }
 
-    // Push this view's wall clock @p seconds into the past, so the NEXT frame it draws measures that
-    // delta. The walk reads a real clock by design; this is how a test asks it for a specific one without
-    // sleeping. Capped at the walk's own 0.1 s clamp, so callers step rather than jump.
-    void RewindClock( UIViewContext& view, float seconds )
-    {
-        view.LastFrameTime -= seconds;
-    }
-
-    // Advance @p view by @p steps frames of ~0.1 s each with the pointer parked at @p input.
+    // Advance @p view by @p steps frames of 0.1 s each (the walk's own clamp) with the pointer parked at
+    // @p input. The step is handed to the frame as a host would — the walk reads no clock.
     void Idle( World& w, UIViewContext& view, const UIInput& input, int steps )
     {
         for ( int i = 0; i < steps; ++i )
-        {
-            RewindClock( view, 0.1f );
-            w.Frame( view, input );
-        }
+            w.Frame( view, input, 0.1f );
     }
 
     // The on-screen box an overlay canvas's content occupies, read through the LAYOUT query — i.e. the
@@ -357,7 +347,7 @@ TEST( OverlayModal, AClosedOverlayDrawsNothingAndIsNotTheSameStatementAsAnInvisi
 
     UIViewContext   view{ s_Resources };
     R2D::DrawList2D dl;
-    DUI::BeginUIFrame( view, w.Registry, kViewport );
+    DUI::BeginUIFrame( view, w.Registry, kViewport, /*frameDtSeconds=*/0.0f );
     const auto closed = DUI::RenderCanvas2D( view, w.Registry, modal, dl );
     DUI::EndUIFrame( view, w.Registry, dl, /*input=*/nullptr );
 
@@ -748,7 +738,7 @@ TEST( OverlayAuthoring, ADesignViewShowsEveryOverlayWhereItWasAuthored )
     UIViewContext view{ s_Resources };
     view.AuthoringPreview = true;
     R2D::DrawList2D dl;
-    DUI::BeginUIFrame( view, w.Registry, kViewport );
+    DUI::BeginUIFrame( view, w.Registry, kViewport, /*frameDtSeconds=*/0.0f );
     const auto drawn = DUI::RenderCanvas2D( view, w.Registry, menu, dl );
     DUI::EndUIFrame( view, w.Registry, dl, /*input=*/nullptr );
 

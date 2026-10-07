@@ -27,7 +27,9 @@ namespace Desert::Assets
         constexpr uint32_t kImportInfoVersion = 1;
         // 2: SRCE holds a LIST of source models (one per authored LOD) ahead of the shared slots; version 1 held
         // one mesh and was never written by an import, so it has no migration.
-        constexpr uint32_t kSourceVersion = 2;
+        // 3 (SKEL-eng3): the skin names its skeleton by GUID (Hi, Lo) where version 2 stated the rig's bone
+        // signature; Tools/SceneMigrator raises a version-2 source (signature -> the one .skeleton stating it).
+        constexpr uint32_t kSourceVersion = 3;
 
         const CC::SubsystemVersion kKnown[] = { { kMeshAssetSubsystemTag, kMeshAssetSubsystemVersion } };
 
@@ -278,6 +280,9 @@ namespace Desert::Assets
                                                          "names LOD0's vertices, so it has exactly "
                                                          "one",
                                                          s.Models.size() );
+            if ( s.Skin && s.Skin->Skeleton.IsNull() )
+                return Common::MakeError<bool>( "a mesh skin names no skeleton (its GUID is null); a skinned mesh "
+                                                "binds to one .skeleton" );
             const auto vertices = static_cast<int64_t>( s.Models.front().Mesh.Positions.size() / 3 );
             if ( s.Skin )
                 for ( const MeshSkinInfluence& inf : s.Skin->Influences )
@@ -387,7 +392,8 @@ namespace Desert::Assets
             w.U8( s.Skin ? 1 : 0 );
             if ( s.Skin )
             {
-                w.U64( s.Skin->SkeletonSignature );
+                w.U64( s.Skin->Skeleton.Hi );
+                w.U64( s.Skin->Skeleton.Lo );
                 w.U32( static_cast<uint32_t>( s.Skin->BoneNames.size() ) );
                 for ( const std::string& bone : s.Skin->BoneNames )
                     w.String( bone );
@@ -440,7 +446,8 @@ namespace Desert::Assets
             if ( skinned == 1 )
             {
                 MeshSkin skin;
-                skin.SkeletonSignature = r.U64();
+                skin.Skeleton.Hi = r.U64();
+                skin.Skeleton.Lo = r.U64();
                 skin.BoneNames.resize( r.Count( 4 ) );
                 for ( std::string& bone : skin.BoneNames )
                     bone = r.String();
@@ -475,6 +482,9 @@ namespace Desert::Assets
         for ( const MeshMaterialSlot& slot : source.MaterialSlots )
             if ( !slot.Material.IsNull() && std::find( deps.begin(), deps.end(), slot.Material ) == deps.end() )
                 deps.push_back( slot.Material );
+        if ( source.Skin && !source.Skin->Skeleton.IsNull() &&
+             std::find( deps.begin(), deps.end(), source.Skin->Skeleton ) == deps.end() )
+            deps.push_back( source.Skin->Skeleton );
         return deps;
     }
 
@@ -580,7 +590,7 @@ namespace Desert::Assets
                  "the mesh asset's Meta bounds are not the bounds of its source" );
         if ( e.Asset.Dependencies != MeshSourceDependencies( asset.Source ) )
             return Common::MakeFormattedError<MeshSourceAsset>(
-                 "the mesh asset's header names {} dependencies; its material slots name {}",
+                 "the mesh asset's header names {} dependencies; its material slots and skin name {}",
                  e.Asset.Dependencies.size(), MeshSourceDependencies( asset.Source ).size() );
         return Common::MakeSuccess( std::move( asset ) );
     }

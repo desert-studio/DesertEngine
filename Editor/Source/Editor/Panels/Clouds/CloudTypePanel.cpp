@@ -2,6 +2,7 @@
 
 #include "CloudDocumentOpen.hpp"
 
+#include <Editor/Platform/DesktopPlatform.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
 
@@ -606,7 +607,7 @@ namespace Desert::Editor
         }
         else if ( saveAs )
         {
-            target = Common::Utils::FileSystem::SaveFileDialog( "Cloud Type\0*.decloudtype\0" );
+            target = DesktopPlatform::SaveFileDialog( "Cloud Type\0*.decloudtype\0" );
             if ( !target.empty() && target.extension() != Assets::kCloudTypeExtension )
                 target.replace_extension( Assets::kCloudTypeExtension );
         }

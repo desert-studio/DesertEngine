@@ -158,6 +158,17 @@ namespace Common::Utils
         [[nodiscard]] static Common::BoolResultStr WriteBytesToFileAtomic( const std::filesystem::path& filepath,
                                                                            std::span<const std::byte>   content );
 
+        // The same primitive with the working file named by the caller. The default `<file>.tmp` is right
+        // for a file with ONE writer (a scene, a preference file, a document): it is predictable, so a
+        // leftover is recognisable and the tests can block it. A store with SEVERAL writers of one path —
+        // the derived data cache, where two assets with identical source share a content-addressed key,
+        // and two processes may share the cache — must give every writer its own working file (UE
+        // FFileSystemCacheStore writes to a unique temp): one `.tmp` for two writers let the second
+        // rename find the first one's file already gone (Blockout_1/2, 09-30).
+        [[nodiscard]] static Common::BoolResultStr
+        WriteBytesToFileAtomic( const std::filesystem::path& requestedPath, std::span<const std::byte> content,
+                                const std::filesystem::path& requestedWorkingFile );
+
         [[nodiscard]] static Common::BoolResultStr WriteContentToFileAtomic( const std::filesystem::path& filepath,
                                                                              const std::string& content );
 
@@ -185,9 +196,17 @@ namespace Common::Utils
         // Absolute path of the running executable — for locating content (a .dpak) packaged next to it.
         [[nodiscard]] static std::filesystem::path ExecutablePath();
 
-    public:
-        static std::filesystem::path OpenFileDialog( const char* filter = "All\0*.*\0" );
-        static std::filesystem::path OpenFolderDialog( const char* initialFolder = "" );
-        static std::filesystem::path SaveFileDialog( const char* filter = "All\0*.*\0" );
+        // THE PROCESS'S BASE DIRECTORY (UE: FPlatformProcess::BaseDir) — the directory of the running
+        // executable, absolute, symlinks resolved; empty exactly when the OS would not say. The one anchor a
+        // packaged game has: its archives and chunk manifest sit here (GamePackager puts them beside the
+        // player binary in a plain folder), and nothing is read from the working directory, which a Finder
+        // launch sets to `/`.
+        [[nodiscard]] static std::filesystem::path BaseDir();
+
+        // WHERE A PACKAGED GAME'S CONTENT IS, given its BaseDir. Inside a macOS bundle
+        // (`<Name>.app/Contents/MacOS`) it is `Contents/Resources` — Apple's signing rule: Contents/MacOS
+        // holds code only, and a data file there breaks `codesign --verify`. Everywhere else it is the
+        // base directory itself. GamePackager writes to exactly this place (both sides call this).
+        [[nodiscard]] static std::filesystem::path PackagedContentDir( const std::filesystem::path& baseDir );
     };
 } // namespace Common::Utils

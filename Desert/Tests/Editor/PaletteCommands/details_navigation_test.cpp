@@ -148,3 +148,37 @@ TEST( DetailsNavigation, PickerScrollsThenOpensOnTheNextFrame )
     EXPECT_EQ( nav.TakePicker( "Material slot 0" ), Step::Open );
     nav.EndFrame();
 }
+
+// A Details button ("New AnimGraph" on an Animation component without a graph) is offered under its own
+// caption and pressed once, at its own draw site — the command is the button, not a copy of its handler.
+TEST( DetailsNavigation, AButtonIsOfferedByItsCaptionAndPressedOnceAtItsDrawSite )
+{
+    DetailsNavigation nav;
+    const auto        drawFox = [&nav]
+    {
+        nav.BeginFrame( kPbr, "Fox" );
+        nav.NoteComponent( "Animation" );
+        nav.NoteAction( "New AnimGraph" );
+        nav.EndFrame();
+    };
+    drawFox();
+    nav.BeginFrame( kPbr, "Fox" );
+    const auto labels = Labels( nav );
+    EXPECT_TRUE( Has( labels, "Details|New AnimGraph" ) );
+    nav.EndFrame();
+
+    auto refused = nav.RequestAction( "Delete Everything" );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "New AnimGraph" ), std::string::npos ) << refused.GetError();
+
+    ASSERT_TRUE( nav.RequestAction( "New AnimGraph" ).IsSuccess() );
+    nav.BeginFrame( kPbr, "Fox" );
+    EXPECT_FALSE( nav.TakeAction( "Other" ) );
+    EXPECT_TRUE( nav.TakeAction( "New AnimGraph" ) ) << "the button's draw site takes the press";
+    EXPECT_FALSE( nav.TakeAction( "New AnimGraph" ) ) << "one-shot";
+    nav.EndFrame();
+
+    nav.BeginFrame( kSky, "Sky" ); // the graph-less Fox is no longer selected: nothing to press
+    EXPECT_FALSE( nav.RequestAction( "New AnimGraph" ).IsSuccess() );
+    nav.EndFrame();
+}

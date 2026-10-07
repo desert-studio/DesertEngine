@@ -15,6 +15,8 @@
 #include <string>
 #include <iterator>
 #include <algorithm>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace fs   = std::filesystem;
 namespace Path = Common::Constants::Path;
@@ -30,7 +32,7 @@ namespace
         }
         ~ProjectRootGuard()
         {
-            Path::ResetToSandbox();
+            Path::ClearProject();
         }
         ProjectRootGuard( const ProjectRootGuard& )            = delete;
         ProjectRootGuard& operator=( const ProjectRootGuard& ) = delete;
@@ -52,16 +54,14 @@ namespace
     }
 } // namespace
 
-// THE INVARIANT: no recovery copy lands under the assets root, in a project or in the sandbox, for a
-// saved scene, a nested one, a never-saved one, or the device-lost save.
+// THE INVARIANT: no recovery copy lands under the assets root, in either of two projects, for a
+// saved scene, a nested one, a never-saved one, or the device-lost save. (Without a project there is
+// no scene to save and no Saved/ folder: no project, no content.)
 TEST( AutosavePaths, NoRecoveryCopyIsEverUnderTheAssetsRoot )
 {
-    const fs::path project = TempProject( "Invariant" );
-    for ( const bool withProject : { false, true } )
+    for ( const char* assetsRoot : { "Content", "Assets" } )
     {
-        std::optional<ProjectRootGuard> guard;
-        if ( withProject )
-            guard.emplace( project, "Content" );
+        const ProjectRootGuard guard( TempProject( "Invariant" ), assetsRoot );
 
         const fs::path scenes[] = {
              Path::SCENE_PATH / "Starter.desce", Path::SCENE_PATH / "Levels" / "A.desce", {} };
@@ -213,3 +213,9 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
     fs::remove( current );
     EXPECT_TRUE( AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit ).Offered.empty() );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

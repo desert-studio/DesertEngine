@@ -10,7 +10,20 @@ project "Editor"
     -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
     -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.
     debugdir "%{_MAIN_SCRIPT_DIR}/Editor"
-    debugargs { "--project Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
+    debugargs { "--project ../Projects/Desert/Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
+
+    -- DesertHeaderTool over the editor's sources: routed-event handlers verified (a build error at
+    -- file:line) and the DESERT_SUBSYSTEM( Editor ) list emitted for EditorLayer.
+    dependson { "DesertHeaderTool" }
+    prebuildcommands {
+        DesertPlatform.BuiltToolPath("DesertHeaderTool")
+            .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+            .. ' --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp'
+            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"'
+    }
 
     files { 
         -- Engine 
@@ -29,6 +42,9 @@ project "Editor"
     }
     externalincludedirs {
 
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/openexr/src/lib/OpenEXRCore", -- <openexr.h> (OpenEXRCore), for the texture import
+        "%{_MAIN_SCRIPT_DIR}/build/generated/openexr/include",  -- its generated config headers (BuildScripts/ThirdParty/OpenEXR.lua)
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/Glad/include/",
@@ -83,6 +99,9 @@ project "Editor"
         -- The PROJECT, not a file: BuildScripts/ThirdParty/Assimp.lua compiles the pinned submodule.
         -- The name it replaced carried the MSVC toolset in it (`assimp-vc142-mtd`).
         "Assimp",
+        "OpenEXRCore", -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
+        "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
+        "Opus",
     }
 
     -- Optional: real face tracking via dlib (davisking/dlib). Auto-enabled when the sources are present
@@ -134,16 +153,21 @@ project "Editor"
         -- that keeps the socket file to its owner. HERE AND NOT IN THE ENGINE -- the shipped game has no
         -- control channel and must not link a socket library for one it does not have.
         links { "ws2_32", "advapi32" }
+        -- The system file dialogs (Editor/Platform/Windows/DesktopPlatformWindows.cpp): GetOpenFileNameA /
+        -- GetSaveFileNameA, SHBrowseForFolderA, CoTaskMemFree. The editor's and not Common's -- see
+        -- Editor/Platform/DesktopPlatform.hpp.
+        links { "comdlg32", "shell32", "ole32" }
 
     -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The
     -- Source/** glob above picks the Windows one up everywhere, so it is dropped where it cannot build;
     -- the macOS one is Objective-C++, which the glob does not match at all and is added by name.
+    -- The system file dialogs (Editor/Platform/DesktopPlatform.hpp) follow the same shape.
     filter "system:not windows"
-        removefiles { "Source/Editor/Splash/Windows/**" }
+        removefiles { "Source/Editor/Splash/Windows/**", "Source/Editor/Platform/Windows/**" }
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        files { "Source/Editor/Splash/MacOS/**.mm" }
+        files { "Source/Editor/Splash/MacOS/**.mm", "Source/Editor/Platform/MacOS/**.mm" }
 
         -- Unlike Visual Studio, gmake does not link static-lib dependencies
         -- transitively — the executable has to pull in everything the engine

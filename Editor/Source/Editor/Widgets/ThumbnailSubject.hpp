@@ -1,11 +1,14 @@
 #pragma once
 
+#include <Engine/Assets/ThumbnailInfo.hpp>
+
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -13,6 +16,7 @@ namespace Desert::Assets
 {
     class AssetManager;
     class SurfaceMaterialAsset;
+    class AnimationAsset;
 }
 
 namespace Desert::Editor::ThumbnailSubject
@@ -55,16 +59,21 @@ namespace Desert::Editor::ThumbnailSubject
      */
     enum class Preview
     {
-        /// The material on a sphere. Surface domain, the ordinary case.
+        /// The material on a sphere. Every Surface-domain material, a masked (AlphaCutoff > 0) one
+        /// included: the mask is honoured by the mesh path's own discard, so a grass atlas previews as
+        /// blades cut out of the ball with the backdrop between them — the picture UE's editor draws.
         Sphere,
 
-        /// The material on a camera-facing card. Surface domain and a CUTOUT: a foliage atlas wraps and
-        /// garbles on a ball, which is a picture of the sphere rather than of the leaf.
-        Card,
+        /// The material on the mesh it names as its PreviewMesh (UE: UMaterial's ThumbnailInfo). A grass
+        /// atlas imported with its tuft is photographed AS the tuft — the picture polyhaven shows — framed
+        /// by that mesh's own bounds. Surface domain only: the mesh path is what draws it.
+        Mesh,
 
-        /// The SKY this material authors, seen from the ground — Volume domain. A cloud material describes
+        /// The SKY this material authors, seen from the ground. Volume domain: a cloud material describes
         /// a medium, not a surface: its weather cells are kilometres across and its profile is base and
-        /// top in kilometres, none of which means anything on a one-metre ball.
+        /// top in kilometres, none of which means anything on a one-metre ball. Skybox domain: the HDR
+        /// skybox bound to its cube slot IS the sky (UE draws a sky material's thumbnail as the sky, not
+        /// as an icon) — the capture binds it as the scene's skybox (DomeSkyboxOf).
         SkyDome
     };
 
@@ -78,25 +87,56 @@ namespace Desert::Editor::ThumbnailSubject
      * `Desert/Tests/Editor/ThumbnailFormats` asserts the RELATION that matters: this routing and the draw
      * paths' own predicates must agree about which domains can be photographed at all.
      *
-     * @p cutout picks the card over the ball inside the mesh path.
-     *
      * FULLY QUALIFIED, and it is not decoration: a `Desert::Editor::Core` namespace also exists
      * (ViewportMode, FoliagePaint), so an unqualified `Core::Formats` resolves THERE and fails to compile
      * in every translation unit that has seen it — which is most of the editor's panels, and NOT this
      * header's own .cpp, so the mistake builds until a panel is recompiled. The same trap
      * AssetThumbnailRenderer.hpp names over `::Desert::Core::Scene`.
      */
-    [[nodiscard]] constexpr std::optional<Preview> PreviewForDomain( ::Desert::Core::Formats::ShaderDomain domain,
-                                                                     bool                                  cutout )
+    [[nodiscard]] constexpr std::optional<Preview> PreviewForDomain( ::Desert::Core::Formats::ShaderDomain domain )
     {
         // THE DRAW PATHS' OWN PREDICATES, never `IsUserAssignable()` — that is their union, and asking a
         // union is exactly the mistake ShaderProgramMeta.hpp warns about above it.
         if ( ::Desert::Core::Formats::DrawnByMeshPath( domain ) )
-            return cutout ? Preview::Card : Preview::Sphere;
+            return Preview::Sphere;
         if ( ::Desert::Core::Formats::DrawnByVolumePath( domain ) )
+            return Preview::SkyDome;
+        // The cubemap domain has no draw-path predicate — no renderable slot takes it — and its picture is
+        // not drawn by the material at all: it is the HDR skybox the material binds, which the scene's
+        // skybox draws. DomeSkyboxOf refuses the material when there is no such skybox.
+        if ( domain == ::Desert::Core::Formats::ShaderDomain::Skybox )
             return Preview::SkyDome;
         return std::nullopt;
     }
+
+    /**
+     * @brief The picture a MATERIAL gets from its domain and whether it names a preview mesh. PURE, for the
+     *        same reason PreviewForDomain is: the suite asserts the rule without a device.
+     *
+     * A preview mesh counts only where the mesh path draws the material; a Volume material naming one is
+     * still photographed as its sky (the mesh path would refuse it by name).
+     */
+    [[nodiscard]] constexpr std::optional<Preview>
+    PreviewForMaterial( ::Desert::Core::Formats::ShaderDomain domain, bool namesPreviewMesh )
+    {
+        const auto how = PreviewForDomain( domain );
+        if ( how == Preview::Sphere && namesPreviewMesh )
+            return Preview::Mesh;
+        return how;
+    }
+
+    /**
+     * @brief The HDR skybox a SkyDome capture binds as the scene's sky, for a SKYBOX-domain material; nullopt
+     *        for any other domain (a Volume material's dome is its cloud layer). Refuses, naming the reason,
+     *        when the shader declares no TextureCube property or nothing is bound to the first one — the
+     *        same three states the Material Editor's pane tells apart (PreviewUnavailableReason).
+     *
+     * By HANDLE, through MaterialService (template by ShaderHandleOf, slot by ResolveOverrides — the chain
+     * walk, so an instance reads its parent's cube). One rule for the route (ResolveLoadedMaterial refuses)
+     * and the capture (AssetThumbnailRenderer binds). The material must be registered.
+     */
+    [[nodiscard]] Common::ResultStr<std::optional<Common::AssetHandle>>
+    DomeSkyboxOf( const Common::AssetHandle& material );
 
     /// A material ready to be captured.
     struct Material
@@ -104,6 +144,13 @@ namespace Desert::Editor::ThumbnailSubject
         Common::AssetHandle Handle{ static_cast<uint64_t>( 0 ) };
 
         Preview How = Preview::Sphere;
+
+        /// How == Mesh only: the preview mesh, registered and drawable (ResolveMesh). Zero otherwise.
+        Common::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
+
+        /// THE MATERIAL'S OWN THUMBNAIL INFO (MaterialData::ThumbnailOrDefault): the primitive a Sphere route
+        /// is drawn on and the orbit every mesh-path route is seen from. The renderer reads them only here.
+        Assets::ThumbnailInfo Thumbnail;
     };
 
     /**
@@ -138,6 +185,16 @@ namespace Desert::Editor::ThumbnailSubject
         /// is resolved from the SOURCE, because a sidecar `.demat` is what an artist leaves beside the
         /// `.fbx` — a different question from which file gets photographed.
         Common::AssetHandle Material{ static_cast<uint64_t>( 0 ) };
+
+        /// THE POSE (THM-FIXB): an `.anim` subject's clip, read, whose middle frame the preview mesh stands in;
+        /// null for the bind pose (a `.skmesh`, a `.skeleton`) and for every static mesh. Carried with the
+        /// request, so the clip stays resident until the capture has been taken.
+        std::shared_ptr<Assets::AnimationAsset> Clip;
+
+        /// The cooked mesh is being read on a worker: nothing to capture YET, ask again on a later pass.
+        /// Handle and CookedPath are set; Material is not. Not a refusal — a caller that blacklists refusals
+        /// must not blacklist this.
+        bool Pending = false;
     };
 
     /// Called on the main thread, from `AsyncAssetLoader::Pump`, once a material that was pending has been
@@ -179,4 +236,13 @@ namespace Desert::Editor::ThumbnailSubject
      */
     [[nodiscard]] Common::ResultStr<Mesh> ResolveMesh( Assets::AssetManager& manager,
                                                        const std::string&    sourcePath );
+
+    /// ResolveMaterial's answer for a material that is ALREADY LOADED — a panel holding the asset (Details,
+    /// a mesh row). Route, PreviewMesh (GUID checked against its record, a cold mesh awaited on workers),
+    /// registration. Costs a record read and a closure wait: ask it only when a capture is owed
+    /// (ThumbnailService::RequestLoadedMaterial).
+    [[nodiscard]] Common::ResultStr<Material>
+    ResolveLoadedMaterial( Assets::AssetManager&                                manager,
+                           const std::shared_ptr<Assets::SurfaceMaterialAsset>& asset,
+                           const std::string&                                   assetPath );
 } // namespace Desert::Editor::ThumbnailSubject

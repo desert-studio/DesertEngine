@@ -8,7 +8,7 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    // std430 layout matching `struct PointLight` in PointLight.glslh (48 bytes). vec3 has 16-byte
+    // std430 layout matching `struct PointLight` in Mesh/LightSources.glslh (48 bytes). vec3 has 16-byte
     // alignment in std430, so each vec3 is followed by a float with no extra padding; two trailing pad
     // floats round the struct up to a multiple of 16.
     struct PointLightPayload

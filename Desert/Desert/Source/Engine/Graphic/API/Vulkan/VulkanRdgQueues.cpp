@@ -32,7 +32,8 @@ namespace Desert::Graphic::API::Vulkan
             {
                 if ( pipe == 1 && !computeFamily )
                     continue;
-                VkCommandPoolCreateInfo info{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+                VkCommandPoolCreateInfo info{};
+                info.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
                 info.queueFamilyIndex = pipe == 0 ? graphicsFamily : *computeFamily;
                 info.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
                 if ( vkCreateCommandPool( m_Device, &info, nullptr, &slot.Pipes[pipe].Pool ) != VK_SUCCESS )
@@ -43,9 +44,9 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanRdgQueueObjects::~VulkanRdgQueueObjects()
     {
-        for ( Slot& slot : m_Slots )
+        for ( const Slot& slot : m_Slots )
         {
-            for ( PipePool& pipe : slot.Pipes )
+            for ( const PipePool& pipe : slot.Pipes )
             {
                 if ( pipe.Pool != VK_NULL_HANDLE )
                     vkDestroyCommandPool( m_Device, pipe.Pool, nullptr ); // frees its command buffers
@@ -82,7 +83,8 @@ namespace Desert::Graphic::API::Vulkan
                  std::format( "RDG queue objects: no command pool for the {} pipe", PipeName( pipe ) ) );
         if ( pool.Used == pool.Buffers.size() )
         {
-            VkCommandBufferAllocateInfo allocate{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            VkCommandBufferAllocateInfo allocate{};
+            allocate.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
             allocate.commandPool        = pool.Pool;
             allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocate.commandBufferCount = 1;
@@ -91,8 +93,9 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeError<Out>( "RDG queue objects: vkAllocateCommandBuffers failed" );
             pool.Buffers.push_back( buffer );
         }
-        const VkCommandBuffer    buffer = pool.Buffers[pool.Used++];
-        VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        VkCommandBuffer          buffer = pool.Buffers[pool.Used++];
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         if ( vkBeginCommandBuffer( buffer, &begin ) != VK_SUCCESS )
             return Common::MakeError<Out>( "RDG queue objects: vkBeginCommandBuffer failed" );
@@ -104,8 +107,9 @@ namespace Desert::Graphic::API::Vulkan
         Slot& slot = m_Slots[m_Slot];
         if ( slot.SemaphoresUsed == slot.Semaphores.size() )
         {
-            const VkSemaphoreCreateInfo info{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-            VkSemaphore                 semaphore = VK_NULL_HANDLE;
+            VkSemaphoreCreateInfo info{};
+            info.sType            = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            VkSemaphore semaphore = VK_NULL_HANDLE;
             if ( vkCreateSemaphore( m_Device, &info, nullptr, &semaphore ) != VK_SUCCESS )
                 return Common::MakeError<VkSemaphore>( "RDG queue objects: vkCreateSemaphore failed" );
             slot.Semaphores.push_back( semaphore );
@@ -141,7 +145,7 @@ namespace Desert::Graphic::API::Vulkan
         // A previous graph's open tail (its caller runs several graphs before TakeSubmissions) closes in order.
         if ( m_Open )
         {
-            if ( Common::BoolResultStr closed = Close(); !closed )
+            if ( const Common::BoolResultStr closed = Close(); !closed )
                 return Common::MakeError<Out>( closed.GetError() );
         }
         m_Result = &result;
@@ -150,8 +154,10 @@ namespace Desert::Graphic::API::Vulkan
         m_GraphSubmissions = m_Submissions.size();
         if ( !result.Segments.empty() )
             return Common::MakeSuccess<Out>( VK_NULL_HANDLE );
-        if ( Common::BoolResultStr opened = Open( RDG::Pipe::Graphics, queues ); !opened )
+        if ( const Common::BoolResultStr opened = Open( RDG::Pipe::Graphics, queues ); !opened )
             return Common::MakeError<Out>( opened.GetError() );
+        if ( !m_Open.has_value() )
+            return Common::MakeError<Out>( "the segment did not open" );
         return Common::MakeSuccess( m_Open->CommandBuffer );
     }
 
@@ -174,10 +180,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( queues.Objects == nullptr )
             return Common::MakeError( "the queue set has no per-slot queue objects" );
-        const VkQueue queue = queues.QueueOf( pipe );
+        VkQueue queue = queues.QueueOf( pipe );
         if ( queue == VK_NULL_HANDLE )
             return Common::MakeError( std::format( "the queue set has no {} queue", PipeName( pipe ) ) );
-        Common::ResultStr<VkCommandBuffer> buffer = queues.Objects->BeginCommandBuffer( pipe );
+        const Common::ResultStr<VkCommandBuffer> buffer = queues.Objects->BeginCommandBuffer( pipe );
         if ( !buffer )
             return Common::MakeError( buffer.GetError() );
         m_Open.emplace();
@@ -189,6 +195,8 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRdgSegmentRecorder::Close()
     {
+        if ( !m_Open.has_value() )
+            return Common::MakeError( "no segment is open" );
         const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffer );
         if ( ended != VK_SUCCESS )
         {
@@ -214,11 +222,13 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_Open )
             return Common::MakeError<Out>( "segment begun while another segment is open" );
         ++m_NextSegment;
-        if ( Common::BoolResultStr opened = Open( segment.OnPipe, queues ); !opened )
+        if ( const Common::BoolResultStr opened = Open( segment.OnPipe, queues ); !opened )
             return Common::MakeError<Out>( opened.GetError() );
+        if ( !m_Open.has_value() )
+            return Common::MakeError<Out>( "the segment did not open" );
         for ( const uint32_t sync : segment.WaitSyncs )
         {
-            Common::ResultStr<VkSemaphore> semaphore = SemaphoreOf( sync, queues );
+            const Common::ResultStr<VkSemaphore> semaphore = SemaphoreOf( sync, queues );
             if ( !semaphore )
                 return Common::MakeError<Out>( semaphore.GetError() );
             // v1 needs a non-empty wait mask; a wait naming no stage blocks everything after it.
@@ -228,7 +238,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         for ( const uint32_t sync : segment.SignalSyncs )
         {
-            Common::ResultStr<VkSemaphore> semaphore = SemaphoreOf( sync, queues );
+            const Common::ResultStr<VkSemaphore> semaphore = SemaphoreOf( sync, queues );
             if ( !semaphore )
                 return Common::MakeError<Out>( semaphore.GetError() );
             m_Open->SignalSemaphores.push_back( semaphore.GetValue() );
@@ -253,18 +263,18 @@ namespace Desert::Graphic::API::Vulkan
         if ( last && segment.OnPipe == RDG::Pipe::Graphics && endJoins.empty() )
             return Common::MakeSuccess( m_Open->CommandBuffer ); // the final barriers record into it
 
-        if ( Common::BoolResultStr closed = Close(); !closed )
+        if ( const Common::BoolResultStr closed = Close(); !closed )
             return Common::MakeError<Out>( closed.GetError() );
         if ( !last )
             return Common::MakeSuccess<Out>( VK_NULL_HANDLE );
 
         // The tail: waits on every graph-end join BEFORE the final barriers (with the acquires of the
         // transfers back to Graphics) are recorded. It records only barriers, so it waits on all stages.
-        if ( Common::BoolResultStr opened = Open( RDG::Pipe::Graphics, queues ); !opened )
+        if ( const Common::BoolResultStr opened = Open( RDG::Pipe::Graphics, queues ); !opened )
             return Common::MakeError<Out>( opened.GetError() );
         for ( const uint32_t sync : endJoins )
         {
-            Common::ResultStr<VkSemaphore> semaphore = SemaphoreOf( sync, queues );
+            const Common::ResultStr<VkSemaphore> semaphore = SemaphoreOf( sync, queues );
             if ( !semaphore )
                 return Common::MakeError<Out>( semaphore.GetError() );
             m_Open->WaitSemaphores.push_back( semaphore.GetValue() );
@@ -290,7 +300,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_Open )
         {
-            if ( Common::BoolResultStr closed = Close(); !closed )
+            if ( const Common::BoolResultStr closed = Close(); !closed )
             {
                 // A tail that did not end cannot be submitted, and neither can what waits on it: nothing is.
                 std::fprintf( stderr, "RDG: %s; the graph's submissions are dropped\n",

@@ -47,8 +47,10 @@ namespace Desert::Assets::Serialization
      *   6 - Kind and Prefab join (FO-8, UE UFoliageType_InstancedStaticMesh vs UFoliageType_Actor): a type
      *       either draws a mesh per instance or places a prefab instance (an entity with its children) per
      *       instance. The header's first Dependency is the prefab's GUID for a Prefab type. SceneMigrator
-     *       raises a v5 file (MigrateFoliageTypeV5ToV6) with Kind Mesh, what every v5 type was. The engine
-     *       reads v6 only.
+     *       raises a v5 file (MigrateFoliageTypeV5ToV6) with Kind Mesh, what every v5 type was.
+     *   7 - Procedural joins (S1, UE UFoliageType's Procedural category): what the procedural foliage simulation
+     *       (World/Foliage/Procedural) grows from the type. SceneMigrator raises a v6 file
+     *       (MigrateFoliageTypeV6ToV7) with UE's defaults. The engine reads v7 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -91,6 +93,62 @@ namespace Desert::Assets::Serialization
         float DirectionDegrees = 0.0f;
 
         [[nodiscard]] bool operator==( const FoliageWind& ) const = default;
+    };
+
+    /// One key of the procedural scale curve: Time is the instance's age over MaxAge (0..1), Value the share of
+    /// ProceduralScale's span added to its Min (UE ScaleCurve's FRichCurve keys).
+    struct FoliageScaleCurveKey
+    {
+        float Time  = 0.0f;
+        float Value = 0.0f;
+
+        [[nodiscard]] bool operator==( const FoliageScaleCurveKey& ) const = default;
+    };
+
+    /**
+     * @brief What the procedural foliage simulation grows from a type (UE UFoliageType, category Procedural:
+     *        Collision, Clustering, Growth). Read by World::Foliage::Procedural; centimetres as in UE.
+     *
+     * Deviation from UE: ScaleCurve is evaluated piecewise linearly between its keys (UE's FRichCurve defaults
+     * to auto-cubic keys; for UE's default two keys (0,0),(1,1) both give the same line).
+     */
+    struct FoliageProcedural
+    {
+        /// Two instances whose CollisionRadius circles (times their scale) touch overlap; one of them dies.
+        float CollisionRadius = 100.0f;
+        /// Two instances whose ShadeRadius circles touch shade each other; one dies unless it CanGrowInShade.
+        float ShadeRadius = 100.0f;
+        /// Generations simulated; each one ages the instances and spreads SeedsPerStep seeds from each.
+        int32_t NumSteps = 3;
+        /// Initial seeds per 1000x1000 cm, squared (UE GetSeedDensitySquared): 1 = one seed per 10 m square.
+        float InitialSeedDensity = 1.0f;
+        /// Mean distance, cm, a seed lands from its parent beyond the two instances' grown radii.
+        float AverageSpreadDistance = 50.0f;
+        /// The spread distance's variation, cm: +-SpreadVariance holds 90 % of the seeds.
+        float SpreadVariance = 150.0f;
+        /// Seeds every instance spreads per generation.
+        int32_t SeedsPerStep = 3;
+        /// Types sharing a DistributionSeed draw their initial seeds from the same positions.
+        int32_t DistributionSeed = 0;
+        /// The largest extra distance, cm, an initial seed is pushed from its drawn position.
+        float MaxInitialSeedOffset = 0.0f;
+        /// An instance in another's shade survives (UE bCanGrowInShade).
+        bool CanGrowInShade = false;
+        /// The type is simulated in a second pass, seeded in the shade of the first pass's instances (UE
+        /// bSpawnsInShade; only together with CanGrowInShade).
+        bool SpawnsInShade = false;
+        /// An initial seed's age is drawn from [0, MaxInitialAge].
+        float MaxInitialAge = 0.0f;
+        /// The age at which an instance stops growing; its scale reaches ScaleCurve(1).
+        float MaxAge = 10.0f;
+        /// In an overlap the instance of the higher priority wins; equal priorities compare age, then scale.
+        float OverlapPriority = 0.0f;
+        /// The scale range an instance grows through as it ages.
+        FoliageFloatInterval ProceduralScale{ 1.0f, 3.0f };
+        /// Age over MaxAge -> share of ProceduralScale (keys with strictly increasing Time).
+        std::vector<FoliageScaleCurveKey> ScaleCurve{ { 0.0f, 0.0f }, { 1.0f, 1.0f } };
+
+        [[nodiscard]] bool operator==( const FoliageProcedural& ) const = default;
     };
 
     /**
@@ -170,6 +228,8 @@ namespace Desert::Assets::Serialization
         /// is not drawn while its cell is far, and so holds its mesh only while a cell of it is resident; a type
         /// in the HLOD keeps its mesh for as long as the HLOD stands in (Core::Rules::BuildInstancingHLOD).
         bool IncludeInHLOD = true;
+        /// What the procedural simulation grows from the type (FOLT 7). Applies to both kinds, as in UE.
+        FoliageProcedural Procedural;
 
         [[nodiscard]] bool operator==( const FoliageTypeData& ) const = default;
         [[nodiscard]] bool IsPrefab() const
@@ -186,6 +246,9 @@ namespace Desert::Assets::Serialization
     /// Rejects a wind the sway cannot honour (negative or non-finite numbers), naming the field. Shared by every
     /// asset that carries a FoliageWind.
     Common::BoolResultStr ValidateFoliageWind( const FoliageWind& wind );
+    /// Rejects procedural numbers the simulation cannot honour (negative radii, steps or densities, a scale curve
+    /// whose keys do not rise in Time), naming the field.
+    Common::BoolResultStr ValidateFoliageProcedural( const FoliageProcedural& procedural );
     Common::BoolResultStr ValidateFoliageTypeData( const FoliageTypeData& data );
 
     /// Parses a `.defoliage`. A file without a header, of another version, of another kind, with a

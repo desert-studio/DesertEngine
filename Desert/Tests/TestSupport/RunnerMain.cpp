@@ -2,6 +2,9 @@
 
 #include "runner.hpp"
 
+#include "engine_dir.hpp"
+#include "project_scope.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -30,9 +33,9 @@ namespace Desert::TestSupport
 
         // Function-local so it exists before the first ChildEntry constructor runs, whatever the
         // static-initialisation order of the translation units.
-        std::map<std::string_view, ChildMain>& ChildTable()
+        std::map<std::string_view, std::pair<ChildMain, SuiteHostSteps>>& ChildTable()
         {
-            static std::map<std::string_view, ChildMain> table;
+            static std::map<std::string_view, std::pair<ChildMain, SuiteHostSteps>> table;
             return table;
         }
 
@@ -44,6 +47,12 @@ namespace Desert::TestSupport
         }
 
         // Suite -> its environments, in registration order. Function-local for the same reason as ChildTable.
+        std::map<std::string, SuiteHostSteps>& HostTable()
+        {
+            static std::map<std::string, SuiteHostSteps> table;
+            return table;
+        }
+
         std::vector<std::pair<std::string, EnvironmentFactory>>& EnvironmentTable()
         {
             static std::vector<std::pair<std::string, EnvironmentFactory>> table;
@@ -188,6 +197,22 @@ namespace Desert::TestSupport
             return suites;
         }
 
+        // The suites named by --desert-suite, read before InitGoogleTest (which leaves the flag in argv) so
+        // the host steps run first; nullopt = no selection. An unknown or empty selection is refused after gtest starts.
+        std::optional<std::set<std::string>> PeekSuiteSelection( int argc, char** argv )
+        {
+            std::optional<std::set<std::string>> suites;
+            for ( int i = 1; i < argc; ++i )
+            {
+                const std::string_view arg( argv[i] );
+                if ( arg.starts_with( kSuiteFlag ) )
+                {
+                    suites = SplitSuiteList( arg.substr( kSuiteFlag.size() ) );
+                }
+            }
+            return suites;
+        }
+
         // Rewrites gtest's filter to exactly the tests of `suites` that the user's filter (if any) keeps.
         // Returns false, having printed why, when a suite is unknown or the selection is empty.
         bool SelectSuites( const std::set<std::string>& suites )
@@ -255,9 +280,9 @@ namespace Desert::TestSupport
         }
     } // namespace
 
-    ChildEntry::ChildEntry( std::string_view name, ChildMain main )
+    ChildEntry::ChildEntry( std::string_view name, ChildMain main, SuiteHostSteps steps )
     {
-        auto [it, inserted] = ChildTable().emplace( name, main );
+        auto [it, inserted] = ChildTable().emplace( name, std::pair{ main, steps } );
         if ( !inserted )
         {
             PrintError( std::format( "two --desert-child entry points are registered as '{}'", name ) );
@@ -295,6 +320,24 @@ namespace Desert::TestSupport
         }
         EnvironmentTable().emplace_back( *suite, make );
     }
+
+    SuiteHost::SuiteHost( SuiteHostSteps steps, std::source_location where )
+    {
+        const auto suite = SuiteOfFile( where.file_name() );
+        if ( !suite || ( !steps.EngineDir && !steps.Project ) )
+        {
+            PrintError( std::format( "SuiteHost is constructed outside Desert/Tests/<Layer>/<Suite>/ or "
+                                     "declares no step ({})",
+                                     where.file_name() ) );
+            std::abort();
+        }
+        auto [it, inserted] = HostTable().emplace( *suite, steps );
+        if ( !inserted )
+        {
+            PrintError( std::format( "suite '{}' declares its SuiteHost twice ({})", *suite, where.file_name() ) );
+            std::abort();
+        }
+    }
 } // namespace Desert::TestSupport
 
 int main( int argc, char** argv )
@@ -312,7 +355,33 @@ int main( int argc, char** argv )
             return kSelectionError;
         }
         argv[1] = argv[0];
-        return it->second( argc - 1, argv + 1 );
+        const auto& [childMain, steps] = it->second;
+        if ( steps.EngineDir )
+        {
+            SetSuiteEngineDir();
+        }
+        if ( steps.Project )
+        {
+            OpenSuiteProject();
+        }
+        return childMain( argc - 1, argv + 1 );
+    }
+
+    // The host steps the selected suites declared, before gtest parses its flags (SuiteHost, runner.hpp).
+    const auto hostSuites = PeekSuiteSelection( argc, argv );
+    for ( const auto& [suite, steps] : HostTable() )
+    {
+        if ( steps.EngineDir && ( !hostSuites || hostSuites->contains( suite ) ) )
+        {
+            SetSuiteEngineDir();
+        }
+    }
+    for ( const auto& [suite, steps] : HostTable() )
+    {
+        if ( steps.Project && ( !hostSuites || hostSuites->contains( suite ) ) )
+        {
+            OpenSuiteProject();
+        }
     }
 
     testing::InitGoogleTest( &argc, argv );

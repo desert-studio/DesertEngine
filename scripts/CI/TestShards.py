@@ -17,8 +17,14 @@ plan is taken over the expected-suite list, never over the table.
 
 Subcommands:
   plan    --expected build/TestManifest.txt   --timings TSV --column NAME --shards N --out DIR
+          --vulkan-device-suites FILE --vulkan-runner-var NAME
           Writes DIR/shard-<i>.txt (i = 1..N, heaviest first so the long suites start first) and
           DIR/expected.txt. Fails unless the shards are disjoint and their union is the expected list.
+          The suites in --vulkan-device-suites (build/TestNeedsVulkanDevice.txt, written by
+          Desert/Tests/premake5.lua from its one `vulkan_device_suites` list) need a real Vulkan
+          device. Unless the environment variable NAME is 'true' they are NOT expected on this runner:
+          they are named in a ::notice and in DIR/needs-vulkan-device.txt, and verify fails if one of
+          them reported anyway. With NAME 'true' they are planned like every other suite.
   verify  --plan DIR --reports DIR
           DIR holds one sub-directory per shard artifact (test-reports-...-shard-<i>/). Fails unless
           every expected suite left exactly one gtest XML, in the shard that was planned to run it.
@@ -71,6 +77,21 @@ def plan(args):
     expected = read_manifest(args.expected)
     if not expected:
         sys.exit("[ERROR] the expected-suite list is empty")
+
+    device_suites = read_list(args.vulkan_device_suites)
+    stale = sorted(set(device_suites) - set(expected))
+    if stale:
+        sys.exit(f"[ERROR] {args.vulkan_device_suites} names suite(s) that are not expected here: {stale}")
+    runner = os.environ.get(args.vulkan_runner_var, "")
+    if runner not in ("", "true", "false"):
+        sys.exit(f"[ERROR] {args.vulkan_runner_var}={runner!r}: must be 'true', 'false' or unset")
+    excluded = [] if runner == "true" else sorted(device_suites)
+    if excluded:
+        print(f"::notice title=Vulkan-device suites NOT run::{len(excluded)} suite(s) need a Vulkan device and "
+              f"this runner has none ({args.vulkan_runner_var} is not 'true'): {' '.join(excluded)}")
+        expected = [n for n in expected if n not in excluded]
+        if not expected:
+            sys.exit("[ERROR] every expected suite needs a Vulkan device and this runner has none")
     dupes = sorted({n for n in expected if expected.count(n) > 1})
     if dupes:
         sys.exit(f"[ERROR] the expected-suite list names a suite twice: {dupes}")
@@ -100,6 +121,8 @@ def plan(args):
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "expected.txt"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(sorted(expected)) + "\n")
+    with open(os.path.join(args.out, "needs-vulkan-device.txt"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("".join(n + "\n" for n in excluded))
     for i, s in enumerate(shards, 1):
         with open(os.path.join(args.out, f"shard-{i}.txt"), "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(s) + "\n")
@@ -110,6 +133,9 @@ def plan(args):
 
 def verify(args):
     expected = set(read_list(os.path.join(args.plan, "expected.txt")))
+    excluded = set(read_list(os.path.join(args.plan, "needs-vulkan-device.txt")))
+    if excluded & expected:
+        sys.exit(f"[ERROR] the plan both expects and excludes {sorted(excluded & expected)}")
     planned = {}
     for entry in sorted(os.listdir(args.plan)):
         m = re.fullmatch(r"shard-(\d+)\.txt", entry)
@@ -141,7 +167,8 @@ def verify(args):
         elif got[0] != planned.get(name):
             errors.append(f"{name}: ran in shard {got[0]}, planned in shard {planned.get(name)}")
     for name in sorted(set(ran) - expected):
-        errors.append(f"{name}: has a report but is not an expected suite")
+        why = "needs a Vulkan device and was left out of the plan" if name in excluded else "is not an expected suite"
+        errors.append(f"{name}: has a report but {why}")
 
     if errors:
         print("[ERROR] the shards did not run the expected suites exactly once:")
@@ -149,6 +176,9 @@ def verify(args):
             print("  " + e)
         sys.exit(1)
     print(f"{len(expected)} expected suites, each reported by exactly one shard, the one it was planned in")
+    if excluded:
+        print(f"::notice title=Vulkan-device suites NOT run::{len(excluded)} suite(s) were left out of this plan "
+              f"for want of a Vulkan device: {' '.join(sorted(excluded))}")
 
 
 def timings(args):
@@ -167,6 +197,8 @@ def main():
     p.add_argument("--column", required=True, choices=COLUMNS)
     p.add_argument("--shards", required=True, type=int)
     p.add_argument("--out", required=True)
+    p.add_argument("--vulkan-device-suites", required=True)
+    p.add_argument("--vulkan-runner-var", required=True)
     v = sub.add_parser("verify")
     v.add_argument("--plan", required=True)
     v.add_argument("--reports", required=True)

@@ -4,11 +4,16 @@
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/CommandHistory.hpp>
+#include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
+#include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
+#include <Editor/Panels/AnimationEditor/SkeletonReferenceSlots.hpp>
 #include <Editor/Panels/AnimationEditor/SkeletonTree.hpp>
+#include <Editor/Panels/ViewportPanel/BoneOverlay.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
+#include <Editor/Widgets/MeshAssetDetails.hpp>
 #include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
@@ -19,8 +24,11 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
+#include <Engine/Geometry/MeshStats.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/SkeletonReference.hpp>
+#include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -70,9 +78,10 @@ namespace Desert::Editor
 
         // Load ONE preview mesh a registry row named, and hold the row to its word: the Rig tag is what the scan
         // read, the loaded mesh is what the file is now.
-        std::shared_ptr<Assets::SkinnedMeshAsset> LoadPreviewMesh( Assets::AssetManager&        assets,
-                                                                   const std::filesystem::path& path,
-                                                                   const uint64_t signature, std::string& error )
+        std::shared_ptr<Assets::SkinnedMeshAsset> LoadPreviewMesh( Assets::AssetManager&             assets,
+                                                                   const std::filesystem::path&      path,
+                                                                   const Common::Content::AssetGuid& skeleton,
+                                                                   std::string&                      error )
         {
             auto mesh = assets.CreateAsset<Assets::SkinnedMeshAsset>( path, false );
             if ( !mesh )
@@ -86,11 +95,14 @@ namespace Desert::Editor
                                      loaded.GetError() );
                 return nullptr;
             }
-            if ( mesh->GetSkeletonSignature() != signature )
+            if ( mesh->GetSkeleton() != skeleton )
             {
-                error = std::format( "skeletal mesh '{}' is registered on skeleton {:016x} but its file names "
-                                     "{:016x} — rescan the content",
-                                     path.generic_string(), signature, mesh->GetSkeletonSignature() );
+                using Common::Content::ContentKind;
+                error =
+                     std::format( "skeletal mesh '{}' is registered on skeleton {} but its file names {} — "
+                                  "rescan the content",
+                                  path.generic_string(), SkeletonSlots::NameOf( ContentKind::Skeleton, skeleton ),
+                                  SkeletonSlots::NameOf( ContentKind::Skeleton, mesh->GetSkeleton() ) );
                 return nullptr;
             }
             return mesh;
@@ -107,7 +119,9 @@ namespace Desert::Editor
                                                       const Core::PersonaMode mode, Assets::AssetManager* assets,
                                                       const SubjectEditorRegistry* editors )
          : AnimationEditorBase( AssetSubjectTitle( asset, assets, PersonaModeName( mode ) ), asset, mode ),
-           m_Assets( assets ), m_Editors( editors ), m_ClipPin( asset, "open in the Animation Editor" )
+           m_Assets( assets ), m_Editors( editors ), m_ClipPin( asset, "open in the Animation Editor" ),
+           // UE's Skeleton Editor opens with the bones drawn: they are what it edits.
+           m_ShowBones( mode == Core::PersonaMode::Skeleton )
     {
     }
 
@@ -118,18 +132,26 @@ namespace Desert::Editor
         // Undo after the close never writes into a freed clip (ClipEditUndo, AClosedEditorsRecords...).
         if ( m_ClipAsset )
             CommandHistory::Get().DropFor( &m_ClipAsset->GetClip() );
+        // The Reference Pose records go with the window that shows them dirty (as the clip's do).
+        if ( m_SkeletonAsset && Mode() == Core::PersonaMode::Skeleton )
+            CommandHistory::Get().DropFor( m_SkeletonAsset.get() );
     }
 
     bool AnimationEditorDocument::DiscardEdits()
     {
         // "Don't Save" on the close question: the shared asset outlives the window, so the file's notifies and
         // curves go back into it - otherwise the next opening would show the discarded edits as unsaved.
+        // Skeleton mode: the file's Reference Pose goes back into the rig, for the same reason.
+        if ( Mode() == Core::PersonaMode::Skeleton )
+            return m_BindOnDisk && RestoreBindPose( m_SkeletonAsset, *m_BindOnDisk );
         if ( !m_ClipAsset || !m_OnDisk )
             return false;
         auto& clip    = m_ClipAsset->GetClipForAuthoring();
-        clip.Notifies = m_OnDisk->Notifies;
-        clip.Curves   = m_OnDisk->Curves;
-        clip.Tracks   = m_OnDisk->Tracks;
+        // The whole sequence is what the editor authors (notifies, curves, bone keys, sections). A replaced
+        // sequence is a new one to the Animator's binding cache, which is keyed by Revision (Sequence.hpp).
+        const uint32_t revision = clip.Sequence.Revision;
+        clip.Sequence           = m_OnDisk->Sequence;
+        clip.Sequence.Revision  = revision + 1;
         CommandHistory::Get().DropFor( &clip );
         return true;
     }
@@ -159,7 +181,7 @@ namespace Desert::Editor
                     return false;
                 }
                 (void)ClipAsset();
-                m_Signature = clip->GetSkeletonSignature();
+                m_Skeleton = clip->GetSkeleton();
                 break;
             }
             case Core::PersonaMode::Mesh:
@@ -176,7 +198,7 @@ namespace Desert::Editor
                     m_Unavailable = std::format( "'{}' would not load: {}", name, loaded.GetError() );
                     return false;
                 }
-                m_Signature   = mesh->GetSkeletonSignature();
+                m_Skeleton    = mesh->GetSkeleton();
                 preferredMesh = mesh->GetMetadata().Filepath;
                 break;
             }
@@ -193,15 +215,47 @@ namespace Desert::Editor
                     m_Unavailable = std::format( "'{}' would not load: {}", name, loaded.GetError() );
                     return false;
                 }
-                m_Signature = skeleton->GetSignature();
+                // The subject IS the skeleton: its identity is the GUID its header states (the registry's row).
+                const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::Skeleton,
+                                                                 static_cast<uint64_t>( handle ) );
+                if ( !row || !row->Guid )
+                {
+                    m_Unavailable = std::format( "'{}' is not a registered .skeleton with a GUID.", name );
+                    return false;
+                }
+                m_Skeleton = *row->Guid;
                 break;
             }
         }
-        if ( m_Signature == 0 )
+        if ( m_Skeleton.IsNull() )
         {
-            m_Unavailable = std::format( "'{}' names no skeleton (signature 0) — no mesh can show it.", name );
+            m_Unavailable =
+                 std::format( "'{}' names no skeleton — no mesh can show it. Pick one in its Details.", name );
             return false;
         }
+        auto skeleton = SkeletonSlots::LoadSkeleton( *m_Assets, m_Skeleton );
+        if ( !skeleton )
+        {
+            m_Unavailable = std::format( "'{}': {}", name, skeleton.GetError() );
+            return false;
+        }
+        m_SkeletonAsset = skeleton.GetValue();
+        m_BindRevisionShown = m_SkeletonAsset->GetBindRevision();
+        m_BindOnDisk.reset();
+        if ( Mode() == Core::PersonaMode::Skeleton )
+        {
+            if ( auto onDisk = ReadBindPoseOnDisk( *m_SkeletonAsset ) )
+                m_BindOnDisk = onDisk.ExtractValue();
+            else
+                LOG_ERROR( "Skeleton Editor: '{}': the Reference Pose is not editable: {}", name,
+                           onDisk.GetError() );
+        }
+        // UE: the skeleton's PreviewSkeletalMesh is what Skeleton and Animation modes show (Mesh shows itself).
+        if ( preferredMesh.empty() && !m_SkeletonAsset->GetPreviewMesh().IsNull() )
+            if ( const auto preview = Assets::ContentRegistry::RowOf(
+                      Common::Content::ContentKind::SkinnedMesh,
+                      SkeletonSlots::HandleOf( m_SkeletonAsset->GetPreviewMesh() ) ) )
+                preferredMesh = preview->Path;
         return true;
     }
 
@@ -222,15 +276,15 @@ namespace Desert::Editor
         std::filesystem::path preferred;
         if ( !ResolveRig( name, preferred ) )
             return;
-        const uint64_t signature = m_Signature;
 
-        // The first `.skmesh` by path whose rig is the subject's: a stable pick, so two openings show one mesh
-        // (Mesh mode shows its own). Asked of the CONTENT REGISTRY by its Rig tag, which the scan read from each
+        // The first `.skmesh` by path on the subject's skeleton: a stable pick, so two openings show one mesh
+        // (Mesh mode shows its own, the others the skeleton's PreviewMesh). Asked of the CONTENT REGISTRY by its
+        // Skeleton tag, which the scan read from each
         // mesh's header: nothing is loaded to list them, and only the mesh shown is loaded (ANV1c3 loaded every
         // one, in a frame).
         std::vector<std::filesystem::path> candidates;
         for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::SkinnedMesh ) )
-            if ( row.RigSignature == signature )
+            if ( row.Skeleton == m_Skeleton )
                 candidates.push_back( row.Path );
         std::ranges::sort( candidates );
         size_t shown = 0;
@@ -248,14 +302,15 @@ namespace Desert::Editor
         }
         if ( candidates.empty() )
         {
-            m_Unavailable = std::format( "'{}' is on skeleton {:016x}, and no registered skeletal mesh (.skmesh) "
-                                         "uses that skeleton — nothing to preview it on.",
-                                         name, signature );
+            m_Unavailable =
+                 std::format( "'{}' is on skeleton {}, and no registered skeletal mesh (.skmesh) "
+                              "uses that skeleton — nothing to preview it on.",
+                              name, SkeletonSlots::NameOf( Common::Content::ContentKind::Skeleton, m_Skeleton ) );
             return;
         }
         m_MeshCandidates = std::move( candidates );
         std::string meshError;
-        m_Mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates[shown], signature, meshError );
+        m_Mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates[shown], m_Skeleton, meshError );
         if ( !m_Mesh )
         {
             m_Unavailable = meshError;
@@ -268,8 +323,8 @@ namespace Desert::Editor
             const auto& animClip        = m_ClipAsset->GetClip();
             m_ClipName                  = animClip.AnimationName.empty() ? name : animClip.AnimationName;
             m_Transport.DurationSeconds = animClip.DurationSeconds();
-            m_Transport.DisplayRate =
-                 animClip.DisplayRate.IsValid() ? animClip.DisplayRate : Animation::DEFAULT_DISPLAY_RATE;
+            m_Transport.DisplayRate     = animClip.Sequence.DisplayRate.IsValid() ? animClip.Sequence.DisplayRate
+                                                                                  : Animation::DEFAULT_DISPLAY_RATE;
         }
 
         m_Preview  = std::make_unique<PreviewViewport>();
@@ -289,12 +344,12 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::SetPreviewMesh( const size_t candidate )
     {
-        if ( !m_Preview || candidate >= m_MeshCandidates.size() || m_Signature == 0 )
+        if ( !m_Preview || candidate >= m_MeshCandidates.size() || m_Skeleton.IsNull() )
             return;
         if ( candidate != m_MeshIndex || !m_Mesh )
         {
             std::string error;
-            auto        mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates[candidate], m_Signature, error );
+            auto        mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates[candidate], m_Skeleton, error );
             if ( !mesh )
             {
                 m_SaveStatus = error;
@@ -349,9 +404,10 @@ namespace Desert::Editor
         // so their palette does not offer edits that could only fail.
         if ( Mode() == Core::PersonaMode::Animation )
         {
-            actions.push_back( { "Play/Pause", [this]() { m_Transport.TogglePlay(); } } );
-            actions.push_back( { "Next Frame", [this]() { m_Transport.StepFrames( 1 ); } } );
-            actions.push_back( { "Previous Frame", [this]() { m_Transport.StepFrames( -1 ); } } );
+            // The toolbar's buttons, by the same commands (DrawTransport).
+            for ( const TransportCommand command : kTransportCommandOrder )
+                actions.push_back( { std::string( CommandInfo( command ).Label ),
+                                     [this, command]() { m_Transport.Execute( command ); } } );
             static constexpr std::array kPercents = { 0, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100 };
             for ( const int percent : kPercents )
                 actions.push_back( { std::format( "Set Time {}%", percent ), [this, percent]()
@@ -362,8 +418,9 @@ namespace Desert::Editor
             actions.push_back( { "Add Notify Track", [this]()
                                  {
                                      if ( auto* asset = ClipAsset() )
-                                         m_AddedNotifyRows =
-                                              NotifyTrackCount( asset->GetClip().Notifies, m_AddedNotifyRows ) + 1;
+                                         m_AddedNotifyRows = NotifyTrackCount( ClipNotifies( asset->GetClip() ),
+                                                                               m_AddedNotifyRows ) +
+                                                             1;
                                  } } );
             for ( const int percent : kPercents )
                 actions.push_back( { std::format( "Add Notify at {}%", percent ), [this, percent]()
@@ -372,10 +429,10 @@ namespace Desert::Editor
                                          if ( asset == nullptr )
                                              return;
                                          const auto& clip = asset->GetClip();
-                                         (void)AddNotify( std::format( "Notify {}", clip.Notifies.size() + 1 ),
-                                                          clip.DurationSeconds() * percent / 100.0,
-                                                          NotifyTrackCount( clip.Notifies, m_AddedNotifyRows ) -
-                                                               1 );
+                                         (void)AddNotify(
+                                              std::format( "Notify {}", ClipNotifies( clip ).size() + 1 ),
+                                              clip.DurationSeconds() * percent / 100.0,
+                                              NotifyTrackCount( ClipNotifies( clip ), m_AddedNotifyRows ) - 1 );
                                      } } );
             // The palette's (and DesertCtl's) way to the same edits the timeline's right-click menus make.
             for ( const int percent : kPercents )
@@ -386,10 +443,11 @@ namespace Desert::Editor
                                          if ( asset == nullptr )
                                              return;
                                          const auto& clip = asset->GetClip();
-                                         (void)AddNotify( std::format( "State {}", clip.Notifies.size() + 1 ),
-                                                          clip.DurationSeconds() * percent / 100.0,
-                                                          NotifyTrackCount( clip.Notifies, m_AddedNotifyRows ) - 1,
-                                                          std::max( clip.DurationTicks.Value / 4, 1 ) );
+                                         (void)AddNotify(
+                                              std::format( "State {}", ClipNotifies( clip ).size() + 1 ),
+                                              clip.DurationSeconds() * percent / 100.0,
+                                              NotifyTrackCount( ClipNotifies( clip ), m_AddedNotifyRows ) - 1,
+                                              std::max( clip.DurationTicks().Value / 4, 1 ) );
                                      } } );
                 // A key on the clip's first curve ("Curve 1" when it has none), valued by the percent.
                 actions.push_back( { std::format( "Add Curve Key at {}%", percent ), [this, percent]()
@@ -398,9 +456,10 @@ namespace Desert::Editor
                                          if ( asset == nullptr )
                                              return;
                                          const auto&       clip = asset->GetClip();
-                                         const std::string name = clip.Curves.empty() ? std::string( "Curve 1" )
-                                                                                      : clip.Curves.front().Name;
-                                         (void)EditCurveKey( name, clip.DurationTicks.Value * percent / 100,
+                                         const auto        curves = ClipCurves( clip );
+                                         const std::string name =
+                                              curves.empty() ? std::string( "Curve 1" ) : curves.front()->Property;
+                                         (void)EditCurveKey( name, clip.DurationTicks().Value * percent / 100,
                                                              static_cast<float>( percent ) / 100.0f );
                                      } } );
             }
@@ -450,6 +509,20 @@ namespace Desert::Editor
         if ( !m_Preview || m_RenderSize.x == 0u || m_RenderSize.y == 0u )
             return;
 
+        // The preview stands in the rig's CURRENT rest pose: an edit, an undo or a reload moved the bind revision.
+        if ( Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset )
+        {
+            const uint64_t revision = m_SkeletonAsset->GetBindRevision();
+            if ( revision != m_BindRevisionShown )
+                if ( auto* animator = m_Preview->GetAnimatorForAuthoring() )
+                {
+                    if ( const auto rebound = animator->RebindRestPose(); !rebound )
+                        LOG_ERROR( "Skeleton Editor: {}", rebound.GetError() );
+                    m_BindRevisionShown = revision;
+                }
+            m_Preview->SetContentFingerprint( m_BindRevisionShown );
+        }
+
         // Real seconds, scaled by the transport's speed: playback runs at clip speed whatever the frame rate.
         const float  dt         = ImGui::GetIO().DeltaTime;
         const bool   wasPlaying = m_Transport.Playing;
@@ -460,14 +533,13 @@ namespace Desert::Editor
         if ( ClipAsset() != nullptr )
         {
             const auto& clip = m_ClipAsset->GetClip();
-            m_Flash.resize( clip.Notifies.size(), 0.0f );
+            m_Flash.resize( ClipNotifies( clip ).size(), 0.0f );
             for ( float& flash : m_Flash )
                 flash = std::max( flash - dt, 0.0f );
             if ( wasPlaying )
             {
                 const bool looped = m_Transport.Time < before;
-                for ( const size_t i :
-                      CrossedNotifies( clip.Notifies, clip.TickRate, before, m_Transport.Time, looped ) )
+                for ( const size_t i : CrossedNotifies( clip, before, m_Transport.Time, looped ) )
                     m_Flash[i] = kNotifyFlashSeconds;
             }
         }
@@ -517,14 +589,14 @@ namespace Desert::Editor
         return m_ClipAsset.get();
     }
 
-    bool AnimationEditorDocument::EditNotifies( std::vector<Animation::AnimationNotify> edited, std::string label )
+    bool AnimationEditorDocument::EditNotifies( std::vector<Animation::Timeline::EventKey> edited )
     {
         if ( ClipAsset() == nullptr )
             return false;
         // No change hook: the dirty state is derived (GetDiskState compares with the file's notifies), so an
         // undo that outlives this window has nothing of the window to call.
-        return ApplyNotifyEdit( m_ClipAsset->GetClipForAuthoring(), std::move( edited ), std::move( label ),
-                                CommandHistory::Get(), {} );
+        // The undo record is the SequenceEditCommand every clip edit records, labelled by the clip.
+        return ApplyNotifyEdit( m_ClipAsset->GetClipForAuthoring(), std::move( edited ), {} );
     }
 
     bool AnimationEditorDocument::AddNotify( std::string name, const double seconds, const int32_t track,
@@ -533,11 +605,15 @@ namespace Desert::Editor
         if ( ClipAsset() == nullptr || name.empty() )
             return false;
         const auto& clip   = m_ClipAsset->GetClip();
-        auto        edited = clip.Notifies;
-        edited.push_back( { std::move( name ),
-                            SnapNotifyTick( seconds, clip.TickRate, m_Transport.DisplayRate, clip.DurationTicks ),
-                            std::max( track, 0 ), Animation::FrameNumber{ std::max( durationTicks, 0 ) } } );
-        return EditNotifies( std::move( edited ), durationTicks > 0 ? "Add Notify State" : "Add Notify" );
+        auto                          edited = ClipNotifies( clip );
+        Animation::Timeline::EventKey added;
+        added.Tick =
+             SnapNotifyTick( seconds, clip.Sequence.TickRate, m_Transport.DisplayRate, clip.DurationTicks() );
+        added.Duration = Animation::FrameNumber{ std::max( durationTicks, 0 ) };
+        added.Name     = std::move( name );
+        added.Row      = std::max( track, 0 );
+        edited.push_back( std::move( added ) );
+        return EditNotifies( std::move( edited ) );
     }
 
     bool AnimationEditorDocument::EditCurveKey( const std::string& name, const int32_t tick, const float value )
@@ -545,11 +621,18 @@ namespace Desert::Editor
         if ( ClipAsset() == nullptr )
             return false;
         return SetCurveKey( m_ClipAsset->GetClipForAuthoring(), name, Animation::FrameNumber{ tick }, value,
-                            Animation::KeyInterp::Cubic, CommandHistory::Get(), {} );
+                            Animation::KeyInterp::Cubic, {} );
     }
 
     ISubjectDocument::DiskState AnimationEditorDocument::GetDiskState() const
     {
+        // Skeleton mode's document is the `.skeleton`: dirty while the rig's Reference Pose is not the file's.
+        if ( Mode() == Core::PersonaMode::Skeleton )
+        {
+            if ( !m_SkeletonAsset || !m_BindOnDisk )
+                return DiskState::Untracked;
+            return BindPoseDiffers( *m_SkeletonAsset, *m_BindOnDisk ) ? DiskState::Dirty : DiskState::Clean;
+        }
         if ( !m_Tracked || !m_ClipAsset )
             return DiskState::Untracked;
         return !m_OnDisk || ClipDiffersFromFile( m_ClipAsset->GetClip(), *m_OnDisk ) ? DiskState::Dirty
@@ -558,6 +641,17 @@ namespace Desert::Editor
 
     bool AnimationEditorDocument::SaveDocument()
     {
+        if ( Mode() == Core::PersonaMode::Skeleton )
+        {
+            const auto saved = SaveSkeleton();
+            m_SaveFailed     = !saved;
+            m_SaveStatus =
+                 saved ? std::format( "Saved {}", m_SkeletonAsset->GetMetadata().Filepath.filename().string() )
+                       : std::format( "Save failed: {}", saved.GetError() );
+            if ( !saved )
+                LOG_ERROR( "Skeleton Editor: {}", m_SaveStatus );
+            return saved.IsSuccess();
+        }
         // A clip no file produced (a procedural one) has nowhere to go; false, never an invented path.
         if ( ClipAsset() == nullptr || !m_Tracked || m_ClipPath.empty() )
             return false;
@@ -573,6 +667,32 @@ namespace Desert::Editor
         m_OnDisk     = clip;
         m_SaveStatus = std::format( "Saved {}", m_ClipPath.filename().string() );
         return true;
+    }
+
+    Common::BoolResultStr AnimationEditorDocument::SaveSkeleton()
+    {
+        if ( !m_SkeletonAsset )
+            return Common::MakeError<bool>( "no skeleton is loaded in this window" );
+        // A RENAMED BONE IS CARRIED INTO THE SKELETON'S CLIPS AND RETARGETS (files by the registry, and the ones
+        // resident in this manager in memory) by the save itself - the one point
+        // (Assets::RenameBonesInSkeletonAssets).
+        const auto referrers = Assets::ReferrersOfSkeleton( m_Skeleton, m_Assets );
+        if ( !referrers )
+            return Common::MakeFormattedError<bool>( "not saved: {}", referrers.GetError() );
+        if ( const auto saved = Assets::Serialization::SaveSkeletonAsset( *m_SkeletonAsset, referrers.GetValue() );
+             !saved )
+            return saved;
+        // THE READERS RE-READ THE FILE (UE: a saved USkeleton is what every mesh and clip on it loads). The reload
+        // rebuilds the rig at the same address; its content signature moves with the new binds, which is what
+        // AnimatorForSkeleton rebuilds a scene's Animator on.
+        if ( const auto reloaded = m_SkeletonAsset->Load(); !reloaded )
+            return Common::MakeFormattedError<bool>( "saved, but the reload refused: {}", reloaded.GetError() );
+        auto onDisk = ReadBindPoseOnDisk( *m_SkeletonAsset );
+        if ( !onDisk )
+            return Common::MakeFormattedError<bool>( "saved, but the file does not read back: {}",
+                                                     onDisk.GetError() );
+        m_BindOnDisk = onDisk.ExtractValue();
+        return BOOLSUCCESS;
     }
 
     void AnimationEditorDocument::DrawOverlay( const glm::vec2& origin ) const
@@ -593,7 +713,8 @@ namespace Desert::Editor
             line( 0, std::format( "Previewing {} {}", PersonaModeName( Mode() ),
                                   Mode() == Core::PersonaMode::Mesh ? std::string_view( m_MeshName )
                                                                     : name.substr( 0, name.find( "###" ) ) ) );
-            line( 1, std::format( "Bind pose   mesh {}   skeleton {:016x}", m_MeshName, m_Signature ) );
+            line( 1, std::format( "Bind pose   mesh {}   skeleton {}", m_MeshName,
+                                  SkeletonSlots::NameOf( Common::Content::ContentKind::Skeleton, m_Skeleton ) ) );
             return;
         }
         line( 0, std::format( "Previewing Animation {}", m_ClipName ) );
@@ -611,21 +732,22 @@ namespace Desert::Editor
         if ( ImGui::Button( "+ Key" ) )
             (void)KeySelectedBone();
         ImGui::SameLine();
-        if ( ImGui::Button( "|<" ) )
-            t.ToStart();
-        ImGui::SameLine();
-        if ( ImGui::Button( "<|" ) )
-            t.StepFrames( -1 );
-        ImGui::SameLine();
-        if ( ImGui::Button( t.Playing ? "Pause" : "Play", ImVec2( 60.0f, 0.0f ) ) )
-            t.TogglePlay();
-        ImGui::SameLine();
-        if ( ImGui::Button( "|>" ) )
-            t.StepFrames( 1 );
-        ImGui::SameLine();
-        if ( ImGui::Button( ">|" ) )
-            t.ToEnd();
-        ImGui::SameLine();
+        // UE's transport glyphs; each button runs its TransportCommand, the one the palette's action runs, and
+        // names it in the tooltip.
+        const auto transportButton = [&t]( const TransportCommand command, const char* glyph, const ImVec2 size )
+        {
+            if ( ImGui::Button( glyph, size ) )
+                t.Execute( command );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "%.*s", static_cast<int>( CommandInfo( command ).Label.size() ),
+                                   CommandInfo( command ).Label.data() );
+            ImGui::SameLine();
+        };
+        transportButton( TransportCommand::ToStart, "|<", ImVec2( 0.0f, 0.0f ) );
+        transportButton( TransportCommand::PreviousFrame, "<|", ImVec2( 0.0f, 0.0f ) );
+        transportButton( TransportCommand::PlayPause, t.Playing ? "Pause" : "Play", ImVec2( 60.0f, 0.0f ) );
+        transportButton( TransportCommand::NextFrame, "|>", ImVec2( 0.0f, 0.0f ) );
+        transportButton( TransportCommand::ToEnd, ">|", ImVec2( 0.0f, 0.0f ) );
         ImGui::Checkbox( "Loop", &t.Loop );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 80.0f );
@@ -760,22 +882,31 @@ namespace Desert::Editor
                  { origin.x, origin.y, view.x, view.y, ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
             // The gizmo is evaluated BEFORE the preview's button and painted on a channel above it: the preview
             // then knows in the same frame that the pointer is on the gizmo and yields the press (a hover read
-            // one frame late let the orbit take the drag). Posing keys into the clip, so the gizmo is
-            // Animation mode's.
+            // one frame late let the orbit take the drag). Animation mode's gizmo poses into the clip; Skeleton
+            // mode's moves the Reference Pose (UE's Skeleton Editor). Mesh mode authors neither.
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             drawList->ChannelsSplit( 2 );
             drawList->ChannelsSetCurrent( 1 );
             m_GizmoHovered = false;
-            if ( animation )
+            if ( animation || Mode() == Core::PersonaMode::Skeleton )
                 DrawBoneGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             drawList->ChannelsSetCurrent( 0 );
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
-                (void)m_Preview->Draw( *m_UIHelper, view,
-                                       PreviewInteractionUnderTool( m_GizmoHovered, m_BoneGesture.Active(),
-                                                                    ImGui::IsAnyItemActive() ) );
+                (void)m_Preview->Draw(
+                     *m_UIHelper, view,
+                     PreviewInteractionUnderTool( m_GizmoHovered, m_BoneGesture.Active() || m_BindGesture.Active(),
+                                                  ImGui::IsAnyItemActive() ) );
             DrawBones( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
+            // A click on a drawn joint selects that bone — in the tree too, which reads the same selection (UE's
+            // Persona viewport). A press on the posing gizmo is the gizmo's.
+            if ( !m_GizmoHovered && ImGui::IsMouseClicked( ImGuiMouseButton_Left ) &&
+                 ImGui::IsMouseHoveringRect( ImVec2( origin.x, origin.y ),
+                                             ImVec2( origin.x + view.x, origin.y + view.y ) ) &&
+                 ImGui::IsWindowHovered( ImGuiHoveredFlags_ChildWindows ) )
+                if ( const int picked = PickBoneOverlay( m_BonePick, ImGui::GetMousePos() ); picked >= 0 )
+                    m_SelectedBone = static_cast<uint32_t>( picked );
             drawList->ChannelsMerge();
             DrawOverlay( glm::vec2( origin.x, origin.y ) );
         }
@@ -786,52 +917,46 @@ namespace Desert::Editor
         DrawTimeline( view.x, timelineHeight );
     }
 
-    void AnimationEditorDocument::DrawBones( const glm::vec2& origin, const glm::vec2& size ) const
+    void AnimationEditorDocument::DrawBones( const glm::vec2& origin, const glm::vec2& size )
     {
+        m_BonePick.clear();
         const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr;
         if ( animator == nullptr || ( !m_ShowBones && !m_SelectedBone ) )
             return;
         const auto&     skeleton = animator->GetSkeleton();
-        const auto      count    = static_cast<uint32_t>( skeleton.GetBones().size() );
+        const auto&     bones    = skeleton.GetBones();
+        const auto      count    = static_cast<uint32_t>( bones.size() );
         const glm::mat4 viewProj = m_Preview->GetViewProjection();
         const glm::mat4 model    = m_Preview->GetTargetTransform();
         // The same projection the level viewport's tools use (CreateShapeTool's WorldToScreen): NDC y up.
-        const auto project = [&]( const uint32_t bone, ImVec2& out )
+        const auto project = [&]( const uint32_t bone ) -> std::optional<ImVec2>
         {
             const glm::vec4 world = model * animator->GetBoneModelMatrix( bone ) * glm::vec4( 0, 0, 0, 1 );
             const glm::vec4 clip  = viewProj * world;
             if ( clip.w <= 0.0001f )
-                return false;
+                return std::nullopt;
             const glm::vec3 ndc = glm::vec3( clip ) / clip.w;
-            out                 = ImVec2( origin.x + ( ndc.x * 0.5f + 0.5f ) * size.x,
-                                          origin.y + ( 1.0f - ( ndc.y * 0.5f + 0.5f ) ) * size.y );
-            return true;
+            return ImVec2( origin.x + ( ndc.x * 0.5f + 0.5f ) * size.x,
+                           origin.y + ( 1.0f - ( ndc.y * 0.5f + 0.5f ) ) * size.y );
         };
-        ImDrawList* draw = ImGui::GetWindowDrawList();
-        const auto  bone = [&]( const uint32_t i, const ImU32 colour, const float thickness )
+        // Show Bones draws the whole rig; otherwise only the selected bone and the link to its parent.
+        std::vector<std::optional<ImVec2>> screen( count );
+        std::vector<int>                   parents( count, -1 );
+        std::vector<std::string>           names( count );
+        const uint32_t selected = m_SelectedBone && *m_SelectedBone < count ? *m_SelectedBone : count;
+        for ( uint32_t i = 0; i < count; ++i )
         {
-            ImVec2 at;
-            if ( !project( i, at ) )
-                return;
-            draw->AddCircleFilled( at, thickness + 1.5f, colour );
-            ImVec2         parentAt;
             const uint32_t parent = skeleton.ResolveParent( i );
-            if ( parent < count && project( parent, parentAt ) )
-                draw->AddLine( parentAt, at, colour, thickness );
-        };
-        if ( m_ShowBones )
-            for ( uint32_t i = 0; i < count; ++i )
-                bone( i, IM_COL32( 220, 220, 220, 200 ), 1.5f );
-        if ( m_SelectedBone && *m_SelectedBone < count )
-        {
-            bone( *m_SelectedBone, IM_COL32( 255, 170, 30, 255 ), 3.0f );
-            if ( ImVec2 at; project( *m_SelectedBone, at ) )
-            {
-                const std::string& name = skeleton.GetBones()[*m_SelectedBone].Name;
-                draw->AddText( ImVec2( at.x + 9.0f, at.y - 7.0f ), IM_COL32( 0, 0, 0, 220 ), name.c_str() );
-                draw->AddText( ImVec2( at.x + 8.0f, at.y - 8.0f ), IM_COL32( 255, 200, 90, 255 ), name.c_str() );
-            }
+            parents[i]            = parent < count ? static_cast<int>( parent ) : -1;
+            names[i]              = bones[i].Name;
         }
+        for ( uint32_t i = 0; i < count; ++i )
+            if ( m_ShowBones || i == selected ||
+                 ( selected < count && static_cast<int>( i ) == parents[selected] ) )
+                screen[i] = project( i );
+        DrawBoneOverlay( ImGui::GetWindowDrawList(), screen, parents, names,
+                         selected < count ? static_cast<int>( selected ) : -1, /*showAllNames=*/false,
+                         &m_BonePick );
     }
 
     void AnimationEditorDocument::DrawSkeletonTree()
@@ -845,6 +970,9 @@ namespace Desert::Editor
         const auto& skeleton = animator->GetSkeleton();
         const auto& bones    = skeleton.GetBones();
         m_CollapsedBones.resize( bones.size(), false );
+        const bool canRename = Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk;
+        if ( !canRename )
+            m_RenamingBone.reset();
 
         ImGui::SetNextItemWidth( -1.0f );
         ImGui::InputTextWithHint( "##bonefilter", "Search Bones", m_BoneFilter.data(), m_BoneFilter.size() );
@@ -878,13 +1006,68 @@ namespace Desert::Editor
             // A row shown only as the ancestor of a search hit is dimmed, as in UE's filtered tree.
             if ( !row.Matches )
                 ImGui::PushStyleColor( ImGuiCol_Text, ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
-            if ( ImGui::Selectable( bones[row.Bone].Name.c_str(), m_SelectedBone == row.Bone ) )
-                m_SelectedBone = row.Bone;
+            if ( m_RenamingBone == row.Bone )
+            {
+                if ( m_RenameFocus )
+                {
+                    ImGui::SetKeyboardFocusHere();
+                    m_RenameFocus = false;
+                }
+                ImGui::SetNextItemWidth( -1.0f );
+                if ( ImGui::InputText( "##rename", m_RenameBuffer.data(), m_RenameBuffer.size(),
+                                       ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll ) )
+                    CommitRename( row.Bone, m_RenameBuffer.data() );
+                else if ( ImGui::IsKeyPressed( ImGuiKey_Escape ) ||
+                          ( !ImGui::IsItemActive() && !ImGui::IsItemFocused() && !m_RenameFocus ) )
+                    m_RenamingBone.reset();
+            }
+            else
+            {
+                if ( ImGui::Selectable( bones[row.Bone].Name.c_str(), m_SelectedBone == row.Bone ) )
+                    m_SelectedBone = row.Bone;
+                // UE's Skeleton Tree: Rename Bone on the row's context menu and on F2. Skeleton mode only - the
+                // other modes show the rig they play on, they do not author it.
+                if ( canRename && ImGui::BeginPopupContextItem( "##bonemenu" ) )
+                {
+                    m_SelectedBone = row.Bone;
+                    if ( ImGui::MenuItem( "Rename Bone", "F2" ) )
+                        BeginRename( row.Bone );
+                    ImGui::EndPopup();
+                }
+            }
             if ( !row.Matches )
                 ImGui::PopStyleColor();
             ImGui::PopID();
         }
+        if ( canRename && m_SelectedBone && !m_RenamingBone &&
+             ImGui::IsWindowFocused( ImGuiFocusedFlags_ChildWindows ) &&
+             ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
+            BeginRename( *m_SelectedBone );
         ImGui::EndChild();
+        if ( !m_RenameStatus.empty() )
+            ImGui::TextColored( ImVec4( 0.9f, 0.4f, 0.3f, 1.0f ), "%s", m_RenameStatus.c_str() );
+    }
+
+    void AnimationEditorDocument::BeginRename( const uint32_t bone )
+    {
+        const Animation::Skeleton* rig = m_SkeletonAsset ? m_SkeletonAsset->GetSkeleton() : nullptr;
+        if ( rig == nullptr || bone >= rig->GetBones().size() )
+            return;
+        const std::string& name = rig->GetBones()[bone].Name;
+        m_RenameBuffer.fill( '\0' );
+        name.copy( m_RenameBuffer.data(), std::min( name.size(), m_RenameBuffer.size() - 1 ) );
+        m_RenamingBone = bone;
+        m_RenameFocus  = true;
+        m_RenameStatus.clear();
+    }
+
+    void AnimationEditorDocument::CommitRename( const uint32_t bone, const std::string& name )
+    {
+        m_RenamingBone.reset();
+        if ( const auto renamed = CommitBoneRename( m_SkeletonAsset, bone, name ); !renamed )
+            m_RenameStatus = std::format( "Rename refused: {}", renamed.GetError() );
+        else
+            m_RenameStatus.clear();
     }
 
     void AnimationEditorDocument::DrawBoneDetails()
@@ -900,12 +1083,28 @@ namespace Desert::Editor
         const uint32_t index    = *m_SelectedBone;
         const auto&    bone     = skeleton.GetBones()[index];
         const uint32_t parent   = skeleton.ResolveParent( index );
-        ImGui::Text( "Bone  %s", bone.Name.c_str() );
+        if ( Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk )
+        {
+            // The Details Name row (UE: the bone's name in the Skeleton Tree Details): Enter commits a Rename
+            // Bone.
+            std::array<char, 128> name{};
+            bone.Name.copy( name.data(), std::min( bone.Name.size(), name.size() - 1 ) );
+            ImGui::SetNextItemWidth( -80.0f );
+            if ( ImGui::InputText( "Name", name.data(), name.size(), ImGuiInputTextFlags_EnterReturnsTrue ) )
+            {
+                // The rig was rebuilt (its bones are new storage): this frame's references into it end here.
+                CommitRename( index, name.data() );
+                return;
+            }
+        }
+        else
+            ImGui::Text( "Bone  %s", bone.Name.c_str() );
         ImGui::TextDisabled( "Index %u   Parent %s", index,
                              parent < skeleton.GetBones().size() ? skeleton.GetBones()[parent].Name.c_str()
                                                                  : "(root)" );
 
-        // One row set per transform; `editable` rows commit on Enter, the reference pose is read-only.
+        // One row set per transform; `editable` rows commit on Enter. The reference pose is editable in Skeleton
+        // mode.
         const auto section = [index]( const char* label, BoneTransformRows& rows, const bool editable )
         {
             SectionHeader( label );
@@ -932,18 +1131,22 @@ namespace Desert::Editor
              m_Posed ? animator->GetAuthoringPose()[index] : animator->GetLocalPose()[index];
         BoneTransformRows posed{ shown.Translation, glm::degrees( glm::eulerAngles( shown.Rotation ) ),
                                  shown.Scale };
-        if ( section( std::format( "Bone (frame {})", m_Transport.FrameIndex() ).c_str(), posed, true ) )
+        const bool        authorsBind = Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk;
+        if ( !authorsBind &&
+             section( std::format( "Bone (frame {})", m_Transport.FrameIndex() ).c_str(), posed, true ) )
             (void)PoseSelectedBone( Animation::BoneTransform{ posed.Location,
                                                               glm::quat( glm::radians( posed.RotationDegrees ) ),
                                                               posed.Scale },
                                     true );
         BoneTransformRows reference = DecomposeBoneTransform( bone.LocalBindTransform );
-        (void)section( "Reference Pose", reference, false );
+        // Skeleton mode authors it (UE's Skeleton Editor): a committed row is one undo record, Save writes it.
+        if ( section( "Reference Pose", reference, authorsBind ) )
+            (void)CommitBindEdit( m_SkeletonAsset, index, ComposeBoneTransform( reference ) );
     }
 
     Animation::FrameNumber AnimationEditorDocument::KeyTick() const
     {
-        const double rate = m_ClipAsset ? m_ClipAsset->GetClip().TickRate.AsDouble() : 0.0;
+        const double rate = m_ClipAsset ? m_ClipAsset->GetClip().Sequence.TickRate.AsDouble() : 0.0;
         return Animation::FrameNumber{ static_cast<int32_t>( std::llround( m_Transport.Time * rate ) ) };
     }
 
@@ -985,7 +1188,7 @@ namespace Desert::Editor
             return false;
         if ( undoable )
         {
-            if ( const auto begun = m_PoseEdit.Begin( animator, &asset->GetClipForAuthoring() );
+            if ( const auto begun = m_PoseEdit.Begin( OwnerOf( &asset->GetClipForAuthoring() ), animator );
                  !begun.IsSuccess() )
             {
                 LOG_ERROR( "Animation Editor: pose edit refused: {}", begun.GetError() );
@@ -1032,8 +1235,61 @@ namespace Desert::Editor
         return true;
     }
 
+    void AnimationEditorDocument::DrawBindGizmo( const glm::vec2& origin, const glm::vec2& size )
+    {
+        m_GizmoHovered = false;
+        auto* animator = m_Preview ? m_Preview->GetAnimatorForAuthoring() : nullptr;
+        if ( animator == nullptr || !m_SkeletonAsset || !m_BindOnDisk || !m_SelectedBone ||
+             *m_SelectedBone >= animator->GetSkeleton().GetBones().size() )
+        {
+            m_BindGesture.End();
+            return;
+        }
+        if ( ImGui::IsWindowHovered() && !ImGui::GetIO().WantTextInput )
+        {
+            if ( ImGui::IsKeyPressed( ImGuiKey_W, false ) )
+                m_GizmoRotate = false;
+            if ( ImGui::IsKeyPressed( ImGuiKey_E, false ) )
+                m_GizmoRotate = true;
+        }
+        const uint32_t  bone   = *m_SelectedBone;
+        const glm::mat4 target = m_Preview->GetTargetTransform();
+        const glm::mat4 view   = m_Preview->GetView();
+        const glm::mat4 proj   = m_Preview->GetProjection();
+        glm::mat4       world  = target * animator->GetBoneModelMatrix( bone );
+
+        const Core::GizmoIdScope gizmoId( "AnimationEditorBindBone" );
+        ImGuizmo::SetOrthographic( false );
+        ImGuizmo::SetDrawlist();
+        ImGuizmo::SetRect( origin.x, origin.y, size.x, size.y );
+        const bool moved = ImGuizmo::Manipulate( &view[0][0], &proj[0][0],
+                                                 m_GizmoRotate ? ImGuizmo::ROTATE : ImGuizmo::TRANSLATE,
+                                                 ImGuizmo::LOCAL, &world[0][0] );
+        const bool held  = ImGuizmo::IsUsing();
+        m_GizmoHovered   = held || ImGuizmo::IsOver();
+
+        // World -> the bone's parent-relative RAW matrix (GizmoController's rest-pose branch): the bind is a
+        // matrix, and a TRS round trip would not invert what the OffsetMatrix was cooked against.
+        std::optional<glm::mat4> local;
+        if ( moved )
+        {
+            glm::mat4      parentModel( 1.0f );
+            const uint32_t parent = animator->GetSkeleton().ResolveParent( bone );
+            if ( parent < animator->GetSkeleton().GetBones().size() )
+                parentModel = animator->GetBoneModelMatrix( parent );
+            local = glm::inverse( parentModel ) * glm::inverse( target ) * world;
+        }
+        // One undo record per drag: press captures the bind, the release records old -> current.
+        m_BindGesture.Step( m_SkeletonAsset, bone, held, local ? &*local : nullptr );
+    }
+
     void AnimationEditorDocument::DrawBoneGizmo( const glm::vec2& origin, const glm::vec2& size )
     {
+        if ( Mode() == Core::PersonaMode::Skeleton )
+        {
+            DrawBindGizmo( origin, size );
+            return;
+        }
         m_GizmoHovered = false;
         auto* animator = m_Preview ? m_Preview->GetAnimatorForAuthoring() : nullptr;
         if ( animator == nullptr || ClipAsset() == nullptr || !m_SelectedBone || m_Transport.Playing ||
@@ -1115,33 +1371,44 @@ namespace Desert::Editor
         // Only what an AnimationClip holds: UE's Rate Scale, compression and additive settings have no field
         // here, so they are not shown.
         const auto& clip = asset->GetClip();
-        size_t      keys = 0;
-        for ( const auto& track : clip.Tracks )
-            keys += track.PositionKeys.size() + track.RotationKeys.size() + track.ScaleKeys.size();
-        if ( !ImGui::BeginTable( "##clipdetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
-            return;
-        const auto row = []( const char* label, const std::string& value )
+        // Keys per part (position, rotation, scale) of every Transform section — a rotation key is one key,
+        // not its four components; sections across every track.
+        size_t keys       = 0;
+        size_t boneTracks = 0;
+        size_t sections   = 0;
+        for ( const auto& track : clip.Sequence.Tracks )
         {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled( "%s", label );
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted( value.c_str() );
-        };
+            sections += track.Sections.size();
+            if ( track.Kind != Animation::Timeline::TrackKind::Transform )
+                continue;
+            ++boneTracks;
+            for ( const auto& section : track.Sections )
+                if ( const auto* channel = std::get_if<Animation::Timeline::Channel>( &section.Content ) )
+                    if ( const auto* transform = std::get_if<Animation::Timeline::TransformChannel>( channel ) )
+                        keys += transform->Translation.X.Keys.size() + transform->Rotation.X.Keys.size() +
+                                transform->Scale.X.Keys.size();
+        }
+        if ( !Utils::ImGuiUtilities::BeginFactTable( "##clipdetails" ) )
+            return;
+        const auto row = &Utils::ImGuiUtilities::FactRow;
         row( "Animation", clip.AnimationName.empty() ? m_ClipName : clip.AnimationName );
         row( "File", m_ClipPath.empty() ? std::string( "(none)" ) : m_ClipPath.filename().string() );
-        row( "Skeleton", std::format( "{:016x}", clip.SkeletonSignature ) );
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled( "Skeleton" );
+        ImGui::TableNextColumn();
+        DrawSkeletonSlot();
         row( "Length", std::format( "{:.3f} s", clip.DurationSeconds() ) );
         row( "Frames", std::format( "{}", m_Transport.LastFrame() + 1 ) );
-        row( "Display Rate",
-             std::format( "{}/{} fps", clip.DisplayRate.Numerator, clip.DisplayRate.Denominator ) );
-        row( "Tick Rate", std::format( "{}/{} ({} ticks)", clip.TickRate.Numerator, clip.TickRate.Denominator,
-                                       clip.DurationTicks.Value ) );
-        row( "Bone Tracks", std::format( "{}", clip.Tracks.size() ) );
+        row( "Display Rate", std::format( "{}/{} fps", clip.Sequence.DisplayRate.Numerator,
+                                          clip.Sequence.DisplayRate.Denominator ) );
+        row( "Tick Rate", std::format( "{}/{} ({} ticks)", clip.Sequence.TickRate.Numerator,
+                                       clip.Sequence.TickRate.Denominator, clip.DurationTicks().Value ) );
+        row( "Bone Tracks", std::format( "{}", boneTracks ) );
         row( "Keys", std::format( "{}", keys ) );
-        row( "Notifies", std::format( "{}", clip.Notifies.size() ) );
-        row( "Sections", std::format( "{}", clip.Sections.size() ) );
-        ImGui::EndTable();
+        row( "Notifies", std::format( "{}", ClipNotifies( clip ).size() ) );
+        row( "Sections", std::format( "{}", sections ) );
+        Utils::ImGuiUtilities::EndFactTable();
     }
 
     void AnimationEditorDocument::DrawPreviewSceneSettings()
@@ -1165,24 +1432,16 @@ namespace Desert::Editor
     void AnimationEditorDocument::DrawAssetBrowser()
     {
         // UE's Asset Browser in Persona: the clips that play on the previewed rig, a search, and a double click to
-        // open one. Listed from the CONTENT REGISTRY by each clip's Rig tag (the scan reads a clip's stated
-        // SkeletonSignature, ContentScan.cpp) - nothing is loaded to list them, as UE's browser reads the
-        // registry's tags; AnimationLibrary holds only the clips something already loaded.
-        const uint64_t signature = m_Signature;
-        if ( signature == 0 )
+        // open one. Listed from the CONTENT REGISTRY by each clip's Skeleton tag through the one playback rule
+        // (Animation::ClipPlaysOnMesh) - nothing is loaded to list them, as UE's browser reads the registry's
+        // tags.
+        if ( m_Skeleton.IsNull() )
         {
             ImGui::TextDisabled( "No skeleton is known yet: nothing to list clips for." );
             return;
         }
         if ( !m_BrowserListed )
-        {
-            m_BrowserClips.clear();
-            for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
-                if ( row.RigSignature == signature )
-                    m_BrowserClips.emplace_back( row.Path.filename().string(), row.Handle );
-            std::ranges::sort( m_BrowserClips );
-            m_BrowserListed = true;
-        }
+            ListBrowserClips();
         ImGui::SetNextItemWidth( -1.0f );
         ImGui::InputTextWithHint( "##browsersearch", "Search Assets", m_BrowserFilter.data(),
                                   m_BrowserFilter.size() );
@@ -1213,9 +1472,10 @@ namespace Desert::Editor
     float AnimationEditorDocument::TimelineHeight() const
     {
         // Ruler, "Notifies" header, the tracks, "Curves (0)" header.
-        const int32_t rows   = m_ClipAsset ? NotifyTrackCount( m_ClipAsset->GetClip().Notifies, m_AddedNotifyRows )
-                                           : std::max( m_AddedNotifyRows, 1 );
-        const size_t  curves = m_ClipAsset ? m_ClipAsset->GetClip().Curves.size() : 0;
+        const int32_t rows   = m_ClipAsset
+                                    ? NotifyTrackCount( ClipNotifies( m_ClipAsset->GetClip() ), m_AddedNotifyRows )
+                                    : std::max( m_AddedNotifyRows, 1 );
+        const size_t  curves = m_ClipAsset ? ClipCurves( m_ClipAsset->GetClip() ).size() : 0;
         return ImGui::GetFrameHeight() * static_cast<float>( 3 + rows + static_cast<int32_t>( curves ) ) +
                ImGui::GetStyle().WindowPadding.y * 2.0f;
     }
@@ -1238,22 +1498,25 @@ namespace Desert::Editor
         const float               laneW  = std::max( ImGui::GetContentRegionAvail().x - kTrackLabelWidth, 1.0f );
         const float               laneX1 = laneX0 + laneW;
         const auto axis = Sequencer::TimeAxis( laneX0, laneW, static_cast<float>( m_Transport.DurationSeconds ) );
-        const int32_t rows         = NotifyTrackCount( clip.Notifies, m_AddedNotifyRows );
+        const int32_t rows = NotifyTrackCount( ClipNotifies( clip ), m_AddedNotifyRows );
         const float   rulerTop     = at.y;
         const float   rulerBottom  = rulerTop + rowH;
         const float   rowsTop      = rulerBottom + rowH; // under the "Notifies" header
         const float   curvesTop    = rowsTop + rowH * static_cast<float>( rows );
         const float   curveRowsTop = curvesTop + rowH; // under the "Curves (N)" header
-        const float   panelBottom  = curveRowsTop + rowH * static_cast<float>( clip.Curves.size() );
+        const float   panelBottom  = curveRowsTop + rowH * static_cast<float>( ClipCurves( clip ).size() );
         const ImVec2  mouse        = ImGui::GetIO().MousePos;
         const auto    rowOfY       = [&]( const float y )
         { return std::clamp( static_cast<int32_t>( std::floor( ( y - rowsTop ) / rowH ) ), 0, rows - 1 ); };
-        const auto snapped = [&]( const float x ) {
-            return SnapNotifyTick( axis.XToTime( x ), clip.TickRate, m_Transport.DisplayRate, clip.DurationTicks );
+        const auto snapped = [&]( const float x )
+        {
+            return SnapNotifyTick( axis.XToTime( x ), clip.Sequence.TickRate, m_Transport.DisplayRate,
+                                   clip.DurationTicks() );
         };
-        const auto tickX = [&]( const Animation::FrameNumber tick ) {
+        const auto tickX = [&]( const Animation::FrameNumber tick )
+        {
             return axis.TimeToX(
-                 Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0F }, clip.TickRate ) );
+                 Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0F }, clip.Sequence.TickRate ) );
         };
         const auto text = [&]( const float x, const float rowTop, const char* label, const ImU32 colour )
         { dl->AddText( ImVec2( x, rowTop + ( rowH - ImGui::GetTextLineHeight() ) * 0.5f ), colour, label ); };
@@ -1270,12 +1533,12 @@ namespace Desert::Editor
         }
         dl->AddRectFilled( ImVec2( at.x, curvesTop ), ImVec2( laneX1, panelBottom ), IM_COL32( 48, 48, 48, 255 ) );
         dl->AddLine( ImVec2( laneX0, rulerTop ), ImVec2( laneX0, panelBottom ), IM_COL32( 20, 20, 20, 255 ) );
-        Sequencer::DrawFrameGrid( dl, axis, rulerTop, rulerBottom, clip.DurationTicks, clip.TickRate,
+        Sequencer::DrawFrameGrid( dl, axis, rulerTop, rulerBottom, clip.DurationTicks(), clip.Sequence.TickRate,
                                   m_Transport.DisplayRate, true, IM_COL32( 120, 120, 120, 255 ) );
-        Sequencer::DrawFrameGrid( dl, axis, rowsTop, curvesTop, clip.DurationTicks, clip.TickRate,
+        Sequencer::DrawFrameGrid( dl, axis, rowsTop, curvesTop, clip.DurationTicks(), clip.Sequence.TickRate,
                                   m_Transport.DisplayRate, false, IM_COL32( 55, 55, 55, 255 ) );
         text( at.x + 6.0f, rulerBottom, "Notifies", IM_COL32( 230, 230, 230, 255 ) );
-        text( at.x + 6.0f, curvesTop, std::format( "Curves ({})", clip.Curves.size() ).c_str(),
+        text( at.x + 6.0f, curvesTop, std::format( "Curves ({})", ClipCurves( clip ).size() ).c_str(),
               IM_COL32( 230, 230, 230, 255 ) );
 
         ImGui::SetCursorScreenPos( ImVec2( laneX0 - 64.0f, rulerBottom + 1.0f ) );
@@ -1292,18 +1555,17 @@ namespace Desert::Editor
         }
 
         // Notifies: a diamond on its tick, on its track; drag moves (one edit on release), right-click edits.
-        m_Flash.resize( clip.Notifies.size(), 0.0f );
+        m_Flash.resize( ClipNotifies( clip ).size(), 0.0f );
         bool overNotify = false;
-        for ( size_t i = 0; i < clip.Notifies.size(); ++i )
+        for ( size_t i = 0; i < ClipNotifies( clip ).size(); ++i )
         {
-            const auto&  notify = clip.Notifies[i];
+            const auto&  notify = ClipNotifies( clip )[i];
             const ImVec2 centre( tickX( notify.Tick ),
-                                 rowsTop + rowH * ( static_cast<float>( notify.Track ) + 0.5f ) );
+                                 rowsTop + rowH * ( static_cast<float>( notify.Row ) + 0.5f ) );
             // A Notify State (UE: AN_FootPlant's bar) is a span: its body moves it, its two edges resize it.
-            const bool  state = notify.IsState();
+            const bool  state = ( notify.Duration.Value > 0 );
             const float endX =
-                 state ? tickX( Animation::FrameNumber{ notify.Tick.Value + notify.DurationTicks.Value } )
-                       : centre.x;
+                 state ? tickX( Animation::FrameNumber{ notify.Tick.Value + notify.Duration.Value } ) : centre.x;
             const float barTop = centre.y - rowH * 0.5f + 2.0f;
             const float barBot = centre.y + rowH * 0.5f - 2.0f;
             ImGui::PushID( static_cast<int>( i ) );
@@ -1325,11 +1587,11 @@ namespace Desert::Editor
                 m_DragNotify = static_cast<int32_t>( i );
             if ( ImGui::IsItemDeactivated() && dragging )
             {
-                auto edited     = clip.Notifies;
+                auto edited     = ClipNotifies( clip );
                 edited[i].Tick  = snapped( mouse.x );
-                edited[i].Track = rowOfY( mouse.y );
+                edited[i].Row   = rowOfY( mouse.y );
                 m_DragNotify    = -1;
-                (void)EditNotifies( std::move( edited ), "Move Notify" );
+                (void)EditNotifies( std::move( edited ) );
                 break; // the list was replaced (and re-sorted); draw it next frame
             }
             if ( ImGui::IsItemClicked( ImGuiMouseButton_Right ) )
@@ -1361,15 +1623,15 @@ namespace Desert::Editor
                          m_DragEdge == edge )
                     {
                         const auto landed =
-                             DragNotifyStateEdge( notify, edge, snapped( mouse.x ), clip.DurationTicks );
+                             DragNotifyStateEdge( notify, edge, snapped( mouse.x ), clip.DurationTicks() );
                         m_DragState = -1;
                         if ( edge == NotifyStateEdge::End )
-                            (void)SetNotifyDuration( clip, i, landed.DurationTicks, CommandHistory::Get(), {} );
+                            (void)SetNotifyDuration( clip, i, landed.Duration, {} );
                         else
                         {
-                            auto edited = clip.Notifies;
+                            auto edited = ClipNotifies( clip );
                             edited[i]   = landed;
-                            (void)EditNotifies( std::move( edited ), "Resize Notify State" );
+                            (void)EditNotifies( std::move( edited ) );
                         }
                         resized = true;
                         break;
@@ -1396,10 +1658,10 @@ namespace Desert::Editor
                 if ( m_DragState == static_cast<int32_t>( i ) ) // the ghost: the span on release
                 {
                     const auto landed =
-                         DragNotifyStateEdge( notify, m_DragEdge, snapped( mouse.x ), clip.DurationTicks );
+                         DragNotifyStateEdge( notify, m_DragEdge, snapped( mouse.x ), clip.DurationTicks() );
                     dl->AddRect(
                          ImVec2( tickX( landed.Tick ), barTop ),
-                         ImVec2( tickX( Animation::FrameNumber{ landed.Tick.Value + landed.DurationTicks.Value } ),
+                         ImVec2( tickX( Animation::FrameNumber{ landed.Tick.Value + landed.Duration.Value } ),
                                  barBot ),
                          IM_COL32( 255, 200, 90, 255 ), 3.0f, 0, 2.0f );
                 }
@@ -1433,17 +1695,18 @@ namespace Desert::Editor
         // along time (one edit on release); right-click a key to set its value or delete it, an empty lane to
         // key it there, the header to add a curve.
         bool overKey = false;
-        for ( size_t c = 0; c < clip.Curves.size(); ++c )
+        const auto curveTracks = ClipCurves( clip );
+        for ( size_t c = 0; c < curveTracks.size(); ++c )
         {
-            const auto& curve  = clip.Curves[c];
+            const auto& curve  = *curveTracks[c];
+            const auto& keys   = CurveKeys( curve );
             const float rowTop = curveRowsTop + rowH * static_cast<float>( c );
             dl->AddRectFilled( ImVec2( at.x, rowTop ), ImVec2( laneX1, rowTop + rowH ),
                                c % 2 == 0 ? IM_COL32( 30, 30, 30, 255 ) : IM_COL32( 34, 34, 34, 255 ) );
-            text( at.x + 18.0f, rowTop, curve.Name.c_str(), IM_COL32( 190, 190, 190, 255 ) );
-            if ( curve.Keys.empty() )
+            text( at.x + 18.0f, rowTop, curve.Property.c_str(), IM_COL32( 190, 190, 190, 255 ) );
+            if ( keys.empty() )
                 continue;
-            const auto [lowIt, highIt] =
-                 std::ranges::minmax_element( curve.Keys, {}, &Animation::ScalarKey::Value );
+            const auto [lowIt, highIt] = std::ranges::minmax_element( keys, {}, &Animation::ScalarKey::Value );
             float low  = lowIt->Value;
             float high = highIt->Value;
             if ( high - low < 1e-6f )
@@ -1458,15 +1721,15 @@ namespace Desert::Editor
             for ( int k = 0; k <= kSamples; ++k )
             {
                 const double seconds = m_Transport.DurationSeconds * k / kSamples;
-                const auto   at2     = Animation::SecondsToFrameTime( seconds, clip.TickRate );
-                line[static_cast<size_t>( k )] =
-                     ImVec2( axis.TimeToX( seconds ), valueY( curve.Evaluate( at2, clip.TickRate ) ) );
+                const auto   at2               = Animation::SecondsToFrameTime( seconds, clip.Sequence.TickRate );
+                line[static_cast<size_t>( k )] = ImVec2(
+                     axis.TimeToX( seconds ), valueY( CurveValueAt( curve, at2, clip.Sequence.TickRate ) ) );
             }
             dl->AddPolyline( line.data(), static_cast<int>( line.size() ), IM_COL32( 230, 120, 90, 255 ),
                              ImDrawFlags_None, 1.5f );
-            for ( size_t k = 0; k < curve.Keys.size(); ++k )
+            for ( size_t k = 0; k < keys.size(); ++k )
             {
-                const auto&  key = curve.Keys[k];
+                const auto&  key = keys[k];
                 const ImVec2 centre( tickX( key.Tick ), valueY( key.Value ) );
                 ImGui::SetCursorScreenPos( ImVec2( centre.x - kDiamondRadius, centre.y - kDiamondRadius ) );
                 ImGui::PushID( static_cast<int>( 100000 + c * 1000 + k ) );
@@ -1484,20 +1747,12 @@ namespace Desert::Editor
                 {
                     m_DragCurve  = -1;
                     m_DragKey    = -1;
-                    auto  edited = clip.Curves;
-                    auto& keys   = edited[c].Keys;
-                    auto  moved  = keys[k];
-                    keys.erase( keys.begin() + static_cast<std::ptrdiff_t>( k ) );
-                    moved.Tick = snapped( mouse.x );
-                    std::erase_if( keys,
-                                   [&]( const Animation::ScalarKey& other ) { return other.Tick == moved.Tick; } );
-                    keys.push_back( moved );
-                    (void)ApplyCurveEdit( clip, std::move( edited ), "Move Curve Key", CommandHistory::Get(), {} );
+                    (void)MoveCurveKey( clip, curve.Property, key.Tick, snapped( mouse.x ), {} );
                     break;
                 }
                 if ( ImGui::IsItemClicked( ImGuiMouseButton_Right ) )
                 {
-                    m_PopupCurve    = curve.Name;
+                    m_PopupCurve    = curve.Property;
                     m_PopupKeyTick  = key.Tick.Value;
                     m_PopupKeyValue = key.Value;
                     ImGui::OpenPopup( kCurveKeyPopup );
@@ -1514,20 +1769,21 @@ namespace Desert::Editor
         {
             if ( mouse.y >= curvesTop && mouse.y < curveRowsTop )
             {
-                CopyName( m_NameBuffer, std::format( "Curve {}", clip.Curves.size() + 1 ) );
+                CopyName( m_NameBuffer, std::format( "Curve {}", curveTracks.size() + 1 ) );
                 ImGui::OpenPopup( kAddCurvePopup );
             }
             else if ( mouse.y >= curveRowsTop && mouse.y < panelBottom )
             {
                 const auto  c     = static_cast<size_t>( ( mouse.y - curveRowsTop ) / rowH );
-                const auto& curve = clip.Curves[std::min( c, clip.Curves.size() - 1 )];
-                m_PopupCurve      = curve.Name;
+                const auto& curve = *curveTracks[std::min( c, curveTracks.size() - 1 )];
+                m_PopupCurve      = curve.Property;
                 m_PopupKeyTick    = snapped( mouse.x ).Value;
                 m_PopupKeyValue =
-                     curve.Keys.empty()
+                     CurveKeys( curve ).empty()
                           ? 0.0f
-                          : curve.Evaluate( Animation::FrameTime{ Animation::FrameNumber{ m_PopupKeyTick }, 0.0F },
-                                            clip.TickRate );
+                          : CurveValueAt( curve,
+                                          Animation::FrameTime{ Animation::FrameNumber{ m_PopupKeyTick }, 0.0F },
+                                          clip.Sequence.TickRate );
                 ImGui::OpenPopup( kAddCurveKeyPopup );
             }
         }
@@ -1556,7 +1812,7 @@ namespace Desert::Editor
             if ( ImGui::MenuItem( "Add Notify State" ) && ClipAsset() != nullptr )
             {
                 (void)AddNotify( m_NameBuffer.data(), m_PopupSeconds, m_PopupTrack,
-                                 std::max( m_ClipAsset->GetClip().DurationTicks.Value / 4, 1 ) );
+                                 std::max( m_ClipAsset->GetClip().DurationTicks().Value / 4, 1 ) );
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1564,7 +1820,7 @@ namespace Desert::Editor
         if ( ImGui::BeginPopup( kEditNotifyPopup ) )
         {
             const auto index = static_cast<size_t>( m_PopupNotify );
-            if ( m_PopupNotify < 0 || index >= clip.Notifies.size() )
+            if ( m_PopupNotify < 0 || index >= ClipNotifies( clip ).size() )
                 ImGui::CloseCurrentPopup();
             else
             {
@@ -1573,16 +1829,16 @@ namespace Desert::Editor
                                                      ImGuiInputTextFlags_EnterReturnsTrue );
                 if ( ( ImGui::MenuItem( "Rename" ) || enter ) && m_NameBuffer[0] != '\0' )
                 {
-                    auto edited        = clip.Notifies;
+                    auto edited        = ClipNotifies( clip );
                     edited[index].Name = m_NameBuffer.data();
-                    (void)EditNotifies( std::move( edited ), "Rename Notify" );
+                    (void)EditNotifies( std::move( edited ) );
                     ImGui::CloseCurrentPopup();
                 }
                 if ( ImGui::MenuItem( "Delete" ) )
                 {
-                    auto edited = clip.Notifies;
+                    auto edited = ClipNotifies( clip );
                     edited.erase( edited.begin() + static_cast<std::ptrdiff_t>( index ) );
-                    (void)EditNotifies( std::move( edited ), "Delete Notify" );
+                    (void)EditNotifies( std::move( edited ) );
                     ImGui::CloseCurrentPopup();
                 }
             }
@@ -1600,11 +1856,11 @@ namespace Desert::Editor
             // A curve is its keys: it is created with one, at the playhead, valued 0.
             if ( ( ImGui::MenuItem( "Add Curve" ) || enter ) && m_NameBuffer[0] != '\0' )
             {
-                (void)EditCurveKey(
-                     m_NameBuffer.data(),
-                     SnapNotifyTick( m_Transport.Time, clip.TickRate, m_Transport.DisplayRate, clip.DurationTicks )
-                          .Value,
-                     0.0f );
+                (void)EditCurveKey( m_NameBuffer.data(),
+                                    SnapNotifyTick( m_Transport.Time, clip.Sequence.TickRate,
+                                                    m_Transport.DisplayRate, clip.DurationTicks() )
+                                         .Value,
+                                    0.0f );
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1633,8 +1889,7 @@ namespace Desert::Editor
             }
             if ( ImGui::MenuItem( "Delete Key" ) )
             {
-                (void)RemoveCurveKey( clip, m_PopupCurve, Animation::FrameNumber{ m_PopupKeyTick },
-                                      CommandHistory::Get(), {} );
+                (void)RemoveCurveKey( clip, m_PopupCurve, Animation::FrameNumber{ m_PopupKeyTick }, {} );
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1648,9 +1903,8 @@ namespace Desert::Editor
         switch ( mode )
         {
             case Core::PersonaMode::Skeleton:
-                // The previewed mesh's own skeleton dependency: the rig every mode here is on.
-                return m_Mesh ? Assets::AssetHandle( m_Mesh->GetSkeletonDependency().Handle )
-                              : Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+                // The skeleton every mode here is on, by the GUID the subject names.
+                return { SkeletonSlots::HandleOf( m_Skeleton ) };
             case Core::PersonaMode::Mesh:
                 return m_Mesh ? m_Mesh->GetMetadata().Handle : Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
             case Core::PersonaMode::Animation:
@@ -1667,19 +1921,12 @@ namespace Desert::Editor
         if ( mode == Mode() || m_Editors == nullptr || m_Assets == nullptr )
             return;
         if ( mode == Core::PersonaMode::Animation && !m_BrowserListed )
-        {
-            m_BrowserClips.clear();
-            for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
-                if ( row.RigSignature == m_Signature && m_Signature != 0 )
-                    m_BrowserClips.emplace_back( row.Path.filename().string(), row.Handle );
-            std::ranges::sort( m_BrowserClips );
-            m_BrowserListed = true;
-        }
+            ListBrowserClips();
         const Assets::AssetHandle target = ModeAsset( mode );
         if ( static_cast<uint64_t>( target ) == 0 )
         {
-            LOG_ERROR( "Animation Editor: no {} asset on skeleton {:016x} to switch to", PersonaModeName( mode ),
-                       m_Signature );
+            LOG_ERROR( "Animation Editor: no {} asset on skeleton {} to switch to", PersonaModeName( mode ),
+                       SkeletonSlots::NameOf( Common::Content::ContentKind::Skeleton, m_Skeleton ) );
             return;
         }
         if ( const auto opened =
@@ -1690,6 +1937,22 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::DrawModeToolbar()
     {
+        // UE's asset editor toolbar starts with Save. Skeleton mode's document is the `.skeleton` (its Reference
+        // Pose edits: Save* / Don't Save on close); Animation mode's Save is on its transport, beside the clip.
+        if ( Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset )
+        {
+            if ( ImGui::Button( GetDiskState() == DiskState::Dirty ? "Save*" : "Save" ) )
+                (void)SaveDocument();
+            if ( !m_SaveStatus.empty() )
+            {
+                ImGui::SameLine();
+                if ( m_SaveFailed )
+                    ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), "%s", m_SaveStatus.c_str() );
+                else
+                    ImGui::TextDisabled( "%s", m_SaveStatus.c_str() );
+            }
+            ImGui::SameLine();
+        }
         // UE puts the mode switcher at the right of the asset editor's toolbar.
         constexpr std::array kModes = { Core::PersonaMode::Skeleton, Core::PersonaMode::Mesh,
                                         Core::PersonaMode::Animation };
@@ -1723,32 +1986,33 @@ namespace Desert::Editor
         }
         // Only what a SkinnedMeshAsset holds (UE's LOD settings and physics asset have no field here).
         const auto& mesh = *m_Mesh;
-        const auto  row  = []( const char* label, const std::string& value )
-        {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled( "%s", label );
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted( value.c_str() );
-        };
+        const auto  row  = &Utils::ImGuiUtilities::FactRow;
         SectionHeader( "Mesh" );
-        if ( ImGui::BeginTable( "##meshdetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+        if ( Utils::ImGuiUtilities::BeginFactTable( "##meshdetails" ) )
         {
             row( "File", mesh.GetMetadata().Filepath.filename().string() );
-            row( "Skeleton", std::format( "{:016x}", mesh.GetSkeletonSignature() ) );
-            row( "Vertices", std::format( "{}", mesh.GetVertices().size() ) );
-            row( "Triangles", std::format( "{}", mesh.GetIndices().size() / 3 ) );
-            row( "Sections", std::format( "{}", mesh.GetSubmeshes().size() ) );
+            // UE's Source File: the raw file this asset was imported from, by the one lookup the Import
+            // Settings and Reimport use; its full path is the tooltip.
+            const auto source = ImportOptions::ImportSourceOfAsset( mesh.GetMetadata().Filepath );
+            row( "Source File", source ? source->generic_string() : std::string( "(not imported)" ) );
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled( "Skeleton" );
+            ImGui::TableNextColumn();
+            DrawSkeletonSlot();
+            // The mesh's counts from the one home the Elements rows and the viewport stats read
+            // (Geometry::ComputeMeshStats): GetIndices() holds whole triangles, so dividing its size by
+            // three showed a third of the mesh.
+            const Geometry::MeshStats stats = Geometry::ComputeMeshStats( mesh.GetSubmeshes() );
+            row( "Vertices", std::format( "{}", stats.Vertices ) );
+            row( "Triangles", std::format( "{}", stats.Triangles ) );
+            row( "Sections", std::format( "{}", stats.Elements ) );
             row( "Morph Targets", std::format( "{}", mesh.GetMorphTargets().size() ) );
-            // Each section carries its own LOD ranges; the mesh has as many levels as its richest section.
-            size_t lods = 1;
-            for ( const auto& section : mesh.GetSubmeshes() )
-                lods = std::max( lods, section.LODs.size() );
-            row( "LODs", std::format( "{}", lods ) );
-            ImGui::EndTable();
+            row( "LODs", std::format( "{}", stats.LODLevels ) );
+            Utils::ImGuiUtilities::EndFactTable();
         }
         SectionHeader( "Material Slots" );
-        if ( ImGui::BeginTable( "##meshslots", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+        if ( Utils::ImGuiUtilities::BeginFactTable( "##meshslots" ) )
         {
             const auto& slots = mesh.GetMaterialHandles();
             for ( size_t i = 0; i < slots.size(); ++i )
@@ -1763,30 +2027,216 @@ namespace Desert::Editor
                     name = "None";
                 row( std::format( "Slot {}", i ).c_str(), name );
             }
-            ImGui::EndTable();
+            Utils::ImGuiUtilities::EndFactTable();
         }
+
+        // What the weights say about the rig (UE's Skeletal Mesh Editor warnings), against the preview's skeleton
+        // — the one the mesh binds to. Scanned once per mesh, not per frame.
+        if ( const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr )
+        {
+            const std::size_t bones = animator->GetSkeleton().GetBones().size();
+            const auto        of    = static_cast<uint64_t>( mesh.GetMetadata().Handle );
+            if ( m_SkinningAuditOf != of || m_SkinningAuditBones != bones )
+            {
+                m_SkinningAudit      = MeshAssetDetails::AuditSkinning( mesh.GetVertices(), bones );
+                m_SkinningAuditOf    = of;
+                m_SkinningAuditBones = bones;
+            }
+            MeshAssetDetails::DrawSkinningAudit( m_SkinningAudit );
+        }
+
+        // Elements and the source's Import Settings with Reimport — the Static Mesh viewer's body too.
+        MeshAssetDetails::Draw( mesh );
     }
 
     void AnimationEditorDocument::DrawSkeletonDetails()
     {
+        using Common::Content::AssetGuid;
+        using Common::Content::ContentKind;
         const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr;
-        if ( !ImGui::BeginTable( "##skeldetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
-            return;
-        const auto row = []( const char* label, const std::string& value )
+        const auto  row      = &Utils::ImGuiUtilities::FactRow;
+        SectionHeader( "Skeleton" );
+        if ( Utils::ImGuiUtilities::BeginFactTable( "##skeldetails" ) )
         {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled( "%s", label );
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted( value.c_str() );
+            row( "Skeleton", SkeletonSlots::NameOf( ContentKind::Skeleton, m_Skeleton ) );
+            row( "GUID", std::format( "{:016x}{:016x}", m_Skeleton.Hi, m_Skeleton.Lo ) );
+            // The bones' hash: payload data (import pre-selection, migration), never the skeleton's identity.
+            row( "Signature", m_SkeletonAsset ? std::format( "{:016x}", m_SkeletonAsset->GetSignature() )
+                                              : std::string( "(not loaded)" ) );
+            row( "Bones", animator != nullptr ? std::format( "{}", animator->GetSkeleton().GetBones().size() )
+                                              : std::string( "(the preview has not built the rig yet)" ) );
+            row( "Meshes on it", std::format( "{}", m_MeshCandidates.size() ) );
+            Utils::ImGuiUtilities::EndFactTable();
+        }
+        if ( !m_SkeletonAsset )
+            return;
+
+        // What a change writes: the .skeleton, at once (UE marks the package dirty; this asset has no editor
+        // document of its own to hold the edit, so the slot is the save).
+        const auto save = [this]( const char* what )
+        {
+            // The one write of the file (SaveSkeleton): it carries the Reference Pose too, so the disk state
+            // follows.
+            if ( const auto saved = SaveSkeleton(); !saved )
+            {
+                m_AssignStatus = std::format( "{} was not saved: {}", what, saved.GetError() );
+                m_AssignFailed = true;
+                LOG_ERROR( "Skeleton Editor: {}", m_AssignStatus );
+                return false;
+            }
+            m_AssignStatus = std::format( "{} saved.", what );
+            m_AssignFailed = false;
+            return true;
         };
-        row( "Skeleton", GetName() );
-        row( "Signature", std::format( "{:016x}", m_Signature ) );
-        row( "Bones", animator != nullptr ? std::format( "{}", animator->GetSkeleton().GetBones().size() )
-                                          : std::string( "(the preview has not built the rig yet)" ) );
-        row( "Preview Mesh", m_MeshName );
-        row( "Meshes on it", std::format( "{}", m_MeshCandidates.size() ) );
-        ImGui::EndTable();
+
+        // UE USkeleton::PreviewSkeletalMesh: only meshes of THIS skeleton are offered.
+        SectionHeader( "Preview Mesh" );
+        if ( const auto picked = SkeletonSlots::DrawGuidSlot(
+                  "PreviewMesh", ContentKind::SkinnedMesh, m_SkeletonAsset->GetPreviewMesh(), /*allowNone=*/true,
+                  m_SlotFilter, [this]( const Assets::ContentRegistry::PickerRow& mesh )
+                  { return mesh.Skeleton == m_Skeleton; } );
+             picked && *picked != m_SkeletonAsset->GetPreviewMesh() )
+        {
+            m_SkeletonAsset->SetPreviewMesh( *picked );
+            if ( save( "Preview Mesh" ) )
+                ResetRig(); // the picture reopens on the new preview mesh
+            return;
+        }
+
+        // UE USkeleton::CompatibleSkeletons: skeletons whose clips play on meshes of this one (one direction).
+        SectionHeader( "Compatible Skeletons" );
+        const auto             listed = m_SkeletonAsset->GetCompatibleSkeletons();
+        std::vector<AssetGuid> compatible( listed.begin(), listed.end() );
+        bool                   changed = false;
+        const auto             offer   = [&]( const AssetGuid& self )
+        {
+            return [&, self]( const Assets::ContentRegistry::PickerRow& skeleton )
+            {
+                const AssetGuid guid = skeleton.Guid.value_or( AssetGuid{} );
+                return guid != m_Skeleton &&
+                       ( guid == self || std::ranges::find( compatible, guid ) == compatible.end() );
+            };
+        };
+        std::optional<size_t> removed;
+        for ( size_t i = 0; i < compatible.size(); ++i )
+        {
+            ImGui::PushID( static_cast<int>( i ) );
+            if ( const auto picked =
+                      SkeletonSlots::DrawGuidSlot( "Compatible", ContentKind::Skeleton, compatible[i],
+                                                   /*allowNone=*/false, m_SlotFilter, offer( compatible[i] ) );
+                 picked && *picked != compatible[i] )
+            {
+                compatible[i] = *picked;
+                changed       = true;
+            }
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( "Remove" ) )
+                removed = i;
+            ImGui::PopID();
+        }
+        if ( removed )
+        {
+            compatible.erase( compatible.begin() + static_cast<std::ptrdiff_t>( *removed ) );
+            changed = true;
+        }
+        ImGui::TextDisabled( "Add:" );
+        ImGui::SameLine();
+        if ( const auto added =
+                  SkeletonSlots::DrawGuidSlot( "AddCompatible", ContentKind::Skeleton, AssetGuid{},
+                                               /*allowNone=*/false, m_SlotFilter, offer( AssetGuid{} ) ) )
+        {
+            compatible.push_back( *added );
+            changed = true;
+        }
+        if ( changed )
+        {
+            m_SkeletonAsset->SetCompatibleSkeletons( std::move( compatible ) );
+            (void)save( "Compatible Skeletons" );
+            m_BrowserListed = false; // the clips that play here changed
+        }
+        if ( !m_AssignStatus.empty() )
+            ImGui::TextColored( m_AssignFailed ? ImVec4( 1.0f, 0.45f, 0.35f, 1.0f )
+                                               : ImVec4( 0.6f, 0.85f, 0.6f, 1.0f ),
+                                "%s", m_AssignStatus.c_str() );
+    }
+
+    void AnimationEditorDocument::DrawSkeletonSlot()
+    {
+        using Common::Content::ContentKind;
+        const bool mesh = Mode() == Core::PersonaMode::Mesh;
+        auto*      clip = mesh ? nullptr : ClipAsset();
+        if ( ( mesh && !m_Mesh ) || ( !mesh && clip == nullptr ) || m_Assets == nullptr )
+        {
+            ImGui::TextDisabled( "(not loaded)" );
+            return;
+        }
+        const Common::Content::AssetGuid current = mesh ? m_Mesh->GetSkeleton() : clip->GetSkeleton();
+        const auto picked = SkeletonSlots::DrawGuidSlot( "Skeleton", ContentKind::Skeleton, current,
+                                                         /*allowNone=*/false, m_SlotFilter );
+        if ( picked && *picked != current )
+        {
+            // THE ASSIGNMENT CHECK decides; a refusal names every missing or mis-parented bone and writes nothing.
+            auto assigned = mesh ? SkeletonSlots::AssignMeshSkeleton( *m_Assets, *m_Mesh, *picked )
+                                 : SkeletonSlots::AssignClipSkeleton( *m_Assets, *clip, *picked );
+            // The clip's reference is part of the `.anim` this window saves.
+            if ( assigned && !mesh && !SaveDocument() )
+                assigned = Common::MakeError<bool>( std::format( "the clip was not saved: {}", m_SaveStatus ) );
+            if ( !assigned )
+            {
+                m_AssignStatus = assigned.GetError();
+                m_AssignFailed = true;
+                LOG_WARN( "Animation Editor: skeleton not assigned: {}", m_AssignStatus );
+            }
+            else
+            {
+                m_AssignStatus =
+                     std::format( "Skeleton set to {}.", SkeletonSlots::NameOf( ContentKind::Skeleton, *picked ) );
+                m_AssignFailed = false;
+                ResetRig();
+                return;
+            }
+        }
+        if ( !m_AssignStatus.empty() )
+        {
+            ImGui::PushStyleColor( ImGuiCol_Text, m_AssignFailed ? ImVec4( 1.0f, 0.45f, 0.35f, 1.0f )
+                                                                 : ImVec4( 0.6f, 0.85f, 0.6f, 1.0f ) );
+            ImGui::TextWrapped( "%s", m_AssignStatus.c_str() );
+            ImGui::PopStyleColor();
+        }
+    }
+
+    void AnimationEditorDocument::ResetRig()
+    {
+        DestroyPreview();
+        m_Mesh.reset();
+        m_MeshCandidates.clear();
+        m_MeshIndex = 0;
+        m_SkeletonAsset.reset();
+        m_Skeleton = {};
+        m_Unavailable.clear();
+        m_BrowserListed = false;
+        m_SelectedBone.reset();
+        m_CollapsedBones.clear();
+        m_SkinningAuditOf = 0;
+        m_BonePick.clear();
+    }
+
+    void AnimationEditorDocument::ListBrowserClips()
+    {
+        m_BrowserClips.clear();
+        m_BrowserListed = true;
+        if ( m_Skeleton.IsNull() )
+            return;
+        using Common::Content::ContentKind;
+        const auto                        listed = m_SkeletonAsset ? m_SkeletonAsset->GetCompatibleSkeletons()
+                                                                   : std::span<const Common::Content::AssetGuid>{};
+        const Animation::SkeletonAssetRef meshSkeleton{
+             m_Skeleton, SkeletonSlots::NameOf( ContentKind::Skeleton, m_Skeleton ) };
+        for ( const auto& row : Assets::ContentRegistry::Rows( ContentKind::Animation ) )
+            if ( Animation::ClipPlaysOnMesh( { row.Skeleton, row.Path.filename().string() }, meshSkeleton,
+                                             listed ) )
+                m_BrowserClips.emplace_back( row.Path.filename().string(), row.Handle );
+        std::ranges::sort( m_BrowserClips );
     }
 
     namespace

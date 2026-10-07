@@ -111,6 +111,9 @@ namespace Desert::Geometry
         const NormalOverlay*      normals    = attributes.Normals();
         const TangentOverlay*     tangents   = attributes.Tangents();
         const UVOverlay*          uvs        = attributes.UV( uvLayer );
+        // The streams beside the vertex: the colour layer, and the second UV layer when layer 0 is the drawn one.
+        const ColorOverlay* colors = attributes.Colors();
+        const UVOverlay*    uv1    = uvLayer == 0 ? attributes.UV( 1 ) : nullptr;
         if ( normals == nullptr )
             return MakeFormattedError<RenderMeshData>( "ToRenderMesh: the normal layer is disabled" );
         if ( attributes.UVLayerCount() > 0 && uvs == nullptr )
@@ -123,6 +126,12 @@ namespace Desert::Geometry
                 return Common::MakeError<RenderMeshData>( r.GetError() );
         if ( uvs != nullptr )
             if ( auto r = RequireSet( mesh, *uvs, "UV" ); !r.IsSuccess() )
+                return Common::MakeError<RenderMeshData>( r.GetError() );
+        if ( colors != nullptr )
+            if ( auto r = RequireSet( mesh, *colors, "colour" ); !r.IsSuccess() )
+                return Common::MakeError<RenderMeshData>( r.GetError() );
+        if ( uv1 != nullptr )
+            if ( auto r = RequireSet( mesh, *uv1, "UV 1" ); !r.IsSuccess() )
                 return Common::MakeError<RenderMeshData>( r.GetError() );
 
         // Triangles grouped by material, ascending triangle ID inside each group.
@@ -144,7 +153,7 @@ namespace Desert::Geometry
             // triangle count, where an ordered map of every corner was N log N.
             struct Corner
             {
-                std::array<int, 3> Elements;
+                std::array<int, 5> Elements;
                 uint32_t           Local;
             };
             std::vector<std::vector<Corner>> corners( static_cast<size_t>( mesh.MaxVertexId() ) );
@@ -159,7 +168,10 @@ namespace Desert::Geometry
                     const int                en = normals->GetTriangle( t )[j];
                     const int et = ( tangents != nullptr ) ? tangents->GetTriangle( t )[j] : InvalidId;
                     const int eu = ( uvs != nullptr ) ? uvs->GetTriangle( t )[j] : InvalidId;
-                    const std::array<int, 3> key{ en, et, eu };
+                    const int                ec = ( colors != nullptr ) ? colors->GetTriangle( t )[j] : InvalidId;
+                    const int                e1 = ( uv1 != nullptr ) ? uv1->GetTriangle( t )[j] : InvalidId;
+                    // A colour or UV1 seam splits the render vertex like a UV 0 seam does.
+                    const std::array<int, 5> key{ en, et, eu, ec, e1 };
                     std::vector<Corner>&     at    = corners[static_cast<size_t>( v )];
                     const auto               found = std::find_if( at.begin(), at.end(),
                                                                    [&]( const Corner& c ) { return c.Elements == key; } );
@@ -181,6 +193,10 @@ namespace Desert::Geometry
                             vertex.TexCoord = uvs->GetElement( eu );
                         local = static_cast<uint32_t>( out.Vertices.size() - submesh.VertexOffset );
                         out.Vertices.push_back( vertex );
+                        if ( colors != nullptr )
+                            out.Colors.push_back( colors->GetElement( ec ) );
+                        if ( uv1 != nullptr )
+                            out.UV1.push_back( uv1->GetElement( e1 ) );
                         out.SourceVertices.push_back( v );
                         at.push_back( { key, local } );
                     }
@@ -238,16 +254,29 @@ namespace Desert::Geometry
             ranges.push_back( r );
         }
 
+        const bool hasColors = !render.Colors.empty();
+        const bool hasUV1    = !render.UV1.empty();
+        if ( ( hasColors && render.Colors.size() != render.Vertices.size() ) ||
+             ( hasUV1 && render.UV1.size() != render.Vertices.size() ) )
+            return MakeFormattedError<ImportedEditMesh>(
+                 "FromRenderMesh: {} colours and {} UV1 entries for {} vertices (each stream is one per vertex or "
+                 "none)",
+                 render.Colors.size(), render.UV1.size(), render.Vertices.size() );
+
         ImportedEditMesh result;
         result.TriangleOfFace.assign( render.Indices.size(), InvalidId );
         EditMesh&           mesh       = result.Mesh;
         EditMeshAttributes& attributes = mesh.Attributes();
         attributes.EnableNormals();
         attributes.EnableTangents();
-        (void)attributes.SetUVLayerCount( 1 );
+        (void)attributes.SetUVLayerCount( hasUV1 ? 2 : 1 );
+        if ( hasColors )
+            attributes.EnableColors();
         NormalOverlay&  normals  = *attributes.Normals();
         TangentOverlay& tangents = *attributes.Tangents();
         UVOverlay&      uvs      = *attributes.UV( 0 );
+        ColorOverlay*   colors   = attributes.Colors();
+        UVOverlay*      uv1      = hasUV1 ? attributes.UV( 1 ) : nullptr;
 
         PositionWelder welder( options.PositionTolerance );
         const auto     weldVertex = [&]( const glm::vec3& p )
@@ -265,6 +294,8 @@ namespace Desert::Geometry
         std::vector<std::vector<int>> normalAt;
         std::vector<std::vector<int>> tangentAt;
         std::vector<std::vector<int>> uvAt;
+        std::vector<std::vector<int>> colorAt;
+        std::vector<std::vector<int>> uv1At;
         const auto element = [&]( auto& overlay, std::vector<std::vector<int>>& at, int v, const auto& value )
         {
             if ( static_cast<int>( at.size() ) <= v )
@@ -337,6 +368,8 @@ namespace Desert::Geometry
                 std::array<int, 3> en{};
                 std::array<int, 3> et{};
                 std::array<int, 3> eu{};
+                std::array<int, 3> ec{};
+                std::array<int, 3> e1{};
                 for ( int j = 0; j < 3; ++j )
                 {
                     const Vertex& s = *source[j];
@@ -347,12 +380,21 @@ namespace Desert::Geometry
                     const glm::vec4 tangent( s.Tangent, handed );
                     et[j] = element( tangents, tangentAt, corners[j], tangent );
                     eu[j] = element( uvs, uvAt, corners[j], s.TexCoord );
+                    const size_t r = range.VertexOffset + local[j];
+                    if ( colors != nullptr )
+                        ec[j] = element( *colors, colorAt, corners[j], render.Colors[r] );
+                    if ( uv1 != nullptr )
+                        e1[j] = element( *uv1, uv1At, corners[j], render.UV1[r] );
                 }
                 // Elements are keyed by their vertex, and the three corners are distinct vertices, so these
                 // cannot be refused; the results are still checked by CheckValidity in every test.
                 (void)normals.SetTriangle( mesh, t, en );
                 (void)tangents.SetTriangle( mesh, t, et );
                 (void)uvs.SetTriangle( mesh, t, eu );
+                if ( colors != nullptr )
+                    (void)colors->SetTriangle( mesh, t, ec );
+                if ( uv1 != nullptr )
+                    (void)uv1->SetTriangle( mesh, t, e1 );
             }
         }
         return Common::MakeSuccess( std::move( result ) );

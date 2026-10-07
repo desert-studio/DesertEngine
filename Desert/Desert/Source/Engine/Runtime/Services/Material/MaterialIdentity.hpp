@@ -3,7 +3,7 @@
 // The rule MaterialService applies when a second material claims a handle it already holds.
 //
 // It lives in a header of its own, with no include beyond <filesystem>, so a test can reach the
-// DECISION: MaterialService itself cannot be linked into one, because MaterialFactory pulls in the
+// DECISION: MaterialService itself cannot be linked into one, because MaterialService pulls in the
 // renderer and the renderer pulls in Vulkan. Extracting the rule is what makes it reachable — the file
 // around it stays where it was.
 

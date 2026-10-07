@@ -151,6 +151,11 @@ namespace
          Row{ "LandscapeECSSystem.hpp", Verdict::Honours,
               "it draws the tiles: a hidden tile is not drawn (IsHidden) but its GPU copy is still "
               "refreshed, so showing it again shows the current heights." },
+         Row{ "LevelSequenceSystem.hpp", Verdict::MustNot,
+              "a Level Sequence actor is a director, not a picture: it carries no mesh, it moves other "
+              "entities, cuts the camera and fires events on its timeline. Hiding the actor in the "
+              "outliner must not freeze a cinematic or make its events a function of the outliner "
+              "(UE: ALevelSequenceActor ticks regardless of bHidden)." },
          Row{ "LocomotionSystem.hpp", Verdict::MustNot,
               "picks a clip NAME from a character's speed; hiding a character must not change which "
               "animation it is playing when it comes back." },

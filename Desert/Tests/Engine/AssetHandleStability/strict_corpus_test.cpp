@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 #ifdef _WIN32
 #define popen _popen
@@ -39,11 +40,7 @@ namespace
 
     fs::path RepoRoot()
     {
-        fs::path at = fs::current_path();
-        for ( int up = 0; up < 8; ++up, at = at.parent_path() )
-            if ( fs::exists( at / "Desert/Common/Source/Common/Json/Json.hpp" ) )
-                return at;
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadAll( const fs::path& file )

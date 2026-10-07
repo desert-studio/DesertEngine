@@ -13,6 +13,9 @@
 
 #include <filesystem>
 #include <string>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 using namespace Desert::Assets::Serialization;
 
@@ -121,10 +124,10 @@ TEST( FoliageTypeAsset, WindIsAStillOrSwayingTypeWithAPositiveHeight )
 
 TEST( FoliageTypeAsset, AnotherVersionIsRefused )
 {
-    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":6", "\"FOLT\":7" );
+    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":7", "\"FOLT\":8" );
     const auto        parsed = ParseFoliageType( text );
     ASSERT_FALSE( parsed );
-    EXPECT_NE( parsed.GetError().find( "FOLT 6" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "FOLT 7" ), std::string::npos ) << parsed.GetError();
 }
 
 TEST( FoliageTypeAsset, AnotherKindIsRefused )
@@ -199,3 +202,9 @@ TEST( FoliageTypeAsset, TheKindHasItsOneRegistryRow )
         rows += row.Extension == std::string_view( kFoliageTypeExtension ) ? 1 : 0;
     EXPECT_EQ( rows, 1 );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

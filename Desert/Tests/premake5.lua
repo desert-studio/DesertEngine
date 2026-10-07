@@ -82,7 +82,7 @@ local function DesertRunnerSettings(deps)
         externalincludedirs { p }
     end
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
-    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp" }
+    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus" }
     filter "system:windows"
         buildoptions { "/bigobj" }
     -- gmake does not link a static library's own dependencies transitively (Visual Studio does, through
@@ -101,6 +101,7 @@ local function DesertRunnerSettings(deps)
             "CoreMedia.framework",
             "AVFoundation.framework",
             "QuartzCore.framework",
+            "Foundation.framework", -- Engine/Media (EngineHost's script)
         }
     filter "configurations:Debug"
         defines { "DESERT_CONFIG_DEBUG" }
@@ -145,6 +146,12 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MigratorMain.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SceneMigration.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipInterpShift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipMigration.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipLift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ImportRecordSourceHash.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldBuild.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldGenMain.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source/CrashReport.cpp",
@@ -166,6 +173,8 @@ local kRunners = {
         files {
             -- The launcher/engine project-format conformance suite; Engine/ProjectFormat adopts it.
             "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Tests/project_format_test.cpp",
+            -- UICanvasContext: the v40 -> v41 UI lift is the migrator's.
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp",
         }
         includedirs {
             -- Two suites share the EditMesh suite's fixture builders, and one reads SettingConsumers' table.
@@ -174,6 +183,7 @@ local kRunners = {
             -- Header-only tool cores the image and lattice censuses measure with.
             "%{_MAIN_SCRIPT_DIR}/Tools/ImageDiff/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/LatticePeak/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
         }
     end,
     Editor = function(deps)
@@ -221,6 +231,14 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/HdrSphereThumbnail.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/AnimGraphEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/VertexStreams.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportSettingsEdits.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/NodeMeshSplit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/PoseGraphEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailFoliage.cpp",
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp",
         }
         includedirs {
@@ -232,6 +250,9 @@ local kRunners = {
         externalincludedirs {
             "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
             "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/openexr/src/lib/OpenEXRCore", -- <openexr.h>, texture import
+            "%{_MAIN_SCRIPT_DIR}/build/generated/openexr/include", -- its generated config headers
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
         }
         links { "ImGuiNodeEditor" }
         filter "system:windows"
@@ -275,6 +296,21 @@ for _, layer in ipairs(kLayers) do
         table.insert(test_projects, runnerName)
     end
 end
+
+-- A SUITE THAT NEEDS A VULKAN DEVICE IS NAMED ONCE, HERE (it used to call `test_needs_vulkan_device` in its own
+-- premake5.lua, which a suite no longer has). The names land in build/TestNeedsVulkanDevice.txt next to the
+-- manifest, and that file is the ONLY place the CI learns it from: scripts/CI/TestShards.py plan leaves these
+-- suites out of the shards (with a ::notice naming them) on a runner whose DESERT_*_VULKAN_RUNNER variable is
+-- not 'true' -- the hosted macos-14 VM and windows-2022 have no device -- and plans them like every other suite
+-- on one that is. The test itself never skips: on a deviceless machine it fails, as it should when someone runs
+-- it there by hand. A name with no suite directory is an error, so a renamed suite cannot drop out silently.
+local vulkan_device_suites = { "EngineHost", "RenderGraphVulkan" }
+for _, suite in ipairs(vulkan_device_suites) do
+    if #os.matchdirs(testsDir .. "/*/" .. suite) ~= 1 then
+        error("vulkan_device_suites names " .. suite .. ", which is not exactly one suite directory", 0)
+    end
+end
+table.sort(vulkan_device_suites)
 
 -- ── THE TEST SUITES ARE NOT PART OF THE SHIPPING CONFIGURATION ──────────────────────────────────────
 --
@@ -334,6 +370,8 @@ end
 -- binary) and the suite directory it runs. Configuration-independent on purpose: Debug and Release build the same set of suites, so this is
 -- written once at generation time and only the configuration travels through the postbuild below.
 io.writefile(currentDir .. "/build/TestManifest.txt", table.concat(manifest_lines, "\n") .. "\n")
+io.writefile(currentDir .. "/build/TestNeedsVulkanDevice.txt",
+             table.concat(vulkan_device_suites, "\n") .. (#vulkan_device_suites > 0 and "\n" or ""))
 
 group "Tests"
     project "BuildAllTests"

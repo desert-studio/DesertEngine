@@ -202,7 +202,7 @@ namespace Desert::Graphic::API::Vulkan
         barrier.srcAccessMask  = src.Access;
         barrier.dstAccessMask  = dst.Access;
 
-        vkCmdPipelineBarrier( cmdBuf, src.Stage, dst.Stage, 0, 0, NULL, 0, NULL, 1, &barrier );
+        vkCmdPipelineBarrier( cmdBuf, src.Stage, dst.Stage, 0, 0, nullptr, 0, nullptr, 1, &barrier );
     }
 
     Common::ResultStr<VkImageView> Utils::CreateImageView( VkDevice device, VkImage image, VkFormat format,

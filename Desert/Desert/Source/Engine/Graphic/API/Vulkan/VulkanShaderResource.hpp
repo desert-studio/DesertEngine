@@ -115,6 +115,12 @@ namespace Desert::Graphic::API::Vulkan
             std::unordered_map<SetPoint, ShaderDescriptorSet> ShaderDescriptorSets; // SetPoint = set
 
             std::optional<ShaderResources::ShaderLayout::PushConstantRange> PushConstantRanges;
+
+            // Every location the VERTEX stage declares as an input, sorted and unique (a matrix or an
+            // array occupies one location per column/element). The pipeline's vertex input is its vertex
+            // layout INTERSECTED with this (ShaderReflection::BuildVertexInput) — UE's vertex declaration
+            // built against the shader's inputs, not the mesh's full stream list.
+            std::vector<uint32_t> VertexInputLocations;
         };
 
     } // namespace ShaderResource

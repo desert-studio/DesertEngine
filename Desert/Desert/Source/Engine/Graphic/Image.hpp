@@ -165,6 +165,17 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "Image2D::SetData not supported by this backend" );
         }
 
+        // SetData RECORDED into @p batch instead of flushed: the pixels go to a staging copy the batch keeps
+        // until the GPU has finished it, the copy and both layout transitions are recorded, and nothing is
+        // waited for. Commands recorded into the batch after this read the new pixels (a shader-read barrier
+        // ends it); a read submitted BEFORE the batch finishes before the copy overwrites the image (the
+        // barrier's first scope is every earlier shader stage on the queue). The per-frame path of video.
+        NO_DISCARD virtual Common::BoolResultStr RecordSetData( GpuBatch& /*batch*/,
+                                                                const Core::Formats::ImagePixelData& /*data*/ )
+        {
+            return Common::MakeError<bool>( "Image2D::RecordSetData not supported by this backend" );
+        }
+
         // NO MIP GENERATOR PARAMETER. Its last non-null argument was `Texture2D`'s source-file path, which
         // blitted a chain on the GPU after decoding a PNG/HDR. A 2D image's levels come from the cooked
         // container now (`Image2DSpecification::MipLevels`) or it has one level; see Texture.hpp.

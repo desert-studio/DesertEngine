@@ -53,6 +53,7 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/cooked_static_mesh.hpp"
 #include "../../TestSupport/runner.hpp"
 
@@ -80,6 +81,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 namespace Ser = Desert::Assets::Serialization;
 
@@ -87,14 +90,7 @@ namespace
 {
     std::filesystem::path RepoRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 6; ++up )
-        {
-            if ( std::filesystem::exists( here / ".gitignore" ) && std::filesystem::exists( here / "Desert" ) )
-                return here;
-            here = here.parent_path();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadFile( const std::filesystem::path& path )
@@ -178,7 +174,8 @@ namespace
         // borrow the previous target's.
         data.MorphTargets = { m0, m1 };
 
-        data.SkeletonSignature = 0x0123456789ABCDEFull;
+        // Version 5: the skeleton by GUID. Hi and Lo differ, so a reader that swapped or dropped a half fails.
+        data.Skeleton = Common::Content::AssetGuid{ 0x0123456789ABCDEFull, 0xFEDCBA9876543210ull };
 
         // Version 2: one polygroup per face, not numbered like the faces, so a reader that invented them
         // from the face index would fail.
@@ -194,9 +191,7 @@ namespace
     {
         EXPECT_EQ( expected.IsSkinned, actual.IsSkinned );
         EXPECT_EQ( expected.Guid, actual.Guid );
-        EXPECT_EQ( expected.SkeletonSignature.has_value(), actual.SkeletonSignature.has_value() );
-        if ( expected.SkeletonSignature.has_value() && actual.SkeletonSignature.has_value() )
-            EXPECT_EQ( expected.SkeletonSignature.value(), actual.SkeletonSignature.value() );
+        EXPECT_EQ( expected.Skeleton, actual.Skeleton ) << "the mesh's skeleton reference";
 
         ASSERT_EQ( expected.StaticVertices.size(), actual.StaticVertices.size() );
         if ( !expected.StaticVertices.empty() )
@@ -257,6 +252,11 @@ namespace
         }
 
         EXPECT_EQ( expected.PolyGroups, actual.PolyGroups );
+        EXPECT_EQ( expected.Colors, actual.Colors );
+        ASSERT_EQ( expected.UV1.size(), actual.UV1.size() );
+        if ( !expected.UV1.empty() )
+            EXPECT_EQ( 0, std::memcmp( expected.UV1.data(), actual.UV1.data(),
+                                       expected.UV1.size() * sizeof( glm::vec2 ) ) );
 
         ASSERT_EQ( expected.MorphTargets.size(), actual.MorphTargets.size() );
         for ( size_t i = 0; i < expected.MorphTargets.size(); ++i )
@@ -337,125 +337,108 @@ TEST( MeshBinaryFormat, ATruncatedFileIsRefusedAndAnEmptyOneIsNot )
     }
 }
 
-// VERSION 1 IS STILL READ, AND IT IS READ AS "NO POLYGROUPS". The v1 bytes are MADE here from a v2 encoding
-// rather than taken from the committed probes, so the test keeps proving the v1 path after those probes are
-// re-cooked: a v1 file is exactly a v2 file without its last table row (24 bytes), every offset 24 lower,
-// the size 24 smaller, Version 1 and SectionCount 9 - which is also the precise statement of what v2 added.
+// VERSION 4 (MAT1v): the colour and UV1 streams are optional sections, one entry per vertex or none.
 namespace
 {
-    // v3 minus its identity: the 16 GUID bytes after the 64-byte header go, and every submesh row ends in
-    // the 8-byte pre-GUID material number (`materialNumber` in each) where v3 has the material's 16-byte
-    // GUID. The sections are laid out again, each at the next 8-byte boundary, as the reader derives them.
-    std::string AsVersionTwo( const std::string& v3, uint64_t materialNumber = 0 )
+    Ser::MeshAssetData WithStreams()
     {
-        constexpr size_t kHeader = 64, kRow = 24, kSubmeshRow = 3, kRowV3 = 136, kRowV2 = 128, kShared = 120;
-        const size_t     prefix  = Common::Content::kMeshBinaryPrefixV3;
-        uint32_t         version = 2, sections = 0;
-        std::memcpy( &sections, v3.data() + 24, 4 );
-        std::string table = v3.substr( prefix, sections * kRow );
-        std::string body;
-        uint64_t    at = kHeader + sections * kRow;
-        for ( uint32_t row = 0; row < sections; ++row )
+        Ser::MeshAssetData data = FullyPopulated();
+        const size_t       n    = data.StaticVertices.size() + data.SkinnedVertices.size();
+        for ( size_t v = 0; v < n; ++v )
         {
-            uint32_t elementSize = 0;
-            uint64_t offset = 0, count = 0;
-            std::memcpy( &elementSize, table.data() + row * kRow + 4, 4 );
-            std::memcpy( &offset, table.data() + row * kRow + 8, 8 );
-            std::memcpy( &count, table.data() + row * kRow + 16, 8 );
-            std::string bytes = v3.substr( offset, count * elementSize );
-            if ( row == kSubmeshRow )
-            {
-                EXPECT_EQ( elementSize, kRowV3 );
-                std::string rows;
-                for ( uint64_t i = 0; i < count; ++i )
-                    rows += bytes.substr( i * kRowV3, kShared ) +
-                            std::string( reinterpret_cast<const char*>( &materialNumber ), 8 );
-                bytes       = rows;
-                elementSize = kRowV2;
-            }
-            while ( at % 8 != 0 )
-            {
-                body.push_back( '\0' );
-                ++at;
-            }
-            std::memcpy( table.data() + row * kRow + 4, &elementSize, 4 );
-            std::memcpy( table.data() + row * kRow + 8, &at, 8 );
-            body += bytes;
-            at += bytes.size();
+            // Not derived from the index alone in one channel, so a reader that shifted by a vertex fails.
+            data.Colors.push_back( { static_cast<uint8_t>( v * 37 ), static_cast<uint8_t>( 255 - v ),
+                                     static_cast<uint8_t>( v * v ), static_cast<uint8_t>( 128 + v ) } );
+            data.UV1.emplace_back( 0.125f * static_cast<float>( v ), -3.5f + static_cast<float>( v ) );
         }
-        // The file ends at the next 8-byte boundary after its last section, as the encoder writes it.
-        while ( body.size() % 8 != 0 )
-            body.push_back( '\0' );
-        std::string    v2       = v3.substr( 0, kHeader ) + table + body;
-        const uint64_t fileSize = v2.size();
-        std::memcpy( v2.data() + 12, &version, 4 );
-        std::memcpy( v2.data() + 16, &fileSize, 8 );
-        return v2;
-    }
-
-    std::string AsVersionOne( const std::string& v2 )
-    {
-        constexpr size_t kHeader  = 64;
-        constexpr size_t kRow     = 24;
-        constexpr size_t kRowsV2  = 10;
-        uint32_t         version  = 0;
-        uint32_t         sections = 0;
-        uint64_t         fileSize = 0;
-        std::memcpy( &version, v2.data() + 12, 4 );
-        std::memcpy( &fileSize, v2.data() + 16, 8 );
-        std::memcpy( &sections, v2.data() + 24, 4 );
-        EXPECT_EQ( version, 2u );
-        EXPECT_EQ( sections, kRowsV2 );
-
-        uint64_t lastCount = 0;
-        std::memcpy( &lastCount, v2.data() + kHeader + ( kRowsV2 - 1 ) * kRow + 16, 8 );
-        EXPECT_EQ( lastCount, 0u ) << "only a mesh with no polygroups has a v1 spelling";
-
-        std::string v1 = v2.substr( 0, kHeader + ( kRowsV2 - 1 ) * kRow ) + v2.substr( kHeader + kRowsV2 * kRow );
-        version        = 1;
-        sections       = kRowsV2 - 1;
-        fileSize -= kRow;
-        std::memcpy( v1.data() + 12, &version, 4 );
-        std::memcpy( v1.data() + 16, &fileSize, 8 );
-        std::memcpy( v1.data() + 24, &sections, 4 );
-        for ( size_t row = 0; row < kRowsV2 - 1; ++row )
-        {
-            uint64_t offset = 0;
-            std::memcpy( &offset, v1.data() + kHeader + row * kRow + 8, 8 );
-            offset -= kRow;
-            std::memcpy( v1.data() + kHeader + row * kRow + 8, &offset, 8 );
-        }
-        EXPECT_EQ( v1.size(), fileSize );
-        return v1;
+        return data;
     }
 } // namespace
 
-TEST( MeshBinaryFormat, AVersionTwoFileIsReadWithANullGuid )
+TEST( MeshBinaryFormat, TheColourAndSecondUVStreamsSurviveTheRoundTrip )
 {
-    Ser::MeshAssetData source = FullyPopulated();
-    const auto read = Ser::DecodeMeshBinary( AsVersionTwo( Ser::EncodeMeshBinary( source ) ), "v2.stmesh" );
-    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-    EXPECT_TRUE( read.GetValue().Guid.IsNull() );
-    source.Guid = {};
-    for ( Ser::SubmeshData& submesh : source.Submeshes )
-        submesh.MaterialGuid = {}; // a v2 row with material number 0 names no material
-    ExpectSameMesh( source, read.GetValue() );
+    const Ser::MeshAssetData source = WithStreams();
+    ASSERT_FALSE( source.Colors.empty() );
+    const std::string encoded = Ser::EncodeMeshBinary( source );
+    const auto        decoded = Ser::DecodeMeshBinary( encoded, "streams.stmesh" );
+    ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
+    ExpectSameMesh( source, decoded.GetValue() );
+    ASSERT_EQ( decoded.GetValue().Colors.size(), source.Colors.size() );
+    EXPECT_EQ( decoded.GetValue().UV1.size(), source.UV1.size() );
+
+    // A mesh without the streams pays for them nothing but two empty table rows.
+    const std::string without = Ser::EncodeMeshBinary( FullyPopulated() );
+    EXPECT_EQ( encoded.size() - without.size(), ( source.Colors.size() * 4 + 7 ) / 8 * 8 + source.UV1.size() * 8 );
 }
 
-// A v2 SUBMESH THAT NAMES ITS MATERIAL BY THE PRE-GUID NUMBER IS REFUSED BY NAME, never read as "no
-// material": the number cannot become a GUID in this build, and the message names the tool that maps it.
-TEST( MeshBinaryFormat, AVersionTwoMaterialNumberIsRefusedAndNamesTheMigrator )
+TEST( MeshBinaryFormat, EachStreamIsOptionalOnItsOwn )
 {
-    const auto read = Ser::DecodeMeshBinary(
-         AsVersionTwo( Ser::EncodeMeshBinary( FullyPopulated() ), 0x44d056a9359b4d1cull ), "numbered.stmesh" );
-    ASSERT_FALSE( read.IsSuccess() );
-    EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
-    EXPECT_NE( read.GetError().find( std::to_string( 0x44d056a9359b4d1cull ) ), std::string::npos )
-         << read.GetError();
+    Ser::MeshAssetData colours = WithStreams();
+    colours.UV1.clear();
+    Ser::MeshAssetData uv1 = WithStreams();
+    uv1.Colors.clear();
+    for ( const Ser::MeshAssetData& source : { colours, uv1 } )
+    {
+        const auto decoded = Ser::DecodeMeshBinary( Ser::EncodeMeshBinary( source ), "one-stream.stmesh" );
+        ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
+        ExpectSameMesh( source, decoded.GetValue() );
+    }
+}
+
+TEST( MeshBinaryFormat, AStreamThatDoesNotCoverEveryVertexIsRefusedByName )
+{
+    Ser::MeshAssetData source = WithStreams();
+    source.Colors.pop_back();
+    const auto decoded = Ser::DecodeMeshBinary( Ser::EncodeMeshBinary( source ), "short.stmesh" );
+    ASSERT_FALSE( decoded.IsSuccess() );
+    EXPECT_NE( decoded.GetError().find( "Colors" ), std::string::npos ) << decoded.GetError();
+}
+
+// ONE GENERATION IS READ (SKEL-TREE). Versions 1-4 named the mesh's rig by a bone hash in the header where
+// version 5 states the .skeleton's GUID; Tools/SceneMigrator raises them, and the reader refuses them BY NAME,
+// pointing at the tool -- never reads a hash as a GUID or a skinned mesh as one that names no skeleton.
+TEST( MeshBinaryFormat, AnOlderGenerationIsRefusedAndNamesTheMigrator )
+{
+    for ( const uint32_t older : { 1u, 2u, 3u, 4u } )
+    {
+        std::string bytes = Ser::EncodeMeshBinary( FullyPopulated() );
+        std::memcpy( bytes.data() + offsetof( Common::Content::MeshBinaryFileHeader, Version ), &older, 4 );
+        const auto read = Ser::DecodeMeshBinary( bytes, "old.skmesh" );
+        ASSERT_FALSE( read.IsSuccess() ) << "a version " << older << " mesh was read by the version 5 reader";
+        EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
+        EXPECT_NE( read.GetError().find( "old.skmesh" ), std::string::npos ) << read.GetError();
+    }
+}
+
+// THE MESH'S SKELETON IS IN THE HEADER (v5, UE USkeletalMesh::Skeleton as a registry tag): what the encoder
+// was given is what the 80-byte header states, readable without the body; a static mesh states null; a
+// header of another generation states nothing (nullopt), never a GUID read from where a hash used to sit.
+TEST( MeshBinaryFormat, TheHeaderStatesTheMeshSkeletonGuid )
+{
+    const Ser::MeshAssetData mesh  = FullyPopulated();
+    const std::string        bytes = Ser::EncodeMeshBinary( mesh );
+    const auto               rig   = Common::Content::ReadMeshHeaderSkeleton(
+         std::string_view( bytes ).substr( 0, sizeof( Common::Content::MeshBinaryFileHeader ) ) );
+    if ( !rig.has_value() )
+        FAIL() << "the header states no skeleton";
+    EXPECT_EQ( *rig, mesh.Skeleton ) << "the header's skeleton is not the one the mesh was written with";
+
+    Ser::MeshAssetData unrigged = FullyPopulated();
+    unrigged.Skeleton           = {};
+    const auto none             = Common::Content::ReadMeshHeaderSkeleton( Ser::EncodeMeshBinary( unrigged ) );
+    if ( !none.has_value() )
+        FAIL() << "the header of an unrigged mesh states nothing";
+    EXPECT_TRUE( none->IsNull() ) << "a mesh that names no skeleton must state null, not a leftover";
+
+    std::string    older = bytes;
+    const uint32_t four  = 4;
+    std::memcpy( older.data() + offsetof( Common::Content::MeshBinaryFileHeader, Version ), &four, 4 );
+    EXPECT_FALSE( Common::Content::ReadMeshHeaderSkeleton( older ).has_value() )
+         << "a v4 header's bone hash was read as a skeleton GUID";
 }
 
 // THE GATHER LEARNS THE MESH'S IDENTITY FROM ITS PREFIX: the one header entry point states the kind (from
-// the skinned flag) and the GUID the file was written with, and a v2 file states no header at all.
+// the skinned flag) and the GUID the file was written with.
 TEST( MeshBinaryFormat, TheHeaderEntryPointStatesKindAndGuid )
 {
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "af7l_mesh_guid";
@@ -473,12 +456,6 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointStatesKindAndGuid )
         EXPECT_EQ( stated.GetValue()->Kind, skinned ? Common::Content::ContentKind::SkinnedMesh
                                                     : Common::Content::ContentKind::StaticMesh );
     }
-    const std::filesystem::path v2 = dir / "v2.stmesh";
-    std::ofstream( v2, std::ios::binary ) << AsVersionTwo( Ser::EncodeMeshBinary( mesh ) );
-    const auto none = Common::Content::ReadAssetHeaderIfStated( v2, { {}, true } );
-    ASSERT_TRUE( none.IsSuccess() ) << none.GetError();
-    EXPECT_FALSE( none.GetValue().has_value() );
-
     mesh.Guid                            = {};
     const std::filesystem::path nullGuid = dir / "null.stmesh";
     std::ofstream( nullGuid, std::ios::binary ) << Ser::EncodeMeshBinary( mesh );
@@ -500,8 +477,10 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointStatesTheSubmeshMaterialsAsDependenci
     empty.MaterialGuid        = {}; // no material assigned: no edge
     mesh.Submeshes.push_back( empty );
     mesh.Submeshes.push_back( repeat );
+    // SKEL-TREE: after the materials, the skeleton the header states (UE USkeletalMesh -> USkeleton hard
+    // reference), so the registry keeps the rig a mesh plays on reachable from the mesh.
     const std::vector<Common::Content::AssetGuid> expected = { mesh.Submeshes[0].MaterialGuid,
-                                                               mesh.Submeshes[1].MaterialGuid };
+                                                               mesh.Submeshes[1].MaterialGuid, mesh.Skeleton };
     for ( const bool skinned : { false, true } )
     {
         mesh.IsSkinned                  = skinned;
@@ -517,7 +496,7 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointStatesTheSubmeshMaterialsAsDependenci
     std::string           bytes = Ser::EncodeMeshBinary( mesh );
     const uint64_t        huge  = 1ull << 40;
     constexpr std::size_t kSubmeshRow =
-         Common::Content::kMeshBinaryPrefixV3 +
+         Common::Content::kMeshBinaryPrefixSize +
          ( Common::Content::kMeshBinarySubmeshSectionId - 1 ) * Common::Content::kMeshBinarySectionRowSize;
     std::memcpy( bytes.data() + kSubmeshRow + 16, &huge, 8 );
     const std::filesystem::path bad = dir / "bad.stmesh";
@@ -544,26 +523,6 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointRefusesAVersionPastThisBuilds )
     ASSERT_FALSE( stated.IsSuccess() ) << "a v99 mesh was read as a v3 prefix";
     EXPECT_NE( stated.GetError().find( "version 99" ), std::string::npos ) << stated.GetError();
     EXPECT_NE( stated.GetError().find( "future.stmesh" ), std::string::npos ) << stated.GetError();
-}
-
-TEST( MeshBinaryFormat, AVersionOneFileIsReadWithNoPolyGroups )
-{
-    Ser::MeshAssetData source = FullyPopulated();
-    source.PolyGroups.clear();
-    const std::string v1 = AsVersionOne( AsVersionTwo( Ser::EncodeMeshBinary( source ) ) );
-    source.Guid          = {}; // v1 states no identity
-    for ( Ser::SubmeshData& submesh : source.Submeshes )
-        submesh.MaterialGuid = {};
-
-    const auto read = Ser::ReadMeshAssetData( v1, "v1.stmesh" );
-    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-    EXPECT_TRUE( read.GetValue().PolyGroups.empty() );
-    ExpectSameMesh( source, read.GetValue() );
-
-    // And v1 is exactly nine sections: a v1 header over a ten-row table is refused, not half-read.
-    std::string lying = Ser::EncodeMeshBinary( source );
-    lying[12]         = '\x01';
-    EXPECT_FALSE( Ser::DecodeMeshBinary( lying, "v1-with-ten-rows" ).IsSuccess() );
 }
 
 TEST( MeshBinaryFormat, PolyGroupsThatDoNotCoverEveryFaceAreRefused )
@@ -594,12 +553,12 @@ TEST( MeshBinaryFormat, ACorruptHeaderIsRefusedByName )
     EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, 16, '\x00' ), "bad-size" ).IsSuccess() );
     EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, 24, '\x02' ), "bad-section-count" ).IsSuccess() );
     // Prefix + 4 is the first section row's ElementSize.
-    EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixV3 + 4, '\x37' ),
+    EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixSize + 4, '\x37' ),
                                          "bad-element-size" )
                        .IsSuccess() );
     // Prefix + 8 is the first section row's Offset: pushing it past the end must not be followed.
     EXPECT_FALSE(
-         Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixV3 + 8, '\x78' ), "bad-offset" )
+         Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixSize + 8, '\x78' ), "bad-offset" )
               .IsSuccess() );
 
     // The control: the unmutated bytes still load, so the expectations above are about the mutation
@@ -618,7 +577,7 @@ TEST( MeshBinaryFormat, ARecordPointingOutsideItsSectionIsRefusedRatherThanFollo
     // The v3 prefix (header + GUID), then three 24-byte rows, then the row's Id+ElementSize: the Submeshes
     // section's Offset field. Named rather than multiplied inline so the widening is explicit.
     const std::ptrdiff_t submeshRowOffsetField =
-         static_cast<std::ptrdiff_t>( Common::Content::kMeshBinaryPrefixV3 ) +
+         static_cast<std::ptrdiff_t>( Common::Content::kMeshBinaryPrefixSize ) +
          3 * static_cast<std::ptrdiff_t>( 24 ) + 8;
     std::memcpy( &submeshOffset, good.data() + submeshRowOffsetField, sizeof( submeshOffset ) );
 
@@ -685,7 +644,7 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
          std::filesystem::temp_directory_path() / "desert_b11_asset_roundtrip.stmesh";
 
     Ser::MeshAssetData source = FullyPopulated();
-    source.SkeletonSignature.reset(); // a static mesh has none
+    source.Skeleton           = {}; // a static mesh names no skeleton
 
     // A static mesh on disk is its source asset (AF4d); the container is its render form in the DDC, where the
     // cook leaves it for a game.
@@ -726,14 +685,15 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
 TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
 {
     // THE CORPUS IS THE AUTHORED SKINNED-MESH FOLDER (AF8b). The committed meshes are authored assets under
-    // the assets root, beside their rigs and clips; `Cooked/` is derived and ignored whole, so nothing there
+    // the assets root of the TEST project (Desert/Tests/Data, ENG-ROOT: probes are test data, not the editor's
+    // content), beside their rigs and clips; `Cooked/` is derived and ignored whole, so nothing there
     // is this suite's business. The folder is enumerated rather than listed here: a typed list is one a new
     // mesh can fall out of in silence (A27).
     const std::filesystem::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not find the repository root from the working directory";
 
     const std::filesystem::path skinned =
-         std::filesystem::path( "Editor" ) / "Resources" / "Assets" / "Meshes" / "Skinned";
+         std::filesystem::path( "Desert" ) / "Tests" / "Data" / "Resources" / "Assets" / "Meshes" / "Skinned";
     std::vector<std::string> corpus;
     std::error_code          ec;
     for ( const auto& entry : std::filesystem::directory_iterator( root / skinned, ec ) )
@@ -760,28 +720,29 @@ TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
 
 namespace
 {
-    // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots resolve
-    // against it) and the project root set from Desert.deproj. Restored on scope exit.
+    // The editor's project, opened the way the editor opens it: engine dir = Editor/ (engine resource roots
+    // hang off it) and the project root set from Desert.deproj. Restored on scope exit.
     class EditorProject
     {
     public:
         explicit EditorProject( const std::filesystem::path& repoRoot )
              : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
-               m_SavedCwd( std::filesystem::current_path() )
+               m_SavedEngineDir( Common::Constants::Path::EngineDir() )
         {
             const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot / "Editor" );
-            std::filesystem::current_path( editorDir );
-            const auto project = Common::Project::ReadProjectFile( ReadFile( editorDir / "Desert.deproj" ) );
+            Common::Constants::Path::SetEngineDir( editorDir );
+            const auto project = Common::Project::ReadProjectFile(
+                 ReadFile( repoRoot / "Projects" / "Desert" / "Desert.deproj" ) );
             if ( !project )
                 return;
-            Common::Constants::Path::SetProjectRoot( editorDir, project.GetValue().AssetsRoot );
+            Common::Constants::Path::SetProjectRoot( std::filesystem::absolute( repoRoot / "Projects" / "Desert" ),
+                                                     project.GetValue().AssetsRoot );
             m_Opened = true;
         }
         ~EditorProject()
         {
             Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
-            std::error_code ec;
-            std::filesystem::current_path( m_SavedCwd, ec );
+            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
         EditorProject( const EditorProject& )            = delete;
         EditorProject& operator=( const EditorProject& ) = delete;
@@ -792,7 +753,7 @@ namespace
 
     private:
         Common::Constants::Path::ProjectRootState m_SavedRoot;
-        std::filesystem::path                     m_SavedCwd;
+        std::filesystem::path                     m_SavedEngineDir;
         bool                                      m_Opened = false;
     };
 } // namespace
@@ -932,4 +893,10 @@ namespace
     // The suite writes cooked meshes into a throwaway DDC for its own run (TestSupport/cooked_static_mesh.hpp).
     const Desert::TestSupport::SuiteEnvironment kCookedMeshDdc{
          &Desert::TestSupport::MakeCookedMeshDerivedDataEnvironment };
+} // namespace
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
 } // namespace

@@ -28,7 +28,9 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include "../../TestSupport/runner.hpp"
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 #include <random>
 
@@ -46,6 +48,7 @@
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -172,6 +175,9 @@ namespace
                &HandleOf<Desert::Assets::LandscapeLayerInfoAsset>,
                &MetadataTypeOf<Desert::Assets::LandscapeLayerInfoAsset>,
                &DeclaredTypeOf<Desert::Assets::LandscapeLayerInfoAsset> },
+             { AssetTypeID::LevelSequence, "LevelSequenceAsset", &HandleOf<Desert::Assets::LevelSequenceAsset>,
+               &MetadataTypeOf<Desert::Assets::LevelSequenceAsset>,
+               &DeclaredTypeOf<Desert::Assets::LevelSequenceAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -226,10 +232,10 @@ namespace
     // directory (that is what they measure), but the suites run from the tree root, and a test that died
     // between writing and cleaning up used to leave `Assets/Library/` or `RegistryProbe/Content/` in the
     // checkout (TST1). Here a failure can leave at most a directory in temp.
-    using Desert::TestSupport::ScratchWorkingDirectory;
+    using Desert::TestSupport::ScratchDir;
 
     // A file that exists for the duration of one test and is removed afterwards; create it inside a
-    // ScratchWorkingDirectory, which owns the directories it needs.
+    // ScratchDir, which owns the directories it needs. A relative path is relative to the project (FullPath).
     //
     // WHY THE REGISTRY TESTS NEED ONE. SkyboxAsset::Load used to be `m_ReadyForUse = true; return
     // BOOLSUCCESS;` — it never opened the file it named, so a skybox whose .hdr had been moved or left
@@ -243,7 +249,8 @@ namespace
     class ScratchFile
     {
     public:
-        explicit ScratchFile( const std::filesystem::path& path ) : m_Path( path )
+        explicit ScratchFile( const std::filesystem::path& path )
+             : m_Path( Common::Constants::Path::FullPath( path ) )
         {
             std::error_code ec;
             std::filesystem::create_directories( m_Path.parent_path(), ec );
@@ -581,13 +588,14 @@ TEST( AssetHandleStability, AnUnloadedMaterialShellAlreadyWearsItsHeaderGuidHand
 // this measuring identity and nothing else.
 TEST( AssetHandleStability, AHandleSavedByOneRunResolvesInTheNext )
 {
-    const ScratchWorkingDirectory scratchDir;
+    const ScratchDir  scratchDir( "desert-handle-run" );
+    const std::string subjectPath = ( scratchDir.Path() / kPathA ).generic_string();
     // The child process registers this path, and registering now requires the file to be there.
-    const ScratchFile subject( kPathA );
+    const ScratchFile subject( subjectPath );
 
-    const uint64_t saved = HandleOf<Desert::Assets::SkyboxAsset>( kPathA );
+    const uint64_t saved = HandleOf<Desert::Assets::SkyboxAsset>( subjectPath );
 
-    const std::string verdict = ResolveInAnIndependentProcess( kPathA, saved );
+    const std::string verdict = ResolveInAnIndependentProcess( subjectPath, saved );
 
     ASSERT_FALSE( verdict.empty() ) << "the child run printed nothing; the guard did not run at all";
     EXPECT_EQ( verdict, "RESOLVED" )
@@ -598,14 +606,15 @@ TEST( AssetHandleStability, AHandleSavedByOneRunResolvesInTheNext )
 
 TEST( AssetHandleStability, AHandleFromNoAssetStillFailsToResolve )
 {
-    const ScratchWorkingDirectory scratchDir;
+    const ScratchDir  scratchDir( "desert-handle-run" );
+    const std::string subjectPath = ( scratchDir.Path() / kPathA ).generic_string();
     // The companion the test above needs to mean anything: if FindByHandle returned something for every
     // number, "RESOLVED" would be worthless. The scratch file is here for the same reason it is there —
     // the child registers this path, and a registration that fails would print its reason onto the
     // single line this test reads back.
-    const ScratchFile subject( kPathA );
+    const ScratchFile subject( subjectPath );
 
-    const std::string verdict = ResolveInAnIndependentProcess( kPathA, 12345ull );
+    const std::string verdict = ResolveInAnIndependentProcess( subjectPath, 12345ull );
     ASSERT_FALSE( verdict.empty() );
     EXPECT_EQ( verdict, "MISSED" );
 }
@@ -629,7 +638,7 @@ TEST( AssetHandleStability, OneAssetKeepsOneHandleUnderTwoUnrelatedProjectRoots 
     // THE guard of this task. Two developers, two checkouts that share no directory above the project,
     // and an assets folder that is not even called the same thing. Same asset, same handle, or a handle
     // is not a reference anyone can write down and send to another machine.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     const uint64_t fromAnnsMachine = HandleValue( "/ann/work/Game/Content/Clouds/Cumulus.dcnv" );
@@ -648,7 +657,7 @@ TEST( AssetHandleStability, TheHashedKeyCarriesNoPartOfTheProjectRoot )
     // The relation above stated positively, and the reason it holds: the string that reaches the hash is
     // the asset's place in the project and nothing else. Asserted on the key rather than on the number
     // because a failure here says WHAT leaked, where a mismatched uint64 only says that something did.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "/ann/work/Game/Content/Clouds/Cumulus.dcnv" ),
@@ -680,7 +689,7 @@ TEST( AssetHandleStability, TheHashedKeyCarriesNoPartOfTheProjectRoot )
 
 TEST( AssetHandleStability, EveryRootsKeyExpandsBackToThePathItCameFrom )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     const std::vector<std::filesystem::path> subjects = {
@@ -699,8 +708,14 @@ TEST( AssetHandleStability, EveryRootsKeyExpandsBackToThePathItCameFrom )
 
     // Engine resources come back too, and they must not follow the project: the same key under a
     // different project has to expand to the same file.
-    const std::string shaderKey = Common::AssetHandle::StableKeyForPath( "Resources/Shaders/Programs/PBR.shader" );
+    // Spelled off the ENGINE directory (UE: FPaths::EngineDir), the only place engine shaders live; a bare
+    // relative `Resources/...` would be read off the PROJECT and is not an engine path. The mount-prefixed
+    // spelling a material stores is its own key.
+    const std::string shaderKey = Common::AssetHandle::StableKeyForPath( Common::Constants::Path::EngineDir() /
+                                                                         "Resources/Shaders/Programs/PBR.shader" );
     EXPECT_EQ( shaderKey, "engine:Shaders/Programs/PBR.shader" );
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "engine:Shaders/Programs/PBR.shader" ), shaderKey )
+         << "a mount-prefixed engine path was read as a project-relative one";
     const std::filesystem::path underOneProject = Common::AssetHandle::PathForStableKey( shaderKey );
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Other", "Assets" );
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( shaderKey ), underOneProject );
@@ -711,7 +726,7 @@ TEST( AssetHandleStability, AKeyExpandsAgainstTHISMachinesRootsAndNotTheOneThatW
     // The property the whole stored form exists for. Ann writes the key; the build agent, whose checkout
     // shares no directory with hers and whose assets folder is not even called the same thing, expands it
     // to ITS copy of the file. A stored raw path cannot do this, and that is the defect.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     const std::string written = Common::AssetHandle::StableKeyForPath( "/ann/work/Game/Content/Textures/T.tex" );
@@ -733,7 +748,7 @@ TEST( AssetHandleStability, AStringWithNoRootTagIsHandedBackUnchanged )
     // existed, an absolute path to a file genuinely outside the project (StableKeyForPath returns those
     // verbatim too, so the inverse has to as well), and a synthetic key that is an identity rather than
     // a location. Inventing a root for any of them would change which file the name means.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( "Materials/M.demat" ),
@@ -751,18 +766,19 @@ TEST( AssetHandleStability, AStringWithNoRootTagIsHandedBackUnchanged )
 TEST( AssetHandleStability, TwoRootsThatShareAPrefixDoNotSwapKeysOnExpansion )
 {
     // The companion: an inverse that ignored the tag and joined everything to one root would satisfy the
-    // round trip for whichever root it picked and quietly move every other asset. Under the DEFAULT
-    // sandbox this is not hypothetical — ASSETS_PATH (`Resources/Assets/`) is nested inside
-    // RESOURCE_PATH (`Resources/`), and the two tags must still land in different places.
-    ProjectRootGuard guard;
-    Common::Constants::Path::ResetToSandbox();
+    // round trip for whichever root it picked and quietly move every other asset. A project whose assets
+    // root lies inside the engine's resources makes this concrete — ASSETS_PATH (`Resources/Assets/`) is
+    // nested inside RESOURCE_PATH (`Resources/`), and the two tags must still land in different places.
+    const ProjectRootGuard      guard;
+    const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
+    Common::Constants::Path::SetProjectRoot( engineDir / "Resources", "Assets" );
 
     EXPECT_NE( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ),
                Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ) );
-    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ).generic_string(),
-               "Resources/Assets/Textures/T.png" );
-    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ).generic_string(),
-               "Resources/Textures/T.png" );
+    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ),
+               ( engineDir / "Resources/Assets/Textures/T.png" ).lexically_normal() );
+    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ),
+               ( engineDir / "Resources/Textures/T.png" ).lexically_normal() );
 }
 
 TEST( AssetHandleStability, AnAbsoluteAndARelativeSpellingOfOneAssetAgree )
@@ -771,14 +787,14 @@ TEST( AssetHandleStability, AnAbsoluteAndARelativeSpellingOfOneAssetAgree )
     // and most callers pass absolute paths, but shaders never do (SHADERDIR_PATH is const and is never
     // remapped), the prefab save box hardcodes a relative literal while the instantiate box defaults to
     // the absolute root, and .dpak entries arrive relative. One file under two spellings was two assets.
-    const ScratchWorkingDirectory scratchDir;
+    const ScratchDir              scratchDir( "desert-handle-spelling" );
     ProjectRootGuard              guard;
 
     const std::filesystem::path projectDir = scratchDir.Path() / "SpellingProbe";
     Common::Constants::Path::SetProjectRoot( projectDir, "Content" );
 
     const uint64_t absolute = HandleValue( projectDir / "Content" / "Clouds" / "Cumulus.dcnv" );
-    const uint64_t relative = HandleValue( "SpellingProbe/Content/Clouds/Cumulus.dcnv" );
+    const uint64_t relative = HandleValue( "Content/Clouds/Cumulus.dcnv" );
 
     EXPECT_EQ( absolute, relative )
          << "one file spelled absolutely and relatively derived two handles, so the editor and the "
@@ -786,7 +802,7 @@ TEST( AssetHandleStability, AnAbsoluteAndARelativeSpellingOfOneAssetAgree )
 
     // The same claim once more with a `..` in the middle, because normalization and relativization are
     // two steps and only one of them used to happen.
-    EXPECT_EQ( HandleValue( "SpellingProbe/Content/Types/../Clouds/Cumulus.dcnv" ), absolute );
+    EXPECT_EQ( HandleValue( "Content/Types/../Clouds/Cumulus.dcnv" ), absolute );
 }
 
 TEST( AssetHandleStability, TheEngineTwinOfAnAssetIsNotTheSameAsset )
@@ -795,7 +811,7 @@ TEST( AssetHandleStability, TheEngineTwinOfAnAssetIsNotTheSameAsset )
     // `Content/Textures/T.tex` both reduce to `Textures/T.tex`, so an untagged relative key would hand one
     // handle to two files -- a collision that the old absolute-path hash could not produce and that a naive
     // fix introduces.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_NE( HandleValue( "/ann/work/Game/Content/Textures/T.tex" ),
@@ -808,29 +824,31 @@ TEST( AssetHandleStability, EngineResourcesAreKeyedOnTheirOwnRootAndDoNotMoveWit
     // Shaders live under RESOURCE_PATH, which is const and is never remapped, so their identity must not
     // change when a project is opened or swapped. This is the one asset family whose handle was already
     // portable before this change, and it has to stay that way.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
-    const uint64_t beforeAnyProject = HandleValue( "Resources/Shaders/Programs/PBR.shader" );
-    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "Resources/Shaders/Programs/PBR.shader" ),
-               "engine:Shaders/Programs/PBR.shader" );
+    const Desert::TestSupport::EngineDirScope engineDir;
+    const std::filesystem::path shader           = Common::Constants::Path::SHADERDIR_PATH / "Programs/PBR.shader";
+    const uint64_t              beforeAnyProject = HandleValue( shader );
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( shader ), "engine:Shaders/Programs/PBR.shader" );
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
-    EXPECT_EQ( HandleValue( "Resources/Shaders/Programs/PBR.shader" ), beforeAnyProject )
+    EXPECT_EQ( HandleValue( shader ), beforeAnyProject )
          << "opening a project moved the shaders, which are not project content";
 
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Other", "Assets" );
-    EXPECT_EQ( HandleValue( "Resources/Shaders/Programs/PBR.shader" ), beforeAnyProject );
+    EXPECT_EQ( HandleValue( shader ), beforeAnyProject );
 }
 
-TEST( AssetHandleStability, TheDefaultSandboxNestsAssetsInsideResourcesAndAssetsStillWins )
+TEST( AssetHandleStability, AProjectNestedInsideResourcesStillKeysItsAssetsAsAssets )
 {
-    // With no project open ASSETS_PATH is `Resources/Assets/` -- INSIDE RESOURCE_PATH (`Resources/`).
+    // A project whose ASSETS_PATH is `<engine>/Resources/Assets/` -- INSIDE RESOURCE_PATH (`Resources/`).
     // Both roots contain the file, so the answer must not depend on which one the code happens to test
     // first. Longest match is what makes that true, and this is the case that proves it.
-    ProjectRootGuard guard;
-    Common::Constants::Path::ResetToSandbox();
+    const ProjectRootGuard      guard;
+    const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
+    Common::Constants::Path::SetProjectRoot( engineDir / "Resources", "Assets" );
 
-    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "Resources/Assets/Clouds/Cumulus.dcnv" ),
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( engineDir / "Resources/Assets/Clouds/Cumulus.dcnv" ),
                "assets:Clouds/Cumulus.dcnv" )
          << "a content asset was keyed as an engine resource because a shorter root matched first";
 }
@@ -841,7 +859,7 @@ TEST( AssetHandleStability, KeysThatAreNotFilesystemPathsAreLeftAlone )
     // They are identities already, not locations, and relativizing them would be meaningless -- worse,
     // absolutizing them would make them depend on the process's working directory, which is a
     // regression this change must not introduce.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     const uint64_t underOneProject = HandleValue( "procedural://humanoid/Walk" );
@@ -868,7 +886,7 @@ TEST( AssetHandleStability, ASyntheticKeyDoesNotFollowTheWorkingDirectory )
     // if the derivation resolved it against the working directory then the editor (which runs from
     // Editor/) and a packaged runtime (which does not) would register the same clip under two handles,
     // and the animation a scene names would resolve in one and vanish in the other.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     std::error_code             ec;
@@ -892,7 +910,7 @@ TEST( AssetHandleStability, AFileOutsideTheProjectKeepsItsOwnSpelling )
     // what ComponentRegistry does in the same situation and says so in the same words. The alternative
     // -- inventing a `../../..` key relative to the assets root -- would encode the distance between two
     // unrelated directories, which is machine-specific in exactly the way this change is removing.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "/elsewhere/scratch/Hand.dcnv" ),
@@ -906,7 +924,7 @@ TEST( AssetHandleStability, TwoAssetsUnderOneRootStillDiffer )
     // The companion every stability assertion needs: a derivation that ignored the relative part
     // entirely and hashed only the tag would satisfy every test above and collapse the whole library
     // onto three handles.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_NE( HandleValue( "/ann/work/Game/Content/Clouds/Cumulus.dcnv" ),
@@ -919,7 +937,7 @@ TEST( AssetHandleStability, EveryAssetTypeAgreesAcrossProjectRoots )
 {
     // The relation applied to the catalogue rather than to one call, because the point of deriving
     // identity in AssetBase is that no type gets to have its own answer.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     std::vector<uint64_t> first;
@@ -979,7 +997,7 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
         ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     }
 
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     Desert::Assets::TextureAsset underOneRoot{ Common::Filepath( scratch ) };
@@ -1014,10 +1032,13 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
         out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
-               R"("Versions":{"MATL":4},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})";
+               R"("Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},)"
+               R"("Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44",)"
+               R"("Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},)"
+               R"("Params":[],"Textures":[],"CloudAssets":[]})";
     }
 
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     Desert::Assets::SurfaceMaterialAsset underOneRoot{ Common::Filepath( scratch ) };
@@ -1045,8 +1066,8 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
 
 TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
 {
-    const ScratchWorkingDirectory scratchDir;
-    ProjectRootGuard guard;
+    const ScratchDir       scratchDir( "desert-handle-spelling" );
+    const ProjectRootGuard guard;
 
     const std::filesystem::path projectDir = scratchDir.Path() / "RegistryProbe";
     Common::Constants::Path::SetProjectRoot( projectDir, "Content" );
@@ -1057,8 +1078,8 @@ TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
 
     const auto viaAbsolute = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
          Common::Filepath( projectDir / "Content" / "Sky" / "Dawn.hdr" ) );
-    const auto viaRelative = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         Common::Filepath( "RegistryProbe/Content/Sky/Dawn.hdr" ) );
+    const auto viaRelative =
+         manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "Content/Sky/Dawn.hdr" ) );
 
     ASSERT_TRUE( viaAbsolute != nullptr );
     ASSERT_TRUE( viaRelative != nullptr );
@@ -1073,37 +1094,37 @@ TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
 
 TEST( AssetHandleStability, TwoDifferentFilesStillRegisterSeparately )
 {
-    const ScratchWorkingDirectory scratchDir;
+    const ScratchDir scratchDir( "desert-handle-spelling" );
     // The companion: a dedup key that answered "yes" to everything would satisfy the test above and
     // collapse the whole library onto one record.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
-    const ScratchFile            a( "RegistryProbe/Content/A.hdr" );
-    const ScratchFile            b( "RegistryProbe/Content/B.hdr" );
-    manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "RegistryProbe/Content/A.hdr" ) );
-    manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "RegistryProbe/Content/B.hdr" ) );
+    const ScratchFile            a( "Content/A.hdr" );
+    const ScratchFile            b( "Content/B.hdr" );
+    manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "Content/A.hdr" ) );
+    manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "Content/B.hdr" ) );
 
     EXPECT_EQ( manager.FindAllByType<Desert::Assets::SkyboxAsset>().size(), 2u );
 }
 
 TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
 {
-    const ScratchWorkingDirectory scratchDir;
+    const ScratchDir scratchDir( "desert-handle-spelling" );
     // The handle derivation deliberately gives every type at one path the SAME number (asserted at the
     // top of this file), so the registry's key has to carry the type as well or the second type would be
     // deduplicated away as a duplicate of the first.
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
-    const ScratchFile            shared( "RegistryProbe/Content/Shared.asset" );
-    const auto                   sky = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         Common::Filepath( "RegistryProbe/Content/Shared.asset" ) );
+    const ScratchFile            shared( "Content/Shared.asset" );
+    const auto                   sky =
+         manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "Content/Shared.asset" ) );
     // loadAfterCreate=false: no such file exists, and this test is about the registry key, not parsing.
-    const auto cloudType = manager.CreateAsset<Desert::Assets::CloudTypeAsset>(
-         Common::Filepath( "RegistryProbe/Content/Shared.asset" ), false );
+    const auto cloudType =
+         manager.CreateAsset<Desert::Assets::CloudTypeAsset>( Common::Filepath( "Content/Shared.asset" ), false );
 
     // Asserted by TYPE CENSUS, and not by a null check on the returned pointer. The manager casts with
     // std::static_pointer_cast, so a registry that handed back the skybox record for the cloud type
@@ -1134,8 +1155,8 @@ TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
 
 TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 {
-    const ScratchWorkingDirectory scratchDir;
-    ProjectRootGuard guard;
+    const ScratchDir       scratchDir( "desert-handle-spelling" );
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
@@ -1143,9 +1164,9 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
     // One SkyboxAsset, and nothing else in the registry. Its handle is its header GUID's fold, a number
     // with no type in it — which is exactly how a request for the wrong type arrives at a real record: a
     // saved scene stores a bare 64-bit number with no type beside it.
-    const ScratchFile impostor( "RegistryProbe/Content/Impostor.asset" );
-    const auto        sky = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         Common::Filepath( "RegistryProbe/Content/Impostor.asset" ) );
+    const ScratchFile impostor( "Content/Impostor.asset" );
+    const auto        sky =
+         manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "Content/Impostor.asset" ) );
     ASSERT_NE( sky, nullptr );
 
     const Common::AssetHandle handle = sky->GetMetadata().Handle;
@@ -1172,8 +1193,8 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 
 TEST( AssetHandleStability, ATypedLookupRefusesAnotherClassUnderTheSameTypeId )
 {
-    const ScratchWorkingDirectory scratchDir;
-    ProjectRootGuard guard;
+    const ScratchDir       scratchDir( "desert-handle-spelling" );
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
@@ -1184,7 +1205,7 @@ TEST( AssetHandleStability, ATypedLookupRefusesAnotherClassUnderTheSameTypeId )
     ASSERT_EQ( Desert::Assets::StaticMeshAsset::GetTypeID(), Desert::Assets::SkinnedMeshAsset::GetTypeID() );
 
     const auto staticMesh = manager.CreateAsset<Desert::Assets::StaticMeshAsset>(
-         Common::Filepath( "RegistryProbe/Content/Rigged.stmesh" ), false );
+         Common::Filepath( "Content/Rigged.stmesh" ), false );
     ASSERT_NE( staticMesh, nullptr );
 
     const Common::AssetHandle handle = staticMesh->GetMetadata().Handle;
@@ -1293,6 +1314,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::Retarget,
          AssetTypeID::FoliageType,
          AssetTypeID::LandscapeLayerInfo,
+         AssetTypeID::LevelSequence,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1353,8 +1375,10 @@ namespace
         return 0;
     }
 
-    const Desert::TestSupport::ChildEntry kPrintHandles{ "asset-print-handles", &PrintHandlesChild };
-    const Desert::TestSupport::ChildEntry kResolveHandle{ "asset-resolve-handle", &ResolveHandleChild };
+    const Desert::TestSupport::ChildEntry kPrintHandles{ "asset-print-handles", &PrintHandlesChild,
+                                                         { .EngineDir = true, .Project = true } };
+    const Desert::TestSupport::ChildEntry kResolveHandle{ "asset-resolve-handle", &ResolveHandleChild,
+                                                          { .EngineDir = true, .Project = true } };
 } // namespace
 
 // A CLOUD TYPE'S HANDLE IS HandleForGuid OF ITS HEADER GUID (AF7v), adopted at creation, before any load:
@@ -1473,7 +1497,7 @@ TEST( AssetHandleStability, ALandscapeLayerInfoHandleIsHandleForGuidOfItsHeader 
 // into the tree.
 namespace
 {
-    std::filesystem::path CopyCorpusFile( const char* relative, const char* dirName )
+    std::filesystem::path CopyCorpusFile( const std::filesystem::path& relative, const char* dirName )
     {
         namespace fs       = std::filesystem;
         const fs::path dir = fs::temp_directory_path() / dirName;
@@ -1488,15 +1512,17 @@ namespace
 
 TEST( AssetHandleStability, AControlRigHandleIsHandleForGuidOfItsHeader )
 {
-    const auto file = CopyCorpusFile( "Editor/Resources/Assets/Rigs/IKProbe_Arm.derig", "T7cRigHandle" );
+    const auto file = CopyCorpusFile(
+         Desert::TestSupport::TestDataDir() / "Resources/Assets/Rigs/IKProbe_Arm.derig", "T7cRigHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::ControlRigAsset>( file, Common::Content::ContentKind::ControlRig );
     std::filesystem::remove_all( file.parent_path() );
 }
 
 TEST( AssetHandleStability, AnAnimGraphHandleIsHandleForGuidOfItsHeader )
 {
-    const auto file =
-         CopyCorpusFile( "Editor/Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph", "T7dAnimGraphHandle" );
+    const auto file = CopyCorpusFile( Desert::TestSupport::TestDataDir() /
+                                           "Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph",
+                                      "T7dAnimGraphHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::AnimGraphAsset>( file, Common::Content::ContentKind::AnimGraph );
     std::filesystem::remove_all( file.parent_path() );
 }
@@ -1507,7 +1533,8 @@ TEST( AssetHandleStability, AnAnimGraphHandleIsHandleForGuidOfItsHeader )
 TEST( AssetHandleStability, ASkeletonHandleIsHandleForGuidOfItsHeader )
 {
     const auto file =
-         CopyCorpusFile( "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton", "T7eSkeletonHandle" );
+         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe.skeleton",
+                         "T7eSkeletonHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::SkeletonAsset>( file, Common::Content::ContentKind::Skeleton );
     Desert::Assets::SkeletonAsset asset( file );
     const auto                    loaded = asset.Load();
@@ -1537,7 +1564,8 @@ TEST( AssetHandleStability, ASkeletonWithNoHeaderIsRefusedByNameAndPointsAtTheMi
 TEST( AssetHandleStability, ARewriteOfASkeletonKeepsTheGuidOfTheFileItReplaces )
 {
     const auto file =
-         CopyCorpusFile( "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton", "T7eSkeletonReimport" );
+         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe.skeleton",
+                         "T7eSkeletonReimport" );
     const auto before = Desert::Assets::ReadTextHeaderGuid( file );
     ASSERT_FALSE( before.IsNull() );
     const auto kept = Desert::Assets::HeaderKeepingFileGuid(
@@ -1552,8 +1580,9 @@ TEST( AssetHandleStability, ARewriteOfASkeletonKeepsTheGuidOfTheFileItReplaces )
 
 TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
 {
-    const auto file =
-         CopyCorpusFile( "Editor/Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget", "T7cRetargetHandle" );
+    const auto file = CopyCorpusFile( Desert::TestSupport::TestDataDir() /
+                                           "Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget",
+                                      "T7cRetargetHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::RetargetAsset>( file, Common::Content::ContentKind::Retarget );
     std::filesystem::remove_all( file.parent_path() );
 }
@@ -1566,7 +1595,8 @@ TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
 TEST( AssetHandleStability, AnEnvelopeMeshHandleIsHandleForGuidOfItsHeader )
 {
     const auto file =
-         CopyCorpusFile( "Editor/Resources/Assets/Meshes/StaticProbe.stmesh", "AF4fEnvelopeMeshHandle" );
+         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/StaticProbe.stmesh",
+                         "AF4fEnvelopeMeshHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::StaticMeshAsset>( file, Common::Content::ContentKind::StaticMesh );
     std::filesystem::remove_all( file.parent_path() );
 }
@@ -1593,8 +1623,9 @@ namespace
         return std::make_unique<AssetT>( file );
     }
 
-    // The migrated corpus files (suites run from the tree root), copied into the probe's own project.
-    bool CopyCorpus( const char* relative, const std::filesystem::path& file )
+    // The migrated corpus files, copied into the probe's own project. `relative` is under the checkout, or an
+    // absolute path (the suite data project, Desert/Tests/Data) that `operator/` takes as given.
+    bool CopyCorpus( const std::filesystem::path& relative, const std::filesystem::path& file )
     {
         std::error_code copied;
         std::filesystem::copy_file( Desert::TestSupport::RepositoryRoot() / relative, file,
@@ -1622,23 +1653,28 @@ namespace
     }
     bool WriteControlRig( const std::filesystem::path& file )
     {
-        return CopyCorpus( "Editor/Resources/Assets/Rigs/IKProbe_Arm.derig", file );
+        return CopyCorpus( Desert::TestSupport::TestDataDir() / "Resources/Assets/Rigs/IKProbe_Arm.derig", file );
     }
     bool WriteAnimGraph( const std::filesystem::path& file )
     {
-        return CopyCorpus( "Editor/Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph", file );
+        return CopyCorpus(
+             Desert::TestSupport::TestDataDir() / "Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph", file );
     }
     bool WriteRetarget( const std::filesystem::path& file )
     {
-        return CopyCorpus( "Editor/Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget", file );
+        return CopyCorpus( Desert::TestSupport::TestDataDir() /
+                                "Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget",
+                           file );
     }
     bool WriteSkeleton( const std::filesystem::path& file )
     {
-        return CopyCorpus( "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton", file );
+        return CopyCorpus( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe.skeleton",
+                           file );
     }
     bool WriteAnimation( const std::filesystem::path& file )
     {
-        return CopyCorpus( "Editor/Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim", file );
+        return CopyCorpus(
+             Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim", file );
     }
     // A .shader states its GUID in a first-line comment, not a JSON header (T7j). It declares the name of the
     // file it is moved TO, because the load refuses a declared name that differs from the stem it opens.
@@ -1681,6 +1717,18 @@ TEST_P( AssetOpenedByItsOldPath, IsTheMovedAssetAndLoadsItsBytes )
     fs::remove_all( root );
     fs::create_directories( root );
     root = fs::canonical( root );
+    // ENGINE-rooted kinds (a .shader lives under EngineDir()/Resources/Shaders) would otherwise be written into
+    // the checkout's own engine tree and outlive the test — the moved file and its redirector stayed there and
+    // every later gather over the engine read them. The engine directory is scoped to the scratch root as well.
+    struct EngineDirRestore
+    {
+        fs::path Saved = Common::Constants::Path::EngineDir();
+        ~EngineDirRestore()
+        {
+            Common::Constants::Path::SetEngineDir( Saved );
+        }
+    } const engineDirRestore;
+    Common::Constants::Path::SetEngineDir( root );
     Common::Constants::Path::SetProjectRoot( root, "Resources/Assets" );
     const fs::path& spec = *Common::Content::KindSpec( kind.Kind ).Root;
     // A string table's language is its directory (STRT 3), so it sits one level down, as in a project.
@@ -1809,25 +1857,20 @@ TEST( ShaderAssetIdentity, AGraphRecompileKeepsTheShadersGuidAndAFirstCompileMin
 TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
 {
     namespace CC = Common::Content;
-    std::filesystem::path graphShaders;
-    for ( auto at = std::filesystem::current_path(); !at.empty(); at = at.parent_path() )
-    {
-        if ( std::filesystem::is_directory( at / "Editor/Resources/Shaders/Programs/Graph" ) )
-        {
-            graphShaders = at / "Editor/Resources/Shaders/Programs/Graph";
-            break;
-        }
-        if ( at == at.parent_path() )
-            break;
-    }
-    ASSERT_FALSE( graphShaders.empty() )
-         << "no Editor/Resources/Shaders/Programs/Graph above " << std::filesystem::current_path();
-    int seen = 0;
+    const std::filesystem::path graphShaders =
+         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Programs/Graph";
+    ASSERT_TRUE( std::filesystem::is_directory( graphShaders ) ) << graphShaders;
+    // A register, not a count: every graph shader the corpus commits, by name. A walk that found nothing
+    // (wrong root) or lost one of these fails by the missing name; a new graph adds its row here.
+    // NewShaderGraph.shader left the corpus with SURF1f-2 (graph surfaces lit through Pass_Forward).
+    static constexpr std::array<std::string_view, 4> kCommitted = { "MatConst", "MatLitConst", "MatProbe",
+                                                                    "MatProbeUnlit" };
+    std::set<std::string>                            seen;
     for ( const auto& entry : std::filesystem::directory_iterator( graphShaders ) )
     {
         if ( entry.path().extension() != ".shader" )
             continue;
-        ++seen;
+        seen.insert( entry.path().stem().string() );
         std::ifstream     in( entry.path(), std::ios::binary );
         const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
         const auto        stated = CC::ReadShaderHeader( text );
@@ -1837,7 +1880,8 @@ TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
         ASSERT_FALSE( !rewritten ) << rewritten.GetError();
         EXPECT_EQ( rewritten.GetValue().Guid, stated.GetValue().Guid ) << entry.path();
     }
-    EXPECT_GE( seen, 5 );
+    for ( const auto name : kCommitted )
+        EXPECT_TRUE( seen.contains( std::string( name ) ) ) << name << ".shader is not in " << graphShaders;
 }
 
 // ─── T7k: the shader a material names, by GUID; the name the renderer binds is the file stem ───────────
@@ -1876,7 +1920,7 @@ TEST( ShaderAssetIdentity, AShaderDeclaringAnotherNameThanItsFileIsRefusedByName
 
 // ResolveDependencies finds the shader by the GUID the material states - a moved shader keeps its GUID, so
 // the stated Path is only a locator - and names it by the file stem; an unknown GUID resolves to no name
-// (logged), an absent shader to the standard surface.
+// (logged), and a material stating no shader is refused.
 TEST( ShaderAssetIdentity, AMaterialResolvesItsShaderNameByGuidAndNotByPath )
 {
     namespace CC   = Common::Content;
@@ -1913,10 +1957,18 @@ TEST( ShaderAssetIdentity, AMaterialResolvesItsShaderNameByGuidAndNotByPath )
     lost.ResolveDependencies( manager );
     EXPECT_TRUE( lost.GetShaderName().empty() ) << "an unknown GUID must not fall back to a shader by name";
 
-    Desert::Assets::SurfaceMaterialAsset plain( materialAt( "plain.demat", std::nullopt ) );
-    ASSERT_TRUE( plain.Load().IsSuccess() );
-    plain.ResolveDependencies( manager );
-    EXPECT_EQ( plain.GetShaderName(), "StaticMeshPBR" );
-    EXPECT_FALSE( plain.UsesCustomShader() );
+    // No template stated and no parent: refused on load by path — there is no standard surface by absence.
+    const auto                           plainFile = materialAt( "plain.demat", std::nullopt );
+    Desert::Assets::SurfaceMaterialAsset plain( plainFile );
+    const auto                           plainLoaded = plain.Load();
+    ASSERT_FALSE( plainLoaded.IsSuccess() );
+    EXPECT_NE( plainLoaded.GetError().find( plainFile.generic_string() ), std::string::npos )
+         << plainLoaded.GetError();
     std::filesystem::remove_all( dir );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

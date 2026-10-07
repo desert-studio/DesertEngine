@@ -630,7 +630,7 @@ namespace
         }
     }
 
-    void DrawSummaryCard( const CrashReporter::Report& inReport, const Fonts& inFonts, float inScale )
+    void DrawSummaryCard( const CrashReporter::ReportView& inView, const Fonts& inFonts, float inScale )
     {
         Card card;
         card.Begin( inScale );
@@ -641,24 +641,10 @@ namespace
         {
             ImGui::TableSetupColumn( "key", ImGuiTableColumnFlags_WidthFixed, 96.0f * inScale );
             ImGui::TableSetupColumn( "value", ImGuiTableColumnFlags_WidthStretch );
-
-            SummaryRow( "Kind", inReport.codename + "  [" + inReport.kind + "]", nullptr );
-            SummaryRow( "Code", inReport.code + " at " + inReport.address, inFonts.mono );
-            SummaryRow( "Module", inReport.module + " + " + inReport.moduleOffset, inFonts.mono );
-            SummaryRow( "Version",
-                        inReport.version + "  sha " + inReport.sha + "  branch " + inReport.branch +
-                             ( inReport.dirty == "1" ? "  (dirty tree)" : "" ),
-                        inFonts.mono );
-            SummaryRow( "Time",
-                        CrashReporter::FormatCrashTime( inReport ) + "  (started " + inReport.started + ")",
-                        nullptr );
-            SummaryRow( "Machine", inReport.machine + "  -  " + inReport.os, nullptr );
-            SummaryRow( "GPU",
-                        inReport.gpuDriver.empty() ? inReport.gpu
-                                                   : inReport.gpu + "  -  driver " + inReport.gpuDriver +
-                                                          "  -  Vulkan " + inReport.gpuApi,
-                        nullptr );
-            SummaryRow( "Scene", inReport.scene, nullptr );
+            for ( const CrashReporter::SummaryLine& line : inView.summary )
+            {
+                SummaryRow( line.label.c_str(), line.value, line.mono ? inFonts.mono : nullptr );
+            }
             ImGui::EndTable();
         }
         card.End();
@@ -730,7 +716,8 @@ int main( int inArgc, char** inArgv )
 {
     const std::filesystem::path reportDirectory =
          ( inArgc > 1 ) ? std::filesystem::path( inArgv[1] ) : std::filesystem::path();
-    const CrashReporter::Report report = CrashReporter::LoadReport( reportDirectory );
+    const CrashReporter::Report     report = CrashReporter::LoadReport( reportDirectory );
+    const CrashReporter::ReportView view   = CrashReporter::ComposeView( report );
 
     const std::filesystem::path besideUs       = ReporterDirectory();
     const std::filesystem::path hostExecutable = ( report.valid && !report.host.empty() && !besideUs.empty() )
@@ -874,7 +861,7 @@ int main( int inArgc, char** inArgv )
                 const std::string detailsLabel = std::string( kIconInfo ) + "  Details";
                 if ( ImGui::BeginTabItem( detailsLabel.c_str() ) )
                 {
-                    DrawSummaryCard( report, fonts, dpiScale );
+                    DrawSummaryCard( view, fonts, dpiScale );
                     DrawCommentCard( comment, sizeof( comment ), dpiScale );
                     if ( !report.error.empty() )
                     {
@@ -885,7 +872,7 @@ int main( int inArgc, char** inArgv )
 
                 const std::string logLabel =
                      std::string( kIconLog ) + "  Log tail (" + std::to_string( report.log.size() ) + ")";
-                if ( ImGui::BeginTabItem( logLabel.c_str() ) )
+                if ( view.showLog && ImGui::BeginTabItem( logLabel.c_str() ) )
                 {
                     if ( !logWasOpen )
                     {
@@ -944,8 +931,11 @@ int main( int inArgc, char** inArgv )
                  bandOrigin.x + ImGui::GetWindowWidth() - ( kPadX * dpiScale ) - total - spacing;
             ImGui::PushClipRect( bandOrigin, ImVec2( pathRight, bandOrigin.y + footerHeight ), true );
             ImGui::BeginGroup();
+            // The player view names no path; the line still opens the folder on click.
             ImGui::TextColored( ToVec4( kColMuted ), "%s",
-                                report.sourcePath.empty() ? "(no report path)" : report.sourcePath.c_str() );
+                                !view.showPath              ? "Report folder"
+                                : report.sourcePath.empty() ? "(no report path)"
+                                                            : report.sourcePath.c_str() );
             if ( ImGui::IsItemHovered() )
             {
                 ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );

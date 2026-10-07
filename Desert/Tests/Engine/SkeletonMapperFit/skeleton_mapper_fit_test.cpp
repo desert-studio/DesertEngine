@@ -42,6 +42,7 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/Timeline/Evaluator.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -54,6 +55,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>
@@ -62,6 +64,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -71,8 +74,8 @@ namespace
     using Desert::Animation::LocalPose;
     using Desert::Animation::Skeleton;
 
-    constexpr const char* kRigPath  = "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
-    constexpr const char* kClipPath = "Editor/Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim";
+    constexpr const char* kRigPath  = "Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
+    constexpr const char* kClipPath = "Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim";
 
     // The probe limb. IK_Shoulder -> IK_Elbow -> IK_Hand is the only three-bone chain in the corpus, and
     // a limb is the thing a retargeter is judged on.
@@ -80,20 +83,11 @@ namespace
     constexpr const char* kMid  = "IK_Elbow";
     constexpr const char* kTip  = "IK_Hand";
 
-    std::string RepoRoot()
-    {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + kRigPath );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
-    }
+    // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
+    // from the working directory.
+    using Desert::TestSupport::TestDataDir;
 
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -105,16 +99,31 @@ namespace
 
     std::vector<BoneInfo> ProbeBones()
     {
-        const std::string raw = ReadFile( RepoRoot() + kRigPath );
+        const std::string raw = ReadFile( TestDataDir() / kRigPath );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kRigPath;
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
         return data.IsSuccess() ? data.GetValue().Bones : std::vector<BoneInfo>{};
     }
 
+    /// The GUID a .skeleton's header states - the identity a clip references it by (SKEL-TREE,
+    /// Engine/Animation/SkeletonReference.hpp). Null when the file is unreadable or states no header.
+    Common::Content::AssetGuid SkeletonGuidOf( const std::string& relPath )
+    {
+        auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>(
+             ReadFile( TestDataDir() / relPath ) );
+        if ( !data.IsSuccess() )
+            return {};
+        const auto& header = data.GetValue().Header;
+        if ( !header.has_value() )
+            return {};
+        const auto guid = Common::Content::AssetGuidFromText( header->Guid );
+        return guid ? guid.GetValue() : Common::Content::AssetGuid{};
+    }
+
     Desert::Animation::AnimationClip ProbeClip()
     {
-        const std::string raw = ReadFile( RepoRoot() + kClipPath );
+        const std::string raw = ReadFile( TestDataDir() / kClipPath );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kClipPath;
         const auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -231,15 +240,11 @@ namespace
     LocalPose PoseAt( const Skeleton& rig, const Desert::Animation::AnimationClip& clip, double ticks )
     {
         LocalPose       local = BindPose( rig );
-        const FrameTime at{ Desert::Animation::FrameNumber{ static_cast<int32_t>( ticks ) }, 0.0F };
-        for ( const auto& track : clip.Tracks )
-        {
-            if ( !track.HasKeys() )
-                continue;
-            const auto idx = rig.FindBoneIndex( track.BoneName );
-            if ( idx )
-                local[*idx] = track.Sample( at, clip.TickRate );
-        }
+        const FrameTime at{
+             Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + static_cast<int32_t>( ticks ) }, 0.0F };
+        const auto table   = Desert::Animation::Timeline::BindBones( clip.Sequence, rig );
+        const auto sampled = Desert::Animation::Timeline::EvaluatePose( clip.Sequence, table, at, local );
+        EXPECT_TRUE( sampled.IsSuccess() ) << ( sampled.IsSuccess() ? "" : sampled.GetError() );
         return local;
     }
 
@@ -253,7 +258,7 @@ namespace
     std::vector<double> SampleTicks( const Desert::Animation::AnimationClip& clip )
     {
         std::vector<double> out;
-        const auto          duration = static_cast<double>( clip.DurationTicks.Value );
+        const auto          duration = static_cast<double>( clip.DurationTicks().Value );
         for ( int i = 0; i <= 10; ++i )
             out.push_back( duration * i / 10.0 );
         return out;
@@ -268,7 +273,6 @@ namespace
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, OurRigMapsOntoItselfUnchanged )
 {
-    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
 
     const auto bones = ProbeBones();
     ASSERT_EQ( bones.size(), 5u ) << "IKProbe.skeleton is the five-bone probe this suite was written for";
@@ -317,13 +321,13 @@ TEST( SkeletonMapperFit, OurRigMapsOntoItselfUnchanged )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, OurClipDrivesTheMappedRig )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton rig{ std::vector<BoneInfo>( bones ) };
     const auto     clip = ProbeClip();
-    ASSERT_FALSE( clip.Tracks.empty() ) << "the probe clip carries no tracks";
-    ASSERT_EQ( clip.SkeletonSignature, rig.GetSignature() )
+    ASSERT_FALSE( clip.Sequence.Tracks.empty() ) << "the probe clip carries no tracks";
+    ASSERT_FALSE( clip.Skeleton.IsNull() ) << kClipPath << " names no skeleton";
+    ASSERT_EQ( clip.Skeleton, SkeletonGuidOf( kRigPath ) )
          << "the clip does not claim this rig; every number below would be a picture of a bind pose";
 
     JPH::Skeleton joltRig;
@@ -463,12 +467,11 @@ namespace
 
 TEST( SkeletonMapperFit, LimbLengthErrorGrowsWithTheRestPoseDifference )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton source{ std::vector<BoneInfo>( bones ) };
     const auto     clip = ProbeClip();
-    ASSERT_FALSE( clip.Tracks.empty() );
+    ASSERT_FALSE( clip.Sequence.Tracks.empty() );
 
     // The two rigs are the SAME rig as far as this engine is concerned, at every k: ComputeSignature is
     // over names and parents. Nothing in the clip<->rig binding stops the taller one playing this clip.
@@ -529,7 +532,6 @@ TEST( SkeletonMapperFit, LimbLengthErrorGrowsWithTheRestPoseDifference )
 // idea even if the class is not reused.
 TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton source{ std::vector<BoneInfo>( bones ) };
@@ -579,7 +581,7 @@ TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
 
     const uint32_t tipIdx = BoneIndex( target, kTip );
 
-    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks.Value * 0.3 ) );
+    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks().Value * 0.3 ) );
 
     std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
     mapper.Map( ToJoltArray( srcModel ).data(), tgtLocalJolt.data(), out.data() );
@@ -607,10 +609,8 @@ TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
-    const std::string raw =
-         ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
+    const std::string raw = ReadFile( TestDataDir() / "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
     ASSERT_FALSE( raw.empty() );
     auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
     ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -620,14 +620,15 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
     const Skeleton target = ScaledRig( twoBones, 1.5F );
 
     const std::string clipRaw =
-         ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim" );
+         ReadFile( TestDataDir() / "Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim" );
     ASSERT_FALSE( clipRaw.empty() );
     const auto clipData = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( clipRaw );
     ASSERT_TRUE( clipData.IsSuccess() ) << clipData.GetError();
     auto built = Desert::Assets::Serialization::BuildClipFromAssetData( clipData.GetValue() );
     ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
     const auto clip = built.ExtractValue();
-    ASSERT_EQ( clip.SkeletonSignature, source.GetSignature() );
+    ASSERT_FALSE( clip.Skeleton.IsNull() ) << "TwoBoneProbe_Wave.anim names no skeleton";
+    ASSERT_EQ( clip.Skeleton, SkeletonGuidOf( "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" ) );
 
     JPH::Skeleton joltSource;
     JPH::Skeleton joltTarget;
@@ -698,7 +699,6 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, ScaleSurvivesADirectMapping )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton rig{ std::vector<BoneInfo>( bones ) };
@@ -745,7 +745,6 @@ TEST( SkeletonMapperFit, ScaleSurvivesADirectMapping )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton source{ std::vector<BoneInfo>( bones ) };
@@ -840,7 +839,7 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
     // direct observation of the one piece of machinery §3.19 credits this class with.
     const uint32_t elbowIdx = BoneIndex( target, kMid );
 
-    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks.Value * 0.3 ) );
+    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks().Value * 0.3 ) );
     std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
     mapper.Map( ToJoltArray( srcModel ).data(), tgtLocalJolt.data(), out.data() );
 
@@ -873,7 +872,6 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, ConvertingTheOutputBackToALocalPoseRoundTrips )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
     const Skeleton rig{ std::vector<BoneInfo>( bones ) };
@@ -892,7 +890,7 @@ TEST( SkeletonMapperFit, ConvertingTheOutputBackToALocalPoseRoundTrips )
     JPH::SkeletonMapper mapper;
     mapper.Initialize( &joltRig, bindJolt.data(), &joltRig, bindJolt.data() );
 
-    const auto model = ModelSpace( rig, PoseAt( rig, clip, clip.DurationTicks.Value * 0.25 ) );
+    const auto model = ModelSpace( rig, PoseAt( rig, clip, clip.DurationTicks().Value * 0.25 ) );
     const auto src   = ToJoltArray( model );
 
     std::vector<JPH::Mat44> out( src.size(), JPH::Mat44::sIdentity() );
@@ -979,12 +977,10 @@ TEST( SkeletonMapperFit, AChildFirstRigIsLegalForUsAndRejectedByJolt )
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, TheSourceRigMayBeLargerThanTheTargetAndJoltForbidsThat )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const Skeleton fiveBone( ProbeBones() );
 
-    const std::string raw =
-         ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
+    const std::string raw = ReadFile( TestDataDir() / "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
     ASSERT_FALSE( raw.empty() );
     auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
     ASSERT_TRUE( data.IsSuccess() ) << data.GetError();

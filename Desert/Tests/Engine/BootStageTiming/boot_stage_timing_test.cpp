@@ -141,7 +141,11 @@ TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryBootContentCallInAStage
          ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Assets/BootContent.hpp" ) );
     ASSERT_FALSE( header.empty() );
 
-    static const std::regex  declaration( R"(\bvoid\s+(\w+)\s*\()" );
+    // A boot function either loads silently (void) or refuses the boot (BoolResultStr, CompileEngineShaders with
+
+    // no Default Surface); EngineShaderCount is the splash's weight, not a stage.
+
+    static const std::regex  declaration( R"(\b(?:void|Common::BoolResultStr)\s+(\w+)\s*\()" );
     std::vector<std::string> declared;
     for ( auto it = std::sregex_iterator( header.begin(), header.end(), declaration );
           it != std::sregex_iterator(); ++it )
@@ -183,10 +187,30 @@ TEST( BootStageTimingCensus, BothHostsUseTheOneAccumulationRule )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    for ( const char* layer : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
+    // A host is the set of files that make it up: the editor's boot moved out of EditorLayer.cpp into
+    // LevelEditor/EditorStartup.cpp (EDL-7), and the rule is about the host, not about one file name.
+    struct Host
     {
-        const std::string text = Desert::Tests::ConsumerText::StripComments( ReadAll( fs::path( root ) / layer ) );
-        ASSERT_FALSE( text.empty() ) << "could not read " << layer;
+        const char*              Name;
+        std::vector<const char*> Files;
+    };
+    const Host hosts[] = {
+         { "the editor (EditorLayer.cpp + LevelEditor/EditorStartup.cpp)",
+           { "Editor/Source/EditorLayer.cpp", "Editor/Source/Editor/LevelEditor/EditorStartup.cpp" } },
+         { "Runtime/Source/RuntimeLayer.cpp", { "Runtime/Source/RuntimeLayer.cpp" } },
+    };
+    for ( const Host& host : hosts )
+    {
+        const char* layer = host.Name;
+        std::string text;
+        for ( const char* file : host.Files )
+        {
+            const std::string part =
+                 Desert::Tests::ConsumerText::StripComments( ReadAll( fs::path( root ) / file ) );
+            ASSERT_FALSE( part.empty() ) << "could not read " << file;
+            text += part;
+            text += '\n';
+        }
         EXPECT_NE( text.find( "m_Boot" ), std::string::npos )
              << layer
              << " keeps its own startup timing instead of the shared BootTimeline, so its "
@@ -197,8 +221,13 @@ TEST( BootStageTimingCensus, BothHostsUseTheOneAccumulationRule )
 
     // AND THE OLD ACCUMULATOR IS GONE, not merely unused. The contract forbids keeping the replaced path:
     // a second elapsed total that nothing updates is a number a reader will quote.
-    const std::string editorHeader = Desert::Tests::ConsumerText::StripComments(
-         ReadAll( fs::path( root ) / "Editor/Source/EditorLayer.hpp" ) );
-    EXPECT_EQ( editorHeader.find( "m_StartupElapsedMs" ), std::string::npos )
-         << "the editor's old elapsed accumulator is still declared alongside the shared one";
+    for ( const char* header :
+          { "Editor/Source/EditorLayer.hpp", "Editor/Source/Editor/LevelEditor/EditorStartup.hpp" } )
+    {
+        const std::string editorHeader =
+             Desert::Tests::ConsumerText::StripComments( ReadAll( fs::path( root ) / header ) );
+        ASSERT_FALSE( editorHeader.empty() ) << "could not read " << header;
+        EXPECT_EQ( editorHeader.find( "m_StartupElapsedMs" ), std::string::npos )
+             << header << ": the editor's old elapsed accumulator is still declared alongside the shared one";
+    }
 }

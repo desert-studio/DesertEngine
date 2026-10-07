@@ -8,6 +8,11 @@
 
 namespace Desert::Graphic
 {
+    // Writes a cascade's light matrices into @p material's camera block (Projection, View, CameraPos = 0) — the
+    // one statement of how a caster sees the light, shared by the renderer's own caster materials and the
+    // per-cascade copies a Masked material casts through (MaterialService::GetViewVariant).
+    void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection );
+
     // Depth-only material for the directional shadow pass. Feeds the LIGHT's view/projection into the
     // shared CameraUB (the per-mesh transform is pushed by Renderer::RenderMesh).
     class MaterialShadow : public Material
@@ -25,8 +30,8 @@ namespace Desert::Graphic
         MaterialShadow( std::string&& debugName, std::string&& shaderName );
     };
 
-    // Instanced depth-only shadow material: bound to the Shadow_Instanced shader, whose vertex reads each
-    // caster's model matrix from the InstanceTransforms SSBO (binding 16) by gl_InstanceIndex.
+    // Instanced depth-only shadow material: bound to StandardSurface/Instanced.ShadowDepth, whose vertex reads
+    // each caster's model matrix from the InstanceTransforms SSBO (binding 16) by gl_InstanceIndex.
     class MaterialShadowInstanced final : public MaterialShadow
     {
     public:
@@ -47,12 +52,6 @@ namespace Desert::Graphic
     class MaterialShadowSkinned final : public MaterialShadow
     {
     public:
-        // Offset of `BoneOffset` in Shadow_Skinned's push block, straight after the transform that
-        // Renderer::RenderMesh writes. Public for the same reason MaterialPBR's are: the other half of
-        // this pair is GLSL, and the block's total length is what a test can hold it to.
-        static constexpr uint32_t kBoneOffsetPushOffset = sizeof( glm::mat4 );
-        static constexpr uint32_t kPushSize             = kBoneOffsetPushOffset + 4;
-
         MaterialShadowSkinned();
 
         void UploadBones( const std::vector<glm::mat4>& packedBoneMatrices );

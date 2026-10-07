@@ -33,6 +33,9 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace fs = std::filesystem;
 
@@ -40,21 +43,15 @@ namespace
 {
     fs::path RepoRoot()
     {
-        fs::path here = fs::current_path();
-        for ( int up = 0; up < 6; ++up )
-        {
-            if ( fs::exists( here / ".gitignore" ) && fs::exists( here / "Desert" ) )
-                return here;
-            here = here.parent_path();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
-    // The editor resolves Resources/... against ITS working directory, which is the Editor/ folder.
-    // Derived from GizmoIconPath so the suite and the editor cannot disagree about where the artwork is.
+    // GizmoIconPath answers off ICONS_PATH, which derives from the engine directory main() set to the checkout's
+    // Editor/ — the same derivation the editor reads, so the suite and the editor cannot disagree about where the
+    // artwork is.
     fs::path IconPathInRepo( Desert::Editor::GizmoIcon role )
     {
-        return RepoRoot() / "Editor" / Desert::Editor::GizmoIconPath( role );
+        return Desert::Editor::GizmoIconPath( role );
     }
 
     fs::path GizmoIconDirInRepo()
@@ -75,7 +72,8 @@ TEST( GizmoIconSet, TheRepositoryIsWhereThisSuiteThinksItIs )
 {
     // A NEGATIVE CONTROL FOR THE OTHER THREE. If RepoRoot() answered nothing, every row below would
     // fail for one uninteresting reason and the real findings would be unreadable among them.
-    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from " << fs::current_path();
+    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from "
+                                       << Desert::TestSupport::RepositoryRoot();
     ASSERT_TRUE( fs::is_directory( GizmoIconDirInRepo() ) )
          << GizmoIconDirInRepo() << " is not a directory — the gizmo artwork has moved";
 }
@@ -148,3 +146,9 @@ TEST( GizmoIconSet, TheLicenceIsStillBesideTheArtwork )
 // The suites here link gtest WITHOUT gtest_main (Desert/Dependencies.lua lists only `gtest`), so
 // every one of them owns its entry point. This file did not, and nothing could say so until the
 // makefile existed: the link failed with `_main` undefined the first time it was generated.
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

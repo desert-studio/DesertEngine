@@ -192,6 +192,18 @@ TEST( CommandLine, TheLaunchProtocolFlagIsAccepted )
     EXPECT_EQ( options.Project, "MyGame.deproj" );
 }
 
+// `--engine-dir` is the override of FPaths::EngineDir-style derivation: the parser hands the spelling through
+// untouched (whether it holds an engine is ResolveEngineDir's decision, tested in StartupLayout), and its
+// absence is an EMPTY value — "derive from the executable" — never a default directory.
+TEST( CommandLine, EngineDirIsCarriedVerbatimAndAbsentMeansDerive )
+{
+    const CommandLineOptions given = ParseOk( { "--engine-dir", "/opt/Desert/Editor", "--project", "A.deproj" } );
+    EXPECT_EQ( given.EngineDir, "/opt/Desert/Editor" );
+    EXPECT_EQ( given.Project, "A.deproj" );
+
+    EXPECT_TRUE( ParseOk( { "--project", "A.deproj" } ).EngineDir.empty() );
+}
+
 // An empty command line is a plain interactive launch, and it must resolve to the built-in defaults with
 // no complaint — the editor is started this way by hand every day.
 TEST( CommandLine, NoArgumentsIsNotAnError )

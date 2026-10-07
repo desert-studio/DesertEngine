@@ -103,6 +103,16 @@ TEST( ImageFormatBytesPerPixel, R16IsOneColourChannelOfTwoBytes )
     EXPECT_EQ( CalculateImageSize( 65, 65, ImageFormat::R16_UNORM ), 65u * 65u * 2u );
 }
 
+// A video plane (MediaTexture) is one 8-bit channel uploaded exactly as the decoder hands it over: a staging
+// size of two or four bytes per sample would read past the plane.
+TEST( ImageFormatBytesPerPixel, R8IsOneColourChannelOfOneByte )
+{
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::R8_UNORM ), 1u );
+    EXPECT_EQ( GetImageAspect( ImageFormat::R8_UNORM ), Formats::ImageAspect_Colour );
+    EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::R8_UNORM ) );
+    EXPECT_EQ( CalculateImageSize( 160, 90, ImageFormat::R8_UNORM ), 160u * 90u );
+}
+
 // The property the deleted `return 0U;` used to violate: no declared format answers zero. A zero here
 // is not a wrong number, it is an allocation of nothing for an image that exists.
 TEST( ImageFormatBytesPerPixel, NoEnumeratorAnswersZero )

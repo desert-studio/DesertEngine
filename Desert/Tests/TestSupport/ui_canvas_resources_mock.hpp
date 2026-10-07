@@ -36,7 +36,7 @@ namespace TestSupport
             const auto it = m_Animated.find( static_cast<uint64_t>( sprite ) );
             return it == m_Animated.end() ? nullptr : it->second;
         }
-        [[nodiscard]] Desert::Graphic::Image2D* VideoFrame( uint64_t ) override
+        [[nodiscard]] Desert::Graphic::Image2D* VideoFrame( uint64_t, float, bool ) override
         {
             return nullptr;
         }

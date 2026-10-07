@@ -174,7 +174,7 @@ namespace
     bool Walk( ListScene& scene, R2D::DrawList2D& dl, UIViewContext& ctx )
     {
         dl.Reset();
-        UI::BeginUIFrame( ctx, scene.Registry, kViewport );
+        UI::BeginUIFrame( ctx, scene.Registry, kViewport, /*frameDtSeconds=*/0.0f );
         const bool drawn = UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl ).IsSuccess();
         UI::EndUIFrame( ctx, scene.Registry, dl, /*input=*/nullptr );
         return drawn;
@@ -588,7 +588,7 @@ TEST( ListViewCost, WalkTimeAgainstRowCount )
             {
                 const auto t0 = std::chrono::steady_clock::now();
                 dl.Reset();
-                UI::BeginUIFrame( ctx, scene.Registry, kViewport );
+                UI::BeginUIFrame( ctx, scene.Registry, kViewport, /*frameDtSeconds=*/0.0f );
                 const auto t1 = std::chrono::steady_clock::now();
                 (void)UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl );
                 const auto t2 = std::chrono::steady_clock::now();
@@ -778,9 +778,11 @@ TEST( ListViewBound, ChangingOneRecordChangesOnlyItsRowsVertices )
         if ( after[i] == before[i] )
             continue;
         ++changed;
-        const float y = after[i].Position.y;
-        EXPECT_GE( y, kRow * kRowHeight ) << "vertex " << i << " changed outside row " << kRow;
-        EXPECT_LE( y, ( kRow + 1 ) * kRowHeight ) << "vertex " << i << " changed outside row " << kRow;
+        // A rounded fill's antialiasing fringe straddles the true edge, so half of it lies past the row.
+        const float y     = after[i].Position.y;
+        const float slack = 0.5f * R2D::DrawList2D::kEdgeFringe;
+        EXPECT_GE( y, kRow * kRowHeight - slack ) << "vertex " << i << " changed outside row " << kRow;
+        EXPECT_LE( y, ( kRow + 1 ) * kRowHeight + slack ) << "vertex " << i << " changed outside row " << kRow;
     }
     EXPECT_GT( changed, 0 ) << "the record's new tint never reached its row";
 
@@ -793,12 +795,16 @@ TEST( ListViewBound, ChangingOneRecordChangesOnlyItsRowsVertices )
 
 TEST( ListViewBound, RemovingARecordInTheWindowMovesTheRecordsBelowItUpOneRow )
 {
-    // The colour of the first vertex drawn inside row @p row: the entry panel, tinted by its record.
+    // The colour of the first vertex drawn inside row @p row: the entry panel, tinted by its record. The list
+    // sizes each entry to the full row pitch, so the row ABOVE ends exactly on this row's top edge and its
+    // antialiasing fringe reaches half a fringe past it -- drawn earlier, that faded vertex would be found
+    // first and report the record above. The probe keeps a whole fringe clear of both edges.
     const auto rowColour = []( const R2D::DrawList2D& list, int row ) -> std::optional<glm::vec4>
     {
+        const float top    = static_cast<float>( row ) * kRowHeight + R2D::DrawList2D::kEdgeFringe;
+        const float bottom = static_cast<float>( row + 1 ) * kRowHeight - R2D::DrawList2D::kEdgeFringe;
         for ( const R2D::Vertex2D& v : list.GetVertices() )
-            if ( v.Position.y > static_cast<float>( row ) * kRowHeight &&
-                 v.Position.y < static_cast<float>( row + 1 ) * kRowHeight )
+            if ( v.Position.y > top && v.Position.y < bottom )
                 return v.Color;
         return std::nullopt;
     };

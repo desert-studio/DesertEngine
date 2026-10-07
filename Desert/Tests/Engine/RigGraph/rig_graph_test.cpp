@@ -29,6 +29,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "../ClipFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -41,11 +43,11 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 using Desert::Animation::BoneTransform;
 using Desert::Animation::ComponentPose;
 using Desert::Animation::ControlBoneDrive;
@@ -139,27 +141,15 @@ namespace
 
     AnimationClip ArmClip()
     {
-        AnimationClip clip;
-        clip.AnimationName = "wave";
-        clip.DurationTicks = FrameNumber{ PROJECT_TICK_RATE.Numerator };
+        const FrameNumber end{ PROJECT_TICK_RATE.Numerator };
+        AnimationClip     clip = ClipFixture::Clip( "wave", end );
 
-        BoneTrack shoulder;
-        shoulder.BoneName = "Shoulder";
-        shoulder.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 10.0F, 20.0F, 0.0F ) } );
-        shoulder.PositionKeys.push_back(
-             { FrameNumber{ PROJECT_TICK_RATE.Numerator }, glm::vec3( 40.0F, 55.0F, -12.0F ) } );
-        shoulder.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ) } );
-        shoulder.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
-        clip.Tracks.push_back( shoulder );
-
-        BoneTrack hand;
-        hand.BoneName = "Hand";
-        hand.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 0.0F, -30.0F, 0.0F ) } );
-        hand.PositionKeys.push_back(
-             { FrameNumber{ PROJECT_TICK_RATE.Numerator }, glm::vec3( 7.0F, -22.0F, 4.0F ) } );
-        hand.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ) } );
-        hand.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
-        clip.Tracks.push_back( hand );
+        const auto keyed = []( const Common::BoolResultStr& result )
+        { EXPECT_TRUE( result.IsSuccess() ) << result.GetError(); };
+        keyed( ClipFixture::KeyBone( clip, "Shoulder", FrameNumber{ 0 }, glm::vec3( 10.0F, 20.0F, 0.0F ) ) );
+        keyed( ClipFixture::KeyBone( clip, "Shoulder", end, glm::vec3( 40.0F, 55.0F, -12.0F ) ) );
+        keyed( ClipFixture::KeyBone( clip, "Hand", FrameNumber{ 0 }, glm::vec3( 0.0F, -30.0F, 0.0F ) ) );
+        keyed( ClipFixture::KeyBone( clip, "Hand", end, glm::vec3( 7.0F, -22.0F, 4.0F ) ) );
 
         return clip;
     }
@@ -1110,6 +1100,7 @@ namespace
     {
         Serialization::ControlRigData data;
         data.Name          = "Graphed Arm";
+        data.TargetSkeleton = { "fedcba9876543210fedcba9876543210", "Meshes/ArmRig.skeleton" };
 
         Serialization::ControlElementData hand;
         hand.Name      = "Hand_CTRL";
@@ -1178,7 +1169,8 @@ TEST( RigGraphTest, ARigWithAGraphRoundTripsByValueThroughTextAndThroughTheRunti
     ASSERT_TRUE( stage.HasGraph() );
     EXPECT_EQ( stage.GetGraph().GetNodes().size(), 3U );
 
-    const auto back = Serialization::BuildDataFromControlRig( source.Name, stage, skeleton );
+    const auto back =
+         Serialization::BuildDataFromControlRig( source.Name, source.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_TRUE( back.GetValue() == source ) << "the runtime round trip changed the rig";
 }
@@ -1230,17 +1222,23 @@ TEST( RigGraphTest, ARigWithoutAGraphDoesNotGainTheFieldAndStillLoadsAsTheIdenti
     // `kControlRigVersion` staying at 1: a generation-1 file has no Graph, and no Graph means what it has
     // always meant.
     EXPECT_EQ( text.find( "\"Graph\"" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( R"("CRIG":2)" ), std::string::npos ) << text;
 
     const auto parsed = Serialization::ParseControlRig( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
     EXPECT_FALSE( parsed.GetValue().Graph.has_value() );
+    // The header states the current generation, read back through the reader rather than searched for in the
+    // bytes.
+    ASSERT_TRUE( parsed.GetValue().Header.has_value() ) << text;
+    const auto& versions = parsed.GetValue().Header->Versions;
+    const auto  crig     = versions.find( "CRIG" );
+    ASSERT_NE( crig, versions.end() ) << text;
+    EXPECT_EQ( crig->second, Serialization::kControlRigVersion ) << text;
 
     ControlRigStage stage;
     ASSERT_TRUE( Serialization::BuildControlRig( plain, skeleton, stage ).IsSuccess() );
     EXPECT_FALSE( stage.HasGraph() );
 
-    const auto back = Serialization::BuildDataFromControlRig( plain.Name, stage, skeleton );
+    const auto back = Serialization::BuildDataFromControlRig( plain.Name, plain.TargetSkeleton, stage, skeleton );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_FALSE( back.GetValue().Graph.has_value() ) << "a rig without a graph grew one on the way out";
 }
@@ -1345,26 +1343,11 @@ TEST( RigGraphTest, EveryRigThisBuildShipsParsesAndAtLeastOneOfThemCarriesAGraph
     // on disk was unreadable — which is `PreloadCloudLayouts` again: a format tested, a corpus shipped,
     // and no test that ran the layer joining them.
     //
-    // The repository root is found by walking up for a marker, the same trick the AnimGraphScript census
-    // uses, because a corpus census has to read the tree it is testing.
-    std::filesystem::path here = std::filesystem::current_path();
-    std::filesystem::path root;
-    for ( int i = 0; i < 12; ++i )
-    {
-        if ( std::filesystem::exists( here / "Desert" / "Desert" / "Source" / "Engine" ) )
-        {
-            root = here;
-            break;
-        }
-        if ( !here.has_parent_path() || here.parent_path() == here )
-        {
-            break;
-        }
-        here = here.parent_path();
-    }
-    ASSERT_FALSE( root.empty() ) << "could not find the repository root from " << std::filesystem::current_path();
+    // The checkout is baked by the build (DESERT_TEST_REPO_ROOT): a corpus census reads the tree it tests.
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
+    ASSERT_TRUE( std::filesystem::exists( root / "Desert" / "Desert" / "Source" / "Engine" ) ) << root;
 
-    const std::filesystem::path rigs = root / "Editor" / "Resources" / "Assets" / "Rigs";
+    const std::filesystem::path rigs = Desert::TestSupport::TestDataDir() / "Resources" / "Assets" / "Rigs";
     ASSERT_TRUE( std::filesystem::exists( rigs ) ) << rigs.string();
 
     size_t read    = 0;

@@ -22,9 +22,11 @@ namespace Desert::Graphic
         // each holding its declared default from creation. It is read here and not kept. A pass program
         // that deliberately declares no Properties (SkinnedMeshPBR, the GBuffer and glass variants) is
         // given the schema of the program that owns them (StaticMeshPBR) by its creator.
+        // @p pushBlockSize is the shader's reflected push block (ShaderLayout::PushBlockSize), the same bytes
+        // its pipeline's layout range is built with: the material holds exactly that block, never more.
         MaterialExecutor( std::string&& debugName, const std::shared_ptr<Shader>& shader,
                           const Core::Formats::ShaderProgramMeta& parameterSchema,
-                          std::unique_ptr<MaterialBackend>&&      materialBackend );
+                          std::unique_ptr<MaterialBackend>&& materialBackend, uint32_t pushBlockSize );
 
         virtual ~MaterialExecutor() = default;
 
@@ -58,13 +60,11 @@ namespace Desert::Graphic
             return m_DebugName;
         }
 
-        // NOTE:temporary solution! in the future it is worth getting when parsing
-        // offset lets a caller place several sub-blocks in one push-constant range (e.g. the
-        // per-submesh transform at offset 0 and per-object material params after it).
-        void PushConstant( const void* buffer, const uint32_t bufferSize, const uint32_t offset = 0 )
-        {
-            m_PushConstantBuffer.Write( buffer, bufferSize, offset );
-        }
+        // Writes into the shader's push block; offset lets a caller place several sub-blocks in it (the
+        // per-submesh transform at offset 0 and per-object values after it). A write past the block the
+        // shader declares is refused and logged (once per material): the shader has no field there, so the
+        // bytes could only be pushed past the pipeline's range.
+        void PushConstant( const void* buffer, uint32_t bufferSize, uint32_t offset = 0 );
 
         std::shared_ptr<UniformBufferProperty> GetUniformBufferProperty( const std::string& name ) const;
         std::shared_ptr<StorageBufferProperty> GetStorageBufferProperty( const std::string& name ) const;
@@ -84,7 +84,7 @@ namespace Desert::Graphic
 
         // A null @p parameterSchema means the shader's OWN ProgramMeta.
         static std::unique_ptr<MaterialExecutor>
-        Create( std::string&& debugName, std::string&& shaderName,
+        Create( std::string&& debugName, const std::string& shaderName,
                 const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
         static std::unique_ptr<MaterialExecutor>
         Create( std::string&& debugName, const std::shared_ptr<Shader>& shader,
@@ -106,6 +106,7 @@ namespace Desert::Graphic
         using PropertyLookup = std::unordered_map<std::string, size_t>;
 
         Common::Memory::Buffer m_PushConstantBuffer;
+        bool                   m_ReportedPushOverflow = false;
 
         // Compact storage
         PropertyStorage<UniformBufferProperty> m_UniformBufferPropertiesStorage;

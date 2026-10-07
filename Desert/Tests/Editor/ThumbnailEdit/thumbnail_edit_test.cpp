@@ -1,0 +1,200 @@
+// EDIT THUMBNAIL'S PURE HALF, asserted as relations:
+//   * a drag, a wheel and a palette step obey ONE set of rules (yaw wrapped to (-180, 180], pitch clamped to
+//     +-89, zoom kept above -0.9, wheel forward = closer), because a step is a drag of a fixed length;
+//   * the live preview captures the NEWEST orbit only: a request replaces the one waiting, and the orbit
+//     already in flight or already on screen is never asked for twice;
+//   * the preview's picture is filed apart from the cached thumbnail, so it can never be read as one.
+
+#include <gtest/gtest.h>
+
+#include <Editor/Import/CookPaths.hpp>
+#include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Widgets/ThumbnailProducers.hpp>
+#include <Editor/Widgets/ThumbnailOrbitEdit.hpp>
+#include <Editor/Widgets/ThumbnailPreview.hpp>
+
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <string>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
+
+namespace
+{
+    using Desert::Assets::ThumbnailOrbit;
+    namespace TE = Desert::Editor::ThumbnailEdit;
+
+    constexpr float kPixelsPerDegree = 1.0f / TE::kDegreesPerPixel;
+} // namespace
+
+TEST( ThumbnailOrbitEdit, YawWrapsAt180FromBothSides )
+{
+    const ThumbnailOrbit nearSide{ 0.0f, 170.0f, 0.0f };
+    EXPECT_FLOAT_EQ( TE::Orbited( nearSide, 20.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw, -170.0f );
+    EXPECT_FLOAT_EQ( TE::Orbited( nearSide, 10.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw, 180.0f ); // (-180, 180]
+    const ThumbnailOrbit farSide{ 0.0f, -170.0f, 0.0f };
+    EXPECT_FLOAT_EQ( TE::Orbited( farSide, -10.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw, 180.0f );
+    for ( int turns = -3; turns <= 3; ++turns )
+    {
+        const float yaw =
+             TE::Orbited( {}, static_cast<float>( turns ) * 400.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw;
+        EXPECT_GT( yaw, -180.0f );
+        EXPECT_LE( yaw, 180.0f );
+    }
+}
+
+TEST( ThumbnailOrbitEdit, PitchStopsAt89AndZoomAboveMinus09 )
+{
+    EXPECT_FLOAT_EQ( TE::Orbited( {}, 0.0f, 1000.0f, 0.0f ).Pitch, TE::kMaxPitch );
+    EXPECT_FLOAT_EQ( TE::Orbited( {}, 0.0f, -1000.0f, 0.0f ).Pitch, -TE::kMaxPitch );
+    EXPECT_FLOAT_EQ( TE::kMaxPitch, 89.0f );
+    const ThumbnailOrbit in = TE::Orbited( {}, 0.0f, 0.0f, 1000.0f );
+    EXPECT_FLOAT_EQ( in.Zoom, -0.9f );
+    EXPECT_TRUE( Desert::Assets::IsValidThumbnailOrbit( in ) ); // the record accepts what a drag makes
+}
+
+TEST( ThumbnailOrbitEdit, WheelForwardComesCloser )
+{
+    EXPECT_LT( TE::Orbited( {}, 0.0f, 0.0f, 1.0f ).Zoom, 0.0f );
+    EXPECT_GT( TE::Orbited( {}, 0.0f, 0.0f, -1.0f ).Zoom, 0.0f );
+    EXPECT_LT( TE::Stepped( {}, TE::OrbitStep::ZoomIn ).Zoom, TE::Stepped( {}, TE::OrbitStep::ZoomOut ).Zoom );
+}
+
+TEST( ThumbnailOrbitEdit, StepsObeyTheDragsRulesAndResetIsTheDefault )
+{
+    const ThumbnailOrbit edge{ 80.0f, 170.0f, -0.8f };
+    EXPECT_EQ( TE::Stepped( edge, TE::OrbitStep::YawPlus ), TE::Orbited( edge, 45.0f * kPixelsPerDegree, 0, 0 ) );
+    EXPECT_FLOAT_EQ( TE::Stepped( edge, TE::OrbitStep::YawPlus ).Yaw, -145.0f );
+    EXPECT_FLOAT_EQ( TE::Stepped( edge, TE::OrbitStep::PitchPlus ).Pitch, 89.0f );
+    EXPECT_FLOAT_EQ( TE::Stepped( edge, TE::OrbitStep::ZoomIn ).Zoom, -0.9f );
+    EXPECT_EQ( TE::Stepped( edge, TE::OrbitStep::Reset ), ThumbnailOrbit{} );
+}
+
+TEST( ThumbnailOrbitEdit, EveryStepHasItsOwnName )
+{
+    for ( const auto a : TE::kOrbitSteps )
+    {
+        EXPECT_NE( TE::OrbitStepName( a ), "unknown step" );
+        for ( const auto b : TE::kOrbitSteps )
+            if ( a != b )
+                EXPECT_NE( TE::OrbitStepName( a ), TE::OrbitStepName( b ) );
+    }
+}
+
+TEST( ThumbnailPreviewSlot, TheLastRequestWins )
+{
+    Desert::Editor::ThumbnailPreview::Slot<int> slot;
+    EXPECT_TRUE( slot.Put( "a", { 0, 10, 0 }, 1 ) );
+    EXPECT_TRUE( slot.Put( "a", { 0, 20, 0 }, 2 ) );
+    const auto taken = slot.Take();
+    if ( !taken.has_value() )
+        FAIL() << "a waiting orbit was not handed out";
+    EXPECT_EQ( taken->What, 2 );
+    EXPECT_FALSE( slot.Waiting() );
+    // One capture at a time: a newer orbit waits behind the one in flight, and replaces any other waiting one.
+    EXPECT_TRUE( slot.Put( "a", { 0, 30, 0 }, 3 ) );
+    EXPECT_TRUE( slot.Put( "a", { 0, 40, 0 }, 4 ) );
+    EXPECT_FALSE( slot.Take() );
+    slot.Land();
+    EXPECT_EQ( slot.LandedOrbit( "a" ), ( ThumbnailOrbit{ 0, 20, 0 } ) );
+    const auto next = slot.Take();
+    if ( !next.has_value() )
+        FAIL() << "the orbit waiting behind the landed one was not handed out";
+    EXPECT_EQ( next->What, 4 );
+}
+
+TEST( ThumbnailPreviewSlot, AnOrbitInFlightOrOnScreenIsNotAskedTwice )
+{
+    Desert::Editor::ThumbnailPreview::Slot<int> slot;
+    slot.Put( "a", { 0, 10, 0 }, 1 );
+    slot.Take();
+    EXPECT_TRUE( slot.Put( "a", { 0, 20, 0 }, 2 ) );
+    EXPECT_FALSE( slot.Put( "a", { 0, 10, 0 }, 3 ) ); // back to the one in flight: the waiting one is dropped
+    EXPECT_FALSE( slot.Waiting() );
+    slot.Land();
+    EXPECT_FALSE( slot.Put( "a", { 0, 10, 0 }, 4 ) ); // already on screen
+    EXPECT_TRUE( slot.Put( "b", { 0, 10, 0 }, 5 ) );  // same orbit, another asset
+}
+
+TEST( ThumbnailPreviewSlot, EndingTheGestureForgetsItsPictureNotAnotherAssets )
+{
+    Desert::Editor::ThumbnailPreview::Slot<int> slot;
+    slot.Put( "a", { 0, 10, 0 }, 1 );
+    slot.Take();
+    slot.Land();
+    slot.Put( "a", { 0, 20, 0 }, 2 );
+    slot.End( "b" );
+    EXPECT_TRUE( slot.Waiting() );
+    EXPECT_TRUE( slot.LandedOrbit( "a" ) );
+    slot.End( "a" );
+    EXPECT_FALSE( slot.Waiting() );
+    EXPECT_FALSE( slot.LandedOrbit( "a" ) );
+}
+
+TEST( ThumbnailPreviewKey, ThePreviewIsFiledApartFromTheCachedThumbnail )
+{
+    namespace Key           = Desert::Editor::ThumbnailKey;
+    const std::string asset = "Materials/M_Wood.demat";
+    const std::string other = "Materials/M_Stone.demat";
+    EXPECT_NE( Key::PreviewPath( asset ), Key::DiskPath( asset ) );
+    EXPECT_NE( Key::PreviewPath( asset ), Key::PreviewPath( other ) );
+    EXPECT_EQ( Key::PreviewPath( asset ), Key::PreviewPath( asset ) );
+    const auto cacheDir = std::filesystem::path( Key::DiskPath( asset ) ).parent_path();
+    EXPECT_NE( std::filesystem::path( Key::PreviewPath( asset ) ).parent_path(), cacheDir );
+}
+
+// MCP-CMD2: UE offers Edit Thumbnail on every class whose picture is shot through an orbit camera — a skeletal
+// mesh, a skeleton and an animation as much as a static mesh or a material. The live check was refused on
+// Fox.skmesh as "not a model".
+TEST( ThumbnailOrbitKinds, EveryRenderedPictureHasAnOrbitAndNoOtherDoes )
+{
+    using Desert::Editor::FileType;
+    namespace TP = Desert::Editor::ThumbnailProducers;
+    for ( const FileType type : { FileType::Model, FileType::Material, FileType::SkinnedMesh, FileType::Skeleton,
+                                  FileType::Animation, FileType::FoliageType } )
+        EXPECT_TRUE( TP::HasThumbnailOrbit( type ) ) << static_cast<int>( type );
+    for ( const FileType type : { FileType::Texture, FileType::Cloud, FileType::Skybox, FileType::Scene } )
+        EXPECT_FALSE( TP::HasThumbnailOrbit( type ) ) << static_cast<int>( type );
+}
+
+// UI-FIX2c: UE's Capture Thumbnail takes the viewport's view for any asset whose picture is shot through a camera.
+// The live check was refused on Fox.skmesh as "only a model or a material has a rendered thumbnail". The kinds are
+// exactly Edit Thumbnail's, and each is filed where its tile reads: a model on its import's cooked mesh, a skinned
+// file on itself, a material on itself.
+TEST( ThumbnailCaptureKinds, EveryKindWithAnOrbitIsCapturedAndFiledWhereItsTileReads )
+{
+    namespace TP = Desert::Editor::ThumbnailProducers;
+    using Key    = TP::CaptureKey;
+    for ( const TP::Row& row : TP::kTable )
+        EXPECT_EQ( TP::CaptureKeyOf( row.Type ).has_value(), TP::HasThumbnailOrbit( row.Type ) )
+             << static_cast<int>( row.Type ) << ": Capture Thumbnail and Edit Thumbnail disagree";
+    using Desert::Editor::FileType;
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::SkinnedMesh ), Key::PosedFile );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Skeleton ), Key::PosedFile );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Animation ), Key::PosedFile );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Model ), Key::ImportedMesh );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::FoliageType ), Key::ImportedMesh );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Material ), Key::MaterialFile );
+    EXPECT_FALSE( TP::CaptureKeyOf( FileType::Texture ) ) << "a decoded picture is the file itself";
+    EXPECT_FALSE( TP::CaptureKeyOf( FileType::Skybox ) ) << "drawn under the dome camera, not the viewport's";
+}
+
+// The files a skinned import writes (CookPaths::SkinnedAsset's three suffixes) are each their own cooked form, so
+// a picture of one is filed under the file itself. Which source wrote one: SkinnedImport's
+// ASkinnedFileIsFiledUnderTheSourceThatWroteIt (it reads import records, Engine code this suite does not link).
+TEST( ThumbnailOrbitKinds, TheSkinnedImportFilesAreTheirOwnCookedForm )
+{
+    namespace CP = Desert::Editor::CookPaths;
+    EXPECT_TRUE( CP::IsSkinnedAssetFile( "a/Fox.skmesh" ) );
+    EXPECT_TRUE( CP::IsSkinnedAssetFile( "a/Fox_Walk.anim" ) );
+    EXPECT_FALSE( CP::IsSkinnedAssetFile( "a/Fox.stmesh" ) );
+    EXPECT_FALSE( CP::IsSkinnedAssetFile( "a/Fox.glb" ) );
+}
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

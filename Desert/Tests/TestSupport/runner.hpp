@@ -47,6 +47,15 @@
 // The runner hands it to gtest (SetUp before the first test, TearDown after the last) only when that
 // suite is selected with --desert-suite, or when the run selects no suite (every test of the runner).
 // A suite may register several; they are set up in registration order within a translation unit.
+//
+// THE PROCESS'S HOST STEPS. Some suites point the process at the engine directory (SetSuiteEngineDir,
+// engine_dir.hpp) and open the committed project (OpenSuiteProject, project_scope.hpp) before gtest even
+// parses its flags, so a parameter generator already sees them. RunnerMain takes those steps, once, before
+// InitGoogleTest, for each selected suite that declares them (every declaring suite when none is selected):
+//
+//     namespace { const Desert::TestSupport::SuiteHost kHost{ { .EngineDir = true, .Project = true } }; }
+//
+// A suite declares its steps once; a second declaration in the same suite aborts the runner at startup.
 
 #include <source_location>
 #include <string_view>
@@ -58,16 +67,24 @@ namespace testing
 
 namespace Desert::TestSupport
 {
+    // What RunnerMain does for a suite before InitGoogleTest: the engine directory first, then the project.
+    struct SuiteHostSteps
+    {
+        bool EngineDir = false;
+        bool Project   = false;
+    };
+
     // argc/argv of the child: argv[0] is the runner's path, argv[1..argc-1] what followed
     // `--desert-child=<name>` on the command line. The return value is the process exit code.
     using ChildMain = int ( * )( int argc, char** argv );
 
     // Registers `main` under `name` for `--desert-child=<name>`. Construct at namespace scope only (static
     // initialisation, before RunnerMain reads the table); `name` must outlive the process (a literal).
+    // RunnerMain takes `steps` before it calls `main`, as a suite's own main once did before its child branch.
     class ChildEntry
     {
     public:
-        ChildEntry( std::string_view name, ChildMain main );
+        ChildEntry( std::string_view name, ChildMain main, SuiteHostSteps steps = {} );
 
         ChildEntry( const ChildEntry& )            = delete;
         ChildEntry& operator=( const ChildEntry& ) = delete;
@@ -83,6 +100,16 @@ namespace Desert::TestSupport
 
         AdoptedTestSource( const AdoptedTestSource& )            = delete;
         AdoptedTestSource& operator=( const AdoptedTestSource& ) = delete;
+    };
+
+    // Declares `steps` for the suite of the file this object is constructed in. Namespace scope only.
+    class SuiteHost
+    {
+    public:
+        explicit SuiteHost( SuiteHostSteps steps, std::source_location where = std::source_location::current() );
+
+        SuiteHost( const SuiteHost& )            = delete;
+        SuiteHost& operator=( const SuiteHost& ) = delete;
     };
 
     // Makes the environment when the suite runs; gtest owns what it returns.

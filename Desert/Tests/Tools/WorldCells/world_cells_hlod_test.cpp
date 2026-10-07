@@ -14,6 +14,7 @@
 //      alone; the HLOD file is checked like a cell file (a damaged one is refused by name).
 //   5. THE INDEX IS CHECKED. An HLOD row that names an always-loaded unit is refused by name.
 
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 
@@ -444,11 +445,14 @@ namespace
     }
 
     // A custom-shader material, an instance of it, and a material on the PBR surface — as the cook's registry
-    // states them: each material names its shader (or its parent) among its dependencies.
+    // states them: each material names its shader (or its parent) among its dependencies. The shader's ROLE
+    // decides, never its name: the custom one is deliberately FILED as StaticMeshPBR and declares no role, and
+    // the PBR surface is a file of another name declaring `Role PBRSurface`.
     Common::Utils::AssetRegistry MaterialRegistry()
     {
-        const auto water = Row( "assets:Shaders/Water.shader", "Shader", nullptr, {} );
-        const auto pbr   = Row( "assets:Shaders/StaticMeshPBR.shader", "Shader", nullptr, {} );
+        const auto water = Row( "assets:Shaders/StaticMeshPBR.shader", "Shader", nullptr, {} );
+        auto       pbr   = Row( "assets:Shaders/Surface.shader", "Shader", nullptr, {} );
+        pbr.Role         = std::string( Common::Content::kPBRSurfaceRole );
         const auto custom =
              Row( "assets:Materials/M_Water.demat", "Material", kCustomMaterial, { water.PathHandle() } );
         const auto instance =

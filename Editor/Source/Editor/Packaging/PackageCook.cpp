@@ -36,7 +36,7 @@ namespace Desert::Editor
     {
         void CookShaders( bool spirvDebugInfo, bool developerInstruments, CookStats& stats )
         {
-            namespace Preprocess = Core::Preprocess;
+            namespace Preprocess = ::Desert::Core::Preprocess;
 
             for ( const fs::path& file : PackagedShaderPrograms( developerInstruments ) )
             {
@@ -51,39 +51,46 @@ namespace Desert::Editor
                 }
                 const std::string& content = contentRead.GetValue();
 
-                // Pre-check with the parser proper: PreProcessProgramPass aborts (DESERT_VERIFY) on
-                // an unparsable file, and a broken .shader must fail THIS shader's cook, not the
-                // whole packaging run.
-                if ( const auto parsed = Preprocess::DShaderParser::Parse( content ); !parsed.IsSuccess() )
+                // The default program plus every named pass — the same set ShaderService::Register
+                // turns into programs at startup. A broken .shader fails THIS shader's cook (the
+                // preprocessor's refusal names the file and the reason), not the whole packaging run.
+                std::vector<std::string> passes = { "" };
+                const auto meta = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, file, "" );
+                if ( !meta.IsSuccess() )
                 {
-                    LOG_ERROR( "[PackageCook] {} does not parse and was not cooked: {}", file.string(),
-                               parsed.GetError() );
+                    LOG_ERROR( "[PackageCook] {} was not cooked: {}", file.string(), meta.GetError() );
                     ++stats.Failures;
                     continue;
                 }
-
-                // The default program plus every named pass — the same set ShaderService::Register
-                // turns into programs at startup.
-                std::vector<std::string> passes = { "" };
-                const auto meta = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, "" );
-                passes.insert( passes.end(), meta.PassNames.begin(), meta.PassNames.end() );
+                // A surface template's default cell IS the default program: cooked once, as "".
+                const bool surfaceTemplate = Preprocess::DShaderParser::MayDeclareSurface( content );
+                for ( const std::string& pass : meta.GetValue().PassNames )
+                    if ( !Preprocess::IsSurfaceDefaultCell( surfaceTemplate, pass ) )
+                        passes.push_back( pass );
 
                 for ( const std::string& passName : passes )
                 {
                     const auto stages =
                          Preprocess::ShaderPreprocess::PreProcessProgramPass( content, file, passName );
-                    for ( const auto& [stage, source] : stages )
+                    if ( !stages.IsSuccess() )
                     {
-                        const uint64_t key =
-                             Core::ComputeShaderCacheKeyForProfile( stage, source, file, spirvDebugInfo );
-                        if ( Core::TryLoadCachedSpirv( key ) )
+                        LOG_ERROR( "[PackageCook] {} pass '{}' was not cooked: {}", file.string(), passName,
+                                   stages.GetError() );
+                        ++stats.Failures;
+                        continue;
+                    }
+                    for ( const auto& [stage, source] : stages.GetValue() )
+                    {
+                        const uint64_t key = ::Desert::Core::ComputeShaderCacheKeyForProfile( stage, source, file,
+                                                                                              spirvDebugInfo );
+                        if ( ::Desert::Core::TryLoadCachedSpirv( key ) )
                         {
                             ++stats.ShadersCached;
                             continue;
                         }
                         // Compiles under the SAME key (same inputs, same profile) and stores it.
-                        if ( !Core::ShaderCompiler::CompileGLSLToSPIRVForProfile( stage, source, file.string(),
-                                                                                  spirvDebugInfo )
+                        if ( !::Desert::Core::ShaderCompiler::CompileGLSLToSPIRVForProfile(
+                                   stage, source, file.string(), spirvDebugInfo )
                                    .IsSuccess() )
                         {
                             ++stats.Failures; // the compiler logged file/stage/diagnostic
@@ -92,12 +99,12 @@ namespace Desert::Editor
                         // A compile whose artifact did not reach the disk is not a cooked artifact:
                         // the pak would ship nothing under this key and the player would pay the
                         // compile. The store is best-effort for the runtime and mandatory here.
-                        if ( !Core::TryLoadCachedSpirv( key ) )
+                        if ( !::Desert::Core::TryLoadCachedSpirv( key ) )
                         {
                             LOG_ERROR( "[PackageCook] {} [{}] compiled but its artifact did not reach {} — "
                                        "the package would ship a shader the runtime must recompile",
                                        file.string(), static_cast<int>( stage ),
-                                       Core::SpirvCachePathForKey( key ).string() );
+                                       ::Desert::Core::SpirvCachePathForKey( key ).string() );
                             ++stats.StoreFailures;
                             continue;
                         }

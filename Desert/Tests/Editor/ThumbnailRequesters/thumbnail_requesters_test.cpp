@@ -41,7 +41,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
+#include <initializer_list>
 #include <set>
 #include <utility>
 #include <sstream>
@@ -100,9 +102,10 @@ namespace
            "ever, and no message said so" },
 
          { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.cpp",
-           "MaterialComponentWidget::DrawSlotPreview", Role::Shows, "RequestMaterial",
+           "MaterialComponentWidget::DrawSlotPreview", Role::Shows, "RequestLoadedMaterial",
            "the Details material slot — the row ThumbnailService was built for, and the one the mesh slot "
-           "beside it was supposed to have been copying" },
+           "beside it was supposed to have been copying. It HOLDS the loaded asset, so it asks through the "
+           "loaded-material entry (THM1f), which carries the same route and PreviewMesh as the path form" },
 
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::DrawRenderedMaterialThumbnail", Role::Shows, "RequestMaterial",
@@ -111,6 +114,17 @@ namespace
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::DrawRenderedMeshThumbnail", Role::Shows, "RequestMesh",
            "the asset browser's mesh grid" },
+
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp",
+           "SkinnedMeshComponentWidget::DrawMeshThumbnail", Role::Shows, "RequestPose",
+           "the Details Skeletal Mesh slot (THM-FIXB2): it drew a glyph box and asked for nothing, so a skinned "
+           "mesh had a picture in the browser and an icon beside its own slot; now the .skmesh's bind-pose "
+           "picture, asked through the same service the browser tile asks" },
+
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "FileExplorerPanel::DrawRenderedPoseThumbnail", Role::Shows, "RequestPose",
+           "the asset browser's SKINNED mesh tile: the figure in its bind pose (or its clip's middle "
+           "frame), photographed from the cooked asset like the static mesh grid beside it" },
 
          { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", "CollectionsPanel::DrawCard",
            Role::Shows, "RequestMesh", "the Collections card grid" },
@@ -158,6 +172,23 @@ namespace
            "FileExplorerPanel::CaptureThumbnailFromViewport", Role::Handles, "",
            "WRITES a thumbnail from the viewport readback, under the same key the grid reads. A producer, "
            "not a consumer: its output is what the Shows rows would otherwise have had to queue" },
+
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp",
+           "DESERT_REGISTER_CUSTOM_COMPONENT", Role::Shows, "RequestSkybox",
+           "the Details Skybox tile (THM-FIXF/G): the sky's picture from the shared pool, asked with the same "
+           "request and key as the Content Browser sky tile. The drawer is the registration lambda, so the "
+           "row names the macro whose first body it is" },
+
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", "FileExplorerPanel::DrawThumbnailFor",
+           Role::Shows, "RequestSkybox",
+           "the asset browser's tile dispatch; its RenderedSky case draws the skybox tile inline and asks "
+           "ThumbnailService::RequestSkybox itself (the other producers go to their own Draw* rows)" },
+
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "FileExplorerPanel::DrawThumbnailEdit", Role::Rereads, "",
+           "Edit Thumbnail's live orbit preview. It draws only the preview PNG that RequestThumbnailPreview — "
+           "called a line earlier in this same function, every frame of the gesture — asked the service for, "
+           "and only once ThumbnailService::PreviewLanded says it arrived; it can never be the first to look" },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -178,8 +209,11 @@ namespace
     constexpr Mechanism kMechanism[] = {
          { "Editor/Source/Editor/Widgets/ThumbnailService.cpp", "the queue every slot asks through" },
          { "Editor/Source/EditorLayer.cpp",
-           "drives the service — one Tick() per frame and one Shutdown() at teardown. It owns no row and "
-           "draws no picture; it is the clock, not a consumer" },
+           "ends the service — one Shutdown() and the cache's ReleaseAll() at teardown, while the device "
+           "still exists. It owns no row and draws no picture" },
+         { "Editor/Source/Editor/LevelEditor/EditorStartup.cpp",
+           "drives the service — EditorStartup::TickThumbnails is the one pump per frame, gated by the "
+           "splash's reveal state. It owns no row and draws no picture; it is the clock, not a consumer" },
 
          // ThumbnailCache.cpp WAS excused here as "where DiskPath is DEFINED" and no longer is: M11 moved
          // the cache-path rule to Editor/Widgets/ThumbnailKey.hpp, beside the rule that names the file,
@@ -266,6 +300,10 @@ namespace
                 before -= 2;
             else
                 continue;
+            // A receiver that is a CALL (`SlotThumbnails().Get(`, a function-local cache behind an accessor):
+            // the name is the identifier in front of the `()`.
+            if ( before >= 2 && body[before - 1] == ')' && body[before - 2] == '(' )
+                before -= 2;
 
             std::size_t start = before;
             while ( start > 0 && CT::IsIdentChar( body[start - 1] ) )
@@ -557,12 +595,21 @@ TEST( ThumbnailRequesters, TheOnlyExceptionIsBackedByTheSiteThatQueuesForIt )
              << site.Why;
     }
 
-    // Two, decided (THUMB2): the drag ghost, and the splash's upload pass — which runs before the window
-    // exists, where no capture may be asked for (Splash::ThumbnailCaptureAllowed), for pictures the same
-    // folder's tile draws ask for one frame later.
-    EXPECT_EQ( exceptions, 2 ) << "the number of sites excused from asking has changed. Two are "
-                                  "documented re-reads; three is a habit. Read the new row's argument and "
-                                  "decide, then update this number deliberately.";
+    // The exceptions are a NAMED register, not a count: the drag ghost and the splash's upload pass (THUMB2 —
+    // no capture may be asked for before the window exists, Splash::ThumbnailCaptureAllowed) and Edit
+    // Thumbnail's live preview (DEV-CIFIX, 09-30 — it re-reads what its own function just requested).
+    // A new Rereads row fails here until its name is added deliberately.
+    const std::set<std::string> kDecidedExceptions = { "FileExplorerPanel::EmitAssetDragSource",
+                                                       "FileExplorerPanel::UploadPrefetchedThumbnails",
+                                                       "FileExplorerPanel::DrawThumbnailEdit" };
+    std::set<std::string>       excused;
+    for ( const Site& site : kSites )
+        if ( site.What == Role::Rereads )
+            excused.insert( site.Function );
+    EXPECT_EQ( excused, kDecidedExceptions )
+         << "the sites excused from asking are not the decided ones. Read the new row's argument and decide, "
+            "then name it in this register deliberately.";
+    EXPECT_EQ( exceptions, static_cast<int>( kDecidedExceptions.size() ) ) << "a Rereads row is listed twice";
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -703,4 +750,137 @@ TEST( ThumbnailRequesters, NoCensusedFileHidesAnUndeclaredDrawingSite )
                             << " drawing sites were FOUND by reading the censused files, which is fewer "
                                "than the census claims exist — the definition scanner has stopped seeing "
                                "them, and a scanner that finds nothing certifies nothing";
+}
+
+// ---------------------------------------------------------------------------------------------------
+// THM-FIXD. ONE JUDGEMENT OF A MESH PICTURE, AND A PICTURE CACHE THAT OUTLIVES THE FRAME.
+//
+// The Details Skeletal Mesh slot and the browser's skinned tile each composed Judge(Observe(png,
+// MeshThumbnailFreshness(path))) themselves, beside a service that gated its enqueue on its own spelling of the
+// same question; and the slot kept its ThumbnailCache in a widget its registration builds per draw, so every
+// frame re-asked the worker for the .skmesh PNG (417 decodes in 90 s, FPS 111 -> 59, both pictures on icons).
+// THM-FIXE moved the other showers (Details static row, CB mesh tile and warm sweep, Collections card, Foliage
+// palette) onto the same verdict. Mutations: put `ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(` /
+// `MeshThumbnailFreshness(` back in any shower -> the first test reds; put `ThumbnailCache m_Thumbnails;` back in
+// SkinnedMeshComponentWidget.hpp -> the second reds.
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailRequesters, MeshPictureShowersAskTheServicesOneJudgement )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    // Every shower of a mesh picture (census of the call sites, THM-FIXE). The last field says whether the
+    // body also shows pictures that are NOT meshes (the warm sweep judges textures too), where an Observe of
+    // its own is legitimate; a mesh observation composed in place (MeshThumbnailFreshness) never is.
+    struct Shower
+    {
+        const char* File;
+        const char* Function;
+        bool        OtherPictures;
+    };
+    const Shower showers[] = {
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp",
+           "SkinnedMeshComponentWidget::DrawMeshThumbnail", false },
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/StaticMeshComponent.cpp",
+           "StaticMeshComponentWidget::DrawMeshThumbnail", false },
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "FileExplorerPanel::DrawRenderedPoseThumbnail", false },
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "bool FileExplorerPanel::DrawRenderedMeshThumbnail", false },
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "FileExplorerPanel::WarmProjectThumbnails", true },
+         { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", "CollectionsPanel::DrawCard", false },
+         { "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp", "const void* ThumbnailOf(", false } };
+    for ( const auto& [file, function, otherPictures] : showers )
+    {
+        const std::string body = FunctionBody( CodeOf( root, file ), function );
+        ASSERT_FALSE( body.empty() ) << function << " is not in " << file;
+        EXPECT_NE( body.find( "ThumbnailService::JudgeMeshPicture" ), std::string::npos )
+             << function
+             << " must judge its picture through ThumbnailService::JudgeMeshPicture — the key and hash "
+                "RequestMesh/RequestPose gate on — or it can say Capture where the service says Show";
+        EXPECT_EQ( body.find( "MeshThumbnailFreshness" ), std::string::npos )
+             << function << " composes its own mesh freshness hash again";
+        if ( !otherPictures )
+            EXPECT_EQ( body.find( "ThumbnailFreshness::Observe" ), std::string::npos )
+                 << function << " composes its own freshness observation again";
+    }
+    // The Details mesh row falls back to a material picture: judged by the material gate's own verdict.
+    EXPECT_NE( FunctionBody( CodeOf( root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/"
+                                           "StaticMeshComponent.cpp" ),
+                             "StaticMeshComponentWidget::DrawMeshThumbnail" )
+                    .find( "ThumbnailService::JudgeMaterialPicture" ),
+               std::string::npos );
+    const std::string service = CodeOf( root, "Editor/Source/Editor/Widgets/ThumbnailService.cpp" );
+    // Each judge reads ONE key (UI-FIX2c: the picture's PNG and hash, which Capture Thumbnail also files under),
+    // and that key is built from the enqueue gate's own parts - so judge, gate and manual capture agree.
+    const auto judgedThroughItsKey =
+         [&]( const char* judgeName, const char* keyName, std::initializer_list<const char*> gateParts )
+    {
+        const std::string judge = FunctionBody( service, judgeName );
+        ASSERT_FALSE( judge.empty() ) << judgeName;
+        for ( const char* shared : { keyName, "NeedsCapture" } )
+            EXPECT_NE( judge.find( shared ), std::string::npos )
+                 << judgeName << " must build its answer from the enqueue gate's own " << shared;
+        const std::string key = FunctionBody( service, std::format( "ThumbnailService::{}", keyName ) );
+        ASSERT_FALSE( key.empty() ) << keyName;
+        for ( const char* shared : gateParts )
+            EXPECT_NE( key.find( shared ), std::string::npos )
+                 << keyName << " must build the key from the enqueue gate's own " << shared;
+    };
+    judgedThroughItsKey( "ThumbnailService::JudgeMeshPicture", "MeshPictureKey",
+                         { "MeshRequestOf", "SourceHash" } );
+    judgedThroughItsKey( "ThumbnailService::JudgeMaterialPicture", "MaterialPictureKey",
+                         { "ThumbnailKey::DiskPath", "ThumbnailFreshness::ContentHash" } );
+}
+
+TEST( ThumbnailRequesters, AComponentWidgetBuiltPerDrawOwnsNoPictureCache )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string header = CodeOf(
+         root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.hpp" );
+    const std::string source = CodeOf(
+         root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp" );
+    ASSERT_FALSE( header.empty() );
+    ASSERT_NE( source.find( "SkinnedMeshComponentWidget( ctx.AssetManager, ctx.UIHelper ).Render" ),
+               std::string::npos )
+         << "the registration no longer builds the widget per draw: re-read this test's premise";
+    EXPECT_EQ( header.find( "ThumbnailCache" ), std::string::npos )
+         << "a widget rebuilt every frame holds a ThumbnailCache: it is born empty each frame and re-decodes "
+            "forever";
+    EXPECT_EQ( header.find( "std::unique_ptr<UI::UIHelper>" ), std::string::npos )
+         << "a widget rebuilt every frame builds its own UIHelper: texture ids die with the frame";
+}
+
+// THM-FIXF: DETAILS HOLDS NO RENDER VIEW. UE's Details slots draw pictures from the thumbnail pool; a live view
+// belongs to an asset window and dies with it. The panel used to build a full SceneRenderer (shadow cascade,
+// SMAA, fog) as 'preview #N' the moment a mesh was clicked and render it every frame while the entity stayed
+// selected — 140 -> 100 FPS measured. The census: no Details file names a view's creator.
+TEST( ThumbnailRequesters, DetailsBuildsNoRenderViewOfItsOwn )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    std::vector<std::string> files = {
+         "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.hpp",
+         "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",
+         "Editor/Source/Editor/Panels/SceneProperties/ComponentEditor.hpp",
+         "Editor/Source/Editor/Panels/SceneProperties/ComponentEditor.cpp",
+         "Editor/Source/Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp",
+         "Editor/Source/Editor/Panels/PropertyEditor/ComponentWidgetRegistry.cpp",
+    };
+    const std::string widgets = "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets";
+    for ( const auto& entry : fs::recursive_directory_iterator( root + widgets ) )
+        if ( entry.is_regular_file() )
+            files.push_back( fs::relative( entry.path(), root ).generic_string() );
+    ASSERT_GT( files.size(), 10u ) << "the ComponentWidgets folder was not found from " << root;
+
+    for ( const auto& file : files )
+    {
+        const std::string code = CodeOf( root, file );
+        ASSERT_FALSE( code.empty() ) << file;
+        for ( const char* creator :
+              { "PreviewViewport", "SceneRenderer", "MayCreateView", "kPreviewViewProfile", "DrawPreview" } )
+            EXPECT_EQ( code.find( creator ), std::string::npos )
+                 << file << " names " << creator << ": Details shows thumbnails, a live view is an asset window's";
+    }
 }

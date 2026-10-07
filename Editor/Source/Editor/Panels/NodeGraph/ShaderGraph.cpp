@@ -37,9 +37,9 @@ namespace Desert::Editor::ShaderGraph
     // between two GLSL declarations at one binding is silent", which Г17 had already made false (the
     // engine refuses it by name at reflection, in all four consumers); then "a cloud material has no place
     // to keep a value whose name comes from a graph", which is what О1-G-2 built — the medium carries its
-    // own Properties block, its values are filed in the `.demat` under Core::kCloudMediumOverridePrefix so
-    // they can never be read as the shipped schema's, and they reach all four consumers through one
-    // storage buffer and up to Core::kCloudMediumMaxTextures samplers in the reserved window.
+    // own Properties block, its values are filed in the `.demat` under ::Desert::Core::kCloudMediumOverridePrefix
+    // so they can never be read as the shipped schema's, and they reach all four consumers through one storage
+    // buffer and up to ::Desert::Core::kCloudMediumMaxTextures samplers in the reserved window.
     //
     // TextureSample is still not here, and that is a scope fact rather than a leftover: it samples at
     // `v_UV`. A medium samples at a place the march hands it, so it has a node of its own (MediumTexture)
@@ -477,7 +477,7 @@ namespace Desert::Editor::ShaderGraph
             // MSVC right to left. So the same `.dgraph` compiled to DIFFERENT GLSL on macOS and on
             // Windows — `n1 = <noise>; n2 = <density>; n0 = n2 * n1.x;` there against
             // `n1 = <density>; n2 = <noise>; n0 = n1 * n2.x;` here — which is not cosmetic: the emitted
-            // text is hashed by Core::ShaderVariant::Hash(), that hash is mixed into the SPIR-V cache
+            // text is hashed by ::Desert::Core::ShaderVariant::Hash(), that hash is mixed into the SPIR-V cache
             // key and into Graphic::CloudEnvironmentFingerprint, and the text itself is written to a
             // committed `.shader`. One graph, two machines, two artifacts.
             //
@@ -1081,7 +1081,7 @@ namespace Desert::Editor::ShaderGraph
         // Properties block — the medium's own parameters and images — and that block is pure schema: the
         // DSL's `Binding()/TextureBinding()` sugar declares a `Materials[]` row indexed by a push constant
         // no compute program here has, so the declarations are written into the medium body below instead,
-        // at the numbers Core::kCloudMedium*Binding reserve.
+        // at the numbers ::Desert::Core::kCloudMedium*Binding reserve.
         //
         // FIVE FUNCTIONS, EACH COMPILED SEPARATELY. Every output pin gets its own Compiler, so a node is
         // emitted only into the function that actually reads it — the alternative, one body shared by
@@ -1333,8 +1333,11 @@ namespace Desert::Editor::ShaderGraph
         if ( !textures.empty() || !colorParams.empty() || !floatParams.empty() )
         {
             out << "    Properties";
+            // The row block sits beside the engine's per-pass blocks: after the scene texture of a post
+            // process, and for a surface where the standard material keeps it (StaticMeshPBR), because a
+            // surface cell's skinned vertex path already owns binding 1 for its bones.
             if ( !colorParams.empty() || !floatParams.empty() )
-                out << " Binding(1)";
+                out << ( domain == Domain::PostProcess ? " Binding(1)" : " Binding(2)" );
             if ( !textures.empty() )
                 out << std::format( " TextureBinding({})", kGraphTextureBinding );
             out << "\n    {\n";
@@ -1379,76 +1382,43 @@ namespace Desert::Editor::ShaderGraph
         }
 
         // ---------------------------------------------------------- Surface domain ----------------
+        // A surface graph is a surface TEMPLATE: it writes `EvaluateSurface` and nothing else. The parser
+        // expands the block into every (vertex path x pass) cell (DShaderParser.hpp, kSurfaceVertexPaths x
+        // kSurfaceCellPasses), so a graph material is drawn static, instanced and skinned, into the forward
+        // target, the G-buffer and the shadow cascades, by the engine's own headers (Mesh/Surface/) — the
+        // generator writes no vertex stage, no main() and not one line of shading.
         out << "    State\n    {\n        Cull Back\n        ZTest LEqual\n        ZWrite On\n    }\n\n";
 
-        // NO GLSL boilerplate lives in this compiler: the vertex contract and the engine-filled UB
-        // declarations are shared .glslh includes (Resources/Shaders/Common/), configured with
-        // defines — hand-written shaders reuse the same files. The generated file only contains the
-        // structure and the graph's own fragment expressions.
-        out << "    Vertex\n    {\n";
-        if ( doc.Lit )
-            out << "        #define GRAPH_LIT 1\n";
-        out << "        #include <Common/GraphVertex.glslh>\n";
-        out << "    }\n\n";
+        // The shading model is the TEMPLATE's (UE's EMaterialShadingModel): an unlit graph's cells are built from
+        // the Unlit pass headers, which name no lighting text and declare no lighting resource.
+        out << ( doc.Lit ? "    ShadingModel DefaultLit\n\n" : "    ShadingModel Unlit\n\n" );
 
-        out << "    Fragment\n    {\n";
-        out << "        layout( location = 0 ) in vec2 v_UV;\n";
-        if ( doc.Lit )
-        {
-            out << "        layout( location = 1 ) in vec3 v_Normal;\n";
-            out << "        layout( location = 2 ) in vec3 v_WorldPos;\n";
-            out << "        layout( location = 3 ) in vec3 v_CameraPos;\n";
-        }
-        out << "        layout( location = 0 ) out vec4 o_Color;\n";
+        out << "    Surface\n    {\n";
         if ( usesTime )
-            out << "\n        #include <Common/TimeUB.glslh>\n";
-        // THE shading model, and the generator writes not one line of it. Everything a lit surface
-        // needs — the bindings, the ambient, the sun, the punctual lights and the cloud shadow — is
-        // behind this include, which is itself only calls into the engine's shared lighting texts.
-        // What stood here instead was a formula of this compiler's own: a flat vec3( 0.12 ) ambient,
-        // a Lambert cosine that did not divide albedo by PI, and no cloud shadow at all — three
-        // defects the engine had already fixed in the texts this now calls.
-        if ( doc.Lit )
-            out << "\n        #include <Common/GraphSurfaceLighting.glslh>\n";
-        out << "\n        void main()\n        {\n";
+            out << "        #include <Common/TimeUB.glslh>\n\n";
+        out << "        SurfaceOutput EvaluateSurface( SurfaceInput i )\n        {\n";
+        // The graph's nodes read the mesh UV under the name every node emitter uses.
+        out << "            const vec2 v_UV = i.UV0;\n";
         out << compiler.body.str();
-        out << std::format( "            vec4 albedo = {};\n", albedo );
+        out << std::format( "            const vec4 albedo = {};\n", albedo );
+        out << "            SurfaceOutput s = DefaultSurfaceOutput();\n";
         if ( doc.Lit )
         {
-            out << "            vec3 N = normalize( v_Normal );\n";
-            out << "            vec3 view = normalize( v_CameraPos - v_WorldPos );\n";
-            out << std::format( "            vec3 shaded = ShadeGraphSurface( v_WorldPos, N, view, "
-                                "albedo.rgb, {}, {}, {} );\n",
-                                metallic, roughness, occlusion );
-            out << std::format(
-                 "            o_Color = vec4( shaded + ( {} ).rgb, albedo.a * ( {} ) );\n", emission,
-                 alpha );
+            out << "            s.BaseColor = albedo.rgb;\n";
+            out << std::format( "            s.Metallic = {};\n", metallic );
+            out << std::format( "            s.Roughness = {};\n", roughness );
+            out << std::format( "            s.AmbientOcclusion = {};\n", occlusion );
+            out << std::format( "            s.Emissive = ( {} ).rgb;\n", emission );
         }
         else
         {
-            out << std::format(
-                 "            o_Color = vec4( albedo.rgb + ( {} ).rgb, albedo.a * ( {} ) );\n", emission,
-                 alpha );
+            // Unlit, as UE's Unlit shading model: the whole colour is emitted, nothing is reflected.
+            out << "            s.BaseColor = vec3( 0.0 );\n";
+            out << std::format( "            s.Emissive = albedo.rgb + ( {} ).rgb;\n", emission );
         }
+        out << std::format( "            s.Opacity = albedo.a * ( {} );\n", alpha );
+        out << "            return s;\n";
         out << "        }\n    }\n";
-
-        // NO depth-only pass is emitted. There used to be one, named "Depth" and described as the
-        // shadow variant, and nothing in the engine ever asked for it: no C++ names "<shader>/Depth",
-        // and the shadow pass binds its own pipeline. It could not have served even if something had —
-        // it declared no fragment stage at all, while a cascade target is a colour R32F attachment that
-        // a shader must WRITE (Shadow.shader writes gl_FragCoord.z).
-        //
-        // This comment used to add "and its vertex read cameraUB, the camera, rather than the light's
-        // matrix". That was WRONG and is corrected rather than deleted, because it invites the wrong
-        // repair: Shadow.shader's own vertex reads the same cameraUB and does the same
-        // Projection * View * Transform, and MaterialShadow::SetLightMatrix writes the LIGHT's matrices
-        // into that block before each cascade draw. Shader text cannot tell a camera from a light here.
-        // What was missing was never the matrix — it was any material that would have fed one to this
-        // pass. Establishing the same three properties on Unlit.shader is what caught it.
-        //
-        // Shadow casting for these materials is handled where it belongs, by the engine's shadow
-        // pipeline over the generic queue (MeshRenderer::RegisterShadowPass); depth is
-        // material-independent, so a per-material depth shader has nothing to contribute.
         out << "}\n";
 
         return Common::MakeSuccess( out.str() );

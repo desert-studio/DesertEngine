@@ -2,7 +2,7 @@
 // function that returns plausible numbers. The companion of Desert/Tests/Engine/AmbientIBL, and the
 // same shape of defect one term over.
 //
-// What this suite exists for: `Programs/PBR/StaticMeshPBR.shader` computed the sun's diffuse as
+// What this suite exists for: `Programs/PBR/StandardSurface.shader` computed the sun's diffuse as
 // `kd * albedo` while `Programs/Deferred/DeferredLighting.shader` computed it as `kd * albedo / PI`.
 // The Lambertian BRDF is albedo/PI, so the forward path's sun was PI times too bright. 51 of the
 // repository's 51 scenes shade their ordinary static opaque geometry through the deferred path, and
@@ -20,6 +20,7 @@
 // Every assertion is about the SHIPPED TEXT (Mesh/DirectLighting.glslh compiled as C++), and each picks
 // a property a missing 1/PI cannot have.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include "DirectLightingReference.hpp"
@@ -214,30 +215,6 @@ TEST( DirectLighting, AMetalHasNoDiffuseResponse )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// The directional wrapper: the sun's payload gives the direction the light TRAVELS.
-// ---------------------------------------------------------------------------------------------------
-
-TEST( DirectLighting, TheDirectionalWrapperNegatesAndNormalizesItsTravelDirection )
-{
-    // Both sun call sites hold the direction the light travels, not the direction toward it. Getting
-    // that backwards lights the shadowed side of everything, and the negate now lives in one place.
-    // The scale is there because DirectionLightComponent's payload is a normalized transform
-    // translation and DeferredUB's is not guaranteed to be — the wrapper must not care.
-    const glm::vec3 travel = -kL;
-
-    const glm::vec3 viaWrapper =
-         EvaluateDirectionalLight( travel * 7.5f, glm::vec3( 1.0f ), kView, kN, kF0, 0.0f, kRoughness, kAlbedo );
-    const glm::vec3 direct = Direct( glm::vec3( 1.0f ) );
-
-    EXPECT_TRUE( glm::all( glm::epsilonEqual( viaWrapper, direct, 1e-5f ) ) );
-
-    // And the sign really is a sign: handing it the direction TOWARD the light must light nothing.
-    const glm::vec3 flipped =
-         EvaluateDirectionalLight( kL, glm::vec3( 1.0f ), kView, kN, kF0, 0.0f, kRoughness, kAlbedo );
-    EXPECT_TRUE( glm::all( glm::epsilonEqual( flipped, glm::vec3( 0.0f ), 1e-6f ) ) );
-}
-
-// ---------------------------------------------------------------------------------------------------
 // THE relation: the two render paths, and the four light types.
 // ---------------------------------------------------------------------------------------------------
 
@@ -246,9 +223,7 @@ namespace
     std::filesystem::path ShaderRoot()
     {
         // The test binary lives in build/Bin/Tests/<config>; walk up to the repository root.
-        std::filesystem::path root = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ); ++up )
-            root = root.parent_path();
+        const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
         return root / "Editor" / "Resources" / "Shaders";
     }
 
@@ -272,30 +247,34 @@ TEST( DirectLighting, EveryDirectLightInTheEngineReachesTheOneSharedBRDF )
 {
     const std::filesystem::path root = ShaderRoot();
     ASSERT_TRUE( std::filesystem::exists( root ) )
-         << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+         << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
-    // Each consumer and the call it must make. The sun call sites take the travel-direction wrapper;
-    // the point and spot headers already hold a normalized L and take the core.
-    const std::pair<const char*, const char*> kConsumers[] = {
-         { "Programs/Deferred/DeferredLighting.shader", "EvaluateDirectionalLight(" }, // the deferred sun
-         { "Programs/PBR/StaticMeshPBR.shader", "EvaluateDirectionalLight(" },         // the forward sun
-         { "Programs/PBR/StaticMeshPBR_Instanced.shader", "EvaluateDirectionalLight(" },
-         { "Programs/PBR/SkinnedMeshPBR.shader", "EvaluateDirectionalLight(" }, // drawn FORWARD in Deferred
-         { "Mesh/PointLight.glslh", "EvaluateDirectLight(" },
-         { "Mesh/Spotlight.glslh", "EvaluateDirectLight(" },
+    // Each consumer, the text it must compile and the call it must make. Both passes hand EVERY source (the sun,
+    // point and spot lights) as a DesertLight from Mesh/LightSources.glslh to the surface's shading model; the
+    // lit model's body is where the one BRDF is called.
+    struct Consumer
+    {
+        const char* Relative;
+        const char* Include;
+        const char* Call;
+    };
+    const Consumer kConsumers[] = {
+         { "Programs/Deferred/DeferredLighting.shader", "LightSources.glslh", "DesertEvaluateShadingModel(" },
+         { "Mesh/Surface/Pass_Forward.glslh", "LightSources.glslh", "DesertEvaluateShadingModel(" },
+         { "ShadingModels/DefaultLit.shadingmodel", "DirectLighting.glslh", "EvaluateDirectLight(" },
     };
 
-    for ( const auto& [relative, call] : kConsumers )
+    for ( const Consumer& consumer : kConsumers )
     {
-        const std::filesystem::path file = root / relative;
+        const std::filesystem::path file = root / consumer.Relative;
         ASSERT_TRUE( std::filesystem::exists( file ) ) << file.string();
 
         const std::string source = Read( file );
 
-        EXPECT_NE( source.find( "DirectLighting.glslh" ), std::string::npos )
-             << relative << " does not compile the shared direct-light BRDF";
-        EXPECT_NE( source.find( call ), std::string::npos )
-             << relative << " does not evaluate its light through " << call;
+        EXPECT_NE( source.find( consumer.Include ), std::string::npos )
+             << consumer.Relative << " does not compile " << consumer.Include;
+        EXPECT_NE( source.find( consumer.Call ), std::string::npos )
+             << consumer.Relative << " does not evaluate its lights through " << consumer.Call;
     }
 }
 

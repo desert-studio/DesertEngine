@@ -73,7 +73,7 @@ namespace
     void AddScenes( std::vector<Case>& out )
     {
         for ( const auto& entry : std::filesystem::recursive_directory_iterator(
-                   Desert::TestSupport::RepoRoot() / "Editor/Resources/Assets/Scenes" ) )
+                   Desert::TestSupport::RepoRoot() / "Projects/Desert/Content/Scenes" ) )
         {
             if ( entry.path().extension() != ".desce" )
                 continue;

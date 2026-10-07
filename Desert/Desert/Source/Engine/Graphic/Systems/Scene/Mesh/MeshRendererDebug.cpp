@@ -29,11 +29,7 @@ namespace Desert::Graphic::System
 
         GraphicsPipelineSpecification spec;
         spec.DebugName = "SilhouettePipeline";
-        spec.Layout    = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                           { Graphic::ShaderDataType::Float3, "a_Normal" },
-                           { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                           { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                           { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout    = MeshVertexLayout( MeshVertexPath::Static );
 
         spec.DepthTestEnabled   = false;
         spec.DepthWriteEnabled  = false;
@@ -60,13 +56,7 @@ namespace Desert::Graphic::System
         {
             GraphicsPipelineSpecification sspec = spec;
             sspec.DebugName                     = "SilhouetteSkinnedPipeline";
-            sspec.Layout                        = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                                    { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                                    { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                                    { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                                    { Graphic::ShaderDataType::Float2, "a_TextureCoord" },
-                                                    { Graphic::ShaderDataType::Int4, "a_BoneIndices" },
-                                                    { Graphic::ShaderDataType::Float4, "a_BoneWeights" } };
+            sspec.Layout                        = MeshVertexLayout( MeshVertexPath::Skinned );
             sspec.Shader                        = m_SilhouetteSkinnedShader;
             // Optional variant: a refusal costs the outline on skinned meshes, not the pass.
             if ( const auto skinnedSilhouette = GraphicsPipeline::Create( sspec ) )
@@ -161,7 +151,7 @@ namespace Desert::Graphic::System
         // drawn fragment adds a small constant, so the .r channel ends up holding overdraw-count * step.
         FramebufferSpecification accumSpec;
         accumSpec.DebugName = "OverdrawAccum";
-        accumSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F );
+        accumSpec.Attachments.Attachments.emplace_back( Core::Formats::ImageFormat::RGBA32F );
         m_OverdrawFB = Graphic::Framebuffer::Create( accumSpec );
         m_OverdrawFB->Resize( targetFb->GetFramebufferWidth(), targetFb->GetFramebufferHeight() );
 
@@ -169,11 +159,7 @@ namespace Desert::Graphic::System
         // depth test — every fragment (even occluded ones) must count, which is exactly what overdraw measures.
         GraphicsPipelineSpecification spec;
         spec.DebugName           = "OverdrawPipeline";
-        spec.Layout              = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                     { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                     { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                     { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                     { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout              = MeshVertexLayout( MeshVertexPath::Static );
         spec.Shader              = m_OverdrawShader;
         spec.Framebuffer         = m_OverdrawFB;
         spec.DepthTestEnabled    = false;
@@ -213,8 +199,8 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr MeshRenderer::RenderOverdrawAccumManual( const RDG::PassContext& context )
     {
-        const auto camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
-        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || !camera )
+        auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || camera == nullptr )
             return BOOLSUCCESS;
 
         // The accumulation shader samples nothing: every draw is Plain.

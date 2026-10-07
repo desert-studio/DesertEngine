@@ -16,7 +16,7 @@ namespace Desert::Assets
     // only statement anywhere of what a demo material is supposed to be — stop being reachable the
     // moment a file exists under that name, and nothing anywhere says so.
     //
-    // It was not hypothetical. `Editor/Resources/Assets/Materials/CB_Red.demat` sat in the repository
+    // It was not hypothetical. `Projects/Desert/Content/Materials/CB_Red.demat` sat in the repository
     // carrying MetallicFactor 1.0 and RoughnessFactor 0.0 while its only author asked for roughness 0.9
     // and no metalness at all; the left wall of the Cornell box rendered as a black chrome mirror, and
     // the builder could not have corrected it on any launch, ever, because it never looked.

@@ -26,6 +26,7 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -232,7 +233,7 @@ namespace
         return {};
     }
 
-    std::string ReadAll( const std::string& path )
+    std::string ReadAll( const std::filesystem::path& path )
     {
         std::ifstream      in( path, std::ios::binary );
         std::ostringstream buffer;
@@ -296,10 +297,10 @@ TEST( EnvironmentViewMemory, TheForwardApplierStatesAbsence )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string body =
-         BodyOf( StripComments(
-                      ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Materials/SceneLightingBinding.hpp" ) ),
-                 "inline void SceneEnvironmentBind" );
+    const std::string body = BodyOf(
+         StripComments( ReadAll( std::filesystem::path( root ) /
+                                 "Desert/Desert/Source/Engine/Graphic/Materials/SceneLightingBinding.hpp" ) ),
+         "inline void SceneEnvironmentBind" );
     ASSERT_FALSE( body.empty() ) << "SceneEnvironmentBind is not where this suite expects it";
 
     // MESH-PB1: the cubes are pass parameters - a graph ref of THIS frame, or System.BlackCube - so no material
@@ -307,7 +308,8 @@ TEST( EnvironmentViewMemory, TheForwardApplierStatesAbsence )
     EXPECT_EQ( body.find( "SetTexture(" ), std::string::npos )
          << "SceneEnvironmentBind writes an environment cube onto the material again";
     const std::string refs =
-         BodyOf( StripComments( ReadAll( root + "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" ) ),
+         BodyOf( StripComments( ReadAll( std::filesystem::path( root ) /
+                                         "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" ) ),
                  "inline SceneViewInputs SceneViewInputsOf" );
     ASSERT_FALSE( refs.empty() ) << "SceneViewInputsOf is not where this suite expects it";
     EXPECT_NE( refs.find( "t.EnvIrradiance.IsValid() ? t.EnvIrradiance : refs.System.BlackCube" ),

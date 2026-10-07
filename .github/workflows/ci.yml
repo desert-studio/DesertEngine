@@ -392,11 +392,17 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-sanitizers-macos14-${{ github.sha }}
 
-      # The expected list is build/TestManifest.txt, the same list RunTests.sh runs from (BUILD1).
+      # The expected list is build/TestManifest.txt, the same list the unsharded runner runs from (BUILD1),
+      # minus the suites Desert/Tests/premake5.lua names in `vulkan_device_suites`
+      # (build/TestNeedsVulkanDevice.txt) while the shards run on macos-14, a VM with no Metal device for
+      # MoltenVK. The plan names them in a ::notice.
       - name: Plan test shards
+        env:
+          DESERT_MACOS_VULKAN_RUNNER: ${{ vars.DESERT_MACOS_VULKAN_RUNNER }}
         run: >-
           python3 scripts/CI/TestShards.py plan --expected build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
           --column asan --shards 3 --out build/TestPlan
+          --vulkan-device-suites build/TestNeedsVulkanDevice.txt --vulkan-runner-var DESERT_MACOS_VULKAN_RUNNER
 
       # tar, not upload-artifact's own zip: the zip drops the executable bit. The DWARF stays in the
       # object files, so ASan reports in a shard name functions but not lines; reproduce locally for lines.
@@ -613,7 +619,8 @@ jobs:
       # Offline shader lint: every .shader parses with the SAME DShaderParser the engine uses —
       # a broken shader fails the pipeline here instead of the editor at runtime.
       - name: Lint shaders (DShaderTool)
-        run: ./build/Bin/${{ matrix.config }}/DShaderTool Editor/Resources/Shaders
+        working-directory: Editor
+        run: ../build/Bin/${{ matrix.config }}/DShaderTool Resources/Shaders
 
       # ── THE HALF OF THE SHIPPING BOUNDARY THAT READS THE LINKED ARTIFACT ──────────────────────────
       #
@@ -645,7 +652,7 @@ jobs:
         if: matrix.config == 'Shipping'
         # `--out` is ABSOLUTE: GamePackager changes into the project folder (Editor/) before it writes,
         # so a relative one produced Editor/dist/Game and the upload below found nothing.
-        run: ./build/Bin/Shipping/GamePackager Editor/Desert.deproj --config Shipping --out "$GITHUB_WORKSPACE/dist/Game"
+        run: ./build/Bin/Shipping/GamePackager Projects/Desert/Desert.deproj --config Shipping --out "$GITHUB_WORKSPACE/dist/Game"
 
       - name: Upload the game
         if: matrix.config == 'Shipping'
@@ -666,7 +673,7 @@ jobs:
       - name: Smoke-run the packaged game (Vulkan runner only)
         if: matrix.config == 'Release' && vars.DESERT_MACOS_VULKAN_RUNNER == 'true'
         run: |
-          ./build/Bin/Release/GamePackager Editor/Desert.deproj --config Release --out "$GITHUB_WORKSPACE/dist/Game-Release"
+          ./build/Bin/Release/GamePackager Projects/Desert/Desert.deproj --config Release --out "$GITHUB_WORKSPACE/dist/Game-Release"
           app="$(find "$GITHUB_WORKSPACE/dist/Game-Release" -maxdepth 1 -name '*.app' | head -n 1)"
           exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           shot="$RUNNER_TEMP/packaged-smoke.png"
@@ -696,7 +703,7 @@ jobs:
       # project that CI does not have". Measured 2026-09-22, both halves wrong: `PackageGame` touches
       # no renderer, no VkDevice, no Application and no editor singleton — `Desert/Tests/Editor/
       # PackagedContent` has been calling it inside a gtest binary on both platforms for weeks — and
-      # `Editor/Desert.deproj` is tracked, so CI has had a project all along. `Tools/GamePackager` is
+      # `Projects/Desert/Desert.deproj` is tracked, so CI has had a project all along. `Tools/GamePackager` is
       # that call with a `main` around it, not a second packaging system.
       #
       # Release only for the drop; a Debug artifact would be huge and unused.
@@ -962,7 +969,27 @@ jobs:
           ) | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           & $exe --version | Select-Object -First 1
 
+      # THE CACHE OUTLIVES THE RUN. Without these two steps CCACHE_DIR started empty on every runner,
+      # so the only hits were one suite's copy of an engine source against another's inside the same
+      # build (911 / 3172 = 28.7 % in run 37461974209) and every Release build paid the full cold cost —
+      # 150 minutes and cancelled once the suites outgrew the ceiling. Keyed per configuration (the
+      # flags differ, nothing would hit across them) and per commit, restored from the newest of its
+      # configuration. Saved on EVERY event, not only push: a cache saved on an int/* branch is visible
+      # to that branch's next run, and int/* reruns are exactly where a cold build costs the most.
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}\ccache
+          key: ccache-windows-${{ matrix.config }}-${{ github.sha }}
+          restore-keys: |
+            ccache-windows-${{ matrix.config }}-
+
+      # A STEP timeout under the job's 150: when the step runs out the job is NOT being cancelled, so
+      # Save ccache below runs normally and keeps every object the build finished. At the job ceiling
+      # the runner was already tearing down — run 37484896713's Release save printed success and no
+      # cache appeared.
       - name: Build ${{ matrix.config }}
+        timeout-minutes: 130
         shell: cmd
         run: |
           "%CCACHE_EXE%" --zero-stats || exit /b 1
@@ -976,6 +1003,17 @@ jobs:
       # files", hit once, and Windows Release grew from 78 to 104..146 minutes, a leg slowly
       # crossing its 150-minute ceiling. Nothing failed by name; it read as a hung runner. A
       # multi-source call means UseMultiToolTask is off, so it fails the job by name.
+      # Right after the build, `always()`: a build cancelled at the ceiling still leaves every object
+      # it finished, and that is what lets the next run get past the point this one stopped at. The
+      # cache is an optimisation, so a failed save never turns the job red (`continue-on-error`).
+      - name: Save ccache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}\ccache
+          key: ccache-windows-${{ matrix.config }}-${{ github.sha }}
+
       - name: ccache saw one source per compile
         shell: pwsh
         run: |
@@ -1016,13 +1054,18 @@ jobs:
       # packaging below still run. The expected list is build/TestManifest.txt, the list RunTests.ps1
       # has always failed against; TestShards.py refuses a plan whose union is not exactly that list.
       # The comment above `Run tests` in the shard job says why Shipping has no tests at all.
+      # windows-2022 has no Vulkan device: the suites in `vulkan_device_suites` leave the plan
+      # with a ::notice unless DESERT_WINDOWS_VULKAN_RUNNER is 'true' (the same switch as the smoke-run below).
       - name: Plan test shards
         if: matrix.shards > 0
         shell: bash
+        env:
+          DESERT_WINDOWS_VULKAN_RUNNER: ${{ vars.DESERT_WINDOWS_VULKAN_RUNNER }}
         run: >-
           python scripts/CI/TestShards.py plan --expected build/TestManifest.txt
           --timings scripts/CI/TestTimings.tsv --column ${{ matrix.column }}
           --shards ${{ matrix.shards }} --out build/TestPlan
+          --vulkan-device-suites build/TestNeedsVulkanDevice.txt --vulkan-runner-var DESERT_WINDOWS_VULKAN_RUNNER
 
       - name: Test bundle footprint
         if: matrix.shards > 0
@@ -1069,7 +1112,8 @@ jobs:
       # run" — is not built in this configuration.
       - name: Lint shaders (DShaderTool)
         shell: cmd
-        run: build\Bin\${{ matrix.config }}\DShaderTool.exe Editor\Resources\Shaders
+        working-directory: Editor
+        run: ..\build\Bin\${{ matrix.config }}\DShaderTool.exe Resources\Shaders
 
       # THE PLAYER'S ARTIFACT ON WINDOWS, packaged by the same headless tool the macOS Shipping leg uses
       # (Tools/GamePackager). Release too, not only Shipping: Release is the leg that can photograph the
@@ -1079,7 +1123,7 @@ jobs:
       - name: Package the sandbox game
         if: matrix.config != 'Debug'
         shell: bash
-        run: ./build/Bin/${{ matrix.config }}/GamePackager.exe Editor/Desert.deproj --config ${{ matrix.config }} --out "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}"
+        run: ./build/Bin/${{ matrix.config }}/GamePackager.exe Projects/Desert/Desert.deproj --config ${{ matrix.config }} --out "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}"
 
       # THE GAME MUST START ON A CLEAN MACHINE: no Visual C++ Redistributable installed. The workspace
       # builds with the DLL CRT (/MD; the Vulkan SDK's shaderc/spirv-cross are MD_DynamicRelease) and

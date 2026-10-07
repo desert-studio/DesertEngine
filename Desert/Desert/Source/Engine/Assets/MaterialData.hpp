@@ -12,6 +12,8 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
+#include <Engine/Assets/ThumbnailInfo.hpp>
 
 namespace Desert::Assets
 {
@@ -40,14 +42,18 @@ namespace Desert::Assets
         std::string Name;
         std::string Guid;
         std::string Path;
+        // This slot's sampler (wrap U/V, filter), when the material states one: an override of the template's
+        // `Sampler(...)` (ShaderParam::Sampler), resolved by Core::Formats::ResolveSlotSampler. Absent = the
+        // template's. A glTF import writes it from the source texture's sampler. Additive: no schema step.
+        std::optional<Core::Formats::SamplerState> Sampler;
     };
 
     // THE material asset payload (.demat) — the single protocol for every material.
     //
     // A material is a shader + parameter values, nothing else (Unity model). The shader's schema
     // (declared in the .shader file) defines which params exist, their types, ranges and UI; this
-    // struct only stores the values by name. The optimized PBR backend consumes a typed VIEW of
-    // these values (PBRSurfaceParams) — an implementation detail, not part of the protocol.
+    // struct only stores the values by name; the renderer binds them through the template's MaterialLayout
+    // (MaterialBinder), which also answers the default of every parameter the material does not state.
     struct MaterialData
     {
         // First member: the text header (kind Material, GUID, MATL schema version). Stamped and checked
@@ -70,6 +76,28 @@ namespace Desert::Assets
         // the handle a shader registers under.
         std::vector<MaterialAssetRef> CloudAssets;
 
+        // HOW THIS MATERIAL IS PHOTOGRAPHED (UE: UMaterial::ThumbnailInfo, a USceneThumbnailInfoWithPrimitive
+        // stored in the package): the primitive, its own preview mesh instead of it, and the orbit — the one home
+        // of all three (ThumbnailInfo.hpp). Absent = the default info (the sphere, straight on), and so is every
+        // absent member of it (ThumbnailInfoRecord). Its PreviewMesh is a stated dependency of the header like
+        // any other reference. Read it through ThumbnailOrDefault, write it through SetThumbnail.
+        std::optional<ThumbnailInfoRecord> Thumbnail;
+
+        [[nodiscard]] ThumbnailInfo ThumbnailOrDefault() const
+        {
+            return Thumbnail.has_value() ? Resolve( *Thumbnail ) : ThumbnailInfo{};
+        }
+
+        /// The one spelling of an edit of the info: the default info is written as no key, a default member of
+        /// it as no member (a stated default would give one picture two spellings).
+        void SetThumbnail( const ThumbnailInfo& info )
+        {
+            if ( info == ThumbnailInfo{} )
+                Thumbnail.reset();
+            else
+                Thumbnail = ToRecord( info );
+        }
+
         // MATERIAL INSTANCE (UE model): when set, this asset is a CHILD of the material whose header GUID this
         // names (32 hex digits, AssetGuidToText), and Params/Textures hold ONLY the overridden values - the
         // shader and every non-overridden parameter come from the parent chain. The same GUID is the header's
@@ -79,6 +107,12 @@ namespace Desert::Assets
         // handle is that GUID through the one fold (Handle()). MATL v1 carried a u64 MaterialId beside the
         // GUID - two statements of one identity - and Tools/SceneMigrator removes it (MATL 1 -> 2).
         std::optional<std::string> Parent;
+        // THE MATERIAL IS TWO-SIDED (UE UMaterial::TwoSided, glTF `doubleSided`): its draws rasterize with no
+        // face culling. A property of the MATERIAL and a pipeline permutation (Cull None) — never a shader
+        // parameter, a shader cannot un-cull a face. On a base material an absent value is one-sided; on an
+        // instance an absent value INHERITS the parent's and a present one overrides it (UE's
+        // bOverride_TwoSided), which is why it is optional and not a bool with a default.
+        std::optional<bool> TwoSided;
 
         bool IsInstance() const
         {
@@ -215,6 +249,18 @@ namespace Desert::Assets
             SetRef( Textures, name, guid, path );
         }
 
+        /// THE SAMPLER THE `name` SLOT DRAWS WITH: this material's own `Sampler` on the slot when it states
+        /// one, else @p templateDefault (the shader's `Sampler(...)`, ShaderParam::Sampler). The one reader of
+        /// MaterialAssetRef::Sampler; ApplySurfaceAsset (MaterialService) hands its answer to the slot's
+        /// Texture2DProperty.
+        [[nodiscard]] Core::Formats::SamplerState
+        SlotSampler( std::string_view name, const Core::Formats::SamplerState& templateDefault ) const
+        {
+            const MaterialAssetRef* ref = FindRef( Textures, name );
+            return Core::Formats::ResolveSlotSampler(
+                 templateDefault, ref != nullptr ? ref->Sampler : std::optional<Core::Formats::SamplerState>{} );
+        }
+
         uint64_t GetCloudAsset( std::string_view name ) const
         {
             return HandleOfRef( FindRef( CloudAssets, name ) );
@@ -274,6 +320,8 @@ namespace Desert::Assets
                 add( r.Guid );
             for ( const auto& r : CloudAssets )
                 add( r.Guid );
+            if ( Thumbnail.has_value() && Thumbnail->PreviewMesh.has_value() )
+                add( Thumbnail->PreviewMesh->Guid );
             return out;
         }
 
@@ -306,7 +354,7 @@ namespace Desert::Assets
                     r.Path = std::move( where );
                     return;
                 }
-            refs.push_back( { std::string( name ), std::move( text ), std::move( where ) } );
+            refs.push_back( { std::string( name ), std::move( text ), std::move( where ), std::nullopt } );
         }
     };
 } // namespace Desert::Assets

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Common/Core/Events/Event.hpp>
+#include <Common/Core/Events/EventTree.hpp>
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -36,8 +36,6 @@ namespace Common
          */
         [[nodiscard]] virtual Common::BoolResultStr OnUIRender() = 0;
 
-        virtual void OnEvent( Common::Event& event ) = 0;
-
         /**
          * @brief The frame is SUBMITTED AND PRESENTED. Called once per iteration, after the swapchain
          *        image has gone out; a no-op unless a layer needs that exact instant.
@@ -67,7 +65,21 @@ namespace Common
             return m_Name;
         }
 
+        void JoinEvents( EventNodeLink link )
+        {
+            m_EventNode = std::move( link );
+        }
+        [[nodiscard]] EventTree* Events() const
+        {
+            return m_EventNode.Tree();
+        }
+        [[nodiscard]] EventNodeId EventNode() const
+        {
+            return m_EventNode.Id();
+        }
+
     private:
-        std::string m_Name;
+        std::string   m_Name;
+        EventNodeLink m_EventNode;
     };
 } // namespace Common

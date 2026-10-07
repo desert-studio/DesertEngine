@@ -742,11 +742,12 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
     const std::set<std::string> allowed = {
          "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.cpp",
          "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.cpp",
-         "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp",
-         // The two control-rig surfaces, added by 07 §14.2 when `ControlRigEditMode`'s three statics were
-         // dissolved into this type. They are the SAME two halves the bone side already had — a panel
-         // that says which control, and a viewport overlay that draws and drags it — and they arrive as
-         // named rows rather than as a bumped count.
+         // The Details bone tree (SkinnedMeshComponentWidget) left with DET1: a component's Details shows the
+         // slot, not the asset's skeleton - the bone tree is the Skeleton editor's (SKEL-TREE). The two
+         // control-rig surfaces, added by 07 §14.2 when `ControlRigEditMode`'s three statics were dissolved into
+         // this type. They are the SAME two halves the bone side already had — a panel that says which control,
+         // and a viewport overlay that draws and drags it — and they arrive as named rows rather than as a bumped
+         // count.
          "Editor/Source/Editor/Panels/Animation/ControlRigPanel.cpp",
          "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp",
          // THE COMMAND PALETTE IS A SURFACE, and it earns the row on the same terms the panels do: it
@@ -756,8 +757,9 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
          // Delegating to ControlRigPanel instead was considered and refused: the command would then
          // require that panel to be OPEN, and the whole reason the palette entries exist is to act when
          // no panel is — which is what made `ControlDrag` observable from the control channel for the
-         // first time, synthetic input being closed on this machine.
-         "Editor/Source/EditorLayer.cpp",
+         // first time, synthetic input being closed on this machine. The palette's Entity / Control Rig
+         // provider (EDL-2b) is where that owner and context live now.
+         "Editor/Source/Editor/Core/Selection/EntityCommands.cpp",
     };
 
     std::set<std::string> writers;

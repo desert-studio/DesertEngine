@@ -11,9 +11,9 @@
 //
 // The cause was in neither the geometry nor the shader but in the MATERIAL ASSET. Editor/Resources/
 // Assets/Materials/CB_Red.demat carried `RoughnessFactor 0.0` and `MetallicFactor 1.0` — a chrome
-// mirror — where its five CB_* siblings and the builder that authors them (EditorLayer::
-// BuildCornellShowcase -> CreatePBRMaterialAsset(..., red, 0.9f)) all say roughness 0.9 and no
-// metalness at all. A conductor has no diffuse lobe (`kd = (1 - F) * (1 - metalness)` in
+// mirror — where its five CB_* siblings and what their author asked for (CornellDemo.desce's
+// materials, held as data in Desert/Tests/Engine/MaterialRequestAgreement/CornellDemoMaterials.hpp) all say
+// roughness 0.9 and no metalness at all. A conductor has no diffuse lobe (`kd = (1 - F) * (1 - metalness)` in
 // Mesh/DirectLighting.glslh is identically zero at metalness 1) and a mirror's specular lobe only fires
 // where the eye lies in the reflected direction of the source, which for a delta light is nowhere. The
 // measured consequence, through the shipped text this suite compiles:
@@ -83,6 +83,7 @@
 #include "CornellSymmetryReference.hpp"
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <limits>
 #include <sstream>
@@ -208,7 +209,7 @@ namespace
     }
 
     // A .demat as the shading path sees it: the three PBR schema params, defaulted exactly as
-    // Programs/PBR/StaticMeshPBR.shader declares them (Albedo (1,1,1,1), Metallic 0, Roughness 0.5) so a
+    // Programs/PBR/StandardSurface.shader declares them (Albedo (1,1,1,1), Metallic 0, Roughness 0.5) so a
     // file that omits a param is read the way the GPU reads it and not the way a test would like to.
     struct Material
     {
@@ -219,7 +220,7 @@ namespace
 
     Material LoadMaterial( const std::string& root, const std::string& relativePath )
     {
-        const std::string         path = root + "Editor/Resources/Assets/" + relativePath;
+        const std::string         path = std::format( "{}Projects/Desert/Content/{}", root, relativePath );
         const Common::Json::Value file = ParseObject( ReadAll( path ), path );
 
         Material   material;
@@ -301,20 +302,23 @@ namespace
         return light;
     }
 
-    // What the deferred composite computes for one point light on one surface, through the SHIPPED
-    // text: Mesh/PointLight.glslh's `CalculatePointLight` is `LightFalloffFactor` (PBRFunctions.glslh)
-    // followed by `EvaluateDirectLight` (DirectLighting.glslh), and both of those are compiled as C++
-    // by the reference header. The three lines below are the wrapper, which declares an SSBO and
-    // therefore cannot be.
-    glm::vec3 PointLightResponse( const PointLightPayload& light, const glm::vec3& surface,
+    // What the deferred composite computes for one point light on one DefaultLit surface, through the SHIPPED
+    // text: the source becomes a DesertLight in Mesh/LightSources.glslh's `DesertPointLightAt` (colour *
+    // intensity * `LightFalloffFactor`, PBRFunctions.glslh), and DefaultLit's Evaluate
+    // (ShadingModels/DefaultLit.shadingmodel) is `EvaluateDirectLight` (DirectLighting.glslh) on it times its
+    // Shadow. All three are compiled as C++ by the reference header; the model body sits behind a manifest,
+    // so its one line is the last statement here.
+    glm::vec3 PointLightResponse( const PointLightPayload& payload, const glm::vec3& surface,
                                   const glm::vec3& normal, const Material& material )
     {
-        const glm::vec3 toLight  = light.Position - surface;
-        const float     distance = glm::length( toLight );
-        const glm::vec3 L        = glm::normalize( toLight );
-
-        const float     attenuation = LightFalloffFactor( distance, light.MinRadius, light.Radius, light.Falloff );
-        const glm::vec3 radiance    = light.Color * light.Intensity * attenuation;
+        PointLight source{};
+        source.color            = payload.Color;
+        source.intensity        = payload.Intensity;
+        source.position         = payload.Position;
+        source.radius           = payload.Radius;
+        source.minRadius        = payload.MinRadius;
+        source.falloff          = payload.Falloff;
+        const DesertLight light = DesertPointLightAt( source, surface );
 
         const glm::vec3 view = glm::normalize( kCameraPosition - surface );
         const glm::vec3 F0   = glm::mix( kDielectricF0, material.Albedo, material.Metallic );
@@ -322,8 +326,9 @@ namespace
         // The deferred composite clamps roughness off zero before shading (`max(gb.a, 0.04)` in
         // DeferredLighting.shader), and the BRDF's contract says the caller must. Clamping here is what
         // makes this the same evaluation the GPU performs, not a kinder one.
-        return EvaluateDirectLight( L, radiance, view, normal, F0, material.Metallic,
-                                    glm::max( material.Roughness, 0.04f ), material.Albedo );
+        return EvaluateDirectLight( light.L, light.Radiance, view, normal, F0, material.Metallic,
+                                    glm::max( material.Roughness, 0.04f ), material.Albedo ) *
+               light.Shadow;
     }
 
     float Luminance( const glm::vec3& c )
@@ -350,7 +355,7 @@ namespace
         const std::string root = RepoRoot();
         EXPECT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
-        const std::string scenePath = root + "Editor/Resources/Assets/Scenes/CornellDemo.desce";
+        const std::string scenePath = std::format( "{}Projects/Desert/Content/Scenes/CornellDemo.desce", root );
 
         Fixture fixture;
         fixture.Scene = ParseObject( ReadAll( scenePath ), scenePath );
@@ -454,7 +459,7 @@ TEST( CornellSymmetry, TheTwoWallsReflectThePointLightEquallyOnceColourIsHeldCom
             "angle, by a factor of "
          << ( dark > 0.0f ? lit / dark : std::numeric_limits<float>::infinity() )
          << ". A Cornell box's side walls may differ in colour and in nothing else; check "
-            "MetallicFactor/RoughnessFactor in Editor/Resources/Assets/Materials/.";
+            "MetallicFactor/RoughnessFactor in Projects/Desert/Content/Materials/.";
 }
 
 // The same claim said as data, one level below the physics: whatever the two walls are made of, they are
@@ -495,7 +500,7 @@ TEST( CornellSymmetry, TheOrangeCubesFrontFaceIsTurnedAwayFromBothLights )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string scenePath = root + "Editor/Resources/Assets/Scenes/CornellDemo.desce";
+    const std::string scenePath = std::format( "{}Projects/Desert/Content/Scenes/CornellDemo.desce", root );
     const auto        scene     = ParseObject( ReadAll( scenePath ), scenePath );
 
     const Entity cube = EntityByTag( scene, "CB_OrangeCube" );
@@ -535,7 +540,7 @@ TEST( CornellSymmetry, TheSunIsOffAxisOnPurposeAndOnlyReachesOneWall )
     const Fixture fixture = LoadFixture();
 
     const std::string root  = RepoRoot();
-    const std::string path  = root + "Editor/Resources/Assets/Scenes/CornellDemo.desce";
+    const std::string path  = std::format( "{}Projects/Desert/Content/Scenes/CornellDemo.desce", root );
     const auto        scene = ParseObject( ReadAll( path ), path );
 
     const glm::vec3 towardSun = -glm::normalize( EntityByTag( scene, "CB_Sun" ).Translation );

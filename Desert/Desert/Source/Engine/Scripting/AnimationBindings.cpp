@@ -1,6 +1,9 @@
 #include "Internal/ScriptRuntime.hpp"
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
+#include <Engine/Assets/AnimGraphAsset.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/ECS/System/AnimationECSSystem.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -100,13 +103,77 @@ namespace Desert::Scripting
                 return false;
             }
             const auto& active = anim.Animator->GetActiveNotifyStates();
-            return std::any_of( active.begin(), active.end(), [&name]( const Animation::AnimationNotify& state )
+            return std::any_of( active.begin(), active.end(), [&name]( const Animation::ActiveNotifyState& state )
                                 { return state.Name == name; } );
         };
 
         // self:setAnimParam(name, value) -> bool. Returns false AND logs on every refusal: the boolean is
         // for the script that wants to branch, the log is for the developer who does not know yet that
         // there is something to branch on.
+        // self:linkAnimLayers(path) / self:unlinkAnimLayers(path) -> bool. UE LinkAnimClassLayers /
+        // UnlinkAnimClassLayers: the `.danimgraph` at `path` (identified by its GUID) joins or leaves the
+        // entity's AnimationComponent::LinkedLayerGraphs, the one list the scene and Details write too; the
+        // animation system relinks next tick and reports a refused link by name. False, logged, on an
+        // entity with no AnimationComponent, a path naming no graph, or a graph implementing no layer.
+        const auto layerGraph = [assets = &impl.Assets]( ScriptEntity& self, const std::string& path,
+                                                         const char* verb ) -> std::optional<Assets::AssetHandle>
+        {
+            if ( !self.Valid() || !self.Reg().has<ECS::AnimationComponent>( self.handle ) )
+            {
+                LOG_ERROR( "[Anim] {}('{}'): the entity has no AnimationComponent to link layers on.", verb,
+                           path );
+                return std::nullopt;
+            }
+            if ( *assets == nullptr )
+            {
+                LOG_ERROR( "[Anim] {}('{}'): no AssetManager bound to resolve the graph through.", verb, path );
+                return std::nullopt;
+            }
+            auto asset = ( *assets )->FindByPath<Assets::AnimGraphAsset>( path );
+            if ( !asset )
+                asset = ( *assets )->CreateAsset<Assets::AnimGraphAsset>( path );
+            if ( !asset || !asset->GetGraph() )
+            {
+                LOG_ERROR( "[Anim] {}('{}'): no anim graph at that path.", verb, path );
+                return std::nullopt;
+            }
+            const auto& graph = *asset->GetGraph();
+            if ( !graph.Layers || graph.Layers->Implemented.empty() )
+            {
+                LOG_ERROR( "[Anim] {}('{}'): AnimGraph '{}' implements no layer interface, so it has no layer "
+                           "to link.",
+                           verb, path, graph.Name );
+                return std::nullopt;
+            }
+            return Assets::AssetHandle( static_cast<uint64_t>( asset->GetMetadata().Handle ) );
+        };
+        entity["linkAnimLayers"] = [layerGraph]( ScriptEntity& self, const std::string& path ) -> bool
+        {
+            const auto handle = layerGraph( self, path, "linkAnimLayers" );
+            if ( !handle )
+                return false;
+            auto& anim = self.Reg().get<ECS::AnimationComponent>( self.handle );
+            if ( const auto linked = ECS::AnimationECSSystem::LinkAnimLayers( anim, *handle ); !linked )
+            {
+                LOG_ERROR( "[Anim] linkAnimLayers('{}'): {}", path, linked.GetError() );
+                return false;
+            }
+            return true;
+        };
+        entity["unlinkAnimLayers"] = [layerGraph]( ScriptEntity& self, const std::string& path ) -> bool
+        {
+            const auto handle = layerGraph( self, path, "unlinkAnimLayers" );
+            if ( !handle )
+                return false;
+            if ( !ECS::AnimationECSSystem::UnlinkAnimLayers(
+                      self.Reg().get<ECS::AnimationComponent>( self.handle ), *handle ) )
+            {
+                LOG_ERROR( "[Anim] unlinkAnimLayers('{}'): the entity has not linked that graph.", path );
+                return false;
+            }
+            return true;
+        };
+
         entity["setAnimParam"] = []( ScriptEntity& self, const std::string& name,
                                      const sol::object& value ) -> bool
         {

@@ -16,6 +16,7 @@
 //   * a worker read is counted ASYNC and never IN-FRAME -> otherwise the instrument that measures this
 //     whole tier reports the fix as the disease.
 
+#include <Common/Core/JobSystem.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Runtime/Services/Texture/TextureWaiters.hpp>
@@ -24,9 +25,13 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 using Desert::Assets::AssetBase;
 using Desert::Assets::AssetTypeID;
@@ -281,17 +286,43 @@ TEST_F( AsyncAssetLoad, CancelBeforeAWorkerReachesItSkipsTheReadEntirely )
     // THE HALF OF CANCEL THAT SAVES WORK. A scene closed while its content is queued must not sit
     // through the reads it no longer needs -- that is T2.3's "a scene that was closed should not wait
     // for its loads", and it is only true if the job checks before reading rather than after.
-    auto blocker = std::make_shared<ProbeAsset>( "blocker.probe" );
-    blocker->HoldInsideRead.store( true );
+    //
+    // "BEFORE A WORKER REACHES IT" IS A CONDITION THE TEST BUILDS, NOT ONE IT HOPES FOR. The pool runs
+    // jobs on any worker in any order (JobSystem.hpp), so a victim queued behind blockers that do not
+    // hold is free to be picked up the instant it is submitted -- and was, about once in a few hundred
+    // ASan runs. Every worker is therefore parked inside a held read FIRST, each one confirmed inside
+    // before the victim exists; only then is the victim requested and cancelled, and only then are the
+    // workers let go. No worker can reach the victim before `Cancel()` because none is free to.
+    const size_t workers = Common::JobSystem::Get().WorkerCount();
+    ASSERT_GE( workers, 1u );
 
-    std::vector<LoadRequest> blockers;
-    const size_t             workers = 64; // more than any worker count, so the queue is certainly full
+    std::vector<std::shared_ptr<ProbeAsset>> blockerAssets;
+    std::vector<LoadRequest>                 blockers;
     for ( size_t i = 0; i < workers; ++i )
     {
+        auto blocker = std::make_shared<ProbeAsset>( "blocker" + std::to_string( i ) + ".probe" );
+        blocker->HoldInsideRead.store( true );
         blockers.push_back( AsyncAssetLoader::Get().Request(
-             std::make_shared<ProbeAsset>( "blocker" + std::to_string( i ) + ".probe" ),
-             []( const auto&, LoadOutcome, const std::string& ) {}, [] {} ) );
-        blockers.back();
+             blocker, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} ) );
+        blockerAssets.push_back( std::move( blocker ) );
+    }
+    // A failed ASSERT below returns with every worker still spinning in a held read, and TearDown's
+    // drain would then hang instead of reporting. The holds are dropped on EVERY way out of this test.
+    struct LetGo
+    {
+        std::vector<std::shared_ptr<ProbeAsset>> Assets;
+        ~LetGo()
+        {
+            for ( const auto& held : Assets )
+                held->HoldInsideRead.store( false );
+        }
+    } letGo{ blockerAssets };
+    for ( const auto& blocker : blockerAssets )
+    {
+        WaitUntilInsideRead( *blocker );
+        ASSERT_TRUE( blocker->InsideRead.load( std::memory_order_acquire ) )
+             << "a blocker never reached its read, so not every worker is held and the victim below "
+                "could be picked up before it is cancelled.";
     }
 
     auto victim = std::make_shared<ProbeAsset>( "victim.probe" );
@@ -299,7 +330,8 @@ TEST_F( AsyncAssetLoad, CancelBeforeAWorkerReachesItSkipsTheReadEntirely )
          AsyncAssetLoader::Get().Request( victim, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
     request.Cancel();
 
-    blocker->HoldInsideRead.store( false );
+    for ( const auto& blocker : blockerAssets )
+        blocker->HoldInsideRead.store( false );
     for ( auto& held : blockers )
         held.Release();
     blockers.clear();
@@ -674,3 +706,9 @@ TEST_F( AsyncAssetLoad, AnAwaitWithANullDelegateIsRefused )
     EXPECT_FALSE( awaited.IsValid() );
     EXPECT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

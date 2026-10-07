@@ -48,7 +48,7 @@ namespace
 {
     constexpr const char* kDebugViewHeader = "Desert/Desert/Source/Engine/Graphic/DebugViewState.hpp";
     constexpr const char* kSceneSettings   = "Desert/Desert/Source/Engine/Core/SceneSettings.hpp";
-    constexpr const char* kSceneDirectory  = "Editor/Resources/Assets/Scenes";
+    constexpr const char* kSceneDirectory  = "Projects/Desert/Content/Scenes";
 
     // Walks up from the working directory looking for a file only the repository has — the test runner's
     // working directory is not fixed. Same shape as Desert/Tests/Engine/SceneVersionGate.

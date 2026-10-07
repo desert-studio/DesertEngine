@@ -42,17 +42,23 @@ namespace Desert::Core
     };
 
     // The blob's own version: the reader refuses any other. Bump it when the byte layout changes.
-    inline constexpr uint32_t kShaderMapFormatVersion = 2;
+    // 5: RDG-DEV1 merge — the int/rdg line's ShaderParam::EngineSet (v2) and dev's ShaderParam::Sampler (v4) in
+    // one layout.
+    inline constexpr uint32_t kShaderMapFormatVersion = 5;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the
     // fingerprint of that code (kShaderMapProducerSources, whitespace and comments stripped); it is part of
     // the deriver's version, so re-recording it moves every key. ShaderCacheKey's
     // TheShaderMapProducerFingerprintIsRecorded computes it from the files and prints the value to paste.
-    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x5ba3a67e1cd3b97fULL;
+    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x75e942d640ee7014ULL;
 
-    // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself.
-    inline constexpr std::array<std::string_view, 8> kShaderMapProducerSources{
+    // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself. The shading-model
+    // registry and manifest reader are listed because the parser calls them while producing a surface map (the
+    // model a template names, the SHADING_MODEL_INDEX_* define it writes): the key covers the models' DATA (the
+    // generated include's bytes and IndexLayoutKey), not the code that turns a manifest into that answer.
+    // ShaderRootShadingModels.cpp only loads and caches the set, so it shapes no map and is not listed.
+    inline constexpr std::array<std::string_view, 13> kShaderMapProducerSources{
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp",
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp",
@@ -60,7 +66,12 @@ namespace Desert::Core
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderMapCache.cpp",
          "Desert/Desert/Source/Engine/Core/Formats/ShaderProgramMeta.hpp",
          "Desert/Desert/Source/Engine/Core/Formats/Shader.hpp",
-         "Desert/Desert/Source/Engine/Core/Formats/DefaultTexture.hpp" };
+         "Desert/Desert/Source/Engine/Core/Formats/DefaultTexture.hpp",
+         "Desert/Desert/Source/Engine/Core/Formats/SamplerState.hpp",
+         "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.hpp",
+         "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
+         "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp",
+         "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp" };
 
     std::string                  SerializeShaderMap( const ShaderMap& map );
     Common::ResultStr<ShaderMap> DeserializeShaderMap( std::string_view bytes );

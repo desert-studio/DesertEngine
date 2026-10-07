@@ -109,6 +109,22 @@ namespace Desert::Editor
             return true;
         }
 
+        /// The second half of one user action joins the first (`JoinLastTwo`) only when it provably follows
+        /// it: the first half's entry was pushed at revision @p first, the history still stood there when
+        /// the second half opened at @p opened (nothing recorded, undone or redone in between), and the
+        /// second half pushed exactly one entry since. An actor gizmo drag with REC on is UE's one
+        /// FScopedTransaction around the move AND its auto-key; here the move is the gizmo's entry and the
+        /// key the Sequencer's. False (and nothing changes) on anything else — two honest entries beat one
+        /// that swallowed an unrelated edit.
+        bool JoinFollowUp( uint64_t first, uint64_t opened )
+        {
+            if ( opened != first || m_Revision != opened + 1 )
+            {
+                return false;
+            }
+            return JoinLastTwo();
+        }
+
         bool Undo()
         {
             // Stale entries (target entity gone) report failure — discard them and keep walking down.

@@ -25,7 +25,6 @@
 #include <Engine/Core/Camera.hpp>
 
 #include <Common/Core/Events/WindowEvents.hpp>
-#include <Common/Core/EventRegistry.hpp>
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 
@@ -97,6 +96,7 @@ namespace Desert::Graphic
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
+            int                    TranslucencySortPriority = 0; // lower draws first (translucency pass)
         };
 
         // Each renderer IS a view: it owns its ViewResources, so per-frame state is stored per view instead of
@@ -574,9 +574,9 @@ namespace Desert::Graphic
         // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
         // raster node): published as FrameTransients::SceneColorCopy and returned; invalid when no copy was made
         // (no copy system, no scene colour, its desc refused - logged).
-        RDG::TextureRef AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& sceneColor,
-                                           System::CopyRenderer*               copy );
+        static RDG::TextureRef AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
+                                                  const std::vector<RDG::TextureRef>& sceneColor,
+                                                  System::CopyRenderer*               copy );
         // @p sceneCopy: the snapshot SSR traces reflections from (valid; the caller skips SSR without one).
         void AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,

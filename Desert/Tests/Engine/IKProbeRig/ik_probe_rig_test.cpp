@@ -45,12 +45,13 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
-    constexpr const char* kCookedDir = "Editor/Resources/Assets/Meshes/Skinned/";
-    constexpr const char* kWitness   = "Editor/Resources/Assets/Scenes/ANIM_IKWitness.desce";
-    constexpr const char* kNoControl = "Editor/Resources/Assets/Scenes/ANIM_IKWitness_NoIK.desce";
+    constexpr const char* kCookedDir = "Resources/Assets/Meshes/Skinned/";
+    constexpr const char* kWitness   = "Resources/Assets/Scenes/ANIM_IKWitness.desce";
+    constexpr const char* kNoControl = "Resources/Assets/Scenes/ANIM_IKWitness_NoIK.desce";
 
     constexpr const char* kShoulder = "IK_Shoulder";
     constexpr const char* kElbow    = "IK_Elbow";
@@ -63,22 +64,11 @@ namespace
     constexpr float kLowerLimbCm = 60.0F;
     constexpr float kGoalCm      = 90.0F; // |Goal - IK_Shoulder|, i.e. where in the shell the goal sits
 
-    std::string RepoRoot()
-    {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + std::string( kCookedDir ) + "IKProbe.skeleton" );
-            if ( probe )
-            {
-                return prefix;
-            }
-            prefix += "../";
-        }
-        return {};
-    }
+    // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
+    // from the working directory.
+    using Desert::TestSupport::TestDataDir;
 
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -159,7 +149,7 @@ namespace
 
     Desert::Assets::Serialization::SkeletonAssetData LoadSkeletonData()
     {
-        const std::string raw = ReadFile( RepoRoot() + kCookedDir + "IKProbe.skeleton" );
+        const std::string raw = ReadFile( TestDataDir() / kCookedDir / "IKProbe.skeleton" );
         EXPECT_FALSE( raw.empty() ) << "could not read IKProbe.skeleton";
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() );
@@ -168,7 +158,7 @@ namespace
 
     Desert::Assets::Serialization::MeshAssetData LoadMeshData()
     {
-        const std::string raw = ReadFile( RepoRoot() + kCookedDir + "IKProbe.skmesh" );
+        const std::string raw = ReadFile( TestDataDir() / kCookedDir / "IKProbe.skmesh" );
         EXPECT_FALSE( raw.empty() ) << "could not read IKProbe.skmesh";
         // Through the engine's own reader (B11): a cooked mesh is a binary container, and a suite that
         // parsed the fixture as JSON would be reading it by a route the engine does not take.
@@ -179,7 +169,7 @@ namespace
 
     Desert::Animation::AnimationClip LoadClip()
     {
-        const std::string raw = ReadFile( RepoRoot() + kCookedDir + "IKProbe_Swing.anim" );
+        const std::string raw = ReadFile( TestDataDir() / kCookedDir / "IKProbe_Swing.anim" );
         EXPECT_FALSE( raw.empty() ) << "could not read IKProbe_Swing.anim";
         auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() );
@@ -218,7 +208,6 @@ namespace
 
 TEST( IKProbeRig, TheShippedRigIsTheChainThisSuiteDescribes )
 {
-    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
 
     const auto data     = LoadSkeletonData();
     const auto expected = ProbeBones();
@@ -240,23 +229,33 @@ TEST( IKProbeRig, TheShippedRigIsTheChainThisSuiteDescribes )
         }
     }
 
-    // ONE identity, derived twice and written into four files no compiler reads.
+    // The bone hash is the rig's PAYLOAD fingerprint and still matches the bones the file carries.
     const std::uint64_t signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
     EXPECT_EQ( data.Signature, signature );
-    EXPECT_EQ( LoadMeshData().SkeletonSignature.value_or( 0ULL ), signature );
-    EXPECT_EQ( LoadClip().SkeletonSignature, signature )
+
+    // ONE identity, written into three files no compiler reads: the skeleton's header GUID, which the mesh
+    // (.skmesh header SkeletonGuid) and the clip (AnimationClip::Skeleton) name it by (SKEL-TREE).
+    if ( !data.Header.has_value() )
+        FAIL() << "IKProbe.skeleton states no text header, so it has no GUID";
+    const auto rigGuid = Common::Content::AssetGuidFromText( data.Header->Guid );
+    ASSERT_TRUE( rigGuid.IsSuccess() ) << "IKProbe.skeleton's header GUID does not parse: " << data.Header->Guid;
+    ASSERT_FALSE( rigGuid.GetValue().IsNull() ) << "IKProbe.skeleton states a null GUID";
+    const std::string rigGuidText = Common::Content::AssetGuidToText( rigGuid.GetValue() );
+    EXPECT_EQ( Common::Content::AssetGuidToText( LoadMeshData().Skeleton ), rigGuidText )
+         << "IKProbe.skmesh names a different skeleton from IKProbe.skeleton; the mesh would bind no rig.";
+    EXPECT_EQ( Common::Content::AssetGuidToText( LoadClip().Skeleton ), rigGuidText )
          << "IKProbe_Swing claims a different rig from IKProbe.skeleton. Every frame taken against it would "
             "show a bind pose and still render, which is broken evidence rather than no evidence.";
 
     // SCNE 28: the two shipped scenes name the mesh by the GUID its own header states -- read from the
     // file, not pinned, so re-cooking the mesh with a new GUID fails here until the scenes follow.
     const auto meshGuid =
-         Common::Content::ReadMeshHeaderGuid( ReadFile( RepoRoot() + kCookedDir + "IKProbe.skmesh" ) );
+         Common::Content::ReadMeshHeaderGuid( ReadFile( TestDataDir() / kCookedDir / "IKProbe.skmesh" ) );
     ASSERT_TRUE( meshGuid.has_value() ) << "IKProbe.skmesh states no header GUID (not a v3 mesh)";
     const std::string meshGuidText = Common::Content::AssetGuidToText( *meshGuid );
     for ( const char* scene : { kWitness, kNoControl } )
     {
-        const std::string text = ReadFile( RepoRoot() + scene );
+        const std::string text = ReadFile( TestDataDir() / scene );
         ASSERT_FALSE( text.empty() ) << "could not read " << scene;
         // Named outside the macro: MSVC mis-lexes a raw string followed by \" inside a macro argument (C2017).
         const std::string meshGuidField = R"("MeshGuid": ")" + meshGuidText + "\"";
@@ -270,7 +269,6 @@ TEST( IKProbeRig, TheShippedRigIsTheChainThisSuiteDescribes )
 
 TEST( IKProbeRig, TheChainIsThreeDeepAndTheTwoControlBonesAreOutsideIt )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto  rig   = RigFromFile();
     const auto& bones = rig.GetBones();
@@ -336,7 +334,6 @@ TEST( IKProbeRig, TheChainIsThreeDeepAndTheTwoControlBonesAreOutsideIt )
 
 TEST( IKProbeRig, TheScenesGoalIsThePostBonesPositionAndItIsInsideTheReach )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto      rig      = RigFromFile();
     const glm::vec3 shoulder = BindPositionOf( rig, kShoulder );
@@ -353,7 +350,7 @@ TEST( IKProbeRig, TheScenesGoalIsThePostBonesPositionAndItIsInsideTheReach )
     // "THE HAND ARRIVED AT THE POST" is only a statement about IK if the post IS the goal. The scene stores
     // the goal as three numbers and the rig stores the post as a bind transform; nothing but this line makes
     // the two agree, and a frame showing the hand beside the post would look like a solver bug either way.
-    const std::string scene = ReadFile( RepoRoot() + kWitness );
+    const std::string scene = ReadFile( TestDataDir() / kWitness );
     ASSERT_FALSE( scene.empty() );
     EXPECT_NE( scene.find( R"("Goal": [90.0, 150.0, 0.0])" ), std::string::npos )
          << "the witness scene's authored goal is not the post bone's position any more.";
@@ -382,11 +379,10 @@ TEST( IKProbeRig, TheScenesGoalIsThePostBonesPositionAndItIsInsideTheReach )
 
 TEST( IKProbeRig, TheShippedSolverReachesTheShippedGoalFromTheShippedClip )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
 
     const auto rig  = RigFromFile();
     const auto clip = LoadClip();
-    ASSERT_FALSE( clip.Tracks.empty() );
+    ASSERT_FALSE( clip.Sequence.Tracks.empty() );
 
     const auto handIndex = rig.FindBoneIndex( kHand );
     const auto kerbIndex = rig.FindBoneIndex( kKerb );

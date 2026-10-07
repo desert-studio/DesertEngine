@@ -1,6 +1,9 @@
 #pragma once
 
+#include <Engine/Assets/ThumbnailInfo.hpp>
+
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -53,6 +56,23 @@ namespace Desert::Editor::ThumbnailFraming
         bool      Valid  = false;
     };
 
+    /// The frame of one mesh-space box. An empty box (min above max: no submeshes, no vertices) is NOT a
+    /// frame: Valid stays false and the capture is REFUSED with the reason (AssetThumbnailRenderer::Request*).
+    /// There is no stand-in extent — a made-up 1-unit subject put the camera inside the real one and
+    /// photographed the sky as if it were the asset.
+    inline Frame FrameOfBox( const glm::vec3& mn, const glm::vec3& mx )
+    {
+        Frame frame;
+        if ( mx.x < mn.x )
+            return frame;
+
+        frame.Center         = ( mn + mx ) * 0.5f;
+        const glm::vec3 size = mx - mn;
+        frame.Extent         = std::max( size.x, std::max( size.y, size.z ) );
+        frame.Valid          = frame.Extent > 0.0f;
+        return frame;
+    }
+
     /**
      * @brief Union of the submeshes' AABBs in mesh space: each submesh transform applied to its box's 8
      *        corners. Meshes with per-submesh transforms frame correctly this way (an axis-aligned union
@@ -78,15 +98,7 @@ namespace Desert::Editor::ThumbnailFraming
             }
         }
 
-        Frame frame;
-        if ( mx.x < mn.x )
-            return frame; // empty range / empty boxes: caller keeps its fallback framing
-
-        frame.Center         = ( mn + mx ) * 0.5f;
-        const glm::vec3 size = mx - mn;
-        frame.Extent         = std::max( size.x, std::max( size.y, size.z ) );
-        frame.Valid          = true;
-        return frame;
+        return FrameOfBox( mn, mx );
     }
 
     // The world transform (uniform scale + translation) that frames a subject of the given extent/center
@@ -95,7 +107,27 @@ namespace Desert::Editor::ThumbnailFraming
     {
         glm::vec3 Translation{ 0.0f };
         float     Scale = 1.0f;
+        // The subject turned so the fixed capture camera sees it from the asset's ORBIT (UE orbits the
+        // camera; turning the subject about its own centre by the inverse is the same picture and keeps the
+        // camera — and every sky/light term tied to it — untouched). Identity for the default orbit.
+        glm::quat Rotation{ 1.0f, 0.0f, 0.0f, 0.0f };
     };
+
+    /**
+     * @brief The subject's turn that shows it from @p orbit under a camera whose right/up axes are given.
+     *
+     * Yaw orbits the camera about the camera's UP axis (positive = the camera moves to the subject's right,
+     * so the subject turns by -Yaw); Pitch raises the camera over the subject (positive = seen from above,
+     * so the subject's top turns toward the camera: +Pitch about the camera's RIGHT axis). Yaw first, then
+     * Pitch — UE's order (FSceneThumbnailInfo: yaw about Z, then pitch).
+     */
+    inline glm::quat OrbitRotation( const glm::vec3& right, const glm::vec3& up,
+                                    const Assets::ThumbnailOrbit& orbit )
+    {
+        const glm::quat yaw   = glm::angleAxis( glm::radians( -orbit.Yaw ), up );
+        const glm::quat pitch = glm::angleAxis( glm::radians( orbit.Pitch ), right );
+        return glm::normalize( pitch * yaw );
+    }
 
     /**
      * @brief Frame a subject in the camera's view.
@@ -104,6 +136,10 @@ namespace Desert::Editor::ThumbnailFraming
      * @param projection camera view->clip matrix (Camera::GetProjectionMatrix()).
      * @param extent     the subject's largest world-space dimension, MEASURED from the mesh actually drawn.
      * @param center     the subject's own centre in its local space (subtracted so it lands on the axis).
+     * @param orbit      the ASSET'S thumbnail orbit (Assets::ThumbnailInfo), the only place it is read from:
+     *                   turns the subject about its centre (OrbitRotation) and moves it along the view axis
+     *                   by Zoom as a fraction of the fitted distance (the fit is solved, then divided by
+     *                   1 + Zoom — the same picture as the camera backing off).
      *
      * The subject centre is put on the view axis at @ref kViewAxisDistance (screen centre), then the
      * on-screen size of one world unit at that depth is measured by projecting points through
@@ -112,7 +148,7 @@ namespace Desert::Editor::ThumbnailFraming
      * by ~zero.
      */
     inline Placement PlaceInView( const glm::mat4& view, const glm::mat4& projection, float extent,
-                                  const glm::vec3& center )
+                                  const glm::vec3& center, const Assets::ThumbnailOrbit& orbit )
     {
         // Camera world pose from the inverse view: translation is the eye, -Z the forward, +X the right,
         // +Y the up.
@@ -147,38 +183,18 @@ namespace Desert::Editor::ThumbnailFraming
         const float     ndcPerWorld = std::max( glm::length( ndcSide - ndcAt ), glm::length( ndcUp - ndcAt ) );
 
         Placement placement;
+        placement.Rotation = OrbitRotation( right, up, orbit );
         if ( extent <= 1e-4f || ndcPerWorld <= 1e-6f )
         {
             placement.Scale       = 1.0f;
-            placement.Translation = axisPoint - center;
+            placement.Translation = axisPoint - placement.Rotation * center;
             return placement;
         }
 
+        // Zoom > -1 is the orbit's own invariant (IsValidThumbnailOrbit); the formats refuse anything else.
         const float worldSpan = ( kFillFraction * 2.0f ) / ndcPerWorld; // world units to fill the frame
-        placement.Scale       = worldSpan / extent;
-        placement.Translation = axisPoint - center * placement.Scale;
+        placement.Scale       = worldSpan / extent / ( 1.0f + orbit.Zoom );
+        placement.Translation = axisPoint - placement.Rotation * ( center * placement.Scale );
         return placement;
-    }
-
-    /**
-     * @brief Yaw about Y that turns a +Z-facing card toward the eye.
-     *
-     * The flat preview (cutout/foliage materials, which garble when wrapped on a sphere) is a plane whose
-     * default normal is +Z, kept UPRIGHT — a grass card grows along +Y — so only the yaw is free.
-     *
-     * Here for the same reason PlaceInView is: the version this replaces read a hardcoded camera position
-     * (`glm::vec3 camPos( -4.33f, 6.12f, -4.33f )`) as its fallback, one of the two stale constants behind
-     * Д30, and it yawed toward the WORLD ORIGIN rather than toward the subject — correct only while the
-     * subject happened to be at the origin, which is exactly what PlaceInView stopped doing. Taking both
-     * points as arguments makes the rule statable and testable; no asset in the project currently sets
-     * AlphaCutoff, so this path has no frame to be verified by and its correctness rests on the assertion.
-     *
-     * @param eye     the camera's world position.
-     * @param subject where the card was actually placed (NOT assumed to be the origin).
-     */
-    inline float FacingYaw( const glm::vec3& eye, const glm::vec3& subject )
-    {
-        const glm::vec3 toEye = eye - subject;
-        return std::atan2( toEye.x, toEye.z );
     }
 } // namespace Desert::Editor::ThumbnailFraming

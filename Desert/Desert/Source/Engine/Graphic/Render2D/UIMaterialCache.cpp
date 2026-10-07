@@ -187,13 +187,14 @@ namespace Desert::Graphic::Render2D
         if ( !materialService )
             return ErrorEntry();
 
-        const std::string shaderName = materialService->ShaderNameOf( handle );
-        std::string       refusal;
-        Entry             built;
-        if ( shaderName.empty() )
-            refusal = "the handle names no material asset (it was deleted, or never registered)";
+        const auto  materialTemplate = materialService->ShaderHandleOf( handle );
+        std::string refusal;
+        Entry       built;
+        if ( materialTemplate.Shader.IsNull() )
+            refusal = "the handle names no material asset with a loaded template (it was deleted, never "
+                      "registered, or names no template)";
         else
-            built = Build( shaderName, refusal );
+            built = Build( materialTemplate.CompileName, refusal );
 
         if ( !built.Pipeline )
         {
@@ -217,7 +218,7 @@ namespace Desert::Graphic::Render2D
                 if ( !built.Material->SetParam( name, value ) )
                     LOG_WARN( "[UIMaterial] '{}' has no parameter '{}' — the value in the .demat is "
                               "ignored",
-                              shaderName, name );
+                              materialTemplate.CompileName, name );
             for ( const auto& [name, texture] : overrides.Textures )
             {
                 // A HANDLE THAT NAMES A TEXTURE AND A HANDLE THAT NAMES NOTHING ARE NOT THE SAME SLOT,
@@ -231,11 +232,11 @@ namespace Desert::Graphic::Render2D
                     LOG_ERROR( "[UIMaterial] '{}' binds texture {} to '{}' and it did not resolve; the "
                                "slot falls back to the shader's own default and the surface will not "
                                "look like the file says",
-                               shaderName, texture, name );
+                               materialTemplate.CompileName, texture, name );
                 if ( !built.Material->SetTexture( name, image ) )
                     LOG_WARN( "[UIMaterial] '{}' has no Texture2D '{}' — the binding in the .demat is "
                               "ignored",
-                              shaderName, name );
+                              materialTemplate.CompileName, name );
             }
         }
 

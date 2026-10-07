@@ -20,6 +20,7 @@
 // Every assertion below is about the SHIPPED TEXT (Mesh/IndirectBounce.glslh compiled as C++), and each
 // picks a property that a missing 1/PI cannot have.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include "IndirectBounceReference.hpp"
@@ -112,9 +113,7 @@ namespace
     std::filesystem::path ShaderRoot()
     {
         // The test binary lives in build/Bin/Tests/<config>; walk up to the repository root.
-        std::filesystem::path root = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ); ++up )
-            root = root.parent_path();
+        const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
         return root / "Editor" / "Resources" / "Shaders";
     }
 
@@ -252,7 +251,7 @@ TEST( IndirectBounce, NeitherSurfaceBouncesThroughItsOwnBack )
 
 // Г18 — A MEASURED REFUSAL, PINNED SO IT CANNOT ROT INTO A COMMENT.
 //
-// `EditorLayer::BuildCornellShowcase` advertised its scene as "Red/green walls bleed onto the white
+// The Cornell showcase (CornellDemo.desce) advertised itself as "Red/green walls bleed onto the white
 // objects (SSGI)". They do not, and the reason is structural rather than a tuning miss: the gather in
 // Programs/Deferred/DeferredLighting.shader shades every bouncing neighbour with THE SUN and nothing
 // else, so a surface the sun does not reach emits exactly vec3(0) through the `cosLi <= 0` early-out of
@@ -411,7 +410,7 @@ TEST( IndirectBounce, TheDeferredGIGatherReachesTheOneSharedBRDFToo )
 {
     const std::filesystem::path root = ShaderRoot();
     ASSERT_TRUE( std::filesystem::exists( root ) )
-         << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+         << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
     const std::string gather = Read( root / "Programs" / "Deferred" / "DeferredLighting.shader" );
     ASSERT_FALSE( gather.empty() );

@@ -7,6 +7,8 @@
 
 #include <Common/Json/Json.hpp>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -118,13 +120,10 @@ TEST( PreviewEnvironment, AKnownPathResolvesAndAnUnknownOneIsRefusedByName )
 // halves are read as text: the stored value is the row's Key, and the lookup expands a key.
 TEST( PreviewEnvironment, ThePickerStoresTheStableKeyAndTheLookupExpandsIt )
 {
-    std::string root = "./";
-    for ( int up = 0;
-          up < 6 && !std::filesystem::exists( root + "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp" );
-          ++up )
-        root += "../";
-    std::ifstream in( root + "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp", std::ios::binary );
-    ASSERT_TRUE( in ) << "run from inside the repository";
+    const std::filesystem::path picker =
+         Desert::TestSupport::RepositoryRoot() / "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp";
+    std::ifstream in( picker, std::ios::binary );
+    ASSERT_TRUE( in ) << picker.generic_string() << " is gone";
     std::ostringstream text;
     text << in.rdbuf();
     const std::string ui = text.str();

@@ -91,6 +91,31 @@ namespace Desert::Assets
     Common::BoolResultStr                     WriteTextureSourceAssetFile( const std::filesystem::path& file,
                                                                            const TextureSourceAsset&    asset );
 
+    // What WriteTextureSource did to the asset at its path.
+    enum class TextureSourceWrite
+    {
+        Created,   // there was no texture asset: one was made with a fresh GUID
+        Updated,   // the asset was there and its source changed: the bytes were re-taken, identity kept
+        Unchanged, // the asset already carries exactly these bytes; the file was not touched
+    };
+
+    // THE ONE CREATE-OR-KEEP RULE for a texture asset that takes source bytes — a loose image's
+    // (TextureImporter::ImportSourceAsset) and an image DERIVED at import (an embedded .glb/.fbx texture, a
+    // channel-packed slot) alike. UE re-imports into the existing UTexture: its GUID and settings stay, only
+    // UTexture::Source is re-taken. The same here: an existing asset keeps Guid, Kind and Import.Settings and
+    // takes `sourceBytes` (and `sourceKey` as provenance) only when their hash differs; `kind` and
+    // `settingsIfCreated` are used only when the asset is created. Same hash = no write (content, never mtime).
+    Common::ResultStr<TextureSourceWrite> WriteTextureSource( const std::filesystem::path& asset,
+                                                              Common::Content::ContentKind kind,
+                                                              std::string                  sourceKey,
+                                                              std::vector<std::byte>       sourceBytes,
+                                                              const TextureImportSettings& settingsIfCreated );
+
+    // The image bytes a texture source path stands for: a texture asset's carried source (SRCE) when `file` is
+    // one, the file's own bytes otherwise. For readers of an image's pixels or header at import (channel
+    // packing, the alpha probe) that may be handed either a loose image or an asset derived from an embedded one.
+    Common::ResultStr<std::vector<std::byte>> ReadTextureSourceImage( const std::filesystem::path& file );
+
     // True when the file is an envelope whose header states a texture (or skybox) kind — a legacy `.detex`
     // (JSON `{"Intent": ...}`) is not, and neither is another binary asset such as a `.dclayout`.
     bool IsTextureSourceAssetFile( const std::filesystem::path& file );

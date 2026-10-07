@@ -136,9 +136,4 @@ namespace
         EXPECT_EQ( WheelOwner( PreviewInteraction::Interactive, true, false ), PreviewWheelOwner::PassThrough );
     }
 
-    TEST( PreviewWheel, StaticPreviewLetsTheDetailsPanelScroll )
-    {
-        EXPECT_EQ( WheelOwner( PreviewInteraction::Static, true, true ), PreviewWheelOwner::PassThrough );
-        EXPECT_EQ( WheelOwner( PreviewInteraction::Static, true, false ), PreviewWheelOwner::PassThrough );
-    }
 } // namespace

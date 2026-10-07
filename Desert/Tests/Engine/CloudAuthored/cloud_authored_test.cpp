@@ -37,6 +37,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 
 using namespace Desert::Tests::CloudAuthoredRef;
 
@@ -1681,4 +1683,10 @@ namespace
          {
              return new SingleBodyAtlasEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
          } };
+} // namespace
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
 } // namespace

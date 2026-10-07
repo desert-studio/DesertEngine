@@ -1,14 +1,14 @@
 // One scene, one lighting payload — asserted as a RELATION between the skinned path and the static one.
 //
-// The defect this suite was written for: SkinnedMaterialPBR::Bind() named the four things a skinned mesh
-// was thought to need (camera, lights, bones, cloud shadow) and the scene had six. The two it did not
-// name — the shadow cascades and the IBL environment — were written by the static path only, so a
-// skinned mesh was the one class of geometry in the engine that received neither. Nothing crashed and no
-// validation layer said anything, because an unwritten descriptor here is not undefined memory: the
-// backend seeds every binding first (VulkanMaterialBackend::WriteFallbacks), so `ShadowUB` kept
-// the zero-filled dummy buffer — `u_ShadowParams.y == 0`, cascades silently OFF — while the environment
-// trio kept its fallback images, which sample black, so the split-sum ambient was zero and a skinned
-// surface was lit by the sun and the anti-black floor alone no matter what the sky was doing.
+// The defect this suite was written for: the old skinned surface class's Bind() named the four things a skinned
+// mesh was thought to need (camera, lights, bones, cloud shadow) and the scene had six. The two it did not name —
+// the shadow cascades and the IBL environment — were written by the static path only, so a skinned mesh was the
+// one class of geometry in the engine that received neither. Nothing crashed and no validation layer said
+// anything, because an unwritten descriptor here is not undefined memory: the backend seeds every binding first
+// (VulkanMaterialBackend::WriteFallbacks), so `ShadowUB` kept the zero-filled dummy buffer — `u_ShadowParams.y ==
+// 0`, cascades silently OFF — while the environment trio kept its fallback images, which sample black, so the
+// split-sum ambient was zero and a skinned surface was lit by the sun and the anti-black floor alone no matter
+// what the sky was doing.
 //
 // Two wrong answers, both silent, both invisible to a unit test of either side. So the assertions here
 // are about the two sides AGREEING:
@@ -24,15 +24,21 @@
 // None of it needs a device: the shaders are compiled with shaderc and reflected with the engine's own
 // reflection, exactly as Tests/Engine/ShaderCacheKey does.
 
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
+#include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/Metadata.hpp>
@@ -54,29 +60,28 @@
 #include <vector>
 
 using Desert::Core::Formats::ShaderStage;
-using Desert::Graphic::MaterialPBR;
-using Desert::Graphic::MaterialPBRBase;
+using Desert::Graphic::DataDrivenMaterial;
+using Desert::Graphic::Material;
+namespace SceneResources = Desert::Graphic::SceneResources;
+using Desert::Core::Formats::SceneRead;
 using Desert::Graphic::PBRSceneFrame;
 using namespace Desert::Graphic::API::Vulkan;
 
 namespace
 {
-    // The engine resolves `#include <...>` against Common::Constants::Path::SHADERDIR_PATH, which is
-    // relative ("Resources/Shaders/"). The editor runs with its own directory as the working one; the
-    // test does the same so the include walk resolves the same files the runtime would.
+    // The engine resolves `#include <...>` against Common::Constants::Path::ShaderDir(), derived from the engine
+    // directory the host sets. The suite is that host: it sets the checkout's Editor/ and reads every shader
+    // path off ShaderDir(), never off the working directory.
     struct PBRSceneFrameShaderRoot : ::testing::Test
     {
         static void SetUpTestSuite()
         {
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
 
             ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+                 << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
-            std::filesystem::current_path( here / "Editor" );
+            Common::Constants::Path::SetEngineDir( here / "Editor" );
         }
     };
 
@@ -90,63 +95,40 @@ namespace
 
     std::filesystem::path ShaderPath( const char* relative )
     {
-        return std::filesystem::path( "Resources/Shaders/Programs" ) / relative;
+        return ( Common::Constants::Path::ShaderDir() / "Programs" ) / relative;
     }
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser.
-    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage )
+    // @p cell names a surface template's cell ("Skinned.Forward"); empty = the default program.
+    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage,
+                             const std::string& cell = {} )
     {
         auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( shaderFile ) );
         EXPECT_TRUE( parsed.IsSuccess() ) << shaderFile.string();
         if ( !parsed.IsSuccess() )
             return {};
-        const auto it = parsed.GetValue().Stages.find( stage );
-        EXPECT_NE( it, parsed.GetValue().Stages.end() ) << shaderFile.string();
-        return it == parsed.GetValue().Stages.end() ? std::string{} : it->second;
+        const auto* stages = &parsed.GetValue().Stages;
+        if ( !cell.empty() )
+        {
+            const auto& passes = parsed.GetValue().Passes;
+            const auto  pass =
+                 std::find_if( passes.begin(), passes.end(), [&]( const auto& p ) { return p.Name == cell; } );
+            EXPECT_NE( pass, passes.end() ) << shaderFile.string() << " has no cell " << cell;
+            if ( pass == passes.end() )
+                return {};
+            stages = &pass->Stages;
+        }
+        const auto it = stages->find( stage );
+        EXPECT_NE( it, stages->end() ) << shaderFile.string();
+        return it == stages->end() ? std::string{} : it->second;
     }
-
-    // Resolves `#include <...>` exactly as ShaderIncluder does, so the SPIR-V under test is the SPIR-V
-    // the engine compiles.
-    class Includer final : public shaderc::CompileOptions::IncluderInterface
-    {
-    public:
-        shaderc_include_result* GetInclude( const char* requested, shaderc_include_type type,
-                                            const char* requesting, size_t ) override
-        {
-            const std::filesystem::path full =
-                 type == shaderc_include_type_relative
-                      ? ( std::filesystem::path( requesting ).parent_path() / requested ).lexically_normal()
-                      : ( Common::Constants::Path::SHADERDIR_PATH / requested ).lexically_normal();
-
-            auto* name = new std::string( full.string() );
-            auto* body =
-                 new std::string( Desert::Core::Preprocess::DShaderParser::TranslateSugar( ReadFile( full ) ) );
-
-            auto* result               = new shaderc_include_result;
-            result->source_name        = name->c_str();
-            result->source_name_length = name->size();
-            result->content            = body->c_str();
-            result->content_length     = body->size();
-            result->user_data          = new std::pair<std::string*, std::string*>( name, body );
-            return result;
-        }
-
-        void ReleaseInclude( shaderc_include_result* data ) override
-        {
-            auto* pair = static_cast<std::pair<std::string*, std::string*>*>( data->user_data );
-            delete pair->first;
-            delete pair->second;
-            delete pair;
-            delete data;
-        }
-    };
 
     std::vector<uint32_t> CompileStage( const std::string& source, const std::filesystem::path& path,
                                         shaderc_shader_kind kind )
     {
         shaderc::Compiler       compiler;
         shaderc::CompileOptions options;
-        options.SetIncluder( std::make_unique<Includer>() );
+        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
         options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
 
         const auto result = compiler.CompileGlslToSpv( source, kind, path.string().c_str(), options );
@@ -159,12 +141,13 @@ namespace
 
     // Set 0 of a graphics shader, both stages folded together — which is the set a material allocates and
     // therefore the set an applier writes into.
-    ShaderResource::ShaderDescriptorSet GraphicsSetZero( const std::filesystem::path& shaderFile )
+    ShaderResource::ShaderDescriptorSet GraphicsSetZero( const std::filesystem::path& shaderFile,
+                                                         const std::string&           cell = {} )
     {
-        const auto vertexSpirv =
-             CompileStage( StageSource( shaderFile, ShaderStage::Vertex ), shaderFile, shaderc_vertex_shader );
-        const auto fragmentSpirv =
-             CompileStage( StageSource( shaderFile, ShaderStage::Fragment ), shaderFile, shaderc_fragment_shader );
+        const auto vertexSpirv   = CompileStage( StageSource( shaderFile, ShaderStage::Vertex, cell ), shaderFile,
+                                                 shaderc_vertex_shader );
+        const auto fragmentSpirv = CompileStage( StageSource( shaderFile, ShaderStage::Fragment, cell ),
+                                                 shaderFile, shaderc_fragment_shader );
         if ( vertexSpirv.empty() || fragmentSpirv.empty() )
             return {};
 
@@ -206,7 +189,7 @@ namespace
 
     // Every resource PBRSceneFrame::ApplyTo fills, by the same name the applier looks it up under. The
     // camera and the light blocks come from the ShaderProtocols types that own those names; the shadow
-    // and environment names come from MaterialPBRBase, which owns the CPU half of that contract and is
+    // and environment names come from SceneResources, which owns the CPU half of that contract and is
     // what the writers in SceneLightingBinding.hpp look the blocks up under. Nothing here is a literal
     // repeated from the engine — a rename that reaches only one side fails to compile, not to pass.
     //
@@ -222,15 +205,15 @@ namespace
              Desert::Graphic::ShaderProtocols::SpotLight::Name,
              Desert::Graphic::ShaderProtocols::DirectionLight::Name,
              Desert::Graphic::ShaderProtocols::LightsMetadata::Name,
-             MaterialPBRBase::kShadowBlockName,
-             MaterialPBRBase::kEnvIrradianceName,
-             MaterialPBRBase::kEnvSpecularName,
-             MaterialPBRBase::kBrdfLutName,
+             SceneResources::kShadowBlockName,
+             SceneResources::kEnvIrradianceName,
+             SceneResources::kEnvSpecularName,
+             SceneResources::kBrdfLutName,
              // The look the two environment cubes are read with; SceneEnvironmentBind writes it with them.
              Desert::Graphic::kSkyLookBlockName,
         };
-        for ( uint32_t c = 0; c < MaterialPBRBase::kMaxCascades; ++c )
-            names.emplace_back( MaterialPBRBase::kShadowMapNames[c] );
+        for ( const char* shadowMap : SceneResources::kShadowMapNames )
+            names.emplace_back( shadowMap );
         return names;
     }
 
@@ -239,13 +222,14 @@ namespace
     struct MeshShader
     {
         const char* Path;
+        const char* Cell;                  // the StandardSurface cell (SURF1c: the three were programs)
         const char* PerObjectVertexBuffer; // nullptr = none
     };
 
     const MeshShader kMeshShaders[] = {
-         { "PBR/StaticMeshPBR.shader", nullptr },
-         { "PBR/StaticMeshPBR_Instanced.shader", "InstanceTransforms" },
-         { "PBR/SkinnedMeshPBR.shader", "Bones" },
+         { "PBR/StandardSurface.shader", "Static.Forward", nullptr },
+         { "PBR/StandardSurface.shader", "Instanced.Forward", "InstanceTransforms" },
+         { "PBR/StandardSurface.shader", "Skinned.Forward", "Bones" },
     };
 } // namespace
 
@@ -265,17 +249,21 @@ namespace
 // all of them" assertion below stops meaning what it says.
 TEST( PBRSceneFrame, TheSkinnedAndStaticDrawsGoThroughOneBindWithOneArgument )
 {
-    static_assert( std::is_same_v<decltype( MaterialPBR::Create( Desert::Graphic::MeshVertexPath::Static ) ),
-                                  decltype( MaterialPBR::Create( Desert::Graphic::MeshVertexPath::Skinned ) )>,
-                   "a skinned material and a static one must be the same type — one surface, two paths" );
+    // One surface type for every path: the skinned cell and the static cell are both a DataDrivenMaterial,
+    // and neither declares a Bind of its own — the one Bind is Material's, taking the instance
+    // PBRSceneFrame::ApplyTo was applied to. A surface class overriding it is how the skinned path once
+    // received four of the six things a lit draw needs.
+    static_assert( std::is_same_v<decltype( &DataDrivenMaterial::Bind ),
+                                  void ( Material::* )( const Desert::Graphic::MaterialInstance* )>,
+                   "the surface material must not override Bind — one Bind, one argument, every path" );
 
-    // Exactly ONE Bind, taking the instance PBRSceneFrame::ApplyTo was applied to. A second overload
-    // taking a skinned-specific payload is how the cascades and the environment cubes went missing the
-    // first time: it named four of the six things a lit draw needs and nothing could notice.
-    static_assert(
-         std::is_invocable_v<void ( MaterialPBR::* )( const Desert::Graphic::MaterialInstance* ), MaterialPBR&,
-                             const Desert::Graphic::MaterialInstance*>,
-         "MaterialPBR::Bind must take the instance, the same one PBRSceneFrame::ApplyTo was applied to" );
+    // What makes a draw skinned is the VERTEX path's input, not a surface class: the bone palette and this
+    // draw's offset into it are Material's, so any template's skinned cell receives them the same way.
+    static_assert( std::is_same_v<decltype( &Material::UploadSkinnedBones ),
+                                  void ( Material::* )( const glm::mat4*, size_t )>,
+                   "the skinned vertex path's bone upload belongs to Material" );
+    static_assert( std::is_same_v<decltype( &Material::SetSkinnedBoneOffset ), void ( Material::* )( uint32_t )>,
+                   "the skinned vertex path's per-draw bone offset belongs to Material" );
 
     SUCCEED();
 }
@@ -308,7 +296,7 @@ TEST_F( PBRSceneFrameShaderRoot, EverySceneBindingTheOneApplierFillsIsDeclaredBy
 
     for ( const auto& shader : kMeshShaders )
     {
-        const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ) ) );
+        const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
         for ( const auto& name : expected )
@@ -325,23 +313,31 @@ TEST_F( PBRSceneFrameShaderRoot, EverySceneBindingTheOneApplierFillsIsDeclaredBy
 TEST_F( PBRSceneFrameShaderRoot, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
 {
     // Everything in a mesh PBR set 0 that is genuinely per-OBJECT and is therefore filled by the material
-    // itself rather than by the frame snapshot: the GPU-scene material row and the surface maps
-    // (MaterialFactory binds these three by name from the material asset).
-    const char* kPerObject[] = { "Materials", "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" };
+    // itself rather than by the frame snapshot: the GPU-scene material row, and the surface maps THE
+    // TEMPLATE'S LAYOUT DECLARES — the same ForEachMaterialTextureSlot walk ApplySurfaceAsset binds them by
+    // (Runtime/Services/Material/MaterialService.cpp). Not a hand list: a list here once named three maps
+    // while the binder bound three and the shaders declared five, and the two unbound ones sampled the
+    // fallback descriptor. A slot the manifest stops declaring, or the walk stops visiting, is red here.
     // The cloud-shadow pair: the block uploaded by Graphic::CloudShadowUpload out of the same snapshot, the
     // map bound by the mesh node through RDG::PassBindings — see the note on SceneBindingNames().
     const char* kCloudShadow[] = { "u_CloudShadowMap", "CloudShadowUB" };
 
     for ( const auto& shader : kMeshShaders )
     {
-        const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ) ) );
+        const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
+
+        const auto parsed =
+             Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( shader.Path ) ) );
+        ASSERT_TRUE( parsed.IsSuccess() ) << shader.Path;
 
         std::set<std::string> accounted;
         for ( const auto& name : SceneBindingNames() )
             accounted.insert( name );
-        for ( const char* name : kPerObject )
-            accounted.insert( name );
+        accounted.insert( Desert::Core::Formats::kMaterialRowBlockName );
+        Desert::Core::Formats::ForEachMaterialTextureSlot(
+             parsed.GetValue().Meta, []( const std::string& ) { return 0ull; },
+             [&accounted]( const auto& param, uint64_t ) { accounted.insert( param.Name ); } );
         for ( const char* name : kCloudShadow )
             accounted.insert( name );
         if ( shader.PerObjectVertexBuffer )
@@ -364,7 +360,8 @@ TEST_F( PBRSceneFrameShaderRoot, TheThreeMeshPBRShadersDeclareOneSceneContractAn
 
     for ( const auto& shader : kMeshShaders )
     {
-        std::set<std::string> declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ) ) );
+        std::set<std::string> declared =
+             DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
         if ( shader.PerObjectVertexBuffer )
@@ -377,7 +374,7 @@ TEST_F( PBRSceneFrameShaderRoot, TheThreeMeshPBRShadersDeclareOneSceneContractAn
             reference = declared;
         else
             EXPECT_EQ( Describe( declared ), Describe( reference ) )
-                 << shader.Path << " no longer shares set 0 with StaticMeshPBR, but one applier writes both";
+                 << shader.Cell << " no longer shares set 0 with Static.Forward, but one applier writes both";
     }
 }
 
@@ -389,21 +386,21 @@ TEST_F( PBRSceneFrameShaderRoot, TheThreeMeshPBRShadersDeclareOneSceneContractAn
 TEST_F( PBRSceneFrameShaderRoot, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMeshPBRShader )
 {
     // 4 x mat4 + 3 x vec4. Spelt out so a silently added member is visible as a number here.
-    constexpr uint32_t kExpectedBytes = MaterialPBRBase::kMaxCascades * 64u + 3u * 16u;
-    EXPECT_EQ( sizeof( MaterialPBRBase::ShadowUBData ), kExpectedBytes );
+    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 3u * 16u;
+    EXPECT_EQ( sizeof( SceneResources::ShadowUBData ), kExpectedBytes );
 
     for ( const auto& shader : kMeshShaders )
     {
-        const auto set = GraphicsSetZero( ShaderPath( shader.Path ) );
+        const auto set = GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell );
 
         const auto block =
              std::find_if( set.UniformBuffers.begin(), set.UniformBuffers.end(), []( const auto& entry )
-                           { return entry.second.Name == MaterialPBRBase::kShadowBlockName; } );
+                           { return entry.second.Name == SceneResources::kShadowBlockName; } );
 
         ASSERT_NE( block, set.UniformBuffers.end() ) << shader.Path << " declares no ShadowUB";
-        EXPECT_EQ( block->second.Size, sizeof( MaterialPBRBase::ShadowUBData ) )
+        EXPECT_EQ( block->second.Size, sizeof( SceneResources::ShadowUBData ) )
              << shader.Path << "'s ShadowUB is " << block->second.Size << " bytes and the struct the "
-             << "applier fills it from is " << sizeof( MaterialPBRBase::ShadowUBData );
+             << "applier fills it from is " << sizeof( SceneResources::ShadowUBData );
     }
 }
 
@@ -421,7 +418,8 @@ namespace
     std::vector<std::filesystem::path> ShadersCompiling( const char* header )
     {
         std::vector<std::filesystem::path> consumers;
-        for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders/Programs" ) )
+        for ( const auto& entry :
+              std::filesystem::recursive_directory_iterator( Common::Constants::Path::ShaderDir() / "Programs" ) )
         {
             if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
                 continue;
@@ -449,13 +447,13 @@ namespace
     }
 
     // The five resources Mesh/CascadedShadow.glslh reads, under the names Graphic::SceneShadowBind writes
-    // them. Taken from MaterialPBRBase rather than spelt out, so a rename that reaches only one side fails
+    // them. Taken from SceneResources rather than spelt out, so a rename that reaches only one side fails
     // to compile instead of failing to be checked.
     std::vector<std::string> CascadeBindingNames()
     {
-        std::vector<std::string> names{ MaterialPBRBase::kShadowBlockName };
-        for ( uint32_t c = 0; c < MaterialPBRBase::kMaxCascades; ++c )
-            names.emplace_back( MaterialPBRBase::kShadowMapNames[c] );
+        std::vector<std::string> names{ SceneResources::kShadowBlockName };
+        for ( const char* shadowMap : SceneResources::kShadowMapNames )
+            names.emplace_back( shadowMap );
         return names;
     }
 } // namespace
@@ -510,15 +508,90 @@ TEST_F( PBRSceneFrameShaderRoot, TheLitShaderGraphSurfaceIsOneOfThoseConsumers )
                             "\"Lit\" is shadowed by clouds and not by geometry again";
 }
 
+namespace
+{
+    // A surface template that is NOT the shipped lit surface and has no C++ class of its own: it samples the
+    // shadow cascades and the IBL environment, and reads nothing else of the scene. Raw GLSL, so the test
+    // does not depend on any shipped template's text.
+    constexpr const char* kMockVertex   = R"(#version 450
+void main() { gl_Position = vec4( 0.0 ); }
+)";
+    constexpr const char* kMockFragment = R"(#version 450
+layout( set = 0, binding = 2 ) uniform ShadowUB { mat4 LightViewProj[4]; vec4 Params; vec4 DebugParams; vec4 CascadeTexelWorld; };
+layout( set = 0, binding = 3 ) uniform sampler2D u_ShadowMap0;
+layout( set = 0, binding = 4 ) uniform sampler2D u_ShadowMap1;
+layout( set = 0, binding = 5 ) uniform sampler2D u_ShadowMap2;
+layout( set = 0, binding = 6 ) uniform sampler2D u_ShadowMap3;
+layout( set = 0, binding = 7 ) uniform samplerCube u_EnvIrradianceTex;
+layout( set = 0, binding = 8 ) uniform samplerCube u_EnvSpecularTex;
+layout( set = 0, binding = 9 ) uniform sampler2D u_BRDFLUTTexture;
+layout( location = 0 ) out vec4 o_Color;
+void main()
+{
+    o_Color = Params + texture( u_ShadowMap0, vec2( 0.5 ) ) + texture( u_ShadowMap1, vec2( 0.5 ) ) +
+              texture( u_ShadowMap2, vec2( 0.5 ) ) + texture( u_ShadowMap3, vec2( 0.5 ) ) +
+              texture( u_EnvIrradianceTex, vec3( 0.0, 1.0, 0.0 ) ) + texture( u_EnvSpecularTex, vec3( 0.0, 1.0, 0.0 ) ) +
+              texture( u_BRDFLUTTexture, vec2( 0.5 ) );
+}
+)";
+
+    std::vector<Desert::Core::ShaderMapStage> MockStages()
+    {
+        return { { ShaderStage::Vertex, CompileStage( kMockVertex, "MockSurface.vert", shaderc_vertex_shader ) },
+                 { ShaderStage::Fragment,
+                   CompileStage( kMockFragment, "MockSurface.frag", shaderc_fragment_shader ) } };
+    }
+} // namespace
+
+// THE SCENE'S PART OF A DRAW IS DECLARED BY THE TEMPLATE, not inherited from a PBR class. A template with
+// no C++ material of its own that samples the cascades and the IBL is handed exactly those groups by the
+// one applier, and nothing it does not read.
+TEST( SceneFrameCapability, ANonPBRTemplateReadingShadowAndIBLIsHandedThem )
+{
+    const auto stages = MockStages();
+    ASSERT_FALSE( stages[0].Spirv.empty() );
+    ASSERT_FALSE( stages[1].Spirv.empty() );
+
+    const auto      cell   = ShaderReflection::ReconcileCellLayout( {}, stages, "MockSurface", "" );
+    const SceneRead groups = PBRSceneFrame::Groups( cell.Layout );
+
+    EXPECT_TRUE( Desert::Core::Formats::Reads( groups, SceneRead::Shadow ) )
+         << "a template sampling u_ShadowMap* and declaring ShadowUB was not handed the cascades";
+    EXPECT_TRUE( Desert::Core::Formats::Reads( groups, SceneRead::Environment ) )
+         << "a template sampling the IBL cubes and the BRDF LUT was not handed the environment";
+    EXPECT_EQ( groups, SceneRead::Shadow | SceneRead::Environment )
+         << "the template reads the shadow and the environment only; any other group is a write it does not ask "
+            "for";
+}
+
+// And every scene resource it declares is one the applier FILLS: a resource classified as nobody's would
+// keep its fallback descriptor (the zero ShadowUB, the black cube) with nothing in the log.
+TEST( SceneFrameCapability, EverySceneResourceTheMockDeclaresHasAWriter )
+{
+    const auto                     stages = MockStages();
+    ShaderResource::ReflectionData data;
+    for ( const auto& stage : stages )
+        EXPECT_TRUE( ShaderReflection::ReflectStage( stage.Spirv, stage.Stage, data ).empty() );
+    const auto it = data.ShaderDescriptorSets.find( 0 );
+    ASSERT_NE( it, data.ShaderDescriptorSets.end() );
+
+    const auto declared = DeclaredNames( it->second );
+    EXPECT_EQ( declared.size(), 8u ) << Describe( declared );
+    for ( const auto& name : declared )
+        EXPECT_NE( SceneResources::GroupOf( name ), SceneRead::None )
+             << "the mock template reads '" << name << "' and no scene writer fills it";
+}
+
 // MESH-PB1: u_CloudShadowMap is a PASS parameter (UE: a view/scene texture, never a material parameter). The
 // mesh nodes (MeshGeometryPass, Deferred: Generic / Skinned / Glass) bind CloudShadowMapOrWhite by name through
 // RDG::PassBindings, so the frame snapshot must upload only the block: writing the map onto the material as
 // well is the "filled both" refusal on every lit draw.
 TEST_F( PBRSceneFrameShaderRoot, TheCloudShadowMapIsAPassParameterNotTheFrameSnapshots )
 {
-    const std::string applier =
-         ReadFile( "../Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.cpp" );
-    ASSERT_FALSE( applier.empty() ) << "PBRSceneFrame.cpp not found from " << std::filesystem::current_path();
+    const std::filesystem::path file = Desert::TestSupport::RepositoryRoot() /
+                                       "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.cpp";
+    const std::string applier = ReadFile( file );
+    ASSERT_FALSE( applier.empty() ) << file.string() << " not found";
     EXPECT_NE( applier.find( "CloudShadowUpload( material, CloudShadow )" ), std::string::npos )
          << "PBRSceneFrame::ApplyTo must upload CloudShadowUB through CloudShadowUpload";
     EXPECT_EQ( applier.find( "\"u_CloudShadowMap\"" ), std::string::npos )
@@ -528,8 +601,9 @@ TEST_F( PBRSceneFrameShaderRoot, TheCloudShadowMapIsAPassParameterNotTheFrameSna
 
 // THE MATERIAL OWNS EXACTLY ITS PROPERTIES (MESH-PB1). The classification MaterialExecutor builds its
 // texture properties from: a schema's Properties textures are material parameters (with their default),
-// every other sampler is a pass parameter with no material property. Mesh PBR materials take StaticMeshPBR's
-// schema for every program (MaterialPBR.cpp), the terrain programs their own.
+// every other sampler is a pass parameter with no material property. A surface material's schema is its own
+// template (StandardSurface for every vertex path: the cells add no material textures), the terrain programs
+// their own.
 namespace
 {
     std::vector<std::string> MaterialTextureNames( const char* shader )
@@ -552,16 +626,12 @@ namespace
 
 TEST_F( PBRSceneFrameShaderRoot, MaterialTexturesAreThePropertiesTexturesAndNoPassInput )
 {
-    const auto pbr = MaterialTextureNames( "PBR/StaticMeshPBR.shader" );
+    const auto pbr = MaterialTextureNames( "PBR/StandardSurface.shader" );
     for ( const char* own : { "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" } )
         EXPECT_TRUE( Has( pbr, own ) ) << own;
     for ( const char* pass :
           { "u_ShadowMap0", "u_EnvSpecularTex", "u_EnvIrradianceTex", "u_BRDFLUTTexture", "u_CloudShadowMap" } )
         EXPECT_FALSE( Has( pbr, pass ) ) << pass << " is a pass parameter";
-
-    // SkinnedMeshPBR declares no Properties on purpose: its OWN schema yields nothing, which is exactly why
-    // MaterialPBR hands it StaticMeshPBR's.
-    EXPECT_TRUE( MaterialTextureNames( "PBR/SkinnedMeshPBR.shader" ).empty() );
 
     for ( const char* terrain :
           { "Terrain/Terrain.shader", "Terrain/TerrainGBuffer.shader", "Terrain/TerrainShadow.shader" } )
@@ -574,10 +644,16 @@ TEST_F( PBRSceneFrameShaderRoot, MaterialTexturesAreThePropertiesTexturesAndNoPa
 
     // The declared default travels with the parameter (the executor reads it at creation).
     auto parsed =
-         Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( "PBR/StaticMeshPBR.shader" ) ) );
+         Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( "PBR/StandardSurface.shader" ) ) );
     ASSERT_TRUE( parsed.IsSuccess() );
     for ( const auto* param : Desert::Core::Formats::MaterialTextureParameters( parsed.GetValue().Meta ) )
         if ( param->Name == "u_NormalTexture" )
             EXPECT_NE( param->DefaultTexture, Desert::Core::Formats::DefaultTextureKind::White )
                  << "a normal map's default must be the flat normal, not White";
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

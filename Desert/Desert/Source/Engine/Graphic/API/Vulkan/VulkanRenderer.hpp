@@ -32,7 +32,7 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] virtual Common::BoolResultStr BeginFrame() override;
         // The command buffer the frame records into NOW. It changes at every ExecuteGraph (the frame is split
         // there), so a caller asks for it when it records and never keeps it.
-        VkCommandBuffer GetCurrentCommandBuffer() const
+        [[nodiscard]] VkCommandBuffer GetCurrentCommandBuffer() const
         {
             return m_CurrentCommandBuffer;
         }
@@ -44,10 +44,10 @@ namespace Desert::Graphic::API::Vulkan
 
         virtual void BeginDebugLabel( const char* name ) override;
         virtual void EndDebugLabel() override;
-        Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph ) override;
-        Common::BoolResultStr                  ImportImage( const std::shared_ptr<Image>& image,
-                                                            RDG::ExternalTexture&         into ) override;
-        Common::BoolResultStr                  ImportBackBuffer( RDG::ExternalTexture& into ) override;
+        Common::BoolResultStr ExecuteGraph( RDG::Builder& graph ) override;
+        Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image,
+                                           RDG::ExternalTexture&         into ) override;
+        Common::BoolResultStr ImportBackBuffer( RDG::ExternalTexture& into ) override;
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into ) override;
 
@@ -75,7 +75,7 @@ namespace Desert::Graphic::API::Vulkan
         virtual void ComputeImageBeginRead( Image* image ) override;
         virtual void ComputeImageEndRead( Image* image ) override;
 
-        virtual Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
+        Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         virtual void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
 
         virtual void ResizeWindowEvent( uint32_t width, uint32_t height ) override;
@@ -131,6 +131,11 @@ namespace Desert::Graphic::API::Vulkan
          * otherwise write the same line thousands of times a second and the log would stop being read.
          */
         NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline );
+        // The shared buffer a mesh without vertex streams binds at binding 1 (white, UV1 0,0 in every vertex),
+        // grown to hold `capacity` stream vertices (MeshVertexLayout.hpp DefaultVertexStreamsFor).
+        const std::shared_ptr<VertexBuffer>& DefaultVertexStreams( uint32_t capacity );
+        std::shared_ptr<VertexBuffer>        m_DefaultVertexStreams;
+        uint32_t                             m_DefaultVertexStreamsCapacity = 0;
 
     private:
         // THE ONE QUESTION EVERY RECORDING ENTRY POINT ASKS. BeginFrame is gated, but a loss can be noted
@@ -178,8 +183,8 @@ namespace Desert::Graphic::API::Vulkan
         // The frame-graph executor, made on the first ExecuteGraph (the device exists by then). The pool
         // holds transient images per frame in flight; the backend is re-pointed at the frame's command
         // buffer on every graph.
-        VulkanRdgDevice                   m_RdgDevice;
-        std::unique_ptr<VulkanRdgPool>    m_RdgPool;
+        VulkanRdgDevice                m_RdgDevice;
+        std::unique_ptr<VulkanRdgPool> m_RdgPool;
         // RDG-CONTRACTS A/B frame objects, per frame slot and re-begun by BeginFrame after the slot's fence:
         // transient heaps, per-pass descriptor pools, the frame loop (slot fences + segment command pools and
         // semaphores: the frame's one submission path, windowed or not), and the queues.

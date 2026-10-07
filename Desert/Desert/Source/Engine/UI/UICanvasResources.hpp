@@ -49,8 +49,9 @@ namespace Desert::UI
         // that is not an animated image, so an ordinary texture falls through to SpriteImage.
         [[nodiscard]] virtual Graphic::Image2D* AnimatedFrame( const Assets::AssetHandle& sprite ) = 0;
 
-        // A streamed video's stable frame texture; nullptr while the stream has no frame.
-        [[nodiscard]] virtual Graphic::Image2D* VideoFrame( uint64_t video ) = 0;
+        // A streamed video's stable frame texture; nullptr while the stream has no frame. @p volume and @p muted
+        // are what the drawing panel asks of the clip's sound (UIPanelComponent::VideoVolume / VideoMuted).
+        [[nodiscard]] virtual Graphic::Image2D* VideoFrame( uint64_t video, float volume, bool muted ) = 0;
 
         // The theme a canvas's slot names; nullptr for an empty slot, and every element then draws its own
         // authored colours.
@@ -79,7 +80,7 @@ namespace Desert::UI
     public:
         [[nodiscard]] Graphic::Image2D*             SpriteImage( const Assets::AssetHandle& sprite ) override;
         [[nodiscard]] Graphic::Image2D*             AnimatedFrame( const Assets::AssetHandle& sprite ) override;
-        [[nodiscard]] Graphic::Image2D*             VideoFrame( uint64_t video ) override;
+        [[nodiscard]] Graphic::Image2D*             VideoFrame( uint64_t video, float volume, bool muted ) override;
         [[nodiscard]] const Assets::UIThemeRuntime* Theme( const Assets::AssetHandle& theme ) override;
         [[nodiscard]] uint64_t                      DefaultFontHandle() override;
         void RequestGlyphs( uint64_t font, const std::vector<uint32_t>& codepoints ) override;

@@ -1251,7 +1251,7 @@ namespace Desert::Graphic::System
             else if ( schema && !schema->Params.empty() )
             {
                 // A NAME THE SHADER DOES NOT DECLARE IS DROPPED, AND UNTIL NOW SILENTLY. The surface path
-                // has warned about this since it was written (MaterialFactory::ApplyShaderAsset); the
+                // has warned about this since it was written (MaterialService's ApplySurfaceAsset); the
                 // cloud path never did, because BuildCloudMaterialValues skips an unknown key by design —
                 // a `.demat` may be a shader revision ahead of this binary. That is right for a VALUE and
                 // wrong for an ASSET reference: a dropped number falls back to a default that still looks
@@ -1410,7 +1410,7 @@ namespace Desert::Graphic::System
             // that has not come up, and it binds SOMETHING because an unwritten descriptor costs the whole
             // dispatch rather than one sampler.
             pipeline->SetInput( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
-                                m_MediumImages[slot] ? m_MediumImages[slot] : fallback,
+                                m_MediumImages[slot] != nullptr ? m_MediumImages[slot] : fallback,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         }
     }
@@ -1980,7 +1980,7 @@ namespace Desert::Graphic::System
             // by skipping the whole dispatch — the clouds would vanish with nothing in the log.
             m_MarchPipeline->SetInput(
                  kCloudDistantSkyLightBinding,
-                 atmosphere.DistantSkyLight
+                 atmosphere.DistantSkyLight != nullptr
                       ? atmosphere.DistantSkyLight
                       : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
@@ -1990,7 +1990,7 @@ namespace Desert::Graphic::System
             // instead of an opaque white wall.
             m_MarchPipeline->SetInput(
                  kCloudAerialPerspectiveBinding,
-                 atmosphere.AerialPerspectiveVolume
+                 atmosphere.AerialPerspectiveVolume != nullptr
                       ? atmosphere.AerialPerspectiveVolume
                       : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
@@ -2024,7 +2024,7 @@ namespace Desert::Graphic::System
             // been baked, publishes null and gets the fallback, which is exactly the case push.Frame.y is 0 in.
             m_MarchPipeline->SetInput(
                  kCloudSunTransmittanceLutBinding,
-                 atmosphere.TransmittanceLut
+                 atmosphere.TransmittanceLut != nullptr
                       ? atmosphere.TransmittanceLut
                       : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
@@ -2115,9 +2115,11 @@ namespace Desert::Graphic::System
             Image2D* fallback =
                  FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get();
 
-            m_ResolvePipeline->SetInput( kCloudResolveHistoryBinding, historyScatter ? historyScatter : fallback,
+            m_ResolvePipeline->SetInput( kCloudResolveHistoryBinding,
+                                         historyScatter != nullptr ? historyScatter : fallback,
                                          RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            m_ResolvePipeline->SetInput( kCloudResolveHistoryGuideBinding, historyGuide ? historyGuide : fallback,
+            m_ResolvePipeline->SetInput( kCloudResolveHistoryGuideBinding,
+                                         historyGuide != nullptr ? historyGuide : fallback,
                                          RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
             DESERT_PROFILE_PASS( "Clouds: TemporalResolve" );

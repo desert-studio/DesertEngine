@@ -4,12 +4,15 @@
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Editor/Core/CommandHistory.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Engine/World/Foliage/FoliagePrefabs.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Panels/Foliage/FoliagePalette.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.hpp>
+#include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Panels/Collections/CollectionFoliageTypes.hpp>
@@ -472,6 +475,117 @@ namespace Desert::Editor::Tools
                  } );
             meshOnly( false );
         }
+        // UE UFoliageType's Procedural category (S1): Collision, Clustering, Growth - what the procedural
+        // foliage simulation grows from the type. The ScaleCurve keys are edited as a key list.
+        if ( Row::SectionHeader( "Procedural" ) )
+        {
+            auto&      p     = f.Procedural;
+            const auto check = [&]( const char* label, const char* tip, const char* id, bool& value )
+            {
+                Row::BeginPropertyRow( label, tip );
+                commit = ImGui::Checkbox( id, &value ) || commit;
+                Row::EndPropertyRow();
+            };
+            row( "Collision Radius", "Instances whose circles (times their scale) touch overlap; one dies, cm",
+                 [&] {
+                     ImGui::DragFloat( "##CollisionRadius", &p.CollisionRadius, 1.0f, 0.0f, 100000.0f, "%.0f cm" );
+                 } );
+            row( "Shade Radius", "Instances whose shade circles touch shade each other, cm",
+                 [&] { ImGui::DragFloat( "##ShadeRadius", &p.ShadeRadius, 1.0f, 0.0f, 100000.0f, "%.0f cm" ); } );
+            row( "Num Steps", "Generations simulated; each ages the instances and spreads seeds",
+                 [&] { ImGui::DragInt( "##NumSteps", &p.NumSteps, 0.1f, 0, 100 ); } );
+            row( "Initial Seed Density", "Initial seeds per 1000x1000 cm, squared (UE InitialSeedDensity)",
+                 [&] {
+                     ImGui::DragFloat( "##InitialSeedDensity", &p.InitialSeedDensity, 0.01f, 0.0f, 1000.0f,
+                                       "%.2f" );
+                 } );
+            row( "Average Spread Distance",
+                 "Mean distance a seed lands from its parent beyond the grown radii, cm",
+                 [&] {
+                     ImGui::DragFloat( "##AverageSpreadDistance", &p.AverageSpreadDistance, 1.0f, 0.0f, 100000.0f,
+                                       "%.0f cm" );
+                 } );
+            row( "Spread Variance", "+-SpreadVariance holds 90 % of the seeds, cm",
+                 [&] {
+                     ImGui::DragFloat( "##SpreadVariance", &p.SpreadVariance, 1.0f, 0.0f, 100000.0f, "%.0f cm" );
+                 } );
+            row( "Seeds per Step", "Seeds every instance spreads per generation",
+                 [&] { ImGui::DragInt( "##SeedsPerStep", &p.SeedsPerStep, 0.1f, 0, 100 ); } );
+            row( "Distribution Seed", "Types sharing a seed draw their initial seeds from the same positions",
+                 [&] { ImGui::DragInt( "##DistributionSeed", &p.DistributionSeed, 1.0f ); } );
+            row( "Max Initial Seed Offset", "The largest extra distance an initial seed is pushed, cm",
+                 [&] {
+                     ImGui::DragFloat( "##MaxInitialSeedOffset", &p.MaxInitialSeedOffset, 1.0f, 0.0f, 100000.0f,
+                                       "%.0f cm" );
+                 } );
+            check( "Can Grow in Shade", "An instance in another's shade survives (UE bCanGrowInShade)",
+                   "##CanGrowInShade", p.CanGrowInShade );
+            check( "Spawns in Shade", "Seeded in a second pass in the shade of the first (UE bSpawnsInShade)",
+                   "##SpawnsInShade", p.SpawnsInShade );
+            row( "Max Initial Age", "An initial seed's age is drawn from [0, Max Initial Age]",
+                 [&] { ImGui::DragFloat( "##MaxInitialAge", &p.MaxInitialAge, 0.1f, 0.0f, 1000.0f, "%.1f" ); } );
+            row( "Max Age", "The age at which an instance stops growing",
+                 [&] { ImGui::DragFloat( "##MaxAge", &p.MaxAge, 0.1f, 0.0f, 1000.0f, "%.1f" ); } );
+            row( "Overlap Priority", "In an overlap the instance of the higher priority wins",
+                 [&] {
+                     ImGui::DragFloat( "##OverlapPriority", &p.OverlapPriority, 0.1f, -1000.0f, 1000.0f, "%.1f" );
+                 } );
+            row( "Procedural Scale", "The scale range an instance grows through as it ages",
+                 [&]
+                 {
+                     ImGui::DragFloatRange2( "##ProceduralScale", &p.ProceduralScale.Min, &p.ProceduralScale.Max,
+                                             0.01f, 0.0f, 100.0f, "%.2f", "%.2f" );
+                 } );
+            // ScaleCurve: one row per key (age share -> scale share); keys keep strictly increasing Time.
+            std::optional<size_t> erase;
+            for ( size_t k = 0; k < p.ScaleCurve.size(); ++k )
+            {
+                ImGui::PushID( static_cast<int>( k ) );
+                auto& key = p.ScaleCurve[k];
+                row( k == 0 ? "Scale Curve" : "", "Age over Max Age -> share of Procedural Scale (time, value)",
+                     [&]
+                     {
+                         ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x * 0.5f - 20.0f );
+                         ImGui::DragFloat( "##Time", &key.Time, 0.01f, 0.0f, 1.0f, "t %.2f" );
+                         track();
+                         ImGui::SameLine();
+                         ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x - 24.0f );
+                         ImGui::DragFloat( "##Value", &key.Value, 0.01f, 0.0f, 1.0f, "v %.2f" );
+                         track();
+                         ImGui::SameLine();
+                         ImGui::BeginDisabled( p.ScaleCurve.size() <= 1 );
+                         if ( ImGui::SmallButton( "X" ) )
+                             erase = k;
+                         ImGui::EndDisabled();
+                     } );
+                ImGui::PopID();
+            }
+            if ( erase )
+            {
+                p.ScaleCurve.erase( p.ScaleCurve.begin() + static_cast<std::ptrdiff_t>( *erase ) );
+                commit = true;
+            }
+            Row::BeginPropertyRow(
+                 "", "Add a key: at time 1 if the curve ends earlier, else halfway between the last two" );
+            if ( ImGui::SmallButton( "+ Key" ) )
+            {
+                auto& keys = p.ScaleCurve;
+                if ( keys.empty() )
+                    keys.push_back( { 0.0f, 0.0f } );
+                else if ( keys.back().Time < 1.0f )
+                    keys.push_back( { 1.0f, keys.back().Value } );
+                else
+                {
+                    const Assets::Serialization::FoliageScaleCurveKey prev =
+                         keys.size() > 1 ? keys[keys.size() - 2] : Assets::Serialization::FoliageScaleCurveKey{};
+                    const Assets::Serialization::FoliageScaleCurveKey last = keys.back();
+                    keys.insert( keys.end() - 1,
+                                 { 0.5f * ( prev.Time + last.Time ), 0.5f * ( prev.Value + last.Value ) } );
+                }
+                commit = true;
+            }
+            Row::EndPropertyRow();
+        }
         // UE's Details put bIncludeInHLOD under HLOD (FO-6): out of the HLOD, a far cell draws none of the type
         // and the type's mesh is released once no resident cell holds it.
         if ( Row::SectionHeader( "HLOD" ) )
@@ -680,6 +794,16 @@ namespace Desert::Editor::Tools
             std::vector<LandscapeTiles>                  m_Landscapes;
         };
 
+        // A field that goes leaves the palette's state of it behind: not active, not edited, nothing selected.
+        void ForgetFoliageField( const Common::UUID& field )
+        {
+            if ( Core::FoliagePaint::IsActive( field ) )
+                Core::FoliagePaint::ToggleActive( field );
+            if ( Core::FoliagePaint::EditingType() == field )
+                Core::FoliagePaint::ClearEditingType();
+            Core::FoliagePaint::Selection().erase( field );
+        }
+
         /// One press of a foliage tool, undone and redone as a whole - instances and selection (UE: one
         /// FScopedTransaction per stroke, "Foliage Paint" / "Foliage Remove" / ...).
         class FoliageStrokeCommand final : public ICommand
@@ -729,6 +853,42 @@ namespace Desert::Editor::Tools
             std::vector<FoliageStrokeField> m_Fields;
             std::string                     m_Label;
         };
+
+        /// A field of the Scene as one Resimulate step holds it: the entity subtree, every component
+        /// (Commands::CaptureEntityState), under its UUID.
+        struct ProceduralFieldSnapshot
+        {
+            Common::UUID                                         Id;
+            std::shared_ptr<const Commands::EntityStateSnapshot> State;
+        };
+
+        /// One Resimulate of a procedural foliage volume, undone and redone as a whole (UE: the
+        /// FScopedTransaction around ResimulateProceduralContent).
+        class ProceduralResimulateCommand final : public ICommand
+        {
+        public:
+            explicit ProceduralResimulateCommand(
+                 std::shared_ptr<ProceduralFoliageTransaction<ProceduralFieldSnapshot>> transaction )
+                 : m_Transaction( std::move( transaction ) )
+            {
+            }
+
+            bool Undo() override
+            {
+                return m_Transaction->Undo();
+            }
+            bool Redo() override
+            {
+                return m_Transaction->Redo();
+            }
+            std::string GetLabel() const override
+            {
+                return "Resimulate Procedural Foliage";
+            }
+
+        private:
+            std::shared_ptr<ProceduralFoliageTransaction<ProceduralFieldSnapshot>> m_Transaction;
+        };
     } // namespace
 
     namespace
@@ -776,7 +936,11 @@ namespace Desert::Editor::Tools
         {
             std::vector<ECS::Entity> fields;
             for ( const auto& entity : scene.GetAllEntities() )
-                if ( IsFoliageField( entity ) && entity.GetComponent<ECS::FoliageComponent>().FoliageType == type )
+                // S1: a field a procedural volume generated is its volume's (rewritten by Resimulate), not the
+                // brush's: painting the same type grows its own fields beside it (UE: procedural instances are
+                // not painted into).
+                if ( IsFoliageField( entity ) && !entity.HasComponent<ECS::ProceduralFoliageFieldComponent>() &&
+                     entity.GetComponent<ECS::FoliageComponent>().FoliageType == type )
                     fields.push_back( entity );
             return fields;
         }
@@ -981,6 +1145,181 @@ namespace Desert::Editor::Tools
             return BOOLSUCCESS;
         }
     } // namespace
+
+    Common::ResultStr<ProceduralFoliageResimulated>
+    FoliagePaintTool::ResimulateProcedural( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                            const Common::UUID& volumeId )
+    {
+        using Result     = ProceduralFoliageResimulated;
+        const auto found = scene.FindEntityByID( volumeId );
+        if ( !found || !found->get().HasComponent<ECS::ProceduralFoliageComponent>() )
+            return Common::MakeFormattedError<Result>( "procedural foliage: entity {} is not a volume",
+                                                       static_cast<uint64_t>( volumeId ) );
+        // Copies: creating a field may move the registry's storage under a reference.
+        const ECS::ProceduralFoliageData volume =
+             found->get().GetComponent<ECS::ProceduralFoliageComponent>().Data;
+        const glm::vec3 center = found->get().GetComponent<ECS::TransformComponent>().Translation;
+
+        std::vector<Assets::Asset<Assets::FoliageTypeAsset>> assets;
+        std::vector<Assets::Serialization::FoliageTypeData>  types;
+        std::vector<std::vector<std::string>>                layerNames;
+        for ( const auto& handle : volume.FoliageTypes )
+        {
+            auto type = ResolveType( manager, handle );
+            if ( !type )
+                return Common::MakeFormattedError<Result>(
+                     "procedural foliage: type {} of the volume does not load (the log says why)",
+                     static_cast<uint64_t>( handle ) );
+            auto layers = LayerNamesOf( type->GetData() );
+            if ( !layers )
+                return Common::MakeFormattedError<Result>( "procedural foliage: type '{}': {}",
+                                                           type->GetDisplayName(), layers.GetError() );
+            if ( const auto mesh = type->GetMeshHandle() )
+                if ( auto asset = manager.FindByHandle<Assets::MeshAsset>( mesh ) )
+                    Runtime::EnsureMeshRegistered( asset, manager );
+            types.push_back( type->GetData() );
+            layerNames.push_back( layers.ExtractValue() );
+            assets.push_back( std::move( type ) );
+        }
+
+        const LandscapeTileIndex tiles( scene );
+        const auto               landscapeSet = scene.GatherRaycastLandscape();
+        ProceduralFoliageHost    host;
+        host.CellSize = FoliageCellSize( scene );
+        host.Trace    = [&]( const glm::vec3& start, const glm::vec3& end,
+                          const FoliageSurfaceFilter& filter ) -> std::optional<FoliageTraceHit>
+        {
+            // As the brush: realized foliage and refused surfaces are traced through (UE
+            // FFoliagePaintingGeometryFilter); the volume's own fields are instances, not geometry.
+            const auto accept = [&]( const Common::UUID& id )
+            {
+                if ( IsRealizedFoliage( scene, id ) )
+                    return false;
+                return filter.Allows( tiles.OfEntity( id ) != nullptr ? FoliageSurface::Landscape
+                                                                      : FoliageSurface::StaticMesh );
+            };
+            const glm::vec3 d   = end - start;
+            const float     len = glm::length( d );
+            if ( len <= 0.0f )
+                return std::nullopt;
+            ::Desert::Core::RaycastHit hit;
+            if ( !scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept, landscapeSet ) ||
+                 hit.Distance > len )
+                return std::nullopt;
+            FoliageTraceHit out;
+            out.Point  = hit.Point;
+            out.Normal = hit.Normal;
+            out.Surface =
+                 tiles.OfEntity( hit.Entity ) != nullptr ? FoliageSurface::Landscape : FoliageSurface::StaticMesh;
+            return out;
+        };
+        host.LayerWeightAt = [&]( uint32_t typeIndex, const glm::vec3& p ) -> std::optional<float>
+        {
+            const auto* tile = tiles.At( p.x, p.z );
+            if ( !tile )
+                return std::nullopt;
+            return MaxLayerWeight( *tile->Tile, tile->Frame, layerNames[typeIndex], p.x, p.z );
+        };
+
+        // Every foliage field, by UUID: the plan names them by index into this list.
+        std::vector<Common::UUID> fieldIds;
+        for ( const auto& entity : scene.GetAllEntities() )
+        {
+            if ( !IsFoliageField( entity ) )
+                continue;
+            World::Foliage::Procedural::ProceduralFoliageExistingField field;
+            if ( entity.HasComponent<ECS::ProceduralFoliageFieldComponent>() )
+                field.Owner = entity.GetComponent<ECS::ProceduralFoliageFieldComponent>().Owner;
+            const auto& type = entity.GetComponent<ECS::FoliageComponent>().FoliageType;
+            const auto  it   = std::find( volume.FoliageTypes.begin(), volume.FoliageTypes.end(), type );
+            if ( it != volume.FoliageTypes.end() )
+                field.TypeIndex = static_cast<uint32_t>( it - volume.FoliageTypes.begin() );
+            if ( host.CellSize.has_value() )
+                field.Cell = CellOfField( entity, *host.CellSize );
+            host.Existing.push_back( field );
+            fieldIds.push_back( entity.GetComponent<ECS::UUIDComponent>().UUID );
+        }
+
+        // The step's undo (UE FScopedTransaction): every field it rewrites, removes or creates, whole.
+        ::Desert::Core::Scene* const target = &scene;
+        auto transaction = std::make_shared<ProceduralFoliageTransaction<ProceduralFieldSnapshot>>(
+             ProceduralFoliageFieldStore<ProceduralFieldSnapshot>{
+                  .Capture = []( const Common::UUID& id ) -> std::optional<ProceduralFieldSnapshot>
+                  {
+                      auto state = Commands::CaptureEntityState( id );
+                      if ( !state )
+                          return std::nullopt;
+                      return ProceduralFieldSnapshot{ id, std::move( state ) };
+                  },
+                  .Destroy =
+                       [target]( const Common::UUID& id )
+                  {
+                      if ( const auto ref = target->FindEntityByID( id ) )
+                      {
+                          ForgetFoliageField( id );
+                          target->DestroyEntity( ref->get() );
+                      }
+                  },
+                  .Restore =
+                       [target]( const ProceduralFieldSnapshot& field )
+                  {
+                      Commands::RevertEntityState( field.State );
+                      return target->FindEntityByID( field.Id ).has_value();
+                  } } );
+        const auto fieldAt = [&]( size_t existing ) -> std::optional<ECS::Entity>
+        {
+            const auto ref = scene.FindEntityByID( fieldIds[existing] );
+            if ( !ref || !IsFoliageField( ref->get() ) )
+                return std::nullopt;
+            return ref->get();
+        };
+        host.Rewrite = [&]( size_t existing, std::vector<glm::mat4> instances )
+        {
+            transaction->Touch( fieldIds[existing] );
+            if ( auto field = fieldAt( existing ) )
+            {
+                field->GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms =
+                     std::move( instances );
+                Core::FoliagePaint::Selection().erase( fieldIds[existing] );
+            }
+        };
+        host.Remove = [&]( size_t existing )
+        {
+            transaction->Touch( fieldIds[existing] );
+            if ( auto field = fieldAt( existing ) )
+            {
+                ForgetFoliageField( fieldIds[existing] );
+                scene.DestroyEntity( *field );
+            }
+        };
+        host.Create =
+             [&]( const World::Foliage::Procedural::ProceduralFoliageTypeField& fresh ) -> Common::BoolResultStr
+        {
+            const auto& type = assets[fresh.TypeIndex];
+            std::string tag  = std::format( "ProceduralFoliage_{}", type->GetDisplayName() );
+            if ( host.CellSize.has_value() )
+                std::format_to( std::back_inserter( tag ), "_{}_{}", fresh.Cell.X, fresh.Cell.Z );
+            auto& field = scene.CreateNewEntity( std::move( tag ) );
+            // FO-6: a cell field stands at its cell's centre; a world that is not partitioned keeps the field
+            // where a painted one stands, at the origin (instances are world transforms either way).
+            if ( host.CellSize.has_value() )
+                field.GetComponent<ECS::TransformComponent>().Translation =
+                     World::Foliage::FoliageCellAnchor( fresh.Cell, *host.CellSize );
+            field.AddComponent<ECS::FoliageComponent>().FoliageType = type->GetMetadata().Handle;
+            auto& ism              = field.AddComponent<ECS::InstancedStaticMeshComponent>();
+            ism.MeshHandle         = type->GetMeshHandle();
+            ism.InstanceTransforms = fresh.Instances;
+            field.AddComponent<ECS::ProceduralFoliageFieldComponent>().Owner = volumeId;
+            transaction->Made( field.GetComponent<ECS::UUIDComponent>().UUID );
+            return BOOLSUCCESS;
+        };
+
+        auto done = ResimulateProceduralFoliage( volume, center, volumeId, types, host );
+        transaction->Close();
+        if ( !transaction->Empty() )
+            CommandHistory::Get().PushCommand( std::make_unique<ProceduralResimulateCommand>( transaction ) );
+        return done;
+    }
 
     std::vector<glm::mat4> FoliagePaintTool::RowInstances( ::Desert::Core::Scene& scene, const Common::UUID& row,
                                                            const std::optional<glm::vec3>& around, float radius )

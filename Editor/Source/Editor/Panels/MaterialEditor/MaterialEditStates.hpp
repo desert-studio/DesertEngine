@@ -43,11 +43,15 @@ namespace Desert::Editor::MaterialEdit
     // positionally would report a document as permanently unapplied after a Discard.
     //
     // The shader is compared by its GUID, so a stale path locator beside the same GUID is not an authored
-    // difference. The standard surface is only ever stated by absence (StateShaderByName), so an absent
-    // shader and a stated one are different materials.
+    // difference. A template is always stated (SurfaceMaterialAsset::StateShader), so an absent shader
+    // and a stated one are different materials.
     [[nodiscard]] inline bool AuthoredValuesEqual( const Assets::MaterialData& a, const Assets::MaterialData& b )
     {
         if ( a.ShaderGuid() != b.ShaderGuid() )
+            return false;
+        // The thumbnail's mesh (UE ThumbnailInfo) is authored and saved with the material: compared by GUID,
+        // so a moved locator beside the same mesh is not an edit.
+        if ( a.Thumbnail != b.Thumbnail )
             return false;
 
         if ( a.Params.size() != b.Params.size() || a.Textures.size() != b.Textures.size() ||
@@ -85,6 +89,7 @@ namespace Desert::Editor::MaterialEdit
         destination.Params      = source.Params;
         destination.Textures    = source.Textures;
         destination.CloudAssets = source.CloudAssets;
+        destination.Thumbnail   = source.Thumbnail;
     }
 
     // THE TWO "DIRTY"S, AND THEY ARE NOT ONE FLAG.
@@ -319,7 +324,7 @@ namespace Desert::Editor::MaterialEdit
     /// oversight: a cloud type / layout slot already carries its own empty entry in its combo ("Default
     /// (cumulus congestus)", "None (procedural weather)"), so an arrow would be a second control for the
     /// one action; and a 2D texture slot cannot be UNBOUND at all today — Graphic::DataDrivenMaterial::
-    /// SetTexture refuses a null image and MaterialFactory::ApplyShaderAsset skips handle 0, so erasing the
+    /// SetTexture refuses a null image and Runtime::ApplySurfaceAsset skips handle 0, so erasing the
     /// entry would clear the file and leave the ball still sampling the old texture. A control that changes
     /// the document and not the picture is worse than no control (DC §1.3).
     [[nodiscard]] inline RowReset ResetOfferedFor( const Assets::MaterialData&                 data,

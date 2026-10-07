@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 
 #include <Engine/Graphic/Materials/Material.hpp>
@@ -44,7 +46,7 @@ namespace Desert::Graphic
 
         const CloudShadowUniforms data = CloudShadowPackUniforms( cloudShadow );
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( "CloudShadowUB" ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kCloudShadowBlockName ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
     }
 } // namespace Desert::Graphic
