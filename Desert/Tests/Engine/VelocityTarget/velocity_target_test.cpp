@@ -14,6 +14,12 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
+
+#include <Common/Core/Constants.hpp>
+
+#include <shaderc/shaderc.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
 
@@ -28,6 +34,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <set>
 #include <array>
 #include <regex>
@@ -843,4 +850,123 @@ TEST( VelocityTarget, VelocityIsCreatedOncePerViewAndNeverOnALightView )
     EXPECT_EQ( count( scene, "AddGraphColor( m_GBuffer" ), 1u );
     EXPECT_EQ( count( scene, "AddGraphColor(" ), 2u ) << "velocity on any other target (RSM, cascades, overdraw)";
     EXPECT_EQ( count( scene, "AddGraphColor( m_RSMBuffer" ), 0u );
+}
+
+namespace VelocityTargetTest
+{
+    // The fragment stage of a shipped program, by its `Shader "<name>"`: the default pass, else the first pass with one.
+    struct FragmentOf
+    {
+        std::filesystem::path File;
+        std::string           Source;
+    };
+
+    std::optional<FragmentOf> FindFragment( const std::filesystem::path& shaders, const std::string& name )
+    {
+        using Desert::Core::Formats::ShaderStage;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders ) )
+        {
+            if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
+                continue;
+            const std::string text = ReadFile( entry.path() );
+            if ( !Desert::Core::Preprocess::DShaderParser::IsDShader( text ) )
+                continue;
+            const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( text );
+            if ( !parsed || parsed.GetValue().Name != name )
+                continue;
+            const auto& program = parsed.GetValue();
+            if ( const auto it = program.Stages.find( ShaderStage::Fragment ); it != program.Stages.end() )
+                return FragmentOf{ entry.path(), it->second };
+            for ( const auto& pass : program.Passes )
+                if ( const auto it = pass.Stages.find( ShaderStage::Fragment ); it != pass.Stages.end() )
+                    return FragmentOf{ entry.path(), it->second };
+        }
+        return std::nullopt;
+    }
+
+    std::vector<uint32_t> CompileFragment( const FragmentOf& fragment )
+    {
+        shaderc::Compiler       compiler;
+        shaderc::CompileOptions options;
+        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( fragment.File ) );
+        // Same target as Core::ShaderCompiler::CompileGLSLToSPIRV.
+        options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
+        const auto result = compiler.CompileGlslToSpv( fragment.Source, shaderc_fragment_shader,
+                                                       fragment.File.string().c_str(), options );
+        EXPECT_EQ( result.GetCompilationStatus(), shaderc_compilation_status_success )
+             << fragment.File.string() << ": " << result.GetErrorMessage();
+        if ( result.GetCompilationStatus() != shaderc_compilation_status_success )
+            return {};
+        return { result.begin(), result.end() };
+    }
+} // namespace VelocityTargetTest
+
+// The passes that draw INTO the view's scene target but must NOT write its velocity: sky, fog, clouds, the deferred
+// and SSR composites, debug lines, the overdraw view, particles and the editor overlays. They have no motion of a
+// surface of their own (a fullscreen composite has no surface), so the velocity the depth writers left must survive
+// them. What keeps it is the colour-write MASK the pipeline gets from the FRAGMENT-OUTPUT REFLECTION
+// (ShaderReflection::ReflectFragmentOutputLocations -> BuildColorBlendAttachments, the path VulkanPipeline takes):
+// a slot the fragment stage has no output at gets mask 0. So each named program is compiled from its shipped
+// source and reflected, and the velocity slot of SceneTargetLayout must come out unwritten with mask 0; and the C++
+// site that builds its pipeline must load it by that name against SceneTargetLayout. Mutation: give Skybox.shader
+// (or any named program) an `Out(1) vec2 oVelocity` -> red; rename a site's shader -> red.
+TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
+{
+    using namespace Desert::Graphic::API::Vulkan;
+    const auto root    = Desert::TestSupport::RepositoryRoot();
+    const auto shaders = root / "Editor/Resources/Shaders";
+    ASSERT_TRUE( std::filesystem::exists( shaders ) ) << shaders.string();
+    // The includer resolves `#include <...>` against ShaderDir(), derived from the engine directory.
+    Common::Constants::Path::SetEngineDir( root / "Editor" );
+
+    const std::string E  = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/";
+    const std::string Ed = "Editor/Source/Editor/RenderSystems/Passes/";
+    // shader name -> the site that builds its scene-target pipeline; the comment is why it owes no velocity.
+    const std::vector<std::pair<std::string, std::string>> mustNotWrite = {
+         { "Skybox", E + "Skybox/SkyboxRenderer.cpp" },                       // sky
+         { "ProceduralSky", E + "Skybox/SkyboxRenderer.cpp" },                // sky
+         { "HeightFogApply", E + "Fog/HeightFogRenderer.cpp" },               // fullscreen fog composite
+         { "CloudComposite", E + "Clouds/VolumetricCloudRenderer.cpp" },      // fullscreen cloud composite
+         { "DeferredLighting", E + "Deferred/DeferredLightingRenderer.hpp" }, // deferred composite
+         { "SSRComposite", E + "Deferred/SSRRenderer.hpp" },                  // reflection composite
+         { "DebugLine", E + "Mesh/MeshRendererDebug.cpp" },                   // debug lines
+         { "OverdrawResolve", E + "Mesh/MeshRendererDebug.cpp" },             // debug view
+         { "ParticleBillboard", E + "Particles/ParticleRenderer.cpp" },       // translucent particles
+         { "Grid", Ed + "EditorGridPass.cpp" },                               // editor overlay
+         { "DebugLine", Ed + "EditorColliderPass.cpp" },                      // editor overlay
+         { "CubemapSphere", Ed + "EditorCubemapPreviewPass.cpp" },            // editor overlay
+    };
+
+    const auto     layout   = Desert::Graphic::SceneTargetLayout();
+    const uint32_t slots    = static_cast<uint32_t>( layout.ColorFormats.size() );
+    const uint32_t velocity = Desert::Graphic::kSceneTargetVelocitySlot;
+    ASSERT_LT( velocity, slots );
+    for ( const auto& [name, site] : mustNotWrite )
+    {
+        const std::string siteText = ReadFile( root / site );
+        ASSERT_FALSE( siteText.empty() ) << site;
+        EXPECT_NE( siteText.find( "\"" + name + "\"" ), std::string::npos ) << site << " no longer loads " << name;
+        EXPECT_NE( siteText.find( "SceneTargetLayout()" ), std::string::npos )
+             << site << " no longer builds " << name << " against the scene target layout";
+
+        const auto fragment = FindFragment( shaders, name );
+        ASSERT_TRUE( fragment.has_value() ) << "no shipped program is called " << name;
+        const auto spirv = CompileFragment( *fragment );
+        ASSERT_FALSE( spirv.empty() ) << name;
+        const auto written = ShaderReflection::ReflectFragmentOutputLocations( spirv );
+        EXPECT_NE( std::find( written.begin(), written.end(), 0u ), written.end() )
+             << name << " writes no scene colour: the census reflected the wrong stage";
+        EXPECT_EQ( std::find( written.begin(), written.end(), velocity ), written.end() )
+             << name << " writes the velocity slot; it must leave the depth writers' velocity in place";
+
+        for ( const bool blend : { false, true } )
+        {
+            const auto attachments = ShaderReflection::BuildColorBlendAttachments(
+                 slots, written, blend, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA );
+            ASSERT_EQ( attachments.size(), slots ) << name;
+            EXPECT_EQ( attachments[velocity].colorWriteMask, 0u )
+                 << name << ": the velocity slot is not masked (blend " << blend << ")";
+            EXPECT_EQ( attachments[velocity].blendEnable, VK_FALSE ) << name;
+        }
+    }
 }
