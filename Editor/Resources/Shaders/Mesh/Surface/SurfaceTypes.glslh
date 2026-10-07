@@ -76,8 +76,9 @@ SurfaceOutput DefaultSurfaceOutput()
 
 // A cell of a VIEW pass (G-buffer, forward, translucent — the camera's own frame) reads its object's motion row and
 // hands the fragment stage both unjittered clip positions; a shadow-depth cell draws a light view, which has no
-// previous frame, and keeps its world transform in the push block.
-#if defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PASS_ShadowDepth )
+// previous frame, and keeps its world transform in the push block. So does the RSM permutation of the G-buffer
+// cell (DESERT_GBUFFER_RSM, MeshRendererShadow DeclareRSMDraws pushes the world): a light view as well.
+#if defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PASS_ShadowDepth ) && !defined( DESERT_GBUFFER_RSM )
 #define DESERT_SURFACE_VIEW_PASS 1
 #endif
 
