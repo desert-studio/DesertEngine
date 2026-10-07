@@ -725,7 +725,9 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     EXPECT_EQ( scene.Colors[Desert::Graphic::kSceneTargetVelocitySlot], velocity.Resolved );
     EXPECT_EQ( gbuffer.Colors[Desert::Graphic::kGBufferVelocitySlot], velocity.Resolved );
 
-    // At MSAA the scene target draws the multisampled twin and resolves it into the one transient.
+    // At MSAA the scene target draws the multisampled twin; velocity is SampleZero, so the slot has NO in-pass
+    // resolve (the hardware average) — "Velocity: Resolve" writes sample 0 into the one transient
+    // (RenderGraphCompile.SampleZeroGraphColourGetsAResolveNodeAndNoHardwareResolve).
     const ViewVelocity msaa = CreateViewVelocity( graph, RDG::Extent3D{ 64, 32, 1 }, 4 );
     ASSERT_TRUE( msaa.Multisample.IsValid() );
     RasterTargets      multisampled;
@@ -734,7 +736,9 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     const GraphColor onMsaa[] = { VelocityColor( msaa, 4 ) };
     ASSERT_TRUE( AppendGraphColors( multisampled, onMsaa, true ) );
     EXPECT_EQ( multisampled.Colors[1], msaa.Multisample );
-    EXPECT_EQ( multisampled.Resolves[1], msaa.Resolved );
+    EXPECT_EQ( onMsaa[0].Resolve, GraphColorResolve::SampleZero );
+    ASSERT_EQ( multisampled.Resolves.size(), multisampled.Colors.size() ) << "Resolves is indexed by colour slot";
+    EXPECT_FALSE( multisampled.Resolves[1].IsValid() ) << "velocity must not be averaged by the render pass";
     // A single-sample colour on a multisampled target is refused, nothing appended.
     RasterTargets refused = multisampled;
     EXPECT_FALSE( AppendGraphColors( refused, onScene, true ) );

@@ -1,4 +1,5 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -341,6 +342,16 @@ namespace Desert::Graphic
              !resolveInit )
             LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
                        resolveInit.GetError() );
+
+        // The sample-0 shader resolve of the scene target's SampleZero graph colours (the view's velocity at MSAA).
+        RegisterSystem<System::GraphColorResolveRenderer>( "GraphColorResolveSystem", this, m_TargetFramebuffer,
+                                                           m_RenderGraphBuilder );
+        if ( const auto colorResolveInit =
+                  SP_CAST( System::GraphColorResolveRenderer, m_RenderSystems["GraphColorResolveSystem"] )
+                       ->Initialize();
+             !colorResolveInit )
+            LOG_ERROR( "[SceneRenderer] GraphColorResolve unavailable (velocity at MSAA reads zero motion): {}",
+                       colorResolveInit.GetError() );
 
         RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer,
                                               m_RenderGraphBuilder );
@@ -980,6 +991,10 @@ namespace Desert::Graphic
 
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false );
+        // After the last node that draws the scene geometry's velocity into the scene target, before any reader
+        // of the resolved velocity (TAA). The post nodes below never write velocity (their fragment shaders do
+        // not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
+        AddFrameGraphColorResolves( graph, textures );
 
         AddFrameJumpFlood( graph, textures );
         AddFrameAutoExposure( graph, textures, sceneColor() );

@@ -551,6 +551,8 @@ namespace Desert::Graphic
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
+        // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
+        void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );
 
         // The scene sample count the device can run for `requested` (the method's effective count).
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.

@@ -31,8 +31,11 @@ namespace Desert::Graphic::DeferredFrameNodes
             pass.ColorTarget( i, target.Colors[i], colors[i] );
         if ( target.Depth.IsValid() )
             pass.DepthTarget( target.Depth, RDG::LoadOp::Load(), /*write*/ true );
+        // A slot with no in-pass resolve (an invalid ref: a SampleZero graph colour, ViewRasterTargets.hpp) is
+        // skipped, as DeclareResolves does.
         for ( uint32_t i = 0; i < target.Resolves.size(); ++i )
-            pass.ResolveTarget( i, target.Resolves[i] );
+            if ( target.Resolves[i].IsValid() )
+                pass.ResolveTarget( i, target.Resolves[i] );
     }
 
     // G-buffer depth -> scene target depth. The same sample count: "Deferred: DepthResolve", a Copy node. A

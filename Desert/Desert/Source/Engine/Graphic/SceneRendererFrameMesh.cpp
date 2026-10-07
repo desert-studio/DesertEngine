@@ -62,8 +62,7 @@ namespace Desert::Graphic
                          pass.ColorTarget( slot, targets.Colors[slot], colors[slot] );
                      if ( targets.Depth.IsValid() )
                          pass.DepthTarget( targets.Depth, depth );
-                     for ( uint32_t slot = 0; slot < targets.Resolves.size(); ++slot )
-                         pass.ResolveTarget( slot, targets.Resolves[slot] );
+                     DeclareResolves( pass, targets.Resolves );
                      if ( declareBindings )
                      {
                          declareBindings( pass );
@@ -123,8 +122,7 @@ namespace Desert::Graphic
                          node.ColorTarget( slot, targets->Colors[slot], colors[slot] );
                      if ( targets->Depth.IsValid() )
                          node.DepthTarget( targets->Depth, depth );
-                     for ( uint32_t slot = 0; slot < targets->Resolves.size(); ++slot )
-                         node.ResolveTarget( slot, targets->Resolves[slot] );
+                     DeclareResolves( node, targets->Resolves );
                  },
                  [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
                       RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );

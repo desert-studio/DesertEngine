@@ -11,6 +11,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
+#include <Engine/Graphic/ViewRasterTargets.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 
 // `#if DESERT_DEV_INSTRUMENTS` on a macro nobody defined is `#if 0`: without DevInstruments.hpp above, every
@@ -2504,6 +2505,77 @@ TEST( RenderGraphCompile, SceneDepthResolveIsARasterNodeOnlyAtMsaa )
                  depthAttachment || ( attachment.IsDepth && attachment.Resource == resolvedRef.Index );
         EXPECT_TRUE( depthAttachment ) << "the resolve does not render into SceneDepthResolved";
     }
+}
+
+// A SampleZero graph colour (the view's velocity) on a multisampled target: the node drawing the target declares
+// NO resolve attachment for its slot (the render pass would average it: VK resolves float colour only by AVERAGE),
+// and AddGraphColorResolves adds one "Velocity: Resolve" Raster node that samples the multisampled twin
+// (SampledGraphics) and writes the single-sample velocity as its colour slot 0. The scene colour keeps its
+// hardware resolve. Mutations: AppendGraphColors pushes color.Color as the resolve for SampleZero (hardware
+// resolve kept) / AddGraphColorResolves skips SampleZero -> red.
+TEST( RenderGraphCompile, SampleZeroGraphColourGetsAResolveNodeAndNoHardwareResolve )
+{
+    using Desert::Graphic::AddGraphColorResolves;
+    using Desert::Graphic::AppendGraphColors;
+    using Desert::Graphic::CreateViewVelocity;
+    using Desert::Graphic::DeclareResolves;
+    using Desert::Graphic::GraphColor;
+    using Desert::Graphic::RasterTargets;
+    using Desert::Graphic::VelocityColor;
+    using Desert::Graphic::ViewVelocity;
+    Builder          graph( "velocity-resolve" );
+    TextureDesc      msColour = Tex2D( 64, 64, ImageFormat::RGBA16F );
+    msColour.Samples          = 4;
+    const TextureRef sceneMs  = graph.CreateTexture( msColour, "SceneColor.MSAA" );
+    const TextureRef scene    = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "SceneColor" );
+    const ViewVelocity velocity = CreateViewVelocity( graph, Extent3D{ 64, 64, 1 }, 4 );
+    ASSERT_TRUE( velocity.Multisample.IsValid() );
+
+    RasterTargets targets;
+    targets.Colors   = { sceneMs };
+    targets.Resolves = { scene };
+    const GraphColor colors[] = { VelocityColor( velocity, 4 ) };
+    ASSERT_TRUE( AppendGraphColors( targets, colors, true ) );
+    graph.AddPass(
+         "Forward", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             for ( uint32_t slot = 0; slot < targets.Colors.size(); ++slot )
+                 pass.ColorTarget( slot, targets.Colors[slot], LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+             DeclareResolves( pass, targets.Resolves );
+         },
+         Ok );
+    AddGraphColorResolves(
+         graph, colors,
+         []( PassBuilder& pass, const GraphColor& color ) { pass.Read( color.Multisample, Access::SampledGraphics ); },
+         []( const GraphColor& ) { return Ok; } );
+    ExternalTexture sceneOut( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
+    ExternalTexture velOut( Tex2D( 64, 64, ImageFormat::RG16F ), Access::None );
+    graph.Extract( scene, sceneOut, Access::SampledGraphics );
+    graph.Extract( velocity.Resolved, velOut, Access::SampledGraphics );
+
+    const CompileResult result  = CompileOrFail( graph );
+    const CompiledPass* forward = result.FindPass( "Forward" );
+    const CompiledPass* resolve = result.FindPass( "Velocity: Resolve" );
+    ASSERT_NE( forward, nullptr );
+    ASSERT_NE( resolve, nullptr ) << "a SampleZero colour at MSAA has no resolve node";
+    bool sceneResolved = false;
+    for ( const AttachmentDecision& attachment : forward->Attachments )
+    {
+        EXPECT_FALSE( attachment.IsResolve && attachment.Resource == velocity.Resolved.Index )
+             << "velocity is resolved by the render pass (an average), not by sample 0";
+        sceneResolved = sceneResolved || ( attachment.IsResolve && attachment.Resource == scene.Index );
+    }
+    EXPECT_TRUE( sceneResolved ) << "the scene colour lost its hardware resolve";
+    EXPECT_TRUE( HasFlag( resolve->Flags, PassFlags::Raster ) );
+    bool writesVelocity = false;
+    for ( const AttachmentDecision& attachment : resolve->Attachments )
+        writesVelocity = writesVelocity || ( !attachment.IsDepth && !attachment.IsResolve && attachment.Slot == 0 &&
+                                             attachment.Resource == velocity.Resolved.Index );
+    EXPECT_TRUE( writesVelocity ) << "the resolve node does not write the single-sample velocity";
+    const std::vector<Barrier> intoRead = BarriersOn( resolve, velocity.Multisample.Index );
+    ASSERT_EQ( intoRead.size(), 1u );
+    EXPECT_EQ( intoRead[0].After, GetAccessState( Access::SampledGraphics ) );
 }
 
 // THE MESH AND TERRAIN PASSES ARE RASTER NODES (RDG-LEG1-L1): SceneRendererFrameMesh.cpp adds no legacy pass, each

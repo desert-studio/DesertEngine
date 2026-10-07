@@ -38,6 +38,7 @@
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 
 namespace Desert::Graphic
 {
@@ -114,8 +115,7 @@ namespace Desert::Graphic
                           target.Depth,
                           RDG::LoadOp::ClearDepth( depthStencil.x, static_cast<uint32_t>( depthStencil.y ) ) );
                  }
-                 for ( uint32_t i = 0; i < target.Resolves.size(); ++i )
-                     pass.ResolveTarget( i, target.Resolves[i] );
+                 DeclareResolves( pass, target.Resolves );
              },
              []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
     }
@@ -187,6 +187,37 @@ namespace Desert::Graphic
              { resolve->DeclareBindings( pass, depth ); },
              [resolve]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return resolve->Record( context ); } );
+    }
+
+    void SceneRenderer::AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures )
+    {
+        const std::vector<GraphColor>* colors = textures.GraphColorsOf( m_TargetFramebuffer.get() );
+        if ( colors == nullptr )
+            return;
+        const auto found = m_RenderSystems.find( "GraphColorResolveSystem" );
+        System::GraphColorResolveRenderer* resolve = nullptr;
+        if ( found != m_RenderSystems.end() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            resolve = UNIQUE_GET_AS( System::GraphColorResolveRenderer, found->second );
+        AddGraphColorResolves(
+             graph, *colors,
+             [resolve]( RDG::PassBuilder& pass, const GraphColor& color )
+             {
+                 if ( resolve != nullptr )
+                     resolve->DeclareBindings( pass, color.Multisample );
+             },
+             [resolve, &graph]( const GraphColor& color )
+             {
+                 const auto desc = graph.GetTextureDesc( color.Color );
+                 const std::optional<Core::Formats::ImageFormat> format =
+                      desc.IsSuccess() ? std::optional( desc.GetValue().Format ) : std::nullopt;
+                 return [resolve, format]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     if ( resolve == nullptr || !format )
+                         return Common::MakeError( "GraphColorResolve: no system or no format for the colour" );
+                     return resolve->Record( context, *format );
+                 };
+             } );
     }
 
     void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
