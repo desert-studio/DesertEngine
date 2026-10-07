@@ -497,7 +497,7 @@ void main() { o_Color = texture(u_Albedo, vec2(0.5)); }
     EXPECT_NE( second.front().find( "u_Albedo" ), std::string::npos ) << second.front();
 }
 
-// THE 128-BYTE PUSH CAP (ShaderResources::ShaderLayout::kMaxPushBlockBytes). 128 bytes is what every
+// THE 128-BYTE PUSH CAP (ShaderResources::ShaderLayout::kMaxPushConstantBytes). 128 bytes is what every
 // Vulkan device must hold, so the engine guarantees no program declares more: reflection refuses the
 // stage, naming the block and its size, and VulkanShader prefixes the shader's name and stage. Every
 // member is read through a dynamic index so no compiler can shrink the declared block.
@@ -527,7 +527,7 @@ TEST( ShaderReflection, APushBlockOfExactlyTheCapIsAccepted )
     const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Compute, data );
     ASSERT_TRUE( diagnostics.empty() ) << FirstOr( diagnostics, "" );
     ASSERT_TRUE( data.PushConstantRanges.has_value() );
-    EXPECT_EQ( data.PushConstantRanges->Size, Desert::ShaderResources::ShaderLayout::kMaxPushBlockBytes );
+    EXPECT_EQ( data.PushConstantRanges->Size, Desert::ShaderResources::ShaderLayout::kMaxPushConstantBytes );
 }
 
 TEST( ShaderReflection, A132BytePushBlockIsRefusedByNameAndSize )

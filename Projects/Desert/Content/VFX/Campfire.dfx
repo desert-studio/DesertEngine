@@ -1,0 +1,81 @@
+{
+    "Header": {
+        "Kind": "VFXSystem",
+        "Guid": "bfdbe8fc2f9659966ee41bdf8e39019f",
+        "Versions": {
+            "VFXS": 1
+        },
+        "Dependencies": []
+    },
+    "Category": "Fire",
+    "Tags": ["campfire", "loop"],
+    "Duration": 2.0,
+    "Loop": true,
+    "Seed": 1234,
+    "Bounds": {
+        "Min": [-50.0, 0.0, -50.0],
+        "Max": [50.0, 300.0, 50.0]
+    },
+    "UserParams": [],
+    "LocalModules": [],
+    "Emitters": [
+        {
+            "Name": "Flames",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 512,
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 2.0,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterUpdate": [
+                    {
+                        "Module": "engine:SpawnRate",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpawnRate",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [40.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": "engine:InitializeParticle",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [0.5, 0.0, 0.0, 0.0],
+                                    "Max": [1.5, 0.0, 0.0, 0.0]
+                                }
+                            },
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [1.0, 0.5, 0.10000000149011612, 1.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": []
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true
+                }
+            ]
+        }
+    ]
+}

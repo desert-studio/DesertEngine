@@ -475,9 +475,12 @@ namespace Desert::Core::Rules
          // ── Global: seen from everywhere, or owns the frame rather than a place in it ──
          { "Camera", ComponentLoading::Global },               // the view itself; brief O1: sun/sky/camera
          { "DirectionLight", ComponentLoading::Global },       // the sun lights every cell at once
+         { "KillField", ComponentLoading::Spatial }, // DST-04: a field acts where it stands
+         { "RadialImpulseField", ComponentLoading::Spatial }, // DST-04: a field acts where it stands
          { "Skybox", ComponentLoading::Global },               // at infinity
          { "SkyAtmosphere", ComponentLoading::Global },        // at infinity
          { "ExponentialHeightFog", ComponentLoading::Global }, // a world-wide medium, not a volume
+         { "StrainField", ComponentLoading::Spatial }, // DST-04: a field acts where it stands
          { "VolumetricCloud", ComponentLoading::Global },      // the cloud layer covers the planet
          // A hero cloud stands kilometres up and is seen from tens of kilometres away; no ground loading
          // range is that wide, so it would vanish while in plain view.

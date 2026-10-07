@@ -38,7 +38,7 @@ namespace
       "Medium":    { "AntiAliasing.Method": "SMAA", "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 1 },
       "High":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 },
       "Epic":      { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 },
-      "Cinematic": { "AntiAliasing.Method": "TAA", , "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 }
+      "Cinematic": { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 }
     },
     "ResolutionScale": {
       "Low":       { "Resolution.Percent": 50,  "Resolution.Upscaler": "TAAU", "Resolution.Sharpness": 20 },

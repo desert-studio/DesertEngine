@@ -2053,7 +2053,7 @@ TEST_F( ShaderCacheKeyShaderRoot, NoShippedShaderClaimsOneDescriptorSlotTwice )
 
 // ─── Every shipped program's push block fits the engine cap ───────────────────────────────────────
 //
-// The owner's guarantee: no program pushes more than ShaderLayout::kMaxPushBlockBytes (128, the size every
+// The owner's guarantee: no program pushes more than ShaderLayout::kMaxPushConstantBytes (128, the size every
 // Vulkan device holds). Reflection refuses a larger stage; this pins the shipped tree under it by
 // compiling every pass and reading the merged range the pipeline layout is built from (PushBlockSize).
 TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsPushBlockFitsTheEngineCap )
@@ -2082,7 +2082,7 @@ TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsPushBlockFitsTheEngineCap 
                      << "']: " << ( diagnostics.empty() ? std::string{} : diagnostics.front() );
             }
             const uint32_t size = Desert::ShaderResources::ShaderLayout::PushBlockSize( data.PushConstantRanges );
-            EXPECT_LE( size, Desert::ShaderResources::ShaderLayout::kMaxPushBlockBytes )
+            EXPECT_LE( size, Desert::ShaderResources::ShaderLayout::kMaxPushConstantBytes )
                  << file.string() << " [pass '" << passName << "'] pushes " << size << " bytes";
             if ( size > 0 )
             {

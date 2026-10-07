@@ -484,6 +484,9 @@ namespace
     constexpr const char* kLightGizmo = "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp";
     constexpr const char* kParticles =
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp";
+    // VFX-06: the simulation moved out of the renderer into the VFXWorld, which turns the component's
+    // spawn settings into the emitter's spawn plan; the renderer only draws what the steps produced.
+    constexpr const char* kVFXWorld    = "Desert/Desert/Source/Engine/VFX/VFXWorld.cpp";
     constexpr const char* kAudioSystem = "Desert/Desert/Source/Engine/ECS/System/AudioECSSystem.hpp";
 
     constexpr Row kCameraRows[] = {
@@ -580,8 +583,8 @@ namespace
     constexpr Row kParticleRows[] = {
          { "Enabled", kParticles },
          { "MaxParticles", kParticles },
-         { "SpawnRate", kParticles },
-         { "Looping", kParticles },
+         { "SpawnRate", kVFXWorld },
+         { "Looping", kVFXWorld },
          // WIRED BY Д26, after a lifetime as a dead row: the renderer folds it into the sim push
          // (Counts.w), and the compute pass keeps a local-mode particle's offset from the emitter and
          // rebases it on the current emitter position — so "Simulate In World" off makes the system RIDE
