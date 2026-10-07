@@ -2063,10 +2063,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     declares( "AddFrameClearMainFramebuffer", { "PassFlags::Raster", "ColorTarget(", "LoadOp::ClearDepth(" } );
     declares( "AddFrameSSAO", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,ao," } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
-    declares( "AddFrameComposite", { "PassFlags::Raster", "Access::SampledGraphics", "LoadTarget(pass,target)" } );
+    declares( "AddFrameComposite", { "PassFlags::Raster", "Access::SampledGraphics", "LoadTarget(pass,target,loads)" } );
     declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
     // RDG-A2-W4: the SSR passes sample the G-buffer as graph refs by name, never a framebuffer image.
-    declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target)",
+    declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target,loads)",
                                "GBufferInputsinputs{gbuffer[0],gbuffer[1],gbuffer[2]}",
                                "RecordResolve(context,trace,tiles,history,inputs)",
                                "RecordComposite(context,accum,tiles,inputs,viewProj)" } );
@@ -2385,11 +2385,12 @@ TEST( RenderGraphCompile, DepthResolveCopyPlansTransferBarriersAndCompositeTakes
     graph.Extract( sourceRef, source, Nodes::kGBufferDepthFinal );
     ExternalTexture* const    colors[] = { &targetColor };
     const ImportedFramebuffer target   = graph.ImportFramebuffer( colors, &targetDepth, "SceneColor" );
+    const std::vector<LoadOp> loads( target.Colors.size(), LoadOp::Load() );
     graph.AddPass(
          "Deferred: DepthResolve", PassFlags::Copy,
          [&]( PassBuilder& pass ) { Nodes::DeclareDepthResolve( pass, sourceRef, target.Depth ); }, Ok );
     graph.AddPass(
-         "Deferred: Composite", PassFlags::Raster, [&]( PassBuilder& pass ) { Nodes::LoadTarget( pass, target ); },
+         "Deferred: Composite", PassFlags::Raster, [&]( PassBuilder& pass ) { Nodes::LoadTarget( pass, target, loads ); },
          Ok );
     const CompileResult result = CompileOrFail( graph );
     ASSERT_EQ( result.Passes.size(), 2u );

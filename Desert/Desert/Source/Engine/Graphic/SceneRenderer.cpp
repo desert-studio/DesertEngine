@@ -843,6 +843,19 @@ namespace Desert::Graphic
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
+        // The view's velocity: one transient of this graph at the scene target's size, a colour slot of the scene
+        // target (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
+        // kGBufferVelocitySlot) — never of a light view (RSM, cascades) or a debug target. Created before any node
+        // is added; its first writer (ClearMainFramebuffer, the first node on both paths) clears it to no motion.
+        if ( m_TargetFramebuffer )
+        {
+            const FramebufferSpecification& target  = m_TargetFramebuffer->GetSpecification();
+            const ViewVelocity              velocity = CreateViewVelocity(
+                 graph, RDG::Extent3D{ target.Width, target.Height, 1 }, target.Samples );
+            textures.Transients.Velocity = velocity.Resolved;
+            textures.AddGraphColor( m_TargetFramebuffer, VelocityColor( velocity, target.Samples ) );
+            textures.AddGraphColor( m_GBuffer, VelocityColor( velocity, 1 ) );
+        }
         const auto values = std::make_shared<FrameValues>();
 
         // The view's per-primitive motion rows (current + previous world, both bone palettes) from the view's

@@ -98,12 +98,15 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         const RDG::ImportedFramebuffer& target = *targets;
+        // The first node of the frame on both paths: the scene colour to the engine grey, and every graph colour
+        // (the view's velocity) to its own clear (no motion) - FrameTextures::ColorLoads.
+        const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, EngineClearColor() );
         graph.AddPass(
              "ClearMainFramebuffer", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  for ( uint32_t i = 0; i < target.Colors.size(); ++i )
-                     pass.ColorTarget( i, target.Colors[i], EngineClearColor() );
+                     pass.ColorTarget( i, target.Colors[i], colors[i] );
                  if ( target.Depth.IsValid() )
                  {
                      const glm::vec2 depthStencil = RenderPassSpecification{}.ClearColor.DepthStencil;
@@ -333,6 +336,7 @@ namespace Desert::Graphic
             return;
         }
         const RDG::ImportedFramebuffer& target = *targets;
+        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
 
         // Every input by name; an input not produced this frame is the system texture neutral for it (UE
         // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not RSM, fewer cascades).
@@ -393,7 +397,7 @@ namespace Desert::Graphic
                                          shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ),
                                          cloudShadow, environment );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
-                 DeferredFrameNodes::LoadTarget( pass, target );
+                 DeferredFrameNodes::LoadTarget( pass, target, loads );
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->Record( context ); } );
@@ -459,6 +463,7 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         const RDG::ImportedFramebuffer& target = *targets;
+        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
         if ( gbuffer.size() < 3 )
         {
             LOG_ERROR( "[SceneRenderer] Deferred: SSR needs the G-buffer albedo, normal and world position, the "
@@ -502,7 +507,7 @@ namespace Desert::Graphic
                  // Every G-buffer colour but the normal the block samples stays declared as before.
                  ReadAll( pass, { gbuffer[0], gbuffer[2] }, RDG::Access::SampledGraphics );
                  ReadAll( pass, { gbuffer.begin() + 3, gbuffer.end() }, RDG::Access::SampledGraphics );
-                 DeferredFrameNodes::LoadTarget( pass, target ); // blend over the scene
+                 DeferredFrameNodes::LoadTarget( pass, target, loads ); // blend over the scene
              },
              [ssr, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return ssr->RecordComposite( context, viewProj ); } );
