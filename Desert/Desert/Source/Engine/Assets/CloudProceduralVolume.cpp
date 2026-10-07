@@ -227,7 +227,6 @@ namespace Desert::Assets
             return HashUnit( word ) - 0.5f;
         }
 
-
         /// The standard normal's cumulative distribution.
         double NormalCdf( double x )
         {
@@ -362,8 +361,8 @@ namespace Desert::Assets
         /// the march at every column of a region.
         constexpr uint32_t kCloudFarWeatherWaves = 96u;
 
-        float CloudCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot, const glm::vec2& centreKm,
-                                 bool withWeather )
+        float CloudCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot,
+                                 const glm::vec2& centreKm, bool withWeather )
         {
             const float base = std::clamp( params.Coverage, 0.0f, 1.0f );
 
@@ -1186,7 +1185,6 @@ namespace Desert::Assets
 
         const uint32_t speciesSeed = CloudSpeciesSeed( params, slot );
 
-
         // THE DENSITY DOES NOT ADD MATTER, IT REDISTRIBUTES IT. A cell that carries `d` clusters narrows
         // each of them by `d` to the power of kDensityCompensation, so the ground they cover between them
         // is the ground one covered. Without this line the density knob would move the sky's cover, and
@@ -1282,8 +1280,7 @@ namespace Desert::Assets
                          CloudClusterSizeDraw( variety, HashUnit( HashCombine( clusterSeed, 0x4u ) ) );
 
                     // THE CLUSTER'S OVERALL HORIZONTAL HALF-EXTENT — the size of the CLOUD, not of a lobe.
-                    const float clusterRadiusKm =
-                         baseRadiusKm * size * densityScale;
+                    const float clusterRadiusKm = baseRadiusKm * size * densityScale;
 
                     // A SMALL CLOUD IS ALSO A FLAT ONE, which is what a cumulus field looks like and what
                     // keeps a quarter-width cluster from being a full-height tower on a narrow base. The
@@ -1595,10 +1592,10 @@ namespace Desert::Assets
         /// column minimum, and the fraction of columns that CloudProceduralKeep keeps at a cover c is c to
         /// within one 255th — for any density, size spread, scatter, species mix or seed. That is what the
         /// pow(cover, 0.68) and the packing gain used to fake, and why neither exists any more.
-        std::vector<unsigned char> CloudProceduralRankColumnCdf( const std::vector<float>& rankField, uint32_t width,
-                                                                 uint32_t height, uint32_t depth )
+        std::vector<unsigned char> CloudProceduralRankColumnCdf( const std::vector<float>& rankField,
+                                                                 uint32_t width, uint32_t height, uint32_t depth )
         {
-            const size_t        columns = static_cast<size_t>( width ) * depth;
+            const size_t       columns = static_cast<size_t>( width ) * depth;
             std::vector<float> minima;
             minima.reserve( columns );
             for ( uint32_t z = 0; z < depth; ++z )
@@ -1606,7 +1603,8 @@ namespace Desert::Assets
                 {
                     float lowest = std::numeric_limits<float>::infinity();
                     for ( uint32_t y = 0; y < height; ++y )
-                        lowest = std::min( lowest, rankField[( static_cast<size_t>( z ) * height + y ) * width + x] );
+                        lowest =
+                             std::min( lowest, rankField[( static_cast<size_t>( z ) * height + y ) * width + x] );
                     if ( std::isfinite( lowest ) )
                         minima.push_back( lowest );
                 }
@@ -1620,8 +1618,7 @@ namespace Desert::Assets
                 const size_t below = static_cast<size_t>(
                      std::lower_bound( minima.begin(), minima.end(), rankField[at] ) - minima.begin() );
                 const double fraction = static_cast<double>( below ) / static_cast<double>( columns );
-                ranks[at]             = static_cast<unsigned char>(
-                     std::min( 254.0, std::floor( fraction * 255.0 ) ) );
+                ranks[at] = static_cast<unsigned char>( std::min( 254.0, std::floor( fraction * 255.0 ) ) );
             }
             return ranks;
         }
@@ -1649,7 +1646,7 @@ namespace Desert::Assets
     {
         if ( auto valid = ValidateCloudProceduralParams( params ); !valid )
             return Common::MakeFormattedError<CloudProceduralVolumeBake>( "parameters are not usable: {}",
-                                                                           valid.GetError() );
+                                                                          valid.GetError() );
 
         const uint32_t width  = params.VolumeSideVoxels;
         const uint32_t height = kCloudProceduralVolumeHeight;
@@ -1662,9 +1659,9 @@ namespace Desert::Assets
         // lump of the WINNING species (the same max over species the march takes, CloudField.glslh), plus
         // a rise toward the body's edge so that a cloud near the slider's threshold erodes to its core.
         // Infinity is "no cloud here".
-        const float           rankSoftness = kCloudRankSoftness / std::max( params.CoverageContrast, 1e-2f );
-        std::vector<float>    rankField( static_cast<size_t>( width ) * height * depth,
-                                         std::numeric_limits<float>::infinity() );
+        const float        rankSoftness = kCloudRankSoftness / std::max( params.CoverageContrast, 1e-2f );
+        std::vector<float> rankField( static_cast<size_t>( width ) * height * depth,
+                                      std::numeric_limits<float>::infinity() );
 
         // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
         // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
@@ -1731,7 +1728,7 @@ namespace Desert::Assets
 
             for ( const CloudProceduralLump& lump : blobs )
             {
-                const CloudModellingBlob& blob = lump.Blob;
+                const CloudModellingBlob& blob   = lump.Blob;
                 const glm::vec3 extent = CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm );
 
                 for ( int wz = -kWrapRange; wz <= kWrapRange; ++wz )
@@ -1755,7 +1752,8 @@ namespace Desert::Assets
                              minKm.y >= params.LayerBottomKm + params.LayerThicknessKm )
                             continue;
 
-                        placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, lump.Rank } );
+                        placed.push_back(
+                             Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, lump.Rank } );
                     }
                 }
             }
@@ -1999,8 +1997,9 @@ namespace Desert::Assets
         {
             const uint32_t waveSeed = HashCombine( seed, 0xfa0000u + wave );
 
-            const double wavenumber = lowest * std::pow( highest / lowest, HashUnit( HashCombine( waveSeed, 1u ) ) );
-            const double heading    = kPi * HashUnit( HashCombine( waveSeed, 2u ) );
+            const double wavenumber =
+                 lowest * std::pow( highest / lowest, HashUnit( HashCombine( waveSeed, 1u ) ) );
+            const double heading = kPi * HashUnit( HashCombine( waveSeed, 2u ) );
 
             // WHOLE WAVE NUMBERS ON THE FAR TORUS, so the field is exactly periodic with the far period
             // (the GPU map of FARWX-b tiles it seamlessly) and with nothing shorter.
@@ -2025,7 +2024,8 @@ namespace Desert::Assets
         // (CloudProceduralCellRank) — and two mechanisms deciding one number is the second path the
         // contract forbids, so the world weather stands down exactly as it did in CloudCellCoverage.
         const CloudLayoutData* patternSource = params.PatternSource.get();
-        if ( patternSource != nullptr && patternSource->HasPattern() && params.LayoutPlacement.PatternStrength > 1e-4f )
+        if ( patternSource != nullptr && patternSource->HasPattern() &&
+             params.LayoutPlacement.PatternStrength > 1e-4f )
             return base;
 
         const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
@@ -2043,10 +2043,10 @@ namespace Desert::Assets
 
         const CloudLayoutData* patternSource = params.PatternSource.get();
         const CloudLayoutData* maskSource    = params.MaskSource.get();
-        const bool painted = ( patternSource != nullptr && patternSource->HasPattern() &&
-                               params.LayoutPlacement.PatternStrength > 1e-4f ) ||
-                             ( maskSource != nullptr && maskSource->HasMask() &&
-                               params.LayoutPlacement.MaskStrength > 1e-4f );
+        const bool             painted =
+             ( patternSource != nullptr && patternSource->HasPattern() &&
+               params.LayoutPlacement.PatternStrength > 1e-4f ) ||
+             ( maskSource != nullptr && maskSource->HasMask() && params.LayoutPlacement.MaskStrength > 1e-4f );
         if ( !painted )
             return draw;
 

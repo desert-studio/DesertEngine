@@ -740,6 +740,7 @@ TEST( CloudProceduralField, TheCostOfRebakingTheRegionIsMeasured )
 // number rather than an opinion.
 namespace
 {
+    using namespace Desert::Assets;
 
     // THE SKY THE MARCH KEEPS (FARWX-a): the bake holds every cell with its rank, and a column has cloud
     // when its lowest rank is under the local cover at the column's WORLD site. Measured at many whole-region
@@ -752,7 +753,9 @@ namespace
                 for ( uint32_t x = 0; x < side; ++x )
                 {
                     unsigned char& lowest = minima[static_cast<size_t>( z ) * side + x];
-                    lowest = std::min( lowest, bake.Ranks[( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x] );
+                    lowest                = std::min(
+                         lowest,
+                         bake.Ranks[( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x] );
                 }
         return minima;
     }
@@ -764,8 +767,8 @@ namespace
                params.RegionSizeKm * static_cast<float>( 1 + shift / 41 );
     }
 
-    std::vector<float> KeptColumns( const CloudProceduralFieldParams& params, const std::vector<unsigned char>& minima,
-                                    const glm::vec2& origin, int shift )
+    std::vector<float> KeptColumns( const CloudProceduralFieldParams& params,
+                                    const std::vector<unsigned char>& minima, const glm::vec2& origin, int shift )
     {
         const uint32_t     side  = params.VolumeSideVoxels;
         const float        voxel = params.RegionSizeKm / static_cast<float>( side );
@@ -776,8 +779,9 @@ namespace
             {
                 const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
                                                           ( static_cast<float>( z ) + 0.5f ) * voxel );
-                const size_t at = static_cast<size_t>( z ) * side + x;
-                map[at] = CloudProceduralKeep( minima[at], CloudProceduralLocalCover( params, world ) ) ? 1.0f : 0.0f;
+                const size_t    at    = static_cast<size_t>( z ) * side + x;
+                map[at] =
+                     CloudProceduralKeep( minima[at], CloudProceduralLocalCover( params, world ) ) ? 1.0f : 0.0f;
             }
         return map;
     }
@@ -789,7 +793,7 @@ namespace
         if ( !baked )
             return -1.0;
         const std::vector<unsigned char> minima = ColumnMinRanks( baked.GetValue(), params.VolumeSideVoxels );
-        double sum = 0.0;
+        double                           sum    = 0.0;
         for ( int shift = 0; shift < shifts; ++shift )
         {
             const std::vector<float> map = KeptColumns( params, minima, origin, shift );
