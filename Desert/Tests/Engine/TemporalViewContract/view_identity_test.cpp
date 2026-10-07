@@ -187,16 +187,21 @@ TEST( ViewIdentityCensus, TheViewIsKeyedByTheCameraSourceId )
 TEST( ViewIdentity, SceneTakesANewGenerationAtConstructionAndAtEveryClear )
 {
     const std::string header = ReadText( EngineSource() / "Core" / "Scene.hpp" );
-    const std::regex initialised( R"(m_Generation\s*=\s*NextSceneGeneration\(\);)" );
+    const std::regex  initialised( R"(m_Generation\s*=\s*NextSceneGeneration\s*\(\s*\)\s*;)" );
     EXPECT_TRUE( std::regex_search( header, initialised ) )
          << "Scene must take its generation where it is created (member initialiser)";
 
     const std::string source = ReadText( EngineSource() / "Core" / "Scene.cpp" );
-    const auto        clear  = source.find( "void Scene::Clear()" );
-    ASSERT_NE( clear, std::string::npos );
-    const auto end = source.find( "\n    }", clear );
-    ASSERT_NE( end, std::string::npos );
-    const std::string clearBody = source.substr( clear, end - clear );
+    std::smatch       head;
+    ASSERT_TRUE( std::regex_search( source, head, std::regex( R"(void\s+Scene\s*::\s*Clear\s*\(\s*\)\s*\{)" ) ) );
+    // The body by brace depth, not by an indentation pattern, so a re-format cannot cut it short.
+    const size_t start = static_cast<size_t>( head.position( 0 ) );
+    size_t       end   = start + static_cast<size_t>( head.length( 0 ) );
+    int          depth = 1;
+    for ( ; end < source.size() && depth > 0; ++end )
+        depth += source[end] == '{' ? 1 : source[end] == '}' ? -1 : 0;
+    ASSERT_EQ( depth, 0 ) << "Scene::Clear has no closing brace";
+    const std::string clearBody = source.substr( start, end - start );
     EXPECT_TRUE( std::regex_search( clearBody, initialised ) )
          << "Scene::Clear (every load / reload / new scene) must take a new generation";
 }
