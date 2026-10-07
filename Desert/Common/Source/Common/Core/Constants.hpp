@@ -174,6 +174,7 @@ namespace Common::Constants
             Animation,
             LevelSequence,
             VFX,
+            Fracture,
             Cooked,
             COUNT
         };
@@ -267,6 +268,8 @@ namespace Common::Constants
              // VFX systems (`.dfx`, UE UNiagaraSystem) get their own folder for the anim graph's reason: a VFX
              // component's slot offers only what is scanned from here.
              /* VFX           */ { "VFX/", DirRoot::Assets },
+             // Baked fractures (`.dfrac`, UE fractured Geometry Collections) beside the meshes they cut.
+             /* Fracture      */ { "Fractures/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -602,6 +605,7 @@ namespace Common::Constants
         inline const std::filesystem::path& ANIMATION_PATH      = Detail::Slot( ContentDir::Animation );
         inline const std::filesystem::path& LEVEL_SEQUENCE_PATH = Detail::Slot( ContentDir::LevelSequence );
         inline const std::filesystem::path& VFX_PATH            = Detail::Slot( ContentDir::VFX );
+        inline const std::filesystem::path& FRACTURE_PATH       = Detail::Slot( ContentDir::Fracture );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
     } // namespace Path
 

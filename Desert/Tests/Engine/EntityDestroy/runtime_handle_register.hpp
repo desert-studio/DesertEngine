@@ -28,11 +28,13 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view ReleaseCall;
     };
 
-    inline constexpr std::array<ComponentHandleRow, 2> kComponentHandles{ {
+    inline constexpr std::array<ComponentHandleRow, 3> kComponentHandles{ {
          { "RigidBodyComponent", "RuntimeBody", "Desert/Desert/Source/Engine/ECS/System/PhysicsBodyLifetime.cpp",
            "RemoveBody" },
          { "CharacterControllerComponent", "RuntimeCharacter",
            "Desert/Desert/Source/Engine/ECS/System/PhysicsBodyLifetime.cpp", "RemoveCharacter" },
+         { "DestructibleComponent", "RuntimeObject",
+           "Desert/Desert/Source/Engine/ECS/System/DestructibleLifetime.cpp", "m_World->Remove" },
     } };
 
     // How a system-side table keyed by entity drops the rows of destroyed entities.

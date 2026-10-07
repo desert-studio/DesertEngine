@@ -188,6 +188,7 @@ namespace Desert::Editor
          { FileType::LandscapeLayerInfo, "Landscape Layer Info" },
          { FileType::LevelSequence, "Level Sequence" },
          { FileType::VFXSystem, "VFX System" },
+         { FileType::Fracture, "Fracture" },
          { FileType::Ini, "Settings" },
          { FileType::SkinnedMesh, "Skeletal Mesh" },
          { FileType::Skeleton, "Skeleton" },
@@ -218,6 +219,7 @@ namespace Desert::Editor
          { FileType::LandscapeLayerInfo, { 0.45f, 0.70f, 0.30f, 1.00f } },
          { FileType::LevelSequence, { 0.85f, 0.35f, 0.25f, 1.00f } },
          { FileType::VFXSystem, { 0.95f, 0.45f, 0.10f, 1.00f } },
+         { FileType::Fracture, { 0.75f, 0.55f, 0.35f, 1.00f } },
          { FileType::ImportSettings, { 0.65f, 0.65f, 0.68f, 1.00f } },
          // UE's class colours for the animation family, so a folder of rig content reads as one family.
          { FileType::SkinnedMesh, { 0.90f, 0.35f, 0.90f, 1.00f } },
@@ -252,6 +254,7 @@ namespace Desert::Editor
          { FileType::LandscapeLayerInfo, ICON_MDI_LAYERS },
          { FileType::LevelSequence, ICON_MDI_MOVIE_OPEN },
          { FileType::VFXSystem, ICON_MDI_FIRE },
+         { FileType::Fracture, ICON_MDI_CUBE_UNFOLDED },
          { FileType::ImportSettings, ICON_MDI_FILE_DOCUMENT },
          { FileType::SkinnedMesh, ICON_MDI_HUMAN },
          { FileType::Skeleton, ICON_MDI_BONE },
@@ -1494,6 +1497,7 @@ namespace Desert::Editor
                          { "Foliage Types", static_cast<int>( FileType::FoliageType ) },
                          { "Level Sequences", static_cast<int>( FileType::LevelSequence ) },
                          { "VFX Systems", static_cast<int>( FileType::VFXSystem ) },
+                         { "Fractures", static_cast<int>( FileType::Fracture ) },
                     };
                     const char* currentFilter = "All Types";
                     for ( const auto& f : kTypeFilters )

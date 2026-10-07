@@ -125,6 +125,11 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<VolumetricCloudComponent, VolumetricCloudData>{ "VolumetricCloud", "VolumetricCloudData", &VolumetricCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<HeroCloudComponent, HeroCloudData>{ "HeroCloud", "HeroCloudData", &HeroCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<ProceduralFoliageComponent, ProceduralFoliageData>{ "ProceduralFoliage", "ProceduralFoliageData", &ProceduralFoliageComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<DestructibleComponent, DestructibleData>{ "Destructible", "DestructibleData", &DestructibleComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<RadialImpulseFieldComponent, RadialImpulseFieldData>{ "RadialImpulseField", "RadialImpulseFieldData", &RadialImpulseFieldComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<StrainFieldComponent, StrainFieldData>{ "StrainField", "StrainFieldData", &StrainFieldComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<KillFieldComponent, KillFieldData>{ "KillField", "KillFieldData", &KillFieldComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<AnchorFieldComponent, AnchorFieldData>{ "AnchorField", "AnchorFieldData", &AnchorFieldComponent::Data, R::SkyAndAtmosphere } );
         // clang-format on
     }
 } // namespace Desert::Core::Serialize

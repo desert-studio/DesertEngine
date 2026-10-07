@@ -125,6 +125,12 @@ namespace Desert::Runtime
         return &foliageTypeService;
     }
 
+    FractureService* ResourceRegistry::GetFractureService()
+    {
+        static FractureService fractureService;
+        return &fractureService;
+    }
+
     void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         GetCloudNoiseService()->BindAssetManager( assets );
@@ -138,6 +144,7 @@ namespace Desert::Runtime
         GetSkyboxService()->BindAssetManager( assets );
         GetLandscapeLayerInfoService()->BindAssetManager( assets );
         GetFoliageTypeService()->BindAssetManager( assets );
+        GetFractureService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()
@@ -160,6 +167,7 @@ namespace Desert::Runtime
         GetUIThemeService()->Clear();
         GetLandscapeLayerInfoService()->Clear();
         GetFoliageTypeService()->Clear();
+        GetFractureService()->Clear();
         GetImageService()->Clear();
     }
 

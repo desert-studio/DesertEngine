@@ -51,6 +51,8 @@ project "Desert"
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
+        -- voro++ 0.4.6 (BuildScripts/ThirdParty/Voro.lua): the fracture bake's Voronoi cells.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/voro++/src",
         -- Engine/Media: AV1 (dav1d) and Opus, both compiled from their submodules
         -- (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua).
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/dav1d/include",
@@ -75,6 +77,7 @@ project "Desert"
         "Lua",
         "Optick",
         "MeshOptimizer",
+        "Voro",
         "OpenSubdiv",
         "Dav1d",
         "Opus",

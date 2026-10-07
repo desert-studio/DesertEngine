@@ -2,10 +2,12 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
+#include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
+#include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -72,6 +74,8 @@ namespace Desert::ECS
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
                     m_RefusedColliders.clear();
                     m_Landscape.reset();
+                    m_Destructibles.reset();
+                    m_Destruction.reset();
                     m_World->Shutdown();
                     m_World.reset();
                 }
@@ -87,6 +91,8 @@ namespace Desert::ECS
                 m_World->Init( m_AppliedGravity );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
+                m_Destruction = std::make_unique<Destruction::DestructionWorld>( *m_World );
+                m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
             {
@@ -101,6 +107,9 @@ namespace Desert::ECS
             // see PhysicsBodyLifetime.hpp. Re-armed each frame because a reloaded scene may be a new registry.
             m_Lifetime->Attach( registry );
             m_Landscape->Attach( registry );
+            m_Destructibles->Attach( registry );
+            m_Destructibles->Sync( registry, []( const Assets::AssetHandle& fracture )
+                                   { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); } );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
             m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
 
@@ -197,6 +206,8 @@ namespace Desert::ECS
             if ( !playing )
                 return; // Paused (and not stepping): bodies exist but time is frozen.
 
+            // The events of this frame's steps are readable until the next frame's physics.
+            m_Destruction->ClearEvents();
             m_World->Step( ts.GetSeconds() );
 
             // Write the simulated pose back into the transform for moving bodies.
@@ -352,6 +363,13 @@ namespace Desert::ECS
             return Common::MakeError<Result>( "the entity's StaticMesh has no mesh assigned" );
         }
 
+        /// The scene's destruction world while Play runs, null in Edit: what a field entity fires into
+        /// (ECS::FireDestructionField), from the Sequencer or from gameplay.
+        [[nodiscard]] Destruction::DestructionWorld* GetDestructionWorld() const
+        {
+            return m_Destruction.get();
+        }
+
     private:
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )
@@ -366,6 +384,10 @@ namespace Desert::ECS
         std::unique_ptr<PhysicsBodyLifetime> m_Lifetime;
         // Same rule: the landscape's heightfield bodies live in m_World.
         std::unique_ptr<LandscapeCollision> m_Landscape;
+        // Same rule: the scene's destructibles are bodies in m_World, advanced by its fixed step.
+        std::unique_ptr<Destruction::DestructionWorld> m_Destruction;
+        // Same rule, one level down: the destructible entities' objects live in m_Destruction.
+        std::unique_ptr<DestructibleLifetime> m_Destructibles;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.

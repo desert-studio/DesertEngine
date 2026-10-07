@@ -50,6 +50,7 @@
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
+#include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -181,6 +182,8 @@ namespace
                &DeclaredTypeOf<Desert::Assets::LevelSequenceAsset> },
              { AssetTypeID::VFXSystem, "VFXSystemAsset", &HandleOf<Desert::Assets::VFXSystemAsset>,
                &MetadataTypeOf<Desert::Assets::VFXSystemAsset>, &DeclaredTypeOf<Desert::Assets::VFXSystemAsset> },
+             { AssetTypeID::Fracture, "FractureAsset", &HandleOf<Desert::Assets::FractureAsset>,
+               &MetadataTypeOf<Desert::Assets::FractureAsset>, &DeclaredTypeOf<Desert::Assets::FractureAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1319,6 +1322,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::LandscapeLayerInfo,
          AssetTypeID::LevelSequence,
          AssetTypeID::VFXSystem,
+         AssetTypeID::Fracture,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

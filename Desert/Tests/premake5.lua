@@ -211,6 +211,10 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/LatticePeak/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
         }
+        externalincludedirs {
+            -- FractureBake reads the vendored Voronoi cells (voro++) the engine's fracture bake is built on.
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/voro++/src",
+        }
         -- MediaPlayback / StartupMovie play the committed test clips.
         defines { 'DESERT_MEDIA_TEST_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/red_440hz_1s.webm"',
                   'DESERT_MEDIA_PATTERN_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/testsrc2_1080p_5s.webm"' }
