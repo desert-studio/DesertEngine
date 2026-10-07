@@ -1833,7 +1833,7 @@ namespace Desert::Assets
             // cluster (core rank) differs from the winner's — the rival. Lumps of one cluster share its core,
             // so a rival is another cloud, and rival - winner is how far the voxel is from the ridge between
             // the two (Worley's F2 - F1 on the cones).
-            const auto coreOf = [&]( int source ) { return coreField[static_cast<size_t>( source )]; };
+            const auto       coreOf = [&]( int source ) { return coreField[static_cast<size_t>( source )]; };
             std::vector<int> next;
             std::vector<int> nextRival;
             for ( const int step : steps )
@@ -1849,9 +1849,9 @@ namespace Desert::Assets
                                  for ( int x = 0; x < w; ++x )
                                  {
                                      const size_t at       = index( x, y, z );
-                                     int          best     = -1;
-                                     float        bestCone = std::numeric_limits<float>::infinity();
-                                     int          second   = -1;
+                                     int          best       = -1;
+                                     float        bestCone   = std::numeric_limits<float>::infinity();
+                                     int          second     = -1;
                                      float        secondCone = std::numeric_limits<float>::infinity();
                                      const auto   offer      = [&]( int candidate )
                                      {
@@ -1958,10 +1958,10 @@ namespace Desert::Assets
         for ( size_t at = 0; at < count; ++at )
             if ( !std::isfinite( rankField[at] ) )
             {
-                const float margin = grownRival[at] - grown[at];
+                const float margin  = grownRival[at] - grown[at];
                 const float onRidge = ridgeSoftness > 0.0f && std::isfinite( margin )
-                                          ? 1.0f - std::clamp( margin / ridgeSoftness, 0.0f, 1.0f )
-                                          : 0.0f;
+                                           ? 1.0f - std::clamp( margin / ridgeSoftness, 0.0f, 1.0f )
+                                           : 0.0f;
                 rankField[at]       = grown[at] + lift * onRidge;
                 coreField[at]       = grownCore[at];
             }

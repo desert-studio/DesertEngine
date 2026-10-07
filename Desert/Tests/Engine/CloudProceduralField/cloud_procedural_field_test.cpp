@@ -1391,7 +1391,7 @@ TEST( CloudProceduralRankGrowth, TheRidgeBetweenTwoClustersFillsLast )
     };
 
     // Two clusters (cores 0.2 and 0.1, ranks equal): the bisector x 26/27 is lifted past the whole span.
-    const std::vector<float> two = grow( 0.1f );
+    const std::vector<float> two         = grow( 0.1f );
     float                    unliftedTop = 0.0f;
     for ( uint32_t x = 12; x < 20; ++x )
         unliftedTop = std::max( unliftedTop, two[index( x, 1, 1 )] );
