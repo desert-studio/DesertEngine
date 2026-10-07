@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace ReconstructPositionTest
@@ -48,8 +49,11 @@ namespace ReconstructPositionTest
                  { 30.0f, 10.0f, 700.0f }, { 2000.0f, 0.0f, -9000.0f }, { -6000.0f, 500.0f, -38000.0f } };
     }
 
-    // The relative tolerance of a float32 round trip through a reversed-Z depth: a few ulps of the distance.
-    void ExpectRoundTrip( const glm::mat4& viewProjection, const glm::vec3& eye, float relativeTolerance )
+    // The tolerance of a float32 round trip: @p relativeTolerance of the distance (a few ulps of it — what a
+    // reversed-Z PERSPECTIVE depth keeps at every distance) plus @p absoluteTolerance centimetres (what a LINEAR
+    // depth loses: an orthographic depth spends the same float steps on the whole near..far range).
+    void ExpectRoundTrip( const glm::mat4& viewProjection, const glm::vec3& eye, float relativeTolerance,
+                          float absoluteTolerance = 0.01f )
     {
         const glm::mat4 inverse = glm::inverse( viewProjection );
         for ( const glm::vec3& world : Samples() )
@@ -58,7 +62,7 @@ namespace ReconstructPositionTest
             const glm::vec3 back   = Desert::Tests::ReconstructPositionRef::ReconstructWorldPosition(
                  stored.Uv, stored.Depth, inverse );
             const float distance = glm::length( world - eye );
-            EXPECT_LE( glm::length( back - world ), relativeTolerance * distance + 0.01f )
+            EXPECT_LE( glm::length( back - world ), relativeTolerance * distance + absoluteTolerance )
                  << "world (" << world.x << ", " << world.y << ", " << world.z << ") came back (" << back.x << ", "
                  << back.y << ", " << back.z << ")";
         }
@@ -78,9 +82,17 @@ TEST( DepthConvention, ReconstructionRoundTripsReversedZPerspective )
 
 TEST( DepthConvention, ReconstructionRoundTripsReversedZOrthographic )
 {
+    // The viewport camera's ortho projection (Camera.cpp: MakeOrthographic over the default 10 cm .. 50 km range).
+    // Its depth is LINEAR, and reversed-Z puts the near points at depth ~1, where one float step is FLT_EPSILON:
+    // one stored step is (far - near) * FLT_EPSILON = 0.6 cm of depth wherever the point is (Projection.hpp:
+    // "reversing an ortho projection gains no precision"). That step is the bound — a property of the
+    // stored depth, not of the reconstruction; an error in the reconstruction (a flipped uv, a wrong matrix)
+    // misses by metres.
+    constexpr float kRange     = Desert::Core::kDefaultFarPlane - Desert::Core::kDefaultNearPlane;
     const glm::mat4 projection = Desert::Core::MakeOrthographic(
          -8000.0f, 8000.0f, -4500.0f, 4500.0f, Desert::Core::kDefaultNearPlane, Desert::Core::kDefaultFarPlane );
-    ExpectRoundTrip( projection * ViewAt( kEye, glm::vec3( 0.0f ) ), kEye, 1.0e-4f );
+    ExpectRoundTrip( projection * ViewAt( kEye, glm::vec3( 0.0f ) ), kEye, 1.0e-4f,
+                     kRange * std::numeric_limits<float>::epsilon() );
 }
 
 TEST( DepthConvention, ReconstructionRoundTripsStandardZOrthographic )
