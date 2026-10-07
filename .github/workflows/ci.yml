@@ -135,9 +135,45 @@ jobs:
   # analyse a different program from the one any developer here can reproduce, and a gate whose
   # findings cannot be reproduced locally is a gate that gets argued with instead of fixed. Every
   # developer on this project runs Homebrew's llvm@18 already (the formatter lives in the same keg).
+  #
+  # ── SHARDED, BECAUSE ONE JOB STOPPED FITTING ─────────────────────────────────────────────────────
+  # CI 37580217727: 254 changed files (127 units + headers) against fca6befab, cancelled at 43 minutes
+  # inside the analysis step; int/b2 and the previous int/rdg2 ended the same way. An integration
+  # branch is routinely more than one job of work. Same three-part shape as CI12 below, with one
+  # difference: there N is fixed from recorded timings, here it is the size of THIS push, so a plan job
+  # sizes the matrix first.
+  #   tidy-plan     ubuntu, seconds: `CheckTidy.sh --plan` counts the changed files with the same
+  #                 function the shards split them with, and emits N and the matrix;
+  #   tidy          a matrix of N macOS shards, each `CheckTidy.sh --shard I/N` (its files AND its
+  #                 share of the register); skipped when nothing C++ changed (N = 0);
+  #   tidy-verdict  carries the check name the single job had, "clang-tidy (changed lines)".
+  tidy-plan:
+    name: clang-tidy plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Checkout (history, no submodules)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # merge-base needs history
+          filter: blob:none # --name-only needs trees, not blobs
+
+      - name: Plan the shards
+        id: plan
+        run: ./scripts/CI/CheckTidy.sh --plan "${{ github.event.pull_request.base.sha || github.event.before }}" >> "$GITHUB_OUTPUT"
+
   tidy:
-    name: clang-tidy (changed lines)
+    name: clang-tidy ${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}
+    needs: [ tidy-plan ]
+    if: needs.tidy-plan.outputs.shards != '0'
     runs-on: macos-14 # Apple Silicon — the platform whose headers the developers' verdict comes from
+    strategy:
+      fail-fast: false # every shard's findings are reported, not only the first red one's
+      matrix:
+        shard: ${{ fromJSON(needs.tidy-plan.outputs.matrix) }}
     # Measured on a developer machine: premake + the compile database is 40 s and the analysis itself
     # is ~13 s of CPU per translation unit, so the cost here is set by how many files a push touches,
     # not by the size of the tree. The rest is Homebrew. 45 minutes is roughly three times the
@@ -178,7 +214,31 @@ jobs:
         run: ./scripts/MacOS/BuildMacOS.sh Debug --gen-only
 
       - name: clang-tidy the changed lines
-        run: ./scripts/CI/CheckTidy.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+        run: ./scripts/CI/CheckTidy.sh --shard "${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}" "${{ github.event.pull_request.base.sha || github.event.before }}"
+
+  tidy-verdict:
+    name: clang-tidy (changed lines)
+    needs: [ tidy-plan, tidy ]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The plan must have run; the shards must all pass, or be skipped because the plan found no
+      # C++ change (N = 0). A skipped `tidy` with N > 0 means the matrix never ran, which is not a pass.
+      - name: The plan and every shard passed
+        env:
+          PLAN: ${{ needs.tidy-plan.result }}
+          SHARDS: ${{ needs.tidy-plan.outputs.shards }}
+          TIDY: ${{ needs.tidy.result }}
+        run: |
+          echo "plan: $PLAN (shards: ${SHARDS:-?}), shards: $TIDY"
+          [ "$PLAN" = success ] || { echo "::error::the clang-tidy plan ended '$PLAN'"; exit 1; }
+          if [ "$SHARDS" = 0 ]; then
+            [ "$TIDY" = skipped ] || { echo "::error::no C++ changed, yet the shards ended '$TIDY'"; exit 1; }
+            echo "no C++ files changed — nothing to analyse"
+            exit 0
+          fi
+          [ "$TIDY" = success ] || { echo "::error::a clang-tidy shard ended '$TIDY'"; exit 1; }
 
   # Dynamic checks: the whole workspace builds with ASan+UBSan (the premake makefiles append
   # env CXXFLAGS/LDFLAGS) and the full test suite runs under them. Leak detection stays off —
