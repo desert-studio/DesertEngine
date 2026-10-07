@@ -76,7 +76,7 @@ namespace Desert::Graphic
         float PlacementScatter     = 1.0f;
         float PlacementSizeVariety = 0.75f;
         float PatchTileSize        = 3000000.0f; // cm; 30 km
-        float PatchStrength        = 0.35f;
+        float PatchStrength        = 0.70f;
 
         // ---- Layout (bake-time; the painted sky) ----------------------------------------------------
         //
@@ -94,7 +94,7 @@ namespace Desert::Graphic
 
         // ---- Detail (march-time) --------------------------------------------------------------------
         float DetailTileSize  = 100000.0f; // cm; 1 km
-        float DetailStrength  = 0.65f;
+        float DetailStrength  = 0.40f;
         float DensityScale    = 1.0f;
         float ExtinctionScale = 8.0f; // per km
 

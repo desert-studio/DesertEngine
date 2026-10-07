@@ -1137,10 +1137,12 @@ TEST( CloudTypeLibrary, TheLayersDetailStrengthStillMovesEveryShippedType )
 //     authored      strength 0.10 x factor 2.50 = 0.250   cirrus
 //     §DS           strength 0.40 x factor 0.625 = 0.250   the march needed a deeper layer
 //     §SIL2         strength 0.65 x factor 0.3846154 = 0.250   a taller lump needed a deeper layer again
+//     FARWX-b13     strength 0.40 x factor 0.625 = 0.250   the coverage remap made the surface erode further
 //
 //     authored      strength 0.10 x factor 1.60 = 0.160   altocumulus
 //     §DS           strength 0.40 x factor 0.40 = 0.160
 //     §SIL2         strength 0.65 x factor 0.2461538 = 0.160
+//     FARWX-b13     strength 0.40 x factor 0.40 = 0.160
 //
 // WHY IT IS ASSERTED RATHER THAN RECOMPUTED IN A COMMENT. Both re-bases were arithmetic done by hand in a
 // report, and the numbers then had to be typed into a JSON file by hand as well. A slip in either — a digit,

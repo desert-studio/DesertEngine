@@ -28,7 +28,7 @@
         "AnvilThicknessKm": 0.0,
         "AnvilStrength": 0.0,
         "DetailCharacter": 0.0,
-        "DetailFactor": 0.3846154,
+        "DetailFactor": 0.625,
         "DensityFactor": 0.35,
         "ExtinctionFactor": 0.25,
         "PlacementScale": 0.6,

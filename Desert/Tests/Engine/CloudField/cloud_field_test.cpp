@@ -2026,7 +2026,8 @@ TEST( CloudFieldErosion, TheShippedStrengthMovesTheSurfaceTheEyeSeesWithoutEatin
 //
 // WHY THE THRESHOLD IS 1.05x AND NOT THE 1.11x THE PAIR SHIPS AT. §DS's convention is to ship the first
 // ladder step with REAL headroom over the bound, which it put at 1.11x and which this pair also lands on
-// (0.65 gives 139 m against 125). Asserting at the shipped value would make the test a copy of the default
+// (0.65 gave 139 m against 125 before the coverage remap; FARWX-b13, after it, measured 0.35 -> 138.5 m,
+// 0.40 -> 152.8 m, 0.45 -> 162.0 m, 0.65 -> 217.2 m, and ships 0.40 at 1.22x, mid-window). Asserting at the shipped value would make the test a copy of the default
 // rather than a guard on it, and asserting at the bare floor would let a future pair sit balanced on a
 // bound §DS refused to balance on by name. 1.05x is halfway between the bound being protected and the
 // value protecting it: a generator change that moves a body by a voxel does not trip it, and a calibration
@@ -2122,8 +2123,11 @@ TEST( CloudFieldErosion, TheLumpsAspectAndTheErosionsStrengthAreOneCalibrationAn
     // octave has stopped catching the drift it was written for. Its bite was an accident of the aspect it
     // was measured at, and this is the half of the window that restores it.
     //
-    // 1.35x IS WHERE IT IS BECAUSE BOTH ENDS ARE MEASURED. The shipped pair sits at 1.11x, the top of the
-    // slider at 1.44x: a ceiling anywhere between those two catches a slider dragged to maximum without
+    // 1.35x IS WHERE IT IS BECAUSE BOTH ENDS ARE MEASURED. It was set when the shipped pair sat at 1.11x
+    // and the top of the slider at 1.44x. Since the coverage remap (FARWX-b12, CloudRankProfile) the
+    // profile's gradient is 1/run rather than 1/rise and the same cut travels further: the shipped 0.40
+    // sits at 1.22x and the slider's top at 2.25x (281 m), so the ceiling still catches the slider dragged
+    // to maximum. At the 1.11x/1.44x calibration: a ceiling anywhere between those two catches a slider dragged to maximum without
     // being balanced on the shipped value, and 1.35 leaves the shipped pair a fifth of headroom below it
     // while leaving the slider's top a fifteenth above.
     constexpr double kRequiredHeadroom = 1.05;
@@ -2135,7 +2139,7 @@ TEST( CloudFieldErosion, TheLumpsAspectAndTheErosionsStrengthAreOneCalibrationAn
          << "x the " << floorM << " m the march resolves, and past the " << kHeadroomCeiling
          << "x that the pair is calibrated to hold.\n"
             "Every step above the floor costs cloud for a gain nothing has measured a need for. Either the "
-            "strength was raised on its own — at the shipped aspect the top of the slider reaches 1.44x — "
+            "strength was raised on its own — at the shipped aspect the top of the slider reaches 2.25x — "
             "or the lump was made FLATTER without the strength coming down with it, which is the same "
             "calibration coming apart in the other direction.";
 

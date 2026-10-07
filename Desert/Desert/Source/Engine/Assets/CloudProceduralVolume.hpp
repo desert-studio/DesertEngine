@@ -418,10 +418,12 @@ namespace Desert::Assets
         /// owner described as "the whole sky is cloud"; one is weather alone, with the busy regions solid
         /// and the gaps between them EMPTY. At every setting the fraction of the sky covered is the
         /// Coverage slider exactly, in expectation: the weather redistributes cloud, it never adds any.
-        /// 0.8 AND NOT 0.6: at the default cover 0.45, a clear region one deviation deep kept 0.077 of its
-        /// sky as cloud at 0.6 (rho 0.77) — every thirteenth cell, enough for a long sight line to meet one —
-        /// and keeps 0.011 at 0.8 (rho 0.89), so a gap reads as open sky rather than as thinner cloud.
-        float PatchStrength = 0.35f;
+        /// 0.70, MEASURED: the gaps test (Coverage 0.5, 8 seeds) needs a block spread of at least 0.292 and
+        /// at least 0.05 of the blocks nearly clear — the owner's gaps tens of kilometres across. 0.35 gave
+        /// 0.231 / 0.029, 0.55 gave 0.271 / 0.080, 0.65 gave 0.290 / 0.107, 0.80 gave 0.320 / 0.152. The
+        /// earlier 0.35 was held down against the body saturating under the march's ramp; the coverage remap
+        /// (CloudRankProfile) removed that saturation, so the strength is set by the gaps alone again.
+        float PatchStrength = 0.70f;
 
         /// The horizontal wind direction the lattice's anisotropy is measured against, world XZ. Need not
         /// be normalized; a zero vector means east, which is what CloudSpeciesPlacementBasis also does.
