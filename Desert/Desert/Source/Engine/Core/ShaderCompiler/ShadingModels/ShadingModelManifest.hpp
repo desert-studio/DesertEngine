@@ -92,10 +92,9 @@ namespace Desert::Core::ShadingModels
     inline constexpr std::array<std::string_view, kMaxPayloadFloats> kPayloadPins{ "CustomData0", "CustomData1" };
 
     // ------------------------------------------------------------------------------------------------------------
-    // Where the payload lives: the shading word, GBufferC.w (RGBA32F), the one free space of the G-buffer
-    // (Pass_GBuffer.glslh:7-10: A, B, Emissive and C.xyz are full). A 32-bit float holds every integer below
-    // 2^24 exactly, so the word is 24 bits of fields. ShadingModelContract.glslh (DESERT_SHADING_WORD_*) is the
-    // GLSL half of this table, and the ShadingModelContract suite holds the two equal.
+    // Where the payload lives: the shading word, the G-buffer's R32_UINT target (kGBufferShadingWord,
+    // Pass_GBuffer.glslh location 2), written and read with integer operations. ShadingModelContract.glslh
+    // (DESERT_SHADING_WORD_*) is the GLSL half of this table, and the ShadingModelContract suite holds the two equal.
     struct ShadingWordField
     {
         std::string_view Name;
@@ -103,21 +102,19 @@ namespace Desert::Core::ShadingModels
         std::uint8_t     BitCount;
     };
 
-    inline constexpr std::uint8_t kShadingWordExactBits = 24;
+    inline constexpr std::uint8_t kShadingWordBits = 32;
 
-    inline constexpr std::array<ShadingWordField, 4> kShadingWordFields{ {
-         { "INDEX", 0, 4 },    // shading-model index, 0..15
-         { "TEXTURES", 4, 4 }, // sampled-texture count (Material Complexity), clamped to 15
-         { "PAYLOAD0", 8, 8 }, // CustomData0, unorm8
-         { "PAYLOAD1", 16, 8 } // CustomData1, unorm8
+    inline constexpr std::array<ShadingWordField, 5> kShadingWordFields{ {
+         { "INDEX", 0, 4 },         // shading-model index, 0..15
+         { "TEXTURES", 4, 4 },      // sampled-texture count (Material Complexity), clamped to 15
+         { "PAYLOAD0", 8, 8 },      // CustomData0, unorm8
+         { "PAYLOAD1", 16, 8 },     // CustomData1, unorm8
+         { "NO_SUN_SHADOWS", 24, 1 } // set = the sun's cascades do not shadow the surface
+                                     // (SurfaceOutput.ReceiveSunShadows < 0.5); 0, the clear value, receives
     } };
 
-    // The word's fifth field is NOT a magnitude field, so it is not a row of kShadingWordFields (whose rows all
-    // sit below kShadingWordExactBits): the float's sign bit, set = the surface does not receive the sun's
-    // cascaded shadows (SurfaceOutput.ReceiveSunShadows < 0.5). The G-buffer writer marks it after packing; the
-    // deferred reader takes the magnitude before unpacking. DESERT_SHADING_WORD_RECEIVE_SUN_SHADOWS_BIT is its
-    // GLSL half.
-    inline constexpr ShadingWordField kShadingWordSignField{ "RECEIVE_SUN_SHADOWS", 31, 1 };
+    // The value the shading-word target clears to: Unlit, no payload, receives sun shadows.
+    inline constexpr std::uint32_t kShadingWordClearValue = 0;
 
     // ------------------------------------------------------------------------------------------------------------
     struct PayloadSlot

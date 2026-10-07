@@ -8,7 +8,8 @@ DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oGBufferA;        // BaseColor.rgb, Metallic.a
 layout( location = 1 ) out vec4 oGBufferB;        // world Normal.rgb, Roughness.a
-layout( location = 2 ) out vec4 oGBufferC;        // WorldPosition.xyz, shading word.w (ShadingModelContract.glslh)
+layout( location = 2 ) out uint oGBufferShadingWord; // R32_UINT shading word (ShadingModelContract.glslh); no
+                                                   // world position: readers reconstruct it from the depth
 layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the deferred resolve adds it), AO.a
 
 void main()
@@ -18,10 +19,10 @@ void main()
                               v_Surface.VertexColor );
     const SurfaceOutput s = EvaluateSurface( i );
     DESERT_SURFACE_CLIP( s );
-    const float word = DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount,
-                                              DesertPayload( s.CustomData0, s.CustomData1 ) );
+    const uint word = DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount,
+                                             DesertPayload( s.CustomData0, s.CustomData1 ) );
     oGBufferA        = vec4( s.BaseColor, s.Metallic );
     oGBufferB        = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
-    oGBufferC        = vec4( i.WorldPosition, DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ) );
+    oGBufferShadingWord = DesertMarkSunShadowReceive( word, s.ReceiveSunShadows );
     oGBufferEmissive = vec4( s.Emissive, s.AmbientOcclusion );
 }

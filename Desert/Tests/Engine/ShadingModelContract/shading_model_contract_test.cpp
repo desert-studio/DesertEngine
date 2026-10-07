@@ -99,16 +99,15 @@ namespace
 // ---------------------------------------------------------------------------------------------------------------
 // The shading word.
 
-TEST( ShadingWord, FieldsAreDisjointAndExactInAFloat )
+TEST( ShadingWord, FieldsAreDisjointInsideTheUintWord )
 {
     std::uint32_t used = 0;
     for ( const SM::ShadingWordField& f : SM::kShadingWordFields )
     {
         ASSERT_GT( f.BitCount, 0 ) << f.Name;
-        ASSERT_LE( f.FirstBit + f.BitCount, SM::kShadingWordExactBits )
-             << f.Name << " reaches past bit " << static_cast<int>( SM::kShadingWordExactBits )
-             << ", where a float stops being exact";
-        const std::uint32_t mask = ( ( 1u << f.BitCount ) - 1u ) << f.FirstBit;
+        ASSERT_LE( f.FirstBit + f.BitCount, SM::kShadingWordBits )
+             << f.Name << " reaches past bit " << static_cast<int>( SM::kShadingWordBits ) << " of the word";
+        const std::uint32_t mask = static_cast<std::uint32_t>( ( ( 1ull << f.BitCount ) - 1ull ) << f.FirstBit );
         EXPECT_EQ( used & mask, 0u ) << f.Name << " overlaps another field of the shading word";
         used |= mask;
     }
@@ -141,7 +140,6 @@ TEST( ShadingWord, GlslDefinesAreTheCppTable )
     const std::map<std::string, int> glsl = ShadingWordDefines();
     ASSERT_FALSE( glsl.empty() ) << "no DESERT_SHADING_WORD_* in " << SM::kContractInclude;
 
-    EXPECT_EQ( glsl.at( "EXACT_BITS" ), SM::kShadingWordExactBits );
     EXPECT_EQ( glsl.at( "INDEX_FIRST_BIT" ), Field( "INDEX" ).FirstBit );
     EXPECT_EQ( glsl.at( "INDEX_BITS" ), Field( "INDEX" ).BitCount );
     EXPECT_EQ( glsl.at( "TEXTURES_FIRST_BIT" ), Field( "TEXTURES" ).FirstBit );
@@ -150,27 +148,26 @@ TEST( ShadingWord, GlslDefinesAreTheCppTable )
     EXPECT_EQ( glsl.at( "PAYLOAD1_FIRST_BIT" ), Field( "PAYLOAD1" ).FirstBit );
     EXPECT_EQ( glsl.at( "PAYLOAD_BITS" ), Field( "PAYLOAD0" ).BitCount );
     EXPECT_EQ( glsl.at( "PAYLOAD_BITS" ), Field( "PAYLOAD1" ).BitCount );
+    EXPECT_EQ( glsl.at( "NO_SUN_SHADOWS_BIT" ), Field( "NO_SUN_SHADOWS" ).FirstBit );
+    EXPECT_FALSE( glsl.contains( "EXACT_BITS" ) ) << "the word is a uint: no float-exactness limit is left";
 }
 
-// ReceiveSunShadows rides the word's SIGN: outside every magnitude field, and the IEEE sign bit itself, so marking
-// it leaves the magnitude the generated unpack reads exact — at 0.0 (an empty Unlit word) and at the largest word.
-TEST( ShadingWord, SunShadowReceiveIsTheSignOutsideTheMagnitude )
+// ReceiveSunShadows is one bit of the uint word, set = no receive, so the target's clear value (0) is "Unlit,
+// receives" — the default a writer that forgets the mark also gets. Mutation: a clear value != 0, or the flag
+// inverted (set = receives), turns every untouched texel's shadows off.
+TEST( ShadingWord, SunShadowFlagIsOneBitAndTheClearValueReceives )
 {
-    const SM::ShadingWordField& sign = SM::kShadingWordSignField;
-    ASSERT_EQ( sign.BitCount, 1 );
-    EXPECT_EQ( sign.FirstBit, 31 ) << "the float's sign bit is bit 31";
-    for ( const SM::ShadingWordField& f : SM::kShadingWordFields )
-        EXPECT_LE( f.FirstBit + f.BitCount, sign.FirstBit ) << f.Name << " reaches the sign";
-
-    for ( const std::uint32_t magnitude : { 0u, 1u, ( 1u << SM::kShadingWordExactBits ) - 1u } )
-    {
-        const auto word   = static_cast<float>( magnitude );
-        const auto marked = std::bit_cast<float>( std::bit_cast<std::uint32_t>( word ) | ( 1u << sign.FirstBit ) );
-        EXPECT_TRUE( std::signbit( marked ) ) << magnitude;
-        EXPECT_FALSE( std::signbit( word ) ) << magnitude;
-        EXPECT_EQ( static_cast<std::uint32_t>( std::fabs( marked ) ), magnitude );
-    }
-    EXPECT_EQ( ShadingWordDefines().at( "RECEIVE_SUN_SHADOWS_BIT" ), sign.FirstBit );
+    const SM::ShadingWordField& flag = Field( "NO_SUN_SHADOWS" );
+    ASSERT_EQ( flag.BitCount, 1 );
+    EXPECT_EQ( SM::kShadingWordClearValue, 0u );
+    EXPECT_EQ( ( SM::kShadingWordClearValue >> flag.FirstBit ) & 1u, 0u ) << "a cleared texel must receive";
+    EXPECT_EQ( SM::kShadingWordClearValue & ( ( 1u << Field( "INDEX" ).BitCount ) - 1u ), 0u )
+         << "a cleared texel must read as index 0, Unlit";
+    const std::string contract = ReadFile( ShaderRoot() / SM::kContractInclude );
+    EXPECT_NE( contract.find( "uint DesertMarkSunShadowReceive( uint shadingWord" ), std::string::npos );
+    EXPECT_NE( contract.find( "bool DesertReceivesSunShadows( uint shadingWord )" ), std::string::npos );
+    EXPECT_EQ( contract.find( "uintBitsToFloat" ), std::string::npos ) << "no float<->uint bridge on the word";
+    EXPECT_EQ( contract.find( "floatBitsToUint" ), std::string::npos ) << "no float<->uint bridge on the word";
 }
 
 // ---------------------------------------------------------------------------------------------------------------

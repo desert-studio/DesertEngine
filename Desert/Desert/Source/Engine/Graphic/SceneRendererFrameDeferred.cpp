@@ -227,14 +227,14 @@ namespace Desert::Graphic
         const RDG::TextureRef ao       = graph.CreateTexture( aoDesc, "SSAO" );
         // A lost SSAO term is "no occlusion": the composite goes on lit, unoccluded (RDG-FAULT1).
         graph.SetFaultDefault( ao, RDG::FaultDefault::White );
-        const RDG::TextureRef worldPos = gbuffer[2]; // GBufferC
+        const RDG::TextureRef depth    = textures.Depth( m_GBuffer, "GBuffer" ); // world position reconstructed
         const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
         textures.Transients.SSAO       = ao;         // -> Deferred: Composite (u_SSAO)
         graph.AddPass(
              "Deferred: SSAO", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 ssao->DeclareBindings( pass, worldPos, normal );
+                 ssao->DeclareBindings( pass, depth, normal );
                  pass.ColorTarget( 0, ao, EngineClearColor() ); // AO is fully recomputed each frame
              },
              [ssao, viewProj, cameraPos,
@@ -281,11 +281,12 @@ namespace Desert::Graphic
         const RDG::TextureRef accum   = textures.Import( gi->GetAccumImage(), "GI" );
         const RDG::TextureRef history = textures.Import( gi->GetHistoryImage(), "GI.History" );
         textures.Transients.GIResolve = gather;
-        const System::GIGatherInputs inputs{ .GBufferNormal   = gbuffer[1],
-                                             .GBufferWorldPos = gbuffer[2],
-                                             .RSMAlbedo       = rsm[0],
-                                             .RSMNormal       = rsm[1],
-                                             .RSMWorldPos     = rsm[2] };
+        const RDG::TextureRef        gbufferDepth = textures.Depth( m_GBuffer, "GBuffer" );
+        const System::GIGatherInputs inputs{ .GBufferNormal = gbuffer[1],
+                                             .GBufferDepth  = gbufferDepth,
+                                             .RSMAlbedo     = rsm[0],
+                                             .RSMNormal     = rsm[1],
+                                             .RSMDepth      = textures.Depth( m_RSMBuffer, "RSM" ) };
         const float                  giIntensity = m_GIIntensity;
         const int                    giSamples   = m_GISamples;
         graph.AddPass(
@@ -295,19 +296,18 @@ namespace Desert::Graphic
                  gi->DeclareGatherBindings( pass, inputs );
                  pass.ColorTarget( 0, gather, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [gi, meshRenderer, lightColor, giIntensity,
-              giSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [gi, meshRenderer, lightColor, giIntensity, giSamples,
+              viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  // Read when the node runs: the RSM node before it is what sets this frame's light matrix.
-                 return gi->RecordGather( context, meshRenderer->GetRSMViewProj(), lightColor, giIntensity,
+                 return gi->RecordGather( context, meshRenderer->GetRSMViewProj(), viewProj, lightColor, giIntensity,
                                           giSamples );
              } );
-        const RDG::TextureRef worldPos = gbuffer[2];
         graph.AddPass(
              "Deferred: GITemporal", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 gi->DeclareTemporalBindings( pass, gather, history, worldPos );
+                 gi->DeclareTemporalBindings( pass, gather, history, gbufferDepth );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
              [gi, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr

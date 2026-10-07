@@ -49,23 +49,24 @@ namespace Desert::Graphic::System
         {
         }
 
-        // Records AO into the colour target the graph node opened (the SSAO transient). @p worldPos = GBufferC,
-        // @p normal = GBufferB, bound by shader name through RDG::PassBindings. viewProj = world->clip;
+        // Records AO into the colour target the graph node opened (the SSAO transient). @p depth = the G-buffer depth
+        // (world position reconstructed from it), @p normal = GBufferB, bound by shader name through RDG::PassBindings. viewProj = world->clip;
         // cameraPos.xyz = camera. radius and bias are WORLD distances (the shader offsets samples in world
         // space), and a world unit is a centimetre - callers passing literature values must convert through
         // Common::Units.
         //
-        // SETUP: DeclareBindings declares the node's one block (block 0): u_GBufferPos / u_GBufferNormal with the
+        // SETUP: DeclareBindings declares the node's one block (block 0): u_GBufferDepth through a nearest sampler
+        // (a DEPTH32F image is not guaranteed linear-filterable, MoltenVK included), u_GBufferNormal with the
         // sampler the material route sampled the G-buffer with (the image's own: linear, REPEAT), the material
         // as the other route. Not initialised: nothing is declared and Record refuses.
-        void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef worldPos, RDG::TextureRef normal ) const
+        void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef depth, RDG::TextureRef normal ) const
         {
             if ( !m_Pipeline || !m_Material )
                 return;
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_GBufferPos", worldPos, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
+                 .Sampled( "u_GBufferDepth", depth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::PointClamp() )
                  .Sampled( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler );
         }
