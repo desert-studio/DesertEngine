@@ -272,10 +272,10 @@ namespace
         double LagKm = 0.0;
     };
 
-    /// THE PLACEMENT ITSELF: one count per lump at the pixel of its CLUSTER's site, over EVERY cell. The lattice is
-    /// a property of where the clusters are put, not of how much sky the slider keeps or how wide a
-    /// cluster is drawn — measured on cover or thickness, overlapping clusters fill the map and the
-    /// confined arm's lattice drowns with the free arm's absence of one.
+    /// THE PLACEMENT ITSELF: one count per lump at the pixel of its CLUSTER's site, over EVERY cell. The lattice
+    /// is a property of where the clusters are put, not of how much sky the slider keeps or how wide a cluster is
+    /// drawn — measured on cover or thickness, overlapping clusters fill the map and the confined arm's lattice
+    /// drowns with the free arm's absence of one.
     std::vector<float> PlacedCentres( const CloudProceduralFieldParams& params, const glm::vec2& originKm )
     {
         std::vector<float> map( static_cast<size_t>( kMapSide ) * kMapSide, 0.0f );
