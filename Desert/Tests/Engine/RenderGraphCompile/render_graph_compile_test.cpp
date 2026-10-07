@@ -2071,15 +2071,39 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             EXPECT_NE( text.find( needle ), std::string::npos ) << function << " does not declare " << needle;
     };
     declares( "AddFrameClearMainFramebuffer", { "PassFlags::Raster", "ColorTarget(", "LoadOp::ClearDepth(" } );
-    declares( "AddFrameSSAO", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,ao," } );
+    // RDG-FAULT1: the sampled reads live in the system's binding block (SSAORenderer::DeclareBindings,
+    // DeferredLightingRenderer::DeclareCompositeBindings declare them Access::SampledGraphics); the node delegates.
+    declares( "AddFrameSSAO",
+              { "PassFlags::Raster", "ssao->DeclareBindings(pass,worldPos,normal)", "ColorTarget(0,ao," } );
     declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
-    declares( "AddFrameComposite", { "PassFlags::Raster", "Access::SampledGraphics", "LoadTarget(pass,target)" } );
+    declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
+                                     "LoadTarget(pass,target)" } );
     declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
     // RDG-A2-W4: the SSR passes sample the G-buffer as graph refs by name, never a framebuffer image.
-    declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target)",
-                               "GBufferInputsinputs{gbuffer[0],gbuffer[1],gbuffer[2]}",
-                               "RecordResolve(context,trace,tiles,history,inputs)",
-                               "RecordComposite(context,accum,tiles,inputs,viewProj)" } );
+    // RDG-FAULT1: the trace's storage writes are its block's (SSRRenderer::DeclareTraceBindings); the execs read
+    // their block, not refs captured from the setup.
+    declares( "AddFrameSSR", { "PassFlags::Compute", "ssr->DeclareTraceBindings(pass,trace,tiles,inputs,sceneCopy)",
+                               "LoadTarget(pass,target)", "GBufferInputsinputs{gbuffer[0],gbuffer[1],gbuffer[2]}",
+                               "ssr->DeclareResolveBindings(pass,trace,tiles,history,inputs)",
+                               "ssr->DeclareCompositeBindings(pass,accum,tiles,inputs)",
+                               "ssr->RecordResolve(context)", "ssr->RecordComposite(context,viewProj)" } );
+    // ... and those blocks declare the accesses the node used to declare itself.
+    {
+        const auto declaration = [&]( const char* header )
+        {
+            std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred" / header );
+            EXPECT_TRUE( file ) << header << " is gone";
+            return squeeze( std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() ) );
+        };
+        EXPECT_NE( declaration( "SSRRenderer.hpp" ).find( ".Storage(\"u_Trace\",trace,RDG::Access::StorageWrite)" ),
+                   std::string::npos );
+        EXPECT_NE( declaration( "SSAORenderer.hpp" )
+                        .find( ".Sampled(\"u_GBufferPos\",worldPos,RDG::Access::SampledGraphics" ),
+                   std::string::npos );
+        EXPECT_NE( declaration( "DeferredLightingRenderer.hpp" )
+                        .find( ".Sampled(\"u_SSAO\",inputs.SSAO,RDG::Access::SampledGraphics" ),
+                   std::string::npos );
+    }
 }
 
 // DepthResolve is a Copy node: G-buffer depth CopySrc -> target depth CopyDst, so the graph plans the barriers
@@ -2943,7 +2967,7 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            "Forward),&view);" },
          { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
-           "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
+           ".Storage(\"Particles\",fe.ParticlesRef,RDG::Access::StorageRead)" },
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
@@ -2952,8 +2976,15 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            ".Sampled(\"u_CloudScatter\",scatter,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            ".Sampled(\"u_CloudGuide\",guide,RDG::Access::SampledGraphics" },
-         { "SceneRenderer.cpp", "declared.Read(mesh->GetCascadeShadowImage(c),RDG::Access::SampledGraphics" },
-         { "SceneRenderer.cpp", "declared.Read(clouds->GetShadowMap(),RDG::Access::SampledGraphics" } };
+         // The cascades and the cloud shadow map are imported once per frame as scene-view inputs, and every lit
+         // node binds them through BindSceneViewInputs (the block entry is the read; RDG-FAULT1).
+         { "SceneRendererFrameDeferred.cpp",
+           "view.ShadowCascades[c]=textures.Import(mesh->GetCascadeShadowImage(c)," },
+         { "SceneRendererFrameAtmosphere.cpp",
+           "textures.Transients.CloudShadowMap=textures.Import(clouds->GetShadowMap(),\"Clouds.ShadowMap\");" },
+         { "FrameGraphRefs.hpp",
+           "inputs.ShadowMaps[c]=t.ShadowCascades[c].IsValid()?t.ShadowCascades[c]:refs.System.White;" },
+         { "FrameGraphRefs.hpp", "inputs.CloudShadowMap=CloudShadowMapOrWhite(refs);" } };
     for ( const auto& [file, needle] : declared )
         EXPECT_NE( source( file ).find( needle ), std::string::npos ) << file << " does not declare " << needle;
 
@@ -3027,11 +3058,13 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "Storage(\"u_DistantSkyLight\",m_DistantLight,RDG::Access::StorageWrite",
              "Sampled(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::SampledCompute,"
              "GlobalTextureFilterSampler()",
-             "declareBlock(transmittance.Access,*m_TransmittanceLutPipeline,0)",
-             "sampledLuts(declareBlock(distant.Access,*m_DistantLightPipeline,0))" } },
+             // RDG-PSO: each LUT node's layout is the one kept for its pipeline (keyed on the pipeline's shader).
+             "declared.Bindings(layout.Get(pipeline->GetSpecification().Shader),",
+             "declareBlock(transmittance.Access,m_TransmittanceLutPipeline.get(),m_TransmittanceLutLayout,0)",
+             "sampledLuts(declareBlock(distant.Access,m_DistantLightPipeline.get(),m_DistantLightLayout,0))" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
-           { "SampledMedium(SampledVolumes(DeclareComputeBlock(shadow.Access,*m_ShadowMapPipeline,",
+           { "SampledMedium(SampledVolumes(DeclareComputeBlock(shadow.Access,m_ShadowMapPipeline.get(),m_ShadowMapLayout,",
              "Storage(\"u_CloudShadowMap\",m_ShadowMapImage,RDG::Access::StorageWrite,\"Clouds.ShadowMap\")" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
@@ -3047,7 +3080,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
            "VolumetricCloudRenderer::DeclareFrameNodes(",
            { "Storage(\"u_CloudSkyOcclusion\",m_SkyOcclusionVolume,RDG::Access::StorageWrite",
              "Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
-             "SampledMedium(SampledVolumes(DeclareComputeBlock(march.Access,*m_MarchPipeline,",
+             "SampledMedium(SampledVolumes(DeclareComputeBlock(march.Access,m_MarchPipeline.get(),m_MarchLayout,",
              // The sky's three images are entries of the march with the sampler each carried as its own.
              ".Sampled(\"u_DistantSkyLight\",distantSkyLight,RDG::Access::SampledCompute,"
              "GlobalTextureFilterSampler()",
@@ -3093,9 +3126,11 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     // binds.
     EXPECT_NE( source( "FrameGraphRefs.hpp" ).find( "inputs.CloudShadowMap=CloudShadowMapOrWhite(refs);" ),
                std::string::npos );
-    EXPECT_NE( source( "SceneRendererFrameDeferred.cpp" )
-                    .find( "conststd::vector<RDG::TextureRef>view=inputs.View.Refs();" ),
+    // The composite hands the inputs to its block (DeclareCompositeBindings below); the block entry is the read,
+    // so the node does not also declare inputs.View.Refs() wholesale.
+    EXPECT_NE( source( "SceneRendererFrameDeferred.cpp" ).find( "inputs.View=SceneViewInputsOf(refs);" ),
                std::string::npos );
+    EXPECT_EQ( source( "SceneRendererFrameDeferred.cpp" ).find( "inputs.View.Refs()" ), std::string::npos );
     // Declared on the composite's setup block against its layout (RDG-FAULT1 C3a); the exec overload that took
     // an RDG::PassBindings and a Shader is gone (C3b) - a re-added one is red here.
     EXPECT_NE( source( "Systems/Scene/Deferred/DeferredLightingRenderer.hpp" )
@@ -3489,18 +3524,26 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     // n-th drawn command opens the n-th declared block; the executors are filled in the setup only.
     const std::string r2d   = SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
     const std::string setup = SqueezedBody( r2d, "voidRender2D::DeclareInto(", "voidRender2D::" );
-    const std::string flush = SqueezedBody( r2d, "Common::BoolResultStrRender2D::Flush(", "voidRender2D::" );
+    // Flush is FlushList over the frame's own list; the setup resolves each command ONCE (PreparedDraws) and the
+    // exec records the prepared draws in order, so the n-th prepared draw opens the n-th declared block.
+    const std::string flush = SqueezedBody( r2d, "Common::BoolResultStrRender2D::FlushList(", "voidRender2D::" );
     ASSERT_FALSE( setup.empty() );
     ASSERT_FALSE( flush.empty() );
-    for ( const std::string* body : { &setup, &flush } )
-        EXPECT_NE( body->find( "constResolvedCommandresolved=Resolve(cmd,backdrop.IsValid());" ),
-                   std::string::npos );
+    EXPECT_NE( setup.find( "ResolvedCommandresolved=Resolve(cmd,backdropValid);" ), std::string::npos );
+    EXPECT_NE( setup.find( "for(constauto&draw:m_Prepared.Draws())" ), std::string::npos );
+    EXPECT_NE( flush.find( "for(constauto&draw:m_Prepared.Draws())" ), std::string::npos );
+    EXPECT_EQ( flush.find( "Resolve(" ), std::string::npos ) << "Flush resolves a command a second time";
+    // The UI material's fills are UIMaterialCache::PrepareDraw's (reached from Resolve in the setup), the plain
+    // executors' projection push is the setup's; Flush fills nothing.
+    const std::string prepareDraw =
+         FunctionBody( SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/UIMaterialCache.cpp" ),
+                       "std::stringUIMaterialCache::PrepareDraw(" );
+    for ( const char* fill : { "SetRawData(", "SetPushMatrix(", "SetMaterialIndex(" } )
+        EXPECT_NE( prepareDraw.find( fill ), std::string::npos ) << fill;
+    EXPECT_NE( setup.find( "PushConstant(&m_Projection" ), std::string::npos );
     for ( const char* fill :
           { "SetRawData(", "SetPushMatrix(", "SetMaterialIndex(", "PushConstant(&m_Projection" } )
-    {
-        EXPECT_NE( setup.find( fill ), std::string::npos ) << fill;
         EXPECT_EQ( flush.find( fill ), std::string::npos ) << "Flush fills an executor: " << fill;
-    }
     EXPECT_NE( setup.find( ".Sampled(\"u_Backdrop\",backdrop,RDG::Access::SampledGraphics,RDG::SubresourceRange::"
                            "All(),RDG::SamplerDesc::LinearClamp()).PushConstantBytes(static_cast<uint32_t>(sizeof("
                            "GlassPush)));" ),
@@ -3635,7 +3678,7 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
     // inputs bound where the material's shader has slots for them (MeshDrawList; RDG-FAULT1 C3a).
     EXPECT_NE( mesh.find( "m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );" ), std::string::npos )
          << "MeshGeometryPass no longer declares the scene/view inputs";
-    EXPECT_NE( mesh.find( "BindSceneViewInputs( block, *view, layout );" ), std::string::npos )
+    EXPECT_NE( mesh.find( "BindSceneViewInputs( block, *view, *layout );" ), std::string::npos )
          << "MeshDrawList no longer binds the scene/view inputs into its blocks";
 
     const std::string frame    = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
@@ -3647,19 +3690,26 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
     EXPECT_NE( frame.find( "meshRenderer->DeclareGenericDraws( pass, view );" ), std::string::npos );
     EXPECT_NE( frame.find( "meshRenderer->DeclareSkinnedDraws( pass, view );" ), std::string::npos );
     EXPECT_NE( frame.find( "meshRenderer->DeclareGBufferDraws( pass );" ), std::string::npos );
-    // The glass declares its inputs as its binding block in setup (only those its shader has slots for).
+    // The glass declares its inputs as its draw list's blocks in setup (MeshDrawList::DeclareBlocks binds them
+    // where a cell's shader has slots for them; RDG-PSO: one block per cell), plus the scene copy it refracts.
     const std::string glass =
          read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
-    EXPECT_NE( glass.find( "BindSceneViewInputs( block, view, layout );" ), std::string::npos )
-         << "Deferred: Glass no longer declares the scene/view inputs in its binding block";
+    EXPECT_NE( glass.find( "m_GlassDraws.Declare( pass, view," ), std::string::npos )
+         << "Deferred: Glass no longer declares the scene/view inputs in its binding blocks";
     EXPECT_NE( frame.find( "meshRenderer->DeclareGlassBindings( pass, sceneCopy, view );" ), std::string::npos );
 
     const std::string refs = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
     EXPECT_NE( refs.find( "{ EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap }" ), std::string::npos )
          << "SceneViewInputs::Refs() must name every input it binds, the cloud map included";
 
-    const std::string composite = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
-    EXPECT_NE( composite.find( "const std::vector<RDG::TextureRef> view = inputs.View.Refs();" ),
+    std::string composite = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    composite.erase( std::remove_if( composite.begin(), composite.end(),
+                                     []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+                     composite.end() );
+    EXPECT_NE( composite.find( "inputs.View=SceneViewInputsOf(refs);" ), std::string::npos )
+         << "Deferred: Composite no longer hands the scene/view inputs to its block";
+    EXPECT_NE( read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" )
+                    .find( "BindSceneViewInputs( block, inputs.View, *layout );" ),
                std::string::npos )
          << "Deferred: Composite no longer declares the scene/view inputs";
 }
@@ -4448,10 +4498,10 @@ TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
     // exactly that list and resolves / prepares / validates nothing itself.
     const std::string declareBody = FunctionBody( render2d, "voidRender2D::DeclareInto(" );
     ASSERT_FALSE( declareBody.empty() ) << "Render2D::DeclareInto moved";
-    EXPECT_NE( declareBody.find( "m_Prepared.Prepare(m_DrawList.GetCommands()," ), std::string::npos )
+    EXPECT_NE( declareBody.find( "m_Prepared.Prepare(list.GetCommands()," ), std::string::npos )
          << "the setup no longer prepares the frame's draws";
     EXPECT_NE( declareBody.find( "Resolve(cmd,backdropValid)" ), std::string::npos );
-    const std::string flushBody = FunctionBody( render2d, "Common::BoolResultStrRender2D::Flush(" );
+    const std::string flushBody = FunctionBody( render2d, "Common::BoolResultStrRender2D::FlushList(" );
     ASSERT_FALSE( flushBody.empty() ) << "Render2D::Flush moved";
     for ( const char* again : { "Resolve(", "DrawableOrDefault(", "PrepareDraw(", "ValidatePassBindings(",
                                 "m_Prepared.Prepare(", "m_DrawList.GetCommands())" } )
@@ -4459,7 +4509,7 @@ TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
              << "Render2D::Flush calls " << again << " - a draw is prepared a second time in the exec";
     EXPECT_NE( flushBody.find( "for(constauto&draw:m_Prepared.Draws())" ), std::string::npos )
          << "Flush no longer records the list the setup prepared";
-    EXPECT_NE( flushBody.find( "if(!m_Prepared.Ready())" ), std::string::npos )
+    EXPECT_NE( flushBody.find( "if(!m_Prepared.Ready()||m_PreparedList!=&list)" ), std::string::npos )
          << "Flush records a list nobody prepared";
 }
 

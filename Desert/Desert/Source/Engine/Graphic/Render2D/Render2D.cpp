@@ -370,10 +370,9 @@ namespace Desert::Graphic::Render2D
                 // mask-less one is carried by the retainer executor (u_Mask = white), written here.
                 const DrawCommand&     cmd    = list.GetCommands()[draw.Command];
                 const RetainedPicture& pic    = *resolved.Retained;
-                const auto&            shader = resolved.Pipeline->GetSpecification().Shader;
                 if ( pic.Mask.IsValid() )
                 {
-                    declared.Bindings( layout.Get( shader ), RDG::OtherRouteFill{} )
+                    declared.Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
                          .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
                          .Sampled( "u_Mask", pic.Mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
@@ -384,7 +383,7 @@ namespace Desert::Graphic::Render2D
                 {
                     const RetainerPush push = RetainerPushOf( m_Projection, cmd, pic.Uv, false );
                     resolved.Plain->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
-                    declared.Bindings( layout.Get( shader ), resolved.Executor->GetRouteFill() )
+                    declared.Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), resolved.Executor->GetRouteFill() )
                          .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
                 }
