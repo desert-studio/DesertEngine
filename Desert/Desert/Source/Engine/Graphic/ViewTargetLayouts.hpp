@@ -23,7 +23,7 @@ namespace Desert::Graphic
     inline RenderTargetLayout GBufferLayout()
     {
         return RenderTargetLayout{ { ViewTargetFormats::kGBufferA, ViewTargetFormats::kGBufferB,
-                                     ViewTargetFormats::kGBufferC, ViewTargetFormats::kGBufferEmissive,
+                                     ViewTargetFormats::kGBufferShadingWord, ViewTargetFormats::kGBufferEmissive,
                                      ViewTargetFormats::kVelocity },
                                    ViewTargetFormats::kGBufferDepth,
                                    1 };

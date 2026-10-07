@@ -138,8 +138,18 @@ TEST( GBufferLayout, EveryGBufferWriterDeclaresTheSlotsTypeAtTheSlotsLocation )
             const std::string type     = ( *it )[3];
             const std::string name     = ( *it )[4];
             writers.insert( file );
-            ASSERT_LT( index, kColourSlots ) << file << ": " << name << " at location " << index
-                                             << " - the G-buffer has " << kColourSlots << " colour slots";
+            // The slot after the framebuffer's own colours is the graph-provided view velocity (TAA1:
+            // ViewTargetLayouts.hpp GBufferLayout, RG16F) — the one output a G-buffer writer may declare past
+            // them.
+            if ( index == kColourSlots )
+            {
+                EXPECT_EQ( name, "oVelocity" ) << file << " location " << index;
+                EXPECT_EQ( type, "vec2" ) << file << ": the velocity output is RG16F";
+                continue;
+            }
+            ASSERT_LT( index, kColourSlots )
+                 << file << ": " << name << " at location " << index << " - the G-buffer has " << kColourSlots
+                 << " colour slots and the velocity after them";
             EXPECT_EQ( name, kGBuffer[index].ShaderName ) << file << " location " << index;
             const char* wanted =
                  Desert::Core::Formats::IsIntegerFormat( kGBuffer[index].Format ) ? "uint" : "vec4";
