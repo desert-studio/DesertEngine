@@ -10,6 +10,7 @@
 //   * an empty name is the project's default map (an empty FURL map is GameDefaultMap in UE).
 
 #include <Engine/Core/LevelTravel.hpp>
+#include <Editor/Core/PlayWorldTravel.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Scripting/Internal/ScriptRuntime.hpp>
 
@@ -215,6 +216,130 @@ TEST( LevelTravel, LuaHearsTheRefusalWithThePath )
     EXPECT_FALSE( lua.Impl.Lua.get<bool>( "ok" ) );
     const std::string why = lua.Impl.Lua.get<std::string>( "why" );
     EXPECT_NE( why.find( Abs( dir, "Content/Scenes/Nowhere.desce" ) ), std::string::npos ) << why;
+    EXPECT_FALSE( Travel::Get().HasPending() );
+}
+
+// ── LEVEL-PIE: OpenLevel in Play-in-editor ─────────────────────────────────────────────────────────────
+// The editor's boundary (PlaySession::ServiceTravel) is PlayWorldTravel over the editor's scene. The world here is
+// the two strings that matter: what the document holds and what Play shows.
+namespace
+{
+    struct PieWorld
+    {
+        std::string                Played = "authored";
+        std::vector<std::string>   Loads;
+        Desert::Editor::PlayWorldTravel Pie;
+
+        Common::BoolResultStr Tick()
+        {
+            return Pie.Tick(
+                 [this]( const std::string& path )
+                 {
+                     Loads.push_back( path );
+                     Played = path;
+                     return Common::MakeSuccess( true );
+                 } );
+        }
+        Common::BoolResultStr Stop()
+        {
+            return Pie.End(
+                 [this]( const std::string& snapshot )
+                 {
+                     Played = snapshot;
+                     return Common::MakeSuccess( true );
+                 } );
+        }
+    };
+
+    struct PokeCommand final : Desert::Editor::ICommand
+    {
+        bool Undo() override
+        {
+            return true;
+        }
+        bool Redo() override
+        {
+            return true;
+        }
+    };
+} // namespace
+
+TEST( PlayInEditorTravel, ATravelInPlayLoadsTheLevelIntoThePlayedWorldAtTheBoundary )
+{
+    const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
+    PieWorld       w;
+    w.Pie.Begin( "authored" );
+    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    EXPECT_TRUE( w.Loads.empty() ) << "applied inside the frame that asked";
+    const auto r = w.Tick();
+    ASSERT_TRUE( r ) << r.GetError();
+    EXPECT_TRUE( r.GetValue() );
+    EXPECT_EQ( w.Played, Abs( dir, "Content/Scenes/Arena.desce" ) );
+    EXPECT_EQ( w.Pie.CurrentMap(), Abs( dir, "Content/Scenes/Arena.desce" ) );
+    EXPECT_EQ( w.Pie.AuthoredSnapshot(), "authored" ) << "a travel replaced the authored level, not the played one";
+}
+
+TEST( PlayInEditorTravel, StopReturnsTheAuthoredLevelWhicheverMapWasPlayedLast )
+{
+    OpenProject( "Content/Scenes/Menu.desce" );
+    PieWorld w;
+    w.Pie.Begin( "authored" );
+    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( w.Tick() );
+    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Menu.desce" ) );
+    ASSERT_TRUE( w.Tick() );
+    ASSERT_EQ( w.Loads.size(), 2u );
+    // A travel queued in the last frame of Play dies with it.
+    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    const auto stopped = w.Stop();
+    ASSERT_TRUE( stopped ) << stopped.GetError();
+    EXPECT_EQ( w.Played, "authored" );
+    EXPECT_FALSE( Travel::Get().HasPending() );
+    EXPECT_FALSE( w.Pie.Active() );
+    EXPECT_TRUE( w.Pie.CurrentMap().empty() );
+}
+
+TEST( PlayInEditorTravel, ATravelDoesNotRaiseTheAuthoredDocumentsDirtyStar )
+{
+    OpenProject( "Content/Scenes/Menu.desce" );
+    auto& history = Desert::Editor::CommandHistory::Get();
+    history.PushCommand( std::make_unique<PokeCommand>() ); // an edit made before Play...
+    const uint64_t saved = history.Revision();              // ...and saved: the star is out
+    PieWorld       w;
+    w.Pie.Begin( "authored" );
+    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( w.Tick() );
+    EXPECT_TRUE( history.UndoStack().empty() ) << "the left world's undo stack would fire into the new one";
+    ASSERT_TRUE( w.Stop() );
+    EXPECT_EQ( history.Revision(), saved ) << "travelling in Play marked the authored level as edited";
+}
+
+TEST( PlayInEditorTravel, AFailedTravelKeepsPlayAndStopStillRestores )
+{
+    OpenProject( "Content/Scenes/Menu.desce" );
+    PieWorld w;
+    w.Pie.Begin( "authored" );
+    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    const auto r =
+         w.Pie.Tick( []( const std::string& ) { return Common::MakeFormattedError<bool>( "broken level" ); } );
+    ASSERT_FALSE( r );
+    EXPECT_NE( r.GetError().find( "broken level" ), std::string::npos );
+    EXPECT_TRUE( w.Pie.Active() );
+    w.Played = "half-torn-down";
+    ASSERT_TRUE( w.Stop() );
+    EXPECT_EQ( w.Played, "authored" );
+}
+
+TEST( PlayInEditorTravel, OutsidePlayATravelIsRefusedWithItsTargetAndNothingIsLoaded )
+{
+    const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
+    PieWorld       w; // never began: the editor is authoring
+    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    const auto r = w.Tick();
+    ASSERT_FALSE( r );
+    EXPECT_NE( r.GetError().find( Abs( dir, "Content/Scenes/Arena.desce" ) ), std::string::npos ) << r.GetError();
+    EXPECT_TRUE( w.Loads.empty() );
+    EXPECT_EQ( w.Played, "authored" );
     EXPECT_FALSE( Travel::Get().HasPending() );
 }
 
