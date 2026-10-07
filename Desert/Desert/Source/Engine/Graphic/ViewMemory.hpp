@@ -321,6 +321,8 @@ namespace Desert::Graphic
         // Graph transients still cost their pooled memory while the view is open (like SMAA / Bloom below).
         add( { "SceneColorCopy", "SceneRendererFrameDeferred.cpp", F::kSceneColorCopy, width, height } );
         add( { "SSAO", "SceneRendererFrameDeferred.cpp", F::kSSAO, width, height } );
+        // TAA1: the per-view velocity transient every depth-writing view pass writes (View/SceneViewState.hpp).
+        add( { "Velocity", "SceneRenderer.cpp", F::kVelocity, width, height } );
 
         // Post stack, all built in Init.
         add( { "SilhouetteMask", "MeshRenderer.cpp", F::kSilhouetteMask, width, height } );

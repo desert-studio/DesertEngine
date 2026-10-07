@@ -603,3 +603,61 @@ TEST( VelocityTarget, RowIndicesAreStableWithinTheFrame )
     for ( std::size_t i = 0; i < first.Rows.size(); ++i )
         EXPECT_EQ( 0, std::memcmp( &first.Rows[i], &again.Rows[i], sizeof( GpuObjectMotion ) ) ) << i;
 }
+
+// Step F: THE DEPTH-WRITER CENSUS. A pixel's depth and its velocity must come from the same surface, so every
+// program that writes the view's depth writes velocity too. Over the whole shipped tree, each `.shader` with
+// `ZWrite On` is one of: a `Domain Surface` program with a `Surface` block (its stages are the Mesh/Surface pass
+// templates, whose velocity outputs ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface pins), a program that
+// writes `oVelocity` itself, or a named light-view exclusion that must NOT write it. TextSDF is listed EXCLUDED
+// with its reason (ZWrite Off: world-space text writes no depth, so it owes no velocity) and the census holds the
+// reason true. Mutations: drop oVelocity from Terrain.shader or TerrainGBuffer.shader / add a ZWrite On program
+// with its own stages and no velocity / give TerrainShadow a velocity output / turn TextSDF's ZWrite On -> red.
+TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
+{
+    const std::filesystem::path shaders = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders";
+    // Light-view programs: they write a cascade's depth, never the view's; no previous frame of their own.
+    const std::map<std::string, std::string> lightView = {
+         { "Programs/Terrain/TerrainShadow.shader", "cascade depth (light view)" } };
+    const std::regex zwriteOn( R"(ZWrite\s+On)" );
+    const std::regex surfaceDomain( R"(Domain\s+Surface)" );
+    const std::regex surfaceBlock( R"((^|\n)\s*Surface\s*(\n|\{))" );
+    const std::regex velocityOut( R"(Out\(\s*\d+\s*\)\s*vec2\s+oVelocity|out\s+vec2\s+oVelocity)" );
+
+    std::size_t depthWriters = 0;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders ) )
+    {
+        if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
+            continue;
+        const std::string rel  = std::filesystem::relative( entry.path(), shaders ).generic_string();
+        const std::string text = ReadFile( entry.path() );
+        if ( !std::regex_search( text, zwriteOn ) )
+            continue;
+        ++depthWriters;
+        const bool writesVelocity = std::regex_search( text, velocityOut );
+        if ( lightView.count( rel ) != 0 )
+        {
+            EXPECT_FALSE( writesVelocity ) << rel << " is a light view (" << lightView.at( rel )
+                                           << ") and must not write the view's velocity";
+            continue;
+        }
+        const bool surfaceTemplate = std::regex_search( text, surfaceDomain ) && std::regex_search( text, surfaceBlock );
+        EXPECT_TRUE( surfaceTemplate || writesVelocity )
+             << rel << " writes the view's depth (ZWrite On) with its own stages and no oVelocity output";
+    }
+    EXPECT_GE( depthWriters, 8u ) << "the census did not find the shipped depth writers";
+
+    // The terrain is the depth writer with its own stages: both its view programs write velocity, through the
+    // one TerrainVelocity of TerrainSurface.glslh, at the slot of their target.
+    const std::filesystem::path terrain = shaders / "Programs/Terrain";
+    EXPECT_NE( ReadFile( terrain / "Terrain.shader" ).find( "Out(1) vec2 oVelocity" ), std::string::npos );
+    EXPECT_NE( ReadFile( terrain / "TerrainGBuffer.shader" ).find( "Out(4) vec2 oVelocity" ), std::string::npos );
+    const std::string surface = ReadFile( terrain / "TerrainSurface.glslh" );
+    EXPECT_NE( surface.find( "DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world )" ),
+               std::string::npos );
+
+    // EXCLUDED: TextSDF, with its reason held true.
+    const std::string text = ReadFile( shaders / "Programs/Text/TextSDF.shader" );
+    EXPECT_TRUE( std::regex_search( text, std::regex( R"(ZWrite\s+Off)" ) ) )
+         << "TextSDF is excluded from velocity because it writes no depth; with ZWrite On it owes oVelocity";
+    EXPECT_EQ( text.find( "oVelocity" ), std::string::npos );
+}

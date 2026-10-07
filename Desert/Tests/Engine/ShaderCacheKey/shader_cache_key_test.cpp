@@ -1520,12 +1520,13 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
     const auto& set = setIt->second;
 
     // The shared half: TerrainUB holds ONLY what every terrain of a frame agrees on — View +
-    // Projection + SunDir + SunColor, 2*64 + 2*16 = 160 bytes. This is a size relation, not a spot
+    // Projection + SunDir + SunColor + the view's unjittered ViewProjection / PrevViewProjection (TAA1
+    // velocity), 4*64 + 2*16 = 288 bytes. This is a size relation, not a spot
     // value: putting any per-terrain field back (Model was the first to be forgotten here) grows the
-    // block past 160 and fails this line before it fails on screen.
+    // block past 288 and fails this line before it fails on screen.
     const auto ub = set.UniformBuffers.find( 0 );
     ASSERT_NE( ub, set.UniformBuffers.end() ) << "TerrainUB left binding 0";
-    EXPECT_EQ( ub->second.Size, 160u )
+    EXPECT_EQ( ub->second.Size, 288u )
          << "TerrainUB is no longer just the shared frame data - a per-draw field moved back in";
 
     // The per-draw half: TerrainInstances[] at binding 8, one struct per recorded draw.

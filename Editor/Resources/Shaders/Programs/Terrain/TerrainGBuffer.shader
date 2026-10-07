@@ -40,6 +40,7 @@ Shader "TerrainGBuffer"
         Out(1) vec4 oGBufferB;        // Normal.rgb, Roughness.a
         Out(2) vec4 oGBufferC;        // WorldPosition.xyz, shading word.w (DefaultLit, no maps, no payload)
         Out(3) vec4 oGBufferEmissive; // Emissive.rgb
+        Out(4) vec2 oVelocity;        // the view's velocity, slot 4 of the G-buffer target (TerrainSurface.glslh)
 
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Generated/ShadingModels.glslh>
@@ -56,6 +57,7 @@ Shader "TerrainGBuffer"
             oGBufferC        = vec4( v_WorldPos, DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0,
                                                                             DesertPayload( 0.0, 0.0 ) ) );
             oGBufferEmissive = vec4( 0.0, 0.0, 0.0, 1.0 ); // no emission; material AO 1 (the ground has none)
+            oVelocity        = TerrainVelocity();
         }
     }
 }

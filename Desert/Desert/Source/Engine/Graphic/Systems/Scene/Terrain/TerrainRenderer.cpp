@@ -35,6 +35,10 @@ namespace Desert::Graphic::System
             glm::mat4 Projection;
             glm::vec4 SunDir;   // xyz = normalized light direction (scene directional light)
             glm::vec4 SunColor; // rgb = color, a = intensity
+            // TAA1: the view's unjittered matrices of this frame and the previous one (ViewFrame), for the
+            // velocity the terrain writes (TerrainSurface.glslh TerrainVelocity).
+            glm::mat4 ViewProjection;
+            glm::mat4 PrevViewProjection;
         };
 
         // Resolve the scene's main directional light (or a sensible default sun if none exists).
@@ -329,6 +333,9 @@ namespace Desert::Graphic::System
         ub.View       = camera->GetViewMatrix();
         ub.Projection = camera->GetProjectionMatrix();
         GetSun( m_SceneRenderer, ub.SunDir, ub.SunColor );
+        const auto*      viewFrame = m_SceneRenderer->GetViewFrame();
+        ub.ViewProjection          = viewFrame->ViewProjection;
+        ub.PrevViewProjection      = viewFrame->PrevViewProjection;
 
         for ( const auto& group : m_FrameGroups )
         {
