@@ -506,6 +506,12 @@ namespace
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
           "CalculateImageSize( kAerialPerspectiveWidth, kAerialPerspectiveHeight, " "kAerialPerspectiveDepth, Core::Formats::ImageFormat::RGBA16F )", Sizes::OneImage, Blocks::Correct,
           "the aerial perspective VOLUME's cost line -- three extents, not three layers" },
+        { "Desert/Desert/Source/Engine/Graphic/View/SceneViewState.cpp",
+          "CalculateImageSize( width, height, desc.Format )", Sizes::OneImage, Blocks::Correct,
+          "one level of one layer of a view history texture (TextureBytes, the per-view state's memory "
+          "line); the mip loop, the 3D depth, Layers and Samples multiply around it, so a six-layer "
+          "history is six of these. A history is a render target and never a block format -- but the "
+          "size would be right if one were" },
         { "Desert/Desert/Source/Engine/Graphic/ViewMemory.hpp",
           "CalculateImageSize( w, h, Format )", Sizes::OneImage, Blocks::Correct,
           "one level of one row of the view's render-target census (ViewTarget::Bytes); the level loop "
