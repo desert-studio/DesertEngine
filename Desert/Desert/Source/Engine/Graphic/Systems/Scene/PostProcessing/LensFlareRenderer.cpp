@@ -110,33 +110,62 @@ namespace Desert::Graphic::System
         return m_BrightPassPipeline && m_FeaturesPipeline;
     }
 
+    void LensFlareRenderer::DeclareBrightPassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
+                                                       RDG::TextureRef source, uint32_t mip ) const
+    {
+        if ( !m_BrightPassPipeline )
+            return; // RecordBrightPass refuses by name
+        auto block = pass.Bindings( m_BrightPassLayout.Get( m_BrightPassPipeline->GetSpecification().Shader ),
+                                    Renderer::GetInstance().GetPipelineRouteFill( *m_BrightPassPipeline ) );
+        if ( mip == 0 )
+        {
+            block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearClamp() );
+        }
+        else
+        {
+            block.Sampled( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ),
+                           RDG::SamplerDesc::LinearClamp() );
+        }
+        block.Storage( "u_Output", source, RDG::Access::StorageWrite, mip )
+             .PushConstantBytes( static_cast<uint32_t>( sizeof( BrightPassPush ) ) );
+    }
+
     Common::BoolResultStr LensFlareRenderer::RecordBrightPass( const RDG::PassContext& context,
-                                                               RDG::TextureRef sceneColor, RDG::TextureRef source,
                                                                const RDG::TextureDesc& sourceDesc, uint32_t mip )
     {
+        if ( !m_BrightPassPipeline )
+            return Common::MakeError( "LensFlareRenderer: the bright-pass pipeline is not initialised" );
         // One shader run per mip, exactly as BloomRenderer does it; the threshold applies on the first
         // pass only, so the deeper levels are honest averages of the energy the first level admitted.
         const bool           first = ( mip == 0 );
         const BrightPassPush brightPush{ first ? 1 : 0, m_Params.Threshold, m_Params.MaxBrightness };
-        RDG::PassBindings    bindings( context );
-        if ( first )
-            bindings.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                              RDG::SamplerDesc::LinearClamp() );
-        else
-            bindings.Sampled( "u_Source", source, RDG::Access::SampledCompute,
-                              RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() );
-        bindings.Storage( "u_Output", source, RDG::Access::StorageWrite, mip )
-             .PushConstants( &brightPush, sizeof( brightPush ) );
+        RDG::PassBindings    bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &brightPush, sizeof( brightPush ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_BrightPassPipeline,
                                                         GroupCount( MipSize( sourceDesc.Size.Width, mip ) ),
                                                         GroupCount( MipSize( sourceDesc.Size.Height, mip ) ), 1 );
     }
 
+    void LensFlareRenderer::DeclareFeaturesBindings( RDG::PassBuilder& pass, RDG::TextureRef source,
+                                                     RDG::TextureRef flare ) const
+    {
+        if ( !m_FeaturesPipeline )
+            return; // RecordFeatures refuses by name
+        pass.Bindings( m_FeaturesLayout.Get( m_FeaturesPipeline->GetSpecification().Shader ),
+                       Renderer::GetInstance().GetPipelineRouteFill( *m_FeaturesPipeline ) )
+             .Sampled( "u_FlareSource", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() )
+             .Storage( "u_Flare", flare, RDG::Access::StorageWrite, 0 )
+             .PushConstantBytes( static_cast<uint32_t>( sizeof( FeaturesPush ) ) );
+    }
+
     Common::BoolResultStr LensFlareRenderer::RecordFeatures( const RDG::PassContext& context,
-                                                             RDG::TextureRef source, RDG::TextureRef flare,
                                                              const RDG::TextureDesc& flareDesc,
                                                              const glm::vec2&        sunScreenUv )
     {
+        if ( !m_FeaturesPipeline )
+            return Common::MakeError( "LensFlareRenderer: the features pipeline is not initialised" );
         // Source -> ghosts + halo + streak.
         const float angle = glm::radians( m_Params.StreakAngle );
 
@@ -153,12 +182,8 @@ namespace Desert::Graphic::System
         featuresPush.Streak =
              glm::vec4( m_Params.StreakIntensity, m_Params.StreakLength, std::cos( angle ), std::sin( angle ) );
 
-        RDG::PassBindings bindings( context );
-        bindings
-             .Sampled( "u_FlareSource", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() )
-             .Storage( "u_Flare", flare, RDG::Access::StorageWrite, 0 )
-             .PushConstants( &featuresPush, sizeof( featuresPush ) );
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &featuresPush, sizeof( featuresPush ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_FeaturesPipeline,
                                                         GroupCount( flareDesc.Size.Width ),
                                                         GroupCount( flareDesc.Size.Height ), 1 );

@@ -302,6 +302,8 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
         const Graphic::RDG::TextureRef target   = graph.RegisterExternal( backBuffer, "BackBuffer" );
+        // The acquired image has no picture of its own: without its writer the frame has none (cleared to black).
+        graph.SetFaultPolicy( target, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
         ImDrawData*                    drawData = ::ImGui::GetDrawData();
         graph.AddPass(
              "EditorImGui", Graphic::RDG::PassFlags::Raster, [&]( Graphic::RDG::PassBuilder& pass )
@@ -315,8 +317,9 @@ namespace Desert::Graphic::API::Vulkan
                  return BOOLSUCCESS;
              } );
         graph.Extract( target, backBuffer, Graphic::RDG::Access::Present );
-        if ( const auto executed = renderer.ExecuteGraph( graph ); !executed )
-            LOG_ERROR( "[VulkanImGui] the interface graph: {}", executed.GetError() );
+        // Its faults are logged by the graph backend, its own failures by ExecuteGraph; a FrameFault presents
+        // black, and the detached windows below draw either way.
+        (void)renderer.ExecuteGraph( graph );
 
         // THE BOUNDARY OF THE FRAME'S GRAPH. The detached platform windows below are OS windows the ImGui
         // backend owns, each with its own swapchain, render pass, command buffers, submit and present — they are

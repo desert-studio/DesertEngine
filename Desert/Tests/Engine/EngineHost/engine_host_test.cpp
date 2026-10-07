@@ -15,9 +15,13 @@
 //     FullscreenTriangle.glslh ScreenUVToNdc without the y flip -> every row lands mirrored.
 //   * Renderer::DrawProcedural: draw one instance instead of instanceCount -> the right half keeps the clear
 //   colour.
+//   * VulkanMaterialBackend::ApplyStorageBuffer: drop the `!storageProp->IsWritten()` return -> the never-written
+//     storage buffer's binding shows up among the material's written slots.
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -32,6 +36,7 @@
 #include <gtest/gtest.h>
 #include "../../TestSupport/runner.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <array>
 #include <cstring>
@@ -286,11 +291,19 @@ TEST( EngineHost, DispatchComputeThroughPassBindingsIsByteExact )
         const RDG::BufferRef bytes = graph.CreateBuffer( RDG::BufferDesc{ kWords * 4u }, "Readback" );
         graph.AddPass(
              "Fill", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass ) { pass.Write( words, RDG::Access::StorageWrite ); },
+             [&]( RDG::PassBuilder& pass )
+             {
+                 // The fill shader: one storage buffer "Words", no push constants.
+                 pass.Bindings(
+                          RDG::ShaderBindingLayout{
+                               .ShaderName = "EngineHostFill",
+                               .Slots      = { { "Words", RDG::ShaderResourceKind::StorageBuffer } } },
+                          RDG::OtherRouteFill{} )
+                      .Storage( "Words", words, RDG::Access::StorageWrite );
+             },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 RDG::PassBindings bindings( context );
-                 bindings.Storage( "Words", words, RDG::Access::StorageWrite );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline.GetValue(), kWords / 64u, 1u,
                                                                  1u );
              } );
@@ -360,11 +373,17 @@ namespace
         const RDG::TextureRef target = graph.CreateTexture( desc, "Target" );
         const RDG::BufferRef  bytes  = graph.CreateBuffer( RDG::BufferDesc{ kSide * kSide * 4u }, "Readback" );
         graph.AddPass(
-             "Draw", RDG::PassFlags::Raster, [&]( RDG::PassBuilder& pass )
-             { pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ); },
+             "Draw", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                 // The fullscreen / procedural test shaders read no resource and take no push constants: an empty
+                 // block, which ValidatePassBindings checks like any other.
+                 pass.Bindings( RDG::ShaderBindingLayout{ .ShaderName = name }, RDG::OtherRouteFill{} );
+             },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 RDG::PassBindings bindings( context );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return draw( bindings );
              } );
         graph.AddPass(
@@ -479,6 +498,84 @@ TEST( EngineHost, DrawProceduralDrawsEveryInstance )
                                                               255u };
                            } ),
                "" );
+}
+
+namespace
+{
+    // Two storage buffers; the material writes only `Written`. The other one is the pass's (the Composite's
+    // uploaded light lists are this case), so it must not be among the material's written slots.
+    constexpr const char* kSlotsShader =
+         R"DSL(// DesertAsset {"Kind":"Shader","Guid":"9e3f4a5b6c7d48e9f0a1b2c3d4e5f6a7","Versions":{"SHDR":1},"Dependencies":[]}
+Shader "EngineHostSlots"
+{
+    Compute
+    {
+        LocalSize(64, 1, 1);
+
+        Buffer(0) Unwritten
+        {
+            vec4 u_Unwritten[4];
+        };
+
+        Buffer(1) Written
+        {
+            vec4 u_Written[4];
+        };
+
+        void main()
+        {
+            uint i = gl_GlobalInvocationID.x & 3u;
+            u_Written[i] = u_Unwritten[i] + vec4( 1.0 );
+        }
+    }
+}
+)DSL";
+} // namespace
+
+// The record route (VulkanRenderer: material->Apply, then GetWrittenSlots -> RdgOtherRoute.Filled) counts a slot
+// as the material's only when the material filled it. A storage buffer nobody wrote is left to the pass; were its
+// lazy copy written, the pass's block binding of it would be refused as "filled both".
+TEST( EngineHost, AnUnwrittenMaterialStorageBufferIsNotAmongTheMaterialsWrittenSlots )
+{
+    const Host& host = GetHost();
+    ASSERT_TRUE( host.Error.empty() ) << host.Error;
+
+    const fs::path file = fs::temp_directory_path() / "EngineHostSlots.shader";
+    {
+        std::ofstream out( file, std::ios::binary | std::ios::trunc );
+        out << kSlotsShader;
+    }
+    auto       asset  = std::make_shared<Assets::ShaderAsset>( Common::Filepath( file.string() ) );
+    const auto loaded = asset->LoadFromFile();
+    ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    const std::shared_ptr<Shader> shader = Shader::Create( asset );
+    ASSERT_NE( shader, nullptr );
+
+    auto executor = MaterialExecutor::Create( "EngineHostSlots", shader );
+    ASSERT_NE( executor, nullptr );
+    const auto written = executor->GetStorageBufferProperty( "Written" );
+    ASSERT_NE( executor->GetStorageBufferProperty( "Unwritten" ), nullptr );
+    ASSERT_NE( written, nullptr );
+    const std::array<float, 16> values{};
+    written->SetRawData( values.data(), static_cast<uint32_t>( sizeof( values ) ) );
+
+    auto&                       renderer = Renderer::GetInstance();
+    const Common::BoolResultStr begun    = renderer.BeginFrame();
+    ASSERT_TRUE( begun.IsSuccess() ) << begun.GetError();
+    executor->Apply();
+    auto*      backend = static_cast<API::Vulkan::VulkanMaterialBackend*>( executor->GetMaterialBackend().get() );
+    const auto slots   = backend->GetWrittenSlots( EngineContext::GetInstance().GetCurrentFrameIndex() );
+    const Common::BoolResultStr presented = renderer.PresentFinalImage();
+    ASSERT_TRUE( presented.IsSuccess() ) << presented.GetError();
+
+    ASSERT_TRUE( slots.IsSuccess() ) << slots.GetError();
+    const std::vector<uint32_t>& bindings = slots.GetValue().Bindings;
+    // The positive control: the written buffer is the material's (binding 1), so the check below is not
+    // passing because nothing is ever recorded.
+    EXPECT_NE( std::find( bindings.begin(), bindings.end(), 1u ), bindings.end() )
+         << "the written storage buffer (binding 1) is missing from the material's written slots";
+    EXPECT_EQ( std::find( bindings.begin(), bindings.end(), 0u ), bindings.end() )
+         << "the never-written storage buffer (binding 0) is among the material's written slots";
 }
 
 namespace

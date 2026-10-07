@@ -10,6 +10,7 @@
 #include <Engine/Graphic/Materials/Skybox/MaterialProceduralSky.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
@@ -76,8 +77,6 @@ namespace Desert::Graphic::System
         std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes();
         // The cached LUT pair counts as baked only once the frame graph accepted the nodes that bake it.
         void SettleAtmosphereLutNodes( bool accepted );
-        // The LUTs a consumer of GetAtmosphere() samples, declared with @p access (the fog and the clouds).
-        void DeclareAtmosphereReads( RenderPassDeclaration& declared, RDG::Access access ) const;
         // The sky pass samples the transmittance / sky-view LUTs this frame: the procedural backdrop is drawn and
         // an earlier frame's nodes have written both. SceneRenderer::ImportSceneViewTextures asks it before any
         // node is added (the SkyboxPass declares before the LUT nodes, so they cannot publish a transient it
@@ -125,7 +124,11 @@ namespace Desert::Graphic::System
         void RegisterPasses( RenderGraphBuilder& builder ) override;
 
     private:
-        [[nodiscard]] Common::BoolResultStr Render( const RDG::PassContext& context, const FrameGraphRefs& refs );
+        // The SkyboxPass's setup: picks the draw (procedural sky or the skybox material), feeds its material
+        // and declares its one binding block (block 0) - the procedural sky's LUTs are block entries. Records
+        // the choice in m_SkyDraw; Render records exactly that.
+        void DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs );
+        [[nodiscard]] Common::BoolResultStr Render( const RDG::PassContext& context ) const;
 
         // Writes the packed parameter block into the SSBO. One buffer serves the graphics pass and the
         // bake's compute dispatch, so both are guaranteed to describe the same sky.
@@ -168,12 +171,12 @@ namespace Desert::Graphic::System
         bool EnsureAerialPerspectiveResources();
         // Same arrangement for the one-texel distant sky light.
         bool EnsureDistantLightResources();
-
         // The cached pair, in dependency order (the multi-scattering march samples the transmittance).
         // Recorded by the SkyAtmosphereLuts graph nodes only: the graph places every barrier and records the
         // layout each LUT is left in. Nothing dispatches them outside the frame graph. Each records into
         // @p context through Renderer::DispatchCompute; every LUT is this renderer's own (imported, cached
-        // across frames), so the pipeline's setters bind them and the returned error names the refused slot.
+        // across frames), named as block entries of each node's block 0 (DeclareAtmosphereLutNodes: the graph
+        // imports, orders and barriers them); the exec opens the block and adds only the push constants.
         [[nodiscard]] Common::BoolResultStr DispatchTransmittanceLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchMultiScatterLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchSkyViewLut( const RDG::PassContext& context );
@@ -195,11 +198,13 @@ namespace Desert::Graphic::System
         bool                              m_BackdropVisible = true;
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<Shader>           m_Shader;
+        ShaderBindingLayoutCache          m_SkyLayout; // the Sky pass block, keyed on m_Pipeline's shader
 
         // Procedural sky (engine-generated atmosphere) — alternative to the HDR cubemap, same Sky pass.
         std::shared_ptr<GraphicsPipeline>      m_ProceduralPipeline;
         std::shared_ptr<Shader>                m_ProceduralShader;
         std::shared_ptr<MaterialProceduralSky> m_ProceduralMaterial;
+        ShaderBindingLayoutCache               m_ProceduralLayout; // keyed on m_ProceduralPipeline's shader
 
         // The sky parameter block, created NON-PERSISTENT so the backend keeps one copy per
         // (frame in flight x renderer slot). A persistent buffer would be shared by every live
@@ -226,6 +231,12 @@ namespace Desert::Graphic::System
         // timeline, and sharing one texel across renderers would buy nothing and cost a synchronisation
         // rule.
         std::shared_ptr<ComputePipeline> m_DistantLightPipeline;
+        // Each LUT node's block layout, keyed on its pipeline's shader (kept, not re-derived per frame).
+        ShaderBindingLayoutCache         m_TransmittanceLutLayout;
+        ShaderBindingLayoutCache         m_MultiScatterLutLayout;
+        ShaderBindingLayoutCache         m_SkyViewLutLayout;
+        ShaderBindingLayoutCache         m_AerialPerspectiveLayout;
+        ShaderBindingLayoutCache         m_DistantLightLayout;
         std::shared_ptr<Image2D>         m_TransmittanceLut;
         std::shared_ptr<Image2D>         m_MultiScatterLut;
         std::shared_ptr<Image2D>         m_SkyViewLut;
@@ -238,6 +249,16 @@ namespace Desert::Graphic::System
         bool m_SkyViewLutFilled = false;
         // DeclareAtmosphereLutNodes declared the SkyViewLut node this frame, until SettleAtmosphereLutNodes.
         bool m_SkyViewLutFillPending = false;
+        // What the SkyboxPass's setup (DeclareSkyDraw) chose this frame: the pipeline and material its block 0 was
+        // declared against, or a refusal the exec returns (a skybox material without its pipeline). Empty when
+        // nothing draws.
+        struct SkyDraw
+        {
+            const GraphicsPipeline* Pipeline = nullptr;
+            const MaterialExecutor* Executor = nullptr;
+            const char*             Fault    = nullptr;
+        };
+        SkyDraw m_SkyDraw;
         // The fingerprint DeclareAtmosphereLutNodes' transmittance/multi-scatter nodes bake, until settled.
         std::optional<AtmosphereLutFingerprint> m_LutBakePending;
         bool                             m_LutResourcesFailed               = false;

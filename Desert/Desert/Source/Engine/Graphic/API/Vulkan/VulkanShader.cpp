@@ -214,7 +214,6 @@ namespace Desert::Graphic::API::Vulkan
             m_DescriptorSetLayouts[setIndex] = std::move( layout );
         }
 
-        ++m_ReloadGeneration;
         return BOOLSUCCESS;
     }
 

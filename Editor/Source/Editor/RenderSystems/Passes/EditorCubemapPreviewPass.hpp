@@ -2,6 +2,7 @@
 
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialCubemapSphere.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <functional>
 
@@ -65,6 +66,8 @@ namespace Desert::Editor::Render
         std::weak_ptr<::Desert::Core::Scene>            m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline>      m_Pipeline;
         std::unique_ptr<Graphic::MaterialCubemapSphere> m_Material;
+        // The pass's one setup block, keyed on m_Pipeline's shader.
+        Graphic::ShaderBindingLayoutCache               m_BindingLayout;
         std::function<Graphic::SampledCube()>           m_ResolveCube;
         float                                           m_Radius   = 50.0f;
         bool                                            m_Backdrop = false;

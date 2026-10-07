@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -32,7 +33,9 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -41,8 +44,85 @@ namespace Desert::Graphic::System
 {
     namespace MeshRendererDetail
     {
-        class MeshPassBindings;
-    }
+        // One draw of a lit mesh node, chosen when the frame's draw list is BUILT (the node's setup, before any
+        // command is recorded): pipeline, mesh, transform, the material executor that records it, instance range,
+        // submesh mask and LOD. UE: a FMeshDrawCommand, built in InitViews and recorded later.
+        struct MeshDrawCommand
+        {
+            // Owned by the SceneRenderer's PipelineCache (GetOrCreate / GetOrCreateMaterial keep the shared_ptr
+            // in its map), which drops entries only in Clear (scene init) and InvalidateByShader (hot reload,
+            // after WaitDeviceIdle) - never between a node's setup and its exec - so the list holds no share.
+            const GraphicsPipeline* Pipeline = nullptr;
+            const Mesh*             Mesh     = nullptr;
+            glm::mat4               Transform{ 1.0f };
+            const MaterialExecutor* Material          = nullptr;
+            uint32_t                InstanceCount     = 1;
+            uint32_t                FirstInstance     = 0;
+            uint64_t                HiddenSubmeshMask = 0;
+            uint32_t                LodLevel          = 0;
+            // The per-draw material state the draw records with (transform push constant, material row, bone
+            // offset, wind, the instance's descriptor bind), written in exec right before the draw - the same
+            // order as before the split. Empty: the draw has none.
+            std::function<void()> BindState;
+        };
+
+        // THE frame's draw list of one lit mesh node. The material (hence shader and route fill) of every draw is
+        // chosen ONCE, by Build* in the node's setup; Declare declares one binding block per distinct (material
+        // executor, recording pipeline's shader) pair of the list (the layout kept for the shader the draws RECORD
+        // with - `Pipeline->GetSpecification().Shader`, re-derived only on its reload, never per frame - the
+        // executor's route fill, and the scene/view inputs the layout has slots for), so ValidatePassBindings
+        // judges every draw before anything is recorded; Record (the exec) walks the same list with the block each
+        // draw's executor was declared as. A build that failed is kept and is Record's error, before any draw.
+        class MeshDrawList
+        {
+        public:
+            void Clear();
+            // A draw without pipeline, mesh or material (or whose material has no shader) is refused here.
+            void               Add( MeshDrawCommand command );
+            void               Fail( std::string error );
+            [[nodiscard]] bool IsEmpty() const
+            {
+                return m_Commands.empty();
+            }
+            // The binding blocks Declare declares (one per distinct executor + recording shader): a node declaring
+            // more blocks after the list's numbers them from here.
+            [[nodiscard]] uint32_t BlockCount() const
+            {
+                return static_cast<uint32_t>( m_Blocks.size() );
+            }
+
+            // The blocks are the node's ONLY binding blocks (indices 0..n-1, in first-use order). @p view: the
+            // scene/view inputs bound for every executor whose shader has slots for them (none: nothing bound).
+            void Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const;
+            // @p perBlock adds the node's own pass parameters to EVERY block after the scene/view inputs (the
+            // translucency node's scene snapshot): a node whose cells are several shaders binds them once each.
+            void Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
+                          const std::function<void( RDG::BindingBlockBuilder& )>& perBlock ) const;
+            void Declare( RenderPassDeclaration& declared, const std::optional<SceneViewInputs>& view ) const;
+
+            [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const;
+
+        private:
+            // One declared block: the executor whose route fills it and the pipeline of its first draw, whose
+            // shader keys its layout (every draw of the block records with a pipeline of that same shader).
+            struct Block
+            {
+                const MaterialExecutor* Material = nullptr;
+                const GraphicsPipeline* Pipeline = nullptr;
+            };
+
+            template <typename Declaration, typename PerBlock>
+            void DeclareBlocks( Declaration& declaration, const std::optional<SceneViewInputs>& view,
+                                const PerBlock& perBlock ) const;
+
+            std::vector<MeshDrawCommand> m_Commands;
+            std::vector<uint32_t>        m_BlockOf; // per command: its block
+            std::vector<Block>           m_Blocks;
+            std::optional<std::string>   m_Error;
+            // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
+            mutable ShaderBindingLayoutSet m_Layouts;
+        };
+    } // namespace MeshRendererDetail
 
     struct MeshRenderData
     {
@@ -174,7 +254,8 @@ namespace Desert::Graphic::System
         //
         // HOW MANY ARE ACTUALLY ALLOCATED IS NOT THIS, and the distinction is the whole of the preview
         // shadow budget: the count, the resolution and the distance come from the renderer's own
-        // ShadowQuality (SceneRenderer::GetShadowQuality), read once in Initialize. See ShadowCascades.hpp.
+        // ShadowQuality (SceneRenderer::GetShadowQuality), read in Initialize and again only by RebudgetShadows.
+        // See ShadowCascades.hpp.
         static constexpr uint32_t kMaxCascades = SceneResources::kMaxCascades;
         static_assert( kMaxCascades == kMaxShadowCascades,
                        "The ShadowUB block's cascade count and the fitter's array bound are the same "
@@ -189,33 +270,43 @@ namespace Desert::Graphic::System
         // Deferred: renders the static-mesh queue into the scene renderer's G-buffer via a MANUAL render pass
         // (outside the graph — see the note in RegisterPasses). No-op unless the deferred pipeline exists.
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
-        [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
+        // SETUP of the G-buffer node: builds the frame's G-buffer draw list and declares its binding blocks (the
+        // G-buffer shaders sample no scene/view input). The exec records that list.
+        void DeclareGBufferDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
         // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties. Runs
-        // inside the "Deferred: Glass" graph node whose @p context this is. @p sceneCopy is this frame's
-        // snapshot of the opaque scene (FrameTransients::SceneColorCopy, declared as a read of the node); the
-        // translucent cells sample it for refraction as u_SceneColor through RDG::PassBindings and every object
-        // is drawn via Renderer::RenderMesh( bindings, ... ). Nothing to draw is success; a refused draw is the
-        // error. @p view (SceneViewInputsOf, declared by the node) is bound for the inputs each cell samples.
-        [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context,
-                                                               RDG::TextureRef         sceneCopy,
-                                                               const SceneViewInputs&  view );
+        // inside the "Deferred: Glass" graph node whose @p context this is and records the list
+        // DeclareGlassBindings built in the node's setup. Nothing to draw is success; a refused draw is the error.
+        [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context ) const;
+        // SETUP of the "Deferred: Glass" node: the frame's translucent draw list, one binding block per cell (its
+        // shader's reflected layout, its dedicated material as the other route), each carrying u_SceneColor =
+        // @p sceneCopy (this frame's snapshot of the opaque scene, FrameTransients::SceneColorCopy, sampled for
+        // refraction) and the scene/view inputs of @p view the cell's shader has a slot for. Declares nothing
+        // (and the node draws nothing) when no translucent object is visible.
+        void DeclareGlassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy,
+                                   const SceneViewInputs& view );
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
         // this they simply vanish in Deferred. Forward path draws them inside MeshGeometryPass.
         // @p view (SceneViewInputsOf, declared by the node) is bound for every draw whose shader samples it.
-        [[nodiscard]] Common::BoolResultStr RenderGenericManual( const RDG::PassContext& context,
-                                                                 const SceneViewInputs&  view );
+        // SETUP builds the frame's generic draw list and declares its binding blocks (@p view bound for every
+        // draw whose shader has slots for it); the exec records that list.
+        void DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr RenderGenericManual( const RDG::PassContext& context ) const;
         // Deferred path: draws SKINNED meshes forward over the deferred lighting composite (they have no
         // G-buffer variant, so without this they only appear in the silhouette/outline pass — invisible
         // otherwise). Forward path draws them inside MeshGeometryPass.
-        [[nodiscard]] Common::BoolResultStr RenderSkinnedManual( const RDG::PassContext& context,
-                                                                 const SceneViewInputs&  view );
+        void DeclareSkinnedDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr RenderSkinnedManual( const RDG::PassContext& context ) const;
         // Reflective Shadow Map: the G-buffer rasterized from the SUN instead of the camera, into the scene
         // renderer's RSM buffer. Every lit texel becomes a virtual point light for the RSM GI mode, which is
-        // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists.
-        [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context );
+        // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists. SETUP of the
+        // node "Deferred: RSM": builds its draw list (the bounce sources' Materials[] and the sun's frame state
+        // written here) and declares its binding block; the exec records that list.
+        void                                DeclareRSMDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context ) const;
         // World -> RSM clip for the pass above — the GI resolve needs it to project fragments into the
         // sun's view. Valid after UpdateCascades(); identity before the first frame.
         glm::mat4 GetRSMViewProj() const
@@ -232,12 +323,15 @@ namespace Desert::Graphic::System
         // Overdraw debug view: re-rasterize every opaque mesh with additive blend (no depth) into a float
         // accumulation buffer, then heat-map the per-pixel overdraw count over the finished scene colour.
         // Path-independent (re-draws geometry; ignores the G-buffer), so it works in Forward and Deferred.
-        // node "Debug: Overdraw" (m_OverdrawFB)
-        [[nodiscard]] Common::BoolResultStr RenderOverdrawAccumManual( const RDG::PassContext& context );
-        // node "Debug: Overdraw Resolve" (the scene target): samples @p overdraw, the accumulation the node
-        // "Debug: Overdraw" wrote, as u_Overdraw through RDG::PassBindings.
-        [[nodiscard]] Common::BoolResultStr RecordOverdrawResolve( const RDG::PassContext& context,
-                                                                   RDG::TextureRef         overdraw );
+        // node "Debug: Overdraw" (m_OverdrawFB): its setup builds the draw list (culled like the camera pass it
+        // reports on) and declares its block; the exec records it.
+        void                                DeclareOverdrawDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RenderOverdrawAccumManual( const RDG::PassContext& context ) const;
+        // node "Debug: Overdraw Resolve" (the scene target): its setup declares the resolve's block, which samples
+        // @p overdraw - the accumulation the node "Debug: Overdraw" wrote - as u_Overdraw; the exec draws through
+        // it.
+        void DeclareOverdrawResolve( RDG::PassBuilder& pass, RDG::TextureRef overdraw );
+        [[nodiscard]] Common::BoolResultStr RecordOverdrawResolve( const RDG::PassContext& context ) const;
 
         const std::shared_ptr<Framebuffer>& GetOverdrawFramebuffer() const
         {
@@ -385,6 +479,11 @@ namespace Desert::Graphic::System
         {
             return m_Shadow;
         }
+        // RE-ALLOCATE THE CASCADE MAPS TO A NEW BUDGET — the Shadows quality level changed (SceneRenderer, on a
+        // QualityState generation change, never per frame). Waits for the device to go idle, releases the
+        // cascade framebuffers, caster materials, caster pipelines and the attachment lease, then runs
+        // SetupShadowPass again on the new budget. False when the new shadow pass could not be set up (logged).
+        [[nodiscard]] bool RebudgetShadows( const ShadowQuality& budget );
 
         void SetShadows( bool enabled, float bias, int debugMode, float splitLambda )
         {
@@ -440,6 +539,8 @@ namespace Desert::Graphic::System
         TranslucentDraw* TranslucentDrawFor( const std::string& cellShader );
         bool SetupSkinnedGeometryPass();
         bool SetupSilhouettePass();
+        // Holds @p budget as m_Shadow, clamped to what the arrays can carry. Initialize and RebudgetShadows.
+        void TakeShadowBudget( const ShadowQuality& budget );
         bool SetupShadowPass();
         // The one place the shadow budget is said out loud. Called from both arms of SetupShadowPass —
         // the allocating one and the zero-budget one — because a renderer that spends nothing on the sun
@@ -448,12 +549,30 @@ namespace Desert::Graphic::System
         void LogShadowBudget( double allocMs ) const;
 
         // The draws of one mesh node through its pass parameters (@p pass); the first refused draw is the error.
-        [[nodiscard]] Common::BoolResultStr DrawStaticMeshes( const MeshRendererDetail::MeshPassBindings& pass );
-        [[nodiscard]] Common::BoolResultStr DrawSkinnedMeshes( bool useLoadPass,
-                                                               const MeshRendererDetail::MeshPassBindings& pass );
+        // Build the draws of one lit mesh node into @p list (the node's setup; MeshDrawList says why). The
+        // per-group material state (Materials[] / bones / instance SSBOs, the shared scene state) is written
+        // here, at final size, before any draw is recorded; a refused build is the list's error.
+        void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
+        void BuildSkinnedDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
         // per-object data-driven materials (v3 slots + overrides)
-        [[nodiscard]] Common::BoolResultStr DrawGenericMeshes( bool useLoadPass,
-                                                               const MeshRendererDetail::MeshPassBindings& pass );
+        void BuildGenericDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
+        void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
+
+        // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
+        MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
+        MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer" static
+        MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
+        MeshRendererDetail::MeshDrawList m_SkinnedDraws;
+        // "Deferred: Skinned"
+        // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
+        MeshRendererDetail::MeshDrawList m_CascadeDraws[kMaxCascades];
+        // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
+        // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
+        MeshRendererDetail::MeshDrawList m_GlassDraws; // "Deferred: Glass" (block 0 = the glass executor's)
+        MeshRendererDetail::MeshDrawList m_RSMDraws;   // "Deferred: RSM"
+        MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
+        MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"
 
         // Material pipelines on demand (AL1-12). The spec a data-driven material draws with in this renderer;
         // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,
@@ -658,6 +777,8 @@ namespace Desert::Graphic::System
         std::unique_ptr<MaterialOverdraw>        m_OverdrawMaterial;
         std::shared_ptr<Framebuffer>             m_OverdrawFB;
         std::shared_ptr<GraphicsPipeline>        m_OverdrawResolvePipeline;
+        // The resolve block's layout, keyed on m_OverdrawResolvePipeline's shader.
+        ShaderBindingLayoutCache                 m_OverdrawResolveLayout;
         std::shared_ptr<Shader>                  m_OverdrawResolveShader;
         std::unique_ptr<MaterialOverdrawResolve> m_OverdrawResolveMaterial;
 #endif // DESERT_DEV_INSTRUMENTS

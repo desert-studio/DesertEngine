@@ -7,6 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
@@ -71,11 +72,34 @@ namespace Desert::Graphic::System
                                      .Mips   = std::min( kMaxMips, Utils::CalculateMipCount( bw, bh ) ) };
         }
 
-        // Scene colour -> pyramid mip 0, then mip - 1 -> mip, bright-pass off (a plain blur pyramid).
+        // Scene colour -> pyramid mip 0, then mip - 1 -> mip, bright-pass off (a plain blur pyramid). The setup
+        // declares block 0 (DeclareDownsampleBindings); RecordDownsample dispatches from it.
+        void DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
+                                        RDG::TextureRef pyramid, uint32_t mip ) const
+        {
+            if ( !m_DownsamplePipeline )
+                return; // RecordDownsample refuses by name
+            auto block = pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
+                                        Renderer::GetInstance().GetPipelineRouteFill( *m_DownsamplePipeline ) );
+            if ( mip == 0 )
+            {
+                block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                               RDG::SamplerDesc::LinearClamp() );
+            }
+            else
+            {
+                block.Sampled( "u_Source", pyramid, RDG::Access::SampledCompute,
+                               RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() );
+            }
+            block.Storage( "u_Output", pyramid, RDG::Access::StorageWrite, mip )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
+        }
+
         [[nodiscard]] Common::BoolResultStr RecordDownsample( const RDG::PassContext& context,
-                                                              RDG::TextureRef sceneColor, RDG::TextureRef pyramid,
                                                               const RDG::TextureDesc& desc, uint32_t mip ) const
         {
+            if ( !m_DownsamplePipeline )
+                return Common::MakeError( "BackdropBlurRenderer: the downsample pipeline is not initialised" );
             const bool     first = ( mip == 0 );
             const uint32_t bw    = desc.Size.Width;
             const uint32_t bh    = desc.Size.Height;
@@ -98,15 +122,8 @@ namespace Desert::Graphic::System
             const DownsamplePush push{
                  glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ), 0, 0.0f };
 
-            RDG::PassBindings bindings( context );
-            if ( first )
-                bindings.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute,
-                                  RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
-            else
-                bindings.Sampled( "u_Source", pyramid, RDG::Access::SampledCompute,
-                                  RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() );
-            bindings.Storage( "u_Output", pyramid, RDG::Access::StorageWrite, mip )
-                 .PushConstants( &push, sizeof( push ) );
+            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            bindings.PushConstants( &push, sizeof( push ) );
             return Renderer::GetInstance().DispatchCompute( bindings, *m_DownsamplePipeline,
                                                             GroupCount( MipSize( bw, mip ) ),
                                                             GroupCount( MipSize( bh, mip ) ), 1 );
@@ -133,5 +150,6 @@ namespace Desert::Graphic::System
         }
 
         std::shared_ptr<ComputePipeline> m_DownsamplePipeline;
+        mutable ShaderBindingLayoutCache m_DownsampleLayout; // the downsample shader's layout, kept between frames
     };
 } // namespace Desert::Graphic::System

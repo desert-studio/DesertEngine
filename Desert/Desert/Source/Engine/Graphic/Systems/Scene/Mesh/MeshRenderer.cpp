@@ -125,21 +125,10 @@ namespace Desert::Graphic::System
         if ( !targetFb )
             return Common::MakeError( "Target framebuffer is not available" );
 
-        // THE BUDGET, TAKEN ONCE AND HELD. Read before the first Setup* because SetupShadowPass allocates
-        // from it; from here on nothing may change it, and holding a copy is what makes that true rather
-        // than a rule somebody has to keep.
-        m_Shadow = m_SceneRenderer ? m_SceneRenderer->GetShadowQuality() : ShadowQuality{};
-        // CLAMPED ONCE, HERE. ShadowQuality is a plain aggregate, so `ShadowQuality{ 5, 2048, ... }`
-        // compiles; every loop below runs to this count while the arrays it indexes are [kMaxCascades].
-        // ComputeShadowCascades clamps its own copy, which made the fitter safe and left the allocation,
-        // the material arrays and the map gather writing one past the end.
-        if ( m_Shadow.CascadeCount > kMaxCascades )
-        {
-            LOG_WARN( "[Shadows] a budget of {} cascades was asked for; this renderer can hold {} and will "
-                      "use that.",
-                      m_Shadow.CascadeCount, kMaxCascades );
-            m_Shadow.CascadeCount = kMaxCascades;
-        }
+        // THE BUDGET, TAKEN AND HELD. Read before the first Setup* because SetupShadowPass allocates from it;
+        // from here on only RebudgetShadows may change it (a Shadows quality change), and holding a copy is
+        // what makes that true rather than a rule somebody has to keep.
+        TakeShadowBudget( m_SceneRenderer ? m_SceneRenderer->GetShadowQuality() : ShadowQuality{} );
 
         if ( !SetupGeometryPass() )
             return Common::MakeError( "Failed to setup static geometry pass" );
@@ -218,6 +207,122 @@ namespace Desert::Graphic::System
             m_InstancedQueue.push_back( data );
     }
 
+    namespace MeshRendererDetail
+    {
+        void MeshDrawList::Clear()
+        {
+            m_Commands.clear();
+            m_BlockOf.clear();
+            m_Blocks.clear();
+            m_Error.reset();
+            m_Layouts.DropExpired();
+        }
+
+        void MeshDrawList::Add( MeshDrawCommand command )
+        {
+            if ( m_Error )
+                return;
+            if ( command.Pipeline == nullptr || command.Mesh == nullptr || command.Material == nullptr ||
+                 !command.Material->GetShader() )
+            {
+                Fail( std::format( "mesh draw refused: no {}", command.Pipeline == nullptr ? "pipeline"
+                                                               : command.Mesh == nullptr   ? "mesh"
+                                                               : command.Material == nullptr
+                                                                    ? "material"
+                                                                    : "material shader" ) );
+                return;
+            }
+            const Shader* recordedWith = command.Pipeline->GetSpecification().Shader.get();
+            if ( recordedWith == nullptr )
+            {
+                Fail( "mesh draw refused: its pipeline has no shader" );
+                return;
+            }
+            // A block per executor AND recording shader: one executor drawn through pipelines of two shaders
+            // (a material shared by two vertex paths) is two blocks, each validated against its own layout.
+            const auto known =
+                 std::find_if( m_Blocks.begin(), m_Blocks.end(),
+                               [&]( const Block& block )
+                               {
+                                   return block.Material == command.Material &&
+                                          block.Pipeline->GetSpecification().Shader.get() == recordedWith;
+                               } );
+            m_BlockOf.push_back( static_cast<uint32_t>( known - m_Blocks.begin() ) );
+            if ( known == m_Blocks.end() )
+            {
+                m_Blocks.push_back( Block{ command.Material, command.Pipeline } );
+            }
+            m_Commands.push_back( std::move( command ) );
+        }
+
+        void MeshDrawList::Fail( std::string error )
+        {
+            if ( !m_Error )
+                m_Error = std::move( error );
+        }
+
+        // One block per (executor, recording shader), in block-index order: the layout kept for the shader the
+        // block's draws record with, the executor's route fill, and the scene/view inputs where the layout has
+        // their slots.
+        template <typename Declaration, typename PerBlock>
+        void MeshDrawList::DeclareBlocks( Declaration& declaration, const std::optional<SceneViewInputs>& view,
+                                          const PerBlock& perBlock ) const
+        {
+            for ( const Block& declared : m_Blocks )
+            {
+                const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
+                     m_Layouts.Get( declared.Pipeline->GetSpecification().Shader );
+                auto block = declaration.Bindings( layout, declared.Material->GetRouteFill() );
+                if ( view && SamplesSceneViewInputs( *layout ) )
+                {
+                    BindSceneViewInputs( block, *view, *layout );
+                }
+                perBlock( block );
+            }
+        }
+
+        void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const
+        {
+            DeclareBlocks( pass, view, []( auto& ) {} );
+        }
+
+        void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
+                                    const std::function<void( RDG::BindingBlockBuilder& )>& perBlock ) const
+        {
+            DeclareBlocks( pass, view, perBlock );
+        }
+
+        void MeshDrawList::Declare( RenderPassDeclaration&                declared,
+                                    const std::optional<SceneViewInputs>& view ) const
+        {
+            DeclareBlocks( declared, view, []( auto& ) {} );
+        }
+
+        Common::BoolResultStr MeshDrawList::Record( const RDG::PassContext& context ) const
+        {
+            if ( m_Error )
+                return Common::MakeFormattedError( "{}", *m_Error );
+            std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
+            blocks.reserve( m_Blocks.size() );
+            for ( uint32_t index = 0; index < m_Blocks.size(); ++index )
+                blocks.push_back( std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
+            for ( size_t i = 0; i < m_Commands.size(); ++i )
+            {
+                const MeshDrawCommand& draw = m_Commands[i];
+                if ( draw.BindState )
+                {
+                    draw.BindState();
+                }
+                if ( auto drawn = Renderer::GetInstance().RenderMesh(
+                          *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                          draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
+                     !drawn.IsSuccess() )
+                    return drawn;
+            }
+            return BOOLSUCCESS;
+        }
+    } // namespace MeshRendererDetail
+
     void MeshRenderer::RegisterPasses( RenderGraphBuilder& builder )
     {
         auto targetFb = m_TargetFramebuffer.lock();
@@ -241,38 +346,28 @@ namespace Desert::Graphic::System
              .AddPass( "MeshGeometryPass", RenderPhase::Geometry,
                        [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
                        {
-                           // Forward path only. In Deferred, meshes are drawn into the G-buffer by
-                           // MeshGBufferPass instead (this target keeps sky/grid/terrain for compositing).
-                           if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred &&
-                                m_StaticGBufferPipeline )
-                               return BOOLSUCCESS;
-
-                           auto* const camera = m_SceneRenderer->GetMainCamera();
-                           if ( camera == nullptr )
-                               return BOOLSUCCESS;
-
-                           // `UpdateGlobalUniforms( camera, points, directionals )` used to be called
-                           // here. Its entire body was `if ( !camera ) return;` — it read neither light
-                           // set, which is what `-Wunused-parameter` reported about both. The lights
-                           // reach the shaders through the material executors' uniform blocks, and the
-                           // two `GetXLights()` calls that fed this one were a per-frame walk of the
-                           // scene's light components for nothing.
-                           // The cloud layer's shadow map is a pass parameter of this node (declared below).
-                           const MeshPassBindings pass( context, SceneViewInputsOf( refs ) );
-                           if ( auto drawn = DrawStaticMeshes( pass ); !drawn.IsSuccess() )
-                               return drawn;
-                           if ( auto drawn = DrawSkinnedMeshes( /*useLoadPass*/ false, pass ); !drawn.IsSuccess() )
-                               return drawn;
-                           return DrawGenericMeshes( /*useLoadPass*/ false, pass );
+                           // The draw list this node's Declare built (empty in Deferred, where the meshes go
+                           // to the G-buffer, or without a camera).
+                           (void)refs;
+                           return m_ForwardDraws.Record( context );
                        },
                        m_StaticPipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = []( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
-            // The scene/view inputs the lit draws sample (SceneViewInputs: cascades, environment cubes, BRDF LUT,
-            // cloud shadow map), each a pass parameter the body binds.
-            for ( const RDG::TextureRef input : SceneViewInputsOf( refs ).Refs() )
-                declared.Read( input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+            // The frame's forward draw list - built HERE, before any command is recorded - and one binding block
+            // per material of it, the scene/view inputs bound where its shader has slots for them. Forward path
+            // only: in Deferred the meshes are drawn into the G-buffer by "Deferred: GBuffer" instead (this
+            // target keeps sky/grid/terrain for compositing). The cloud layer's shadow map is one of the inputs.
+            m_ForwardDraws.Clear();
+            const bool deferred =
+                 m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+            if ( deferred || m_SceneRenderer->GetMainCamera() == nullptr )
+                return;
+            BuildStaticDraws( m_ForwardDraws );
+            BuildSkinnedDraws( /*useLoadPass*/ false, m_ForwardDraws );
+            BuildGenericDraws( /*useLoadPass*/ false, m_ForwardDraws );
+            m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
         };
 
         // NOTE: the deferred G-buffer geometry is NOT a graph pass — it's rendered MANUALLY via

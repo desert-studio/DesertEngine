@@ -2,11 +2,15 @@
 // ECS — just verifies that primitives emit the expected vertices, indices and state batches.
 
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
+#include <Engine/Graphic/Render2D/PreparedDraws.hpp>
+#include <Engine/Graphic/Render2D/UIMaterialFallback.hpp>
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cmath>
+#include <optional>
+#include <string>
 #include <vector>
 
 using Desert::Graphic::Render2D::DrawList2D;
@@ -956,4 +960,257 @@ TEST( DrawList2DMaterial, ANullMaterialRecordsNOTHINGRatherThanAWhiteRect )
 
     EXPECT_TRUE( dl.Empty() );
     EXPECT_TRUE( dl.GetCommands().empty() );
+}
+
+// RDG-FAULT1: a UI material whose parameter row does not fit its shader's parameter layout - empty, SHORT, or with
+// another field at a slot - falls back to the default UI material for ITS draws only - the others draw as
+// authored, every draw still declares a block (the UI node is not faulted), and the reason is reported once across
+// frames, not per draw or per frame.
+TEST( UIMaterialFallback, OneBrokenMaterialFallsBackAloneAndIsReportedOnce )
+{
+    using R2D::UIMaterialFallback;
+    using Fields = std::vector<std::string>;
+    struct Draw
+    {
+        std::string Name;
+        bool        RowBlock;
+        Fields      Layout; // the recording shader's parameter layout
+        Fields      Row;    // the fields of the schema the row was built from
+        std::size_t Slots;  // the vec4 slots the row holds
+    };
+    const Fields            gradient = { "TopColor", "BottomColor" };
+    const std::vector<Draw> canvas   = { { "UIGradient", true, gradient, gradient, 2 },
+                                         { "UIBroken", true, gradient, {}, 0 },
+                                         { "UIPlainTint", false, {}, {}, 0 },
+                                         { "UIBroken", true, gradient, {}, 0 },
+                                         { "UIShort", true, gradient, { "TopColor" }, 1 },
+                                         { "UIRenamed", true, gradient, { "TopColor", "Bottom" }, 2 } };
+    UIMaterialFallback      fallback;
+    int                     reports = 0;
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        std::vector<std::string> declared;
+        for ( const Draw& draw : canvas )
+        {
+            const std::string fault =
+                 UIMaterialFallback::RowFault( draw.RowBlock, draw.Layout, draw.Row, draw.Slots );
+            const UIMaterialFallback::Verdict verdict = fallback.Admit( draw.Name, fault );
+            if ( verdict == UIMaterialFallback::Verdict::DefaultFirstReport )
+                ++reports;
+            declared.push_back( verdict == UIMaterialFallback::Verdict::Draws ? draw.Name
+                                                                              : std::string( "default" ) );
+        }
+        ASSERT_EQ( declared.size(), canvas.size() ) << "every draw declares a block, the broken one included";
+        EXPECT_EQ( declared[0], "UIGradient" );
+        EXPECT_EQ( declared[1], "default" );
+        EXPECT_EQ( declared[2], "UIPlainTint" ) << "a material without a row block needs no row";
+        EXPECT_EQ( declared[3], "default" );
+        EXPECT_EQ( declared[4], "default" ) << "a SHORT row is not a row of this shader";
+        EXPECT_EQ( declared[5], "default" ) << "a row whose slot 1 is another field is not a row of this shader";
+    }
+    EXPECT_EQ( reports, 3 ) << "each broken material is logged once across frames";
+    EXPECT_EQ( fallback.ReportedCount(), 3u );
+    EXPECT_NE( UIMaterialFallback::RowFault( true, gradient, Fields{ "TopColor" }, 1 ).find( "holds 1 slot(s)" ),
+               std::string::npos )
+         << "the short row's reason names its size";
+    EXPECT_NE(
+         UIMaterialFallback::RowFault( true, gradient, Fields{ "TopColor", "Bottom" }, 2 ).find( "'BottomColor'" ),
+         std::string::npos )
+         << "the missing field is named";
+    // Many materials share a shader: the report names the material ASSET first, then the shader.
+    const std::string report = UIMaterialFallback::Report( "UI_Broken", "UIGradient", "short row", "UIMatError" );
+    EXPECT_NE( report.find( "material 'UI_Broken' (shader 'UIGradient')" ), std::string::npos ) << report;
+    EXPECT_NE( report.find( "'UIMatError'" ), std::string::npos ) << report;
+}
+
+// RDG-FAULT1 C3b: a UI draw is prepared ONCE per frame. Render2D's setup (DeclareInto) prepares every command of
+// the draw list through PreparedDraws - for a UI material that is UIMaterialCache::DrawableOrDefault's
+// PrepareDraw: row, push, validation, or the default material - and Flush records PreparedDraws::Draws() as they
+// are (census RenderGraphCompile.UIMaterialDrawsFallBackPerDrawNotPerNode: Flush resolves nothing). Here: the
+// preparation runs exactly once per command, the exec walk sees each drawn command once with its prepared value
+// and its index back into the list, and a list nobody prepared is not Ready (Flush refuses it instead of preparing
+// it itself).
+TEST( PreparedDraws, EveryDrawIsPreparedOnceAndTheExecRecordsThePreparedList )
+{
+    struct Command
+    {
+        int  Id;
+        bool Draws;
+    };
+    const std::vector<Command> commands = { { 0, true }, { 1, false }, { 2, true }, { 3, true } };
+    R2D::PreparedDraws<int>    prepared;
+    EXPECT_FALSE( prepared.Ready() ) << "a list nobody prepared must not be recorded";
+    std::vector<int> preparedIds;
+    prepared.Prepare( commands,
+                      [&]( const Command& command ) -> std::optional<int>
+                      {
+                          preparedIds.push_back( command.Id );
+                          if ( !command.Draws )
+                          {
+                              return std::nullopt;
+                          }
+                          return command.Id * 10;
+                      } );
+    EXPECT_EQ( preparedIds, ( std::vector<int>{ 0, 1, 2, 3 } ) ) << "each command is prepared exactly once";
+    ASSERT_TRUE( prepared.Ready() );
+    std::vector<uint32_t> recorded;
+    std::vector<int>      values;
+    for ( const auto& draw : prepared.Draws() )
+    {
+        recorded.push_back( draw.Command );
+        values.push_back( draw.Value );
+    }
+    EXPECT_EQ( recorded, ( std::vector<uint32_t>{ 0, 2, 3 } ) ) << "a skipped command opens no block";
+    EXPECT_EQ( values, ( std::vector<int>{ 0, 20, 30 } ) ) << "the exec records the value the setup prepared";
+    EXPECT_EQ( preparedIds.size(), 4u ) << "walking the prepared list prepares nothing again";
+    prepared.Reset();
+    EXPECT_FALSE( prepared.Ready() ) << "the next frame's list is not the last frame's";
+    EXPECT_TRUE( prepared.Draws().empty() );
+}
+
+// RDG-FAULT1 C3b gap 4: one broken material among several, through the path Render2D takes - PreparedDraws in the
+// setup, UIMaterialFallback::Choose per draw (UIMaterialCache::DrawableOrDefault is Choose over the real entries,
+// census RenderGraphCompile.UIMaterialDrawsFallBackPerDrawNotPerNode). Every draw declares a block, the broken one
+// binds the default UI material (UIMatError), the healthy ones their own, and the log names the broken MATERIAL in
+// one line across frames.
+TEST( UIMaterialFallback, OneBrokenMaterialAmongSeveralThroughThePreparedPath )
+{
+    using R2D::UIMaterialFallback;
+    using Fields = std::vector<std::string>;
+    struct Entry
+    {
+        bool        Error = false;
+        std::string AssetName;
+        std::string Shader;
+        Fields      Row; // the fields of the schema the row was built from
+    };
+    const auto layoutOf = []( const std::string& shader ) -> Fields
+    {
+        if ( shader == "UIGradient" )
+        {
+            return { "TopColor", "BottomColor" };
+        }
+        if ( shader == "UITint" )
+        {
+            return { "Tint" };
+        }
+        return {}; // UIMatError reads no row
+    };
+    const Entry                     gradient{ false, "UI_Gradient", "UIGradient", { "TopColor", "BottomColor" } };
+    const Entry                     broken{ false, "UI_Broken", "UIGradient", { "TopColor" } }; // short row
+    const Entry                     tint{ false, "UI_Tint", "UITint", { "Tint" } };
+    const Entry                     error{ true, "", "UIMatError", {} };
+    const std::vector<const Entry*> commands = { &gradient, &broken, &tint, &broken };
+
+    UIMaterialFallback       fallback;
+    std::vector<std::string> logs;
+    int                      prepares = 0;
+    const auto               prepare  = [&]( const Entry& entry )
+    {
+        ++prepares;
+        const Fields layout = layoutOf( entry.Shader );
+        return UIMaterialFallback::RowFault( !layout.empty(), layout, entry.Row, entry.Row.size() );
+    };
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        R2D::PreparedDraws<const Entry*> prepared;
+        prepared.Prepare( commands,
+                          [&]( const Entry* entry ) -> std::optional<const Entry*>
+                          {
+                              const Entry* chosen = fallback.Choose(
+                                   *entry, [&]() { return &error; }, prepare,
+                                   []( const Entry& e ) { return e.Shader; },
+                                   [&]( const std::string& line ) { logs.push_back( line ); }, "UIMatError" );
+                              if ( !chosen )
+                              {
+                                  return std::nullopt;
+                              }
+                              return chosen;
+                          } );
+        ASSERT_EQ( prepared.Draws().size(), commands.size() )
+             << "every draw declares a block (frame " << frame << ")";
+        EXPECT_EQ( prepared.Draws()[0].Value, &gradient );
+        EXPECT_EQ( prepared.Draws()[1].Value, &error ) << "the broken material binds UIMatError";
+        EXPECT_EQ( prepared.Draws()[2].Value, &tint ) << "a healthy material after the broken one draws itself";
+        EXPECT_EQ( prepared.Draws()[3].Value, &error );
+    }
+    EXPECT_EQ( prepares, 12 ) << "per frame: one preparation per draw, plus the default's for each broken draw";
+    ASSERT_EQ( logs.size(), 1u ) << "the broken material is reported once across frames";
+    EXPECT_NE( logs[0].find( "material 'UI_Broken' (shader 'UIGradient')" ), std::string::npos ) << logs[0];
+    EXPECT_EQ( logs[0].find( "UI_Broken" ), logs[0].rfind( "UI_Broken" ) ) << "named once: " << logs[0];
+    EXPECT_NE( logs[0].find( "'UIMatError'" ), std::string::npos ) << logs[0];
+    EXPECT_EQ( logs[0].find( "UI_Gradient" ), std::string::npos ) << "only the broken material is reported";
+}
+
+// RDG-FAULT1 C3b: a UI material built from a shader that has since HOT-RELOADED is rebuilt on the reload, not left
+// on the default. The entry records its shader's reload generation (Shader::GetCodeGeneration, the key
+// ShaderBindingLayoutCache uses); UIMaterialCache::Resolve runs UIMaterialFallback::RebuildIfReloaded on every hit
+// before the frame's draws are prepared (census RenderGraphCompile.UIMaterialDrawsFallBackPerDrawNotPerNode).
+// Here: the reload adds a parameter, so the old row no longer fits; bumping the generation rebuilds the row from
+// the new layout and the next preparation draws the material itself, with nothing reported. Same generation: no
+// rebuild.
+TEST( UIMaterialFallback, AShaderReloadRebuildsTheMaterialInsteadOfFallingBack )
+{
+    using R2D::UIMaterialFallback;
+    using Fields = std::vector<std::string>;
+    struct Entry
+    {
+        bool        Error = false;
+        std::string AssetName;
+        Fields      Row;
+        uint64_t    ShaderGeneration = 0;
+    };
+    Fields      layout     = { "TopColor", "BottomColor" }; // the shader's parameter layout, as compiled
+    uint64_t    generation = 0;                             // Shader::GetCodeGeneration
+    Entry       material{ false, "UI_Gradient", layout, generation };
+    const Entry error{ true, "", {}, 0 };
+    int         rebuilds = 0;
+    const auto  rebuild  = [&]( Entry& stale )
+    {
+        ++rebuilds;
+        stale.Row = layout; // a fresh build takes the reloaded shader's schema
+        return true;
+    };
+    UIMaterialFallback       fallback;
+    std::vector<std::string> logs;
+    const auto               draw = [&]()
+    {
+        return fallback.Choose(
+             material, [&]() { return &error; },
+             [&]( const Entry& e ) {
+                 return e.Error ? std::string()
+                                : UIMaterialFallback::RowFault( true, layout, e.Row, e.Row.size() );
+             },
+             []( const Entry& ) { return std::string( "UIGradient" ); },
+             [&]( const std::string& line ) { logs.push_back( line ); }, "UIMatError" );
+    };
+
+    EXPECT_FALSE( UIMaterialFallback::RebuildIfReloaded( material, generation, rebuild ) );
+    EXPECT_EQ( draw(), &material );
+
+    // The shader reloads with one more parameter.
+    layout.push_back( "Glow" );
+    ++generation;
+    EXPECT_TRUE( UIMaterialFallback::RebuildIfReloaded( material, generation, rebuild ) )
+         << "a bumped reload generation rebuilds the entry";
+    EXPECT_EQ( material.ShaderGeneration, generation );
+    EXPECT_EQ( draw(), &material ) << "the reloaded material draws itself, not the default";
+    EXPECT_TRUE( logs.empty() ) << "nothing falls back, so nothing is reported";
+    EXPECT_FALSE( UIMaterialFallback::RebuildIfReloaded( material, generation, rebuild ) )
+         << "the same generation does not rebuild again";
+    EXPECT_EQ( rebuilds, 1 );
+
+    // A rebuild that fails is tried once per reload, not every frame.
+    ++generation;
+    layout.push_back( "Edge" );
+    const auto failing = [&]( Entry& )
+    {
+        ++rebuilds;
+        return false;
+    };
+    EXPECT_FALSE( UIMaterialFallback::RebuildIfReloaded( material, generation, failing ) );
+    EXPECT_FALSE( UIMaterialFallback::RebuildIfReloaded( material, generation, failing ) );
+    EXPECT_EQ( rebuilds, 2 );
+    EXPECT_EQ( draw(), &error ) << "an entry that could not follow its shader falls back (reported once)";
+    EXPECT_EQ( logs.size(), 1u );
 }

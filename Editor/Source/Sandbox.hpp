@@ -306,7 +306,6 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // HIDDEN UNTIL THE EDITOR IS READY: the splash is what is on screen until then, and EditorLayer shows
     // the window on its first real frame (RevealWhenReady).
     appInfo.Visible = false;
-    appInfo.VSync = false;
     // THE EDITOR DRAWS ITS OWN TITLE BAR. Its menu bar has carried the project name, the open level, the
     // menus and the engine stats for a long time while the system bar sat above it — two title bars on one
     // window, which is the state У9 photographed before touching anything. What the OS frame also carried

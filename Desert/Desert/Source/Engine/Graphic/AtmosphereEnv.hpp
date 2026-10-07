@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <memory>
 
 namespace Desert::Graphic
 {
@@ -103,7 +104,7 @@ namespace Desert::Graphic
         bool Valid = false;
 
         // OPAQUE handle to this view's camera aerial-perspective volume (32x32x16 RGBA16F), and the two
-        // numbers a consumer needs to address it. Non-owning, same contract as ParamsBuffer: the
+        // numbers a consumer needs to address it. SHARED, so a graph entry can import it by owner: the
         // SkyboxRenderer of this SceneRenderer owns it, and it is NULL EXACTLY WHEN THERE IS NO AERIAL
         // PERSPECTIVE THIS FRAME — the artistic-gradient model, a sky that is switched off, or a fill
         // that could not allocate. A consumer treats null as "compose the identity", never as "sample
@@ -113,13 +114,13 @@ namespace Desert::Graphic
         // atmospheric-fog pass) does not bind the sky parameter buffer: this struct is then the single
         // runtime source both the fill and the read take them from, which is what stops the slice
         // mapping's two ends from drifting apart.
-        Image3D* AerialPerspectiveVolume            = nullptr;
+        std::shared_ptr<Image3D> AerialPerspectiveVolume;
         float    AerialPerspectiveDepthKm           = 0.0f; // the volume's far extent, kilometres
         float    AerialPerspectiveViewDistanceScale = 1.0f; // read-side multiplier on a pixel's distance
 
         // OPAQUE handle to this frame's DISTANT SKY LIGHT — one RGBA32F texel holding the average
         // radiance of the sky seen from 6 km (UE's Distant Sky Light LUT; the fill is
-        // Programs/Sky/SkyDistantLight.shader). Non-owning, same contract as the two handles above: the
+        // Programs/Sky/SkyDistantLight.shader). Shared on the same terms as the handle above: the
         // SkyboxRenderer of this SceneRenderer owns it, and it is NULL EXACTLY WHEN THERE IS NO
         // PHYSICAL AVERAGE SKY THIS FRAME — the artistic-gradient model, a sky that is switched off, or
         // a fill that could not allocate.
@@ -131,18 +132,18 @@ namespace Desert::Graphic
         //
         // The dome fields above (ZenithRadiance / GroundRadiance) are the ARTISTIC-GRADIENT model's
         // ambient and are untouched by this: one per SkyModel, on purpose.
-        Image2D* DistantSkyLight = nullptr;
+        std::shared_ptr<Image2D> DistantSkyLight;
 
         // OPAQUE handle to this frame's TRANSMITTANCE LUT — 256x64 of what survives the trip from a point
         // in the atmosphere to space along a given zenith angle (Programs/Sky/SkyTransmittanceLut.shader),
-        // in Bruneton's (r, mu) mapping. Non-owning, same contract as the three handles above: the
+        // in Bruneton's (r, mu) mapping. Shared on the same terms as the handles above: the
         // SkyboxRenderer of this SceneRenderer owns it, and it is NULL EXACTLY WHEN THE PAIR HAS NOT BEEN
         // BAKED — the artistic-gradient model, a sky that is switched off, or an allocation that failed.
         //
         // ITS READER MUST REPRODUCE THE MAPPING, which is why the two radii travel beside it: the mapping
         // is a function of the shell, and a consumer that took the shell from anywhere else would be the
         // second source of truth the aerial-perspective handle's own note warns about.
-        Image2D* TransmittanceLut = nullptr;
+        std::shared_ptr<Image2D> TransmittanceLut;
 
         // The shell the LUT above is parameterised over, kilometres from the planet centre. Meaningful
         // only when TransmittanceLut is non-null; zero otherwise, which is a domain no mapping accepts and

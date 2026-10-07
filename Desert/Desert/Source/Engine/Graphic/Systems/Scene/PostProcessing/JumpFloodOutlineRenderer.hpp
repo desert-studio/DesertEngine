@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <Engine/Graphic/Materials/PostProcessing/MaterialJFAComposite.hpp>
 
@@ -74,16 +75,20 @@ namespace Desert::Graphic::System
 
         // Each records one fullscreen triangle inside the render pass the frame graph opens on its target:
         // Init on seed[0], Step on the seed GetStepSource does not name, Final on GetOutputImage().
+        // Every Declare* adds block 0 to the node's setup; its Record* draws from that block only.
         // Init: the silhouette @p mask -> seed[0].
-        [[nodiscard]] Common::BoolResultStr RecordInit( const RDG::PassContext& context, RDG::TextureRef mask );
+        void DeclareInitBindings( RDG::PassBuilder& pass, RDG::TextureRef mask ) const;
+        [[nodiscard]] Common::BoolResultStr RecordInit( const RDG::PassContext& context );
         // Step @p step: @p source (seed[GetStepSource(step)]) -> the other seed, sampling 2^(N-1-step) texels
         // away.
-        [[nodiscard]] Common::BoolResultStr RecordStep( const RDG::PassContext& context, uint32_t step,
-                                                        RDG::TextureRef source );
+        void DeclareStepBindings( RDG::PassBuilder& pass, RDG::TextureRef source ) const;
+        [[nodiscard]] Common::BoolResultStr RecordStep( const RDG::PassContext& context, uint32_t step );
         // Final: @p seed (the final seed, or FrameTextures::System.Black when Init did not run) composited over
-        // @p scene. No steps ran -> width 0, which makes JFA_Final pass the scene through unchanged.
-        [[nodiscard]] Common::BoolResultStr RecordFinal( const RDG::PassContext& context, RDG::TextureRef seed,
-                                                         RDG::TextureRef scene );
+        // @p scene. No steps ran -> width 0, which makes JFA_Final pass the scene through unchanged. The
+        // composite's uniform block is filled by FillFinalMaterial, called in the setup before the declaration.
+        void FillFinalMaterial();
+        void DeclareFinalBindings( RDG::PassBuilder& pass, RDG::TextureRef seed, RDG::TextureRef scene ) const;
+        [[nodiscard]] Common::BoolResultStr RecordFinal( const RDG::PassContext& context );
 
         // Resizes the output (the only image the renderer keeps); the seeds follow the scene size per frame.
         void OnResize( uint32_t width, uint32_t height );
@@ -131,6 +136,9 @@ namespace Desert::Graphic::System
 
         // The composite's uniform block (outline colour, width, smoothness); every texture is a graph binding.
         std::unique_ptr<MaterialJFAComposite> m_MaterialComposite;
+        mutable ShaderBindingLayoutCache      m_InitLayout; // the three shaders' layouts, kept between frames
+        mutable ShaderBindingLayoutCache      m_StepLayout;
+        mutable ShaderBindingLayoutCache      m_FinalLayout;
 
         std::weak_ptr<Framebuffer> m_MaskFramebuffer;
 

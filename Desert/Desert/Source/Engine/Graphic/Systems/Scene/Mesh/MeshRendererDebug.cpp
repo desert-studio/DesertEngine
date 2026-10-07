@@ -197,14 +197,12 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    Common::BoolResultStr MeshRenderer::RenderOverdrawAccumManual( const RDG::PassContext& context )
+    void MeshRenderer::DeclareOverdrawDraws( RDG::PassBuilder& pass )
     {
+        m_OverdrawDraws.Clear();
         auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
         if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || camera == nullptr )
-            return BOOLSUCCESS;
-
-        // The accumulation shader samples nothing: every draw is Plain.
-        const MeshPassBindings pass( context, {} );
+            return;
 
         // 1) Accumulate into m_OverdrawFB (the graph opens it cleared to 0): every opaque mesh additively
         //    (static + generic; both use the static vertex layout). Skinned meshes are skipped — they'd need
@@ -215,35 +213,57 @@ namespace Desert::Graphic::System
         // pixel shaded", and an uncalled re-rasterization would answer it about a frame the engine
         // does not draw — an instrument disagreeing with the thing it measures, which is the defect
         // shape this repository keeps finding rather than a conservative choice.
-        const Core::Frustum overdrawFrustum = camera->GetFrustum();
+        const Core::Frustum     overdrawFrustum = camera->GetFrustum();
+        const MaterialExecutor* executor        = m_OverdrawMaterial->GetMaterialExecutor();
+        const GraphicsPipeline* pipeline        = m_OverdrawPipeline.get();
         for ( const auto& rd : m_StaticQueue )
+        {
             if ( rd.Mesh != nullptr && IsVisibleInView( overdrawFrustum, rd.Transform,
                                                         Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
-                if ( auto drawn = DrawMesh( pass, m_OverdrawPipeline.get(), rd.Mesh, rd.Transform,
-                                            m_OverdrawMaterial->GetMaterialExecutor() );
-                     !drawn.IsSuccess() )
-                    return drawn;
+            {
+                m_OverdrawDraws.Add(
+                     { .Pipeline = pipeline, .Mesh = rd.Mesh, .Transform = rd.Transform, .Material = executor } );
+            }
+        }
         for ( const auto& g : m_GenericQueue )
+        {
             if ( g.Mesh != nullptr &&
                  IsVisibleInView( overdrawFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
-                if ( auto drawn = DrawMesh( pass, m_OverdrawPipeline.get(), g.Mesh, g.Transform,
-                                            m_OverdrawMaterial->GetMaterialExecutor() );
-                     !drawn.IsSuccess() )
-                    return drawn;
-        return BOOLSUCCESS;
+            {
+                m_OverdrawDraws.Add(
+                     { .Pipeline = pipeline, .Mesh = g.Mesh, .Transform = g.Transform, .Material = executor } );
+            }
+        }
+        // The accumulation shader samples no scene/view input.
+        m_OverdrawDraws.Declare( pass, std::nullopt );
     }
 
-    Common::BoolResultStr MeshRenderer::RecordOverdrawResolve( const RDG::PassContext& context,
-                                                               RDG::TextureRef         overdraw )
+    Common::BoolResultStr MeshRenderer::RenderOverdrawAccumManual( const RDG::PassContext& context ) const
+    {
+        return m_OverdrawDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareOverdrawResolve( RDG::PassBuilder& pass, const RDG::TextureRef overdraw )
+    {
+        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline )
+            return;
+        // 2) Resolve: heat-map the accumulation over the scene colour (the graph opens the target with LOAD;
+        //    the resolve discards empty texels). The resolve's one block: the shader's reflected layout, the
+        //    material as the other route, and the accumulation as u_Overdraw with the sampler the material route
+        //    sampled it with (the image's own: linear, REPEAT).
+        const MaterialExecutor& executor = *m_OverdrawResolveMaterial->GetMaterialExecutor();
+        pass.Bindings( m_OverdrawResolveLayout.Get( m_OverdrawResolvePipeline->GetSpecification().Shader ),
+                       executor.GetRouteFill() )
+             .Sampled( "u_Overdraw", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearRepeat() );
+    }
+
+    Common::BoolResultStr MeshRenderer::RecordOverdrawResolve( const RDG::PassContext& context ) const
     {
         if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline )
             return BOOLSUCCESS;
-        // 2) Resolve: heat-map the accumulation over the scene colour (the graph opens the target with LOAD;
-        //    the resolve discards empty texels). The sampler the material route sampled it with (the image's
-        //    own: linear, REPEAT).
-        RDG::PassBindings bindings( context );
-        bindings.Sampled( "u_Overdraw", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                          RDG::SamplerDesc::LinearRepeat() );
+        // Through the block DeclareOverdrawResolve declared.
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_OverdrawResolvePipeline,
                                                        m_OverdrawResolveMaterial->GetMaterialExecutor() );
     }
@@ -312,80 +332,86 @@ namespace Desert::Graphic::System
         if ( !m_SilhouetteMaskFramebuffer || !m_SilhouettePipeline )
             return;
 
-        builder.AddPass(
-             "MeshSilhouettePass", RenderPhase::Outline,
-             [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
-             {
-                 auto* const camera = m_SceneRenderer->GetMainCamera();
-                 if ( camera == nullptr )
-                     return BOOLSUCCESS;
+        builder
+             .AddPass( "MeshSilhouettePass", RenderPhase::Outline,
+                       [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+                       {
+                           // The masks this node's Declare chose.
+                           return m_SilhouetteDraws.Record( context );
+                       },
+                       m_SilhouettePipeline->GetSpecification(), m_SilhouetteMaskFramebuffer,
+                       { RenderPassDependency( RenderPhase::Geometry ) } )
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+        {
+            // SETUP: every outlined mesh is chosen here, ONCE, into the node's draw list (the mask cameras and the
+            // packed poses written before any command is recorded); one block per mask material.
+            m_SilhouetteDraws.Clear();
+            auto* const camera = m_SceneRenderer->GetMainCamera();
+            if ( camera == nullptr )
+                return;
+            m_SilhouetteMaterial->UpdateCamera( camera );
+            const MaterialExecutor* mask         = m_SilhouetteMaterial->GetMaterialExecutor();
+            const GraphicsPipeline* maskPipeline = m_SilhouettePipeline.get();
 
-                 // The mask shaders sample nothing: every draw is Plain.
-                 const MeshPassBindings pass( context, {} );
-                 m_SilhouetteMaterial->UpdateCamera( camera );
+            // ===== Static =====
+            for ( const auto& renderData : m_StaticQueue )
+            {
+                if ( !renderData.Outlined || renderData.Mesh == nullptr )
+                    continue;
+                m_SilhouetteDraws.Add( { .Pipeline  = maskPipeline,
+                                         .Mesh      = renderData.Mesh,
+                                         .Transform = renderData.Transform,
+                                         .Material  = mask } );
+            }
 
-                 // ===== Static =====
-                 for ( const auto& renderData : m_StaticQueue )
-                 {
-                     if ( !renderData.Outlined || renderData.Mesh == nullptr )
-                         continue;
+            // ===== Generic (data-driven materials) — same Silhouette pipeline, the
+            // material's shader is irrelevant for the mask (just geometry + transform).
+            for ( const auto& g : m_GenericQueue )
+            {
+                if ( !g.Outlined || g.Mesh == nullptr )
+                    continue;
+                m_SilhouetteDraws.Add(
+                     { .Pipeline = maskPipeline, .Mesh = g.Mesh, .Transform = g.Transform, .Material = mask } );
+            }
 
-                     if ( auto drawn =
-                               DrawMesh( pass, m_SilhouettePipeline.get(), renderData.Mesh, renderData.Transform,
-                                         m_SilhouetteMaterial->GetMaterialExecutor() );
-                          !drawn.IsSuccess() )
-                         return drawn;
-                 }
-
-                 // ===== Generic (data-driven materials) — same Silhouette pipeline, the
-                 // material's shader is irrelevant for the mask (just geometry + transform).
-                 for ( const auto& g : m_GenericQueue )
-                 {
-                     if ( !g.Outlined || g.Mesh == nullptr )
-                         continue;
-                     if ( auto drawn = DrawMesh( pass, m_SilhouettePipeline.get(), g.Mesh, g.Transform,
-                                                 m_SilhouetteMaterial->GetMaterialExecutor() );
-                          !drawn.IsSuccess() )
-                         return drawn;
-                 }
-
-                 // ===== Skinned ===== — skin the mask by the SAME bone matrices the mesh is
-                 // rendered with (animated or bind) so the outline tracks the posed shape.
-                 if ( m_SilhouetteSkinnedPipeline && m_SilhouetteSkinnedMaterial )
-                 {
-                     // Poses packed once, sliced per draw — the shape every skinned path in
-                     // this renderer now shares. Uploading inside the loop meant a
-                     // multi-selection of skinned meshes outlined them all in the last
-                     // one's pose.
-                     auto& outlineBones = m_ScratchBones;
-                     outlineBones.clear();
-                     std::vector<std::pair<const SkinnedMeshRenderData*, uint32_t>> outlined;
-                     for ( const auto& sd : m_SkinnedQueue )
-                     {
-                         if ( !sd.Outlined || sd.Mesh == nullptr || sd.BoneMatrices.empty() )
-                             continue;
-                         outlined.emplace_back( &sd, static_cast<uint32_t>( outlineBones.size() ) );
-                         outlineBones.insert( outlineBones.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
-                     }
-                     if ( !outlined.empty() )
-                     {
-                         m_SilhouetteSkinnedMaterial->UpdateCamera( camera );
-                         m_SilhouetteSkinnedMaterial->UploadBones( outlineBones );
-                         for ( const auto& [sd, boneOffset] : outlined )
-                         {
-                             m_SilhouetteSkinnedMaterial->SetBoneOffset( boneOffset );
-                             if ( auto drawn =
-                                       DrawMesh( pass, m_SilhouetteSkinnedPipeline.get(), sd->Mesh, sd->Transform,
-                                                 m_SilhouetteSkinnedMaterial->GetMaterialExecutor() );
-                                  !drawn.IsSuccess() )
-                                 return drawn;
-                         }
-                     }
-                 }
-                 return BOOLSUCCESS;
-             },
-             m_SilhouettePipeline->GetSpecification(), m_SilhouetteMaskFramebuffer,
-             { RenderPassDependency( RenderPhase::Geometry ) } );
+            // ===== Skinned ===== — skin the mask by the SAME bone matrices the mesh is
+            // rendered with (animated or bind) so the outline tracks the posed shape.
+            if ( m_SilhouetteSkinnedPipeline && m_SilhouetteSkinnedMaterial )
+            {
+                // Poses packed once, sliced per draw — the shape every skinned path in
+                // this renderer now shares. Uploading inside the loop meant a
+                // multi-selection of skinned meshes outlined them all in the last
+                // one's pose.
+                auto& outlineBones = m_ScratchBones;
+                outlineBones.clear();
+                std::vector<std::pair<const SkinnedMeshRenderData*, uint32_t>> outlined;
+                for ( const auto& sd : m_SkinnedQueue )
+                {
+                    if ( !sd.Outlined || sd.Mesh == nullptr || sd.BoneMatrices.empty() )
+                        continue;
+                    outlined.emplace_back( &sd, static_cast<uint32_t>( outlineBones.size() ) );
+                    outlineBones.insert( outlineBones.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
+                }
+                if ( !outlined.empty() )
+                {
+                    m_SilhouetteSkinnedMaterial->UpdateCamera( camera );
+                    m_SilhouetteSkinnedMaterial->UploadBones( outlineBones );
+                    auto* const skinnedMask = m_SilhouetteSkinnedMaterial.get();
+                    for ( const auto& [sd, boneOffset] : outlined )
+                    {
+                        // The pose slice is the draw's own state, set right before it.
+                        m_SilhouetteDraws.Add( { .Pipeline  = m_SilhouetteSkinnedPipeline.get(),
+                                                 .Mesh      = sd->Mesh,
+                                                 .Transform = sd->Transform,
+                                                 .Material  = skinnedMask->GetMaterialExecutor(),
+                                                 .BindState = [skinnedMask, offset = boneOffset]
+                                                 { skinnedMask->SetBoneOffset( offset ); } } );
+                    }
+                }
+            }
+            // The mask shaders sample no scene/view input.
+            m_SilhouetteDraws.Declare( declared, std::nullopt );
+        };
     }
 
 } // namespace Desert::Graphic::System

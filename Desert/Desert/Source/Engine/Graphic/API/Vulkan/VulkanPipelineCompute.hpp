@@ -94,7 +94,7 @@ namespace Desert::Graphic::API::Vulkan
         // shaders while both come from here. Strong references, so a shader recompile cannot pull them
         // out from under a pipeline that is still using them.
         std::vector<DescriptorSetLayoutRef> m_Layouts;
-        uint32_t                            m_ShaderGeneration = 0;
+        uint64_t                            m_ShaderGeneration = 0;
 
         VkCommandBuffer m_ActiveComputeCommandBuffer = nullptr;
 

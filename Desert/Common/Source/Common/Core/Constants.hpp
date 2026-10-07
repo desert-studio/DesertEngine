@@ -65,6 +65,8 @@ namespace Common::Constants
                 std::filesystem::path Fonts;
                 std::filesystem::path Icons;
                 std::filesystem::path EngineContent;
+                // Engine data tables the runtime reads at boot (Scalability.json: the quality groups' levels).
+                std::filesystem::path Config;
             };
 
             // THE one place the engine's resource layout is spelled. Trailing separators are part of the
@@ -75,7 +77,8 @@ namespace Common::Constants
                     return {}; // unset: nothing to derive from (see UNSET IS AN ERROR above)
                 const std::filesystem::path resources = engineDir / "Resources";
                 return EngineResourcePaths{ resources / "", resources / "Shaders" / "", resources / "Fonts" / "",
-                                            resources / "Icons" / "", resources / "Engine" / "" };
+                                            resources / "Icons" / "", resources / "Engine" / "",
+                                            resources / "Config" / "" };
             }
 
             inline std::filesystem::path s_EngineDir;
@@ -112,6 +115,9 @@ namespace Common::Constants
         inline const std::filesystem::path& FONTS_PATH     = Detail::s_Engine.Fonts;
         // Built-in vector icons (.svg, imported into SDF at first use — see Runtime::IconService).
         inline const std::filesystem::path& ICONS_PATH = Detail::s_Engine.Icons;
+        // Engine data tables the runtime reads at boot (Scalability.json: the quality groups' levels). Shipped
+        // whole: a packaged game without its table could not resolve a single quality setting.
+        inline const std::filesystem::path& CONFIG_PATH = Detail::s_Engine.Config;
 
         // The service's function spellings (UE: FPaths::EngineDir / EngineContentDir / ShaderWorkingDir).
         inline const std::filesystem::path&

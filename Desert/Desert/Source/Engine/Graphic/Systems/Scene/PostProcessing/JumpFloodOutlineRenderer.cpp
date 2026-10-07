@@ -151,41 +151,72 @@ namespace Desert::Graphic::System
 
     // The mask and the seeds hold per-texel data (coverage, a seed coordinate) that must not be blended between
     // texels, and a neighbour beyond the border must not wrap to the opposite edge: PointClamp.
-    Common::BoolResultStr JumpFloodOutlineRenderer::RecordInit( const RDG::PassContext& context,
-                                                                RDG::TextureRef         mask )
+    void JumpFloodOutlineRenderer::DeclareInitBindings( RDG::PassBuilder& pass, RDG::TextureRef mask ) const
     {
-        RDG::PassBindings bindings( context );
-        bindings.Sampled( "u_StencilTexture", mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                          RDG::SamplerDesc::PointClamp() );
+        if ( !m_InitPipeline )
+            return; // RecordInit refuses by name
+        // No material: the other route fills nothing.
+        pass.Bindings( m_InitLayout.Get( m_InitPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+             .Sampled( "u_StencilTexture", mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::PointClamp() );
+    }
+
+    Common::BoolResultStr JumpFloodOutlineRenderer::RecordInit( const RDG::PassContext& context )
+    {
+        if ( !m_InitPipeline )
+            return Common::MakeError( "JumpFloodOutlineRenderer: the init pipeline is not initialised" );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_InitPipeline, nullptr );
     }
 
-    Common::BoolResultStr JumpFloodOutlineRenderer::RecordStep( const RDG::PassContext& context, uint32_t step,
-                                                                RDG::TextureRef source )
+    void JumpFloodOutlineRenderer::DeclareStepBindings( RDG::PassBuilder& pass, RDG::TextureRef source ) const
     {
+        if ( !m_StepPipeline )
+            return; // RecordStep refuses by name
+        pass.Bindings( m_StepLayout.Get( m_StepPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+             .Sampled( "u_InputTexture", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::PointClamp() )
+             .PushConstantBytes( static_cast<uint32_t>( sizeof( int32_t ) ) );
+    }
+
+    Common::BoolResultStr JumpFloodOutlineRenderer::RecordStep( const RDG::PassContext& context, uint32_t step )
+    {
+        if ( !m_StepPipeline )
+            return Common::MakeError( "JumpFloodOutlineRenderer: the step pipeline is not initialised" );
         // Ping-pong propagation with halving sample distance.
         const int32_t stepLength = 1 << ( GetStepCount() - 1 - step );
 
-        RDG::PassBindings bindings( context );
-        bindings
-             .Sampled( "u_InputTexture", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::PointClamp() )
-             .PushConstants( &stepLength, sizeof( stepLength ) );
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &stepLength, sizeof( stepLength ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_StepPipeline, nullptr );
     }
 
-    Common::BoolResultStr JumpFloodOutlineRenderer::RecordFinal( const RDG::PassContext& context,
-                                                                 RDG::TextureRef seed, RDG::TextureRef scene )
+    void JumpFloodOutlineRenderer::FillFinalMaterial()
     {
+        if ( !m_MaterialComposite )
+            return;
         const float effectiveWidth = RunsSteps() ? m_OutlineWidth : 0.0f;
         m_MaterialComposite->SetParams( glm::vec4( m_OutlineColor, 1.0f ), effectiveWidth, m_Smoothness );
+    }
 
-        RDG::PassBindings bindings( context );
-        bindings
+    void JumpFloodOutlineRenderer::DeclareFinalBindings( RDG::PassBuilder& pass, RDG::TextureRef seed,
+                                                         RDG::TextureRef scene ) const
+    {
+        if ( !m_FinalPipeline || !m_MaterialComposite )
+            return; // RecordFinal refuses by name
+        pass.Bindings( m_FinalLayout.Get( m_FinalPipeline->GetSpecification().Shader ),
+                       m_MaterialComposite->GetMaterialExecutor()->GetRouteFill() )
              .Sampled( "u_JFATexture", seed, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::PointClamp() )
              .Sampled( "u_SceneTexture", scene, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() );
+    }
+
+    Common::BoolResultStr JumpFloodOutlineRenderer::RecordFinal( const RDG::PassContext& context )
+    {
+        if ( !m_FinalPipeline || !m_MaterialComposite )
+            return Common::MakeError( "JumpFloodOutlineRenderer: the composite pipeline is not initialised" );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_FinalPipeline,
                                                        m_MaterialComposite->GetMaterialExecutor() );
     }

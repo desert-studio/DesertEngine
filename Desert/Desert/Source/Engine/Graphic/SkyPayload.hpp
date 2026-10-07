@@ -89,13 +89,8 @@ namespace Desert::Graphic
     // is created with this number, both shaders declare this number, and the compute dispatch passes it.
     inline constexpr uint32_t kSkyPayloadBinding = 1;
 
-    // The bindings the atmosphere-LUT compute passes agree on with their shaders — same explicit-argument
-    // trap as kSkyPayloadBinding, same cure: one constant, both sides.
-    inline constexpr uint32_t kSkyTransmittanceLutOutputBinding = 0; // SkyTransmittanceLut: the image it fills
-    inline constexpr uint32_t kSkyMultiScatterLutOutputBinding  = 0; // SkyMultiScatterLut: the image it fills
-    inline constexpr uint32_t kSkyViewLutOutputBinding          = 0; // SkyViewLut: the image it fills
-    inline constexpr uint32_t kSkyAerialPerspectiveOutputBinding = 0; // SkyAerialPerspectiveLut: the volume
-    inline constexpr uint32_t kSkyDistantLightOutputBinding      = 0; // SkyDistantLight: the texel it fills
+    // The atmosphere-LUT compute passes name their LUT images by shader name in their binding block
+    // (SkyboxRenderer::DeclareAtmosphereLutNodes), so their outputs have no number here.
     // LUT INPUT bindings, shared by every compute consumer (SkyMultiScatterLut reads the transmittance
     // at 2; SkyViewLut and BakeProceduralSky read the transmittance at 2 and the multi-scatter at 3).
     inline constexpr uint32_t kSkyTransmittanceLutBinding = 2;

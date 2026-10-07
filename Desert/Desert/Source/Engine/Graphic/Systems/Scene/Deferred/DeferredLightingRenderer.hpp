@@ -8,10 +8,13 @@
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <glm/glm.hpp>
 
 #include <array>
+#include <span>
+#include <type_traits>
 #include <string_view>
 
 namespace Desert::Graphic::System
@@ -29,6 +32,14 @@ namespace Desert::Graphic::System
         RDG::TextureRef GI;              // RSM-GI accumulation, or System.Black (no indirect)
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
+    };
+
+    // The frame's dynamic lights as graph buffers of THIS frame's graph, uploaded by "Upload: Lights.Point" /
+    // "Upload: Lights.Spot" (Builder::QueueBufferUpload) before the Composite node that reads them.
+    struct DeferredCompositeLights
+    {
+        RDG::BufferRef Point;
+        RDG::BufferRef Spot;
     };
 
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
@@ -73,47 +84,89 @@ namespace Desert::Graphic::System
         {
         }
 
-        // Shades the G-buffer into the scene target, inside the render pass the frame graph opens on it with
-        // LOAD ("Deferred: Composite"), which preserves the forward-rendered sky/grid; the shader discards
-        // non-geometry texels. Every texture of @p inputs is bound by shader name through RDG::PassBindings;
-        // the material writes this frame's values (lights, shadow/cloud UBs, environment) every frame, so the
-        // draw's every-slot-filled check holds in every mode. lightDir.xyz = the direction the sun travels;
-        // lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world position; debugMode selects a raw
-        // channel (0 = lit); giMode picks the indirect-light source (0 = off, 1 = screen-space, 2 = RSM).
-        [[nodiscard]] Common::BoolResultStr
-        Record( const RDG::PassContext& context, const DeferredCompositeInputs& inputs, const glm::vec4& lightDir,
-                const glm::vec4& lightColor, const glm::vec4& cameraPos, int debugMode,
-                const ShaderProtocols::PointLight& pointLights, const ShaderProtocols::SpotLight& spotLights,
-                const DeferredShadowInput& shadow, float giIntensity, bool ssaoEnabled, int giMode,
-                const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
+        // GRAPH BUILD (before the Composite node): the lights as two graph buffers, each uploaded by the graph's
+        // upload command. No light is one zeroed entry (a storage buffer is never empty); the shader loops
+        // 0..count, the counts being the material's LightsMetadata.
+        static DeferredCompositeLights UploadLights( RDG::Builder&                      graph,
+                                                     const ShaderProtocols::PointLight& points,
+                                                     const ShaderProtocols::SpotLight&  spots )
+        {
+            const auto upload = [&graph]( const auto& lights, std::string_view name )
+            {
+                using Payload = typename std::decay_t<decltype( lights )>::value_type;
+                const Payload                    none{};
+                const std::span<const std::byte> bytes =
+                     lights.empty() ? std::as_bytes( std::span<const Payload>( &none, 1 ) )
+                                    : std::as_bytes( std::span<const Payload>( lights.data(), lights.size() ) );
+                const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ bytes.size() }, name );
+                graph.QueueBufferUpload( buffer, bytes );
+                return buffer;
+            };
+            return { upload( points.PointLights, "Lights.Point" ), upload( spots.SpotLights, "Lights.Spot" ) };
+        }
+
+        // SETUP of "Deferred: Composite", FIRST: the material's values for this frame (lead decision B - a
+        // material whose route fill the setup validates is filled before the validation reads it, never in the
+        // exec). lightDir.xyz = the direction the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz
+        // = camera world position; debugMode selects a raw channel (0 = lit); giMode picks the indirect-light
+        // source (0 = off, 1 = screen-space, 2 = RSM).
+        void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
+                           int debugMode, uint32_t pointCount, uint32_t spotCount,
+                           const DeferredShadowInput& shadow, float giIntensity, bool ssaoEnabled, int giMode,
+                           const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
+        {
+            if ( !m_Material )
+                return;
+            ReportEnvironmentGap( environment );
+            m_Material->BindInputs( lightDir, lightColor, cameraPos, debugMode, pointCount, spotCount, shadow,
+                                    giIntensity, ssaoEnabled, giMode, cloudShadow, environment );
+        }
+
+        // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). The G-buffer, AO and
+        // GI with the sampler the material route sampled them with (the image's own: linear, REPEAT, all mips),
+        // the two light buffers as StorageRead entries, the scene/view inputs the shader samples.
+        void DeclareCompositeBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs,
+                                       const DeferredCompositeLights& lights ) const
+        {
+            if ( !m_Pipeline || !m_Material )
+                return;
+            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
+            const auto&                layout   = m_BindingLayout.Get( m_Shader );
+            auto block = pass.Bindings( layout, m_Material->GetMaterialExecutor()->GetRouteFill() );
+            block.Sampled( "u_GBufferA", inputs.GBufferA, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), kSampler )
+                 .Sampled( "u_GBufferB", inputs.GBufferB, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), kSampler )
+                 .Sampled( "u_GBufferC", inputs.GBufferC, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), kSampler )
+                 .Sampled( "u_GBufferEmissive", inputs.GBufferEmissive, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), kSampler )
+                 .Sampled( "u_SSAO", inputs.SSAO, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler )
+                 .Sampled( "u_GI", inputs.GI, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           kSampler )
+                 .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
+                 .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead );
+            if ( layout )
+                BindSceneViewInputs( block, inputs.View, *layout );
+        }
+
+        // EXEC: shades the G-buffer into the scene target, inside the render pass the frame graph opens on it
+        // with LOAD (which preserves the forward-rendered sky/grid; the shader discards non-geometry texels),
+        // from block 0 that DeclareCompositeBindings declared.
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context )
         {
             if ( !m_Pipeline || !m_Material )
                 return Common::MakeError(
                      "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
-
-            ReportEnvironmentGap( environment );
-            m_Material->BindInputs( lightDir, lightColor, cameraPos, debugMode, pointLights, spotLights, shadow,
-                                    giIntensity, ssaoEnabled, giMode, cloudShadow, environment );
-
-            // The sampler the material route sampled these images with (the image's own: linear, REPEAT).
-            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            RDG::PassBindings          bindings( context );
-            const auto                 sampled = [&]( std::string_view name, RDG::TextureRef texture ) {
-                bindings.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                                                  kSampler );
-            };
-            sampled( "u_GBufferA", inputs.GBufferA );
-            sampled( "u_GBufferB", inputs.GBufferB );
-            sampled( "u_GBufferC", inputs.GBufferC );
-            sampled( "u_GBufferEmissive", inputs.GBufferEmissive );
-            sampled( "u_SSAO", inputs.SSAO );
-            sampled( "u_GI", inputs.GI );
-            BindSceneViewInputs( bindings, inputs.View, *m_Shader );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
         }
 
     private:
+        // The DeferredLighting shader's layout, kept between frames (follows the shader object and its reload).
+        mutable ShaderBindingLayoutCache m_BindingLayout;
         // §1.4: a resource that did not arrive is logged with its reason, never quietly replaced. There is
         // no "no environment" mode here — the ambient IS the environment, so an incomplete set means the
         // IBL bake failed or never ran, and every static opaque surface in the frame is about to be shaded

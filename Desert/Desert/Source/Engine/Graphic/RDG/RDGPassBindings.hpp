@@ -43,83 +43,6 @@
 // keep the sampler their image owns; that is the other route and is unchanged.
 namespace Desert::Graphic::RDG
 {
-    enum class SamplerFilter : uint8_t
-    {
-        Nearest,
-        Linear,
-    };
-
-    // How a sampler moves between mips (Vulkan: VkSamplerMipmapMode).
-    enum class SamplerMipMode : uint8_t
-    {
-        Nearest,
-        Linear,
-    };
-
-    enum class SamplerAddress : uint8_t
-    {
-        ClampToEdge,
-        Repeat,
-        MirroredRepeat,
-    };
-
-    // The sampler a sampled entry is read with. Every field is given: there is no default-constructed sampler,
-    // so a call site cannot bind a texture without saying how it is filtered and addressed (the six-field
-    // constructor is the only one, so SamplerDesc is not an aggregate and has no default constructor). Level of
-    // detail is unclamped (every mip of the bound view is reachable); a Mip(m) range already limits the view to
-    // one mip.
-    struct SamplerDesc
-    {
-        SamplerFilter  MinFilter;
-        SamplerFilter  MagFilter;
-        SamplerMipMode MipMode;
-        SamplerAddress AddressU;
-        SamplerAddress AddressV;
-        SamplerAddress AddressW;
-
-        constexpr SamplerDesc( SamplerFilter minFilter, SamplerFilter magFilter, SamplerMipMode mipMode,
-                               SamplerAddress addressU, SamplerAddress addressV, SamplerAddress addressW )
-             : MinFilter( minFilter ), MagFilter( magFilter ), MipMode( mipMode ), AddressU( addressU ),
-               AddressV( addressV ), AddressW( addressW )
-        {
-        }
-
-        static constexpr SamplerDesc LinearClamp()
-        {
-            return { SamplerFilter::Linear,       SamplerFilter::Linear,       SamplerMipMode::Linear,
-                     SamplerAddress::ClampToEdge, SamplerAddress::ClampToEdge, SamplerAddress::ClampToEdge };
-        }
-        static constexpr SamplerDesc PointClamp()
-        {
-            return { SamplerFilter::Nearest,      SamplerFilter::Nearest,      SamplerMipMode::Nearest,
-                     SamplerAddress::ClampToEdge, SamplerAddress::ClampToEdge, SamplerAddress::ClampToEdge };
-        }
-        static constexpr SamplerDesc LinearRepeat()
-        {
-            return { SamplerFilter::Linear,  SamplerFilter::Linear,  SamplerMipMode::Linear,
-                     SamplerAddress::Repeat, SamplerAddress::Repeat, SamplerAddress::Repeat };
-        }
-
-        // One value per distinct description: the key of the backend's sampler cache.
-        [[nodiscard]] constexpr uint32_t GetKey() const
-        {
-            return static_cast<uint32_t>( MinFilter ) | ( static_cast<uint32_t>( MagFilter ) << 2 ) |
-                   ( static_cast<uint32_t>( MipMode ) << 4 ) | ( static_cast<uint32_t>( AddressU ) << 6 ) |
-                   ( static_cast<uint32_t>( AddressV ) << 9 ) | ( static_cast<uint32_t>( AddressW ) << 12 );
-        }
-
-        friend constexpr bool operator==( const SamplerDesc&, const SamplerDesc& ) = default;
-    };
-
-    // What the shader slot is. Checked against the reflected descriptor type by the consumer.
-    enum class ShaderResourceKind : uint8_t
-    {
-        SampledTexture, // sampler2D, read with the entry's SamplerDesc
-        StorageTexture, // image2D, one mip
-        UniformBuffer,
-        StorageBuffer,
-    };
-
     // One resolved texture entry: the binding PassContext::GetTexture returned for THIS execution of the pass.
     // Valid only until the exec lambda returns (see PassContext A(3)).
     struct BoundTexture
@@ -141,34 +64,65 @@ namespace Desert::Graphic::RDG
         Access             Declared = Access::None;
     };
 
-    // The per-exec parameter block. Built from the PassContext the exec lambda receives; not copyable and
-    // not movable, so it cannot be returned out of the lambda or stored in a renderer. Each Add* resolves its
-    // ref through PassContext::GetTexture / GetBuffer immediately, so an undeclared resource, an access other
-    // than the declared one, or a ref from another graph fails HERE, naming the pass, the resource and the
-    // shader slot. The first failure is kept (GetStatus) and the consumer refuses a block that has one: a
-    // renderer does not have to check every call, and a half-bound dispatch is never recorded.
+    // Fills one DeclaredBindingBlock from a setup lambda (PassBuilder::Bindings). Each call declares the access on
+    // the pass exactly as PassBuilder::Read / Write would, so it is subject to the same declaration checks.
+    class BindingBlockBuilder
+    {
+    public:
+        BindingBlockBuilder& Sampled( std::string_view shaderName, TextureRef texture, Access declared,
+                                      SubresourceRange range, SamplerDesc sampler );
+        BindingBlockBuilder& Storage( std::string_view shaderName, TextureRef texture, Access declared,
+                                      uint32_t mip = 0 );
+        BindingBlockBuilder& Uniform( std::string_view shaderName, BufferRef buffer );
+        BindingBlockBuilder& Storage( std::string_view shaderName, BufferRef buffer, Access declared );
+        // The size the exec's PassBindings::PushConstants will give; 0 = none.
+        BindingBlockBuilder& PushConstantBytes( uint32_t bytes );
+
+        BindingBlockRef GetRef() const;
+
+    private:
+        friend class PassBuilder;
+        BindingBlockBuilder( PassBuilder& pass, BindingBlockRef ref ) : m_Pass( pass ), m_Ref( ref )
+        {
+        }
+
+        PassBuilder&    m_Pass;
+        BindingBlockRef m_Ref;
+    };
+
+    // RDG-FAULT1. The pre-execution validation of one block - pure, no device, called by Builder::Compile for
+    // every block of every pass. Success, or the FIRST mismatch as a stable reason (the reporter keys on it):
+    //   "'<slot>' is not a resource of shader '<shader>'"            - the live 2026-10-05 glass case;
+    //   "'<slot>' of shader '<shader>' is bound twice by the pass";
+    //   "'<slot>' is a <kind> in shader '<shader>', bound as <kind>";
+    //   "'<slot>' of shader '<shader>' is bound by the pass and by the material";
+    //   "'<slot>' of shader '<shader>' is filled by neither the pass nor the material";
+    //   "push constants: shader '<shader>' declares <n> bytes, the pass gives <m>" (both routes / neither / size).
+    // These are exactly the checks ResolveRdgPassBindings makes at record time today; after FAULT1 that function
+    // only places entries at their (set, binding) and its own refusals are late faults.
+    Common::BoolResultStr ValidatePassBindings( const DeclaredBindingBlock& block );
+
+    // The per-exec parameter block. Opened from the PassContext the exec lambda receives and the block its setup
+    // declared (PassBuilder::Bindings); not copyable and not movable, so it cannot be returned out of the lambda
+    // or stored in a renderer. Every slot name, access and range comes from that declaration - the exec names no
+    // shader slot and only adds the push constants. Each declared entry is resolved through PassContext::
+    // GetTexture / GetBuffer when the block is opened; a failure there (a block of another pass, a binding the
+    // execution cannot give) is kept as the first failure (GetStatus) and the consumer refuses a block that has
+    // one, so a half-bound dispatch is never recorded.
     class PassBindings
     {
     public:
-        explicit PassBindings( const PassContext& context );
+        // RDG-FAULT1. Resolves every entry of the block @p block declared at setup through the context (the exec
+        // adds only PushConstants). This is the only constructor: the name-taking exec route (a PassBindings built
+        // from the context alone and filled with Sampled / Storage / Uniform by shader name) is gone, and the
+        // RenderGraphCompile census TheNameTakingExecBindingApiStaysDeleted keeps it gone.
+        PassBindings( const PassContext& context, BindingBlockRef block );
 
         PassBindings( const PassBindings& )            = delete;
         PassBindings& operator=( const PassBindings& ) = delete;
         PassBindings( PassBindings&& )                 = delete;
         PassBindings& operator=( PassBindings&& )      = delete;
 
-        // A texture read through @p sampler. @p declared is the access the setup declared for @p texture over
-        // @p range (SampledCompute / SampledGraphics). @p range = Mip(m) gives a view of that mip alone (the
-        // shader samples it at lod 0), All the whole image.
-        PassBindings& Sampled( std::string_view shaderName, TextureRef texture, Access declared,
-                               SubresourceRange range, SamplerDesc sampler );
-        // A storage image, one mip over every layer. @p declared is StorageWrite or StorageRead as declared
-        // for Mip(@p mip).
-        PassBindings& Storage( std::string_view shaderName, TextureRef texture, Access declared,
-                               uint32_t mip = 0 );
-        // A graph buffer bound as a uniform or storage buffer, the whole buffer.
-        PassBindings& Uniform( std::string_view shaderName, BufferRef buffer );
-        PassBindings& Storage( std::string_view shaderName, BufferRef buffer, Access declared );
         // The push-constant block of the draw / dispatch, copied. Its size is checked against the shader's
         // declared push-constant range by the consumer.
         PassBindings& PushConstants( const void* data, uint32_t size );
@@ -182,6 +136,13 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] std::span<const std::byte>    GetPushConstants() const;
 
     private:
+        // How the constructor resolves one declared entry. A sampled texture: @p range = Mip(m) is a view of that
+        // mip alone (the shader samples it at lod 0), All the whole image. A storage image: one mip over every
+        // layer.
+        void ResolveSampled( std::string_view shaderName, TextureRef texture, Access declared,
+                             SubresourceRange range, SamplerDesc sampler );
+        void ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared, uint32_t mip );
+
         const PassContext&        m_Context;
         std::vector<BoundTexture> m_Textures;
         std::vector<BoundBuffer>  m_Buffers;

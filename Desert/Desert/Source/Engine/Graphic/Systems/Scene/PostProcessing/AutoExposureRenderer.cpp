@@ -121,35 +121,69 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    Common::BoolResultStr AutoExposureRenderer::RecordClear( const RDG::PassContext& context,
-                                                             RDG::BufferRef          histogram )
+    void AutoExposureRenderer::DeclareClearBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram ) const
     {
-        RDG::PassBindings bindings( context );
-        bindings.Storage( "Histogram", histogram, RDG::Access::StorageWrite );
+        if ( !m_ClearPipeline )
+            return;
+        pass.Bindings( m_ClearLayout.Get( m_ClearPipeline->GetSpecification().Shader ),
+                       Renderer::GetInstance().GetPipelineRouteFill( *m_ClearPipeline ) )
+             .Storage( "Histogram", histogram, RDG::Access::StorageWrite );
+    }
+
+    Common::BoolResultStr AutoExposureRenderer::RecordClear( const RDG::PassContext& context )
+    {
+        if ( !m_ClearPipeline )
+            return Common::MakeError( "PostFX: AutoExposureClear: the clear pipeline is not initialised" );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         // One group of kBins threads (AEHistogramClear LocalSize(256, 1, 1)).
         return Renderer::GetInstance().DispatchCompute( bindings, *m_ClearPipeline, 1, 1, 1 );
     }
 
-    Common::BoolResultStr AutoExposureRenderer::RecordHistogram( const RDG::PassContext& context,
-                                                                 RDG::TextureRef scene, RDG::BufferRef histogram,
-                                                                 uint32_t width, uint32_t height )
+    void AutoExposureRenderer::DeclareHistogramBindings( RDG::PassBuilder& pass, RDG::TextureRef scene,
+                                                         RDG::BufferRef histogram ) const
     {
-        const HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range() };
-        RDG::PassBindings   bindings( context );
+        if ( !m_HistogramPipeline )
+            return;
         // The shader reads texels with texelFetch: no filtering or addressing applies, PointClamp states that.
-        bindings
+        pass.Bindings( m_HistogramLayout.Get( m_HistogramPipeline->GetSpecification().Shader ),
+                       Renderer::GetInstance().GetPipelineRouteFill( *m_HistogramPipeline ) )
              .Sampled( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::PointClamp() )
              .Storage( "Histogram", histogram, RDG::Access::StorageWrite )
-             .PushConstants( &hp, sizeof( hp ) );
+             .PushConstantBytes( static_cast<uint32_t>( sizeof( HistogramPush ) ) );
+    }
+
+    Common::BoolResultStr AutoExposureRenderer::RecordHistogram( const RDG::PassContext& context, uint32_t width,
+                                                                 uint32_t height )
+    {
+        if ( !m_HistogramPipeline )
+            return Common::MakeError( "PostFX: AutoExposureHistogram: the histogram pipeline is not initialised" );
+        const HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range() };
+        RDG::PassBindings   bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &hp, sizeof( hp ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_HistogramPipeline, GroupCount( width ),
                                                         GroupCount( height ), 1 );
     }
 
-    Common::BoolResultStr AutoExposureRenderer::RecordAverage( const RDG::PassContext& context,
-                                                               RDG::BufferRef histogram, RDG::TextureRef previous,
-                                                               RDG::TextureRef adapted )
+    void AutoExposureRenderer::DeclareAverageBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram,
+                                                       RDG::TextureRef previous, RDG::TextureRef adapted ) const
     {
+        if ( !m_AveragePipeline )
+            return;
+        // u_PrevLum is 1x1 and sampled at its centre: PointClamp returns exactly the stored luminance.
+        pass.Bindings( m_AverageLayout.Get( m_AveragePipeline->GetSpecification().Shader ),
+                       Renderer::GetInstance().GetPipelineRouteFill( *m_AveragePipeline ) )
+             .Storage( "Histogram", histogram, RDG::Access::StorageRead )
+             .Sampled( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::PointClamp() )
+             .Storage( "u_OutLum", adapted, RDG::Access::StorageWrite, 0 )
+             .PushConstantBytes( static_cast<uint32_t>( sizeof( AveragePush ) ) );
+    }
+
+    Common::BoolResultStr AutoExposureRenderer::RecordAverage( const RDG::PassContext& context )
+    {
+        if ( !m_AveragePipeline )
+            return Common::MakeError( "PostFX: AutoExposureAverage: the average pipeline is not initialised" );
         // 3) Resolve: percentile-clipped weighted average + temporal adaptation -> newLum (1x1).
         //
         // kSnapAdaptSpeed makes `1 - exp(-dt * speed)` exactly 1 in float for any dt this engine produces,
@@ -165,13 +199,8 @@ namespace Desert::Graphic::System
 
         const AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
                               kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent };
-        RDG::PassBindings bindings( context );
-        // u_PrevLum is 1x1 and sampled at its centre: PointClamp returns exactly the stored luminance.
-        bindings.Storage( "Histogram", histogram, RDG::Access::StorageRead )
-             .Sampled( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::PointClamp() )
-             .Storage( "u_OutLum", adapted, RDG::Access::StorageWrite, 0 )
-             .PushConstants( &ap, sizeof( ap ) );
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( &ap, sizeof( ap ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_AveragePipeline, 1, 1, 1 );
     }
 } // namespace Desert::Graphic::System

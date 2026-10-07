@@ -746,6 +746,10 @@ void main()
         {
             return m_Inner.GetAsyncComputeFallbackLog();
         }
+        RDG::PassFaultReporter& GetPassFaultReporter() override
+        {
+            return m_Inner.GetPassFaultReporter();
+        }
         Common::BoolResultStr BeginPipeSegment( const RDG::PipeSegment& segment ) override
         {
             return m_Inner.BeginPipeSegment( segment );
@@ -806,6 +810,10 @@ void main()
         void AbandonGraph() override
         {
             m_Inner.AbandonGraph();
+        }
+        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override
+        {
+            return m_Inner.UploadBuffer( resource, bytes );
         }
         [[nodiscard]] std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override
         {

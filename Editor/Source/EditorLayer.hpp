@@ -225,6 +225,9 @@ namespace Desert::Editor
         ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play,    m_Documents,
                                   m_Capture,   m_Panels,     m_Commands };
 
+        // QualityBoot::Start's answer, taken in the constructor (before the workspace's first renderer) and
+        // returned by OnAttach.
+        Common::BoolResultStr m_QualityStart = Common::MakeSuccess( true );
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
         // The staged boot, the splash and its hand-over, the content settle (UE: FEditorLoadingScreen), after

@@ -8,6 +8,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Core::Formats
@@ -377,6 +378,18 @@ namespace Desert::Core::Formats
             if ( param.IsTexture && !param.IsAssetRef() )
                 parameters.push_back( &param );
         return parameters;
+    }
+
+    // The material parameter a reflected sampler @p name of kind @p cube binds to, or null when it is a PASS
+    // parameter (not in MaterialTextureParameters, or declared as the other kind): the MaterialExecutor's one
+    // admission rule for texture properties.
+    inline const ShaderParam* FindMaterialTextureParameter( const ShaderProgramMeta& schema, std::string_view name,
+                                                            bool cube )
+    {
+        for ( const ShaderParam* param : MaterialTextureParameters( schema ) )
+            if ( param->Name == name && param->IsCubeTexture == cube )
+                return param;
+        return nullptr;
     }
 
 } // namespace Desert::Core::Formats

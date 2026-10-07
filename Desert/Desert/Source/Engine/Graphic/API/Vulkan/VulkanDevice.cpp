@@ -18,7 +18,8 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/CrashHandler.hpp>
 
-#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp> // ReadShaderPhaseTimes — pipelines built so far
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
 #include <algorithm> // std::max — largest device-local heap
 #include <array>
@@ -58,12 +59,14 @@ namespace Desert::Graphic::API::Vulkan
         m_Capabilities.SupportsWideLines            = m_DeviceCaps.Has( Capability::WideLines );
         m_Capabilities.MaxLineWidth                 = deviceProperties.limits.lineWidthRange[1];
         m_Capabilities.SupportsAnisotropy           = m_DeviceCaps.Has( Capability::SamplerAnisotropy );
-        m_Capabilities.MaxAnisotropy                = deviceProperties.limits.maxSamplerAnisotropy;
         m_Capabilities.SupportsNonSolidFill         = m_DeviceCaps.Has( Capability::FillModeNonSolid );
         m_Capabilities.SupportsTextureCompressionBC = m_DeviceCaps.Has( Capability::TextureCompressionBC );
 
         // --- Identity ---
         m_Capabilities.Name = deviceProperties.deviceName;
+        m_Capabilities.VendorId      = deviceProperties.vendorID;
+        m_Capabilities.DeviceId      = deviceProperties.deviceID;
+        m_Capabilities.DriverVersion = deviceProperties.driverVersion;
         switch ( deviceProperties.deviceType )
         {
             case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
@@ -96,19 +99,11 @@ namespace Desert::Graphic::API::Vulkan
             }
 
             // --- Limits the renderer actually branches on ---
-            m_Capabilities.MaxPushConstantSize    = deviceProperties.limits.maxPushConstantsSize;
             m_Capabilities.MaxTexture2DSize       = deviceProperties.limits.maxImageDimension2D;
             m_Capabilities.MaxTextureArrayLayers  = deviceProperties.limits.maxImageArrayLayers;
-            m_Capabilities.MaxColorAttachments    = deviceProperties.limits.maxColorAttachments;
-            m_Capabilities.SupportsTessellation      = m_DeviceCaps.Has( Capability::TessellationShader );
+            m_Capabilities.MaxColorAttachments       = deviceProperties.limits.maxColorAttachments;
             m_Capabilities.SupportsTimestampQueries  = deviceProperties.limits.timestampComputeAndGraphics == VK_TRUE;
             m_Capabilities.TimestampPeriodNs         = deviceProperties.limits.timestampPeriod;
-
-            // MSAA counts usable for BOTH colour and depth — a count only one of them supports is useless
-            // to a framebuffer that has each.
-            const VkSampleCountFlags sampleCounts = deviceProperties.limits.framebufferColorSampleCounts &
-                                                    deviceProperties.limits.framebufferDepthSampleCounts;
-            m_Capabilities.MSAASampleMask = static_cast<uint32_t>( sampleCounts );
 
             // Float render targets: RGBA32F must be usable as a colour attachment AND blendable, which is
             // what every accumulating screen-space pass (SSR trace/resolve, GI resolve, bloom) relies on.
@@ -136,24 +131,22 @@ namespace Desert::Graphic::API::Vulkan
                                                                                            : "other";
             LOG_INFO( "[Vulkan] GPU: {} ({}, {}, {} MB VRAM)", m_Capabilities.Name, m_Capabilities.VendorName,
                       typeName, m_Capabilities.VideoMemory / ( 1024ull * 1024ull ) );
-            LOG_INFO( "[Vulkan] Caps: maxMSAA {}x, maxTex2D {}, colorAttachments {}, float RTs {}, "
+            LOG_INFO( "[Vulkan] Caps: maxTex2D {}, colorAttachments {}, float RTs {}, "
                       "timestamps {} (period {} ns/tick)",
-                      m_Capabilities.MaxMSAASamples(), m_Capabilities.MaxTexture2DSize,
-                      m_Capabilities.MaxColorAttachments, m_Capabilities.SupportsFloatRenderTargets ? "yes" : "NO",
+                      m_Capabilities.MaxTexture2DSize, m_Capabilities.MaxColorAttachments,
+                      m_Capabilities.SupportsFloatRenderTargets ? "yes" : "NO",
                       m_Capabilities.SupportsTimestampQueries ? "yes" : "no", m_Capabilities.TimestampPeriodNs );
             LOG_INFO( "[Vulkan] Caps: textureCompressionBC (BC1-BC7) {}",
                       m_Capabilities.SupportsTextureCompressionBC ? "supported -> enabled on the device"
                                                                   : "NOT supported -- no BC textures" );
 
-            // Publish anisotropy support to the low-level sampler-creation path (0 = unsupported -> no aniso).
-            Graphic::RenderConfig::MaxAnisotropy =
-                 m_Capabilities.SupportsAnisotropy ? m_Capabilities.MaxAnisotropy : 0.0f;
             Graphic::RenderConfig::WideLines = m_Capabilities.SupportsWideLines; // clamp debug-line width if false
 
-            // Publish the device's MSAA ceiling. Derived from the capability computed above rather than
-            // re-querying the driver — one source of truth, so the value the renderer clamps to and the value
-            // GetCapabilities() reports can never disagree.
-            Graphic::RenderConfig::MaxMSAASamples = static_cast<int>( m_Capabilities.MaxMSAASamples() );
+            // The selectable lists, built once from probed facts (VulkanCapabilityCatalog.hpp). The surface half
+            // (display outputs, present modes beyond FIFO) is probed when the first swapchain's surface exists.
+            m_Capabilities.Catalog =
+                 BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, VK_NULL_HANDLE, m_DeviceCaps ) );
+            LOG_INFO( "[Vulkan] {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
 
             m_QueueFamilyProperties = m_Bootstrap->get_queue_families();
             m_DepthFormat           = FindDepthFormat();

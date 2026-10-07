@@ -269,16 +269,24 @@ namespace Desert::Editor
             return;
         }
         const Graphic::RDG::TextureRef target = graph.RegisterExternal( targetImage, "UIEditorPreview" );
+        // The panel shows this image: without its writer the preview has no picture (cleared to black).
+        graph.SetFaultPolicy( target, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
         graph.AddPass(
              "UIEditorPreview", Graphic::RDG::PassFlags::Raster, [&]( Graphic::RDG::PassBuilder& pass )
-             { pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::ClearColor( 0.094f, 0.098f, 0.118f, 1.0f ) ); },
+             {
+                 pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::ClearColor( 0.094f, 0.098f, 0.118f, 1.0f ) );
+                 // The preview's draw list is its only binding work: its blocks start at 0. Retained images the
+                 // list samples (render textures) are read here, as the runtime's UI pass does.
+                 m_Render2D.DeclareRetainedReads( pass );
+                 m_Render2D.DeclareBindings( pass, Graphic::RDG::TextureRef{} );
+             },
              [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
-             { return m_Render2D.Flush( context, Graphic::RDG::TextureRef{} ); } );
+             { return m_Render2D.Flush( context, Graphic::RDG::TextureRef{}, 0 ); } );
         graph.Extract( target, targetImage, Graphic::RDG::Access::SampledGraphics );
         if ( const auto executed = renderer.ExecuteGraph( graph ); !executed )
         {
+            // Logged by the graph backend (a fault) or by ExecuteGraph (its own failure); the panel shows it.
             m_PreviewError = executed.GetError();
-            LOG_ERROR( "[UI Editor] preview graph failed: {}", m_PreviewError );
             return;
         }
 

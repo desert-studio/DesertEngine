@@ -24,12 +24,12 @@ namespace Desert::Graphic::System
         m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(),
                                targetFramebuffer->GetFramebufferHeight() );
 
-        m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "FXAA" );
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "FXAA" );
 
         Graphic::GraphicsPipelineSpecification pipeSpec;
         pipeSpec.DebugName   = debugName;
         pipeSpec.Framebuffer = m_Framebuffer;
-        pipeSpec.Shader      = m_Shader;
+        pipeSpec.Shader      = shader;
 
         // Same unchecked GetByName as TonemapRenderer: a missing 'FXAA' shader was a null dereference.
         const auto pipeline = Graphic::GraphicsPipeline::Create( pipeSpec );
@@ -48,12 +48,21 @@ namespace Desert::Graphic::System
             m_Framebuffer->Resize( width, height );
     }
 
-    Common::BoolResultStr FXAARenderer::Record( const RDG::PassContext& context, RDG::TextureRef input )
+    void FXAARenderer::DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef input ) const
     {
-        // The sampler the material route sampled the input with (the image's own: linear, REPEAT).
-        RDG::PassBindings bindings( context );
-        bindings.Sampled( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                          RDG::SamplerDesc::LinearRepeat() );
+        if ( !m_Pipeline || !m_MaterialFXAA )
+            return;
+        pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
+                       m_MaterialFXAA->GetMaterialExecutor()->GetRouteFill() )
+             .Sampled( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearRepeat() );
+    }
+
+    Common::BoolResultStr FXAARenderer::Record( const RDG::PassContext& context )
+    {
+        if ( !m_Pipeline || !m_MaterialFXAA )
+            return Common::MakeError( "PostFX: FXAA: the FXAA pipeline is not initialised" );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                        m_MaterialFXAA->GetMaterialExecutor() );
     }

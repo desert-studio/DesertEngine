@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <Engine/Assets/CloudProceduralVolume.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
@@ -161,7 +162,10 @@ namespace Desert::Graphic::System
             return { m_HistoryImage[m_ResolvedIndex], m_HistoryGuideImage[m_ResolvedIndex], m_ResolvedIndex };
         }
         // The cloud volumes a dispatch samples (modelling, authored atlas), declared SampledCompute.
-        void DeclareVolumeReads( RenderPassDeclaration& declared ) const;
+        // The noise, modelling and atlas volumes as entries of a cloud compute node's block (shadow, sky
+        // occlusion, march).
+        RenderPassDeclaration::BlockDeclaration
+        SampledVolumes( RenderPassDeclaration::BlockDeclaration block ) const;
 
         /**
          * @brief Stage SM — the cloud shadow map. Must be called outside any render pass, and EARLY:
@@ -402,7 +406,8 @@ namespace Desert::Graphic::System
 
         /**
          * @brief Resolves the medium's OWN properties out of the same `.demat` — its values into
-         *        m_MediumValues and its image handles into m_MediumImages.
+         *        m_MediumValues, its images into m_MediumImages and their sampler names into
+         *        m_MediumTextureNames.
          *
          * SEPARATE FROM ResolveMaterial's typed resolve, because the two schemas are separate: the shipped
          * one is mirrored field for field onto CloudMaterialValues, and this one is a list whose names the
@@ -415,13 +420,16 @@ namespace Desert::Graphic::System
          */
         void ResolveMediumValues( const MaterialOverrides& overrides );
 
-        /// Writes m_MediumValues into @p buffer and binds it plus every declared image to @p pipeline —
-        /// the one statement of "how a medium reaches a dispatch", shared by the march, the shadow map and
-        /// the sky-occlusion volume so three call sites cannot come to disagree about a binding number.
-        ///
-        /// EVERY DECLARED SLOT IS WRITTEN, fallback included: an unwritten descriptor invalidates the whole
-        /// set, and this backend answers an invalid set by returning without dispatching — silently.
+        /// Writes m_MediumValues into @p buffer and binds it to @p pipeline — the one statement of "how a
+        /// medium's values reach a dispatch", shared by the march, the shadow map and the sky-occlusion
+        /// volume. The medium's images are not bound here: they are block entries (SampledMedium).
         void BindMedium( ComputePipeline* pipeline, ShaderResources::StorageBuffer* buffer ) const;
+
+        /// The medium's images as entries of a cloud compute node's block (shadow, sky occlusion, march), by
+        /// sampler name. EVERY DECLARED SLOT IS AN ENTRY, the RGBA32F 2D fallback where no image resolved: a
+        /// declared sampler with no image is an invalid descriptor set, which setup refuses by name.
+        RenderPassDeclaration::BlockDeclaration
+        SampledMedium( RenderPassDeclaration::BlockDeclaration block ) const;
 
         /// Creates the three pipelines whose programs carry the medium, from the variant currently held
         /// (or from the registered programs when it is default). Split out of CreatePipelines because
@@ -476,10 +484,14 @@ namespace Desert::Graphic::System
         /// trigger is one integer. 0 is "this medium exposes nothing", which is every shipped scene.
         uint64_t m_MediumValuesFingerprint = 0;
 
-        /// The medium's images, resolved from m_MediumValues.Textures once per frame. BORROWED — the
-        /// texture service owns them — and one entry per declared slot, null where the material assigned
-        /// nothing, because an unassigned slot is still a descriptor that has to be written.
-        std::vector<Image2D*> m_MediumImages;
+        /// The medium's images, resolved from m_MediumValues.Textures once per frame. SHARED with the texture
+        /// service (or DefaultTextures) that owns them, so a block entry can import each by owner; one entry
+        /// per declared slot, because an unassigned slot is still a descriptor that has to be written.
+        std::vector<std::shared_ptr<Image2D>> m_MediumImages;
+
+        /// The shader's sampler name of each slot in m_MediumImages: the medium's Texture2D property names in
+        /// schema order, which is exactly what the emitter declares (`uniform sampler2D <ParamName>`).
+        std::vector<std::string> m_MediumTextureNames;
 
         /// Handles already reported as naming nothing the texture service has, so an unresolvable medium
         /// image is said once rather than once per frame.
@@ -492,6 +504,13 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_CompositePipeline;
 
         std::unique_ptr<MaterialCloudComposite> m_CompositeMaterial;
+        // The composite block's layout, keyed on m_CompositePipeline's shader (kept, not re-derived per frame).
+        ShaderBindingLayoutCache m_CompositeLayout;
+        // Each compute node's block layout, keyed on its pipeline's shader.
+        ShaderBindingLayoutCache m_ShadowMapLayout;
+        ShaderBindingLayoutCache m_SkyOcclusionLayout;
+        ShaderBindingLayoutCache m_MarchLayout;
+        ShaderBindingLayoutCache m_ResolveLayout;
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveParamsBuffer;
@@ -553,7 +572,7 @@ namespace Desert::Graphic::System
 
         // CO-OWNED, like m_AuthoredAtlas: Runtime::CloudNoiseService owns every noise volume and shares one
         // upload across all views, and this renderer holds the service's handle (AssetRef::Share) for as long
-        // as it binds the image. The render graph imports each distinct volume (DeclareVolumeReads) and keeps
+        // as it binds the image. The render graph imports each distinct volume (SampledVolumes) and keeps
         // a view of it for the frames in flight, which a borrowed pointer cannot promise across a hot reload
         // or an unload. Refreshed from the service every frame, so a reload swaps the image with no state of
         // its own to go stale.

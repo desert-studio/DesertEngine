@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDepthExpand.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -69,21 +70,32 @@ namespace Desert::Graphic::System
             return m_Pipeline && m_Material;
         }
 
-        // Inside the render pass the frame graph opens on the multisampled scene depth ("Deferred: DepthExpand").
-        // @p gbufferDepth is the node's SampledGraphics read, fetched texel by texel as u_Depth.
-        Common::BoolResultStr Record( const RDG::PassContext& context, RDG::TextureRef gbufferDepth )
+        // SETUP of "Deferred: DepthExpand": the node's one block (block 0) - @p gbufferDepth as u_Depth, fetched
+        // texel by texel (PointClamp), the material as the other route. Not ready: nothing declared, Record
+        // refuses.
+        void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef gbufferDepth ) const
         {
             if ( !IsReady() || !gbufferDepth.IsValid() )
-                return Common::MakeError( "DepthExpand recorded without its pipeline or the G-buffer depth" );
-            RDG::PassBindings bindings( context );
-            bindings.Sampled( "u_Depth", gbufferDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                              RDG::SamplerDesc::PointClamp() );
+                return;
+            pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
+                 .Sampled( "u_Depth", gbufferDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::PointClamp() );
+        }
+
+        // Inside the render pass the frame graph opens on the multisampled scene depth: opens block 0.
+        Common::BoolResultStr Record( const RDG::PassContext& context )
+        {
+            if ( !IsReady() )
+                return Common::MakeError( "DepthExpand recorded without its pipeline" );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
         }
 
     private:
         std::shared_ptr<Shader>              m_Shader;
+        // The block layout, derived from m_Shader's reflection once per compile (not per frame).
+        mutable ShaderBindingLayoutCache     m_BindingLayout;
         std::shared_ptr<GraphicsPipeline>    m_Pipeline;
         std::unique_ptr<MaterialDepthExpand> m_Material;
     };

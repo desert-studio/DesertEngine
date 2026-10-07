@@ -273,8 +273,6 @@ namespace Desert::Platform::MacOS
                                     } );
 
         m_SwapChain = Graphic::SwapChain::Create( m_GLFWWindow );
-        // Hand the requested pacing over BEFORE CreateSwapChain picks a present mode (same as Windows).
-        m_SwapChain->SetVSync( m_Data.Specification.VSync );
 
         return Common::MakeSuccess( true );
     }

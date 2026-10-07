@@ -27,6 +27,7 @@
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <Common/Settings/Scalability.hpp>
 
 #include "Systems/Scene/Mesh/MeshRenderer.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
@@ -120,7 +121,8 @@ namespace Desert::Graphic
         // Unregisters the view; its per-view copies defer their GPU release (ViewResources).
         ~SceneRenderer();
 
-        // This renderer's shadow budget. Read by its own MeshRenderer in Initialize and fixed thereafter.
+        // This renderer's shadow budget. Read by its own MeshRenderer in Initialize; a level's viewport moves it
+        // with the Shadows quality level (BeginScene -> MeshRenderer::RebudgetShadows).
         [[nodiscard]] const ShadowQuality& GetShadowQuality() const
         {
             return m_ViewProfile.Shadows;
@@ -275,7 +277,7 @@ namespace Desert::Graphic
         // could not change it.
         //
         // Call it BEFORE BeginScene: the values reach the systems from there.
-        void SetQuality( const Common::Settings::MachineSettings& quality )
+        void SetQuality( const Common::Scalability::ResolvedQuality& quality )
         {
             m_Quality = quality;
         }
@@ -453,12 +455,6 @@ namespace Desert::Graphic
         /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
-        // The shadow images a lit pass samples: every valid cascade of the directional shadow, and the cloud
-        // layer's shadow map. A system whose materials receive shadows calls this from its pass's Declare.
-        void DeclareShadowReads( RenderPassDeclaration& declared ) const;
-        // The atmosphere LUTs a consumer of GetAtmosphere() samples (aerial perspective, distant sky light,
-        // transmittance), each declared with @p access.
-        void DeclareAtmosphereReads( RenderPassDeclaration& declared, RDG::Access access ) const;
 
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
@@ -554,7 +550,6 @@ namespace Desert::Graphic
         void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
 
         // The scene sample count the device can run for `requested` (the method's effective count).
-        static uint32_t SupportedSceneSamples( int requested );
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.
         void ApplySceneSampleCount( uint32_t samples );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
@@ -568,7 +563,6 @@ namespace Desert::Graphic
                                            const glm::vec4& lightColor );
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                           const std::vector<RDG::TextureRef>& shadowReads,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const glm::vec4& cameraPos );
         // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
@@ -622,7 +616,7 @@ namespace Desert::Graphic
         ShaderProtocols::SpotLight      m_SpotLight;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
-        Common::Settings::AntiAliasingMethod m_AAMode       = Common::Settings::AntiAliasingMethod::FXAA;
+        Common::Scalability::AntiAliasingMethod m_AAMode    = Common::Scalability::AntiAliasingMethod::FXAA;
         bool                               m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest
@@ -663,7 +657,8 @@ namespace Desert::Graphic
         // offscreen thumbnail and photogrammetry previews are exactly such renderers: nobody pushes to
         // them, and before this initialiser they would have quietly reset the sampler to Trilinear/8x.
         // "Not pushed to" therefore has to mean "this machine's answer" here rather than "the defaults".
-        Common::Settings::MachineSettings m_Quality = Common::Settings::MachineSettings::Get();
+        // The RESOLVED quality (SCAL1): the only product of the scalability system a renderer reads.
+        Common::Scalability::ResolvedQuality m_Quality = Common::Scalability::QualityState::Resolved();
         // What this VIEW is drawing on top of the world. NOT refreshed from the scene — pushed in by
         // whoever owns the view (SetDebugView), and "show nothing" until someone does. See
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
@@ -676,6 +671,15 @@ namespace Desert::Graphic
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
         // SceneSettings every frame, so this value only matters before the first Update.
         float m_SSRMaxDistance = Common::Units::Metres( 40.0f );
+        // Cost knobs taken from m_Quality each BeginScene (Scalability: Reflections.MaxSteps,
+        // GlobalIllumination.Samples, PostProcess.AmbientOcclusionSamples). They reach their shaders as uniform
+        // values, so one pipeline serves every level. The initialisers are the High column, only read before
+        // the first BeginScene.
+        int m_SSRMaxSteps = 32;
+        int m_GISamples   = 32;
+        int m_SSAOSamples = 16;
+        // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
+        uint64_t m_ShadowBudgetGeneration = 0;
 
         // The RSM is a LOW-FREQUENCY input to a temporally-accumulated resolve, so it does not need to be
         // re-rendered every frame — refreshing it every 4th frame (and immediately when the sun moves) keeps

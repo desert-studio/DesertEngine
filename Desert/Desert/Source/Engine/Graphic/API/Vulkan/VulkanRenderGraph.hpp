@@ -386,6 +386,8 @@ namespace Desert::Graphic::API::Vulkan
         void                  EndPass( const RDG::CompiledPass& pass ) override;
         Common::BoolResultStr EndGraph( std::span<const RDG::Barrier> finalBarriers ) override;
         void                  AbandonGraph() override;
+        // vkCmdUpdateBuffer in chunks of 64 KiB (its per-call limit), outside any render pass.
+        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override;
 
         // The compatibility key of the render pass this backend has open on its command buffer, empty between
         // passes. Pipelines bound by an exec lambda are resolved against it
@@ -415,6 +417,7 @@ namespace Desert::Graphic::API::Vulkan
         RDG::ITransientAllocator&     GetTransientAllocator() override;
         RDG::PipeCapabilities         GetPipeCapabilities() const override;
         RDG::AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override;
+        RDG::PassFaultReporter&       GetPassFaultReporter() override;
         Common::BoolResultStr         BeginPipeSegment( const RDG::PipeSegment& segment ) override;
         Common::BoolResultStr         EndPipeSegment( const RDG::PipeSegment& segment ) override;
         // Vulkan 1.0 queue family ownership transfer: a VkImage/BufferMemoryBarrier with srcQueueFamilyIndex =
@@ -445,6 +448,8 @@ namespace Desert::Graphic::API::Vulkan
         void                         SetRecording( VkCommandBuffer commandBuffer );
         VulkanRdgSegmentRecorder     m_Segments;    // B(3): segment command buffers, semaphores, submissions
         RDG::AsyncComputeFallbackLog m_FallbackLog; // B(4): the engine logger at Warning
+        // RDG-FAULT1: the one place a pass fault is logged; per backend, so it outlives the per-frame graphs.
+        RDG::PassFaultReporter m_FaultReporter;
         // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).
         uint32_t                     m_FrameSlot   = 0;
         const VulkanRdgQueueSet*     m_Queues      = nullptr;

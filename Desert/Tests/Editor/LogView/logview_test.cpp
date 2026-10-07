@@ -13,35 +13,14 @@ TEST( LogView, LogMatchesIsCaseInsensitiveSubstring )
     EXPECT_FALSE( LogMatches( "hi", "longer than line" ) );
 }
 
-TEST( LogView, CollapseMergesConsecutiveDuplicates )
+TEST( LogView, CollapseRepeatsKeepsOrderAndEmptyIsEmpty )
 {
-    std::vector<std::pair<std::string, int>> lines = {
-        { "tick", 0 }, { "tick", 0 }, { "tick", 0 }, { "warn", 1 }, { "tick", 0 }
-    };
-    const auto runs = CollapseConsecutive( lines );
-
+    const auto runs = CollapseRepeats( { { "tick", 0 }, { "tick", 0 }, { "warn", 1 }, { "tick", 0 } } );
     ASSERT_EQ( runs.size(), 3u );
-    EXPECT_EQ( runs[0].Text, "tick" );
-    EXPECT_EQ( runs[0].Count, 3 );
+    EXPECT_EQ( runs[0].Count, 2 );
     EXPECT_EQ( runs[1].Text, "warn" );
-    EXPECT_EQ( runs[1].Count, 1 );
-    // The trailing "tick" is a separate event, not merged with the earlier run.
-    EXPECT_EQ( runs[2].Text, "tick" );
-    EXPECT_EQ( runs[2].Count, 1 );
-}
-
-TEST( LogView, CollapseDoesNotMergeAcrossLevels )
-{
-    std::vector<std::pair<std::string, int>> lines = { { "msg", 0 }, { "msg", 2 } };
-    const auto runs = CollapseConsecutive( lines );
-    ASSERT_EQ( runs.size(), 2u );
-    EXPECT_EQ( runs[0].Level, 0 );
-    EXPECT_EQ( runs[1].Level, 2 );
-}
-
-TEST( LogView, CollapseEmptyIsEmpty )
-{
-    EXPECT_TRUE( CollapseConsecutive( {} ).empty() );
+    EXPECT_EQ( runs[2].Count, 1 ); // the trailing tick is a separate event
+    EXPECT_TRUE( CollapseRepeats( {} ).empty() );
 }
 
 // --- ParseLogLine ------------------------------------------------------------------------------
@@ -135,3 +114,42 @@ TEST( LogView, ParseIsTotalOnDegenerateInput )
         EXPECT_EQ( p.Severity, LogSeverity::Info ) << "line: '" << line << "'";
     }
 }
+
+// --- CollapseRepeats (RDG-FAULT1) --------------------------------------------------------------------
+// THE DEFECT THIS PINS. An error logged every frame flooded the panel although Collapse was on: the timestamp
+// made every line distinct. The relation under test: two lines that differ ONLY in time are one run.
+
+TEST( LogView, CollapseRepeatsIgnoresTheTimestamp )
+{
+    const std::vector<std::pair<std::string, int>> lines = {
+         { "[16:55:20.047][error][Desert]: [RDG] graph 'Scene' pass 'Glass' failed", 2 },
+         { "[16:55:20.064][error][Desert]: [RDG] graph 'Scene' pass 'Glass' failed", 2 },
+         { "[16:55:20.081][error][Desert]: [RDG] graph 'Scene' pass 'Glass' failed", 2 },
+    };
+    const auto runs = CollapseRepeats( lines );
+    ASSERT_EQ( runs.size(), 1u );
+    EXPECT_EQ( runs[0].Count, 3 );
+    EXPECT_EQ( runs[0].FirstTime, "16:55:20.047" );
+    EXPECT_EQ( runs[0].LastTime, "16:55:20.081" );
+    EXPECT_EQ( runs[0].Text, lines[0].first );
+}
+
+TEST( LogView, CollapseRepeatsKeepsDifferentMessagesAndLevelsApart )
+{
+    const std::vector<std::pair<std::string, int>> lines = {
+         { "[16:55:20.047][error][Desert]: pass 'Glass' failed", 2 },
+         { "[16:55:20.064][warning][Desert]: pass 'Glass' failed", 1 }, // same message, other level
+         { "[16:55:20.081][error][Desert]: pass 'Fog' failed", 2 },     // other message
+         { "[16:55:20.098][error][Desert]: pass 'Glass' failed", 2 },   // not adjacent to the first
+    };
+    EXPECT_EQ( CollapseRepeats( lines ).size(), 4u );
+}
+
+TEST( LogView, CollapseRepeatsComparesAnUnparsedLineWhole )
+{
+    const auto runs = CollapseRepeats( { { "  continuation", 0 }, { "  continuation", 0 }, { "  other", 0 } } );
+    ASSERT_EQ( runs.size(), 2u );
+    EXPECT_EQ( runs[0].Count, 2 );
+    EXPECT_TRUE( runs[0].FirstTime.empty() );
+}
+

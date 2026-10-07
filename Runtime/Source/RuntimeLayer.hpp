@@ -8,6 +8,7 @@
 #include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 
 #include <entt/entt.hpp>
@@ -91,6 +92,8 @@ namespace Desert::Player
 
         // The library the boot's "Indexing animation clips" stage fills (Assets::IndexAnimationClips).
         std::unique_ptr<Animation::AnimationLibrary> m_AnimationLibrary;
+        // QualityBoot::Start's answer, taken in the constructor (before the renderer) and returned by OnAttach.
+        Common::BoolResultStr                        m_QualityStart = Common::MakeSuccess( true );
         std::unique_ptr<Graphic::SceneRenderer>      m_SceneRenderer;
         std::shared_ptr<Core::Scene>                 m_Scene;
         // A partitioned world keeps only the camera's neighbourhood in the ECS (WorldStreamer.hpp); null for a
@@ -111,6 +114,8 @@ namespace Desert::Player
         std::unique_ptr<Graphic::Render2D::UIRenderTextureCache> m_UIRenderTextures;
         std::shared_ptr<Graphic::GraphicsPipeline>   m_BlitPipeline;
         std::unique_ptr<Graphic::MaterialExecutor>   m_BlitExecutor;
+        // The present node's blit block (RDG-FAULT1), keyed on m_BlitPipeline's shader.
+        Graphic::ShaderBindingLayoutCache            m_BlitLayout;
         bool                                         m_PresentReady  = false;
         bool                                         m_PrevMouseDown = false; // for the click (down->up) edge
         float                                        m_ScrollAccum   = 0.0f;  // wheel delta since last present

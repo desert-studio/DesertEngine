@@ -5,6 +5,7 @@
 // whose passes are never reordered.
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -253,8 +254,11 @@ namespace Desert::Graphic::RDG
         Compiler( const Builder& builder, const IMemoryRequirementsProvider& memory,
                   const PipeCapabilities& pipes );
 
-        Common::BoolResultStr               FoldPassUses();
-        [[nodiscard]] Common::BoolResultStr ValidateTransientReads() const;
+        [[nodiscard]] Common::BoolResultStr ValidateFaultDefaults() const;
+        void                                FaultMalformedPasses();
+        void                                FoldPassUses();
+        void                                SubstituteLostInputs();
+        void                                ApplyExternalFaultPolicies();
         void                                CullPasses();
         void                                CollectDependencyEdges();
         void                                ChoosePipes();
@@ -277,6 +281,8 @@ namespace Desert::Graphic::RDG
 
     private:
         [[nodiscard]] std::string DescribeSub( uint32_t sub ) const;
+        void Fault( uint32_t p, PassFaultStage stage, std::string reason, std::optional<uint32_t> root );
+        [[nodiscard]] bool    LoadsAttachment( uint32_t p, uint32_t resource ) const;
         void                  FoldUse( const PassRecord& pass, const ResourceUse& use, std::vector<int32_t>& slot,
                                        std::vector<RdgSubUse>& uses, std::string& error ) const;
         Common::BoolResultStr CollectAliasCandidates( std::vector<RdgAliasCandidate>& candidates ) const;
@@ -296,6 +302,8 @@ namespace Desert::Graphic::RDG
         const bool                         m_PassCulling;
         const IMemoryRequirementsProvider& m_Memory;
         const PipeCapabilities&            m_Pipes;
+        const FaultDefaults&               m_FaultDefaults;
+        const Builder&                     m_Builder; // MakeFrameFaultExternal
 
         uint32_t m_PassCount     = 0;
         uint32_t m_ResourceCount = 0;
@@ -303,6 +311,12 @@ namespace Desert::Graphic::RDG
         std::vector<uint32_t>               m_SubBase;
         uint32_t                            m_SubCount = 0;
         std::vector<std::vector<RdgSubUse>> m_PassUses;
+
+        // RDG-FAULT1. m_RootOf[p]: the pass faulted pass p's removal starts at (p itself for a root fault), -1
+        // while p survives. m_ClearedAttachments: (pass, resource) whose Load from a transient that lost its
+        // producer becomes the FaultDefault's clear.
+        std::vector<int32_t>                       m_RootOf;
+        std::vector<std::pair<uint32_t, uint32_t>> m_ClearedAttachments;
 
         CompileResult         m_Result;
         std::vector<uint32_t> m_Executed;
@@ -328,7 +342,8 @@ namespace Desert::Graphic::RDG
     Builder::Compiler::Compiler( const Builder& builder, const IMemoryRequirementsProvider& memory,
                                  const PipeCapabilities& pipes )
          : m_Passes( builder.m_Passes ), m_Resources( builder.m_Resources ), m_Name( builder.m_Name ),
-           m_PassCulling( builder.m_PassCulling ), m_Memory( memory ), m_Pipes( pipes )
+           m_PassCulling( builder.m_PassCulling ), m_Memory( memory ), m_Pipes( pipes ),
+           m_FaultDefaults( builder.m_FaultDefaults ), m_Builder( builder )
     {
         m_PassCount     = static_cast<uint32_t>( m_Passes.size() );
         m_ResourceCount = static_cast<uint32_t>( m_Resources.size() );
@@ -336,6 +351,64 @@ namespace Desert::Graphic::RDG
         for ( uint32_t r = 0; r < m_ResourceCount; ++r )
             m_SubBase[r + 1] = m_SubBase[r] + m_Resources[r].SubresourceCount();
         m_SubCount = m_SubBase[m_ResourceCount];
+        m_RootOf.assign( m_PassCount, -1 );
+    }
+
+    void Builder::Compiler::Fault( uint32_t p, PassFaultStage stage, std::string reason,
+                                   std::optional<uint32_t> root )
+    {
+        m_RootOf[p] = static_cast<int32_t>( root.value_or( p ) );
+        m_Result.Faults.push_back( { p, m_Passes[p].Name, stage, std::move( reason ), root } );
+    }
+
+    bool Builder::Compiler::LoadsAttachment( uint32_t p, uint32_t resource ) const
+    {
+        return std::any_of( m_Passes[p].Attachments.begin(), m_Passes[p].Attachments.end(),
+                            [resource]( const AttachmentRecord& attachment ) {
+                                return attachment.Resource == resource &&
+                                       attachment.Load.Action == LoadAction::Load;
+                            } );
+    }
+
+    // ── Graph check (RDG-FAULT1): a FaultDefault the graph cannot honour is a malformed GRAPH, not a pass fault ─
+    Common::BoolResultStr Builder::Compiler::ValidateFaultDefaults() const
+    {
+        for ( const ResourceRecord& record : m_Resources )
+        {
+            if ( record.Default != FaultDefault::None &&
+                 m_FaultDefaults.GetSource( record.Default ) == kInvalidResource )
+            {
+                return Common::MakeFormattedError( "graph '{}': texture '{}' declares a FaultDefault but the "
+                                                   "graph registered no system textures "
+                                                   "(RegisterSystemTextures)",
+                                                   m_Name, record.Name );
+            }
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    // ── Fault set (RDG-FAULT1): a pass whose own declaration or binding blocks are malformed is removed as if it
+    // had not been added (PassFaultStage::Declaration / Validation) ───────────────────────────────────────────
+    void Builder::Compiler::FaultMalformedPasses()
+    {
+        for ( uint32_t p = 0; p < m_PassCount; ++p )
+        {
+            const PassRecord& pass = m_Passes[p];
+            if ( !pass.DeclarationError.empty() )
+            {
+                Fault( p, PassFaultStage::Declaration, pass.DeclarationError, std::nullopt );
+                continue;
+            }
+            for ( const DeclaredBindingBlock& block : pass.Blocks )
+            {
+                const Common::BoolResultStr valid = ValidatePassBindings( block );
+                if ( !valid )
+                {
+                    Fault( p, PassFaultStage::Validation, valid.GetError(), std::nullopt );
+                    break;
+                }
+            }
+        }
     }
 
     std::string Builder::Compiler::DescribeSub( uint32_t sub ) const
@@ -393,43 +466,202 @@ namespace Desert::Graphic::RDG
         }
     }
 
-    Common::BoolResultStr Builder::Compiler::FoldPassUses()
+    // A faulted pass folds nothing; one holding a subresource in two states is a Declaration fault (RDG-FAULT1).
+    void Builder::Compiler::FoldPassUses()
     {
         m_PassUses.assign( m_PassCount, {} );
         std::vector<int32_t> slot( m_SubCount, -1 );
         for ( uint32_t p = 0; p < m_PassCount; ++p )
         {
+            if ( m_RootOf[p] >= 0 )
+                continue;
             std::vector<RdgSubUse>& uses = m_PassUses[p];
+            std::string             conflict;
             for ( const ResourceUse& use : m_Passes[p].Uses )
             {
-                std::string error;
-                FoldUse( m_Passes[p], use, slot, uses, error );
-                if ( !error.empty() )
-                    return Common::MakeError( error );
+                FoldUse( m_Passes[p], use, slot, uses, conflict );
+                if ( !conflict.empty() )
+                    break;
             }
             for ( const RdgSubUse& use : uses )
                 slot[use.Sub] = -1;
+            if ( !conflict.empty() )
+            {
+                uses.clear();
+                Fault( p, PassFaultStage::Declaration, std::move( conflict ), std::nullopt );
+            }
         }
-        return Common::MakeSuccess( true );
     }
 
-    // ── 0b. A transient read before anything wrote it reads garbage: refuse, naming both ──────────────
-    Common::BoolResultStr Builder::Compiler::ValidateTransientReads() const
+    // ── 0b. Inputs without a surviving producer (RDG-FAULT1) ─────────────────────────────────────────────
+    // In AddPass order, which is the fixed point: removing a pass only changes what LATER passes can read. A
+    // transient subresource a pass consumes that no surviving pass wrote before it:
+    //   * a removed pass wrote it and the resource has a FaultDefault: a sampled read reads the system texture
+    //     instead (DefaultSubstitution); an attachment loaded from it is cleared to the default;
+    //   * a removed pass wrote it otherwise: the reader is removed too (Dependency, root = that pass);
+    //   * nothing ever wrote it: the reader reads garbage - a Declaration fault of the reader.
+    void Builder::Compiler::SubstituteLostInputs()
     {
-        std::vector<bool> written( m_SubCount, false );
+        constexpr uint32_t kSampledMask = ( 1u << static_cast<uint32_t>( Access::SampledGraphics ) ) |
+                                          ( 1u << static_cast<uint32_t>( Access::SampledCompute ) );
+        std::vector<bool>    written( m_SubCount, false );
+        std::vector<int32_t> removedWriterRoot( m_SubCount, -1 );
         for ( uint32_t p = 0; p < m_PassCount; ++p )
         {
+            std::vector<std::pair<uint32_t, FaultDefault>> substitute; // (lost resource, its default)
+            std::vector<std::pair<uint32_t, FaultDefault>> clear;
             for ( const RdgSubUse& use : m_PassUses[p] )
             {
-                if ( !m_Resources[use.Resource].IsExternal() && !use.Writes && !written[use.Sub] )
-                    return Common::MakeFormattedError(
-                         "graph '{}' pass '{}' reads {} as {} before any pass writes it", m_Name, m_Passes[p].Name,
-                         DescribeSub( use.Sub ), GetAccessName( use.FirstAccess ) );
+                if ( m_RootOf[p] >= 0 )
+                    break;
+                const ResourceRecord& record = m_Resources[use.Resource];
+                if ( record.IsExternal() || !use.Consumes || written[use.Sub] )
+                    continue;
+                const int32_t root = removedWriterRoot[use.Sub];
+                if ( root < 0 )
+                {
+                    if ( !use.Writes )
+                    {
+                        Fault( p, PassFaultStage::Declaration,
+                               fmt::format( "graph '{}' pass '{}' reads {} as {} before any pass writes it",
+                                            m_Name, m_Passes[p].Name, DescribeSub( use.Sub ),
+                                            GetAccessName( use.FirstAccess ) ),
+                               std::nullopt );
+                    }
+                    continue; // an attachment loaded before any write has nothing to load (DontCare)
+                }
+                const bool writesResource =
+                     std::any_of( m_PassUses[p].begin(), m_PassUses[p].end(), [&]( const RdgSubUse& other )
+                                  { return other.Resource == use.Resource && other.Writes; } );
+                if ( record.Default != FaultDefault::None && LoadsAttachment( p, use.Resource ) )
+                {
+                    clear.emplace_back( use.Resource, record.Default );
+                    continue;
+                }
+                if ( record.Default != FaultDefault::None && !writesResource &&
+                     ( use.AccessMask & ~kSampledMask ) == 0 )
+                {
+                    substitute.emplace_back( use.Resource, record.Default );
+                    continue;
+                }
+                Fault( p, PassFaultStage::Dependency,
+                       fmt::format( "reads {} as {}, whose producer '{}' faulted", DescribeSub( use.Sub ),
+                                    GetAccessName( use.FirstAccess ),
+                                    m_Passes[static_cast<uint32_t>( root )].Name ),
+                       static_cast<uint32_t>( root ) );
             }
-            for ( const RdgSubUse& use : m_PassUses[p] )
+            if ( m_RootOf[p] >= 0 )
+            {
+                // Removed: what it would have written is lost to every later reader.
+                for ( const ResourceUse& use : m_Passes[p].Uses )
+                {
+                    if ( !IsWriteAccess( use.Usage ) )
+                        continue;
+                    for ( uint32_t sub = m_SubBase[use.Resource]; sub < m_SubBase[use.Resource + 1]; ++sub )
+                    {
+                        if ( !written[sub] )
+                            removedWriterRoot[sub] = m_RootOf[p];
+                    }
+                }
+                m_PassUses[p].clear();
+                continue;
+            }
+
+            std::vector<RdgSubUse>& uses = m_PassUses[p];
+            for ( const auto& [resource, value] : clear )
+            {
+                const std::pair<uint32_t, uint32_t> key{ p, resource };
+                if ( std::find( m_ClearedAttachments.begin(), m_ClearedAttachments.end(), key ) !=
+                     m_ClearedAttachments.end() )
+                    continue;
+                for ( RdgSubUse& use : uses )
+                {
+                    if ( use.Resource == resource )
+                        use.Consumes = false;
+                }
+                m_ClearedAttachments.push_back( key );
+                m_Result.Substitutions.push_back( { p, resource, kInvalidResource, value, true } );
+            }
+            for ( const auto& [resource, value] : substitute )
+            {
+                const auto lost =
+                     std::find_if( uses.begin(), uses.end(), [resource = resource]( const RdgSubUse& use )
+                                   { return use.Resource == resource; } );
+                if ( lost == uses.end() )
+                    continue; // already substituted (several lost subresources of one resource)
+                const RdgSubUse read   = *lost;
+                const uint32_t  source = m_FaultDefaults.GetSource( value );
+                std::erase_if( uses, [resource = resource]( const RdgSubUse& use )
+                               { return use.Resource == resource; } );
+                for ( uint32_t sub = m_SubBase[source]; sub < m_SubBase[source + 1]; ++sub )
+                {
+                    const auto existing = std::find_if( uses.begin(), uses.end(),
+                                                        [sub]( const RdgSubUse& use ) { return use.Sub == sub; } );
+                    if ( existing != uses.end() )
+                    {
+                        existing->State = MergeReadStates( existing->State, read.State );
+                        existing->AccessMask |= read.AccessMask;
+                        continue;
+                    }
+                    uses.push_back( { sub, source, read.State, read.FirstAccess, read.AccessMask, false, true } );
+                }
+                m_Result.Substitutions.push_back( { p, resource, source, value, false } );
+            }
+            for ( const RdgSubUse& use : uses )
                 written[use.Sub] = written[use.Sub] || use.Writes;
         }
-        return Common::MakeSuccess( true );
+    }
+
+    // ── 0c. Externals that lost every writer (RDG-FAULT1): their owner's ExternalFaultPolicy decides ────────
+    void Builder::Compiler::ApplyExternalFaultPolicies()
+    {
+        std::vector<bool>                  survivingWrite( m_ResourceCount, false );
+        std::vector<std::vector<uint32_t>> removedRoots( m_ResourceCount );
+        for ( uint32_t p = 0; p < m_PassCount; ++p )
+        {
+            for ( const ResourceUse& use : m_Passes[p].Uses )
+            {
+                if ( !IsWriteAccess( use.Usage ) || !m_Resources[use.Resource].IsExternal() )
+                    continue;
+                if ( m_RootOf[p] < 0 )
+                {
+                    survivingWrite[use.Resource] = true;
+                }
+                else
+                {
+                    removedRoots[use.Resource].push_back( static_cast<uint32_t>( m_RootOf[p] ) );
+                }
+            }
+        }
+        std::vector<uint32_t> fatal;
+        std::vector<uint32_t> fatalRoots;
+        for ( uint32_t r = 0; r < m_ResourceCount; ++r )
+        {
+            if ( survivingWrite[r] || removedRoots[r].empty() )
+                continue;
+            if ( m_Resources[r].Policy == ExternalFaultPolicy::InvalidateHistory )
+                m_Result.InvalidatedExternals.push_back( r );
+            if ( m_Resources[r].Policy != ExternalFaultPolicy::FrameFatal )
+                continue;
+            fatal.push_back( r );
+            fatalRoots.insert( fatalRoots.end(), removedRoots[r].begin(), removedRoots[r].end() );
+        }
+        if ( fatal.empty() )
+            return;
+        std::sort( fatalRoots.begin(), fatalRoots.end() );
+        fatalRoots.erase( std::unique( fatalRoots.begin(), fatalRoots.end() ), fatalRoots.end() );
+        std::string externals;
+        std::string roots;
+        for ( const uint32_t r : fatal )
+            externals += fmt::format( "{}'{}'", externals.empty() ? "" : ", ", m_Resources[r].Name );
+        for ( const uint32_t p : fatalRoots )
+            roots += fmt::format( "{}'{}'", roots.empty() ? "" : ", ", m_Passes[p].Name );
+        m_Result.Frame = FrameFault{
+             fmt::format( "graph '{}': {} lost every writer to the fault of {}", m_Name, externals, roots ),
+             {},
+             fatalRoots };
+        for ( const uint32_t r : fatal )
+            m_Result.Frame->Externals.push_back( m_Builder.MakeFrameFaultExternal( r ) );
     }
 
     // ── 1+2. Producer edges and culling (UE FlushCullStack) ───────────────────────────────────────────
@@ -444,6 +676,8 @@ namespace Desert::Graphic::RDG
         std::vector<uint32_t>              stack;
         for ( uint32_t p = 0; p < m_PassCount; ++p )
         {
+            if ( m_RootOf[p] >= 0 )
+                continue; // removed by a fault: neither a root nor a producer
             bool root = !m_PassCulling || HasFlag( m_Passes[p].Flags, PassFlags::NeverCull );
             for ( const RdgSubUse& use : m_PassUses[p] )
             {
@@ -479,8 +713,15 @@ namespace Desert::Graphic::RDG
         }
 
         m_Result.PassCulling = m_PassCulling;
+        std::sort( m_Result.Faults.begin(), m_Result.Faults.end(),
+                   []( const PassFault& a, const PassFault& b ) { return a.Pass < b.Pass; } );
         for ( uint32_t p = 0; p < m_PassCount; ++p )
         {
+            if ( m_RootOf[p] >= 0 )
+            {
+                m_Result.FaultCulledPasses.push_back( p );
+                continue;
+            }
             if ( alive[p] )
             {
                 m_Executed.push_back( p );
@@ -1047,6 +1288,14 @@ namespace Desert::Graphic::RDG
             decision.LayerCount = attachment.LayerCount;
             decision.Load       = attachment.Load.Action;
             decision.Clear      = attachment.Load.Value;
+            if ( decision.Load == LoadAction::Load &&
+                 std::find( m_ClearedAttachments.begin(), m_ClearedAttachments.end(),
+                            std::pair{ p, attachment.Resource } ) != m_ClearedAttachments.end() )
+            {
+                // RDG-FAULT1: loaded from a transient whose producer was removed - the default's clear.
+                decision.Load  = LoadAction::Clear;
+                decision.Clear = FaultDefaults::GetClear( record.Default );
+            }
             if ( decision.Load == LoadAction::Load && !record.IsExternal() && !anyWritten )
                 decision.Load = LoadAction::DontCare;
             compiled.Attachments.push_back( decision );
@@ -1362,9 +1611,10 @@ namespace Desert::Graphic::RDG
         return Compile( memory, PipeCapabilities{} );
     }
 
-    // The phases in UE FRDGBuilder::Compile's order, adapted to a graph that is never reordered: declarations
-    // fold, culling, dependency edges, pipe choice and fork/join, lifetimes, transient memory, barriers with
-    // load/store ops, render-pass merging, final states, barrier rectangles, per-pipe stages, segments.
+    // The phases in UE FRDGBuilder::Compile's order, adapted to a graph that is never reordered: the fault set
+    // (RDG-FAULT1: malformed passes, folded declarations, lost inputs, externals' fault policies), culling,
+    // dependency edges, pipe choice and fork/join, lifetimes, transient memory, barriers with load/store ops,
+    // render-pass merging, final states, barrier rectangles, per-pipe stages, segments.
     Common::ResultStr<CompileResult> Builder::Compile( const IMemoryRequirementsProvider& memory,
                                                        const PipeCapabilities&            pipes ) const
     {
@@ -1372,10 +1622,12 @@ namespace Desert::Graphic::RDG
             return Common::MakeError<CompileResult>( m_DeclarationError );
 
         Compiler compiler( *this, memory, pipes );
-        if ( Common::BoolResultStr folded = compiler.FoldPassUses(); !folded )
-            return Common::MakeError<CompileResult>( folded.GetError() );
-        if ( Common::BoolResultStr valid = compiler.ValidateTransientReads(); !valid )
-            return Common::MakeError<CompileResult>( valid.GetError() );
+        if ( Common::BoolResultStr defaults = compiler.ValidateFaultDefaults(); !defaults )
+            return Common::MakeError<CompileResult>( defaults.GetError() );
+        compiler.FaultMalformedPasses();
+        compiler.FoldPassUses();
+        compiler.SubstituteLostInputs();
+        compiler.ApplyExternalFaultPolicies();
         compiler.CullPasses();
         compiler.CollectDependencyEdges();
         compiler.ChoosePipes();

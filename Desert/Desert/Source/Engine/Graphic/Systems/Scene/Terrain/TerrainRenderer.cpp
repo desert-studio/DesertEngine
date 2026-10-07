@@ -367,21 +367,62 @@ namespace Desert::Graphic::System
         }
     }
 
+    namespace
+    {
+        // SETUP of a node drawing the terrain: one binding block per executor (TerrainRenderer::GroupExecutors),
+        // in order - the layout kept for the shader of @p pipeline, the one EVERY group's draws record with
+        // (RecordDraws), the material's route fill, and @p view's scene/view inputs where the layout has their
+        // slots (none: a program that samples none). Returns how many it declared.
+        template <typename Declaration>
+        uint32_t DeclareGroupBlocks( Declaration& declaration, const GraphicsPipeline* pipeline,
+                                     ShaderBindingLayoutCache&                   layoutCache,
+                                     const std::vector<const MaterialExecutor*>& executors,
+                                     const SceneViewInputs*                      view )
+        {
+            const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
+                 layoutCache.Get( pipeline->GetSpecification().Shader );
+            for ( const MaterialExecutor* executor : executors )
+            {
+                auto block = declaration.Bindings( layout, executor->GetRouteFill() );
+                if ( view != nullptr && SamplesSceneViewInputs( *layout ) )
+                {
+                    BindSceneViewInputs( block, *view, *layout );
+                }
+            }
+            return static_cast<uint32_t>( executors.size() );
+        }
+    } // namespace
+
+    std::vector<const MaterialExecutor*>
+    TerrainRenderer::GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const
+    {
+        std::vector<const MaterialExecutor*> executors;
+        executors.reserve( m_FrameGroups.size() );
+        for ( const auto& group : m_FrameGroups )
+            executors.push_back( ( m_Materials.at( group.Key ).*program )->GetMaterialExecutor() );
+        return executors;
+    }
+
     // ── Record. The push constant is per-draw state, snapshotted by Vulkan at record: the row index AND the
     // clip-from-world matrix, so one material serves the camera and every cascade. ────────────────────────
-    // The first refused draw is the node's error.
-    Common::BoolResultStr
-    TerrainRenderer::RecordDraws( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
-                                  std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                                  const glm::mat4&                                       clipFromWorld )
+    // Group g's draws go through the block the node's setup declared for its material (firstBlock + g). The
+    // first refused draw is the node's error.
+    Common::BoolResultStr TerrainRenderer::RecordDraws(
+         const RDG::PassContext& context, const uint32_t firstBlock, const GraphicsPipeline& pipeline,
+         std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld )
     {
+        std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
+        blocks.reserve( m_FrameGroups.size() );
+        for ( uint32_t group = 0; group < static_cast<uint32_t>( m_FrameGroups.size() ); ++group )
+            blocks.push_back(
+                 std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( firstBlock + group ) ) );
         for ( const auto& draw : m_FrameDraws )
         {
             auto* material = ( m_Materials[m_FrameGroups[draw.Group].Key].*program ).get();
             material->SetMaterialIndex( draw.Row );
             material->SetPushMatrix( clipFromWorld );
             if ( auto drawn = Renderer::GetInstance().DrawProcedural(
-                      bindings, pipeline, material->GetMaterialExecutor(), draw.VertexCount, 1 );
+                      *blocks[draw.Group], pipeline, material->GetMaterialExecutor(), draw.VertexCount, 1 );
                  !drawn.IsSuccess() )
                 return drawn;
         }
@@ -408,22 +449,26 @@ namespace Desert::Graphic::System
                            const auto* camera = m_SceneRenderer->GetMainCamera();
                            if ( ( camera == nullptr ) || m_FrameDraws.empty() )
                                return BOOLSUCCESS;
-                           // The scene/view inputs Terrain.shader samples (the cloud shadow map) are pass
-                           // parameters of this node, declared below.
-                           RDG::PassBindings bindings( context );
-                           BindSceneViewInputs( bindings, SceneViewInputsOf( refs ),
-                                                *m_Pipeline->GetSpecification().Shader );
-                           return RecordDraws( bindings, *m_Pipeline, &ProgramMaterials::Forward,
+                           // Through the blocks declared below (the scene/view inputs Terrain.shader samples - the
+                           // cloud shadow map - are entries of them).
+                           (void)refs;
+                           return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
                                                camera->GetProjectionMatrix() * camera->GetViewMatrix() );
                        },
                        m_Pipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
              .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
-            if ( !SamplesSceneViewInputs( *m_Pipeline->GetSpecification().Shader ) )
+            // Exactly when the exec draws: one block per Forward material of the frame's groups, each binding the
+            // scene/view inputs its shader has slots for (a block entry IS the read).
+            if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
+                 m_SceneRenderer->GetMainCamera() == nullptr || m_FrameDraws.empty() )
+            {
                 return;
-            for ( const RDG::TextureRef input : SceneViewInputsOf( refs ).Refs() )
-                declared.Read( input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+            }
+            const SceneViewInputs view = SceneViewInputsOf( refs );
+            (void)DeclareGroupBlocks( declared, m_Pipeline.get(), m_ForwardLayout,
+                                      GroupExecutors( &ProgramMaterials::Forward ), &view );
         };
     }
 
@@ -436,21 +481,41 @@ namespace Desert::Graphic::System
 
         // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it. The graph opens the
         // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
-        // TerrainGBuffer.shader samples no scene/view input: the bindings carry none.
-        return RecordDraws( RDG::PassBindings( context ), *m_GBufferPipeline, &ProgramMaterials::GBuffer,
+        // Through the blocks DeclareGBufferDraws declared.
+        return RecordDraws( context, 0, *m_GBufferPipeline, &ProgramMaterials::GBuffer,
                             camera->GetProjectionMatrix() * camera->GetViewMatrix() );
     }
 
+    void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
+    {
+        // Exactly when RenderGBufferManual draws. TerrainGBuffer.shader samples no scene/view input.
+        if ( !m_SceneRenderer->GetGBuffer() || m_SceneRenderer->GetMainCamera() == nullptr || !m_GBufferPipeline ||
+             m_FrameDraws.empty() )
+        {
+            return;
+        }
+        (void)DeclareGroupBlocks( pass, m_GBufferPipeline.get(), m_GBufferLayout,
+                                  GroupExecutors( &ProgramMaterials::GBuffer ), nullptr );
+    }
+
+    uint32_t TerrainRenderer::DeclareShadowCascade( RenderPassDeclaration& declared, uint32_t /*cascade*/ )
+    {
+        if ( !m_ShadowPipeline || m_FrameDraws.empty() )
+            return 0;
+        // A depth-only caster samples no scene/view input.
+        return DeclareGroupBlocks( declared, m_ShadowPipeline.get(), m_ShadowLayout,
+                                   GroupExecutors( &ProgramMaterials::Shadow ), nullptr );
+    }
+
     Common::BoolResultStr TerrainRenderer::RecordShadowCascade( const RDG::PassContext& context,
-                                                                uint32_t /*cascade*/,
+                                                                uint32_t /*cascade*/, const uint32_t firstBlock,
                                                                 const glm::mat4& cascadeViewProj )
     {
         if ( !m_ShadowPipeline || m_FrameDraws.empty() )
             return BOOLSUCCESS;
         // Its own row inside the cascade's: the terrain's share of the shadow cost, summed over cascades.
         DESERT_PROFILE_PASS( "TerrainShadowCascade" );
-        // A depth-only caster samples no scene/view input.
-        return RecordDraws( RDG::PassBindings( context ), *m_ShadowPipeline, &ProgramMaterials::Shadow,
-                            cascadeViewProj );
+        // Through the blocks DeclareShadowCascade declared on this cascade's node.
+        return RecordDraws( context, firstBlock, *m_ShadowPipeline, &ProgramMaterials::Shadow, cascadeViewProj );
     }
 } // namespace Desert::Graphic::System

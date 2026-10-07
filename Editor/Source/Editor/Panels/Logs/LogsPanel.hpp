@@ -2,7 +2,7 @@
 
 #include "../IPanel.hpp"
 
-#include <Editor/Core/LogView.hpp> // LogRun — the cached row type below
+#include <Editor/Core/LogView.hpp> // LogRepeatRun — the cached row type below
 
 #include <cstring>
 #include <filesystem>
@@ -50,7 +50,7 @@ namespace Desert::Editor
         void Refresh();
         void DrawToolbar();
         // One row: severity edge + tint, fixed-width timestamp column, category chip, message.
-        void DrawRow( const LogRun& row );
+        void DrawRow( const LogRepeatRun& row );
 
     private:
         std::vector<LogEntry>                    m_Entries;
@@ -72,7 +72,7 @@ namespace Desert::Editor
         // frame on a 5k-line log. The ImGuiListClipper below made the DRAWING O(visible), but all of that
         // work happened before the clipper ever ran, and it measured 9.7 ms of a 16 ms frame — more than
         // the entire 3D scene. Rebuilt only when one of the inputs below actually differs.
-        std::vector<LogRun> m_Rows;
+        std::vector<LogRepeatRun> m_Rows;
         size_t              m_RowsBuiltFromCount = static_cast<size_t>( -1 );
         bool                m_RowsInfo           = true;
         bool                m_RowsWarnings       = true;

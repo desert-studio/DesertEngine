@@ -73,11 +73,11 @@ namespace Desert::Graphic
                  "PostFX: JumpFloodInit", RDG::PassFlags::Raster,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     pass.Read( mask, RDG::Access::SampledGraphics );
+                     jfa->DeclareInitBindings( pass, mask );
                      pass.ColorTarget( 0, seeds[0], clear );
                  },
-                 [jfa, mask]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return jfa->RecordInit( context, mask ); } );
+                 [jfa]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return jfa->RecordInit( context ); } );
         }
         // Ping-pong propagation: one node per step, each sampling the seed the previous one wrote.
         if ( jfa->RunsSteps() )
@@ -89,11 +89,11 @@ namespace Desert::Graphic
                      std::format( "PostFX: JumpFloodStep{}", step ), RDG::PassFlags::Raster,
                      [&]( RDG::PassBuilder& pass )
                      {
-                         pass.Read( source, RDG::Access::SampledGraphics );
+                         jfa->DeclareStepBindings( pass, source );
                          pass.ColorTarget( 0, target, clear );
                      },
-                     [jfa, step, source]( RDG::PassContext& context ) -> Common::BoolResultStr
-                     { return jfa->RecordStep( context, step, source ); } );
+                     [jfa, step]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return jfa->RecordStep( context, step ); } );
             }
         // The composite runs on every frame, outlined or not: it is what hands the scene colour to the tonemap
         // (TonemapRenderer::Inputs::Source is GetOutputImage()). Without Init no seed exists this frame: the
@@ -105,12 +105,12 @@ namespace Desert::Graphic
              "PostFX: JumpFloodFinal", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( scene, RDG::Access::SampledGraphics );
-                 pass.Read( seed, RDG::Access::SampledGraphics );
+                 // The composite's uniforms are the frame's, filled before the block naming them is declared.
+                 jfa->FillFinalMaterial();
+                 jfa->DeclareFinalBindings( pass, seed, scene );
                  pass.ColorTarget( 0, output, clear );
              },
-             [jfa, seed, scene]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return jfa->RecordFinal( context, seed, scene ); } );
+             [jfa]( RDG::PassContext& context ) -> Common::BoolResultStr { return jfa->RecordFinal( context ); } );
     }
 
     void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
@@ -132,6 +132,9 @@ namespace Desert::Graphic
              textures.Import( autoExp->GetPreviousLuminanceImage(), "AutoExposure.Previous" );
         const RDG::TextureRef adapted =
              textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" );
+        // Next frame adapts from this luminance: if a fault removes its writer, the next adaptation snaps.
+        if ( adapted.IsValid() )
+            textures.MarkHistory( adapted, [autoExp]() { autoExp->OnTemporalHistoryReset(); } );
         // The histogram lives within this frame: a transient buffer of this graph, cleared, filled and resolved by
         // the three nodes below. Nothing reads it the next frame.
         const RDG::BufferRef histogram =
@@ -146,28 +149,19 @@ namespace Desert::Graphic
         // barriers, and Average's write of the adapted image keeps all three alive.
         graph.AddPass(
              "PostFX: AutoExposureClear", RDG::PassFlags::Compute,
-             [histogram]( RDG::PassBuilder& pass ) { pass.Write( histogram, RDG::Access::StorageWrite ); },
-             [autoExp, histogram]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return autoExp->RecordClear( context, histogram ); } );
+             [&]( RDG::PassBuilder& pass ) { autoExp->DeclareClearBindings( pass, histogram ); },
+             [autoExp]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return autoExp->RecordClear( context ); } );
         graph.AddPass(
              "PostFX: AutoExposureHistogram", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.Read( scene, RDG::Access::SampledCompute );
-                 pass.Write( histogram, RDG::Access::StorageWrite );
-             },
-             [autoExp, scene, histogram, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return autoExp->RecordHistogram( context, scene, histogram, width, height ); } );
+             [&]( RDG::PassBuilder& pass ) { autoExp->DeclareHistogramBindings( pass, scene, histogram ); },
+             [autoExp, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return autoExp->RecordHistogram( context, width, height ); } );
         graph.AddPass(
-             "PostFX: AutoExposureAverage", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.Read( histogram, RDG::Access::StorageRead );
-                 pass.Read( previous, RDG::Access::SampledCompute );
-                 pass.Write( adapted, RDG::Access::StorageWrite );
-             },
-             [autoExp, histogram, previous, adapted]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return autoExp->RecordAverage( context, histogram, previous, adapted ); } );
+             "PostFX: AutoExposureAverage", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
+             { autoExp->DeclareAverageBindings( pass, histogram, previous, adapted ); },
+             [autoExp]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return autoExp->RecordAverage( context ); } );
     }
 
     void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
@@ -182,6 +176,7 @@ namespace Desert::Graphic
             return;
         // A transient of this graph, sized from this frame's view; the tonemap reads its mip 0.
         const RDG::TextureRef chain = graph.CreateTexture( *desc, "Bloom" );
+        graph.SetFaultDefault( chain, RDG::FaultDefault::Black ); // lost bloom adds nothing (RDG-FAULT1)
         const RDG::TextureRef scene = sceneColor.front();
         textures.Transients.Bloom   = chain;
 
@@ -190,28 +185,16 @@ namespace Desert::Graphic
         for ( uint32_t mip = 0; mip < desc->Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: BloomDownsample{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     if ( mip == 0 )
-                         pass.Read( scene, RDG::Access::SampledCompute );
-                     else
-                         pass.Read( chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
-                     pass.Write( chain, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
-                 },
-                 [bloom, scene, chain, chainDesc = *desc,
-                  mip]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return bloom->RecordDownsample( context, scene, chain, chainDesc, mip ); } );
+                 [&]( RDG::PassBuilder& pass ) { bloom->DeclareDownsampleBindings( pass, scene, chain, mip ); },
+                 [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return bloom->RecordDownsample( context, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
         for ( uint32_t mip = desc->Mips - 1; mip >= 1; --mip )
             graph.AddPass(
                  std::format( "PostFX: BloomUpsample{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     pass.Read( chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) );
-                     pass.Write( chain, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip - 1 ) );
-                 },
-                 [bloom, chain, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return bloom->RecordUpsample( context, chain, chainDesc, mip ); } );
+                 [&]( RDG::PassBuilder& pass ) { bloom->DeclareUpsampleBindings( pass, chain, mip ); },
+                 [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return bloom->RecordUpsample( context, chainDesc, mip ); } );
     }
 
     void SceneRenderer::AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
@@ -259,17 +242,16 @@ namespace Desert::Graphic
         const RDG::TextureRef scene = sceneColor.front();
         const RDG::TextureRef ping  = graph.CreateTexture( *desc, "LightShaft.Ping" );
         const RDG::TextureRef pong  = graph.CreateTexture( *desc, "LightShaft.Pong" );
+        // Lost light shafts add nothing to the scene (RDG-FAULT1).
+        graph.SetFaultDefault( ping, RDG::FaultDefault::Black );
+        graph.SetFaultDefault( pong, RDG::FaultDefault::Black );
         const glm::vec2       sunUv = sun.Uv;
 
         graph.AddPass(
              "PostFX: LightShaftMask", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.Read( scene, RDG::Access::SampledCompute );
-                 pass.Write( ping, RDG::Access::StorageWrite );
-             },
-             [shafts, scene, ping, desc = *desc, sunUv]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return shafts->RecordMask( context, scene, ping, desc, sunUv ); } );
+             [&]( RDG::PassBuilder& pass ) { shafts->DeclareMaskBindings( pass, scene, ping ); },
+             [shafts, desc = *desc, sunUv]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return shafts->RecordMask( context, desc, sunUv ); } );
         // Radial blur ping-pong: one node per pass, each sampling the previous pass's target.
         RDG::TextureRef last = ping;
         for ( uint32_t blur = 0; blur < System::LightShaftRenderer::GetBlurPassCount(); ++blur )
@@ -278,14 +260,9 @@ namespace Desert::Graphic
             const RDG::TextureRef target = blur % 2 == 0 ? pong : ping;
             graph.AddPass(
                  std::format( "PostFX: LightShaftBlur{}", blur ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     pass.Read( source, RDG::Access::SampledCompute );
-                     pass.Write( target, RDG::Access::StorageWrite );
-                 },
-                 [shafts, source, target, desc = *desc, blur,
-                  sunUv]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return shafts->RecordBlur( context, source, target, desc, blur, sunUv ); } );
+                 [&]( RDG::PassBuilder& pass ) { shafts->DeclareBlurBindings( pass, source, target ); },
+                 [shafts, desc = *desc, blur, sunUv]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return shafts->RecordBlur( context, desc, blur, sunUv ); } );
             last = target;
         }
         textures.Transients.LightShafts = last;
@@ -320,6 +297,7 @@ namespace Desert::Graphic
         const RDG::TextureRef scene  = sceneColor.front();
         const RDG::TextureRef source = graph.CreateTexture( *sourceDesc, "LensFlare.Source" );
         const RDG::TextureRef image  = graph.CreateTexture( *flareDesc, "LensFlare" );
+        graph.SetFaultDefault( image, RDG::FaultDefault::Black ); // a lost flare adds nothing (RDG-FAULT1)
         const glm::vec2       sunUv  = sun.Uv;
 
         // Bright pass: scene -> source mip 0 (thresholded), then mip i-1 -> mip i. One node per dispatch, each
@@ -327,27 +305,15 @@ namespace Desert::Graphic
         for ( uint32_t mip = 0; mip < sourceDesc->Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: LensFlareBright{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     if ( mip == 0 )
-                         pass.Read( scene, RDG::Access::SampledCompute );
-                     else
-                         pass.Read( source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
-                     pass.Write( source, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
-                 },
-                 [flare, scene, source, desc = *sourceDesc,
-                  mip]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return flare->RecordBrightPass( context, scene, source, desc, mip ); } );
+                 [&]( RDG::PassBuilder& pass ) { flare->DeclareBrightPassBindings( pass, scene, source, mip ); },
+                 [flare, desc = *sourceDesc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return flare->RecordBrightPass( context, desc, mip ); } );
         // Features: every ghost reads the source mip its magnification picks, so the whole chain is sampled.
         graph.AddPass(
              "PostFX: LensFlareFeatures", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.Read( source, RDG::Access::SampledCompute );
-                 pass.Write( image, RDG::Access::StorageWrite );
-             },
-             [flare, source, image, desc = *flareDesc, sunUv]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return flare->RecordFeatures( context, source, image, desc, sunUv ); } );
+             [&]( RDG::PassBuilder& pass ) { flare->DeclareFeaturesBindings( pass, source, image ); },
+             [flare, desc = *flareDesc, sunUv]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return flare->RecordFeatures( context, desc, sunUv ); } );
         textures.Transients.LensFlare = image;
     }
 
@@ -391,23 +357,13 @@ namespace Desert::Graphic
              "PostFX: Tonemap", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( graphInputs.Source, RDG::Access::SampledGraphics );
-                 pass.Read( graphInputs.AvgLuminance, RDG::Access::SampledGraphics );
-                 pass.Read( graphInputs.Bloom, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
-                 // Any of the three may be System.Black: a texture the node already reads is not declared again
-                 // (every binding reads mip 0, the shaft and flare images' only level).
-                 if ( graphInputs.LightShafts != graphInputs.Bloom )
-                     pass.Read( graphInputs.LightShafts, RDG::Access::SampledGraphics,
-                                RDG::SubresourceRange::Mip( 0 ) );
-                 if ( graphInputs.LensFlare != graphInputs.Bloom &&
-                      graphInputs.LensFlare != graphInputs.LightShafts )
-                     pass.Read( graphInputs.LensFlare, RDG::Access::SampledGraphics,
-                                RDG::SubresourceRange::Mip( 0 ) );
+                 tonemap->FillMaterial( graphInputs );
+                 tonemap->DeclareBindings( pass, graphInputs );
                  // A fullscreen triangle writes every pixel: the old contents are not loaded.
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
-             [tonemap, graphInputs]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return tonemap->Record( context, graphInputs ); } );
+             [tonemap]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return tonemap->Record( context ); } );
     }
 
     void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures )
@@ -422,11 +378,10 @@ namespace Desert::Graphic
              "PostFX: FXAA", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( input, RDG::Access::SampledGraphics );
+                 fxaa->DeclareBindings( pass, input );
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
-             [fxaa, input]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return fxaa->Record( context, input ); } );
+             [fxaa]( RDG::PassContext& context ) -> Common::BoolResultStr { return fxaa->Record( context ); } );
     }
 
     void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures )
@@ -450,34 +405,29 @@ namespace Desert::Graphic
              "PostFX: SMAAEdges", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( input, RDG::Access::SampledGraphics );
+                 smaa->DeclareEdgesBindings( pass, input );
                  pass.ColorTarget( 0, edges, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [smaa, input]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return smaa->RecordEdges( context, input ); } );
+             [smaa]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return smaa->RecordEdges( context ); } );
         graph.AddPass(
              "PostFX: SMAAWeights", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( edges, RDG::Access::SampledGraphics );
-                 pass.Read( area, RDG::Access::SampledGraphics );
-                 pass.Read( search, RDG::Access::SampledGraphics );
+                 smaa->DeclareWeightsBindings( pass, edges, area, search );
                  pass.ColorTarget( 0, weights, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [smaa, edges, area, search]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return smaa->RecordWeights( context, edges, area, search ); } );
+             [smaa]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return smaa->RecordWeights( context ); } );
         graph.AddPass(
              "PostFX: SMAABlend", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( input, RDG::Access::SampledGraphics );
-                 pass.Read( weights, RDG::Access::SampledGraphics );
-                 pass.Read( edges, RDG::Access::SampledGraphics );
-                 pass.Read( area, RDG::Access::SampledGraphics );
+                 smaa->DeclareBlendBindings( pass, input, weights, edges, area );
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
-             [smaa, input, weights, edges, area]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return smaa->RecordBlend( context, input, weights, edges, area ); } );
+             [smaa]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return smaa->RecordBlend( context ); } );
     }
 
     RDG::TextureRef SceneRenderer::AddFrameBackdropBlur( RDG::Builder& graph, FrameTextures& textures,
@@ -499,18 +449,10 @@ namespace Desert::Graphic
         // and the one it writes.
         for ( uint32_t mip = 0; mip < desc->Mips; ++mip )
             graph.AddPass(
-                 std::format( "UI: BackdropBlur{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     if ( mip == 0 )
-                         pass.Read( scene, RDG::Access::SampledCompute );
-                     else
-                         pass.Read( pyramid, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
-                     pass.Write( pyramid, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
-                 },
-                 [backdrop, scene, pyramid, pyramidDesc = *desc,
-                  mip]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return backdrop->RecordDownsample( context, scene, pyramid, pyramidDesc, mip ); } );
+                 std::format( "UI: BackdropBlur{}", mip ), RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
+                 { backdrop->DeclareDownsampleBindings( pass, scene, pyramid, mip ); },
+                 [backdrop, pyramidDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return backdrop->RecordDownsample( context, pyramidDesc, mip ); } );
         // The UI phase samples the pyramid: the caller declares that read on the UI passes.
         return pyramid;
     }

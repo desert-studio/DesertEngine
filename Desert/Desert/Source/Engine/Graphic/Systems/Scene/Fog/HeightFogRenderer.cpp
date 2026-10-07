@@ -4,6 +4,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
 #include <Engine/Graphic/RenderGraphSort.hpp>
 #include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -202,45 +203,44 @@ namespace Desert::Graphic::System
         const RDG::TextureRef  fogImage = graph.CreateTexture( fogDesc, "HeightFog.Fog" );
         ComputeNodeDeclaration fog;
         fog.Name = "AtmosphericFog";
-        fog.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
-        m_SceneRenderer->DeclareAtmosphereReads( fog.Access, RDG::Access::SampledCompute );
-        fog.Access.Write( fogImage, RDG::Access::StorageWrite, RDG::SubresourceRange::All() );
-        fog.Record = [this, push, apActive, atmosphere, fogImage, fogWidth, fogHeight, depthImage = depth.get()](
-                          RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        // SETUP: the parameter buffer is the renderer's own, set on the pipeline route here; every image is an
+        // entry of the node's one block (block 0), and each entry is the declaration of its read or write.
+        m_FogPipeline->SetStorageBuffer( kFogParamsBinding, m_ParamsBuffer.get() );
+
+        // The sky's two images, ALWAYS entries even when the shader will not read them: a declared sampler with
+        // no image is an invalid descriptor set, not an unused one, and ComputePipeline refuses to dispatch when
+        // a volume input has no view, so a fog-only scene would silently lose its fog. When the sky publishes
+        // null the engine fallback stands in; push.AerialPerspective.z (the volume) and the payload's Ambient.w
+        // (the distant sky light, PackFogParams sets it from this same handle) say it is never sampled. Each is
+        // read with the sampler it carried as its own image: VolumeSampler() for the 3D volume,
+        // GlobalTextureFilterSampler() for the 2D images.
+        const std::shared_ptr<Image> aerialPerspective =
+             apActive ? std::shared_ptr<Image>( atmosphere.AerialPerspectiveVolume )
+                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
+        const std::shared_ptr<Image> distantSkyLight =
+             atmosphere.DistantSkyLight
+                  ? std::shared_ptr<Image>( atmosphere.DistantSkyLight )
+                  : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
+        const Renderer& renderer = Renderer::GetInstance();
+        auto            block    = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
+                                                        renderer.GetPipelineRouteFill( *m_FogPipeline ) );
+        block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
+        block.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite )
+             .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
+                       "SceneDepth.Compute" )
+             .Sampled( "u_AerialPerspective", aerialPerspective, RDG::Access::SampledCompute, VolumeSampler(),
+                       apActive ? "Sky.AerialPerspectiveLut" : "HeightFog.AerialPerspectiveFallback" )
+             .Sampled( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
+                       GlobalTextureFilterSampler(),
+                       atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" );
+        fog.Record = [this, push, fogWidth, fogHeight]( RDG::PassContext& context,
+                                                        const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "HeightFog: ExecuteInFrame" );
-            auto& renderer = Renderer::GetInstance();
-
-            // The graph's transient by shader name; everything else is the renderer's own, set below.
-            RDG::PassBindings bindings( context );
-            bindings.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite );
-            m_FogPipeline->SetStorageBuffer( kFogParamsBinding, m_ParamsBuffer.get() );
-            m_FogPipeline->SetInput( kFogSceneDepthBinding, depthImage, RDG::Access::SampledCompute,
-                                     RDG::SubresourceRange::All() );
-
-            // ALWAYS bound, even when the shader will not read it: a `sampler3D` with no image is an invalid
-            // descriptor set, not an unused one, and ComputePipeline refuses to dispatch at all when a volume
-            // input has no view — so a fog-only scene would silently lose its fog. The engine's 1x1x1 volume
-            // fallback is what stands in; push.AerialPerspective.z is 0, so it is never sampled.
-            m_FogPipeline->SetInput(
-                 kFogAerialPerspectiveBinding,
-                 apActive
-                      ? atmosphere.AerialPerspectiveVolume
-                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
-                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            // The distant sky light, on exactly the same terms as the volume above — always bound, read only
-            // when the payload's Ambient.w says the texel is real (PackFogParams sets that from this same
-            // handle, so the two cannot disagree).
-            m_FogPipeline->SetInput(
-                 kFogDistantSkyLightBinding,
-                 atmosphere.DistantSkyLight != nullptr
-                      ? atmosphere.DistantSkyLight
-                      : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
-                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            m_FogPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-
-            return renderer.DispatchCompute( bindings, *m_FogPipeline, GroupCount( fogWidth ),
-                                             GroupCount( fogHeight ), 1 );
+            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            return Renderer::GetInstance().DispatchCompute( bindings, *m_FogPipeline, GroupCount( fogWidth ),
+                                                            GroupCount( fogHeight ), 1 );
         };
         nodes.push_back( std::move( fog ) );
 
@@ -265,10 +265,8 @@ namespace Desert::Graphic::System
             if ( !refs.Transients.HeightFog.IsValid() )
                 return BOOLSUCCESS;
 
-            // texelFetch at the target's own size: the sampler never filters.
-            RDG::PassBindings bindings( context );
-            bindings.Sampled( "u_FogApply", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
-                              RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+            // Through the block Declare declared below.
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_ApplyPipeline, nullptr );
         };
         config.PipelineSpec      = m_ApplyPipeline->GetSpecification();
@@ -280,11 +278,17 @@ namespace Desert::Graphic::System
         // OVER the fogged world. Stated here, on the pass itself, not implied by registration order.
         config.OrderInPhase = RenderPassOrder::AtmosphericFog;
         // The apply samples the fog image the AtmosphericFog node wrote as a storage image this frame.
-        config.Declare = []( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        // Its one block: the shader's layout, no other route (no material), and the fog image as the entry
+        // that declares the read. texelFetch at the target's own size: the sampler never filters.
+        config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
-            if ( refs.Transients.HeightFog.IsValid() )
-                declared.Read( refs.Transients.HeightFog, RDG::Access::SampledGraphics,
-                               RDG::SubresourceRange::All() );
+            if ( !refs.Transients.HeightFog.IsValid() )
+            {
+                return;
+            }
+            declared.Bindings( m_ApplyLayout.Get( m_ApplyPipeline->GetShader() ), RDG::OtherRouteFill{} )
+                 .Sampled( "u_FogApply", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
         };
 
         builder.AddPass( config );

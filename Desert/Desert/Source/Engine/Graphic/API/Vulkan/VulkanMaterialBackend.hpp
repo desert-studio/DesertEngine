@@ -62,7 +62,7 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         /** The shader's reload generation at the moment those sets were allocated. */
-        uint32_t GetShaderGeneration() const
+        uint64_t GetShaderGeneration() const
         {
             return m_ShaderGeneration;
         }
@@ -86,7 +86,7 @@ namespace Desert::Graphic::API::Vulkan
         // re-read from the shader: a recompile publishes new layouts, and a set allocated from the old
         // one has to keep the old one alive to stay legal.
         std::vector<DescriptorSetLayoutRef> m_Layouts;
-        uint32_t                            m_ShaderGeneration   = 0;
+        uint64_t                            m_ShaderGeneration   = 0;
         bool                                m_ShapeDriftReported = false;
 
         // Per VIEW and frame in flight, made lazily: a view that never draws this material pays nothing,

@@ -26,7 +26,7 @@ namespace Desert::Graphic::API::Vulkan
         // as long as the backend lives, so a recompile of the shader cannot leave the sets pointing at
         // a contract that no longer exists — see VulkanDescriptorSetLayout.hpp.
         m_Layouts          = m_VulkanShader->GetAllDescriptorSetLayouts();
-        m_ShaderGeneration = m_VulkanShader->GetReloadGeneration();
+        m_ShaderGeneration = m_VulkanShader->GetCodeGeneration();
 
         // A SHADER WITH NO LAYOUTS HAS NOTHING TO ALLOCATE FOR, AND ASKING ANYWAY IS TWENTY VALIDATION
         // ERRORS. That is what a shader whose first compile failed carries: no stages, so no reflection,
@@ -264,6 +264,11 @@ namespace Desert::Graphic::API::Vulkan
         auto storageProp = static_cast<StorageBufferProperty*>( prop );
         if ( storageProp == nullptr )
             return;
+        // A storage buffer nothing ever wrote is not the material's slot (MaterialExecutor::GetRouteFill leaves it
+        // to the pass, e.g. the Composite's uploaded light buffers): writing a lazy copy's descriptor here would put
+        // the binding in GetWrittenSlots and the record would refuse it as filled by both routes.
+        if ( !storageProp->IsWritten() )
+            return;
 
         const uint32_t frameIndex    = EngineContext::GetInstance().GetCurrentFrameIndex();
         const uint64_t absoluteFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
@@ -404,7 +409,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_ShapeDriftReported || !m_VulkanShader )
             return;
-        if ( m_VulkanShader->GetReloadGeneration() == m_ShaderGeneration )
+        if ( m_VulkanShader->GetCodeGeneration() == m_ShaderGeneration )
             return;
 
         // The shader was recompiled after these sets were allocated. That is HARMLESS as long as the new
@@ -418,7 +423,7 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t was     = m_Layouts.empty() || !m_Layouts[0] ? 0u : m_Layouts[0]->DescriptorCount();
         const uint32_t now     = current.empty() || !current[0] ? 0u : current[0]->DescriptorCount();
 
-        m_ShaderGeneration   = m_VulkanShader->GetReloadGeneration();
+        m_ShaderGeneration   = m_VulkanShader->GetCodeGeneration();
         m_ShapeDriftReported = was != now;
 
         if ( was != now )

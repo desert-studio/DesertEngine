@@ -60,9 +60,21 @@ namespace Desert::Editor::Render
 
             m_Material->Update( ctx.Camera, source.Cube, source.Look, m_Radius, m_Backdrop, source.Lod,
                                 m_LongLat );
-            // The pass reads no graph texture: the sphere's cube is the material's.
+            // The block declared in setup (pass.Declare below).
             return Graphic::Renderer::GetInstance().DrawFullscreen(
-                 Graphic::RDG::PassBindings( context ), *m_Pipeline, m_Material->GetMaterialExecutor() );
+                 Graphic::RDG::PassBindings( context, context.GetBindingBlock( 0 ) ), *m_Pipeline,
+                 m_Material->GetMaterialExecutor() );
+        };
+
+        // RDG-FAULT1 C3b: the node's one binding block is declared in SETUP (the layout kept per shader, the
+        // material's route fill), so a broken block faults this node before anything is recorded. Declared every
+        // frame the pass exists: the block names no graph resource, and the exec opens it only when it draws.
+        // The material's VALUES stay per view (Update( camera, cube, ... ) in the exec): one pass object serves
+        // every view of the scene.
+        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExternalPassContext& )
+        {
+            declared.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
+                               m_Material->GetMaterialExecutor()->GetRouteFill() );
         };
 
         scene->RegisterExternalPass( std::move( pass ) );

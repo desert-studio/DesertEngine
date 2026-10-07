@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <memory>
 
@@ -118,6 +119,10 @@ namespace Desert::Graphic
         DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                      const MaterialExecutor* material, VertexBuffer& vertexBuffer, IndexBuffer& indexBuffer,
                      uint32_t indexCount, uint32_t firstIndex ) = 0;
+        // The setup-time halves of the consumers above (see Renderer::GetBindingLayout / GetPipelineRouteFill).
+        [[nodiscard]] virtual RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader ) const = 0;
+        [[nodiscard]] virtual RDG::OtherRouteFill
+        GetPipelineRouteFill( const ComputePipeline& pipeline ) const = 0;
         // The PassBindings route of RenderMesh (see Renderer::RenderMesh( const RDG::PassBindings&, ... )).
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
