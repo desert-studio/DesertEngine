@@ -869,7 +869,7 @@ namespace Desert::Graphic
             inputs.CameraPosition = cam->GetPosition();
             inputs.NearPlane      = cam->GetNear();
             inputs.FarPlane       = cam->GetFar();
-            inputs.CameraIdentity = MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceEntity() );
+            inputs.CameraIdentity = MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceId() );
         }
         inputs.CameraCut          = m_CameraCutPending;
         inputs.SceneIdentity      = m_SceneGeneration;

@@ -8,8 +8,15 @@
 // (2) Censuses of the one previous-frame source: no renderer keeps its own previous view-projection; SSR, GI and
 //     the clouds keep a PassHistoryStamp; SceneRenderer::OnUpdate opens the view frame before the first pass that
 //     reads it and closes it after the graph executed.
+// (3) Outside-driven cameras (the editor camera, a pinned preview camera) each carry an id issued once at
+//     construction (Core::CameraSourceTicket), so alternating two of them on one view cuts at every switch with
+//     no ResetTemporalHistory call, and the same camera twice keeps its history.
+//     Mutations: a ticket copy sharing its source's id; IssueCameraSourceId returning a constant;
+//     MakeViewCameraIdentity dropping bit 32 (issued ids collide with entity ids); Camera::GetSourceId returning
+//     the entity only; SceneRenderer keying the view by GetSourceEntity.
 //     Mutations: re-adding an m_PrevViewProj* member; moving m_ViewState.BeginFrame below AddFrameSSAO; dropping
 //     m_ViewState.EndFrame.
+#include <Engine/Core/CameraSourceId.hpp>
 #include <Engine/Core/SceneGeneration.hpp>
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
@@ -109,6 +116,70 @@ TEST( ViewIdentity, AReloadIntoTheSameSceneResetsTheViewHistory )
 
     EXPECT_EQ( Begin( state, Inputs( MakeViewCameraIdentity( after, kCameraEntity ), after ) ),
                HistoryResetReason::CameraCut );
+}
+
+TEST( ViewIdentity, IssuedCameraSourceIdsAreUniqueAndNeverAnEntity )
+{
+    using namespace Desert::Core;
+    const CameraSourceTicket a;
+    const CameraSourceTicket b;
+    EXPECT_NE( a.Get(), b.Get() );
+    EXPECT_NE( a.Get() & kIssuedCameraSourceBit, 0u );
+    EXPECT_NE( b.Get() & kIssuedCameraSourceBit, 0u );
+
+    // A copy is another camera object; an assignment keeps the destination object's id.
+    const CameraSourceTicket copy( a );
+    EXPECT_NE( copy.Get(), a.Get() );
+    CameraSourceTicket assigned;
+    const auto         assignedId = assigned.Get();
+    assigned                      = a;
+    EXPECT_EQ( assigned.Get(), assignedId );
+
+    // Never the identity of an entity camera, whatever the entity id (bit 32 survives the identity packing).
+    const uint64_t generation = NextSceneGeneration();
+    const uint32_t lowBits    = static_cast<uint32_t>( a.Get() & 0xFFFFFFFFull );
+    EXPECT_NE( MakeViewCameraIdentity( generation, a.Get() ),
+               MakeViewCameraIdentity( generation, EntityCameraSource( lowBits ) ) );
+}
+
+// The editor camera and a pinned preview camera on ONE renderer: each switch is a camera cut by identity alone,
+// the same camera on consecutive frames keeps its history.
+TEST( ViewIdentity, TwoOutsideDrivenCamerasAlternatedOnOneViewCutAtEverySwitch )
+{
+    const Desert::Core::CameraSourceTicket editorCamera;
+    const Desert::Core::CameraSourceTicket previewCamera;
+    const uint64_t                         generation = Desert::Core::NextSceneGeneration();
+    const auto                             through    = [&]( const Desert::Core::CameraSourceTicket& camera )
+    { return Inputs( MakeViewCameraIdentity( generation, camera.Get() ), generation ); };
+
+    SceneViewState state;
+    EXPECT_EQ( Begin( state, through( editorCamera ) ), HistoryResetReason::FirstFrame );
+    state.EndFrame( RDG::ExecuteReport{} );
+    EXPECT_EQ( Begin( state, through( editorCamera ) ), HistoryResetReason::None );
+    state.EndFrame( RDG::ExecuteReport{} );
+    EXPECT_EQ( Begin( state, through( previewCamera ) ), HistoryResetReason::CameraCut );
+    state.EndFrame( RDG::ExecuteReport{} );
+    EXPECT_EQ( Begin( state, through( previewCamera ) ), HistoryResetReason::None );
+    state.EndFrame( RDG::ExecuteReport{} );
+    EXPECT_EQ( Begin( state, through( editorCamera ) ), HistoryResetReason::CameraCut );
+    state.EndFrame( RDG::ExecuteReport{} );
+    EXPECT_EQ( Begin( state, through( editorCamera ) ), HistoryResetReason::None );
+    state.EndFrame( RDG::ExecuteReport{} );
+}
+
+// The renderer keys its view by the camera source id, and a camera without a source entity falls back to its
+// issued ticket — never to the shared kNoSourceEntity.
+TEST( ViewIdentityCensus, TheViewIsKeyedByTheCameraSourceId )
+{
+    const std::string camera = ReadText( EngineSource() / "Core" / "Camera.hpp" );
+    EXPECT_TRUE( std::regex_search(
+         camera, std::regex( R"(GetSourceId\(\)\s*const[\s\S]*?\?\s*EntityCameraSource\(\s*m_SourceEntity\s*\)\s*:\s*m_SourceTicket\.Get\(\))" ) ) )
+         << "Camera::GetSourceId must fall back to the camera object's issued ticket";
+    EXPECT_NE( camera.find( "CameraSourceTicket m_SourceTicket;" ), std::string::npos );
+
+    const std::string renderer = ReadText( EngineSource() / "Graphic" / "SceneRenderer.cpp" );
+    EXPECT_NE( renderer.find( "MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceId() )" ), std::string::npos )
+         << "SceneRenderer must key the view by (scene generation, camera source id)";
 }
 
 TEST( ViewIdentity, SceneTakesANewGenerationAtConstructionAndAtEveryClear )
