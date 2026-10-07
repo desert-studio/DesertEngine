@@ -40,5 +40,12 @@ namespace Desert::Graphic
         // Device supports line widths > 1 (VkPhysicalDeviceFeatures.wideLines). MoltenVK does NOT —
         // setting a wider line then is a validation error, so the debug-line paths clamp to 1.0.
         static inline std::atomic<bool> WideLines{ false };
+
+        // `--cloud-visualize N` (Editor command line): the cloud march writes a diagnostic instead of the
+        // sky, read per dispatch into CloudPush::Visualize. 0 = off. 1 = the cut at the ray's entry into the
+        // layer: R the local cover the weather leaves the column, G the lowest rank over eight heights of
+        // the column, B 1 where the column is kept (G < R). 2 = along the ray: R the share of 32 samples the
+        // cut keeps, G the largest rank step between neighbours x 8 (a seam reads bright).
+        static inline std::atomic<int> CloudVisualize{ 0 };
     };
 } // namespace Desert::Graphic

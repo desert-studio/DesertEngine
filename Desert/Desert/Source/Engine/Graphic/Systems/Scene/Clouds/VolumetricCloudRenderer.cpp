@@ -10,6 +10,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderGraphSort.hpp>
 #include <Engine/Graphic/RenderPhase.hpp>
+#include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -2008,6 +2009,7 @@ namespace Desert::Graphic::System
         push.Frame =
              glm::vec4( skyOcclusionReady ? 1.0f : 0.0f, perSampleSun ? 1.0f : 0.0f,
                         atmosphere.TransmittanceLutBottomRadiusKm, atmosphere.TransmittanceLutTopRadiusKm );
+        push.Visualize = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ), 0.0f, 0.0f, 0.0f );
 
         // The march: samples the scene depth, the cloud volumes, the sky occlusion written above and the
         // atmosphere's LUTs; writes the half-resolution trace and its guide.

@@ -315,6 +315,8 @@ Shader "CloudRaymarch"
             // z, w = the atmosphere shell's bottom and top radii, kilometres from the planet centre.
             //     Written whatever y says, read only when y is 1.
             vec4 u_CloudFrame;
+            // x = the diagnostic mode, Graphic::RenderConfig::CloudVisualize (0 = the ordinary picture).
+            vec4 u_CloudVisualize;
         };
 
         LocalSize(8, 8, 1);
@@ -502,6 +504,57 @@ Shader "CloudRaymarch"
             float jitter     = float(jitterHash & 0xFFFFu) * (1.0f / 65536.0f);
 
             CloudFieldParams params = CloudUnpackFieldParams();
+
+            // THE DIAGNOSTIC VIEW (--cloud-visualize). Draws what the cut decided instead of the cloud, at
+            // full opacity, so a frame says WHICH term made the sky look the way it does.
+            //   1: at the ray's entry into the layer — R the local cover, G the lowest rank over eight
+            //      heights of the column, B 1 where that column is kept (rank under cover).
+            //   2: along the ray, 32 samples — R the share the cut keeps, G the largest rank step between
+            //      neighbours x 8 (a seam reads bright), B the share inside a baked body (species profile
+            //      > 0), so R without B is cloud the cut grew into air.
+            int visualize = int(u_CloudVisualize.x + 0.5f);
+            if (visualize != 0)
+            {
+                vec3 shown = vec3(0.0f);
+                if (visualize == 1)
+                {
+                    vec3  entryKm = originKm + rayDir * segment.x;
+                    vec3  windPos = entryKm - params.WindOffsetKm;
+                    float cover   = CloudLocalCover(params.Weather, windPos.xz);
+                    float lowest  = 1.0f;
+                    for (int k = 0; k < 8; ++k)
+                    {
+                        vec3 uvw = CloudProceduralVolumeUvw(params, (float(k) + 0.5f) / 8.0f, windPos);
+                        lowest   = min(lowest, CLOUD_SAMPLE_MODELLING_RANK(uvw));
+                    }
+                    shown = vec3(cover, lowest, lowest + 0.5f / 255.0f < cover ? 1.0f : 0.0f);
+                }
+                else
+                {
+                    float kept = 0.0f, body = 0.0f, seam = 0.0f, previous = -1.0f;
+                    for (int k = 0; k < 32; ++k)
+                    {
+                        float tk      = mix(segment.x, segment.y, (float(k) + 0.5f) / 32.0f);
+                        vec3  p       = originKm + rayDir * tk;
+                        float hf      = CloudHeightFraction(layer, p);
+                        vec3  windPos = vec3(p.x, length(p) - layer.BottomRadiusKm, p.z) - params.WindOffsetKm;
+                        vec3  uvw     = CloudProceduralVolumeUvw(params, hf, windPos);
+                        float rank    = CLOUD_SAMPLE_MODELLING_RANK(uvw);
+                        float cover   = CloudLocalCover(params.Weather, windPos.xz);
+                        vec4  volume  = CLOUD_SAMPLE_MODELLING(uvw);
+                        kept += CloudRankProfile(rank, cover, params.Weather.z) > 0.0f ? 1.0f : 0.0f;
+                        body += max(max(volume.x, volume.y), max(volume.z, volume.w)) > 0.0f ? 1.0f : 0.0f;
+                        if (previous >= 0.0f)
+                            seam = max(seam, abs(rank - previous));
+                        previous = rank;
+                    }
+                    shown = vec3(kept / 32.0f, min(seam * 8.0f, 1.0f), body / 32.0f);
+                }
+                float sunLuminance = dot(u_CloudSunColour.rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+                imageStore(u_CloudScatter, coord, vec4(shown * sunLuminance, 0.0f));
+                imageStore(u_CloudGuide, coord, vec4(segment.x, sceneKm, 0.0f, 0.0f));
+                return;
+            }
 
             vec3  toSun        = normalize(u_CloudSun.xyz);
             float phase        = CloudPhaseDualLobe(dot(rayDir, toSun), u_CloudWind.w,

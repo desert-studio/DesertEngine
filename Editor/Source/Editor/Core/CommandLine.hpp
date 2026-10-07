@@ -93,6 +93,7 @@ namespace Desert::Editor
          { "--control-socket", true, "/tmp/desert-editor.sock" },
          { "--language", true, "ru" },
          { "--view-budget-mib", true, "512" },
+         { "--cloud-visualize", true, "1" },
          { "--gpu-profile", false, nullptr },
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
@@ -150,6 +151,10 @@ namespace Desert::Editor
         /// means the driver's budget. It exists because a low-memory refusal cannot otherwise be reproduced
         /// on a machine with a large device: the refusal, its numbers and its modal are only reachable here.
         uint64_t ViewBudgetMiB = 0;
+
+        /// `--cloud-visualize <N>`: the cloud march draws a diagnostic instead of the sky
+        /// (Graphic::RenderConfig::CloudVisualize, which names the modes). 0 is the ordinary picture.
+        int CloudVisualize = 0;
 
         /// `--crash-test <segv|abort|purecall|stackoverflow|stackoverflow-worker>`: crash on purpose, immediately
         /// after the crash handler is installed and before any subsystem exists. Empty — the default — means no
@@ -491,6 +496,18 @@ namespace Desert::Editor
                          value );
                 }
                 options.Shot.FlightSpeed = speed;
+            }
+            else if ( arg == "--cloud-visualize" )
+            {
+                char*               end  = nullptr;
+                const unsigned long mode = std::strtoul( value.c_str(), &end, 10 );
+                if ( value.empty() || end != value.c_str() + value.size() || mode > 2ul )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--cloud-visualize '{}' is not a mode (0 off, 1 the column cut, 2 the ray's kept share).",
+                         value );
+                }
+                options.CloudVisualize = static_cast<int>( mode );
             }
             else if ( arg == "--stream-delay-ticks" )
             {

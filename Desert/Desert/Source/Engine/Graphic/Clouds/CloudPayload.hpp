@@ -369,9 +369,11 @@ namespace Desert::Graphic
         // THE MEMBER USED TO BE CALLED SkyOcclusion and used to carry one lane. Renaming it is what keeps
         // the other three from being three unnamed floats hiding under a name that describes the first.
         glm::vec4 Frame;
+        // x = RenderConfig::CloudVisualize, the diagnostic mode (0 = the ordinary picture); y, z, w unused.
+        glm::vec4 Visualize;
     };
 
-    static_assert( sizeof( CloudPush ) == 112,
+    static_assert( sizeof( CloudPush ) == 128,
                    "CloudPush must stay inside the 128 bytes Vulkan guarantees for push constants" );
 
     /**
