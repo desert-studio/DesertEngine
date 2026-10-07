@@ -44,7 +44,7 @@ namespace Desert::Graphic
 
         // What every node added from here on is handed (FrameGraphRefs): a value of this frame's transients
         // and system textures as they stand now.
-        FrameGraphRefs GraphRefs() const
+        [[nodiscard]] FrameGraphRefs GraphRefs() const
         {
             return FrameGraphRefs{ Transients, System };
         }
@@ -167,7 +167,7 @@ namespace Desert::Graphic
             const std::shared_ptr<ImageCube> blackCube =
                  FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
             RDG::ExternalTexture* blackCubeExternal = ImportExternal( blackCube, "System.BlackCube" );
-            if ( !blackExternal || !whiteExternal || !blackCubeExternal )
+            if ( blackExternal == nullptr || whiteExternal == nullptr || blackCubeExternal == nullptr )
                 return;
             System = RDG::RegisterSystemTextures( m_Graph, *blackExternal, *whiteExternal, *blackCubeExternal );
             // A later Import of the same engine image names the same graph texture.

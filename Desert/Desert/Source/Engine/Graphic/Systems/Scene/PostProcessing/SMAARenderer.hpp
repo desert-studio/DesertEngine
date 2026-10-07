@@ -29,7 +29,7 @@ namespace Desert::Graphic::System
         // opens the render pass on the step's output. The edges and the blend weights are transients of that graph
         // (Builder::CreateTexture with GetIntermediateDesc); the renderer keeps no image for them.
         // Nullopt: nothing to record this frame (the input, a LUT or a pipeline is missing; logged).
-        std::optional<RDG::TextureDesc> GetIntermediateDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetIntermediateDesc() const;
         // Pass 1, into the edges target the node declared: edge detection on @p input.
         [[nodiscard]] Common::BoolResultStr RecordEdges( const RDG::PassContext& context, RDG::TextureRef input );
         // Pass 2, into the weights target: blend weights from @p edges + AreaTex + SearchTex.
@@ -41,20 +41,20 @@ namespace Desert::Graphic::System
                                                          RDG::TextureRef weights, RDG::TextureRef edges,
                                                          RDG::TextureRef area );
 
-        std::shared_ptr<Image2D> GetInputImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetInputImage() const
         {
             const auto input = m_TargetFramebuffer.lock();
             return input ? input->GetColorAttachmentImage() : nullptr;
         }
-        std::shared_ptr<Image2D> GetOutputImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetOutputImage() const
         {
             return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
         }
-        const std::shared_ptr<Image2D>& GetAreaTex() const
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetAreaTex() const
         {
             return m_AreaTex;
         }
-        const std::shared_ptr<Image2D>& GetSearchTex() const
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetSearchTex() const
         {
             return m_SearchTex;
         }

@@ -398,7 +398,7 @@ namespace Desert::Graphic::Render2D
                 bindings
                      .Sampled( "u_Backdrop", backdrop, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                                RDG::SamplerDesc::LinearClamp() )
-                     .PushConstants( &push, (uint32_t)sizeof( push ) );
+                     .PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                 const Common::BoolResultStr drawn =
                      renderer.DrawIndexed( bindings, *m_GlassPipeline, nullptr, *m_VertexBuffer, *m_IndexBuffer,
                                            cmd.IndexCount, cmd.IndexOffset );

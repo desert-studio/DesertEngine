@@ -57,12 +57,12 @@ namespace Desert::Graphic::System
                                                            RDG::BufferRef histogram, RDG::TextureRef previous,
                                                            RDG::TextureRef adapted );
 
-        std::shared_ptr<Image2D> GetSceneColorImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const
         {
             const auto scene = m_TargetFramebuffer.lock();
             return scene ? scene->GetColorAttachmentImage() : nullptr;
         }
-        const std::shared_ptr<Image2D>& GetPreviousLuminanceImage() const
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetPreviousLuminanceImage() const
         {
             return m_LumImage[1 - m_ReadIndex];
         }

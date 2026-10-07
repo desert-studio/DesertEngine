@@ -151,7 +151,7 @@ namespace Desert::Graphic::System
         // drawn fragment adds a small constant, so the .r channel ends up holding overdraw-count * step.
         FramebufferSpecification accumSpec;
         accumSpec.DebugName = "OverdrawAccum";
-        accumSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F );
+        accumSpec.Attachments.Attachments.emplace_back( Core::Formats::ImageFormat::RGBA32F );
         m_OverdrawFB = Graphic::Framebuffer::Create( accumSpec );
         m_OverdrawFB->Resize( targetFb->GetFramebufferWidth(), targetFb->GetFramebufferHeight() );
 
@@ -199,8 +199,8 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr MeshRenderer::RenderOverdrawAccumManual( const RDG::PassContext& context )
     {
-        const auto camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
-        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || !camera )
+        auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || camera == nullptr )
             return BOOLSUCCESS;
 
         // The accumulation shader samples nothing: every draw is Plain.
