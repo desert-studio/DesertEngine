@@ -416,7 +416,7 @@ namespace Desert::Assets
         /// 0.8 AND NOT 0.6: at the default cover 0.45, a clear region one deviation deep kept 0.077 of its
         /// sky as cloud at 0.6 (rho 0.77) — every thirteenth cell, enough for a long sight line to meet one —
         /// and keeps 0.011 at 0.8 (rho 0.89), so a gap reads as open sky rather than as thinner cloud.
-        float PatchStrength = 0.80f;
+        float PatchStrength = 0.35f;
 
         /// The horizontal wind direction the lattice's anisotropy is measured against, world XZ. Need not
         /// be normalized; a zero vector means east, which is what CloudSpeciesPlacementBasis also does.

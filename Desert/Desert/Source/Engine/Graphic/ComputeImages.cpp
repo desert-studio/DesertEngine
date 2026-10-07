@@ -171,7 +171,7 @@ namespace Desert::Graphic
         pipeline->SetInput( kSkyBakeCloudFarWeatherBinding,
                             cloudsBound && clouds.FarWeather != nullptr
                                  ? clouds.FarWeather
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA16F ).get(),
+                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetInput( kSkyBakeCloudAuthoredAtlasBinding,
                             cloudsBound && clouds.AuthoredAtlas != nullptr ? clouds.AuthoredAtlas : volumeFallback,
