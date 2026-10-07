@@ -580,10 +580,11 @@ namespace Desert::Graphic::Render2D
                  RDG::PassBindings( context, context.GetBindingBlock( index ) ), *resolved.Pipeline,
                  resolved.Executor, *m_VertexBuffer, *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
             if ( !drawn.IsSuccess() && failure.IsSuccess() )
-                failure = Common::MakeError(
-                     std::format( resolved.Kind == CommandKind::Material ? "a UI material batch was not drawn: {}"
-                                                                         : "a 2D batch was not drawn: {}",
-                                  drawn.GetError() ) );
+            {
+                const std::string_view batch =
+                     resolved.Kind == CommandKind::Material ? "a UI material batch" : "a 2D batch";
+                failure = Common::MakeError( std::format( "{} was not drawn: {}", batch, drawn.GetError() ) );
+            }
         }
 
         // Leave the scissor at the full viewport so nothing downstream inherits a UI clip.

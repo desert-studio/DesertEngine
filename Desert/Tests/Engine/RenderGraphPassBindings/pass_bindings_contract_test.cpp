@@ -87,6 +87,10 @@ namespace
         {
             return {};
         }
+        PassFaultReporter& GetPassFaultReporter() override
+        {
+            return m_FaultReporter;
+        }
         AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override
         {
             return m_FallbackLog;
@@ -146,6 +150,7 @@ namespace
         FixedEstimate           m_Memory;
         NoPlacementAllocator    m_Allocator;
         AsyncComputeFallbackLog m_FallbackLog{ []( std::string_view ) {} };
+        PassFaultReporter       m_FaultReporter{ []( PassFaultReporter::Severity, std::string_view ) {} };
     };
 
     TextureDesc Tex2D( uint32_t width, uint32_t height, uint32_t mips = 1 )

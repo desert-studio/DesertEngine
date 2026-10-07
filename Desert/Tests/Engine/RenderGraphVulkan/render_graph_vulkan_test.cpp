@@ -746,6 +746,10 @@ void main()
         {
             return m_Inner.GetAsyncComputeFallbackLog();
         }
+        RDG::PassFaultReporter& GetPassFaultReporter() override
+        {
+            return m_Inner.GetPassFaultReporter();
+        }
         Common::BoolResultStr BeginPipeSegment( const RDG::PipeSegment& segment ) override
         {
             return m_Inner.BeginPipeSegment( segment );

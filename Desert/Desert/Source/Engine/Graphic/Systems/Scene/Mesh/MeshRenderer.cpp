@@ -357,7 +357,7 @@ namespace Desert::Graphic::System
                        },
                        m_StaticPipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = []( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             // The frame's forward draw list - built HERE, before any command is recorded - and one binding block
             // per material of it, the scene/view inputs bound where its shader has slots for them. Forward path

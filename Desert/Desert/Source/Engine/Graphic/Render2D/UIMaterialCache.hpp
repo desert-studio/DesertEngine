@@ -124,8 +124,8 @@ namespace Desert::Graphic::Render2D
         // (UIMaterialFallback::RebuildIfReloaded); @p rebuild( std::string& refusal ) -> Entry builds the
         // replacement. The replaced pipeline and material are retired on the frames-in-flight window, never
         // destroyed under a frame that may still read them. The entry's address does not change.
-        template <class Rebuild>
-        void FollowShaderReload( Entry& entry, Rebuild&& rebuild );
+        template <class RebuildFn>
+        void FollowShaderReload( Entry& entry, RebuildFn&& rebuild );
 
         // The magenta hatch, built on first need and shared by every failing handle.
         const Entry* ErrorEntry();
