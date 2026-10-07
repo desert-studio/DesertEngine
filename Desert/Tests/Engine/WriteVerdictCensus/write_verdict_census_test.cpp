@@ -595,9 +595,3 @@ TEST( WriteVerdictCensus, TheMatcherFindsTheFormItBansAndLeavesHonestWritesAlone
          << "trailing qualifiers must be stepped over — otherwise every const method's row is keyed on the "
             "word 'const', and all of them collide with each other";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

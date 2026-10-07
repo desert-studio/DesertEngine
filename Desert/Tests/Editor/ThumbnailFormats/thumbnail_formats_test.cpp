@@ -443,12 +443,6 @@ TEST( ThumbnailMaterialDomains, AMaskedSurfaceMaterialPreviewsOnTheSphere )
          << "a surface material, AlphaCutoff > 0 or not, must preview on the sphere cut by its mask";
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // THM1a4: an imported mesh has no `.stmesh` on disk (AF4h), so a picture judged against that path could never be
 // fresh - its hash was nullopt and every session re-rendered it. The raw source beside it is the freshness source;
 // a hand-authored `.stmesh` on disk is its own.

@@ -231,9 +231,3 @@ TEST( BootStageTimingCensus, BothHostsUseTheOneAccumulationRule )
              << header << ": the editor's old elapsed accumulator is still declared alongside the shared one";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

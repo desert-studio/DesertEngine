@@ -89,9 +89,3 @@ TEST( TranslucentSortOrder, EmptyQueueIsEmptyOrder )
 {
     EXPECT_TRUE( TranslucentSortOrder( glm::vec3( 0.0f ), {} ).empty() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

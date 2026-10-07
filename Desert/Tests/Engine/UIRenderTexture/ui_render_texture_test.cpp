@@ -28,109 +28,27 @@
 // purity UIRenderTextureSource.hpp exists to protect — naming the concrete Render2D cache here would drag
 // a Vulkan device, a Core::Scene and a SceneRenderer into a test about six comparisons.
 
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIRenderTextureSource.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
 
+#include <TestSupport/ui_canvas_resources_mock.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <string>
 #include <vector>
 
-// The renderer resolves sprites, fonts, icons and video through these, and every one owns GPU objects.
-// Every draw helper already copes with the service being absent, which is exactly the path a headless
-// walk wants — see UICanvasContext's suite for the longer version of this argument.
-namespace Desert::Runtime
+// The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
+namespace
 {
-    TextureService* ResourceRegistry::GetTextureService()
-    {
-        return nullptr;
-    }
-    ImageService* ResourceRegistry::GetImageService()
-    {
-        return nullptr;
-    }
-    FontService* ResourceRegistry::GetFontService()
-    {
-        return nullptr;
-    }
-    UIThemeService* ResourceRegistry::GetUIThemeService()
-    {
-        return nullptr;
-    }
-    IconService* ResourceRegistry::GetIconService()
-    {
-        return nullptr;
-    }
-    AnimatedImageService* ResourceRegistry::GetAnimatedImageService()
-    {
-        return nullptr;
-    }
-    VideoService* ResourceRegistry::GetVideoService()
-    {
-        return nullptr;
-    }
+    TestSupport::MockUICanvasResources s_Resources;
+} // namespace
 
-    // THE ANALYSER WANTS THESE STATIC AND THEY CANNOT BE. Each is an out-of-line definition of a method
-    // the ENGINE declared; changing its signature would stop it being that method and the link would fail
-    // — which is the whole point of defining them here. Suppressed by name and with the reason, in the
-    // narrowest block that covers them, rather than by widening the project's gate.
-    // NOLINTBEGIN(readability-convert-member-functions-to-static)
-    //
-    // The methods the walk would call on what those accessors hand back. None can run — every accessor
-    // above is null — so each fails outright rather than returning a plausible value, and a change that
-    // manages to reach one is loud instead of quiet.
-    Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& ) const
-    {
-        ADD_FAILURE() << "TextureService::Get reached with no texture service";
-        return nullptr;
-    }
-    Graphic::Image* ImageService::Resolve( const ImageHandle& ) const
-    {
-        ADD_FAILURE() << "ImageService::Resolve reached with no image service";
-        return nullptr;
-    }
-    Graphic::Image2D* AnimatedImageService::Resolve( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "AnimatedImageService::Resolve reached with no animated-image service";
-        return nullptr;
-    }
-    Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
-    {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
-        return nullptr;
-    }
-    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "UIThemeService::Get reached with no theme service";
-        return nullptr;
-    }
-    Font* FontService::Get( uint64_t, float )
-    {
-        ADD_FAILURE() << "FontService::Get reached with no font service";
-        return nullptr;
-    }
-    uint64_t FontService::DefaultFontHandle()
-    {
-        ADD_FAILURE() << "FontService::DefaultFontHandle reached with no font service";
-        return 0;
-    }
-    bool FontService::RequestGlyphs( uint64_t, const std::vector<uint32_t>& )
-    {
-        ADD_FAILURE() << "FontService::RequestGlyphs reached with no font service";
-        return false;
-    }
-    Icon* IconService::Get( uint64_t )
-    {
-        ADD_FAILURE() << "IconService::Get reached with no icon service";
-        return nullptr;
-    }
-    // NOLINTEND(readability-convert-member-functions-to-static)
-} // namespace Desert::Runtime
+// The walk resolves sprites, fonts, icons, video and themes through the view's IUICanvasResources; every
+// view here is handed the mock below, which answers nothing: a sprite draws its flat colour, text draws nothing.
 
 namespace ECS = Desert::ECS;
 namespace R2D = Desert::Graphic::Render2D;
@@ -274,7 +192,7 @@ TEST( UIRenderTexture, AnAnsweredElementDrawsTheWorldItWasGiven )
 {
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D dl;
@@ -291,7 +209,7 @@ TEST( UIRenderTexture, ARefusedElementDrawsMagentaRatherThanNothing )
 {
     Fixture       f;
     StubSource    source( /*answers=*/false );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D dl;
@@ -312,7 +230,7 @@ TEST( UIRenderTexture, AnElementWithNoBackendAtAllAlsoDrawsMagenta )
     // The element's entire job is a picture, so unlike a material (which falls back to the element's own
     // fill) there is nothing to fall back TO, and silence here would be the same defect one level up.
     Fixture       f;
-    UIViewContext ctx; // RenderTextures deliberately left null
+    UIViewContext ctx{ s_Resources }; // RenderTextures deliberately left null
 
     R2D::DrawList2D dl;
     Draw( ctx, f, dl );
@@ -327,7 +245,7 @@ TEST( UIRenderTexture, AVisibleElementIsAskedAboutOncePerFrame )
 {
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D dl;
@@ -349,7 +267,7 @@ TEST( UIRenderTexture, AHiddenElementIsNotAskedAboutAtAllAndThatIsHowItsSlotCome
     // once, which is the same state the ViewBudget suite argues no picture can hold.
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     f.Layout().Visibility = ECS::UIVisibility::Hidden;
@@ -370,7 +288,7 @@ TEST( UIRenderTexture, ShowingAndHidingTheSameElementTogglesTheDemand )
     // view, over three frames, is what makes them two facts.
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D visible;
@@ -400,7 +318,7 @@ TEST( UIRenderTexture, TheRequestCarriesTheElementsOwnPixelSize )
 {
     Fixture       f; // 400 x 300 at scale 1
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     R2D::DrawList2D dl;
@@ -418,7 +336,7 @@ TEST( UIRenderTexture, ResolutionScaleReachesTheRequestAndIsNotAKnobThatMovesNot
 
     f.Data().ResolutionScale = 0.5f;
     {
-        UIViewContext ctx;
+        UIViewContext ctx{ s_Resources };
         ctx.RenderTextures = &source;
         R2D::DrawList2D dl;
         Draw( ctx, f, dl );
@@ -429,7 +347,7 @@ TEST( UIRenderTexture, ResolutionScaleReachesTheRequestAndIsNotAKnobThatMovesNot
 
     f.Data().ResolutionScale = 2.0f;
     {
-        UIViewContext ctx;
+        UIViewContext ctx{ s_Resources };
         ctx.RenderTextures = &source;
         R2D::DrawList2D dl;
         Draw( ctx, f, dl );
@@ -450,7 +368,7 @@ TEST( UIRenderTexture, ATargetIsClampedAtBothEndsBecauseItIsARealAllocation )
     f.Layout().OffsetMax     = f.Layout().OffsetMin; // a zero-sized rect
     f.Data().ResolutionScale = 1.0f;
     {
-        UIViewContext ctx;
+        UIViewContext ctx{ s_Resources };
         ctx.RenderTextures = &source;
         R2D::DrawList2D dl;
         Draw( ctx, f, dl );
@@ -464,7 +382,7 @@ TEST( UIRenderTexture, ATargetIsClampedAtBothEndsBecauseItIsARealAllocation )
     f.Layout().OffsetMax     = { kSide * 8.0f, kSide * 8.0f };
     f.Data().ResolutionScale = 2.0f;
     {
-        UIViewContext ctx;
+        UIViewContext ctx{ s_Resources };
         ctx.RenderTextures = &source;
         R2D::DrawList2D dl;
         Draw( ctx, f, dl );
@@ -480,7 +398,7 @@ TEST( UIRenderTexture, TintAndOpacityReachTheDrawnQuad )
 {
     Fixture       f;
     StubSource    source( /*answers=*/true );
-    UIViewContext ctx;
+    UIViewContext ctx{ s_Resources };
     ctx.RenderTextures = &source;
 
     f.Data().Tint    = { 1.0f, 0.0f, 0.0f };
@@ -524,10 +442,4 @@ TEST( UIRenderTexture, TheBudgetIsAskedForTheElementsOwnViewAsAUserSurface )
     reading.CeilingBytes = 1000;
     reading.UsageBytes   = 400;
     EXPECT_TRUE( Engine::ViewBudget::MayCreate( request.Who, 600, 1, reading ).Ok );
-}
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

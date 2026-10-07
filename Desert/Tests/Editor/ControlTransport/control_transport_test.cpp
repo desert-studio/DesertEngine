@@ -27,6 +27,7 @@
 #include <Common/Core/LocalSocket.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -525,17 +526,25 @@ TEST( ControlTransport, ServicingTheConnectionDoesNotConsumeARequest )
     socket.Close();
 }
 
-int main( int argc, char** argv )
+namespace
 {
     // The suite opens sockets of its own — the bare client, and the leftover a dead editor would have
     // left — and on Windows the first socket call in a process fails until the library is up. The editor
     // does this inside Listen; nothing here would have, and every test would fail as "socket() failed".
-    if ( const std::string unavailable = Common::LocalSocket::EnsureLibraryReady(); !unavailable.empty() )
+    // A failure here fails the run before any test.
+    class SocketLibraryEnvironment final : public ::testing::Environment
     {
-        std::fprintf( stderr, "the platform's socket library could not be started: %s\n", unavailable.c_str() );
-        return 1;
-    }
+    public:
+        void SetUp() override
+        {
+            if ( const std::string unavailable = Common::LocalSocket::EnsureLibraryReady(); !unavailable.empty() )
+                GTEST_FAIL() << "the platform's socket library could not be started: " << unavailable;
+        }
+    };
 
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    const Desert::TestSupport::SuiteEnvironment kSocketLibrary{
+         +[]() -> ::testing::Environment*
+         {
+             return new SocketLibraryEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
+} // namespace

@@ -272,12 +272,6 @@ TEST( AnimatorPose, ARigRereadWithOtherBindsRebuildsTheAnimator )
          << "the Animator kept the old binds across a reread";
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ANIM-FIX1 — UE's bUpdateAnimationInEditor. The RELATION, not the rule alone: two editor-world ticks of a
 // MOVING clip, each advanced by exactly what AnimationECSSystem advances it by (AnimationAdvanceSeconds with
 // gameplay time 0, the editor frame time 0.1 s), leave the pose where it was with the flag off and move it

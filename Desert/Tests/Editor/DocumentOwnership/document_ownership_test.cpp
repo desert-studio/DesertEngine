@@ -1200,13 +1200,6 @@ TEST( DocumentIdentity, ClosingThroughTheOwnerEmptiesBothViewsAtOnce )
     EXPECT_EQ( cloudsView.Showing( Asset( 11 ) ), nullptr );
     EXPECT_EQ( editor.View.Showing( Asset( 11 ) ), nullptr );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── The Documents window closes; its documents do not ────────────────────────────────────────────────
 
 TEST( DocumentWellWindow, ClosingTheWindowClosesNoDocument )

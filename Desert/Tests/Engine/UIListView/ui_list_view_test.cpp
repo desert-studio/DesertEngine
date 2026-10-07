@@ -19,13 +19,13 @@
 // consumer that stops asking EN MASSE, so that test drives a counting stand-in for the backend and
 // requires the demand set to shrink to the window.
 
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UIIntrospection.hpp>
 
+#include <TestSupport/ui_canvas_resources_mock.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -38,94 +38,14 @@
 #include <unordered_set>
 #include <vector>
 
-// The renderer resolves sprites, fonts, icons and video through these. Every one of them owns GPU
-// objects, and every draw helper already copes with the service being absent -- a sprite that will not
-// resolve falls back to its flat colour, text and icons draw nothing. That is exactly the path a headless
-// walk wants, so the suite supplies the accessors itself and returns nothing.
-namespace Desert::Runtime
+// The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
+namespace
 {
-    // NOLINTBEGIN(readability-convert-member-functions-to-static) — these are DEFINITIONS of the engine's
-    // own member functions, supplied here instead of linking the services. Their signatures belong to
-    // Engine/Runtime/ResourceRegistry.hpp and cannot be changed from a test.
-    TextureService* ResourceRegistry::GetTextureService()
-    {
-        return nullptr;
-    }
-    ImageService* ResourceRegistry::GetImageService()
-    {
-        return nullptr;
-    }
-    FontService* ResourceRegistry::GetFontService()
-    {
-        return nullptr;
-    }
-    UIThemeService* ResourceRegistry::GetUIThemeService()
-    {
-        return nullptr;
-    }
-    IconService* ResourceRegistry::GetIconService()
-    {
-        return nullptr;
-    }
-    AnimatedImageService* ResourceRegistry::GetAnimatedImageService()
-    {
-        return nullptr;
-    }
-    VideoService* ResourceRegistry::GetVideoService()
-    {
-        return nullptr;
-    }
+    TestSupport::MockUICanvasResources s_Resources;
+} // namespace
 
-    // The service METHODS the walk calls on whatever those accessors hand back. Every accessor above
-    // returns nullptr, so none of these can run -- they exist because the linker still wants the symbols,
-    // and each fails the test outright rather than returning a plausible value.
-    Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& ) const
-    {
-        ADD_FAILURE() << "TextureService::Get reached with no texture service";
-        return nullptr;
-    }
-    Graphic::Image* ImageService::Resolve( const ImageHandle& ) const
-    {
-        ADD_FAILURE() << "ImageService::Resolve reached with no image service";
-        return nullptr;
-    }
-    Graphic::Image2D* AnimatedImageService::Resolve( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "AnimatedImageService::Resolve reached with no animated image service";
-        return nullptr;
-    }
-    Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
-    {
-        ADD_FAILURE() << "VideoService::Resolve reached with no video service";
-        return nullptr;
-    }
-    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
-    {
-        ADD_FAILURE() << "UIThemeService::Get reached with no theme service";
-        return nullptr;
-    }
-    Font* FontService::Get( uint64_t, float )
-    {
-        ADD_FAILURE() << "FontService::Get reached with no font service";
-        return nullptr;
-    }
-    uint64_t FontService::DefaultFontHandle()
-    {
-        ADD_FAILURE() << "FontService::DefaultFontHandle reached with no font service";
-        return 0;
-    }
-    bool FontService::RequestGlyphs( uint64_t, const std::vector<uint32_t>& )
-    {
-        ADD_FAILURE() << "FontService::RequestGlyphs reached with no font service";
-        return false;
-    }
-    Icon* IconService::Get( uint64_t )
-    {
-        ADD_FAILURE() << "IconService::Get reached with no icon service";
-        return nullptr;
-    }
-    // NOLINTEND(readability-convert-member-functions-to-static)
-} // namespace Desert::Runtime
+// The walk resolves sprites, fonts, icons, video and themes through the view's IUICanvasResources; every
+// view here is handed the mock below, which answers nothing: a sprite draws its flat colour, text draws nothing.
 
 using Desert::UI::Rect;
 using Desert::UI::UIElementNode;
@@ -354,7 +274,7 @@ TEST( ListViewWindow, DrawnElementsFollowTheWindowAndNotTheRowCount )
     {
         ListScene       scene = MakeListView( rows );
         R2D::DrawList2D dl;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         ASSERT_TRUE( Walk( scene, dl, ctx ) );
         drawn[i] = DrawnCount( scene, ctx );
         verts[i] = dl.GetVertices().size();
@@ -381,7 +301,7 @@ TEST( ListViewWindow, TheScrollViewItReplacesPaysForEveryRow )
     {
         ListScene       scene = MakeScrollViewList( rows );
         R2D::DrawList2D dl;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         ASSERT_TRUE( Walk( scene, dl, ctx ) );
         EXPECT_EQ( DrawnCount( scene, ctx ), static_cast<std::size_t>( rows ) * 3u + 1u )
              << "scroll view with " << rows << " rows";
@@ -392,7 +312,7 @@ TEST( ListViewWindow, ScrollingMovesTheWindowAndTheClampedEdgeIsOneRowSmaller )
 {
     ListScene       scene = MakeListView( 2000 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     // At the top there is nothing above to overscan into, so the window is the rows that fit plus the one
@@ -437,7 +357,7 @@ TEST( ListViewWindow, TheWholeTreeIsStillEnumerated )
     // a layout group is enumerated with no slot rather than dropped.
     ListScene       scene = MakeListView( 2000 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     const auto nodes = Enumerate( scene, ctx );
@@ -452,7 +372,7 @@ TEST( ListViewWindow, HidingARowOutsideTheWindowChangesNothingInTheFrame )
     // computed in one of the two walks and not in the other.
     ListScene       scene = MakeListView( 2000 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     const std::uint64_t before = Fingerprint( dl );
 
@@ -485,7 +405,7 @@ TEST( ListViewRenderTexture, OnlyTheWindowsRowsAreAsked )
 
     CountingRenderTextures source;
     R2D::DrawList2D        dl;
-    UIViewContext          ctx;
+    UIViewContext          ctx{ s_Resources };
     ctx.RenderTextures = &source;
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
@@ -518,7 +438,7 @@ TEST( ListViewRenderTexture, TheScrollViewAsksAboutEveryRow )
 
     CountingRenderTextures source;
     R2D::DrawList2D        dl;
-    UIViewContext          ctx;
+    UIViewContext          ctx{ s_Resources };
     ctx.RenderTextures = &source;
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_EQ( source.Asked.size(), 2000u );
@@ -548,7 +468,7 @@ TEST( ListViewContract, AHiddenRowLeavesItsSlotEmptyRatherThanClosingTheGap )
     // count over every child ahead of the window -- exactly the whole-list pass the element deletes.
     ListScene       scene = MakeListView( 200 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     const auto rectOf = [&]( entt::entity e )
@@ -579,7 +499,7 @@ TEST( ListViewContract, ScrollIsClampedToContentDerivedFromTheChildCount )
     // it is the child count times the pitch, so adding a row cannot leave the scroll range lying.
     ListScene       scene = MakeListView( 30 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
 
     auto& lv   = scene.Registry.get<ECS::UIListViewComponent>( scene.Container ).Data;
     lv.ScrollY = 1.0e6f; // far past the end
@@ -599,7 +519,7 @@ TEST( ListViewContract, AZeroItemHeightCannotTurnVirtualizationOff )
     // unbounded. It is floored at one design pixel where it is read, so the window stays a window.
     ListScene       scene = MakeListView( 5000 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     scene.Registry.get<ECS::UIListViewComponent>( scene.Container ).Data.ItemHeight = 0.0f;
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
@@ -612,7 +532,7 @@ TEST( ListViewContract, AnEmptyListDrawsItsBackgroundAndNoThumb )
 {
     ListScene       scene = MakeListView( 0 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_EQ( DrawnCount( scene, ctx ), 1u ); // the list element itself, nothing under it
     EXPECT_FALSE( dl.GetVertices().empty() );  // ...and it is still a box on screen, not nothing
@@ -646,7 +566,7 @@ TEST( ListViewCost, WalkTimeAgainstRowCount )
         {
             ListScene           scene = MakeScrollViewList( rows );
             R2D::DrawList2D     dl;
-            UIViewContext       ctx;
+            UIViewContext       ctx{ s_Resources };
             std::vector<double> samples;
             for ( int r = 0; r < kReps; ++r )
             {
@@ -661,7 +581,7 @@ TEST( ListViewCost, WalkTimeAgainstRowCount )
         {
             ListScene           scene = MakeListView( rows );
             R2D::DrawList2D     dl;
-            UIViewContext       ctx;
+            UIViewContext       ctx{ s_Resources };
             std::vector<double> samples;
             std::vector<double> canvasOnly;
             for ( int r = 0; r < kReps; ++r )
@@ -826,7 +746,7 @@ TEST( ListViewBound, TheFrameFollowsTheWindowAndNotTheRecordCount )
     {
         ListScene       scene = MakeBoundList( records );
         R2D::DrawList2D dl;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         ASSERT_TRUE( Walk( scene, dl, ctx ) );
         verts[k] = dl.GetVertices().size();
         drawn[k] = DrawnCount( scene, ctx );
@@ -842,7 +762,7 @@ TEST( ListViewBound, ChangingOneRecordChangesOnlyItsRowsVertices )
 {
     ListScene       scene = MakeBoundList( 2000 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     const std::vector<R2D::Vertex2D> before( dl.GetVertices().begin(), dl.GetVertices().end() );
 
@@ -891,7 +811,7 @@ TEST( ListViewBound, RemovingARecordInTheWindowMovesTheRecordsBelowItUpOneRow )
 
     ListScene       scene = MakeBoundList( 100 );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     const auto recordThree = rowColour( dl, 3 );
     ASSERT_TRUE( recordThree.has_value() );
@@ -903,7 +823,7 @@ TEST( ListViewBound, RemovingARecordInTheWindowMovesTheRecordsBelowItUpOneRow )
 
     ListScene reference = MakeBoundList( 100 );
     ASSERT_TRUE( Bound().Remove( 2 ).IsSuccess() );
-    UIViewContext refCtx;
+    UIViewContext refCtx{ s_Resources };
     ASSERT_TRUE( Walk( reference, dl, refCtx ) );
     EXPECT_EQ( Fingerprint( dl ), removed ) << "a list that saw the removal draws what a fresh one does";
 
@@ -918,7 +838,7 @@ TEST( ListViewBound, TheScrollFollowsTheRecordsWhenRecordsAreInsertedOrRemovedAb
     auto&     lv    = scene.Registry.get<ECS::UIListViewComponent>( scene.Container ).Data;
     lv.ScrollY      = 100 * kRowHeight;
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     ASSERT_EQ( ScrollOf( scene ), 100 * kRowHeight );
 
@@ -950,7 +870,7 @@ TEST( ListViewBound, FollowEndKeepsAChatAtItsNewestLineOnlyWhileItIsThere )
         lv.FollowEnd    = follow;
         lv.ScrollY      = 1.0e9f;
         R2D::DrawList2D dl;
-        UIViewContext   ctx;
+        UIViewContext   ctx{ s_Resources };
         ASSERT_TRUE( Walk( scene, dl, ctx ) );
         const float end100 = 100 * kRowHeight - kListH;
         ASSERT_EQ( ScrollOf( scene ), end100 );
@@ -974,7 +894,7 @@ TEST( ListViewBound, TheEnumerationNamesEachRowsRecordAndAgreesWithTheDrawAboutI
     ListScene scene = MakeBoundList( 50 );
     ASSERT_TRUE( Bound().SetField( 4, "shown", false ).IsSuccess() );
     R2D::DrawList2D dl;
-    UIViewContext   ctx;
+    UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
 
     const auto nodes = Enumerate( scene, ctx );
@@ -1002,7 +922,7 @@ TEST( ListViewBoundCost, WalkTimeAgainstRecordCount )
     {
         ListScene           scene = MakeBoundList( records );
         R2D::DrawList2D     dl;
-        UIViewContext       ctx;
+        UIViewContext       ctx{ s_Resources };
         std::vector<double> samples;
         for ( int r = 0; r < 21; ++r )
         {
@@ -1017,10 +937,4 @@ TEST( ListViewBoundCost, WalkTimeAgainstRecordCount )
     }
     std::printf( "\n" );
     UI::UIDataStore::Get().Clear();
-}
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }

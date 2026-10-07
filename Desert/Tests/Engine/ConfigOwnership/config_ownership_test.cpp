@@ -1350,13 +1350,6 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     EXPECT_TRUE( CallsFunction( layer, {}, "SetQuality" ) )
          << "the packaged game loads the machine's quality and never gives it to a renderer";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // SCAL1: every retired quality key becomes an override on an all-High selection - unless it equals the
 // High table value, so a machine that never touched a knob comes out with zero overrides. One test per key.
 namespace

@@ -405,9 +405,3 @@ TEST( ReflectionSerializer, AContainerReadsWholeOrKeepsItsValue )
     ASSERT_EQ( issues.size(), 1u );
     EXPECT_EQ( issues[0].Path, "Sample.Values[1]" );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

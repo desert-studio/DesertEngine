@@ -20,6 +20,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
@@ -513,13 +514,6 @@ TEST( UIComponentRoundTrip, ALayoutRecordFromBeforeTheTransformExistedLeavesItNe
     EXPECT_FLOAT_EQ( read.AnchorMax.x, 1.0f );
 }
 
-int main( int argc, char** argv )
-{
-    ReflectionRegistry::Get().ResolveStructLinks();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 TEST( UIComponentRoundTrip, EveryRetainerFieldComesBack )
 {
     ECS::UIRetainerData written;
@@ -547,3 +541,22 @@ TEST( UIComponentRoundTrip, EveryRetainerFieldComesBack )
     EXPECT_FLOAT_EQ( read.HazeScale, written.HazeScale );
     EXPECT_FLOAT_EQ( read.HazeSpeed, written.HazeSpeed );
 }
+
+namespace
+{
+    // The reflected UI components name their nested structs by link; resolve them before the first round trip.
+    class StructLinksEnvironment final : public ::testing::Environment
+    {
+    public:
+        void SetUp() override
+        {
+            ReflectionRegistry::Get().ResolveStructLinks();
+        }
+    };
+
+    const Desert::TestSupport::SuiteEnvironment kStructLinks{
+         +[]() -> ::testing::Environment*
+         {
+             return new StructLinksEnvironment; // NOLINT(cppcoreguidelines-owning-memory)
+         } };
+} // namespace

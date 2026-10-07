@@ -59,6 +59,7 @@
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 using namespace Desert::Assets;
 using Desert::Graphic::CloudTypeBaseKm;
@@ -1623,15 +1624,6 @@ TEST( CloudLayoutFormat, ABareVersionOneFileIsRefusedNamingTheMigrator )
     EXPECT_NE( refused.GetError().find( "version 1" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // FORMAT 3 IS REFUSED BY NAME (AF7v). A v3 file is a complete, legal type with no identity; reading it
 // would hand it a handle nothing can name again, so the refusal says what moved and which tool fixes it.
 TEST( CloudTypeFormat, AVersionThreeFileWithoutAHeaderIsRefusedNamingTheMigrator )
@@ -1706,3 +1698,9 @@ TEST( CloudTypeFormat, AVersionFourFileIsRefusedByItsVersionAndNotByAJsonTypeErr
     EXPECT_NE( refused.GetError().find( "version 4" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

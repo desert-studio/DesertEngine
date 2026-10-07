@@ -721,9 +721,3 @@ TEST( ShapeGenerators, AHitOnAScaledBoxIsMeasuredInWorldUnits )
     EXPECT_NEAR( onSurface.z, 400.0f, 1e-2f );
     EXPECT_GT( std::abs( ray.GetPoint( t ).y ), 100.0f ) << "the local t is not a world distance under a scale";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

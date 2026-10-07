@@ -754,13 +754,6 @@ TEST( ControlKeying, RefusalsThatWouldOtherwiseBeSilent )
     ASSERT_TRUE( fix.Keyer.BeginInteraction().IsSuccess() );
     EXPECT_FALSE( fix.Keyer.BeginInteraction().IsSuccess() ) << "interactions do not nest";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── THE SAME TWO RULES FOR A BONE (A28) ──────────────────────────────────────────────────────────────
 //
 // THE NUMBER THIS FILE EXISTS TO STATE. The Sequencer's Record mode keys bones, not controls, and it

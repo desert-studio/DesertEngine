@@ -147,9 +147,3 @@ TEST( ActiveViewport, NoViewportsAtAll )
     const std::vector<std::string_view> order = { kSceneWindow };
     EXPECT_FALSE( ActiveViewportIndex( {}, order ).has_value() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

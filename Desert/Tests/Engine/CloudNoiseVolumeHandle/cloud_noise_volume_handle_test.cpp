@@ -19,6 +19,8 @@
 // "two independent loads" the requirement asks for, taken literally.
 
 #include <gtest/gtest.h>
+#include <Common/Utilities/FileSystem.hpp>
+#include "../../TestSupport/runner.hpp"
 
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 
@@ -30,10 +32,11 @@
 
 namespace
 {
-    // argv[0] of this run, captured by main. The child is this same binary.
-    std::string g_ExecutablePath;
+    // The runner that holds this suite; the child is the same binary, entered through a --desert-child
+    // entry point (TestSupport/runner.hpp).
+    const std::string g_ExecutablePath = Common::Utils::FileSystem::ExecutablePath().string();
 
-    constexpr const char* kPrintHandleFlag = "--print-handle";
+    constexpr const char* kPrintHandleFlag = "--desert-child=cloud-noise-print-handle";
 
     // The subject: the handle the asset carries the moment it is constructed. In the constructor and not
     // after Load, because the AssetManager keys a not-yet-loaded shell by it.
@@ -52,7 +55,7 @@ namespace
         return text.substr( first, last - first + 1 );
     }
 
-    // Runs THIS binary again, in a process of its own, and returns what its `--print-handle` branch
+    // Runs THIS binary again, in a process of its own, and returns what its `cloud-noise-print-handle` entry point
     // printed. Empty means the child could not be run or printed nothing — the callers treat that as a
     // failure of the test rather than as a pass, because a silently skipped guard is not a guard.
     std::string HandleFromAnIndependentProcess( const std::string& path )
@@ -141,20 +144,24 @@ TEST( CloudNoiseVolumeHandle, TwoAssetsOverOnePathAgreeWithinASingleProcess )
     EXPECT_EQ( HandleOf( kVolumePath ), HandleOf( kVolumePath ) );
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    Desert::TestSupport::OpenSuiteProject();
-    // The child branch. Deliberately before InitGoogleTest: this invocation is not a test run, it is one
-    // half of the measurement the test above makes.
-    if ( argc >= 3 && std::strcmp( argv[1], kPrintHandleFlag ) == 0 )
+    // `<runner> --desert-child=cloud-noise-print-handle <path>`. Not a test run: it is one half of the
+    // measurement the test above makes.
+    int PrintHandleChild( int argc, char** argv )
     {
-        printf( "%llu\n", static_cast<unsigned long long>( HandleOf( argv[2] ) ) );
+        if ( argc < 2 )
+            return 2;
+        printf( "%llu\n", static_cast<unsigned long long>( HandleOf( argv[1] ) ) );
         return 0;
     }
 
-    g_ExecutablePath = argv[0];
+    const Desert::TestSupport::ChildEntry kPrintHandle{ "cloud-noise-print-handle", &PrintHandleChild,
+                                                        { .EngineDir = true, .Project = true } };
+} // namespace
 
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true, .Project = true } };
+} // namespace

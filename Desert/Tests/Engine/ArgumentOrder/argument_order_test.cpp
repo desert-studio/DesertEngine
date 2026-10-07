@@ -175,9 +175,3 @@ TEST( ArgumentOrder, TextInsideALiteralIsNotCode )
          AO::ScanText( "void f() { Log( \"text\", spec.Name, std::move( spec ) ); }", "<inline>" );
     EXPECT_EQ( real.size(), 1U ) << "blanking the literal also blanked the real read" << Report( real );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

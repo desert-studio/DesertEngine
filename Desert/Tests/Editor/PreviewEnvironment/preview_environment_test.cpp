@@ -114,13 +114,6 @@ TEST( PreviewEnvironment, AKnownPathResolvesAndAnUnknownOneIsRefusedByName )
     EXPECT_NE( unknown.Error.find( "Resources/Assets/HDR/renamed_away.hdr" ), std::string::npos )
          << "the refusal must name the path: " << unknown.Error;
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // editor.json is per USER and shared by every checkout on the machine, so the HDR it remembers is the registry's
 // stable key (`root:relative/path`), never the path expanded on this machine: an absolute path named one checkout
 // and every other one refused it ("no HDR skybox asset at 'F:/DesertEngine/...'"). The picker is ImGui, so its two

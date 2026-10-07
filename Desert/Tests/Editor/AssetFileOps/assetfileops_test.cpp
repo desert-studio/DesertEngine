@@ -82,9 +82,3 @@ TEST( AssetFileOps, ACopyDoesNotTakeTheSourcesIdentity )
     ASSERT_TRUE( AssetFileOps::Duplicate( ( root / "a" / "Rock.fbx" ).string(), out, error ) ) << error;
     EXPECT_FALSE( std::filesystem::exists( out + ".deimport" ) ) << "a duplicate stated its original's GUID";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

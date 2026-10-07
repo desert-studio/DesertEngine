@@ -3,7 +3,8 @@
 #include <Editor/Import/MaterialImportContract.hpp>
 
 #include "../../TestSupport/engine_dir.hpp"
-#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <cstdio>
 #include <filesystem>
@@ -128,15 +129,6 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
     EXPECT_EQ( shipped[fbx.GetValue()].ShaderName, "StandardSurface" );
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    // The engine resources (the shader root and its shading models) hang off the engine directory the build baked
-    // in; the working directory is never consulted.
-    const Desert::TestSupport::EngineDirScope engineDir;
-    return RUN_ALL_TESTS();
-}
-
 // THM1k (owner): AN IMPORT WRITES NO PreviewMesh - every imported material's thumbnail is the ball, as in UE.
 // The document is the chosen template and the fill's values, nothing that names a mesh.
 TEST( MaterialImportContract, AnImportedMaterialNamesNoPreviewMesh )
@@ -156,3 +148,9 @@ TEST( MaterialImportContract, AnImportedMaterialNamesNoPreviewMesh )
     ASSERT_EQ( data.Params.size(), 1u );
     EXPECT_EQ( data.Params[0].Name, "BaseColor" );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

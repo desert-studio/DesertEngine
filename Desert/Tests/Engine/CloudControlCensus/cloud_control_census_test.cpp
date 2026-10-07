@@ -549,9 +549,3 @@ TEST( CloudControlCensus, EveryPopulationOutsideThisCensusSaysWhyAndCannotBeADer
 
     std::printf( "[CloudControlCensus] %zu population(s) explicitly out of scope\n", kOutOfScope.size() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -464,9 +464,3 @@ TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
              << row.Pipeline << " records its draw without a LOD level (" << row.Why << ")";
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

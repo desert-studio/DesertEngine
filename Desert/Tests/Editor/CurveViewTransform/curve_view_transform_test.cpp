@@ -241,9 +241,3 @@ TEST( CurveViewTransform, TheFrameGridThinsOutInsteadOfDrawingAThousandLines )
              << "step " << step << " is not on the 1-2-5 ladder";
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

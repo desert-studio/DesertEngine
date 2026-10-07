@@ -32,6 +32,7 @@
 #include <gtest/gtest.h>
 #include "../../TestSupport/committed_projects.hpp"
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -1169,9 +1170,8 @@ TEST( PakChunks, EveryPackedTextFileIsCheckedOutVerbatim )
                                      << listed;
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

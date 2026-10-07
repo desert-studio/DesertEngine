@@ -291,9 +291,3 @@ TEST( MeshImportKey, TheWriterAndTheAdoptionNameOneFile )
     EXPECT_EQ( Adoption::MaterialAssetPath( source, "wood panel" ),
                CookPaths::MaterialFolder( source ) / "wood_panel.demat" );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

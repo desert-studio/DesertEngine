@@ -37,7 +37,8 @@
 #include "../../TestSupport/assets_sandbox.hpp"
 #include "../../TestSupport/derived_data_sandbox.hpp"
 #include "../../TestSupport/engine_dir.hpp"
-#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -858,11 +859,8 @@ TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
     std::filesystem::remove_all( root, ec );
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    // The host step (as the editor takes it in Sandbox.hpp): every engine path read after it answers off
-    // the checkout's engine directory, never off the working directory.
-    Desert::TestSupport::SetSuiteEngineDir();
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

@@ -84,9 +84,3 @@ TEST( NumberFormat, HandlesTheWholeRange )
 {
     EXPECT_EQ( FormatThousands( UINT64_MAX ), "18 446 744 073 709 551 615" );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -91,9 +91,3 @@ TEST( AutoRig, EmptyRigFallsBackToRoot )
     EXPECT_FLOAT_EQ( skinned[0].BoneWeights[0], 1.0f );
     EXPECT_EQ( skinned[0].StaticVertex.Position, ( glm::vec3{ 1, 2, 3 } ) ); // static data preserved
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

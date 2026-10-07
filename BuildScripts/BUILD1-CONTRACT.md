@@ -132,11 +132,11 @@ the message) — an empty selection is an error, never "0 tests passed".
 | what | suites | change |
 |---|---|---|
 | own `int main` | 365 of 366 | deleted; `TestSupport/RunnerMain.cpp` is the only main |
-| main with work beyond InitGoogleTest | EngineHost (`AddGlobalTestEnvironment(HostEnvironment)`), the cooked-mesh environment in `TestSupport/cooked_static_mesh.hpp:75,92`, CrashHandler (child mode, chdir to `argv[3]`, `crash_handler_test.cpp:448`) | global environments become suite-level `SetUpTestSuite` fixtures (a global env would boot the engine host for EVERY suite of the runner); the CrashHandler child mode becomes a runner dispatch `--desert-child=<name>` registered by the suite |
+| main with work beyond InitGoogleTest | EngineHost (`AddGlobalTestEnvironment(HostEnvironment)`), the cooked-mesh environment in `TestSupport/cooked_static_mesh.hpp:75,92`, CrashHandler (child mode, chdir to `argv[3]`, `crash_handler_test.cpp:448`) | DONE (P1-B3): the work becomes a `TestSupport::SuiteEnvironment` registered from the suite's own .cpp — RunnerMain hands it to gtest only when that suite is selected (a global env would boot the engine host for EVERY suite of the runner); same for CloudAuthored, CloudField, SkeletonMapperFit, SwapchainAcquire, UIComponentRoundTrip, ControlTransport, PreferenceOwnership, StaticMeshCooked and the four cooked-mesh suites. Child modes (CrashHandler `crash`, AssetHandleStability, CloudNoiseVolumeHandle, ShaderCacheKey) are `TestSupport::ChildEntry` points: `<runner> --desert-child=<name> <args>` |
 | same gtest test-suite name in two suites | `CloudNoiseContainer` (CloudNoiseSheet, CloudNoiseVolume), `ShaderRootFixture` (MeshVertexPath, PBRSceneFrame, ShaderCacheKey) | one shared fixture in `TestSupport/` or distinct names: gtest aborts when one test-suite name maps to two fixture classes, and two different classes with one name at namespace scope are an ODR violation the linker resolves silently |
 | tests that `current_path(...)` | ~56 call sites (PackagedContent, AssetPathIdentity, WorldPartition, EngineShaderByGuid, PakChunks, MaterialDocumentOpen, MeshBinaryFormat, CrashHandler ...) | unchanged: process-per-suite keeps the scratch cwd; save/restore guards stay |
 | tree location (walk up from cwd to `Editor/Resources/Shaders`) | many | unchanged (cwd is still `build/TestScratch/...` under the checkout) |
-| `argv[0]` read in main | CrashHandler `crash_handler_test.cpp:440` (re-spawns itself, :69 CreateProcessW / :88 posix_spawn), AssetHandleStability `asset_handle_stability_test.cpp:1350`, CloudNoiseVolumeHandle `cloud_noise_volume_handle_test.cpp:152` | RunnerMain exposes the runner's own path to tests (one accessor in `TestSupport/`); CrashHandler's child is `<runner> --desert-child=crash` |
+| `argv[0]` read in main | CrashHandler `crash_handler_test.cpp:440` (re-spawns itself, :69 CreateProcessW / :88 posix_spawn), AssetHandleStability `asset_handle_stability_test.cpp:1350`, CloudNoiseVolumeHandle `cloud_noise_volume_handle_test.cpp:152` | DONE: the runner's own path is `Common::Utils::FileSystem::ExecutablePath()` (absolute, whatever the parent typed); CrashHandler's child is `<runner> --desert-child=crash <mode> <kind> <root>` |
 | `dependson` (build order on a tool) | 18 suites: AssetResolverCensus, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, SceneCloudLayoutDefault, SceneDebugFields, SceneForeignKeys, SceneMeshGuidMigration, SceneMigratorWritePath, SceneSettingsHomes, SettingConsumers, SkyPresets, UIClipUndo, UIComponentRoundTrip, WorldSceneGenerator (+ the parent) | union moves onto the runner that holds them |
 | extra links | ControlTransport (`ws2_32`, `advapi32`), UIScriptCollections (`Lua`) | onto their runner, with the reason |
 | `TESTING` / `GTEST` in engine/editor/tool sources | none | linking the prebuilt `Desert.lib` (compiled without those defines) changes no engine code |
@@ -155,6 +155,42 @@ Expected: test compiles 1,799 -> ~437 test TUs + 41 Editor + 23 others (~500), e
 compiled once (in Desert, with PCH); 366 links -> 5; PDB 12.4 GB -> ~5 runner PDBs.
 Verify: `msbuild -t:BuildAllTests` wall time + `build/Tests` size, before/after, same tree;
 the sum of tests run per suite in the reports equals today's (5,278).
+
+### Adding a suite (and converting one that arrives the old way)
+
+A suite is a directory `Desert/Tests/<Layer>/<Suite>/` with `*.cpp` and nothing else: no `premake5.lua`, no
+`int main`. Generation lists it in `build/TestManifest.txt` as `<Layer>Tests <Suite>` and compiles it into
+the layer runner. A suite merged in from a branch that still has its own script converts in one minute:
+
+1. delete `Desert/Tests/<Layer>/<Suite>/premake5.lua` and the suite's `int main` (RunnerMain is the main).
+   What the main did before or after `RUN_ALL_TESTS` goes into a `::testing::Environment` registered with
+   `namespace { const Desert::TestSupport::SuiteEnvironment kX{ &MakeX }; }` (runs only for that suite); a
+   mode in which the suite re-launches itself becomes a `TestSupport::ChildEntry` (`--desert-child=<name>`,
+   a name unique in the runner) and the binary path comes from `FileSystem::ExecutablePath()`, never argv[0];
+2. anything the script added beyond the template (an include dir, a library, a tool or editor source,
+   a `dependson`) goes into `kRunners.<Layer>` in `Desert/Tests/premake5.lua`, with its reason; an
+   engine source the script compiled is NOT copied: the runner links `Desert.lib`;
+3. file-local types into `namespace { }`, and a gtest test-suite name no other suite of the layer uses.
+
+`Desert/Tests/Common/TestRunnerLayout` names the suite and the rule it breaks if a step is missed, and
+generation itself refuses a suite `premake5.lua` with the same instructions (P1-B3 removed the transition
+branch: every suite of every layer is in its runner).
+
+Mac one-liners (gmake; the same runners and manifest as Windows):
+
+- build + run suite X: `CI=true premake5 gmake && scripts/Dev/suite.sh X`
+- all suites: `CI=true premake5 gmake && make -C build/Projects config=debug -j4 BuildAllTests && scripts/MacOS/RunTests.sh "$PWD" Debug`
+- ASan: the CI job's ASan options on the same commands; the manifest drives the shards.
+
+Run one suite / all suites:
+
+- Windows: `build\Bin\Tests\Debug\CommonTests.exe --desert-suite=Pak` (any gtest flag works with it);
+  all: build the `BuildAllTests` target, then `run_tests.bat` (RunTests.ps1 reads the manifest).
+- macOS: `CI=true premake5 gmake && scripts/Dev/suite.sh Pak` (resolves the runner from the manifest, builds
+  only that runner, runs `--desert-suite=Pak`); all: `CI=true premake5 gmake`, then
+  `make -C build/Projects config=debug BuildAllTests` (with your usual -j), then `scripts/MacOS/RunTests.sh "$PWD" Debug`.
+- The ASan/CI shard planner (`scripts/CI/TestShards.py plan --expected build/TestManifest.txt`) and both
+  runners take the suite list from the manifest only; nothing globs the output directory any more.
 
 ## 5. P2 — precompiled headers
 

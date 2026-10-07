@@ -377,9 +377,3 @@ TEST( DynamicMesh3Core, SetTriangleRewiresAndDropsIsolatedVertex )
     EXPECT_EQ( Mesh.FindEdge( 4, 6 ) != DynamicMesh3::InvalidID, true );
     EXPECT_EQ( Mesh.EdgeCount(), 6 );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

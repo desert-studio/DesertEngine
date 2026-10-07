@@ -1712,9 +1712,3 @@ TEST( VolumetricCloudReflection, AKeyThatIsNotInTheSceneLeavesTheFieldAlone )
          << "a missing key OVERWROTE the field, so loading an old scene would move every cloud layer in "
             "the repository";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

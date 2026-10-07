@@ -623,13 +623,6 @@ TEST( AnimatorBlending, ScrubbingDoesNotFireNotifies )
     EXPECT_TRUE( animator.ConsumeNotifyEvents().empty() )
          << "dragging the playhead fired gameplay events; scrubbing a timeline would spawn footstep VFX";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ── ANV3: notify states (UE's UAnimNotifyState) and anim curves (UE's FFloatCurve) ───────────────────
 
 namespace

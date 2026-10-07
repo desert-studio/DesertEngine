@@ -508,12 +508,6 @@ TEST( AssimpLibraryPin, TheImporterStillUsesTheFlagsAndTheShapeTheseNumbersWereM
             "assimp's default of metres.";
 }
 
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // MAT1v: glTF COLOR_0 and TEXCOORD_1 become the asset's optional colour and UV1 streams. The file is written
 // here - a .gltf and its .bin in a temporary folder - with two meshes, only the first carrying the streams,
 // so the neutral fill of the second is asserted too.

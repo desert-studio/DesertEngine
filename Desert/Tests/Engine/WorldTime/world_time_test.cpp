@@ -313,9 +313,3 @@ TEST( WorldTimeOneSource, OnlyTheMainSceneTakesTheViewportsRealtime )
     ASSERT_EQ( setters.size(), 1u ) << "a scene's Realtime is set from more than the main viewport";
     EXPECT_EQ( setters.front(), "Editor/Source/EditorLayer.cpp" );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

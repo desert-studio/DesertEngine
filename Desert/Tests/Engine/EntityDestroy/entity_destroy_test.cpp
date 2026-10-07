@@ -309,9 +309,3 @@ TEST( EntityDestroy, CostPerDestroyDoesNotGrowWithTheWorld )
     // a factor of two either side.
     EXPECT_LT( large / smallOne, 15.0 ) << "destroy cost grows with the size of the world again";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

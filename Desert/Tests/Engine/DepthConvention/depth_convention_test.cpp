@@ -483,9 +483,3 @@ TEST( DepthConvention, TheSkyRayReachesTheNearPlaneAndNoFurther )
              << "ndc " << ndc.x << ',' << ndc.y;
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

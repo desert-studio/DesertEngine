@@ -176,7 +176,9 @@ namespace Desert::Editor
         // false because a UIAnim clip's playhead lives in the component (the Sequencer scrubs it) and is
         // therefore SCENE state: the viewport pass advances it, and a second view advancing it too would run
         // every clip at twice its authored speed.
-        ::Desert::UI::UIViewContext m_UIView;
+        // The engine resources this view draws with; declared first, so it outlives the view built on it.
+        ::Desert::UI::RegistryUICanvasResources m_UIResources;
+        ::Desert::UI::UIViewContext             m_UIView{ m_UIResources };
 
         uint32_t m_TargetWidth  = 0;
         uint32_t m_TargetHeight = 0;

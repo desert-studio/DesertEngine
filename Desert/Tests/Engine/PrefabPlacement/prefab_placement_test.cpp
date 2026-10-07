@@ -114,9 +114,3 @@ TEST( PrefabPlacement, AWorldPrefabIsAllowedOnBothSides )
     EXPECT_TRUE(
          CheckPrefabPlacement( PrefabRootKind::World, kUnderCanvas, "Prefabs/Crate.deprefab", "'HUD'" ).Allowed );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

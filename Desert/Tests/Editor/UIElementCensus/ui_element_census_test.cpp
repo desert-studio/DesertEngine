@@ -332,9 +332,3 @@ TEST( UIElementCensus, EveryUICreationPathRecordsItselfOnTheUndoStack )
              << menu << " builds a UI element inline instead of calling CreateUIElement";
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -798,9 +798,3 @@ TEST( ScalabilityContract, TheCacheKeyIsTheCreatedDevicesIdentityAndATableChange
     otherGpu.DeviceId                           = 0x2484;
     EXPECT_FALSE( CacheValid( cached, Desert::Engine::MakeBenchmarkCacheKey( otherGpu, 3 ) ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

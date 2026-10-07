@@ -213,9 +213,3 @@ TEST( TextureCompressionBC, TheCapabilityIsPublishedFromDeviceCaps )
                std::string::npos )
          << "SupportsTextureCompressionBC must be read from DeviceCaps, the record of what was enabled";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

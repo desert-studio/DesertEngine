@@ -961,9 +961,3 @@ TEST( CloudMediumValues, TheFingerprintIsZeroExactlyWhenTheMediumContributesNoth
     EXPECT_NE( Desert::Graphic::CloudMediumValuesFingerprint( a ),
                Desert::Graphic::CloudMediumValuesFingerprint( withImage ) );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -241,9 +241,3 @@ TEST( ViewportCamera, ADocumentsPropertyNameIsNotAViewportProperty )
     EXPECT_FALSE( ValidateViewportCameraWrite( "RoughnessFactor", { 0.25f } ).IsSuccess() );
     EXPECT_FALSE( ValidateViewportCameraWrite( "", { 1.0f, 2.0f, 3.0f } ).IsSuccess() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

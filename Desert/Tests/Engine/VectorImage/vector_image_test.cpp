@@ -183,9 +183,3 @@ TEST( VectorImageParse, APathWithoutOpacityIsUnchanged )
     ASSERT_EQ( image.Shapes.size(), 1u );
     EXPECT_EQ( image.Shapes[0].FillRGBA, 0x336699FFu );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

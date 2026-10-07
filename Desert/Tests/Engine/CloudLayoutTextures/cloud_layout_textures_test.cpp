@@ -471,9 +471,3 @@ TEST( CloudLayoutTextures, ASlotFedALayoutWithoutItsTableRefusesByName )
     EXPECT_TRUE( ValidateCloudProceduralLayoutTable( params, CloudLayoutTable::Pattern ) )
          << "an empty pattern input was reported as a fault";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

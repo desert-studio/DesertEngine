@@ -26,10 +26,14 @@
 -- an import placed after the project body (ForceImportBeforeCppTargets) left UseMultiToolTask without
 -- effect. Being in the generated project, it is also what a developer's Visual Studio build gets, with
 -- no command-line property to remember.
-vsprops {
-    UseMultiToolTask = "true",
-    EnforceProcessCountAcrossBuilds = "true",
-}
+-- Under `action:vs*` only: the properties are MSBuild's, and the gmake action (macOS, ASan CI) has no
+-- project file to put them in.
+filter "action:vs*"
+    vsprops {
+        UseMultiToolTask = "true",
+        EnforceProcessCountAcrossBuilds = "true",
+    }
+filter {}
 
 -- ── THE CENSUS: A GENERATED .vcxproj THAT LOST EITHER PROPERTY, OR GOT /ZI BACK, FAILS GENERATION ──
 --

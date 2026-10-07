@@ -79,6 +79,7 @@
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 namespace
 {
@@ -537,9 +538,8 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
                                << " .cpp files - the scan is broken, not the tree";
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

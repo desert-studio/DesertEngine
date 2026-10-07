@@ -363,9 +363,3 @@ TEST( MappedMemoryCensus, NoBufferInterfaceHandsOutARawMappingPointer )
              << header << " must ask the mapping question through EnsureMapped(), which answers.";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -232,9 +232,3 @@ TEST( GizmoTransformSpace, ARootEntityDecomposesItsWorldMatrixDirectly )
     EXPECT_NEAR( out.Translation.z, t.z, kEps );
     EXPECT_NEAR( out.Scale.x, s.x, kEps );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

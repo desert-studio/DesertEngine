@@ -156,9 +156,3 @@ TEST( ClipSkeletonMatch, AMissListsTheClipsTheRigPlays )
     EXPECT_EQ( miss.GetError().find( "'Walk'" ), std::string::npos )
          << "a clip the fox cannot play was offered as the right name: " << miss.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

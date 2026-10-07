@@ -4,6 +4,7 @@
 
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/runner.hpp"
 
 #include <ShaderGraph.hpp> // editor: the graph document + compiler under test
 
@@ -1052,11 +1053,8 @@ TEST( ShaderGraphFormat, TheDocumentSavesToItsSubjectsOwnPath )
             "now whatever else set it.";
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    testing::InitGoogleTest( &argc, argv );
-    // The engine resources (the shader root and its shading models) hang off the engine directory the build baked
-    // in; the working directory is never consulted.
-    const Desert::TestSupport::EngineDirScope engineDir;
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

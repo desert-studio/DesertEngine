@@ -739,9 +739,3 @@ TEST( RendererSceneLifetime, TheBuildReadsTheViewExtentAndNeverTheWindow )
     EXPECT_LT( record, unbuilt ) << "Resize leaves before recording the extent: a size learned before the "
                                     "build would be lost.";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

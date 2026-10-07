@@ -184,9 +184,3 @@ namespace
                  << "exception row matches nothing any more, remove it: " << row.File;
     }
 } // namespace
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

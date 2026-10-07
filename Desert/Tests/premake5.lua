@@ -2,22 +2,354 @@ local currentDir = _MAIN_SCRIPT_DIR
 
 os.mkdir(currentDir .. "/build/TestReports")
 
-local test_premake_files = os.matchfiles("./**/premake5.lua")
+-- ── ONE TEST RUNNER PER LAYER (BUILD1 P1, BuildScripts/BUILD1-CONTRACT.md §4) ──────────────────────
+--
+-- A SUITE IS A DIRECTORY, `Desert/Tests/<Layer>/<Suite>/`, and the runner of its layer is ONE executable
+-- (`<Layer>Tests`) that holds every suite of the layer and LINKS the layer's libraries. It replaces one
+-- project per suite, each recompiling the engine sources it needed: 366 links and ~1,800 compiles of
+-- mostly the same sources. The suite is chosen at run time, `<Layer>Tests --desert-suite=<Suite>`
+-- (TestSupport/runner.hpp), and RunTests.ps1/.sh keep running one PROCESS per suite.
+--
+-- A suite has no premake5.lua and no `main`: its `*.cpp` (the suite directory itself, not below it) are
+-- compiled into the runner, and TestSupport/RunnerMain.cpp is the runner's only `main`. What a suite
+-- needs beyond that (an include directory, a library, a tool source) goes into its RUNNER's entry in
+-- `kRunners` below, once, with the reason.
+--
+-- NO SUITE HAS A PROJECT OF ITS OWN. A premake5.lua in a suite directory fails generation with what to
+-- do instead (a branch from another team that adds a suite the old way converts it in a minute:
+-- BuildScripts/BUILD1-CONTRACT.md §4). Set-up a suite's main used to do is a SuiteEnvironment, a mode in
+-- which the suite re-launches itself is a ChildEntry (TestSupport/runner.hpp); and
+-- Desert/Tests/Common/TestRunnerLayout fails a suite that still defines a main.
+local testsDir = currentDir .. "/Desert/Tests"
+local kLayers  = { "Common", "Engine", "Editor", "Runtime", "Tools" }
 
--- A SUITE THAT NEEDS A VULKAN DEVICE SAYS SO ONCE, IN ITS OWN premake5.lua: `test_needs_vulkan_device(test_name)`.
--- The names land in build/TestNeedsVulkanDevice.txt next to the manifest, and that file is the ONLY place the CI
--- learns it from: scripts/CI/TestShards.py plan leaves these suites out of the shards (with a ::notice naming
--- them) on a runner whose DESERT_*_VULKAN_RUNNER variable is not 'true' -- the hosted macos-14 VM and
--- windows-2022 have no device -- and plans them like every other suite on one that is. The test itself never
--- skips: on a deviceless machine it fails, as it should when someone runs it there by hand.
-local vulkan_device_suites = {}
-function test_needs_vulkan_device(test_name)
-    table.insert(vulkan_device_suites, test_name)
+local function DesertTestsCommonSettings(deps)
+    kind "ConsoleApp"
+    language "C++"
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    -- TestSupport/*.hpp is included as "TestSupport/..." from every layer.
+    includedirs { "%{_MAIN_SCRIPT_DIR}/Desert/Tests" }
+    for _, p in pairs(deps.Common.IncludeDir) do
+        externalincludedirs { p }
+    end
+    for _, p in pairs(deps.TestSpecific.IncludeDir) do
+        externalincludedirs { p }
+    end
+    for _, define in ipairs(deps.TestSpecific.Defines) do
+        defines { define }
+    end
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter "system:linux"
+        defines { "DESERT_PLATFORM_LINUX" }
+    filter "configurations:Debug"
+        for _, lib in pairs(deps.TestSpecific.Libraries.Debug) do
+            links { lib }
+        end
+    filter "configurations:Release"
+        for _, lib in pairs(deps.TestSpecific.Libraries.Release) do
+            links { lib }
+        end
+    filter {}
 end
 
-for _, premake_file in ipairs(test_premake_files) do
-    include(path.getdirectory(premake_file))
+-- Desert and its link closure: what a runner that LINKS the engine needs (Tools, Engine, Editor). The engine
+-- sources a suite tests come from Desert.lib, the same objects the editor ships; before BUILD1 the suites
+-- compiled them (and vk_mem_alloc, VkBootstrap, stb, ImGui) one by one, so none of them is listed here.
+local function DesertRunnerSettings(deps)
+    files {
+        -- Desert.lib registers the reflected types from an object nothing here references; this
+        -- reference links it (see the file). Before BUILD1 the suites compiled Reflection.gen.cpp.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Tests/TestSupport/EngineReflectionLink.cpp",
+    }
+    includedirs {
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        -- Engine suites read header-only editor types (component editors' data, command records).
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+    }
+    externalincludedirs {
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
+    }
+    -- Every engine third-party include (Jolt, Lua/sol2, stb, entt, meshoptimizer, OpenSubdiv, Vulkan...),
+    -- from the engine's own list so the two stay in sync. pairs() skips the Vulkan keys when no SDK is set.
+    for _, p in pairs(deps.DesertSpecific.IncludeDir) do
+        externalincludedirs { p }
+    end
+    defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
+    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus" }
+    filter "system:windows"
+        buildoptions { "/bigobj" }
+    -- gmake does not link a static library's own dependencies transitively (Visual Studio does, through
+    -- the project references), so on macOS the runner names what Desert.lib uses, exactly as
+    -- Editor/premake5.lua does for the editor.
+    filter "system:macosx"
+        links {
+            "Common",
+            "Jolt",
+            "Lua",
+            "ReflectCpp",
+            "Cocoa.framework",
+            "IOKit.framework",
+            "CoreFoundation.framework",
+            "CoreVideo.framework",
+            "CoreMedia.framework",
+            "AVFoundation.framework",
+            "QuartzCore.framework",
+            "Foundation.framework", -- Engine/Media (EngineHost's script)
+        }
+    filter "configurations:Debug"
+        defines { "DESERT_CONFIG_DEBUG" }
+        links { deps.DesertSpecific.Libraries.Debug }
+    filter "configurations:Release"
+        defines { "DESERT_CONFIG_RELEASE" }
+        links { deps.DesertSpecific.Libraries.Release }
+    filter {}
 end
+
+-- What each runner adds to the common settings: the union of what its suites' own scripts carried
+-- before BUILD1, each with the reason it is there.
+local kRunners = {
+    Common = function(deps)
+        includedirs {
+            "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+            -- Rounding, ProductName, ReservedIdentifiers, TidyRegister-style text checks and AssetRenameMove
+            -- read engine/editor headers that are header-only; nothing of Desert or Editor is linked.
+            "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+            -- CrashHandler checks the packaged game's --crash-test parser (header-only RuntimeCrashTest.hpp).
+            "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
+        }
+        -- Optick: Common's JobSystem registers its worker threads with it. ReflectCpp: CanonicalText's
+        -- writer reads and spells through yyjson, which ReflectCpp carries.
+        links { "Common", "ReflectCpp", "Optick" }
+        -- Subsystems: the header tool generates the sample owners' subsystem tables before the compile, and
+        -- --check holds Owner/ to the tool's rules.
+        local subsystems = "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Common/Subsystems"
+        dependson { "DesertHeaderTool" }
+        prebuildcommands {
+            DesertPlatform.BuiltToolPath("DesertHeaderTool")
+                .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+                .. ' --check "' .. subsystems .. '/Owner"'
+                .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source/Common/Core/Events"'
+                .. ' --subsystems Sample SubsystemSamples::SampleOwner SampleOwner.hpp'
+                .. ' "' .. subsystems .. '/Generated/SampleSubsystems.gen.cpp"'
+                .. ' --subsystems SampleWorld SubsystemSamples::SampleWorld SampleOwner.hpp'
+                .. ' "' .. subsystems .. '/Generated/SampleWorldSubsystems.gen.cpp"'
+        }
+        files { subsystems .. "/Owner/*.hpp", subsystems .. "/Generated/*.gen.cpp" }
+        includedirs { subsystems .. "/Owner" }
+    end,
+    Runtime = function(deps)
+        -- PackagedMount tests the packaged game's mount. Runtime is an executable, so the one source it
+        -- needs is compiled here rather than linked.
+        files { "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp" }
+        includedirs {
+            "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+            "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
+        }
+        links { "Common", "Optick" }
+    end,
+    Tools = function(deps)
+        DesertRunnerSettings(deps)
+        -- The tools are executables, so the sources their suites test are compiled here, once.
+        files {
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MigratorMain.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SceneMigration.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipInterpShift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipMigration.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipLift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ImportRecordSourceHash.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldBuild.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source/WorldGenMain.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source/CrashReport.cpp",
+            -- WorldCells holds the world cook's cell partition (the file has no main of its own).
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source/WorldCookMain.cpp",
+            -- HeaderToolChecks: the header tool's scanner.
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source/HeaderScan.cpp",
+            -- BuildScriptContract holds the editor's asset-reference scan to the build scripts.
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
+        }
+        includedirs {
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source",
+        }
+    end,
+    Engine = function(deps)
+        DesertRunnerSettings(deps)
+        files {
+            -- The launcher/engine project-format conformance suite; Engine/ProjectFormat adopts it.
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Tests/project_format_test.cpp",
+            -- UICanvasContext: the v40 -> v41 UI lift is the migrator's.
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp",
+            -- TimelineContract: the generation-3 clip lift and the interp shift are the migrator's.
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipLift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipInterpShift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
+            -- LevelSequence: keying through the editor's sequence transaction and material tracks.
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
+        }
+        includedirs {
+            -- Two suites share the EditMesh suite's fixture builders, and one reads SettingConsumers' table.
+            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/EditMesh",
+            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/SettingConsumers",
+            -- Header-only tool cores the image and lattice censuses measure with.
+            "%{_MAIN_SCRIPT_DIR}/Tools/ImageDiff/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/LatticePeak/Source",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
+        }
+        -- MediaPlayback / StartupMovie play the committed test clips.
+        defines { 'DESERT_MEDIA_TEST_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/red_440hz_1s.webm"',
+                  'DESERT_MEDIA_PATTERN_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/testsrc2_1080p_5s.webm"' }
+    end,
+    Editor = function(deps)
+        DesertRunnerSettings(deps)
+        -- The editor is an executable, so the editor sources its suites test are compiled here, once
+        -- (the union of what the suites compiled one by one before BUILD1).
+        files {
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetFileOps.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/InstanceFold.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/LandscapeEditLayerEdits.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/PoseEditTransaction.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Control/ControlSocket.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/EditorPreferences.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/FuzzyMatch.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GizmoState.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GraphCanvas/GraphCanvas.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/LogView.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/MultiEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Selection/ModelingToolTarget.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/SubjectEditorRegistry.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ThemeManager.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ViewportModes.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/EditedMeshAsset.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportUnits.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportedMeshAsset.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/LandscapeHeightmapIO.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MeshDeriver.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/GamePackager.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/PackageCook.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Collections/CollectionFoliageTypes.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Foliage/FoliagePalette.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraphCanvasPlan.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/PropertyEditor/PropertyReset.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/CurveView.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliageBrush.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/WorldPartition/WorldPartitionMap.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Splash/SplashImage.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/CloudThumbnail.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/HdrSphereThumbnail.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/AnimGraphEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/VertexStreams.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportSettingsEdits.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/NodeMeshSplit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/PoseGraphEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailFoliage.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/AssimpImporter.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/EmbeddedSourceTexture.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceAlphaMode.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceMaterialAdapter.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceTexturePath.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportManager.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MaterialImportContract.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureChannelPack.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SkeletonBindEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp",
+        }
+        includedirs {
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph",
+            "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui",
+        }
+        externalincludedirs {
+            "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
+            "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/openexr/src/lib/OpenEXRCore", -- <openexr.h>, texture import
+            "%{_MAIN_SCRIPT_DIR}/build/generated/openexr/include", -- its generated config headers
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
+        }
+        links { "ImGuiNodeEditor" }
+        filter "system:windows"
+            -- The control socket (ControlTransport, ControlDispatch) is Winsock.
+            links { "ws2_32", "advapi32" }
+        filter {}
+    end,
+}
+
+local deps           = dofile(currentDir .. "/Desert/Dependencies.lua")
+local manifest_lines = {} -- "<Executable> <Suite>", one per suite
+local test_projects  = {} -- every project RunAllTests depends on
+
+for _, layer in ipairs(kLayers) do
+    local suiteDirs = os.matchdirs(testsDir .. "/" .. layer .. "/*")
+    table.sort(suiteDirs)
+    local configure  = kRunners[layer]
+    local runnerName = layer .. "Tests"
+    local converted  = {}
+    for _, dir in ipairs(suiteDirs) do
+        local suite = path.getname(dir)
+        if os.isfile(dir .. "/premake5.lua") then
+            error(string.format("Desert/Tests/%s/%s has its own premake5.lua: a suite is compiled into %s. "
+                .. "Delete the script, delete the suite's main (set-up it did goes into a SuiteEnvironment, "
+                .. "a child mode into a ChildEntry: TestSupport/runner.hpp), and move any source or include "
+                .. "directory it added into kRunners.%s above (BuildScripts/BUILD1-CONTRACT.md §4)",
+                layer, suite, runnerName, layer), 0)
+        end
+        table.insert(converted, dir)
+        table.insert(manifest_lines, runnerName .. " " .. suite)
+    end
+    if configure and #converted > 0 then
+        project(runnerName)
+            DesertTestsCommonSettings(deps)
+            files { testsDir .. "/TestSupport/RunnerMain.cpp" }
+            for _, dir in ipairs(converted) do
+                files { dir .. "/*.cpp" }
+            end
+            configure(deps)
+            removeconfigurations { "Shipping" }
+        table.insert(test_projects, runnerName)
+    end
+end
+
+-- A SUITE THAT NEEDS A VULKAN DEVICE IS NAMED ONCE, HERE (it used to call `test_needs_vulkan_device` in its own
+-- premake5.lua, which a suite no longer has). The names land in build/TestNeedsVulkanDevice.txt next to the
+-- manifest, and that file is the ONLY place the CI learns it from: scripts/CI/TestShards.py plan leaves these
+-- suites out of the shards (with a ::notice naming them) on a runner whose DESERT_*_VULKAN_RUNNER variable is
+-- not 'true' -- the hosted macos-14 VM and windows-2022 have no device -- and plans them like every other suite
+-- on one that is. The test itself never skips: on a deviceless machine it fails, as it should when someone runs
+-- it there by hand. A name with no suite directory is an error, so a renamed suite cannot drop out silently.
+local vulkan_device_suites = { "EngineHost", "RenderGraphVulkan" }
+for _, suite in ipairs(vulkan_device_suites) do
+    if #os.matchdirs(testsDir .. "/*/" .. suite) ~= 1 then
+        error("vulkan_device_suites names " .. suite .. ", which is not exactly one suite directory", 0)
+    end
+end
+table.sort(vulkan_device_suites)
 
 -- ── THE TEST SUITES ARE NOT PART OF THE SHIPPING CONFIGURATION ──────────────────────────────────────
 --
@@ -54,10 +386,7 @@ end
 -- graph, not present-and-empty. A present-and-empty project is still a node the solution builds, still
 -- a name in run_tests.bat's manifest, and still something a future `filter "configurations:Shipping"`
 -- can accidentally bring back.
-for _, premake_file in ipairs(test_premake_files) do
-    project( path.getname( path.getdirectory( premake_file ) ) )
-        removeconfigurations { "Shipping" }
-end
+-- Applied per project in the layer loop above.
 
 -- THE LIST OF EXPECTED TEST BINARIES IS A FILE, WRITTEN HERE, AT GENERATION TIME.
 --
@@ -76,14 +405,10 @@ end
 -- would simply stop being run, silently. That is the same class of defect as the one above, and the
 -- manifest is what closes it on Windows.
 --
--- Configuration-independent on purpose: Debug and Release build the same set of suites, so this is
+-- Each line is `<Executable> <Suite>`: the layer runner (or, for a suite not converted yet, its own
+-- binary) and the suite directory it runs. Configuration-independent on purpose: Debug and Release build the same set of suites, so this is
 -- written once at generation time and only the configuration travels through the postbuild below.
-local test_names = {}
-for _, premake_file in ipairs(test_premake_files) do
-    table.insert(test_names, path.getname(path.getdirectory(premake_file)))
-end
-io.writefile(currentDir .. "/build/TestManifest.txt", table.concat(test_names, "\n") .. "\n")
-table.sort(vulkan_device_suites)
+io.writefile(currentDir .. "/build/TestManifest.txt", table.concat(manifest_lines, "\n") .. "\n")
 io.writefile(currentDir .. "/build/TestNeedsVulkanDevice.txt",
              table.concat(vulkan_device_suites, "\n") .. (#vulkan_device_suites > 0 and "\n" or ""))
 
@@ -95,11 +420,6 @@ group "Tests"
         targetdir "%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}"
         objdir "%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}"
 
-        for _, premake_file in ipairs(test_premake_files) do
-            local test_dir = path.getdirectory(premake_file)
-            local test_name = path.getname(test_dir)
-           -- dependson(test_name)
-        end
 
     project "RunAllTests"
         kind "Utility"
@@ -120,8 +440,8 @@ group "Tests"
         -- makes "RunAllTests" mean "every test suite is built": a Utility project with no edges is a
         -- node that claims a dependency it does not have, and the next person to put work back into
         -- this postbuild would inherit the 2026-08 defect all over again.
-        for _, premake_file in ipairs(test_premake_files) do
-            dependson(path.getname(path.getdirectory(premake_file)))
+        for _, projectName in ipairs(test_projects) do
+            dependson(projectName)
         end
 
     if os.target() == "windows" then
@@ -205,9 +525,7 @@ group "Tests"
     -- which is the right place for it, and putting it back in a postbuild would only re-create the
     -- duplicate run that the Windows branch above just stopped paying for.
 
+
 print("\n=== Test Configuration ===")
-print("Found test modules: " .. #test_premake_files)
-for i, file in ipairs(test_premake_files) do
-    print("  " .. i .. ". " .. path.getdirectory(file))
-end
-print("Test reports will be saved to: ".. currentDir .. "/build/TestReports")
+print(string.format("%d suites in %d test projects (build/TestManifest.txt)", #manifest_lines, #test_projects))
+print("Test reports will be saved to: " .. currentDir .. "/build/TestReports")

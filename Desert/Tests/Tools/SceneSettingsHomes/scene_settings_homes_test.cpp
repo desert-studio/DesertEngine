@@ -340,9 +340,3 @@ TEST( PostProcessVolume, TheSceneSchemaIsPastThisStep )
     EXPECT_EQ( Migration::kSceneVersionSceneSettingsHomes, 36 );
     EXPECT_LT( Migration::kSceneVersionSceneSettingsHomes, Core::kSceneVersion );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

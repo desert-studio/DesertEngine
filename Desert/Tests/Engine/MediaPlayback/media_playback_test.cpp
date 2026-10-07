@@ -328,9 +328,3 @@ TEST( MediaPlayback, TickWithoutBlockOnTimeNeverWaitsAndStillReachesTheEnd )
     EXPECT_EQ( ends, 1 );
     EXPECT_EQ( player.GetState(), MediaPlayerState::Stopped );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -18,6 +18,7 @@
 #include <memory>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/runner.hpp"
 
 using namespace Desert;
 using namespace Desert::Editor;
@@ -214,13 +215,6 @@ TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
          << "') did not resolve to a name, so the Material Editor would report the shader '' is not loaded";
 }
 
-int main( int argc, char** argv )
-{
-    Desert::TestSupport::OpenSuiteProject();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // THM1l-c7: SAVING A MATERIAL KEEPS ITS IDENTITY (UE: a package's GUID never changes on save). Live, a Material
 // Editor save rewrote CB_Glass.demat's header GUID: the sweep had evicted the subject (no window pinned it), its
 // MaterialData emptied, and the write minted a fresh GUID. Load -> edit -> write states the GUID the file had.
@@ -274,3 +268,9 @@ TEST( MaterialDocumentOpen, AnEvictedMaterialRefusesToSaveInsteadOfMintingANewGu
     const auto saved = record->Save();
     EXPECT_FALSE( saved.IsSuccess() );
 }
+
+namespace
+{
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .Project = true } };
+} // namespace

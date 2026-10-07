@@ -1026,9 +1026,3 @@ TEST( RetargetPipeline, SourceScaleIsNotCarriedOntoTheTarget )
 
     EXPECT_LT( WorstSegmentErrorPercent( target, retargeter.GetTargetInitialPose(), out ), 1.0e-3F );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

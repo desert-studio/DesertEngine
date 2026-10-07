@@ -330,9 +330,3 @@ TEST( AmbientIBL, TheIndirectBounceArrivesAsIncidentLightAndIsReflectedByAlbedo 
     // Eight times the albedo, so eight times the bounce — plus the floor, which scales with albedo too.
     EXPECT_NEAR( light.r / dark.r, 8.0f, 1e-4f );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

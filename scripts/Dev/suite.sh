@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # suite.sh <Suite…> — build (Debug) and run the named test suites, from the tree root, in one call.
+# A suite's executable comes from build/TestManifest.txt (`<Executable> <Suite>`): its layer's runner
+# (CommonTests, ToolsTests, ...), run as `<runner> --desert-suite=<Suite>`, or a not-yet-converted suite's own binary.
 # Builds with ~/.claude/tools/build_quiet.sh (waits for any other make, ccache, -j4) or plain make -C build/Projects -f <Suite>.make.
 # Prints one line per suite: `Suite: N passed / M failed` plus up to 5 failed test names; exit 1 on any red.
 # The .make files exist only after `CI=true premake5 gmake`. Logs: build/DevLogs/suite-*/.
@@ -11,23 +13,31 @@ build_only=""; [ "${1:-}" = --build-only ] && { build_only=1; shift; }  # handof
 cd "$DEV_ROOT" || exit 2
 LOG=$(dev_logdir suite)
 dev_regen_makefiles "$LOG" || exit 2
-for s in "$@"; do [ -f "$DEV_PROJECTS/$s.make" ] || { echo "suite.sh: $s.make not found (CI=true premake5 gmake?)"; exit 2; }; done
+MANIFEST="$DEV_ROOT/build/TestManifest.txt"
+exe_of() { awk -v s="$1" '$2 == s { print $1 }' "$MANIFEST"; }
+targets=()
+for s in "$@"; do
+    e=$(exe_of "$s")
+    [ -n "$e" ] || { echo "suite.sh: $s is not in build/TestManifest.txt (no directory Desert/Tests/<Layer>/$s?)"; exit 2; }
+    [ -f "$DEV_PROJECTS/$e.make" ] || { echo "suite.sh: $e.make not found (CI=true premake5 gmake?)"; exit 2; }
+    case " ${targets[*]-} " in *" $e "*) ;; *) targets+=("$e") ;; esac
+done
 QUIET="$HOME/.claude/tools/build_quiet.sh"
 if [ -x "$QUIET" ]; then
     # build_quiet drives the workspace Makefile (build/Projects/Makefile), whose per-suite targets also rebuild what the suite links.
-    out=$("$QUIET" "$DEV_ROOT" "$LOG/build.log" "$@") || { echo "$out" | head -10; exit 2; }
+    out=$("$QUIET" "$DEV_ROOT" "$LOG/build.log" "${targets[@]}") || { echo "$out" | head -10; exit 2; }
 else
     while pgrep -x make >/dev/null; do sleep 10; done
     export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime" CCACHE_COMPRESS=1 CCACHE_BASEDIR=/Users/daniilsavcenko/Desktop/Programming/C++
-    for s in "$@"; do
+    for s in "${targets[@]}"; do
         make -C "$DEV_PROJECTS" -f "$s.make" config=debug -j4 CC="ccache clang" CXX="ccache clang++" >>"$LOG/build.log" 2>&1 ||
             { echo "suite.sh: build of $s FAILED; log $LOG/build.log"; grep -m 8 -E "error:|Undefined symbols|No rule" "$LOG/build.log"; exit 2; }
     done
 fi
-[ -n "$build_only" ] && { echo "suite.sh: built $# suite(s)"; exit 0; }
+[ -n "$build_only" ] && { echo "suite.sh: built ${#targets[@]} executable(s) for $# suite(s)"; exit 0; }
 fail=0
 for s in "$@"; do
-    dev_capped "${SUITE_TIMEOUT:-300}" "build/Bin/Tests/Debug/$s" </dev/null >"$LOG/$s.log" 2>&1
+    dev_capped "${SUITE_TIMEOUT:-300}" "build/Bin/Tests/Debug/$(exe_of "$s")" --desert-suite="$s" </dev/null >"$LOG/$s.log" 2>&1
     rc=$?
     p=$(grep -a -c '^\[       OK \]' "$LOG/$s.log")
     f=$(grep -a '^\[  FAILED  \] [A-Za-z_].*(' "$LOG/$s.log" | sort -u | wc -l | tr -d ' ')

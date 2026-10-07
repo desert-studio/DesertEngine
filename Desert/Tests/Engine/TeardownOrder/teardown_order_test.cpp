@@ -676,9 +676,3 @@ TEST( TeardownOrder, EveryServiceHoldingATextureConstructsTheImageServiceFirst )
     EXPECT_GE( holders, 3u ) << "found only " << holders
                              << " texture-holding services (Texture, AnimatedImage, Video) -- the scan is wrong";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

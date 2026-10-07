@@ -27,6 +27,7 @@
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
+#include "../../TestSupport/runner.hpp"
 
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -71,7 +72,7 @@ namespace
     // The engine resolves `#include <...>` against Common::Constants::Path::ShaderDir(), derived from the engine
     // directory the host sets. The suite is that host: it sets the checkout's Editor/ and reads every shader
     // path off ShaderDir(), never off the working directory.
-    struct ShaderRootFixture : ::testing::Test
+    struct PBRSceneFrameShaderRoot : ::testing::Test
     {
         static void SetUpTestSuite()
         {
@@ -288,7 +289,7 @@ TEST( PBRSceneFrame, TheApplierCanBeHandedAMaterialThatHasNoInstance )
 
 // ---- The applier against the shaders ----------------------------------------------------------------
 
-TEST_F( ShaderRootFixture, EverySceneBindingTheOneApplierFillsIsDeclaredByEveryMeshPBRShader )
+TEST_F( PBRSceneFrameShaderRoot, EverySceneBindingTheOneApplierFillsIsDeclaredByEveryMeshPBRShader )
 {
     const auto expected = SceneBindingNames();
     ASSERT_FALSE( expected.empty() );
@@ -309,7 +310,7 @@ TEST_F( ShaderRootFixture, EverySceneBindingTheOneApplierFillsIsDeclaredByEveryM
 // resource DECLARED by a mesh shader that no applier fills. Before this task SkinnedMeshPBR declared
 // ShadowUB, four cascade maps and the environment trio, and the skinned draw path wrote none of them —
 // the shader sampled the fallbacks and read as unshadowed and blown-out white.
-TEST_F( ShaderRootFixture, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
+TEST_F( PBRSceneFrameShaderRoot, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
 {
     // Everything in a mesh PBR set 0 that is genuinely per-OBJECT and is therefore filled by the material
     // itself rather than by the frame snapshot: the GPU-scene material row, and the surface maps THE
@@ -353,7 +354,7 @@ TEST_F( ShaderRootFixture, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
 // One scene contract, three shaders. They differ ONLY in the per-object buffer their vertex stage reads,
 // which is what makes a single applier able to serve all three — and what makes a divergence a failure
 // here rather than a class of geometry lit differently from the rest of the scene.
-TEST_F( ShaderRootFixture, TheThreeMeshPBRShadersDeclareOneSceneContractAndDifferOnlyInTheirOwnBuffer )
+TEST_F( PBRSceneFrameShaderRoot, TheThreeMeshPBRShadersDeclareOneSceneContractAndDifferOnlyInTheirOwnBuffer )
 {
     std::set<std::string> reference;
 
@@ -382,7 +383,7 @@ TEST_F( ShaderRootFixture, TheThreeMeshPBRShadersDeclareOneSceneContractAndDiffe
 // The C++ mirror against the GLSL block: two statements of one layout, which is the disagreement shape
 // this project has paid for repeatedly. Asserted on all three shaders, because the mirror is filled once
 // and lands in three different descriptor sets.
-TEST_F( ShaderRootFixture, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMeshPBRShader )
+TEST_F( PBRSceneFrameShaderRoot, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMeshPBRShader )
 {
     // 4 x mat4 + 3 x vec4. Spelt out so a silently added member is visible as a number here.
     constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 3u * 16u;
@@ -457,7 +458,7 @@ namespace
     }
 } // namespace
 
-TEST_F( ShaderRootFixture, EveryShaderCompilingTheCascadeTextDeclaresTheFiveBindingsItReads )
+TEST_F( PBRSceneFrameShaderRoot, EveryShaderCompilingTheCascadeTextDeclaresTheFiveBindingsItReads )
 {
     // THE RELATION Д20 exists to assert, and it is deliberately not "StaticMeshPBR has ShadowUB".
     //
@@ -492,7 +493,7 @@ TEST_F( ShaderRootFixture, EveryShaderCompilingTheCascadeTextDeclaresTheFiveBind
     }
 }
 
-TEST_F( ShaderRootFixture, TheLitShaderGraphSurfaceIsOneOfThoseConsumers )
+TEST_F( PBRSceneFrameShaderRoot, TheLitShaderGraphSurfaceIsOneOfThoseConsumers )
 {
     // Named on its own because it is the ONE consumer whose membership is the point of Д20 rather than a
     // consequence of it. A lit graph surface received the ambient, the BRDF, the punctual lights and the
@@ -585,7 +586,7 @@ TEST( SceneFrameCapability, EverySceneResourceTheMockDeclaresHasAWriter )
 // mesh nodes (MeshGeometryPass, Deferred: Generic / Skinned / Glass) bind CloudShadowMapOrWhite by name through
 // RDG::PassBindings, so the frame snapshot must upload only the block: writing the map onto the material as
 // well is the "filled both" refusal on every lit draw.
-TEST_F( ShaderRootFixture, TheCloudShadowMapIsAPassParameterNotTheFrameSnapshots )
+TEST_F( PBRSceneFrameShaderRoot, TheCloudShadowMapIsAPassParameterNotTheFrameSnapshots )
 {
     const std::filesystem::path file = Desert::TestSupport::RepositoryRoot() /
                                        "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.cpp";
@@ -623,7 +624,7 @@ namespace
     }
 } // namespace
 
-TEST_F( ShaderRootFixture, MaterialTexturesAreThePropertiesTexturesAndNoPassInput )
+TEST_F( PBRSceneFrameShaderRoot, MaterialTexturesAreThePropertiesTexturesAndNoPassInput )
 {
     const auto pbr = MaterialTextureNames( "PBR/StandardSurface.shader" );
     for ( const char* own : { "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" } )
@@ -651,9 +652,8 @@ TEST_F( ShaderRootFixture, MaterialTexturesAreThePropertiesTexturesAndNoPassInpu
                  << "a normal map's default must be the flat normal, not White";
 }
 
-int main( int argc, char** argv )
+namespace
 {
-    Desert::TestSupport::SetSuiteEngineDir();
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
+    // The host steps this suite's process takes before gtest starts (TestSupport/runner.hpp).
+    const Desert::TestSupport::SuiteHost kHostSteps{ { .EngineDir = true } };
+} // namespace

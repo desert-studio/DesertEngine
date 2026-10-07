@@ -801,9 +801,3 @@ TEST( BuildSettingsConsumers, ThePackagerTakesItsArtifactNamesFromTheHostDescrip
                                "description the panel shows.";
     }
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

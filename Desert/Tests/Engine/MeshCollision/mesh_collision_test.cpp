@@ -247,13 +247,6 @@ TEST( MeshCollision, ShapesAreCookedOncePerContent )
     EXPECT_EQ( world.Physics.GetCookedShapeCount(), 3u );
     EXPECT_EQ( world.Physics.GetBodyCount(), 4u );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 namespace
 {
     // RuntimeMesh is only tested for non-null, never read: an empty owner aliasing a dummy address stands in

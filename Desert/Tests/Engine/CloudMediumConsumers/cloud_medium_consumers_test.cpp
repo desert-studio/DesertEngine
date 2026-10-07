@@ -635,9 +635,3 @@ TEST( CloudMediumConsumers, TheShadowRayContextsAreTheThreeMarchesThatIntegrateO
 
     std::printf( "[CloudMediumConsumers] %zu shadow-ray marches\n", contexts.size() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

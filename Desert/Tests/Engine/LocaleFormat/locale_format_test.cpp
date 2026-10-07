@@ -211,9 +211,3 @@ TEST( LocaleFormat, NonFiniteNumbersAnnounceThemselves )
     EXPECT_EQ( FormatNumber( Row( "en" ), -0.4, 0 ), "0" );
     EXPECT_EQ( FormatNumber( Row( "en" ), -1.5, 0 ), "-2" );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -290,9 +290,3 @@ TEST( RuntimeSourceDecoders, ProseAboutADecoderIsNotADecoder )
     // `ImageReader` is matched whole, not as a prefix: an unrelated `ImageReaderSettings` is not the class.
     EXPECT_TRUE( OffendersIn( "struct ImageReaderSettings {};\n" ).empty() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

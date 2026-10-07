@@ -211,12 +211,6 @@ TEST( ProceduralFoliageScene, AResimulationKeepsPaintedAndForeignFieldsAndRewrit
     EXPECT_EQ( world.Fields[1].Owner, Common::UUID( 5u ) );
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 TEST( ProceduralFoliageScene, ResimulateIsOneUndoStepThatPutsTheFieldsBackAsTheyWere )
 {
     FakeWorld world;

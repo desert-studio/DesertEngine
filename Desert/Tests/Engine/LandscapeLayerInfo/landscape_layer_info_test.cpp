@@ -204,9 +204,3 @@ TEST( LandscapeLayerInfo, RefusesANonFiniteDebugColour )
     ASSERT_FALSE( why );
     EXPECT_NE( why.GetError().find( "LayerUsageDebugColor" ), std::string::npos ) << why.GetError();
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

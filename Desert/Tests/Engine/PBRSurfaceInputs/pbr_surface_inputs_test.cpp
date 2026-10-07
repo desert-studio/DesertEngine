@@ -149,9 +149,3 @@ TEST( PBRSurfaceInputs, EmissionIsTexelTimesColorTimesStrength )
     EXPECT_FALSE( Same( PBREmission( kTexel, kFactor, 3.0f ), base ) ) << "strength";
     EXPECT_TRUE( Same( PBREmission( kTexel, kFactor, 0.0f ), vec3( 0.0f ) ) ) << "strength 0 is dark";
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

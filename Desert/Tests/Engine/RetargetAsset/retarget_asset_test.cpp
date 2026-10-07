@@ -1353,9 +1353,3 @@ TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
     }
     EXPECT_EQ( checked, links.size() );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

@@ -289,12 +289,6 @@ TEST( DrawableArea, TheGateIsFedByTheSameExtentRuleTheSwapchainRefusesOn )
          << "a frame must not run for an extent the swapchain would refuse to rebuild at";
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ---- The shadow budget follows the Shadows quality level (SCAL1) -----------------------------------------
 
 namespace

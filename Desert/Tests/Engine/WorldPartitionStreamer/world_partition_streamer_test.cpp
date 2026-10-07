@@ -416,9 +416,3 @@ TEST( WorldPartitionStreamer, EveryTickThatLetsACellGoAsksForAnAssetSweep )
         EXPECT_FALSE( ReleasesCellAssets( Tick( executor, source, now += kFrame, world ) ) )
              << "a camera at rest asked for a sweep";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

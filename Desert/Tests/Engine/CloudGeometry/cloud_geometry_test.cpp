@@ -816,9 +816,3 @@ TEST( CloudGeometryVertical, TheAltitudeIsNeverNegative )
     for ( const float radiusKm : { 0.0f, 1.0f, kPlanetKm * 0.5f, kPlanetKm - 1.0f, kPlanetKm } )
         EXPECT_GE( CloudAltitudeKm( layer, vec3( 0.0f, radiusKm, 0.0f ) ), 0.0f ) << "radius " << radiusKm;
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

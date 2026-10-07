@@ -361,9 +361,3 @@ TEST( DynamicMesh3Attributes, PolygroupSetReadsTheLayer )
     WritableLayer.SetGroup( 0, NewGroup, Writable );
     EXPECT_EQ( Group( Writable, 0 ), NewGroup );
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

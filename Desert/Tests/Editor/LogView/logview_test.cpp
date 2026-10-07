@@ -135,9 +135,3 @@ TEST( LogView, ParseIsTotalOnDegenerateInput )
         EXPECT_EQ( p.Severity, LogSeverity::Info ) << "line: '" << line << "'";
     }
 }
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

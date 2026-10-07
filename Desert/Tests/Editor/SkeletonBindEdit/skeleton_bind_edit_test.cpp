@@ -280,9 +280,3 @@ TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheRetargetsOfItsSkeleton )
     EXPECT_EQ( other.GetValue().Chains[0].SourceEndBone, "Child" ) << "a retarget of another rig is not touched";
     Editor::CommandHistory::Get().DropFor( rig.get() );
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}

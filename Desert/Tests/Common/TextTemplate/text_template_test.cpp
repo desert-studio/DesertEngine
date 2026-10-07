@@ -252,9 +252,3 @@ TEST( TextTemplate, TenThousandLinesRenderWithinABound )
     EXPECT_LT( elapsed, 2000 ) << "10 000 lines took " << elapsed << " ms";
     std::cout << "[TextTemplate] 10000 lines in " << elapsed << " ms\n";
 }
-
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
