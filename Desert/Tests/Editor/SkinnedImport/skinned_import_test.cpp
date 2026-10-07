@@ -14,6 +14,7 @@
 //    CreateAssetsFromImport, by the registry's write journal), and the record states Kind = SkinnedMesh.
 
 #include <Editor/Import/CookPaths.hpp>
+#include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportManager.hpp>
 #include <Editor/Import/ImportedAssetSource.hpp>
 #include <Editor/Import/MaterialAdoption.hpp>
@@ -921,8 +922,10 @@ TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )
     combine.CombineMeshes               = true;
     const Editor::ImportOutcome outcome = ImportManager().ImportWithSettings( m_Lamps, combine );
     ASSERT_EQ( outcome.Verdict, Editor::CookVerdict::Cooked );
-    ASSERT_EQ( outcome.WrittenMeshes.size(), 1u );
-    const auto asset = Assets::LoadMeshSourceAsset( outcome.WrittenMeshes.front() );
+    // A combined static mesh is built into the DDC keyed by the source (ImportedMeshAsset.hpp
+    // WriteImportedMeshAsset), never a file beside it: the outcome lists no file, the loader reads it by the source.
+    EXPECT_TRUE( outcome.WrittenMeshes.empty() );
+    const auto asset = Assets::LoadMeshSourceAsset( Editor::CookPaths::MeshAsset( m_Lamps ) );
     ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
     const Geometry::EditMeshSer& mesh = asset.GetValue().Source.Models.front().Mesh;
     ASSERT_EQ( mesh.Triangles.size(), 9u ) << "one triangle per node";
