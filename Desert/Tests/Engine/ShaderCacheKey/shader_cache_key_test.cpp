@@ -2044,7 +2044,7 @@ TEST_F( ShaderCacheKeyShaderRoot, NoShippedShaderClaimsOneDescriptorSlotTwice )
 // The owner's guarantee: no program pushes more than ShaderLayout::kMaxPushBlockBytes (128, the size every
 // Vulkan device holds). Reflection refuses a larger stage; this pins the shipped tree under it by
 // compiling every pass and reading the merged range the pipeline layout is built from (PushBlockSize).
-TEST_F( ShaderRootFixture, EveryShippedProgramsPushBlockFitsTheEngineCap )
+TEST_F( ShaderCacheKeyShaderRoot, EveryShippedProgramsPushBlockFitsTheEngineCap )
 {
     const auto files = ShippedShaderFiles();
     ASSERT_GE( files.size(), 60u ) << "found " << files.size() << " shipped shaders — nothing to examine";
