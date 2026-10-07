@@ -348,6 +348,7 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
 
     params.RegionOriginKm  = ModellingVolume().OriginKm;
     params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
+    params.Weather         = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
 
     // FIRST: the coordinate itself never reaches either face.
     const vec3 atTop    = CloudProceduralVolumeUvw( params, 1.0f, vec3( 0.0f ) );
@@ -1223,7 +1224,7 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
     // channels only name the owner. So the union this test holds the producer to is: one cut, read through
     // the same rank and weather macros the GPU defines — and never the larger of two species' depths, which
     // is what it was while each channel was a profile of its own (8283 of 9216 columns differ from that now).
-    const vec4 weather = CLOUD_WEATHER;
+    const vec4 weather = params.Weather;
 
     constexpr int kColumns = 96;
 
@@ -2515,7 +2516,7 @@ TEST( CloudFieldCut, TheShadersCutIsCloudProceduralKeepAgainstTheLocalCover )
     state.Params.PatchTileKm    = 20.0f;
     ASSERT_TRUE( state.Ranks && !state.Ranks->empty() ) << "the bake returned no rank block";
 
-    const vec4 weather = CLOUD_WEATHER;
+    const vec4 weather = Desert::Assets::CloudFarWeatherUniform( state.Params );
     ASSERT_GT( weather.y, 0.0f ) << "the weather stood down, so the copula is not under test";
 
     constexpr int side   = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );

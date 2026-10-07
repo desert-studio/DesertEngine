@@ -41,7 +41,6 @@
 //                                                      column-CDF rank of the cloud each voxel belongs to
 //     CLOUD_SAMPLE_WEATHER( vec2 uv )              ->  float, the world weather W (standard normal) at
 //                                                      uv = windPos.xz / its period, REPEAT
-//     CLOUD_WEATHER                                ->  vec4, the cut (Graphic::CloudGpuPayload::Weather)
 //     CLOUD_SAMPLE_AUTHORED( vec3 uvw )            ->  vec4, four channels of the sculpted-body ATLAS
 //
 // The third arrives on the same terms as the first two, and the instance list it is addressed with — plus
@@ -121,6 +120,14 @@ struct CloudFieldParams
     // corner and snaps it to the lump lattice, and the march only maps a position through it.
     vec2  RegionOriginKm;
     float InvRegionSizeKm;
+
+    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x Coverage, y rho, z the rank's rise
+    // across ProfileDepth in CDF units, w 1 / the weather's period in km. A MEMBER AND NOT A MACRO, because
+    // it is a value of the parameter block and not a sampler: a macro naming u_CloudWeather was read here,
+    // in this header, BEFORE Common/CloudParams.glslh declares the block — and a GLSL variable cannot be
+    // declared forward, so all four cloud passes failed to compile (FARWX-b6). Only samplers cross the seam
+    // as macros; every block value arrives here through CloudUnpackFieldParams.
+    vec4 Weather;
 
     vec3 WindOffsetKm; // accumulated wind displacement, subtracted from the sample position
 
@@ -286,7 +293,7 @@ vec3 CloudProceduralVolumeUvw( CloudFieldParams params, float heightFraction, ve
 }
 
 #if defined( CLOUD_SAMPLE_NOISE ) && defined( CLOUD_SAMPLE_MODELLING ) && defined( CLOUD_SAMPLE_AUTHORED ) && \
-     defined( CLOUD_SAMPLE_MODELLING_RANK ) && defined( CLOUD_SAMPLE_WEATHER ) && defined( CLOUD_WEATHER )
+     defined( CLOUD_SAMPLE_MODELLING_RANK ) && defined( CLOUD_SAMPLE_WEATHER )
 
 // ---------------------------------------------------------------------------------------------------
 // THE CUT — the GPU half of Assets::CloudProceduralKeep against Assets::CloudProceduralLocalCover
@@ -420,7 +427,7 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
     // makes on the CPU — decides how deep inside a kept body the point is. The species channels then only
     // name WHICH species owns the point; when all are zero (air the cover has grown the clouds into) the
     // owner is slot 0, the one index that is always bound.
-    vec4  weather    = CLOUD_WEATHER;
+    vec4  weather    = params.Weather;
     float cutProfile = CloudRankProfile( CLOUD_SAMPLE_MODELLING_RANK( uvw ),
                                          CloudLocalCover( weather, vec2( windPos.x, windPos.z ) ), weather.z );
     if ( cutProfile <= 0.0f )

@@ -519,13 +519,13 @@ namespace Desert::Tests::CloudFieldRef
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleModellingTexture( p )
         // The cut's three inputs, from the very functions the renderer uploads: the bake's rank, the world
         // weather at its point (the map IS this field — Assets::BakeCloudFarWeatherMap samples it), and
-        // CloudFarWeatherUniform of the bound bake's parameters.
+        // CloudFarWeatherUniform of the bound bake's parameters, which CloudBindSpecies writes into
+        // CloudFieldParams::Weather as CloudUnpackFieldParams does from u_CloudWeather.
 #define CLOUD_SAMPLE_MODELLING_RANK( p ) CloudSampleBoundRank( p )
 #define CLOUD_SAMPLE_WEATHER( uv )                                                                                \
     Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( ModellingVolume().Params ),             \
                                      ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \
                                      ModellingVolume().Params.PatchTileKm )
-#define CLOUD_WEATHER Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params )
 
         // ------------------------------------------------------------------------------------------
         // SLOT A, DECLARED EMPTY — this suite drives producer P
@@ -612,6 +612,7 @@ namespace Desert::Tests::CloudFieldRef
 
             params.RegionOriginKm  = ModellingVolume().OriginKm;
             params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
+            params.Weather         = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
         }
 
         /**

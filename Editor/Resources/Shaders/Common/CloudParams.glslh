@@ -113,8 +113,9 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // the failure this whole file exists to prevent. Same reason the species array is where it is.
     vec4  u_CloudAlbedo;
     // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x Coverage, y rho, z the rank's rise
-    // across ProfileDepth in CDF units, w 1 / the weather's period in km. Read through CLOUD_WEATHER by
-    // Common/CloudField.glslh's procedural producer. Before u_CloudAerial for the reason u_CloudAlbedo is.
+    // across ProfileDepth in CDF units, w 1 / the weather's period in km. Unpacked into
+    // CloudFieldParams::Weather for Common/CloudField.glslh's procedural producer. Before u_CloudAerial for
+    // the reason u_CloudAlbedo is.
     vec4  u_CloudWeather;
     // x = aerial-perspective volume far extent (km), y = its read-side view-distance scale,
     // z = 1 when the volume exists and must be sampled.
@@ -168,6 +169,7 @@ CloudFieldParams CloudUnpackFieldParams()
 
     p.RegionOriginKm  = vec2( u_CloudRegion.x, u_CloudRegion.y );
     p.InvRegionSizeKm = u_CloudRegion.z;
+    p.Weather         = u_CloudWeather;
 
     p.WindOffsetKm = vec3( u_CloudWind.x, u_CloudWind.y, u_CloudWind.z );
 

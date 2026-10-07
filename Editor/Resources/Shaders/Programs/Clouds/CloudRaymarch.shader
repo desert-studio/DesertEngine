@@ -281,7 +281,6 @@ Shader "CloudRaymarch"
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
         #define CLOUD_SAMPLE_MODELLING_RANK(p) textureLod(u_CloudModellingRank, (p), 0.0f).r
         #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
-        #define CLOUD_WEATHER u_CloudWeather
         // textureLod AND NOT texture: a compute shader has no derivatives, so the implicit level of
         // detail is undefined. The volume has one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.

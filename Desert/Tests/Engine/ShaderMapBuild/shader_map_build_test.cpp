@@ -291,6 +291,67 @@ TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
     EXPECT_NE( outcomes[0].Error.find( path.generic_string() ), std::string::npos ) << outcomes[0].Error;
 }
 
+// EVERY PROGRAM THE ENGINE SHIPS COMPILES, built through the very call BootContent makes at a cold start.
+//
+// WHY THIS SUITE AND NOT THE CLOUD ONES. FARWX-b2 read u_CloudWeather inside Common/CloudField.glslh, which every
+// cloud pass includes BEFORE Common/CloudParams.glslh declares the block — and GLSL declares no variable forward.
+// CloudRaymarch, CloudShadowMap, CloudSkyOcclusionVolume and BakeProceduralSky lost every stage, the sky drew no
+// cloud, and every cloud suite stayed green: they compile the headers as C++, where the seam's macros are the
+// test's own, and no suite handed those four programs to glslang. The round above lists eight directories for
+// overlap and never reached Clouds/ or Compute/. This one lists them all, as the content registry does, and asks
+// each for stages — the editor's own answer to "did it compile", logged as "registered but has no compiled stages".
+//
+// MUTATION: restore `#define CLOUD_WEATHER u_CloudWeather` in Programs/Clouds/CloudRaymarch.shader and read it
+// as `vec4 weather = CLOUD_WEATHER;` in Common/CloudField.glslh's producer — CloudRaymarch goes red here, naming
+// CloudField.glslh:<line>: 'u_CloudWeather' : undeclared identifier.
+TEST_F( ShaderMapBuildFixture, EveryShippedProgramCompilesToStages )
+{
+    const auto root = Common::Constants::Path::ShaderDir() / "Programs";
+    ASSERT_TRUE( std::filesystem::exists( root ) ) << root;
+
+    std::vector<std::filesystem::path> files;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
+        if ( entry.is_regular_file() && entry.path().extension() == ".shader" )
+            files.push_back( entry.path() );
+    std::sort( files.begin(), files.end() );
+
+    std::vector<ShaderMapRequest> programs;
+    for ( const auto& file : files )
+    {
+        std::string source = ReadFile( file );
+        // A medium is source compiled into other programs, never a program of its own — BootContent's rule.
+        if ( Desert::Core::Preprocess::DShaderParser::MayDeclareMedium( source ) )
+            continue;
+        programs.push_back( { std::move( source ), file, {}, {}, file.stem().string() } );
+    }
+    ASSERT_GE( programs.size(), 40u ) << "the walk found too few programs to be the shipped set";
+
+    const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildEveryProgram" );
+    const auto                                    built = Desert::Core::BuildShaderMaps( programs );
+    ASSERT_EQ( built.size(), programs.size() );
+
+    std::vector<ShaderMapRequest> passes;
+    for ( size_t i = 0; i < programs.size(); ++i )
+    {
+        SCOPED_TRACE( programs[i].Path.generic_string() );
+        EXPECT_TRUE( built[i].Error.empty() ) << built[i].Error;
+        EXPECT_FALSE( built[i].Map.Stages.empty() ) << "'" << programs[i].Name << "' has no compiled stages";
+        for ( const auto& pass : built[i].Map.Meta.PassNames )
+            if ( !Desert::Core::Preprocess::IsSurfaceDefaultCell(
+                      Desert::Core::Preprocess::DShaderParser::MayDeclareSurface( programs[i].Source ), pass ) )
+                passes.push_back( { programs[i].Source, programs[i].Path, pass, {}, programs[i].Name } );
+    }
+
+    const auto builtPasses = Desert::Core::BuildShaderMaps( passes );
+    ASSERT_EQ( builtPasses.size(), passes.size() );
+    for ( size_t i = 0; i < passes.size(); ++i )
+    {
+        SCOPED_TRACE( std::format( "{} / {}", passes[i].Path.generic_string(), passes[i].Pass ) );
+        EXPECT_TRUE( builtPasses[i].Error.empty() ) << builtPasses[i].Error;
+        EXPECT_FALSE( builtPasses[i].Map.Stages.empty() ) << "the pass has no compiled stages";
+    }
+}
+
 int main( int argc, char** argv )
 {
     Desert::TestSupport::SetSuiteEngineDir();

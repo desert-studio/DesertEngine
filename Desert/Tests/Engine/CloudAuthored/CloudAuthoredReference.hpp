@@ -312,7 +312,6 @@ namespace Desert::Tests::CloudAuthoredRef
     Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( Procedural( BoundCoverage() ).Params ), \
                                      ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \
                                      Procedural( BoundCoverage() ).Params.PatchTileKm )
-#define CLOUD_WEATHER Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params )
 
         // ------------------------------------------------------------------------------------------
         // Producer A: the baked body, and the device's own filter over it
@@ -551,6 +550,7 @@ namespace Desert::Tests::CloudAuthoredRef
             // seam through the bytes.
             params.RegionOriginKm  = Procedural( BoundCoverage() ).OriginKm;
             params.InvRegionSizeKm = 1.0f / Procedural( BoundCoverage() ).Params.RegionSizeKm;
+            params.Weather         = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params );
 
             return params;
         }
