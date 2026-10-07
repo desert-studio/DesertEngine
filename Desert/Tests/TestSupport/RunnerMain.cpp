@@ -290,14 +290,14 @@ namespace Desert::TestSupport
         }
     }
 
-    AdoptedTestSource::AdoptedTestSource( std::string_view pathSuffix, std::source_location where )
+    AdoptedTestSource::AdoptedTestSource( std::string_view pathSuffix, const char* where )
     {
-        const auto suite = SuiteOfFile( where.file_name() );
+        const auto suite = SuiteOfFile( where );
         if ( !suite )
         {
             PrintError(
                  std::format( "AdoptedTestSource '{}' is constructed outside Desert/Tests/<Layer>/<Suite>/ ({})",
-                              pathSuffix, where.file_name() ) );
+                              pathSuffix, where ) );
             std::abort();
         }
         auto [it, inserted] = AdoptedTable().emplace( pathSuffix, *suite );
@@ -308,33 +308,33 @@ namespace Desert::TestSupport
             std::abort();
         }
     }
-    SuiteEnvironment::SuiteEnvironment( EnvironmentFactory make, std::source_location where )
+    SuiteEnvironment::SuiteEnvironment( EnvironmentFactory make, const char* where )
     {
-        const auto suite = SuiteOfFile( where.file_name() );
+        const auto suite = SuiteOfFile( where );
         if ( !suite || make == nullptr )
         {
             PrintError( std::format( "SuiteEnvironment is constructed outside Desert/Tests/<Layer>/<Suite>/ or "
                                      "without a factory ({})",
-                                     where.file_name() ) );
+                                     where ) );
             std::abort();
         }
         EnvironmentTable().emplace_back( *suite, make );
     }
 
-    SuiteHost::SuiteHost( SuiteHostSteps steps, std::source_location where )
+    SuiteHost::SuiteHost( SuiteHostSteps steps, const char* where )
     {
-        const auto suite = SuiteOfFile( where.file_name() );
+        const auto suite = SuiteOfFile( where );
         if ( !suite || ( !steps.EngineDir && !steps.Project ) )
         {
             PrintError( std::format( "SuiteHost is constructed outside Desert/Tests/<Layer>/<Suite>/ or "
                                      "declares no step ({})",
-                                     where.file_name() ) );
+                                     where ) );
             std::abort();
         }
         auto [it, inserted] = HostTable().emplace( *suite, steps );
         if ( !inserted )
         {
-            PrintError( std::format( "suite '{}' declares its SuiteHost twice ({})", *suite, where.file_name() ) );
+            PrintError( std::format( "suite '{}' declares its SuiteHost twice ({})", *suite, where ) );
             std::abort();
         }
     }
