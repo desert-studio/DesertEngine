@@ -2089,7 +2089,7 @@ namespace Desert::Graphic::System
         temporal.Access.Write( m_HistoryGuideImage[writeIndex], RDG::Access::StorageWrite,
                                std::format( "Clouds.HistoryGuide{}", writeIndex ) );
         temporal.Record = [this, writeIndex, readIndex, trace, traceGuide, historyValid = m_HistoryValid,
-                           depthImage = depth.get()]( RDG::PassContext&     context,
+                           depthImage = depth.get()]( RDG::PassContext& context,
                                                       const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             auto& renderer = Renderer::GetInstance();
