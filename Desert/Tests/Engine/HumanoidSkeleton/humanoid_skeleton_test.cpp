@@ -13,7 +13,8 @@
 #include <sstream>
 #include <string>
 #include <Common/Core/Constants.hpp>
-#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
+
 #include "../../TestSupport/runner.hpp"
 
 namespace

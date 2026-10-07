@@ -78,9 +78,9 @@ namespace Desert::UI
     class RegistryUICanvasResources final : public IUICanvasResources
     {
     public:
-        [[nodiscard]] Graphic::Image2D*             SpriteImage( const Assets::AssetHandle& sprite ) override;
-        [[nodiscard]] Graphic::Image2D*             AnimatedFrame( const Assets::AssetHandle& sprite ) override;
-        [[nodiscard]] Graphic::Image2D*             VideoFrame( uint64_t video, float volume, bool muted ) override;
+        [[nodiscard]] Graphic::Image2D* SpriteImage( const Assets::AssetHandle& sprite ) override;
+        [[nodiscard]] Graphic::Image2D* AnimatedFrame( const Assets::AssetHandle& sprite ) override;
+        [[nodiscard]] Graphic::Image2D* VideoFrame( uint64_t video, float volume, bool muted ) override;
         [[nodiscard]] const Assets::UIThemeRuntime* Theme( const Assets::AssetHandle& theme ) override;
         [[nodiscard]] uint64_t                      DefaultFontHandle() override;
         void RequestGlyphs( uint64_t font, const std::vector<uint32_t>& codepoints ) override;

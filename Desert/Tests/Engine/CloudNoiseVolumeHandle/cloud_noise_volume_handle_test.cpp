@@ -156,8 +156,8 @@ namespace
         return 0;
     }
 
-    const Desert::TestSupport::ChildEntry kPrintHandle{ "cloud-noise-print-handle", &PrintHandleChild,
-                                                        { .EngineDir = true, .Project = true } };
+    const Desert::TestSupport::ChildEntry kPrintHandle{
+         "cloud-noise-print-handle", &PrintHandleChild, { .EngineDir = true, .Project = true } };
 } // namespace
 
 namespace

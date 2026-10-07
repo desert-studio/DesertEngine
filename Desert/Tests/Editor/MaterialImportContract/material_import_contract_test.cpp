@@ -3,7 +3,8 @@
 #include <Editor/Import/MaterialImportContract.hpp>
 
 #include "../../TestSupport/engine_dir.hpp"
-#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include "../../TestSupport/runner.hpp"
 
 #include <cstdio>

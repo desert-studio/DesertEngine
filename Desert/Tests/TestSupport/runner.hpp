@@ -98,8 +98,7 @@ namespace Desert::TestSupport
     class AdoptedTestSource
     {
     public:
-        explicit AdoptedTestSource( std::string_view     pathSuffix,
-                                    const char* where = __builtin_FILE() );
+        explicit AdoptedTestSource( std::string_view pathSuffix, const char* where = __builtin_FILE() );
 
         AdoptedTestSource( const AdoptedTestSource& )            = delete;
         AdoptedTestSource& operator=( const AdoptedTestSource& ) = delete;
@@ -122,8 +121,7 @@ namespace Desert::TestSupport
     class SuiteEnvironment
     {
     public:
-        explicit SuiteEnvironment( EnvironmentFactory   make,
-                                   const char* where = __builtin_FILE() );
+        explicit SuiteEnvironment( EnvironmentFactory make, const char* where = __builtin_FILE() );
 
         SuiteEnvironment( const SuiteEnvironment& )            = delete;
         SuiteEnvironment& operator=( const SuiteEnvironment& ) = delete;

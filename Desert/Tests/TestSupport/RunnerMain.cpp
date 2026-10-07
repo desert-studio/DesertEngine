@@ -198,7 +198,8 @@ namespace Desert::TestSupport
         }
 
         // The suites named by --desert-suite, read before InitGoogleTest (which leaves the flag in argv) so
-        // the host steps run first; nullopt = no selection. An unknown or empty selection is refused after gtest starts.
+        // the host steps run first; nullopt = no selection. An unknown or empty selection is refused after gtest
+        // starts.
         std::optional<std::set<std::string>> PeekSuiteSelection( int argc, char** argv )
         {
             std::optional<std::set<std::string>> suites;
@@ -235,7 +236,7 @@ namespace Desert::TestSupport
                 {
                     const testing::TestInfo& info = *testSuite.GetTestInfo( t );
                     const std::string fullName    = std::format( "{}.{}", info.test_suite_name(), info.name() );
-                    const auto               suite       = SuiteOfTest( info.file() );
+                    const auto        suite       = SuiteOfTest( info.file() );
                     if ( !suite )
                     {
                         unmapped.push_back( std::format( "{} ({})", fullName, info.file() ) );
@@ -354,7 +355,7 @@ int main( int argc, char** argv )
             PrintError( std::format( "no --desert-child entry point named '{}' in this runner", name ) );
             return kSelectionError;
         }
-        argv[1] = argv[0];
+        argv[1]                        = argv[0];
         const auto& [childMain, steps] = it->second;
         if ( steps.EngineDir )
         {

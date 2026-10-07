@@ -1680,10 +1680,10 @@ namespace Desert::UI
 
                     // A streamed video fills the panel (its stable texture is updated outside the pass by the
                     // VideoService); it takes precedence over the sprite/gradient fill while a path is set.
-                    Graphic::Image2D* video = HandleSet( p.Video ) ? ctx.View.Resources().VideoFrame(
-                                                                          static_cast<uint64_t>( p.Video ),
-                                                                          p.VideoVolume, p.VideoMuted )
-                                                                    : nullptr;
+                    Graphic::Image2D* video =
+                         HandleSet( p.Video ) ? ctx.View.Resources().VideoFrame( static_cast<uint64_t>( p.Video ),
+                                                                                 p.VideoVolume, p.VideoMuted )
+                                              : nullptr;
                     // Frosted glass: the fill IS the blurred scene behind the panel, tinted by Color/Opacity.
                     // Checked before the sprite/video fills — a glass panel is defined by what is behind it,
                     // so an image on top of it would be a different element (draw one as a child).

@@ -163,8 +163,9 @@ namespace
             const std::string  token( m[0] );
             if ( token.starts_with( "namespace" ) )
             {
-                const bool owned = m[1].matched && !suite.empty() &&
-                                   std::regex_replace( m[1].str(), std::regex( R"(\s)" ), "" ) == suite + "Test";
+                const bool owned =
+                     m[1].matched && !suite.empty() &&
+                     std::regex_replace( m[1].str(), std::regex( R"(\s)" ), "" ) == std::format( "{}Test", suite );
                 stack.push_back( m[1].matched && !owned ? Scope::Named : Scope::Anonymous );
             }
             else if ( m[2].matched )

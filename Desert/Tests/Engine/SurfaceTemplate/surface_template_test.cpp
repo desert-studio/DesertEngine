@@ -22,7 +22,8 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/engine_dir.hpp"
-#include "../../TestSupport/project_scope.hpp"
+#include "../../TestSupport/project_scope.hpp"
+
 #include "../../TestSupport/runner.hpp"
 #include <Common/Core/Constants.hpp>
 
@@ -225,7 +226,7 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
                            std::filesystem::copy_options::recursive );
 
     const Desert::TestSupport::EngineDirScope engineDir( root );
-    const std::filesystem::path program = "Resources/Shaders/Programs/Test/MockSurface.shader";
+    const std::filesystem::path               program = "Resources/Shaders/Programs/Test/MockSurface.shader";
 
     const auto keys = [&]
     {
