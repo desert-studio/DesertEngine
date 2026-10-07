@@ -663,10 +663,16 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
     const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
 
     Desert::Graphic::RenderPassDeclaration writer;
-    writer.Bindings( ShaderBindingLayout{}, {} )
+    writer
+         .Bindings( ShaderBindingLayout{ "TransmittanceLut",
+                                         { { "u_TransmittanceLut", ShaderResourceKind::StorageTexture } } },
+                    {} )
          .Storage( "u_TransmittanceLut", lut, Access::StorageWrite, "Sky.TransmittanceLut" );
     Desert::Graphic::RenderPassDeclaration reader;
-    reader.Bindings( ShaderBindingLayout{}, {} )
+    reader
+         .Bindings(
+              ShaderBindingLayout{ "Skybox", { { "u_TransmittanceLut", ShaderResourceKind::SampledTexture } } },
+              {} )
          .Sampled( "u_TransmittanceLut", lut, Access::SampledGraphics, SamplerDesc::LinearClamp(),
                    "Sky.TransmittanceLut" );
     ASSERT_EQ( Desert::Graphic::BlockImageEntries( writer ).size(), 1u );
@@ -710,7 +716,11 @@ TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndT
     const TextureRef output      = graph.RegisterExternal( reconstructed, "Clouds.History0" );
 
     Desert::Graphic::RenderPassDeclaration resolve;
-    resolve.Bindings( ShaderBindingLayout{}, {} )
+    resolve
+         .Bindings( ShaderBindingLayout{ "CloudResolve",
+                                         { { "u_CloudHistory", ShaderResourceKind::SampledTexture },
+                                           { "u_CloudHistoryGuide", ShaderResourceKind::SampledTexture } } },
+                    {} )
          .Sampled( "u_CloudHistory", fallback, Access::SampledCompute, SamplerDesc::LinearRepeat(),
                    "Clouds.HistoryFallback" )
          .Sampled( "u_CloudHistoryGuide", fallback, Access::SampledCompute, SamplerDesc::LinearRepeat(),

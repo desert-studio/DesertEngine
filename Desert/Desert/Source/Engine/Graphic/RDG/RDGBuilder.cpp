@@ -163,7 +163,9 @@ namespace Desert::Graphic::RDG
              "Upload: " + name, PassFlags::Copy,
              [&]( PassBuilder& pass )
              {
-                 if ( error.empty() )
+                 // Declared even when the upload is refused: the faulted pass's write is what makes its readers
+                 // Dependency faults rooted on it, not "read before any pass writes it".
+                 if ( record != nullptr )
                      pass.Write( buffer, Access::CopyDst );
              },
              [buffer, payload]( PassContext& context ) -> Common::BoolResultStr

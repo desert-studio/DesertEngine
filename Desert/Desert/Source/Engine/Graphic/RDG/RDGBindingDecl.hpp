@@ -104,7 +104,7 @@ namespace Desert::Graphic::RDG
 
     struct ShaderBindingLayout
     {
-        std::string             ShaderName;            // what an error names ("StaticMeshGlass")
+        std::string             ShaderName;            // what an error names: the shader's own name
         std::vector<ShaderSlot> Slots;                 // every resource slot the shader declares
         uint32_t                PushConstantBytes = 0; // the declared range; 0 = the shader declares none
     };
