@@ -43,7 +43,6 @@ project(test_name)
         defines { "DESERT_PLATFORM_WINDOWS" }
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        links { "Cocoa.framework", "Foundation.framework" } -- Common's MacOSFileSystem
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}

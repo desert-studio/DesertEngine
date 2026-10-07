@@ -31,6 +31,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/MeshLOD.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/MeshSimplifier.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MeshDeriver.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
     }
 
     includedirs {
@@ -68,10 +69,6 @@ project(test_name)
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick", "MeshOptimizer" }
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialog) and the asset loader reaches
-    -- Common::Utils::FileSystem, so the ObjC runtime + AppKit have to link as well.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

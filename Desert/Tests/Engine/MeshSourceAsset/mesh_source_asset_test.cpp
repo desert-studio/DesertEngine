@@ -15,6 +15,7 @@ namespace
 
     const CC::AssetGuid kMatA{ 0x1111222233334444ULL, 0x5555666677778888ULL };
     const CC::AssetGuid kMatB{ 0x9999AAAABBBBCCCCULL, 0xDDDDEEEEFFFF0001ULL };
+    const CC::AssetGuid kSkeleton{ 0x5EE1E70110000000ULL, 0x00000000000000A1ULL };
 
     // Two triangles sharing an edge, two slots, every overlay kind, a hole in the colour layer.
     MeshSourceAsset MakeQuad( const bool skinned )
@@ -40,8 +41,8 @@ namespace
         // Slot 2 is unassigned and slot 1 repeats A: the header names A and B once each.
         a.Source.MaterialSlots = { { "Body", kMatA }, { "Trim", kMatB }, { "Spare", {} }, { "Again", kMatA } };
         if ( skinned )
-            a.Source.Skin = MeshSkin{
-                 0x5EE1E7011ULL, { "root", "arm" }, { { 0, 0, 1.f }, { 2, 1, 0.75f }, { 2, 0, 0.25f } } };
+            a.Source.Skin =
+                 MeshSkin{ kSkeleton, { "root", "arm" }, { { 0, 0, 1.f }, { 2, 1, 0.75f }, { 2, 0, 0.25f } } };
         return a;
     }
 
@@ -177,7 +178,8 @@ TEST( MeshSourceAsset, ReadAssetHeaderNeedsNoBody )
     }
     EXPECT_EQ( stated.GetValue().Kind, CC::ContentKind::SkinnedMesh );
     EXPECT_EQ( stated.GetValue().Guid, a.Guid );
-    EXPECT_EQ( stated.GetValue().Dependencies, ( std::vector<CC::AssetGuid>{ kMatA, kMatB } ) );
+    // The materials, then the skin's skeleton (SKEL-eng3): the skeleton is a dependency like the materials.
+    EXPECT_EQ( stated.GetValue().Dependencies, ( std::vector<CC::AssetGuid>{ kMatA, kMatB, kSkeleton } ) );
     // ...and the body really is absent: the whole-asset read of the same file is refused.
     EXPECT_FALSE( ReadMeshSourceAssetFile( file ).IsSuccess() );
     std::filesystem::remove_all( dir );
@@ -261,6 +263,18 @@ TEST( MeshSourceAsset, KindAndSkinMustAgree )
     MeshSourceAsset c = MakeQuad( false );
     c.Kind            = CC::ContentKind::Texture;
     EXPECT_FALSE( EncodeMeshSourceAsset( c ).IsSuccess() );
+}
+
+// SKEL-eng3: a skin binds to one .skeleton by GUID; a null GUID is no binding and is refused on both sides.
+TEST( MeshSourceAsset, SkinWithoutSkeletonIsRefused )
+{
+    MeshSourceAsset a = MakeQuad( true );
+    if ( !a.Source.Skin.has_value() )
+        FAIL() << "MakeQuad( true ) built no skin";
+    a.Source.Skin->Skeleton = {};
+    const auto encoded      = EncodeMeshSourceAsset( a );
+    ASSERT_FALSE( encoded.IsSuccess() );
+    EXPECT_NE( encoded.GetError().find( "skeleton" ), std::string::npos ) << encoded.GetError();
 }
 
 TEST( MeshSourceAsset, MalformedSourceIsRefusedOnEncode )

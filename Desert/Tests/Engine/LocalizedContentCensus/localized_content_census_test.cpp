@@ -246,7 +246,7 @@ namespace
     std::vector<Authored> ShippedAuthoredStrings( const std::string& root )
     {
         std::vector<Authored> out;
-        for ( const char* tree : { "Editor/Resources/Assets/Scenes", "Editor/Resources/Assets/Prefabs" } )
+        for ( const char* tree : { "Projects/Desert/Content/Scenes", "Projects/Desert/Content/Prefabs" } )
         {
             const fs::path dir = fs::path( root ) / tree;
             if ( !fs::exists( dir ) )
@@ -267,7 +267,7 @@ namespace
     std::map<std::string, StringTableData> ShippedTables( const std::string& root )
     {
         std::map<std::string, StringTableData> tables;
-        const fs::path                         dir = fs::path( root ) / "Editor/Resources/Assets/Localization";
+        const fs::path                         dir = fs::path( root ) / "Projects/Desert/Content/Localization";
         if ( !fs::exists( dir ) )
             return tables;
         for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
@@ -294,7 +294,7 @@ TEST( LocalizedContentCensus, TheShippedTablesAreReadableAndTheSourceLanguageIsC
     ASSERT_FALSE( root.empty() ) << "the repository root was not found from the working directory";
 
     const auto tables = ShippedTables( root );
-    ASSERT_FALSE( tables.empty() ) << "no .destrings under Editor/Resources/Assets/Localization";
+    ASSERT_FALSE( tables.empty() ) << "no .destrings under Projects/Desert/Content/Localization";
 
     for ( const auto& [name, table] : tables )
     {
@@ -375,7 +375,7 @@ TEST( LocalizedContentCensus, EveryUntranslatedLiteralIsARegisteredDECISION )
                                << " > " << authored.Entity << " > " << authored.Site << " = \"" << authored.Text
                                << "\"\n"
                                << "Either give it a key ('#some.key', with a row in a .destrings under "
-                                  "Editor/Resources/Assets/Localization), or add a row to LiteralRegister() "
+                                  "Projects/Desert/Content/Localization), or add a row to LiteralRegister() "
                                   "in this file saying why it stays a literal.";
     }
 
@@ -407,7 +407,7 @@ TEST( LocalizedContentCensus, EveryShippedTranslationHasAReader )
             referenced.insert( std::string( KeyOf( authored.Text ) ) );
     }
 
-    const fs::path scripts = fs::path( root ) / "Editor/Resources/Assets/Scripts";
+    const fs::path scripts = fs::path( root ) / "Projects/Desert/Content/Scripts";
     if ( fs::exists( scripts ) )
     {
         for ( const auto& entry : fs::recursive_directory_iterator( scripts ) )
@@ -458,7 +458,7 @@ TEST( LocalizedContentCensus, EveryWorldLabelIsDrawnAtAHumanScale )
     constexpr double kTallestGlyphCm = 1000.0;
 
     std::size_t labels = 0;
-    for ( const char* tree : { "Editor/Resources/Assets/Scenes", "Editor/Resources/Assets/Prefabs" } )
+    for ( const char* tree : { "Projects/Desert/Content/Scenes", "Projects/Desert/Content/Prefabs" } )
     {
         const fs::path dir = fs::path( root ) / tree;
         ASSERT_TRUE( fs::exists( dir ) ) << dir.string();

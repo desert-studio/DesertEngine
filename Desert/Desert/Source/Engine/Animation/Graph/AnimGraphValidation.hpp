@@ -34,6 +34,9 @@ namespace Desert::Animation::Graph
         StateClipNotAvailable    = 1, // W1b
         TransitionNeverFires     = 2, // W2
         UndeclaredConditionParam = 3, // W3
+        /// The pose graph does not plan (`PlanPoseGraph`'s refusal, its own sentence): the graph the
+        /// editor is authoring will not load and will not run until it does. `State` is empty.
+        PoseGraphRefused = 4,
     };
 
     struct GraphWarning

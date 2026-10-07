@@ -9,9 +9,6 @@ project(test_name)
     targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-
-
-
     files {
         test_files,
     }
@@ -48,8 +45,6 @@ project(test_name)
 
     links { "Common", "Optick" }
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "system:not windows"

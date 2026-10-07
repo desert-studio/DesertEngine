@@ -15,7 +15,7 @@ namespace Desert::Graphic::API::Vulkan
     public:
         virtual ~VulkanVertexBuffer();
 
-        VulkanVertexBuffer( void* data, uint32_t size, BufferUsage usage = BufferUsage::Static );
+        VulkanVertexBuffer( const void* data, uint32_t size, BufferUsage usage = BufferUsage::Static );
         VulkanVertexBuffer( uint32_t size, BufferUsage usage = BufferUsage::Dynamic );
 
         NO_DISCARD virtual Common::BoolResultStr SetData( void* data, uint32_t size,

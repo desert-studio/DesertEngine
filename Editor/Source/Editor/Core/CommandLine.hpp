@@ -80,6 +80,7 @@ namespace Desert::Editor
 
     inline constexpr CommandLineFlag kCommandLineFlags[] = {
          { "--project", true, "Desert.deproj" },
+         { "--engine-dir", true, "/opt/Desert/Editor" },
          { "--scene", true, "Scene.desce" },
          { "--shot", true, "out.png" },
          { "--shot-frames", true, "90" },
@@ -116,6 +117,10 @@ namespace Desert::Editor
         /// `--project <path.deproj>`. Whether the path OPENS is the caller's business — this function never
         /// touches the disk, which is exactly what lets it be tested without one.
         std::string Project;
+        /// `--engine-dir <path>`: the directory holding the engine's `Resources/` (UE's FPaths::EngineDir),
+        /// overriding the one derived from the executable's own position. Empty — the default — means
+        /// derive it; whether the path holds an engine is decided by Desert::Project::ResolveEngineDir.
+        std::string EngineDir;
         ShotOptions Shot;
 
         /// `--control-socket <path>`: listen for the control channel there. Empty — the default — means
@@ -340,6 +345,8 @@ namespace Desert::Editor
 
             if ( arg == "--project" )
                 options.Project = value;
+            else if ( arg == "--engine-dir" )
+                options.EngineDir = value;
             else if ( arg == "--scene" )
                 options.Shot.Scene = value;
             else if ( arg == "--shot" )

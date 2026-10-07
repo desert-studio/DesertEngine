@@ -23,6 +23,15 @@ namespace Desert::Geometry
         bool      HasBounds = false;
     };
 
+    // A section's LOD 0 triangles, from its INDEX count: a vertex is shared by several triangles, so
+    // VertexCount/3 undercounts an indexed mesh badly (and a mesh's Index is a whole triangle, so its
+    // index-buffer size is already the count — never divide it again). The one per-section count the
+    // mesh total below and the Details panel's Elements rows both read.
+    [[nodiscard]] inline uint64_t SubmeshTriangles( const Submesh& submesh )
+    {
+        return submesh.IndexCount / 3;
+    }
+
     inline MeshStats ComputeMeshStats( const std::vector<Submesh>& submeshes )
     {
         MeshStats stats;
@@ -33,9 +42,7 @@ namespace Desert::Geometry
         {
             ++stats.Elements;
             stats.Vertices += sm.VertexCount;
-            // Triangles come from the INDEX count: a vertex is shared by several triangles, so
-            // VertexCount/3 undercounts an indexed mesh badly.
-            stats.Triangles += sm.IndexCount / 3;
+            stats.Triangles += SubmeshTriangles( sm );
             stats.LODLevels = std::max( stats.LODLevels, static_cast<uint32_t>( sm.LODs.size() ) );
 
             mn = glm::min( mn, sm.BoundingBox.Min );

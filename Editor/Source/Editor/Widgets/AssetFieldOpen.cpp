@@ -33,4 +33,21 @@ namespace Desert::Editor
             ImGui::EndPopup();
         }
     }
+
+    void DrawAssetFieldButtons( uint64_t handle )
+    {
+        const Assets::AssetHandle asset( handle );
+        ImGui::BeginDisabled( handle == 0 );
+        ImGui::SameLine();
+        if ( ImGui::SmallButton( ICON_MDI_OPEN_IN_NEW "##asset_field_open_button" ) )
+            Core::AssetFieldRequests::Request( asset, Core::AssetFieldAction::Open );
+        if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+            ImGui::SetTooltip( "Open in the asset editor" );
+        ImGui::SameLine();
+        if ( ImGui::SmallButton( ICON_MDI_FOLDER_SEARCH_OUTLINE "##asset_field_browse_button" ) )
+            Core::AssetFieldRequests::Request( asset, Core::AssetFieldAction::ShowInBrowser );
+        if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+            ImGui::SetTooltip( "Show in the Content Browser" );
+        ImGui::EndDisabled();
+    }
 } // namespace Desert::Editor

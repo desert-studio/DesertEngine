@@ -61,6 +61,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert::Assets::Serialization;
 using Desert::Core::Formats::ImageFormat;
@@ -69,11 +70,7 @@ namespace
 {
     std::filesystem::path RepositoryRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0;
-              up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Assets" / "Textures" ); ++up )
-            here = here.parent_path();
-        return here;
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadFile( const std::filesystem::path& path )
@@ -326,7 +323,7 @@ TEST( TextureBinaryFormat, APngSurvivesTheContainerByteForByte )
 {
     // The png lives INSIDE T_Checker.detex since AF7 (the loose file left the tree); its Source section is
     // the untouched image bytes, so they are read from there rather than from a copy kept beside it.
-    const auto detex = RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Textures" / "T_Checker.detex";
+    const auto detex = RepositoryRoot() / "Projects" / "Desert" / "Content" / "Textures" / "T_Checker.detex";
     const auto asset = Desert::Assets::ReadTextureSourceAssetFile( detex );
     ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
     const std::string png = detex.string();

@@ -256,9 +256,15 @@ namespace Desert::Assets::Serialization
 
         /// The `.skeleton` the CLIPS are authored on. Resolved by GUID in `RetargetAsset::ResolveDependencies`;
         /// its GUID is the header's one Dependency (WriteRetarget states it, ParseRetarget refuses a
-        /// disagreement). The path is RELATIVE to the assets root (e.g. "Meshes/Skinned/IKProbe.skeleton") and is
+        /// disagreement). The path is RELATIVE to the assets root (e.g. "Characters/Mannequin.skeleton") and is
         /// what a reader and every warning name. See the file note for why this is not a signature.
         AssetGuidRef SourceSkeleton;
+
+        /// The `.skeleton` of the entity being posed - the TARGET half of the pair (UE: the retargeter's
+        /// target IK Rig; RTGT 4). Every Target* bone name is a bone of it, and a Rename Bone of it finds this
+        /// file by this GUID (SkeletonReferrers). Not a header Dependency: the target rig is the entity's own,
+        /// resolved by its mesh, never loaded through the retarget. Required.
+        AssetGuidRef TargetSkeleton;
 
         std::string SourcePelvisBone;
         std::string TargetPelvisBone;
@@ -332,7 +338,7 @@ namespace Desert::Assets::Serialization
 
     // THERE IS DELIBERATELY NO `BuildRetargeter` HERE. Building one needs the SOURCE RIG KEPT, which is a
     // lifetime decision rather than a format one: `Animation::Retarget::RetargetSource::Create` owns it,
-    // takes this setup and `SourceSkeletonSignature`, and is the ONE place a `Retargeter` is initialised.
+    // takes this setup and the `SourceSkeleton` rig, and is the ONE place a `Retargeter` is initialised.
     // A second initialiser in this layer would be a second answer to "is this the right rig", and the
     // engine would call one of them while the suites called the other.
 
@@ -341,5 +347,6 @@ namespace Desert::Assets::Serialization
     /// assumption.
     NO_DISCARD RetargetAssetData BuildDataFromRetargetSetup( const std::string&  name,
                                                              const AssetGuidRef& sourceSkeleton,
+                                                             const AssetGuidRef& targetSkeleton,
                                                              const Animation::Retarget::RetargetSetup& setup );
 } // namespace Desert::Assets::Serialization

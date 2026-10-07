@@ -21,6 +21,7 @@
 namespace Desert::Animation
 {
     class Animator;
+    class AnimationLibrary;
 }
 
 namespace Desert::Editor::UI
@@ -42,6 +43,7 @@ namespace Desert::Graphic
 namespace Desert::Assets
 {
     class AnimationAsset;
+    class AssetManager;
 }
 
 namespace Desert::Editor
@@ -240,6 +242,14 @@ namespace Desert::Editor
 
         // Pose the skinned mesh at `seconds` into its clip (Animator::SetTime, applied in Update before the
         // scene records). A changed time re-renders the pane; the same time does not.
+        // A skinned mesh whose pose is an AnimGraph's, PLAYED by this preview world's own clock (UE Persona's
+        // preview scene: the graph window's character is not the level's). The scene gets the AnimationECSSystem
+        // the level runs, so the graph is evaluated by the one runtime path, its edits (the asset's revision)
+        // and its IK goals land on the next frame, and the pane renders every frame (realtime).
+        void SetSkinnedGraph( const Assets::AssetHandle& mesh, const std::vector<Assets::AssetHandle>& materials,
+                              const Assets::AssetHandle& graph, Animation::AnimationLibrary* library,
+                              Assets::AssetManager* assets );
+
         void SetAnimationTime( double seconds );
 
         // The skinned target's animator (nullptr without SetSkinnedMesh), the camera's view-projection and the
@@ -464,6 +474,8 @@ namespace Desert::Editor
         ECS::Entity                                     m_Target;
         Assets::Asset<Assets::AnimationAsset>           m_Clip; // the skinned preview's clip, null otherwise
         double                                          m_AnimationTime = 0.0;
+        bool m_SceneAnimates      = false; // an AnimationECSSystem drives the target (SetSkinnedGraph)
+        bool m_HasAnimationSystem = false;
         bool m_PoseOverride = false; // the authoring pose replaces the clip's (SetPoseOverride)
         // The three entities the SceneSetup drives. Created once with the scene and then only written to
         // — a floor that is switched off is an entity with no mesh in its slot, not an entity destroyed

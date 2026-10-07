@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <ctime>
 #include <fstream>
 #include <sstream>
@@ -148,7 +149,9 @@ namespace CrashReporter
             }
             else if ( section == "build" )
             {
-                if ( key == "version" )
+                if ( key == "config" )
+                    report.config = value;
+                else if ( key == "version" )
                     report.version = value;
                 else if ( key == "sha" )
                     report.sha = value;
@@ -287,5 +290,49 @@ namespace CrashReporter
             return inReport.crashEpoch;
         }
         return std::string( text ) + " local";
+    }
+
+    Audience AudienceOf( const Report& inReport )
+    {
+        return inReport.config == "Shipping" ? Audience::Player : Audience::Developer;
+    }
+
+    ReportView ComposeView( const Report& inReport )
+    {
+        ReportView view;
+        view.audience         = AudienceOf( inReport );
+        const std::string gpu = inReport.gpuDriver.empty()
+                                     ? inReport.gpu
+                                     : std::format( "{}  -  driver {}  -  Vulkan {}", inReport.gpu,
+                                                    inReport.gpuDriver, inReport.gpuApi );
+
+        if ( view.audience == Audience::Player )
+        {
+            // What a player can read and act on: which game, what went wrong, which version, when,
+            // on what system. No repository state, no machine name, no path, no log.
+            view.showLog  = false;
+            view.showPath = false;
+            view.summary  = {
+                 { "Game", inReport.game, false },      { "Error", inReport.codename, false },
+                 { "Version", inReport.version, true }, { "Time", FormatCrashTime( inReport ), false },
+                 { "System", inReport.os, false },      { "GPU", gpu, false },
+            };
+            return view;
+        }
+
+        view.summary = {
+             { "Kind", std::format( "{}  [{}]", inReport.codename, inReport.kind ), false },
+             { "Code", std::format( "{} at {}", inReport.code, inReport.address ), true },
+             { "Module", std::format( "{} + {}", inReport.module, inReport.moduleOffset ), true },
+             { "Version",
+               std::format( "{}  sha {}  branch {}{}", inReport.version, inReport.sha, inReport.branch,
+                            inReport.dirty == "1" ? "  (dirty tree)" : "" ),
+               true },
+             { "Time", std::format( "{}  (started {})", FormatCrashTime( inReport ), inReport.started ), false },
+             { "Machine", std::format( "{}  -  {}", inReport.machine, inReport.os ), false },
+             { "GPU", gpu, false },
+             { "Scene", inReport.scene, false },
+        };
+        return view;
     }
 } // namespace CrashReporter

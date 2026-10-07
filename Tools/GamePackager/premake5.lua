@@ -30,12 +30,16 @@ project "GamePackager"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCacheKey.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderSpirvCache.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/Includer/ShaderIncluder.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/FontBaker.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/Msdf.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/FontCache.cpp",
@@ -61,6 +65,9 @@ project "GamePackager"
 
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include", -- <stb_image/stb_image.h>, for the texture cook
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/openexr/src/lib/OpenEXRCore", -- <openexr.h> (OpenEXRCore), for the texture import
+        "%{_MAIN_SCRIPT_DIR}/build/generated/openexr/include",  -- its generated config headers (BuildScripts/ThirdParty/OpenEXR.lua)
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
         -- <Common/LandscapeHeight.glslh>: LandscapeData.cpp decodes heights with the shader's own maths.
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
@@ -80,8 +87,6 @@ project "GamePackager"
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        -- Common contains Objective-C (the file dialog); linking it needs AppKit + the ObjC runtime.
-        links { "Cocoa.framework", "Foundation.framework" }
 
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
@@ -89,6 +94,7 @@ project "GamePackager"
     filter {}
 
     links { "Common", "Optick" } -- Common's JobSystem registers its workers with Optick
+    links { "OpenEXRCore" } -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
 
     filter "system:not windows"
         links { "ReflectCpp" }

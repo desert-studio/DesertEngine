@@ -66,6 +66,7 @@ namespace Desert::Scripting
              MakeEntry<ECS::PostProcessVolumeComponent>( "PostProcessVolume", "PostProcessVolumeData" ),
              MakeEntry<ECS::VolumetricCloudComponent>( "VolumetricCloud", "VolumetricCloudData" ),
              MakeEntry<ECS::HeroCloudComponent>( "HeroCloud", "HeroCloudData" ),
+             MakeEntry<ECS::ProceduralFoliageComponent>( "ProceduralFoliage", "ProceduralFoliageData" ),
         };
 
         const ReflectedComponentEntry* FindEntry( const std::string& name )

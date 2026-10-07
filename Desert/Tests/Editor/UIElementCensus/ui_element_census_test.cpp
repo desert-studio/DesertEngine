@@ -45,8 +45,12 @@ namespace
     constexpr const char* kRendererFiles[] = {
          "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
          "Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
+         // The walk's clip pre-pass (ANIM-I9): UICanvasRenderer2D calls PlayUIAnimations before any canvas is
+         // walked, and it is where UIAnimComponent is read and folded into each element's sample.
+         "Desert/Desert/Source/Engine/UI/UIAnimationPlayback.cpp",
     };
-    constexpr const char* kRenderer = "the UI walk (UICanvasRenderer2D.cpp + UIOverlay.cpp)";
+    constexpr const char* kRenderer =
+         "the UI walk (UICanvasRenderer2D.cpp + UIOverlay.cpp + UIAnimationPlayback.cpp)";
 
     // Component types the shipping renderer handles that are deliberately NOT offered by the create menus.
     // Each needs a reason, and the reason is the row.
@@ -96,6 +100,8 @@ namespace
                                "resolves through, and whether it consults the theme at all. An element "
                                "without one already uses the theme's Default style, which is the whole "
                                "point: theming must not require an edit of every entity" },
+         { "UIRetainerComponent", "modifier — retains an existing element and its subtree into an offscreen "
+                                  "layer composited through one effect (UE Retainer Box); added in Details" },
     };
 
     // The repository root, found by walking up from wherever the test binary was started — the same approach

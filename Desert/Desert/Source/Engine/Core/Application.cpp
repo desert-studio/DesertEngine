@@ -7,7 +7,6 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
 
-#include <Common/Core/EventRegistry.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <Engine/Core/Glfw.hpp>
@@ -38,6 +37,8 @@ namespace Desert::Engine
         }
 
         m_Window = Window::Create( windowSpec );
+        m_WindowEventNode = m_Events.Attach<Window>( m_ApplicationEventNode, *m_Window );
+        m_Window->SetEventTree( m_Events );
         m_Window->Init();
 
         // 1. Create RendererContext (Vulkan Instance)
@@ -92,7 +93,7 @@ namespace Desert::Engine
                        "block above. Nothing was drawn and nothing was open, so there is nothing to "
                        "recover — start again." );
 
-        m_Window->SetEventCallback( [this]( Common::Event& e ) { ProcessEvents( e ); } );
+        m_EngineSubsystems.emplace( *this, m_Events, m_ApplicationEventNode );
     }
 
     Application::~Application()
@@ -106,6 +107,8 @@ namespace Desert::Engine
         if ( m_Device )
             m_Device->WaitIdle();
 
+        m_EngineSubsystems.reset();
+
         // Everything the renderer generated at Init() (the BRDF LUT, the fallback textures, the API
         // object) and every GPU resource the registries handed out lives in a static that outlives this
         // object. Released here, while the device and the allocator are still alive, because a static
@@ -115,18 +118,11 @@ namespace Desert::Engine
         // Members then die window -> device -> context; see the note on the declarations.
     }
 
-    void Application::ProcessEvents( Common::Event& e )
+    bool Application::OnWindowClosed( Common::EventWindowClose& /*close*/ )
     {
-        Common::EventManager eventManager( e );
-        eventManager.Notify<Common::EventWindowClose>( [this]( Common::EventWindowClose& e )
-                                                       { return this->OnClose( e ); } );
-
-        for ( auto it = m_LayerStack.end(); it != m_LayerStack.begin(); )
-        {
-            ( *--it )->OnEvent( e );
-            if ( e.m_Handled )
-                break;
-        }
+        if ( m_CloseGate.StopsNow() )
+            m_IsRunningApplication = false;
+        return true;
     }
 
     void Application::ReportLayerFailure( const char* stage, Common::Layer* layer, const std::string& error )
@@ -143,7 +139,7 @@ namespace Desert::Engine
         LOG_ERROR( "[Application] layer '{}' failed in {}: {}", layer->GetName(), stage, error );
     }
 
-    void Application::PushLayer( std::unique_ptr<Common::Layer> layer )
+    void Application::AttachLayer( std::unique_ptr<Common::Layer> layer )
     {
         // Borrowed back out of the stack, which now owns it: attaching must not need a second claim.
         Common::Layer* pushed = m_LayerStack.PushLayer( std::move( layer ) );
@@ -191,7 +187,7 @@ namespace Desert::Engine
             DESERT_PROFILE_FRAME( "Frame" );
 
             float    time     = (float)glfwGetTime();
-            float    timestep = time - m_LastFrameTime;
+            const float timestep = m_FixedDeltaTime.has_value() ? *m_FixedDeltaTime : time - m_LastFrameTime;
             m_LastFrameTime   = time;
 
             m_EngineStats.Update();
@@ -325,6 +321,7 @@ namespace Desert::Engine
                     if ( !rendered.IsSuccess() )
                         ReportLayerFailure( "OnUIRender", layer.get(), rendered.GetError() );
                 }
+                m_Events.RouteDeferred();
             }
 
             // 6. Submit all recorded commands and Present — CPU blocks here on submit/present (GPU-bound/vsync).

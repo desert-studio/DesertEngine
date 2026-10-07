@@ -100,8 +100,18 @@ namespace Desert::Runtime
 
         // DSL multi-pass shaders: every named pass is its own program, addressable as
         // "<Shader>/<Pass>" (e.g. GetByName("Unlit/Shadow")).
+        //
+        // A surface template's default cell is NOT compiled a second time: the default program above IS that cell
+        // (IsSurfaceDefaultCell), so its "<Template>/<Cell>" name answers the same object.
+        const bool surfaceTemplate =
+             Core::Preprocess::DShaderParser::MayDeclareSurface( shaderAsset->GetShaderContent() );
         for ( const auto& passName : shader->GetProgramMeta().PassNames )
         {
+            if ( Core::Preprocess::IsSurfaceDefaultCell( surfaceTemplate, passName ) )
+            {
+                m_PassShaders[std::format( "{}/{}", shader->GetName(), passName )] = shader;
+                continue;
+            }
             auto passShader                      = Graphic::Shader::Create( shaderAsset, {}, passName );
             m_PassShaders[passShader->GetName()] = passShader;
             passShader->ClaimOwnership( Graphic::ResourceOwner::AssetService, shaderAsset->GetMetadata().Handle );

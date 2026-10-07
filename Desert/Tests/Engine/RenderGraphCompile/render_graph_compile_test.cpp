@@ -348,6 +348,58 @@ TEST( RenderGraphCompile, SourcesIncludeNothingVulkan )
     EXPECT_GE( files, 6 ) << "the RDG directory lost files the census expected to read";
 }
 
+// THE TWO HALVES OF ONE VULKAN DECLARATION, read where they are spelled. (1) Every vkCmdPushConstants names the
+// stages of the pipeline layout it pushes into (VulkanPipeline::GetPushConstantRange, or the compute layout's one
+// COMPUTE range), never a shader's reflected ShaderStage: the shader is re-reflected by a recompile while the
+// pipeline keeps its layout, and pushing the reflection's stages raised VUID-vkCmdPushConstants-offset-01795
+// 4082 times in one editor session (GATE-VAL1). (2) The back buffer is imported in kPresentAcquiredState and the
+// acquire wait stage is derived from it, so the two cannot drift (the companion of
+// TheAcquiredBackBuffersFirstBarrierWaitsAtTheAcquireStage).
+TEST( RenderGraphCompile, VulkanPushStagesAndAcquireStageComeFromOneDeclaration )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const fs::path dir = root / "Desert/Desert/Source/Engine/Graphic/API/Vulkan";
+    ASSERT_TRUE( fs::is_directory( dir ) ) << dir.string();
+    const auto read = []( const fs::path& path )
+    {
+        std::ifstream      file( path );
+        std::ostringstream text;
+        text << file.rdbuf();
+        return text.str();
+    };
+
+    int pushes = 0;
+    for ( const fs::directory_entry& entry : fs::directory_iterator( dir ) )
+    {
+        if ( entry.path().extension() != ".cpp" )
+            continue;
+        const std::string text = read( entry.path() );
+        for ( size_t at = text.find( "vkCmdPushConstants(" ); at != std::string::npos;
+              at        = text.find( "vkCmdPushConstants(", at + 1 ) )
+        {
+            ++pushes;
+            const std::string call = text.substr( at, text.find( ';', at ) - at );
+            EXPECT_EQ( call.find( "ShaderStage" ), std::string::npos )
+                 << entry.path().filename().string() << ": a push names a shader's reflected stages:\n"
+                 << call;
+            const bool layoutRange = call.find( "stageFlags" ) != std::string::npos;
+            const bool compute     = call.find( "VK_SHADER_STAGE_COMPUTE_BIT" ) != std::string::npos;
+            EXPECT_TRUE( layoutRange || compute )
+                 << entry.path().filename().string() << ": a push names neither its layout's range nor COMPUTE:\n"
+                 << call;
+        }
+    }
+    EXPECT_GE( pushes, 4 ) << "the census lost the push sites it expected to read";
+
+    const std::string swapchain = read( dir / "VulkanSwapChain.cpp" );
+    const std::string output    = read( dir / "VulkanSwapChainOutput.cpp" );
+    EXPECT_NE( swapchain.find( "RDG::kPresentAcquiredState )" ), std::string::npos )
+         << "ImportBackBuffer no longer imports the back buffer in kPresentAcquiredState";
+    EXPECT_NE( output.find( "RdgVulkanStages( RDG::kPresentAcquiredState.Stages )" ), std::string::npos )
+         << "the acquire wait stage is no longer derived from kPresentAcquiredState";
+}
+
 // ── Culling ─────────────────────────────────────────────────────────────────────────────────────────────
 
 TEST( RenderGraphCompile, CullsPassesNobodyConsumesAndKeepsEveryRoot )
@@ -779,6 +831,38 @@ TEST( RenderGraphCompile, TheCullingSwitchKeepsEveryPassAndTheFrameAndViewportWi
 
 // Bloom: pass i writes mip i while sampling mip i-1 of the SAME texture. Per-subresource state is what
 // makes that legal - one barrier moves mip i-1 to shader-read, another brings mip i up from undefined.
+// THE ACQUIRED BACK BUFFER'S FIRST BARRIER CHAINS WITH THE ACQUIRE WAIT. The frame waits on the acquire semaphore
+// at kPresentAcquiredState's stages (VulkanSwapChainOutput::GetFrameOutput) and the back buffer is imported in
+// that state (VulkanSwapChain::ImportBackBuffer). The graph's transition out of Undefined must have those stages
+// in its source scope, or it is ordered against nothing and races the presentation engine's read: imported as
+// Access::None it was TOP_OF_PIPE, and the validation layer reported SYNC-HAZARD-WRITE-AFTER-READ in the
+// EditorImGui region on every frame (GATE-VAL1).
+TEST( RenderGraphCompile, TheAcquiredBackBuffersFirstBarrierWaitsAtTheAcquireStage )
+{
+    EXPECT_EQ( kPresentAcquiredState.Layout, ImageLayout::Undefined );
+    EXPECT_EQ( kPresentAcquiredState.Memory, static_cast<MemoryAccessFlags>( MemoryAccess_None ) );
+    EXPECT_EQ( kPresentAcquiredState.Stages,
+               static_cast<PipelineStageFlags>( PipelineStage_ColorAttachmentOutput ) );
+
+    ExternalTexture backbuffer;
+    backbuffer.Desc = Tex2D( 64, 64, ImageFormat::BGRA8F );
+    backbuffer.SubresourceStates.assign( backbuffer.Desc.SubresourceCount(), kPresentAcquiredState );
+    Builder          graph( "EditorImGui" );
+    const TextureRef back = graph.RegisterExternal( backbuffer, "BackBuffer" );
+    graph.AddPass(
+         "EditorImGui", PassFlags::Raster, [&]( PassBuilder& pass )
+         { pass.ColorTarget( 0, back, LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f ) ); }, Ok );
+    graph.Extract( back, backbuffer, Access::Present );
+
+    const CompileResult        result = CompileOrFail( graph );
+    const std::vector<Barrier> first  = BarriersOn( result.FindPass( "EditorImGui" ), back.Index );
+    ASSERT_EQ( first.size(), 1u );
+    EXPECT_EQ( first[0].Before.Layout, ImageLayout::Undefined );
+    EXPECT_NE( first[0].Before.Stages & kPresentAcquiredState.Stages, 0u )
+         << "the transition's source scope does not include the stage the acquire semaphore is waited at";
+    EXPECT_EQ( first[0].After, GetAccessState( Access::ColorTarget ) );
+}
+
 TEST( RenderGraphCompile, BloomMipChainGetsOneBarrierPerTouchedMip )
 {
     constexpr uint32_t kMips = 5;
@@ -2943,7 +3027,12 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
     EXPECT_NE( runtime.find( "pass.ColorTarget(0,target," ), std::string::npos );
     EXPECT_NE( runtime.find( "bindings.Sampled(\"u_Texture\",sceneRef,Graphic::RDG::Access::SampledGraphics" ),
                std::string::npos );
-    EXPECT_NE( runtime.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ),
+    // The ref the graph extracts is the imported back buffer itself, not the node's target: under
+    // --render-movie the node composes into the movie target and the back buffer is only cleared.
+    EXPECT_NE( runtime.find( "constGraphic::RDG::TextureRefbackBufferRef=graph.RegisterExternal(backBuffer,"
+                             "\"BackBuffer\");" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "graph.Extract(backBufferRef,backBuffer,Graphic::RDG::Access::Present)" ),
                std::string::npos );
     EXPECT_NE( runtime.find( "renderer.ExecuteGraph(graph)" ), std::string::npos );
     for ( const char* gone : { "BeginSwapChainRenderPass", "SubmitIndexed", "SubmitFullscreenTriangle",

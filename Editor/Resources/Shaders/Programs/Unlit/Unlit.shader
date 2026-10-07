@@ -1,16 +1,27 @@
 // DesertAsset {"Kind":"Shader","Guid":"68041dd187501b26980a7415a7b882fc","Versions":{"SHDR":1},"Dependencies":[]}
-// Fully data-driven surface shader in the Desert Shader Language (single file: properties,
-// render state and all stages together). The Properties block both drives the Details UI and
-// (via Binding/TextureBinding) auto-generates this material's row of the shared `Materials[]`
-// storage buffer + its samplers in the fragment stage — the parameter is declared exactly once.
+// The flat-colour surface template (UE's MSM_Unlit): a `Domain Surface` shader like StandardSurface, so it has
+// no hand-written program of its own — its (Forward|GBuffer|ShadowDepth) cells are the engine's vertex-path and
+// Pass_*_Unlit headers around EvaluateSurface below, and those headers name no lighting text or resource. The
+// Properties block drives the Details UI and the material's row of `Materials[]`; the albedo map is declared in
+// the Surface block on the shared material layout's albedo slot, exactly as StandardSurface declares it.
 Shader "Unlit"
 {
     Domain Surface
+    Role DebugColor
 
-    Properties Binding(1) TextureBinding(2)
+    // The import contract (see StaticMeshPBR): this template takes only a glTF material that declares
+    // KHR_materials_unlit, and it takes it over StaticMeshPBR because it requires more of the source.
+    Import
     {
-        Color     Color       ("Color")  = (0.8, 0.4, 0.1, 1)
-        Texture2D u_AlbedoTex ("Albedo")
+        Requires "gltf.KHR_materials_unlit"
+        "gltf.baseColorFactor"  -> Color
+        "gltf.baseColorTexture" -> u_AlbedoTexture
+    }
+
+    Properties Binding(2)
+    {
+        Color     Color           ("Color")  = (0.8, 0.4, 0.1, 1)
+        Texture2D u_AlbedoTexture ("Albedo")
     }
 
     State
@@ -20,55 +31,20 @@ Shader "Unlit"
         ZWrite On
     }
 
-    Vertex
+    ShadingModel Unlit
+
+    Surface
     {
-        In(0) vec3 a_Position;
-        In(1) vec3 a_Normal;
-        In(2) vec3 a_Tangent;
-        In(3) vec3 a_Bitangent;
-        In(4) vec2 a_TextureCoord;
+        layout( binding = 11 ) uniform sampler2D u_AlbedoTexture;
 
-        #include <Common/CameraUB.glslh>
-
-        // Transform + the material row index, in the one block both stages declare (see the header).
-        #include <Common/MaterialTransport.glslh>
-
-        Out(0) vec2 v_UV;
-
-        void main()
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
-            v_UV        = a_TextureCoord;
-            gl_Position = cameraUB.Projection * cameraUB.View * m_PushConstants.Transform * vec4( a_Position, 1.0 );
+            const vec4 colour = texture( u_AlbedoTexture, i.UV0 ) * u_Material.Color;
+            SurfaceOutput s   = DefaultSurfaceOutput();
+            s.BaseColor       = vec3( 0.0 );
+            s.Emissive        = colour.rgb;
+            s.Opacity         = colour.a;
+            return s;
         }
     }
-
-    Fragment
-    {
-        In(0) vec2 v_UV;
-        Out(0) vec4 o_Color;
-
-        void main()
-        {
-            o_Color = texture( u_AlbedoTex, v_UV ) * u_Material.Color;
-        }
-    }
-
-    // NO depth-only pass. There used to be a Pass "Depth" here, described as the shadow
-    // variant; ShaderService registered it as its own program under
-    // "Unlit/Depth" and compiled a SPIR-V module for it at every startup, and nothing could consume it —
-    // no GetByName call in the engine has ever asked for a "<Shader>/<Pass>" name.
-    //
-    // It could not have served if one had, but NOT for the reason the file made it look like. Its vertex
-    // stage was the right maths: byte for byte what Shadow.shader does, and reading cameraUB is exactly
-    // how the engine's own shadow vertex works — MaterialShadow feeds the LIGHT's view/projection into
-    // that same block, so shader text cannot tell a camera from a light. What was missing is that no
-    // material would ever have done so for this program. The disqualifier is the other one: the pass
-    // declared no FRAGMENT stage at all, while a cascade is a colour R32F attachment a fragment shader
-    // must write (Shadow.shader writes gl_FragCoord.z into it), so it would have rasterized and emitted
-    // nothing.
-    //
-    // A mesh with this material casts through the engine's shadow pipeline over the generic queue
-    // (MeshRenderer::RegisterShadowPass). Depth is material-independent, so a per-material depth shader
-    // has nothing to contribute. Tests/Engine/ShippedShaderPasses holds both halves of that.
 }
-

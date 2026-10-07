@@ -188,11 +188,16 @@ namespace
 
     // Every consumer that used to keep its own clock (TIME1), and the line that now connects it to the
     // world's. One named row each — a consumer that goes back to its own clock fails here by name.
-    constexpr std::array<Consumer, 9> kConsumers{ {
+    constexpr std::array<Consumer, 11> kConsumers{ {
          { "Desert/Desert/Source/Engine/Core/Scene.cpp", "Common::Timestep( m_WorldTime.GetDeltaSeconds() )" },
          { "Desert/Desert/Source/Engine/Core/Scene.cpp", "system->SetWorldTime( m_WorldTime )" },
-         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
-           "const Common::Timestep animTs( m_WorldDeltaSeconds )" },
+         // Animation: gameplay by the world's Delta (Update's step), the editor preview by the same Delta in
+         // Edit (SetEditorTick, so Realtime off freezes it), one rule over both (AnimationAdvanceSeconds).
+         { "Desert/Desert/Source/Engine/Core/Scene.cpp",
+           "const Common::Timestep gameplayTs( TicksGameplay() ? m_WorldTime.GetDeltaSeconds() : 0.0f )" },
+         { "Desert/Desert/Source/Engine/Core/Scene.cpp",
+           "editorTs( m_WorldTime.EditorPreviewSeconds( m_State == SceneState::Edit ) )" },
+         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp", "Animation::AnimationAdvanceSeconds(" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
            "AdvanceWind( data, m_WorldDeltaSeconds )" },
          { "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp",
@@ -280,6 +285,31 @@ TEST( WorldTimeOneSource, TheWallClockAllowListHasNoDeadRows )
         EXPECT_NE( text.find( "steady_clock" ), std::string::npos )
              << file << " no longer reads a wall clock; remove its row";
     }
+}
+
+// THE VIEWPORT'S REALTIME IS THE MAIN SCENE'S. EditorLayer hands the preference to the scene it ticks, and no
+// other editor code sets a scene's Realtime: a preview scene (the animation editor's) keeps its own default, so
+// turning the main viewport's Realtime off freezes the level, never the preview (AnimatorPose relation test).
+TEST( WorldTimeOneSource, OnlyTheMainSceneTakesTheViewportsRealtime )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    std::vector<std::string> setters;
+    std::size_t              scanned = 0;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root + "Editor/Source" ) )
+    {
+        if ( !entry.is_regular_file() )
+            continue;
+        const auto extension = entry.path().extension();
+        if ( extension != ".cpp" && extension != ".hpp" )
+            continue;
+        ++scanned;
+        if ( ReadAll( entry.path() ).find( "SetPreviewRealtime(" ) != std::string::npos )
+            setters.push_back( std::filesystem::relative( entry.path(), root ).generic_string() );
+    }
+    EXPECT_GT( scanned, 50u ) << "the scan reached too few files to mean anything";
+    ASSERT_EQ( setters.size(), 1u ) << "a scene's Realtime is set from more than the main viewport";
+    EXPECT_EQ( setters.front(), "Editor/Source/EditorLayer.cpp" );
 }
 
 int main( int argc, char** argv )

@@ -1267,10 +1267,10 @@ namespace Desert::Editor::Commands
              uuid, oldTranslation, oldRotation, oldScale, tc.Translation, tc.Rotation, tc.Scale ) );
     }
 
-    void RecordTransformEdits( const std::vector<TransformSnapshot>& before )
+    bool RecordTransformEdits( const std::vector<TransformSnapshot>& before )
     {
         if ( !Ready() )
-            return;
+            return false;
 
         const float epsilon   = 1e-6f;
         auto        composite = std::make_unique<CompositeCommand>();
@@ -1289,11 +1289,12 @@ namespace Desert::Editor::Commands
                                                                 tc.Rotation, tc.Scale ) );
         }
         if ( composite->Empty() )
-            return;
+            return false;
         if ( composite->Size() == 1 )
             CommandHistory::Get().PushCommand( composite->TakeSingle() );
         else
             CommandHistory::Get().PushCommand( std::move( composite ) );
+        return true;
     }
 
     void CopySelectionToClipboard( const std::vector<Common::UUID>& uuids )
@@ -1532,6 +1533,8 @@ namespace Desert::Editor::Commands
                 candidate.Blockers.emplace_back( "a LOD bias" );
             if ( !mesh.ReceiveShadows )
                 candidate.Blockers.emplace_back( "receive-shadows off" );
+            if ( mesh.TranslucencySortPriority != 0 )
+                candidate.Blockers.emplace_back( "a translucency sort priority" );
             if ( mesh.HiddenSubmeshes != 0 )
                 candidate.Blockers.emplace_back( "hidden submeshes" );
             if ( mesh.EditableMesh )

@@ -46,6 +46,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 
@@ -200,7 +201,7 @@ int main( int argc, char** argv )
 // rewrites both into the saver's bytes; this census holds every committed scene to having been through
 // it: read the scene as the loader reads it, canonicalise, write through the scene writer's canonical
 // text - and the result must BE the file. A scene that fails is named; the fix is
-// `scripts/Dev/migrate.sh --write Editor/Resources/Assets`.
+// `scripts/Dev/migrate.sh --write Projects/Desert/Content`.
 //
 // THE GAP, NAMED: the pass covers Settings and the blocks listed in
 // Engine/Core/Serialize/ReflectedComponentBlocks.hpp, plus Text (a hand-written block whose writer is
@@ -213,18 +214,8 @@ int main( int argc, char** argv )
 // A partitioned header (none is committed today) is compared against its joined text, not its bytes.
 TEST( SceneMigratorWritePath, EveryCommittedSceneIsAlreadyTheSaversCanonicalText )
 {
-    fs::path assets;
-    for ( fs::path at = fs::current_path(); !at.empty(); at = at.parent_path() )
-    {
-        if ( fs::is_directory( at / "Editor/Resources/Assets" ) )
-        {
-            assets = at / "Editor/Resources/Assets";
-            break;
-        }
-        if ( at == at.parent_path() )
-            break;
-    }
-    ASSERT_FALSE( assets.empty() ) << "no Editor/Resources/Assets above " << fs::current_path();
+    const fs::path assets = Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content";
+    ASSERT_TRUE( fs::is_directory( assets ) ) << assets;
 
     bool sawOne = false;
     for ( const auto& entry : fs::recursive_directory_iterator( assets ) )
@@ -249,7 +240,7 @@ TEST( SceneMigratorWritePath, EveryCommittedSceneIsAlreadyTheSaversCanonicalText
         EXPECT_EQ( report.BlocksRestated, 0 )
              << scene << ": " << report.BlocksRestated << " reflected block(s) are not in the saver's text ("
              << report.KeysAdded << " key(s) missing, " << report.ValuesRestated
-             << " value(s) spelled otherwise) - run scripts/Dev/migrate.sh --write Editor/Resources/Assets";
+             << " value(s) spelled otherwise) - run scripts/Dev/migrate.sh --write Projects/Desert/Content";
 
         const auto rewritten = Common::Json::TextDocument::Parse( rfl::json::write( parsed.value() ) );
         ASSERT_TRUE( rewritten ) << scene << ": " << rewritten.GetError();

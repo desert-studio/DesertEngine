@@ -25,6 +25,11 @@ namespace Desert::Editor::Render
 
         void Render();
 
+        // This frame's step, as the editor steps it (EditorLayer's frameTs — fixed under --play). Called
+        // once per frame before the scene's frame, for every document; the UI pass walks its canvases with
+        // exactly this delta (UI::BeginUIFrame takes it from the host, as Slate's Tick takes DeltaTime).
+        void BeginFrame( const Common::Timestep& ts );
+
         // Advance the worlds this document's render-texture UI elements show. Forwarded to the UI pass,
         // and called from EditorLayer's pre-update — see EditorUIPass::TickRenderTextures for why it
         // cannot happen inside the pass.

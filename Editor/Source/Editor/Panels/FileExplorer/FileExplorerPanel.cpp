@@ -5,12 +5,18 @@
 #define NOMINMAX
 
 #include "FileExplorerPanel.hpp"
+#include <Editor/Platform/DesktopPlatform.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
 #include <Editor/Panels/Clouds/CloudDocumentOpen.hpp>
 #include <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
 #include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
 #include <Editor/Core/AssetFileOps.hpp>
+#include <Editor/Core/ContentCreateCommands.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Editor/Core/MaterialAssetUtils.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/EditorPreferences.hpp> // the pinned folders live in editor.json (К5)
@@ -18,16 +24,23 @@
 #include <Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp>
 #include "../../Core/EditorResources.hpp"
 
+#include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Editor/Import/TextureDnD.hpp>
 #include <Editor/Import/CookPaths.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 #include <Editor/Panels/FileExplorer/AssetTooltipLayout.hpp>
 #include <cstdio>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Widgets/ThumbnailFoliage.hpp>
+#include <Editor/Widgets/ThumbnailPose.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
+#include <Common/Content/ContentScan.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Assets/AssetManager.hpp>
@@ -58,7 +71,11 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <Editor/Widgets/ThumbnailEdit.hpp>
+
 #include <filesystem>
+#include <utility>
+#include <format>
 #include <fstream>
 #include <system_error>
 
@@ -153,67 +170,34 @@ namespace Desert::Editor
     } // namespace
 
     static const std::unordered_map<FileType, std::string> s_FileTypesToString = {
-         { FileType::Unknown, "Unknown" },   { FileType::Scene, "Scene" },
-         { FileType::Prefab, "Prefab" },     { FileType::Script, "Script" },
-         { FileType::Shader, "Shader" },     { FileType::Texture, "Texture" },
-         { FileType::Font, "Font" },         { FileType::Cubemap, "Cubemap" },
-         { FileType::Model, "Model" },       { FileType::Audio, "Audio" },
-         { FileType::Material, "Material" }, { FileType::ShaderGraph, "Shader Graph" },
+         { FileType::Unknown, "Unknown" },
+         { FileType::Scene, "Scene" },
+         { FileType::Prefab, "Prefab" },
+         { FileType::Script, "Script" },
+         { FileType::Shader, "Shader" },
+         { FileType::Texture, "Texture" },
+         { FileType::Font, "Font" },
+         { FileType::Cubemap, "Cubemap" },
+         { FileType::Model, "Model" },
+         { FileType::Audio, "Audio" },
+         { FileType::Material, "Material" },
+         { FileType::ShaderGraph, "Shader Graph" },
          { FileType::Cloud, "Cloud" },
-    };
-
-    static const std::unordered_map<std::string, FileType> s_FileTypes = {
-         { "lsn", FileType::Scene },
-         { "deprefab", FileType::Prefab },
-         { "prefab", FileType::Prefab },
-         { "lprefab", FileType::Prefab },
-         { "cs", FileType::Script },
-         { "lua", FileType::Script },
-         { "glsl", FileType::Shader },
-         { "shader", FileType::Shader },
-         { "frag", FileType::Shader },
-         { "vert", FileType::Shader },
-         { "comp", FileType::Shader },
-         { "png", FileType::Texture },
-         { "jpg", FileType::Texture },
-         { "jpeg", FileType::Texture },
-         { "bmp", FileType::Texture },
-         { "gif", FileType::Texture },
-         { "tga", FileType::Texture },
-         { "ttf", FileType::Font },
-         { "hdr", FileType::Cubemap },
-         { "obj", FileType::Model },
-         { "fbx", FileType::Model },
-         { "gltf", FileType::Model },
-         { "glb", FileType::Model },
-         { "blend", FileType::Model },
-         { "mp3", FileType::Audio },
-         { "m4a", FileType::Audio },
-         { "wav", FileType::Audio },
-         { "ogg", FileType::Audio },
-         { "lmat", FileType::Material },
-         // Engine-native extensions (see Common::Constants::Extensions).
-         { "demat", FileType::Material },
-         { "desce", FileType::Scene },
-         { "demesh", FileType::Model },
-         { "dgraph", FileType::ShaderGraph },
-         // `.ini` is typed so the browser names it (type label, icon) instead of calling it Unknown.
-         { "ini", FileType::Ini },
-         // The four cloud formats. Typed here for the first time in M11 — they used to fall through to
-         // FileType::Unknown, which is why they had one grey glyph between them, no colour, no entry in
-         // the type filter and no thumbnail. THIS MAP IS THE CENSUS'S SUBJECT: every key in it must have
-         // a row in Editor/Widgets/ThumbnailFormats.hpp saying who makes its picture or why nobody does,
-         // and Desert/Tests/Editor/ThumbnailFormats reads this literal to check it.
-         { "dclayout", FileType::Cloud },
-         { "dcnv", FileType::Cloud },
-         { "dcmv", FileType::Cloud },
-         { "decloudtype", FileType::Cloud },
-         // The UI theme (Ю13). Typed here so it gets a colour, an icon and a row in the browser's type
-         // filter — and so the census above applies to it: it needs a row in ThumbnailFormats.hpp saying
-         // who makes its picture or why nobody does.
-         { "detheme", FileType::UITheme },
-         // The landscape layer info (LS-12b); ThumbnailFormats.hpp says why nobody paints its picture.
-         { "delayerinfo", FileType::LandscapeLayerInfo },
+         { FileType::ImportSettings, "Import Settings" },
+         { FileType::UITheme, "UI Theme" },
+         { FileType::LandscapeLayerInfo, "Landscape Layer Info" },
+         { FileType::LevelSequence, "Level Sequence" },
+         { FileType::Ini, "Settings" },
+         { FileType::SkinnedMesh, "Skeletal Mesh" },
+         { FileType::Skeleton, "Skeleton" },
+         { FileType::Animation, "Animation" },
+         { FileType::ControlRig, "Control Rig" },
+         { FileType::AnimGraph, "Anim Graph" },
+         { FileType::Retarget, "Retarget" },
+         { FileType::FoliageType, "Foliage Type" },
+         { FileType::StringTable, "String Table" },
+         { FileType::CookedWorld, "Cooked World" },
+         { FileType::Skybox, "Skybox" },
     };
 
     static const std::unordered_map<FileType, ImVec4> s_TypeColors = {
@@ -231,6 +215,19 @@ namespace Desert::Editor
          { FileType::Ini, { 0.65f, 0.65f, 0.68f, 1.00f } },
          { FileType::UITheme, { 0.95f, 0.72f, 0.30f, 1.00f } },
          { FileType::LandscapeLayerInfo, { 0.45f, 0.70f, 0.30f, 1.00f } },
+         { FileType::LevelSequence, { 0.85f, 0.35f, 0.25f, 1.00f } },
+         { FileType::ImportSettings, { 0.65f, 0.65f, 0.68f, 1.00f } },
+         // UE's class colours for the animation family, so a folder of rig content reads as one family.
+         { FileType::SkinnedMesh, { 0.90f, 0.35f, 0.90f, 1.00f } },
+         { FileType::Skeleton, { 0.41f, 0.71f, 0.80f, 1.00f } },
+         { FileType::Animation, { 0.31f, 0.70f, 0.28f, 1.00f } },
+         { FileType::ControlRig, { 0.20f, 0.45f, 0.95f, 1.00f } },
+         { FileType::AnimGraph, { 0.80f, 0.55f, 0.20f, 1.00f } },
+         { FileType::Retarget, { 0.95f, 0.50f, 0.60f, 1.00f } },
+         { FileType::FoliageType, { 0.30f, 0.75f, 0.35f, 1.00f } },
+         { FileType::StringTable, { 0.60f, 0.60f, 0.85f, 1.00f } },
+         { FileType::CookedWorld, { 0.50f, 0.50f, 0.55f, 1.00f } },
+         { FileType::Skybox, { 0.82f, 0.18f, 0.30f, 1.00f } },
     };
 
     static const std::unordered_map<FileType, const char*> s_FileTypesToIcon = {
@@ -251,6 +248,18 @@ namespace Desert::Editor
          { FileType::Ini, ICON_MDI_FILE_DOCUMENT },
          { FileType::UITheme, ICON_MDI_PALETTE },
          { FileType::LandscapeLayerInfo, ICON_MDI_LAYERS },
+         { FileType::LevelSequence, ICON_MDI_MOVIE_OPEN },
+         { FileType::ImportSettings, ICON_MDI_FILE_DOCUMENT },
+         { FileType::SkinnedMesh, ICON_MDI_HUMAN },
+         { FileType::Skeleton, ICON_MDI_BONE },
+         { FileType::Animation, ICON_MDI_RUN },
+         { FileType::ControlRig, ICON_MDI_HUMAN_HANDSUP },
+         { FileType::AnimGraph, ICON_MDI_SITEMAP },
+         { FileType::Retarget, ICON_MDI_SWAP_HORIZONTAL },
+         { FileType::FoliageType, ICON_MDI_TREE },
+         { FileType::StringTable, ICON_MDI_TRANSLATE },
+         { FileType::CookedWorld, ICON_MDI_MAP },
+         { FileType::Skybox, ICON_MDI_IMAGE_FILTER_HDR },
     };
 
     FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,
@@ -394,6 +403,7 @@ namespace Desert::Editor
     {
         if ( !directory )
             return;
+        LeaveThumbnailEdit(); // the edited tile is not in the folder being opened
 
         m_PreviousDirectory    = m_CurrentDir;
         m_CurrentDir           = directory;
@@ -439,32 +449,39 @@ namespace Desert::Editor
         {
             if ( entry == nullptr || !entry->IsFile || entry->Hidden )
                 continue;
-            switch ( entry->Type )
+            using ThumbnailProducers::Producer;
+            switch ( ThumbnailProducers::ProducerOf( entry->Type ).value_or( Producer::TypeIcon ) )
             {
-                case FileType::Texture:
+                case Producer::Decoded:
                     items.push_back( { entry->AssetPath, {} } );
                     break;
-                case FileType::Material:
-                case FileType::Cloud:
-                case FileType::UITheme:
-                case FileType::Cubemap:
+                case Producer::RenderedMaterial:
+                case Producer::RenderedPose: // a .skmesh is its own cooked form and freshness source
+                case Producer::RenderedSky:  // keyed and judged on the skybox's own file
+                case Producer::Painted:
                     items.push_back( { ThumbnailPngFor( entry->AssetPath ), entry->AssetPath } );
                     break;
-                case FileType::Model:
+                case Producer::RenderedMesh:
                 {
-                    const std::string cooked = CookPaths::MeshAsset( entry->AssetPath ).generic_string();
-                    items.push_back( { ThumbnailKey::DiskPath( cooked ), cooked } );
+                    const std::optional<MeshPicture> picture = MeshPictureFor( entry->AssetPath, entry->Type );
+                    if ( !picture )
+                        break;
+                    items.push_back( { ThumbnailKey::DiskPath( picture->Cooked ), picture->Cooked } );
                     break;
                 }
-                default:
+                case Producer::NotYetProduced:
+                case Producer::TypeIcon:
                     break;
             }
         }
         m_PrefetchItems = items;
-        // The scene's pictures stay asked for: Request replaces what is waiting, and the folder must not
-        // push the scene's pictures out of the queue (nor the other way round).
-        items.insert( items.end(), m_ScenePrefetchItems.begin(), m_ScenePrefetchItems.end() );
-        ThumbnailPrefetch::Get().Request( std::move( items ) );
+        // The project's pictures stay asked for: Request replaces what is waiting, and the folder must not
+        // push them out of the queue (nor the other way round). What the cache already holds is not handed
+        // over at all (THM1n-13): the splash made the project resident, so entering a folder decodes nothing.
+        items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );
+        ThumbnailPrefetch::Get().Request(
+             ThumbnailPrefetch::Unresident( std::move( items ), [this]( const std::string& picture )
+                                            { return m_Thumbnails->Holds( picture ); } ) );
     }
 
     const std::string& FileExplorerPanel::ThumbnailPngFor( const std::string& assetPath )
@@ -475,43 +492,195 @@ namespace Desert::Editor
         return it->second;
     }
 
-    void FileExplorerPanel::WarmSceneThumbnails( const std::vector<std::string>& materialPaths )
+    std::size_t FileExplorerPanel::WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
+                                                          const std::vector<ThumbnailWarmup::WarmItem>& project )
     {
+        using ThumbnailWarmup::WarmItem;
+        using ThumbnailWarmup::WarmKind;
         if ( m_AssetManager == nullptr )
-            return;
-        m_ScenePrefetchItems.clear();
-        for ( const std::string& path : materialPaths )
+            return 0;
+
+        // A mesh is judged and filed by its COOKED form, as its tile does (DrawRenderedMeshThumbnail): the
+        // picture is under the .stmesh and its freshness source is MeshFreshnessSource of it. A foliage type
+        // is its mesh's picture (MeshSourceFor); a .skmesh is its own cooked form; a skinned source is the
+        // pose of the asset its import wrote (MeshPictureFor), resolved as a Pose.
+        const auto pictureOf = [this]( const WarmItem& item ) -> std::optional<MeshPicture>
         {
-            const std::string& png = ThumbnailPngFor( path );
-            m_ScenePrefetchItems.push_back( { png, path } );
-            if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, path ) ) !=
-                 ThumbnailFreshness::Verdict::Capture )
-                continue;
-            // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
-            const auto subject = ThumbnailSubject::ResolveMaterial(
-                 *m_AssetManager, path,
-                 []( const std::string& assetPath, const Common::ResultStr<ThumbnailSubject::Material>& resolved )
-                 {
-                     if ( resolved )
-                         ThumbnailService::Get().WarmMaterial( resolved.GetValue().Handle, assetPath,
-                                                               resolved.GetValue().How );
-                 } );
-            if ( !subject )
+            if ( item.Kind == WarmKind::Pose )
+                return MeshPicture{ item.Path, true };
+            return MeshPictureFor( item.Path, ThumbnailWarmup::FileTypeOfPath( item.Path ) );
+        };
+        const auto cookedOf = [&pictureOf]( const WarmItem& item ) -> std::optional<std::string>
+        {
+            const std::optional<MeshPicture> picture = pictureOf( item );
+            if ( !picture )
+                return std::nullopt;
+            return picture->Cooked;
+        };
+        const auto verdictOf = [&]( const WarmItem& item )
+        {
+            if ( item.Kind == WarmKind::Decoded )
+                return ThumbnailFreshness::Verdict::Show; // the file is its own picture
+            if ( item.Kind == WarmKind::Mesh || item.Kind == WarmKind::Pose )
             {
-                LOG_WARN( "[Thumbnails] the scene's '{}' cannot be warmed: {}", path, subject.GetError() );
-                continue;
+                const std::optional<std::string> cooked = cookedOf( item );
+                if ( !cooked )
+                    return ThumbnailFreshness::Verdict::Show; // refused and named by MeshSourceFor: no capture
+                return ThumbnailService::JudgeMeshPicture( *cooked ); // the tile's and the enqueue gate's verdict
             }
-            if ( const auto& material = subject.GetValue() )
-                ThumbnailService::Get().WarmMaterial( material->Handle, path, material->How );
+            if ( item.Kind == WarmKind::Sky )
+                return ThumbnailService::JudgeSkyboxPicture( item.Path ); // the tile's and RequestSkybox's verdict
+            return ThumbnailFreshness::Judge(
+                 ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
+        };
+        const auto needsCapture = [&]( const WarmItem& item ) {
+            return !m_FailedThumbs.contains( item.Path ) &&
+                   verdictOf( item ) == ThumbnailFreshness::Verdict::Capture;
+        };
+
+        // EVERY PICTURE OF THE PROJECT IS ASKED FOR — the one the disk has goes to a worker decode now, the one
+        // a capture below writes is asked for again when the captures have landed (RequestProjectPictures).
+        m_ProjectPrefetchItems.clear();
+        for ( const std::vector<WarmItem>* list : { &scene, &project } )
+        {
+            for ( const WarmItem& item : *list )
+            {
+                if ( item.Kind == WarmKind::Decoded )
+                    m_ProjectPrefetchItems.push_back( { item.Path, {} } );
+                else if ( item.Kind == WarmKind::Mesh || item.Kind == WarmKind::Pose )
+                {
+                    if ( const std::optional<std::string> cooked = cookedOf( item ) )
+                        m_ProjectPrefetchItems.push_back( { ThumbnailKey::DiskPath( *cooked ), *cooked } );
+                }
+                else
+                    m_ProjectPrefetchItems.push_back( { ThumbnailPngFor( item.Path ), item.Path } );
+            }
         }
+
+        const std::vector<WarmItem> warm = ThumbnailWarmup::SplashWarmList( scene, project, needsCapture );
+        m_WarmMeshesPending.clear();
+        for ( const WarmItem& item : warm )
+        {
+            if ( !needsCapture( item ) )
+                continue; // a fresh scene subject: its picture is decoded with the rest
+            switch ( item.Kind )
+            {
+                case WarmKind::Mesh:
+                case WarmKind::Pose:
+                {
+                    // Resolved by TickWarmMeshes with the path each resolver takes, as the tile resolves it: a
+                    // pose by its cooked asset (ResolvePoseSubject), a static mesh by the FILE ITS PICTURE IS OF
+                    // (MeshFreshnessSource: a hand-authored .stmesh itself, else the raw source beside it).
+                    // ResolveMesh asks the DDC for the source's import; handed the cooked path of an import
+                    // (a scene root names base.stmesh, which an import never writes) it hashed a file that is
+                    // not on disk and logged "Could not read file" for every imported mesh the scene used.
+                    const std::optional<MeshPicture> picture = pictureOf( item );
+                    if ( !picture )
+                        break;
+                    if ( picture->Pose )
+                        m_WarmMeshesPending.push_back( { picture->Cooked, WarmKind::Pose } );
+                    else
+                        m_WarmMeshesPending.push_back(
+                             { ThumbnailFreshness::MeshFreshnessSource( picture->Cooked ).generic_string(),
+                               WarmKind::Mesh } );
+                    break;
+                }
+                case WarmKind::Painted:
+                    ThumbnailService::Get().WarmPainted( item.Path );
+                    break;
+                case WarmKind::Sky:
+                {
+                    // The row the registry filed it under names the handle, as the tile's request does.
+                    const Assets::AssetHandle skybox = Runtime::SkyboxHandleAtPath( item.Path );
+                    if ( static_cast<uint64_t>( skybox ) == 0 )
+                    {
+                        LOG_WARN( "[Thumbnails] the splash cannot warm '{}': the registry has no skybox row at it",
+                                  item.Path );
+                        m_FailedThumbs.insert( item.Path );
+                        break;
+                    }
+                    ThumbnailService::Get().WarmSkybox( skybox, item.Path );
+                    break;
+                }
+                case WarmKind::Material:
+                {
+                    // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
+                    const auto subject = ThumbnailSubject::ResolveMaterial(
+                         *m_AssetManager, item.Path,
+                         []( const std::string&                                   assetPath,
+                             const Common::ResultStr<ThumbnailSubject::Material>& resolved )
+                         {
+                             if ( resolved )
+                                 ThumbnailService::Get().WarmMaterial( resolved.GetValue(), assetPath );
+                         } );
+                    if ( !subject )
+                    {
+                        LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", item.Path, subject.GetError() );
+                        m_FailedThumbs.insert( item.Path );
+                        break;
+                    }
+                    if ( const auto& material = subject.GetValue() )
+                        ThumbnailService::Get().WarmMaterial( *material, item.Path );
+                    break;
+                }
+                case WarmKind::Decoded:
+                    break;
+            }
+        }
+        (void)TickWarmMeshes();
+        RequestProjectPictures();
+        return ThumbnailService::Get().SceneWarmPending() + m_WarmMeshesPending.size();
+    }
+
+    void FileExplorerPanel::RequestProjectPictures()
+    {
         std::vector<ThumbnailPrefetch::Item> items = m_PrefetchItems;
-        items.insert( items.end(), m_ScenePrefetchItems.begin(), m_ScenePrefetchItems.end() );
-        ThumbnailPrefetch::Get().Request( std::move( items ) );
+        items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );
+        ThumbnailPrefetch::Get().Request(
+             ThumbnailPrefetch::Unresident( std::move( items ), [this]( const std::string& picture )
+                                            { return m_Thumbnails->Holds( picture ); } ) );
+    }
+
+    std::size_t FileExplorerPanel::ResidentThumbnails() const
+    {
+        return m_Thumbnails ? m_Thumbnails->ResidentCount() : 0;
+    }
+
+    std::size_t FileExplorerPanel::TickWarmMeshes()
+    {
+        if ( m_AssetManager == nullptr || m_WarmMeshesPending.empty() )
+            return 0;
+        std::erase_if( m_WarmMeshesPending,
+                       [this]( const ThumbnailWarmup::WarmItem& item )
+                       {
+                           const bool         pose = item.Kind == ThumbnailWarmup::WarmKind::Pose;
+                           const std::string& path = item.Path;
+                           const auto subject = pose ? ThumbnailPose::ResolvePoseSubject( *m_AssetManager, path )
+                                                     : ThumbnailSubject::ResolveMesh( *m_AssetManager, path );
+                           if ( !subject )
+                           {
+                               // The same refusal the tile would log and blacklist; once, here, instead.
+                               LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", path,
+                                         subject.GetError() );
+                               m_FailedThumbs.insert( path );
+                               return true;
+                           }
+                           if ( subject.GetValue().Pending )
+                               return false; // read in flight: asked again next frame
+                           if ( pose )
+                               ThumbnailService::Get().WarmPose( subject.GetValue() );
+                           else
+                               ThumbnailService::Get().WarmMesh( subject.GetValue() );
+                           return true;
+                       } );
+        return m_WarmMeshesPending.size();
     }
 
     std::size_t FileExplorerPanel::UploadPrefetchedThumbnails()
     {
-        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( m_PrefetchItems );
+        std::vector<ThumbnailPrefetch::Item> items = m_PrefetchItems;
+        items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );
+        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( items );
         for ( const std::string& picture : survey.Ready )
             (void)m_Thumbnails->Get( picture );
         return survey.Pending;
@@ -632,18 +801,51 @@ namespace Desert::Editor
              "NewMaterial", ext, [&]( const std::string& n )
              { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
         const auto path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
-        // Minimal valid material: no params, no textures — the engine derives a stable id from the path.
-        // The refresh below is what puts the new material in front of the user, so it runs only when
-        // there is a file to show: a refresh over a failed write just redraws the old listing and the
+        // A new material states the project's default surface template (never a default by absence);
+        // no params, no textures. The refresh below is what puts the new material in front of the user, so it runs
+        // only when there is a file to show: a refresh over a failed write just redraws the old listing and the
         // user is left believing the "New Material" menu item did nothing at all.
-        if ( const auto written =
-                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, R"({"Params":[],"Textures":[]})" );
-             !written )
+        Assets::MaterialData data;
+        if ( m_AssetManager == nullptr )
+        {
+            LOG_ERROR( "[Content] '{}' was not created: no asset manager is bound", path.generic_string() );
+            return;
+        }
+        if ( const auto stated = MaterialAssetUtils::StateDefaultSurface( data, *m_AssetManager ); !stated )
+        {
+            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), stated.GetError() );
+            return;
+        }
+        if ( const auto written = Assets::WriteMaterialFile( path, data ); !written )
         {
             LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), written.GetError() );
             return;
         }
         QueueRefresh();
+    }
+
+    Common::BoolResultStr FileExplorerPanel::CreateNewLevelSequence()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New Level Sequence: the Assets window has no folder open" );
+        const std::string ext( ::Desert::Animation::Timeline::kLevelSequenceExtension );
+        const std::string name = AssetFileOps::UniqueName(
+             "NewLevelSequence", ext, [&]( const std::string& n )
+             { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
+        const auto path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
+        // UE's new ULevelSequence: no bindings, no tracks, a five-second playback range on the project's
+        // tick rate. The range is stated, never implied by an empty 0..0 a player would clamp to one frame.
+        ::Desert::Animation::Timeline::Sequence sequence;
+        sequence.Host = ::Desert::Animation::Timeline::SequenceHost::LevelSequence;
+        sequence.End  = ::Desert::Animation::SecondsToFrameTime( 5.0, sequence.TickRate ).Frame;
+        if ( const auto saved =
+                  Assets::LevelSequenceAsset::Save( path, sequence, Common::Content::AssetGuid::Generate() );
+             !saved )
+            return Common::MakeFormattedError( "New Level Sequence: {}", saved.GetError() );
+        // Selected once the refresh lists it (UE selects the new asset in the Content Browser).
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
     }
 
     void FileExplorerPanel::CreateNewCloudAsset( CloudAssetKind kind )
@@ -916,10 +1118,9 @@ namespace Desert::Editor
         }
         else
         {
-            auto        fileType   = FileType::Unknown;
-            const auto& fileTypeIt = s_FileTypes.find( extension );
-            if ( fileTypeIt != s_FileTypes.end() )
-                fileType = fileTypeIt->second;
+            // Root-aware: a `.detex` under the Skybox root is a Skybox, not a Texture (FileTypeOfContent).
+            const FileType fileType =
+                 FileTypeOfContent( extension, Common::Content::KindOfContentFile( stdPath ) );
 
             directoryInfo->IsFile = true;
             directoryInfo->Type   = fileType;
@@ -1055,9 +1256,6 @@ namespace Desert::Editor
 
     void FileExplorerPanel::OnUIRender()
     {
-        // Captured for the OS file-drop handler (which runs outside the ImGui frame, via OnEvent).
-        m_IsHovered = ImGui::IsWindowHovered( ImGuiHoveredFlags_RootAndChildWindows );
-
         // Keyboard shortcuts on the selected item (panel focused, no text field active): F2 rename, Del delete.
         if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) && m_CurrentSelected &&
              !ImGui::GetIO().WantTextInput )
@@ -1108,6 +1306,13 @@ namespace Desert::Editor
             {
                 RefreshCurrentDirectory(); // in-place: keeps navigation (watcher / import / rebuild)
                 m_Refresh = false;
+                if ( !m_SelectAfterRefresh.empty() )
+                {
+                    if ( const auto selected = SelectEntry( std::exchange( m_SelectAfterRefresh, {} ) );
+                         !selected )
+                        LOG_ERROR( "[Content] the new asset was created but not selected: {}",
+                                   selected.GetError() );
+                }
             }
 
             // ── Content Browser: two panes split by a draggable vertical splitter. LEFT = pinned Favorites
@@ -1280,6 +1485,11 @@ namespace Desert::Editor
                          { "Shader Graphs", static_cast<int>( FileType::ShaderGraph ) },
                          { "Audio", static_cast<int>( FileType::Audio ) },
                          { "Clouds", static_cast<int>( FileType::Cloud ) },
+                         { "Skeletal Meshes", static_cast<int>( FileType::SkinnedMesh ) },
+                         { "Skeletons", static_cast<int>( FileType::Skeleton ) },
+                         { "Animations", static_cast<int>( FileType::Animation ) },
+                         { "Foliage Types", static_cast<int>( FileType::FoliageType ) },
+                         { "Level Sequences", static_cast<int>( FileType::LevelSequence ) },
                     };
                     const char* currentFilter = "All Types";
                     for ( const auto& f : kTypeFilters )
@@ -1540,6 +1750,10 @@ namespace Desert::Editor
                             if ( ImGui::Selectable( "New Material" ) )
                                 CreateNewMaterial();
 
+                            if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
+                                if ( const auto created = CreateNewLevelSequence(); !created )
+                                    LOG_ERROR( "[Content] {}", created.GetError() );
+
                             // Pick the domain up front (like Unreal's Material Domain / Godot's Mode):
                             // it decides the output node, vertex contract and palette of the new graph.
                             if ( ImGui::BeginMenu( "New Shader Graph" ) )
@@ -1703,8 +1917,8 @@ namespace Desert::Editor
                     // written since M10 moved a mesh's thumbnail onto its cooked `.stmesh`. The ghost has
                     // been silently falling back to the type icon for every mesh ever since, which is
                     // exactly the kind of "it still works, just worse" a re-read site decays into.
-                    img = m_Thumbnails->Get(
-                         ThumbnailKey::DiskPath( CookPaths::MeshAsset( assetPath ).generic_string() ) );
+                    if ( const std::optional<MeshPicture> picture = MeshPictureFor( assetPath, entry.Type ) )
+                        img = m_Thumbnails->Get( ThumbnailKey::DiskPath( picture->Cooked ) );
                 }
             }
 
@@ -1728,6 +1942,51 @@ namespace Desert::Editor
         }
     }
 
+    bool FileExplorerPanel::DrawThumbnailFor( DirectoryInformation* entry, const ImVec2& size )
+    {
+        using ThumbnailProducers::Producer;
+        const std::optional<Producer> producer = ThumbnailProducers::ProducerOf( entry->Type );
+        if ( !producer )
+            return false; // a kind with no row: ThumbnailProducers' census names it
+        switch ( *producer )
+        {
+            case Producer::Decoded:
+                return DrawTextureThumbnail( entry, size );
+            case Producer::RenderedMaterial:
+                return DrawRenderedMaterialThumbnail( entry, size );
+            case Producer::RenderedMesh:
+                return DrawRenderedMeshThumbnail( entry, size );
+            case Producer::RenderedPose:
+                return DrawRenderedPoseThumbnail( entry, size, entry->AssetPath );
+            case Producer::Painted:
+                return DrawPaintedThumbnail( entry, size );
+            case Producer::RenderedSky:
+            {
+                // The Details Skybox row asks the same request with the same key: one picture per skybox.
+                const Assets::AssetHandle skybox = Runtime::SkyboxHandleAtPath( entry->AssetPath );
+                if ( static_cast<uint64_t>( skybox ) == 0 )
+                    return false;
+                const std::string png = ThumbnailService::Get().RequestSkybox( skybox, entry->AssetPath );
+                if ( ThumbnailService::JudgeSkyboxPicture( entry->AssetPath ) !=
+                     ThumbnailFreshness::Verdict::Show )
+                {
+                    m_Thumbnails->Invalidate( png );
+                    return false;
+                }
+                if ( auto img = m_Thumbnails->Get( png ) )
+                {
+                    m_UIHelper->ImageButton( "##thumb", img, size );
+                    return true;
+                }
+                return false;
+            }
+            case Producer::NotYetProduced:
+            case Producer::TypeIcon:
+                return false;
+        }
+        return false;
+    }
+
     bool FileExplorerPanel::DrawTextureThumbnail( DirectoryInformation* entry, const ImVec2& size )
     {
         if ( !m_UIHelper || !m_Thumbnails )
@@ -1746,7 +2005,7 @@ namespace Desert::Editor
 
     bool FileExplorerPanel::DrawRenderedMaterialThumbnail( DirectoryInformation* entry, const ImVec2& size )
     {
-        if ( !m_UIHelper || !m_Thumbnails || !m_AssetManager )
+        if ( !m_UIHelper || !m_Thumbnails || m_AssetManager == nullptr )
             return false;
 
         // Cache PNG path: <versioned thumbnail dir>/<sanitized source path>.png (persists across restarts).
@@ -1795,11 +2054,18 @@ namespace Desert::Editor
              []( const std::string& assetPath, const Common::ResultStr<ThumbnailSubject::Material>& resolved )
              {
                  if ( resolved )
-                     ThumbnailService::Get().RequestMaterial( resolved.GetValue().Handle, assetPath,
-                                                              resolved.GetValue().How );
+                     ThumbnailService::Get().RequestMaterial( resolved.GetValue(), assetPath );
+                 else
+                     ThumbnailService::Get().Refuse( assetPath, resolved.GetError() );
              } );
+        // A REFUSAL IS SAID, not dropped (THM1n-10): M_CubemapCheck (Skybox domain) and M_CheckerFloor_Inst
+        // kept a document icon with no request and no line in the log. The card still shows its icon; the
+        // log names why, once per asset.
         if ( !subject )
+        {
+            ThumbnailService::Get().Refuse( entry->AssetPath, subject.GetError() );
             return drew;
+        }
         const auto& material = subject.GetValue();
         if ( !material )
             return drew;
@@ -1810,7 +2076,7 @@ namespace Desert::Editor
 
         // Queue through the editor-wide service: it owns the one renderer, deduplicates against what other
         // panels already asked for, skips anything already on disk and never retries an asset that failed.
-        ThumbnailService::Get().RequestMaterial( material->Handle, entry->AssetPath, material->How );
+        ThumbnailService::Get().RequestMaterial( *material, entry->AssetPath );
 
         // No picture of this material exists yet: the albedo colour is the placeholder.
         const glm::vec3 albedo =
@@ -1827,9 +2093,9 @@ namespace Desert::Editor
 
     bool FileExplorerPanel::DrawRenderedMeshThumbnail( DirectoryInformation* entry, const ImVec2& size )
     {
-        if ( !m_UIHelper || !m_Thumbnails || !m_AssetManager )
+        if ( !m_UIHelper || !m_Thumbnails || m_AssetManager == nullptr )
             return false;
-        if ( m_FailedThumbs.count( entry->AssetPath ) ) // failed to load before -> icon, no per-frame retry
+        if ( m_FailedThumbs.contains( entry->AssetPath ) ) // failed to load before -> icon, no per-frame retry
             return false;
 
         // ONE PICTURE, ONE KEY, AND THE KEY IS THE FILE THAT IS ACTUALLY PHOTOGRAPHED.
@@ -1850,13 +2116,22 @@ namespace Desert::Editor
         // The mapping is a pure path computation (CookPaths::MeshAsset — an extension swap, no stat), so
         // hoisting it above the freshness check costs nothing; the `exists()` gate that decides "not cooked
         // -> icon" stays where it was, below, because that one IS a filesystem question.
-        const std::string cookedStr = CookPaths::MeshAsset( entry->AssetPath ).generic_string();
+        const std::optional<MeshPicture> picture = MeshPictureFor( entry->AssetPath, entry->Type );
+        if ( !picture )
+            return false; // not imported, clips only, or refused and named: the type icon
+        if ( picture->Pose )
+            return DrawRenderedPoseThumbnail( entry, size,
+                                              picture->Cooked );           // a skinned source: its import's pose
+        const std::optional<std::string> source = MeshSourceFor( *entry ); // a model, or a foliage type's mesh
+        if ( !source )
+            return false;
+        const std::string& cookedStr = picture->Cooked;
 
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
-        // Same shared rule as the material grid above (Editor/Widgets/ThumbnailFreshness.hpp).
-        const bool haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, cookedStr ) ) ==
-                               ThumbnailFreshness::Verdict::Show;
+        // The one verdict of a mesh picture (ThumbnailService::JudgeMeshPicture): the enqueue gate's key and hash.
+        const bool haveFresh =
+             ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
         if ( haveFresh )
@@ -1873,18 +2148,136 @@ namespace Desert::Editor
         // permanent for the session here — an uncooked source, a cooked file that will not build, a mesh
         // with no drawable submeshes — so the blacklist keeps the (logging) retry from happening once per
         // frame, exactly as it did when the code was in this function.
-        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, entry->AssetPath );
+        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, *source );
         if ( !subject )
         {
+            // Once per asset (the blacklist stops the retry): a tile left on its type icon says why.
+            LOG_WARN( "[Thumbnail] '{}': {}", entry->AssetPath, subject.GetError() );
             m_FailedThumbs.insert( entry->AssetPath );
             return false;
         }
+        // Read in flight: the tile asks again next frame and meets it resident (never blacklisted).
+        if ( subject.GetValue().Pending )
+            return false;
 
         ThumbnailService::Get().RequestMesh( subject.GetValue().Handle, subject.GetValue().CookedPath,
                                              subject.GetValue().Material );
 
         // No swatch for meshes — fall back to the type icon until the PNG is ready.
         return false;
+    }
+
+    bool FileExplorerPanel::DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size,
+                                                       const std::string& subject )
+    {
+        if ( !m_UIHelper || !m_Thumbnails || m_AssetManager == nullptr )
+            return false;
+        if ( m_FailedThumbs.contains( entry->AssetPath ) ) // refused before -> icon, no per-frame retry
+            return false;
+
+        // The mesh tile's rule, with the .skmesh as its own cooked form: one key, one freshness source.
+        const std::string& pngPath = ThumbnailPngFor( subject );
+        const bool haveFresh = ThumbnailService::JudgeMeshPicture( subject ) == ThumbnailFreshness::Verdict::Show;
+        if ( !haveFresh )
+            m_Thumbnails->Invalidate( pngPath );
+        else if ( auto img = m_Thumbnails->Get( pngPath ) )
+        {
+            m_UIHelper->ImageButton( "##thumb", img, size );
+            return true;
+        }
+
+        const auto posed = ThumbnailPose::ResolvePoseSubject( *m_AssetManager, subject );
+        if ( !posed )
+        {
+            LOG_WARN( "[Thumbnail] '{}': {}", entry->AssetPath, posed.GetError() );
+            m_FailedThumbs.insert( entry->AssetPath );
+            return false;
+        }
+        if ( posed.GetValue().Pending )
+            return false; // read in flight: asked again next frame
+        ThumbnailService::Get().RequestPose( posed.GetValue() );
+        return false;
+    }
+
+    std::optional<std::string> FileExplorerPanel::MeshSourceFor( const DirectoryInformation& entry )
+    {
+        return MeshSourceFor( entry.AssetPath, entry.Type );
+    }
+
+    std::optional<std::string> FileExplorerPanel::MeshSourceFor( const std::string& assetPath,
+                                                                 const FileType     type )
+    {
+        if ( type != FileType::FoliageType )
+            return assetPath;
+        if ( m_FailedThumbs.contains( assetPath ) )
+            return std::nullopt;
+        std::error_code                       ec;
+        const std::filesystem::file_time_type written = std::filesystem::last_write_time( assetPath, ec );
+        if ( const auto it = m_MeshSourceOf.find( assetPath );
+             it != m_MeshSourceOf.end() && !ec && it->second.Written == written )
+            return it->second.Source;
+        const auto source = ThumbnailFoliage::ReadMeshSource( assetPath, Common::Constants::Path::ASSETS_PATH );
+        if ( !source )
+        {
+            LOG_WARN( "[Thumbnail] '{}': {}", assetPath, source.GetError() );
+            m_FailedThumbs.insert( assetPath );
+            m_MeshSourceOf.erase( assetPath );
+            return std::nullopt;
+        }
+        std::string mesh          = source.GetValue().generic_string();
+        m_MeshSourceOf[assetPath] = { written, mesh };
+        return mesh;
+    }
+
+    std::optional<FileExplorerPanel::MeshPicture> FileExplorerPanel::MeshPictureFor( const std::string& assetPath,
+                                                                                     const FileType     type )
+    {
+        const std::optional<std::string> source = MeshSourceFor( assetPath, type );
+        if ( !source )
+            return std::nullopt;
+        std::string extension = std::filesystem::path( *source ).extension().string();
+        std::ranges::transform( extension, extension.begin(),
+                                []( const unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+        if ( std::ranges::find( Common::Content::kRawMeshSourceExtensions, extension ) ==
+             Common::Content::kRawMeshSourceExtensions.end() )
+            return MeshPicture{ CookPaths::MeshAsset( *source ).generic_string(), false }; // its own cooked form
+
+        std::error_code                       ec;
+        const std::filesystem::file_time_type written =
+             std::filesystem::last_write_time( Common::Content::ImportRecordPathFor( *source ), ec );
+        if ( ec )
+            return std::nullopt; // not imported yet: a source is not an asset, its tile is the type icon
+        if ( const auto it = m_SourcePictureOf.find( *source );
+             it != m_SourcePictureOf.end() && it->second.Written == written )
+            return it->second.Picture;
+
+        std::optional<MeshPicture> picture;
+        const auto                 kind = Assets::Serialization::ReadImportRecordKind( *source );
+        if ( !kind )
+        {
+            LOG_WARN( "[Thumbnail] '{}': {}", assetPath, kind.GetError() ); // once per record version (cached)
+        }
+        else
+        {
+            using Common::Content::ContentKind;
+            switch ( kind.GetValue() )
+            {
+                case ContentKind::StaticMesh:
+                    picture = MeshPicture{ CookPaths::MeshAsset( *source ).generic_string(), false };
+                    break;
+                case ContentKind::SkinnedMesh:
+                    picture = MeshPicture{ CookPaths::SkinnedAsset( *source, ".skmesh" ).generic_string(), true };
+                    break;
+                case ContentKind::Skeleton:
+                    picture =
+                         MeshPicture{ CookPaths::SkinnedAsset( *source, ".skeleton" ).generic_string(), true };
+                    break;
+                default:
+                    break; // clips only: each clip has its own tile; the source keeps its type icon
+            }
+        }
+        m_SourcePictureOf[*source] = { written, picture };
+        return picture;
     }
 
     bool FileExplorerPanel::DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size )
@@ -1922,8 +2315,8 @@ namespace Desert::Editor
 
     void FileExplorerPanel::ImportExternalTexture()
     {
-        const auto picked = Common::Utils::FileSystem::OpenFileDialog(
-             "Images\0*.png;*.tga;*.jpg;*.jpeg;*.bmp;*.hdr\0All\0*.*\0" );
+        const auto picked =
+             DesktopPlatform::OpenFileDialog( "Images\0*.png;*.tga;*.jpg;*.jpeg;*.bmp;*.hdr\0All\0*.*\0" );
         if ( !picked.empty() )
             ImportExternalFile( picked );
     }
@@ -1957,26 +2350,18 @@ namespace Desert::Editor
         if ( !ext.empty() && ext[0] == '.' )
             ext = ext.substr( 1 );
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-        const auto     it   = s_FileTypes.find( ext );
-        const FileType type = it != s_FileTypes.end() ? it->second : FileType::Unknown;
+        const FileType type = FileTypeOf( ext );
         if ( type == FileType::Texture || type == FileType::Cubemap )
             TextureDnD::ResolveOrImport( *m_AssetManager, dest.generic_string() );
 
         QueueRefresh();
     }
 
-    void FileExplorerPanel::OnEvent( Common::Event& e )
+    bool FileExplorerPanel::OnWindowFileDropped( Common::EventWindowFileDrop& drop )
     {
-        Common::EventManager mgr( e );
-        mgr.Notify<Common::EventWindowFileDrop>(
-             [this]( Common::EventWindowFileDrop& drop ) -> bool
-             {
-                 if ( !m_IsHovered ) // only when the drop landed on the Assets panel
-                     return false;
-                 for ( const auto& path : drop.Paths )
-                     ImportExternalFile( path );
-                 return true;
-             } );
+        for ( const auto& path : drop.Paths )
+            ImportExternalFile( path );
+        return true;
     }
 
     std::vector<size_t> FileExplorerPanel::BuildDisplayOrder() const
@@ -2052,6 +2437,13 @@ namespace Desert::Editor
         if ( !ImGui::BeginPopupContextItem( "##ItemContext" ) )
             return;
 
+        // UE: a right click on an entry outside the selection selects it, so the menu's commands (which act on
+        // the selection, as the palette's do) act on what was clicked.
+        if ( !m_Selection.contains( entry.AssetPath ) )
+        {
+            m_Selection            = { entry.AssetPath };
+            m_SelectionAnchorShown = -1;
+        }
         m_CurrentSelected      = &entry;
         const std::string name = std::filesystem::path( entry.AssetPath ).filename().string();
         ImGui::TextDisabled( "%s", name.c_str() );
@@ -2059,12 +2451,9 @@ namespace Desert::Editor
 
         if ( entry.IsFile )
         {
-            if ( ImGui::MenuItem( "Open" ) ) // default Windows app for this file type
-                ShellOpenDefault( entry.AssetPath );
-            if ( ImGui::MenuItem( "Show in Explorer" ) ) // reveal with the file selected
-                ShellRevealInExplorer( entry.AssetPath );
-            if ( ImGui::MenuItem( "Open Containing Folder" ) )
-                ShellOpenDefault( std::filesystem::path( entry.AssetPath ).parent_path().string() );
+            CommandMenuItem( ContentBrowserCommand::Open ); // default app for this file type
+            CommandMenuItem( ContentBrowserCommand::ShowInExplorer );
+            CommandMenuItem( ContentBrowserCommand::OpenContainingFolder );
 
             // Quick "Add to Scene" for prefabs (same instantiate path as dragging into the viewport).
             if ( entry.Type == FileType::Prefab && !m_ViewportScene.expired() && m_AssetManager )
@@ -2074,22 +2463,40 @@ namespace Desert::Editor
                     AddPrefabToScene( entry.AssetPath );
             }
 
-            // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).
-            // Only meaningful for assets that show a rendered preview (meshes/materials).
-            if ( ( entry.Type == FileType::Model || entry.Type == FileType::Material ) &&
-                 !m_ViewportScene.expired() )
+            // UE's Asset Actions > Reimport / Reimport with New File, for a mesh asset with an import source.
+            if ( ImportOptions::ImportSourceOfAsset( entry.AssetPath ) )
             {
                 ImGui::Separator();
-                if ( ImGui::MenuItem( "Capture Thumbnail (from viewport)" ) )
-                    CaptureThumbnailFromViewport( entry.AssetPath );
+                CommandMenuItem( ContentBrowserCommand::Reimport );
+                CommandMenuItem( ContentBrowserCommand::ReimportWithNewFile );
+            }
+
+            // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).
+            if ( ThumbnailProducers::CaptureKeyOf( entry.Type ) && !m_ViewportScene.expired() )
+            {
+                ImGui::Separator();
+                CommandMenuItem( ContentBrowserCommand::CaptureThumbnail );
+            }
+
+            // UE "Edit Thumbnail": the tile itself becomes the orbit control. Offered only when the asset states
+            // an orbit to edit (a model with no import record has none); the item says why when it cannot.
+            if ( ThumbnailProducers::HasThumbnailOrbit( entry.Type ) )
+            {
+                ImGui::Separator();
+                const std::optional<std::string> orbitFile = ThumbnailOrbitFile( entry );
+                const auto                       stated =
+                     orbitFile ? ThumbnailEdit::ReadOrbit( *orbitFile )
+                                                     : Common::MakeError<Assets::ThumbnailOrbit>( "not imported: no picture to edit" );
+                CommandMenuItem( ContentBrowserCommand::EditThumbnail, m_EditThumbnailPath == entry.AssetPath,
+                                 stated.IsSuccess() );
+                if ( !stated && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                    ImGui::SetTooltip( "%s", stated.GetError().c_str() );
             }
         }
         else
         {
-            if ( ImGui::MenuItem( "Open" ) )
-                ChangeDirectory( &entry );
-            if ( ImGui::MenuItem( "Show in Explorer" ) )
-                ShellRevealInExplorer( entry.AssetPath );
+            CommandMenuItem( ContentBrowserCommand::Open );
+            CommandMenuItem( ContentBrowserCommand::ShowInExplorer );
             if ( ImGui::MenuItem( EditorPreferences::IsFavouriteFolder( entry.AssetPath ) ? "Remove from Favorites"
                                                                                           : "Add to Favorites" ) )
                 EditorPreferences::ToggleFavouriteFolder( entry.AssetPath );
@@ -2360,14 +2767,42 @@ namespace Desert::Editor
         QueueRefresh();
     }
 
-    void FileExplorerPanel::CaptureThumbnailFromViewport( const std::string& assetPath )
+    Common::BoolResultStr FileExplorerPanel::CaptureThumbnailFromViewport( const DirectoryInformation& entry )
     {
+        // WHERE THE PICTURE IS FILED: the key the asset's tile reads and the hash its judge compares. A PNG
+        // written under the asset path alone was not what a model's tile reads (its cooked mesh's key), and a
+        // PNG with no recorded hash is Capture to the judge, so the service shot over it.
+        const std::optional<ThumbnailProducers::CaptureKey> how =
+             entry.IsFile ? ThumbnailProducers::CaptureKeyOf( entry.Type ) : std::nullopt;
+        if ( !how )
+            return Common::MakeError<bool>( "its picture is not shot through a camera (a model, skeletal mesh, "
+                                            "skeleton, animation or material has one)" );
+        ThumbnailService::PictureKey key;
+        switch ( *how )
+        {
+            case ThumbnailProducers::CaptureKey::ImportedMesh:
+            {
+                const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
+                if ( !picture )
+                    return Common::MakeError<bool>(
+                         "not imported: there is no cooked mesh to file a picture under" );
+                key = ThumbnailService::MeshPictureKey( picture->Cooked );
+                break;
+            }
+            case ThumbnailProducers::CaptureKey::PosedFile:
+                key = ThumbnailService::MeshPictureKey( entry.AssetPath );
+                break;
+            case ThumbnailProducers::CaptureKey::MaterialFile:
+                key = ThumbnailService::MaterialPictureKey( entry.AssetPath );
+                break;
+        }
+
         const auto scene = m_ViewportScene.lock();
         if ( !scene )
-            return;
+            return Common::MakeError<bool>( "there is no viewport scene to capture" );
         const auto img = scene->GetFinalImage(); // the main viewport's post-processed render
         if ( !img )
-            return;
+            return Common::MakeError<bool>( "the viewport has not rendered a frame yet" );
 
         Graphic::Renderer::GetInstance().WaitDeviceIdle(); // readback after the GPU finished the frame
         // THE REFUSAL IS NOW DISTINGUISHABLE FROM AN EMPTY PICTURE. The size check below was the only
@@ -2376,21 +2811,14 @@ namespace Desert::Editor
         // user had not asked for.
         const auto read = img->ReadPixelsRGBA8();
         if ( !read.IsSuccess() )
-        {
-            LOG_ERROR( "[ContentBrowser] the folder thumbnail was not captured: {}", read.GetError() );
-            return;
-        }
+            return Common::MakeFormattedError<bool>( "the viewport readback failed: {}", read.GetError() );
 
         const std::vector<uint8_t>& src = read.GetValue();
         const uint32_t              W   = img->GetWidth();
         const uint32_t              H   = img->GetHeight();
         if ( W == 0 || H == 0 || src.size() != static_cast<size_t>( W ) * H * 4 )
-        {
-            LOG_ERROR( "[ContentBrowser] the folder thumbnail was not captured: the readback returned {} "
-                       "byte(s) for a {}x{} image",
-                       src.size(), W, H );
-            return;
-        }
+            return Common::MakeFormattedError<bool>( "the viewport readback returned {} byte(s) for a {}x{} image",
+                                                     src.size(), W, H );
 
         // Center-crop to a square, then downscale (nearest) to a square thumbnail — frame the asset in the
         // viewport so the centered square captures it.
@@ -2408,14 +2836,367 @@ namespace Desert::Editor
                     out[( ( y * kOut + x ) * 4 ) + c] = src[( ( sy * W + sx ) * 4 ) + c];
             }
 
-        const std::string png = ThumbnailKey::DiskPath( assetPath ); // same key the grid reads
-        std::error_code   ec;
+        const std::string& png = key.Png;
+        std::error_code    ec;
         std::filesystem::create_directories( std::filesystem::path( png ).parent_path(), ec );
         stbi_flip_vertically_on_write( 0 ); // viewport readback is already upright (same as the offscreen path)
-        stbi_write_png( png.c_str(), kOut, kOut, 4, out.data(), kOut * 4 );
+        if ( stbi_write_png( png.c_str(), kOut, kOut, 4, out.data(), kOut * 4 ) == 0 )
+            return Common::MakeFormattedError<bool>( "the picture could not be written to '{}'", png );
+        if ( key.Hash )
+        {
+            if ( const Common::BoolResultStr recorded = ThumbnailFreshness::Record( png, *key.Hash ); !recorded )
+                return recorded;
+        }
         if ( m_Thumbnails )
             m_Thumbnails->Invalidate( png ); // drop the cached decode so the grid reloads the new image
+        m_FailedThumbs.erase( entry.AssetPath ); // a tile that was refused before shows the captured picture
         LOG_INFO( "[Thumbnail] Captured from viewport -> {}", png );
+        return Common::MakeSuccess( true );
+    }
+
+    std::vector<DirectoryInformation*> FileExplorerPanel::SelectedEntries() const
+    {
+        std::vector<DirectoryInformation*> entries;
+        if ( m_CurrentDir == nullptr )
+            return entries;
+        const std::vector<std::string> selected = SelectionPaths();
+        for ( DirectoryInformation* child : m_CurrentDir->Children )
+            if ( std::find( selected.begin(), selected.end(), child->AssetPath ) != selected.end() )
+                entries.push_back( child );
+        return entries;
+    }
+
+    void FileExplorerPanel::CommandMenuItem( ContentBrowserCommand command, bool selected, bool enabled )
+    {
+        const UICommandInfo& info     = CommandInfo( command );
+        const std::string    label    = std::string( info.Label );
+        const std::string    shortcut = std::string( info.Shortcut );
+        if ( !ImGui::MenuItem( label.c_str(), shortcut.empty() ? nullptr : shortcut.c_str(), selected, enabled ) )
+            return;
+        if ( const auto done = RunCommand( command ); !done )
+            LOG_ERROR( "[Content Browser] {}: {}", info.Label, done.GetError() );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::RunCommand( ContentBrowserCommand command )
+    {
+        const std::string_view label = CommandInfo( command ).Label;
+        if ( command == ContentBrowserCommand::ClearSelection )
+        {
+            m_Selection.clear();
+            m_CurrentSelected      = nullptr;
+            m_SelectionAnchorShown = -1;
+            return Common::MakeSuccess( true );
+        }
+
+        const std::vector<DirectoryInformation*> entries = SelectedEntries();
+        if ( entries.empty() )
+            return Common::MakeFormattedError<bool>( "'{}': nothing is selected in the Content Browser", label );
+        const auto one = [&]() -> Common::ResultStr<DirectoryInformation*>
+        {
+            if ( entries.size() != 1 )
+                return Common::MakeFormattedError<DirectoryInformation*>(
+                     "'{}' acts on one asset, and {} are selected", label, entries.size() );
+            return Common::MakeSuccess( entries.front() );
+        };
+        // One body over every selected entry; the first refusal is the command's answer, the others still run.
+        const auto overEntries = [&]( const std::function<Common::BoolResultStr( DirectoryInformation& )>& body )
+             -> Common::BoolResultStr
+        {
+            Common::BoolResultStr outcome = Common::MakeSuccess( true );
+            for ( DirectoryInformation* entry : entries )
+                if ( const auto done = body( *entry ); !done && outcome )
+                    outcome = Common::MakeFormattedError<bool>( "'{}': {}", entry->AssetPath, done.GetError() );
+            return outcome;
+        };
+
+        switch ( command )
+        {
+            case ContentBrowserCommand::Open:
+            {
+                if ( entries.size() == 1 && !entries.front()->IsFile )
+                {
+                    ChangeDirectory( entries.front() );
+                    return Common::MakeSuccess( true );
+                }
+                return overEntries(
+                     [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
+                     {
+                         if ( !entry.IsFile )
+                             return Common::MakeError<bool>(
+                                  "a folder opens on its own, not in a multi-selection" );
+                         ShellOpenDefault( entry.AssetPath );
+                         return Common::MakeSuccess( true );
+                     } );
+            }
+            case ContentBrowserCommand::ShowInExplorer:
+                return overEntries(
+                     []( DirectoryInformation& entry ) -> Common::BoolResultStr
+                     {
+                         ShellRevealInExplorer( entry.AssetPath );
+                         return Common::MakeSuccess( true );
+                     } );
+            case ContentBrowserCommand::OpenContainingFolder:
+                // The selection lives in one folder: one window, not one per entry.
+                ShellOpenDefault( std::filesystem::path( entries.front()->AssetPath ).parent_path().string() );
+                return Common::MakeSuccess( true );
+            case ContentBrowserCommand::Reimport:
+                return overEntries( []( DirectoryInformation& entry )
+                                    { return ImportOptions::Reimport( entry.AssetPath ); } );
+            case ContentBrowserCommand::ReimportWithNewFile:
+            {
+                const auto target = one();
+                if ( !target )
+                    return Common::MakeError<bool>( target.GetError() );
+                const auto chosen =
+                     DesktopPlatform::OpenFileDialog( "Meshes\0*.fbx;*.glb;*.gltf;*.obj\0All\0*.*\0" );
+                if ( chosen.empty() )
+                    return Common::MakeFormattedError<bool>( "'{}': no file was chosen", label );
+                return ImportOptions::ReimportWithNewFile( target.GetValue()->AssetPath, chosen );
+            }
+            case ContentBrowserCommand::CaptureThumbnail:
+                if ( m_ViewportScene.expired() )
+                    return Common::MakeFormattedError<bool>( "'{}': there is no viewport scene to capture",
+                                                             label );
+                return overEntries( [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
+                                    { return CaptureThumbnailFromViewport( entry ); } );
+            case ContentBrowserCommand::EditThumbnail:
+            {
+                const auto target = one();
+                if ( !target )
+                    return Common::MakeError<bool>( target.GetError() );
+                const DirectoryInformation& entry = *target.GetValue();
+                if ( !entry.IsFile || !ThumbnailProducers::HasThumbnailOrbit( entry.Type ) )
+                    return Common::MakeFormattedError<bool>(
+                         "'{}': '{}' has no thumbnail orbit (its picture is not shot through an orbit camera)",
+                         label, entry.AssetPath );
+                const std::optional<std::string> orbitFile = ThumbnailOrbitFile( entry );
+                if ( !orbitFile )
+                    return Common::MakeFormattedError<bool>( "'{}': '{}' has no picture to edit (not imported)",
+                                                             label, entry.AssetPath );
+                if ( const auto stated = ThumbnailEdit::ReadOrbit( *orbitFile ); !stated )
+                    return Common::MakeFormattedError<bool>( "'{}': {}", label, stated.GetError() );
+                if ( m_ThumbnailGesture )
+                    CommitThumbnailGesture();
+                m_EditThumbnailPath      = entry.AssetPath;
+                m_EditThumbnailOrbitFile = *orbitFile;
+                return Common::MakeSuccess( true );
+            }
+            case ContentBrowserCommand::ClearSelection:
+                break; // answered above: it needs no selection
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    std::vector<FileExplorerPanel::ThumbnailOrbitSubject> FileExplorerPanel::SelectedThumbnailSubjects()
+    {
+        std::vector<ThumbnailOrbitSubject> subjects;
+        if ( m_CurrentDir == nullptr )
+            return subjects;
+        const std::vector<std::string> selected = SelectionPaths();
+        for ( const DirectoryInformation* child : m_CurrentDir->Children )
+            if ( std::find( selected.begin(), selected.end(), child->AssetPath ) != selected.end() )
+                if ( std::optional<std::string> orbitFile = ThumbnailOrbitFile( *child ) )
+                    subjects.push_back( { child->AssetPath, std::move( *orbitFile ) } );
+        return subjects;
+    }
+
+    std::optional<std::string> FileExplorerPanel::ThumbnailOrbitFile( const DirectoryInformation& entry )
+    {
+        if ( !entry.IsFile || !ThumbnailProducers::HasThumbnailOrbit( entry.Type ) )
+            return std::nullopt;
+        const std::optional<ThumbnailProducers::Producer> how = ThumbnailProducers::ProducerOf( entry.Type );
+        if ( how == ThumbnailProducers::Producer::RenderedMaterial ||
+             how == ThumbnailProducers::Producer::RenderedPose )
+            return entry.AssetPath; // filed under itself (a posed kind is its own cooked form)
+        const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
+        if ( !picture )
+            return std::nullopt;
+        return picture->Cooked;
+    }
+
+    std::vector<std::string> FileExplorerPanel::ContentFolders() const
+    {
+        std::vector<std::string> folders;
+        if ( m_BaseProjectDir == nullptr )
+            return folders;
+        folders.push_back( m_BaseProjectDir->AssetPath );
+        std::error_code ec;
+        for ( auto it = std::filesystem::recursive_directory_iterator( m_BaseProjectDir->AssetPath, ec );
+              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+        {
+            if ( !m_ShowHiddenFiles && IsHidden( it->path() ) )
+            {
+                it.disable_recursion_pending(); // the tree never opens what it hides
+                continue;
+            }
+            if ( it->is_directory( ec ) )
+                folders.push_back( it->path().generic_string() );
+        }
+        return folders;
+    }
+
+    std::vector<std::string> FileExplorerPanel::ContentFiles() const
+    {
+        std::vector<std::string> files;
+        if ( m_BaseProjectDir == nullptr )
+            return files;
+        std::error_code ec;
+        for ( auto it = std::filesystem::recursive_directory_iterator( m_BaseProjectDir->AssetPath, ec );
+              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+        {
+            if ( !m_ShowHiddenFiles && IsHidden( it->path() ) )
+            {
+                it.disable_recursion_pending();
+                continue;
+            }
+            if ( it->is_regular_file( ec ) )
+                files.push_back( it->path().generic_string() );
+        }
+        return files;
+    }
+
+    Common::BoolResultStr FileExplorerPanel::GoToFolder( const std::string& path )
+    {
+        if ( !NavigateToPath( path ) )
+            return Common::MakeFormattedError<bool>( "{}: '{}' is not a folder under the Content Browser's root",
+                                                     kGoToFolderLabel, path );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::SyncToAsset( const std::string& path )
+    {
+        const std::string folder = std::filesystem::path( path ).parent_path().generic_string();
+        if ( !NavigateToPath( folder ) )
+            return Common::MakeFormattedError<bool>(
+                 "{}: the folder of '{}' is not under the Content Browser's root", kSyncToAssetLabel, path );
+        if ( auto selected = SelectEntry( path ); !selected )
+            return Common::MakeFormattedError<bool>( "{}: '{}' is not a file in '{}'", kSyncToAssetLabel, path,
+                                                     folder );
+        return Common::MakeSuccess( true );
+    }
+
+    void FileExplorerPanel::CommitThumbnailGesture()
+    {
+        if ( !m_ThumbnailGesture )
+            return;
+        const Assets::ThumbnailOrbit live = m_ThumbnailGesture->Live;
+        ThumbnailService::Get().EndPreview( m_ThumbnailGesture->PreviewKey );
+        m_ThumbnailGesture.reset();
+        if ( auto edited = ThumbnailEdit::EditOrbit( m_EditThumbnailOrbitFile, live ); !edited )
+            LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': {}", m_EditThumbnailPath, edited.GetError() );
+    }
+
+    void FileExplorerPanel::LeaveThumbnailEdit()
+    {
+        CommitThumbnailGesture();
+        m_EditThumbnailPath.clear();
+        m_EditThumbnailOrbitFile.clear();
+    }
+
+    void FileExplorerPanel::RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture )
+    {
+        if ( m_AssetManager == nullptr )
+            return;
+        if ( entry.Type == FileType::Material )
+        {
+            const auto subject = ThumbnailSubject::ResolveMaterial(
+                 *m_AssetManager, entry.AssetPath, []( const std::string&, const auto& ) {} ); // tile asks again
+            if ( !subject )
+                return;
+            if ( const auto& material = subject.GetValue(); material )
+                gesture.PreviewPng =
+                     ThumbnailService::Get().RequestPreviewMaterial( *material, entry.AssetPath, gesture.Live );
+            return;
+        }
+        // A posed picture (a .skmesh / .skeleton / .anim, or a skinned source's .skmesh: ThumbnailOrbitFile) is
+        // the pose route's: the static route refuses a skinned mesh as "no drawable geometry".
+        if ( CookPaths::IsSkinnedAssetFile( m_EditThumbnailOrbitFile ) )
+        {
+            const auto pose = ThumbnailPose::ResolvePoseSubject( *m_AssetManager, m_EditThumbnailOrbitFile );
+            if ( pose && !pose.GetValue().Pending )
+                gesture.PreviewPng = ThumbnailService::Get().RequestPreviewPose( pose.GetValue(), gesture.Live );
+            return;
+        }
+        const std::optional<std::string> source = MeshSourceFor( entry ); // a model, or a foliage type's mesh
+        if ( !source )
+            return;
+        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, *source );
+        if ( subject && !subject.GetValue().Pending )
+            gesture.PreviewPng = ThumbnailService::Get().RequestPreviewMesh( subject.GetValue(), gesture.Live );
+    }
+
+    void FileExplorerPanel::DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min,
+                                               const ImVec2& max )
+    {
+        const ImGuiIO& io      = ImGui::GetIO();
+        const bool     hovered = ImGui::IsItemHovered();
+        const bool     active  = ImGui::IsItemActive();
+        if ( hovered )
+            ImGui::SetItemUsingMouseWheel(); // the wheel zooms the tile instead of scrolling the browser
+
+        const bool dragging = active && ImGui::IsMouseDragging( ImGuiMouseButton_Left, 0.0f );
+        const bool wheeled  = hovered && io.MouseWheel != 0.0f;
+        if ( ( dragging || wheeled ) && !m_ThumbnailGesture )
+        {
+            // The gesture starts from what the home states NOW (an undo since the last gesture moved it).
+            const auto stated = ThumbnailEdit::ReadOrbit( m_EditThumbnailOrbitFile );
+            if ( !stated )
+            {
+                LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': {}", entry.AssetPath, stated.GetError() );
+                LeaveThumbnailEdit();
+                return;
+            }
+            // The preview is keyed where the tile's picture is (ThumbnailOrbitFile): a skinned source's is its
+            // .skmesh, not the .stmesh an extension swap would name.
+            std::string previewKey = m_EditThumbnailOrbitFile;
+            m_ThumbnailGesture = ThumbnailGesture{ .From       = stated.GetValue(),
+                                                   .Live       = stated.GetValue(),
+                                                   .Drag       = ImVec2( 0.0f, 0.0f ),
+                                                   .Wheel      = 0.0f,
+                                                   .LastWheel  = 0.0,
+                                                   .PreviewKey = std::move( previewKey ),
+                                                   .PreviewPng = {} };
+        }
+        if ( m_ThumbnailGesture )
+        {
+            ThumbnailGesture& g = *m_ThumbnailGesture;
+            if ( dragging )
+                g.Drag = ImGui::GetMouseDragDelta( ImGuiMouseButton_Left, 0.0f );
+            if ( wheeled )
+            {
+                g.Wheel += io.MouseWheel;
+                g.LastWheel = ImGui::GetTime();
+            }
+            g.Live = ThumbnailEdit::Orbited( g.From, g.Drag.x, g.Drag.y, g.Wheel );
+            RequestThumbnailPreview( entry, g ); // the service keeps only the newest orbit
+
+            // THE LIVE PICTURE over the tile, once this gesture's first preview has landed.
+            if ( !g.PreviewPng.empty() && m_Thumbnails && m_UIHelper &&
+                 ThumbnailService::Get().PreviewLanded( g.PreviewKey ) )
+                if ( const auto img = m_Thumbnails->Get( g.PreviewPng ) )
+                    if ( ImTextureID tex = m_UIHelper->GetTextureID( img ); tex != nullptr )
+                        ImGui::GetWindowDrawList()->AddImage( tex, min, max );
+
+            const bool wheelRests = g.Wheel != 0.0f && ImGui::GetTime() - g.LastWheel > kThumbnailWheelRestSeconds;
+            if ( !active && ( ImGui::IsItemDeactivated() || !hovered || wheelRests ) )
+                CommitThumbnailGesture();
+        }
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRect( ImVec2( min.x - 2.0f, min.y - 2.0f ), ImVec2( max.x + 2.0f, max.y + 2.0f ),
+                     ImGui::GetColorU32( ImGuiCol_DragDropTarget ), 4.0f, 0, 2.0f );
+        const std::string readout =
+             m_ThumbnailGesture
+                  ? std::format( "yaw {:.0f}  pitch {:.0f}  zoom {:.2f}", m_ThumbnailGesture->Live.Yaw,
+                                 m_ThumbnailGesture->Live.Pitch, m_ThumbnailGesture->Live.Zoom )
+                  : std::string( "drag / wheel" );
+        dl->AddText( ImVec2( min.x + 4.0f, min.y + 2.0f ), IM_COL32( 255, 255, 255, 230 ), readout.c_str() );
+
+        // Leaving: Esc, or a click anywhere outside this tile. A running gesture is committed first.
+        const bool clickedOutside = !hovered && ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) ||
+                                                  ImGui::IsMouseClicked( ImGuiMouseButton_Right ) );
+        if ( ImGui::IsKeyPressed( ImGuiKey_Escape, false ) || clickedOutside )
+            LeaveThumbnailEdit();
     }
 
     bool FileExplorerPanel::RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView )
@@ -2446,16 +3227,7 @@ namespace Desert::Editor
 
             // Texture/material/model -> live thumbnail; everything else -> a big coloured type icon. The
             // thumbnail/icon IS the hoverable/selectable/draggable item.
-            const bool drewThumb =
-                 entry->IsFile &&
-                 ( ( entry->Type == FileType::Texture && DrawTextureThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
-                   ( entry->Type == FileType::Material &&
-                     DrawRenderedMaterialThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
-                   ( entry->Type == FileType::Model &&
-                     DrawRenderedMeshThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
-                   ( ( entry->Type == FileType::Cloud || entry->Type == FileType::UITheme ||
-                       entry->Type == FileType::Cubemap ) &&
-                     DrawPaintedThumbnail( entry, ImVec2( thumb, thumb ) ) ) );
+            const bool drewThumb = entry->IsFile && DrawThumbnailFor( entry, ImVec2( thumb, thumb ) );
             if ( !drewThumb )
             {
                 const ImVec4 col = entry->IsFile ? entry->FileTypeColour : ImVec4( 0.95f, 0.82f, 0.42f, 1.0f );
@@ -2472,12 +3244,18 @@ namespace Desert::Editor
             const ImVec2 thumbMin = ImGui::GetItemRectMin();
             const ImVec2 thumbMax = ImGui::GetItemRectMax();
 
+            // In Edit Thumbnail mode the tile's drag is the orbit, not an asset drag.
+            const bool editingThumbnail = entry->IsFile && entry->AssetPath == m_EditThumbnailPath;
+            if ( editingThumbnail )
+                DrawThumbnailEdit( *entry, thumbMin, thumbMax );
+
             if ( ImGui::IsItemClicked() )
                 SelectClick( entry, shownIndex );
             if ( ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) )
                 doubleClicked = true;
 
-            EmitAssetDragSource( *entry );
+            if ( !editingThumbnail )
+                EmitAssetDragSource( *entry );
             DrawItemContextMenu( *entry );
 
             if ( ImGui::IsItemHovered() && !ImGui::IsDragDropActive() )
@@ -2642,8 +3420,9 @@ namespace Desert::Editor
 
     void FileExplorerPanel::Refresh()
     {
-        if ( m_Thumbnails )
-            m_Thumbnails->Clear();
+        // The thumbnail cache is NOT cleared (THM1n-13): it holds the project's pictures from the splash on, and
+        // a rescan changes none of them — a picture whose file was rewritten is decoded again by ThumbnailCache's
+        // own WriteWatch, which is the one rule for "this picture is out of date".
 
         std::string currentPath = m_CurrentDir->AssetPath;
 
@@ -2710,10 +3489,14 @@ namespace Desert::Editor
                 std::snprintf( buffer, sizeof( buffer ), "%.1f KB", entry->FileSize / 1024.0f );
             sizeText = buffer;
         }
+        // Shown relative to the PROJECT's directory (FPaths::ProjectDir), never to the working directory the
+        // editor happened to be started from; a file outside the project (engine content in a foreign
+        // project) keeps its full path rather than a chain of "..".
         std::error_code   ec;
         const std::string shownPath =
-             std::filesystem::relative( path, std::filesystem::current_path(), ec ).generic_string();
-        const std::string& pathText = ec || shownPath.empty() ? entry->AssetPath : shownPath;
+             std::filesystem::relative( path, Common::Constants::Path::ProjectDir(), ec ).generic_string();
+        const bool         outside  = shownPath.starts_with( ".." );
+        const std::string& pathText = ec || shownPath.empty() || outside ? entry->AssetPath : shownPath;
 
         // Natural size of the content: a 96 px picture beside name / type+size / path, the text wrapped
         // to what is left of the width cap. Layout::Compute then caps and places it on screen.
@@ -2735,16 +3518,7 @@ namespace Desert::Editor
         ImGui::SetNextWindowSize( ImVec2( placed.Width, placed.Height ) );
         ImGui::BeginTooltip();
 
-        bool drewThumb = false;
-        if ( entry->Type == FileType::Texture )
-            drewThumb = DrawTextureThumbnail( entry, thumbSize );
-        else if ( entry->Type == FileType::Material )
-            drewThumb = DrawRenderedMaterialThumbnail( entry, thumbSize );
-        else if ( entry->Type == FileType::Model )
-            drewThumb = DrawRenderedMeshThumbnail( entry, thumbSize );
-        else if ( entry->Type == FileType::Cloud || entry->Type == FileType::UITheme ||
-                  entry->Type == FileType::Cubemap )
-            drewThumb = DrawPaintedThumbnail( entry, thumbSize );
+        const bool drewThumb = DrawThumbnailFor( entry, thumbSize );
         if ( !drewThumb )
         {
             const char*  icon   = IconForType( entry->Type );
@@ -2775,3 +3549,5 @@ namespace Desert::Editor
     }
 
 } // namespace Desert::Editor
+
+static_assert( Common::HandlesEvent<Desert::Editor::FileExplorerPanel, Common::EventWindowFileDrop> );

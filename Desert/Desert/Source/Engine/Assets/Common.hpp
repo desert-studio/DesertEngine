@@ -93,6 +93,10 @@ namespace Desert::Assets
         // weight plane is keyed by and the numbers a paint stroke normalises with. A first-class asset so one
         // "Grass" is ONE file every landscape painting it shares — see Engine/Assets/LandscapeLayerInfoAsset.hpp.
         LandscapeLayerInfo,
+        // A LEVEL SEQUENCE (`.dseq`): UE's ULevelSequence — a Timeline::Sequence (host LevelSequence) whose
+        // Entity bindings name entities of the scene that places it through a LevelSequenceComponent. See
+        // Engine/Assets/LevelSequenceAsset.hpp.
+        LevelSequence,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -176,6 +180,9 @@ namespace Desert::Assets
             // A LAYER INFO IS SCENE-SCOPED for the retarget's reason: `LandscapeComponent::Layers` holds
             // `AssetHandle`s the reachability walk sees (SceneAssetRoots).
             case AssetTypeID::LandscapeLayerInfo:
+            // A LEVEL SEQUENCE IS SCENE-SCOPED for the retarget's reason: `LevelSequenceComponent::Sequence`
+            // is an `AssetHandle` held by a live entity.
+            case AssetTypeID::LevelSequence:
             case AssetTypeID::Count:
                 return false;
         }
@@ -240,6 +247,8 @@ namespace Desert::Assets
                 return "FoliageType";
             case AssetTypeID::LandscapeLayerInfo:
                 return "LandscapeLayerInfo";
+            case AssetTypeID::LevelSequence:
+                return "LevelSequence";
             case AssetTypeID::Count:
                 return "Count";
         }

@@ -32,6 +32,7 @@
 #include <Engine/Animation/Retarget/RetargetPose.hpp>
 #include <Engine/Animation/Retarget/Retargeter.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/Timeline/Evaluator.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -47,6 +48,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -61,10 +63,10 @@ namespace
     using Desert::Animation::Retarget::Retargeter;
     using Desert::Animation::Retarget::RetargetSetup;
 
-    constexpr const char* kRigPath     = "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
-    constexpr const char* kClipPath    = "Editor/Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim";
-    constexpr const char* kTwoBoneRig  = "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton";
-    constexpr const char* kTwoBoneClip = "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim";
+    constexpr const char* kRigPath     = "Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
+    constexpr const char* kClipPath    = "Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim";
+    constexpr const char* kTwoBoneRig  = "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton";
+    constexpr const char* kTwoBoneClip = "Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim";
 
     // The probe limb, and the only three-bone chain in the corpus. A limb is what a retargeter is judged
     // on, and IK_Shoulder is also the rig's root, so it doubles as the pelvis.
@@ -72,20 +74,11 @@ namespace
     constexpr const char* kMid  = "IK_Elbow";
     constexpr const char* kTip  = "IK_Hand";
 
-    std::string RepoRoot()
-    {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + kRigPath );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
-    }
+    // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
+    // from the working directory.
+    using Desert::TestSupport::TestDataDir;
 
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -97,7 +90,7 @@ namespace
 
     std::vector<BoneInfo> BonesFrom( const char* path )
     {
-        const std::string raw = ReadFile( RepoRoot() + path );
+        const std::string raw = ReadFile( TestDataDir() / path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
@@ -106,7 +99,7 @@ namespace
 
     Desert::Animation::AnimationClip ClipFrom( const char* path )
     {
-        const std::string raw = ReadFile( RepoRoot() + path );
+        const std::string raw = ReadFile( TestDataDir() / path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
         const auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
@@ -192,15 +185,11 @@ namespace
     LocalPose PoseAt( const Skeleton& rig, const Desert::Animation::AnimationClip& clip, double ticks )
     {
         LocalPose       local = BindPose( rig );
-        const FrameTime at{ Desert::Animation::FrameNumber{ static_cast<int32_t>( ticks ) }, 0.0F };
-        for ( const auto& track : clip.Tracks )
-        {
-            if ( !track.HasKeys() )
-                continue;
-            const auto idx = rig.FindBoneIndex( track.BoneName );
-            if ( idx )
-                local[*idx] = track.Sample( at, clip.TickRate );
-        }
+        const FrameTime at{
+             Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + static_cast<int32_t>( ticks ) }, 0.0F };
+        const auto table   = Desert::Animation::Timeline::BindBones( clip.Sequence, rig );
+        const auto sampled = Desert::Animation::Timeline::EvaluatePose( clip.Sequence, table, at, local );
+        EXPECT_TRUE( sampled.IsSuccess() ) << ( sampled.IsSuccess() ? "" : sampled.GetError() );
         return local;
     }
 
@@ -209,7 +198,7 @@ namespace
     std::vector<double> SampleTicks( const Desert::Animation::AnimationClip& clip )
     {
         std::vector<double> out;
-        const auto          duration = static_cast<double>( clip.DurationTicks.Value );
+        const auto          duration = static_cast<double>( clip.DurationTicks().Value );
         for ( int i = 0; i <= 10; ++i )
             out.push_back( duration * i / 10.0 );
         return out;

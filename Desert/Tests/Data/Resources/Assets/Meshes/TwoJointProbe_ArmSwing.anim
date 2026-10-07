@@ -1,0 +1,135 @@
+{
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "3bf5647848b60997928f7421c81acffd",
+        "Versions": {
+            "ANIM": 6
+        },
+        "Dependencies": ["e287e4cefcdec52a99588849bcf0a0a0"]
+    },
+    "Name": "ArmSwing",
+    "Skeleton": {
+        "Guid": "e287e4cefcdec52a99588849bcf0a0a0",
+        "Path": "Meshes/TwoJointProbe.skeleton"
+    },
+    "Sequence": {
+        "Header": {
+            "Kind": "",
+            "Guid": "",
+            "Versions": {
+                "TMLN": 2
+            },
+            "Dependencies": []
+        },
+        "Host": 0,
+        "TickRate": [24000, 1],
+        "DisplayRate": [1000, 1],
+        "Start": 0,
+        "End": 24000,
+        "Bindings": [
+            {
+                "Guid": "22b84cb0185a8b05beb64da382b76abc",
+                "Kind": 1,
+                "Locator": "Joint_Arm",
+                "Label": "Joint_Arm",
+                "Parent": ""
+            }
+        ],
+        "Tracks": [
+            {
+                "Binding": "22b84cb0185a8b05beb64da382b76abc",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 24000,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 40.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [24000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [24000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12000, 0.7071067690849304, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [24000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12000, 0.7071067690849304, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [24000, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    "Import": {
+        "Source": "TwoJointProbe.gltf",
+        "SourceHash": 2080282809576534268
+    }
+}

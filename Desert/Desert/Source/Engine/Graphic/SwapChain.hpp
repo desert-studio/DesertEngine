@@ -27,7 +27,7 @@ namespace Desert::Graphic
 
         virtual uint32_t GetWidth() const                            = 0;
         virtual uint32_t GetHeight() const                           = 0;
-        virtual void     OnResize( uint32_t width, uint32_t height ) = 0;
+        virtual void     RequestRebuild( uint32_t width, uint32_t height ) = 0;
 
         virtual void Release() = 0;
 
@@ -57,7 +57,7 @@ namespace Desert::Graphic
 
         // Present pacing (Scalability::DisplaySettings; machine.json's Display, handed over by QualityBoot through
         // Window::SetDisplay). Takes effect the next time the swapchain is (re)created — Window::SetDisplay
-        // triggers the recreate. Until QualityBoot runs it is the DisplaySettings default.
+        // triggers the recreate through RequestRebuild. Until QualityBoot runs it is the DisplaySettings default.
         void SetDisplay( const Common::Scalability::DisplaySettings& display )
         {
             m_Display = display;

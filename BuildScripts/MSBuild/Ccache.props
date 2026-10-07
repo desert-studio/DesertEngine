@@ -8,9 +8,15 @@
   INERT unless DESERT_MSVC_CCACHE is set, so a developer's Visual Studio build is exactly
   what premake generated; CI's Windows job is what sets it (.github/workflows/ci.yml).
 
-  WHY HERE AND NOT IN PREMAKE. premake 5.0-beta8 has no spelling for CLToolExe, CLToolPath,
-  UseMultiToolTask or TrackFileAccess, and the switch is a property of the MACHINE doing the build (is
-  a ccache binary installed, and where), not of the project.
+  WHY HERE AND NOT IN PREMAKE. CLToolExe, CLToolPath and TrackFileAccess are properties of the MACHINE
+  doing the build (is a ccache binary installed, and where), not of the project.
+
+  UseMultiToolTask and EnforceProcessCountAcrossBuilds USED TO BE HERE and are not any more: they are
+  in every generated project now (BuildScripts/MSBuildProperties.lua, BUILD1 P0), so a local build
+  compiles in parallel too, and generation fails for a .vcxproj without them. ccache still depends on
+  UseMultiToolTask: the default CL task hands EVERY source of a project to ONE cl.exe invocation, and
+  ccache refuses any invocation with more than one input file ("multiple source files"). The CI job
+  fails when it sees such a call, so losing the property cannot pass silently.
 
   WHY IT IS IMPORTED EXPLICITLY AND NOT AS Directory.Build.props. A file of that name in the root is
   picked up by EVERY MSBuild project below it on every machine, including a developer's Visual Studio
@@ -20,7 +26,7 @@
   project body, so a build that does not pass the property never sees the file at all.
 
   NOT /p:ForceImportBeforeCppTargets. That was tried (6e1a17b1, d7ab8fa8) and it imports too late:
-  CLToolPath still took effect, UseMultiToolTask did not, and every project went back to ONE cl.exe
+  CLToolPath still took effect, UseMultiToolTask (then set here) did not, and every project went back to ONE cl.exe
   for all its sources. ccache counted 211 of 359 calls as "multiple source files" and hit once, where
   the Directory.Build.props position had given 2270 cacheable calls (runs 35984010180 against
   35961549096); Windows Release went from 78 to 104..146 minutes and started crossing its ceiling.
@@ -33,17 +39,6 @@
     the real compiler on the PATH the C++ targets set up (skipping itself). Calling ccache.exe by its
     own name is not possible: the CL task cannot put the compiler's path in front of its arguments.
 
-  - UseMultiToolTask: the default CL task hands EVERY source of a project to ONE cl.exe invocation,
-    and ccache refuses any invocation with more than one input file ("multiple source files"), so
-    without this the cache would see nothing at all and report it only in its statistics. The
-    MultiToolTask runs one cl.exe per source instead. It is also the only intra-project parallelism
-    this build has: without it Common -> Desert -> Editor, the chain every Windows build ends on,
-    compiles on one core each (measured: Editor is the last 16 minutes of Windows Release, alone).
-
-  - EnforceProcessCountAcrossBuilds: `msbuild -m` already runs one project per core, and each of
-    those would now spawn one compiler per core too. This makes the MultiToolTasks of all nodes share
-    one machine-wide count instead of multiplying (see the -m x /MP note in BuildScripts/Workspace.lua).
-
   - TrackFileAccess=false: file tracking injects a DLL into the compiler process tree to write .tlog
     files for incremental builds. A CI build is always clean, and the tracker would be following
     ccache's own cache writes as well.
@@ -55,8 +50,6 @@
   <PropertyGroup Condition="'$(DESERT_MSVC_CCACHE)' != ''">
     <CLToolExe>cl.exe</CLToolExe>
     <CLToolPath>$(DESERT_MSVC_CCACHE)</CLToolPath>
-    <UseMultiToolTask>true</UseMultiToolTask>
-    <EnforceProcessCountAcrossBuilds>true</EnforceProcessCountAcrossBuilds>
     <TrackFileAccess>false</TrackFileAccess>
   </PropertyGroup>
 </Project>

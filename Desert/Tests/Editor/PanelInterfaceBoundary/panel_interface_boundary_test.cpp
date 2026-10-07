@@ -73,7 +73,7 @@ namespace
     // end of this change and the only place that may still name it. It doubles as the negative control:
     // without it the census could quietly become "nothing in the editor names ImGui", which is not the
     // rule and would be satisfied by an editor that had stopped drawing.
-    constexpr const char* kConversionSite = "Editor/Source/EditorLayer.cpp";
+    constexpr const char* kConversionSite = "Editor/Source/Editor/LevelEditor/DockLayout.cpp";
 
     fs::path RepoRoot()
     {
@@ -250,7 +250,7 @@ TEST( PanelInterfaceBoundary, TheInterfaceHeaderIncludesNoToolkitHeader )
          << kInterfaceHeader
          << " opens the toolkit again. Every panel, every document and every suite that names one then "
             "has to find Dear ImGui on its include path -- which is the cost this interface was cleared "
-            "of. A value handed to ImGui becomes an ImVec2 where it is DRAWN (EditorLayer's panel loop), "
+            "of. A value handed to ImGui becomes an ImVec2 where it is DRAWN (DockLayout's panel loop), "
             "not where it is declared."
          << Join( offenders );
 }
@@ -321,7 +321,7 @@ TEST( PanelInterfaceBoundary, TheDefaultPaddingAndSizeAreUnchangedByTheTypeChang
     EXPECT_FLOAT_EQ( panel.GetWindowPadding().x, 8.0f );
     EXPECT_FLOAT_EQ( panel.GetWindowPadding().y, 8.0f );
 
-    // (0,0) is not a size: it is the sentinel EditorLayer tests for before calling SetNextWindowSize at
+    // (0,0) is not a size: it is the sentinel DockLayout tests for before calling SetNextWindowSize at
     // all, so a panel that states no preference lets ImGui pick. A non-zero default here would give every
     // such panel a size it never asked for.
     EXPECT_FLOAT_EQ( panel.GetDefaultSize().x, 0.0f );

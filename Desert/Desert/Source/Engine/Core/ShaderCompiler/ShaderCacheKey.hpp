@@ -46,6 +46,20 @@ namespace Desert::Core
                                                               const ShaderVariant&         variant = {} );
 
     /**
+     * THE FILES A SHADER PROGRAM IS MADE OF — the one rule the hot reloader asks "does this program recompile?"
+     * with: the .shader itself first, then the transitive include closure of ITS TEXT ON DISK (read through the
+     * same per-process file cache the key hashes through, so a settled file costs one stat).
+     *
+     * On disk, not the asset's in-memory copy: an unloaded ShaderAsset holds no text, and walking that found no
+     * includes at all — so an edited shared header (or the rewritten shading-model include) recompiled nothing.
+     * A file that does not exist yields just itself; the caller's reload reports the missing file.
+     */
+    std::vector<std::filesystem::path> ShaderSourceFiles( const std::filesystem::path& shaderFile );
+
+    /// The .shader's text on disk through that same cache (empty when it cannot be read).
+    std::string ShaderFileText( const std::filesystem::path& shaderFile );
+
+    /**
      * The SPIR-V disk-cache key: stage + compile-options fingerprint + the assembled source + the
      * content of every file CollectShaderIncludes finds + THE VARIANT.
      *

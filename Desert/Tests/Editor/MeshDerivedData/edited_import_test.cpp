@@ -66,7 +66,7 @@ namespace
         ~Imported()
         {
             Assets::SetMeshPlatformDataBuilder( nullptr );
-            Common::Constants::Path::ResetToSandbox();
+            Common::Constants::Path::ClearProject();
         }
         Imported( const Imported& )            = delete;
         Imported& operator=( const Imported& ) = delete;

@@ -46,6 +46,7 @@ namespace Desert::Assets
         std::optional<int>                          LODBias;
         std::optional<bool>                         CastShadows;
         std::optional<bool>                         ReceiveShadows;
+        std::optional<int>                          TranslucencySortPriority;
         std::optional<uint64_t>                     HiddenSubmeshes;
     };
 
@@ -119,26 +120,15 @@ namespace Desert::Assets
         std::optional<std::vector<MaterialTextureSer>> Textures;
     };
 
-    // UIAnimComponent mirror — the authored clip. The playhead is runtime-only and deliberately absent,
-    // so scrubbing in the Sequencer can never dirty a saved scene. Enums travel as ints, matching how the
-    // reflected path stores them.
-    struct UIAnimKeySer
-    {
-        float     Time   = 0.0f;
-        glm::vec4 Value  = glm::vec4( 0.0f );
-        int       Easing = 5;
-    };
-    struct UIAnimTrackSer
-    {
-        int                       Property = 0;
-        std::vector<UIAnimKeySer> Keys;
-    };
+    // UIAnimComponent mirror — the authored clip. `Sequence` is the TMLN text block (Timeline/Sequence.hpp,
+    // ONE writer and ONE reader for every host) carried as JSON, so the scene diff of an edited key is one line.
+    // `Loop` is Timeline::LoopMode as its integer. The playhead is runtime-only and deliberately absent, so
+    // scrubbing in the Sequencer can never dirty a saved scene.
     struct UIAnimComponentSer
     {
-        std::vector<UIAnimTrackSer> Tracks;
-        float                       Duration = 1.0f;
-        bool                        Loop     = false;
-        bool                        Playing  = true;
+        Common::Json::Value Sequence;
+        int                 Loop     = 0;
+        bool                AutoPlay = true;
     };
 
     // TextComponent mirror — only the authored fields (the glyph mesh is transient, rebuilt at runtime).
@@ -176,7 +166,13 @@ namespace Desert::Assets
         bool                       Playing       = true;
         bool                       Loop          = true;
         float                      PlaybackSpeed = 1.0f;
+        /// AnimationComponent::UpdateAnimationInEditor. Absent = false, which is UE's default and the
+        /// intended behaviour for every file written before ANIM-FIX1 (the Edit-mode preview was the defect).
+        bool                       UpdateAnimationInEditor = false;
         std::optional<std::string> Graph;
+        /// AnimationComponent::LinkedLayerGraphs as project paths, in link order; absent = nothing linked
+        /// (every file written before ANIM-I14b), so no scene needs a migration step.
+        std::optional<std::vector<std::string>> LinkedLayers;
     };
 
     // NOTE: camera/light/skybox payloads are no longer mirrored here — they serialize generically through

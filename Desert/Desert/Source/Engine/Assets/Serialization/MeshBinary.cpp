@@ -72,13 +72,6 @@ namespace Desert::Assets::Serialization
         static_assert( offsetof( BinSubmesh, MaterialGuidLo ) ==
                        Common::Content::kMeshBinarySubmeshMaterialGuidOffset + 8 );
 
-        // Versions 1 and 2 end the row in an 8-byte material NUMBER from before material GUIDs (AF7c) where
-        // v3 has the GUID; the first 120 bytes are the same. Only the number 0 (no material) is read: a
-        // non-zero one names its material by an identity this build cannot resolve, and SceneMigrator's mesh
-        // pass is what maps it through the legacy material register.
-        constexpr uint32_t kBinSubmeshSizeV2 = 128;
-        constexpr uint32_t kBinSubmeshShared = 120;
-
         struct BinLODRange
         {
             uint64_t First; // into the LODIndices section, in TRIANGLES
@@ -116,6 +109,9 @@ namespace Desert::Assets::Serialization
         static_assert( std::is_trivially_copyable_v<SkinnedVertexData> );
         static_assert( std::is_trivially_copyable_v<IndexData> );
         static_assert( std::is_trivially_copyable_v<glm::vec3> );
+        static_assert( sizeof( std::array<uint8_t, 4> ) == 4 &&
+                       std::is_trivially_copyable_v<std::array<uint8_t, 4>> );
+        static_assert( std::is_trivially_copyable_v<glm::vec2> );
 
         constexpr uint32_t kByteOrderTag = Common::Content::kMeshBinaryByteOrderTag;
 
@@ -141,24 +137,18 @@ namespace Desert::Assets::Serialization
             SecMorphDeltas,
             SecStrings,
             SecPolyGroups, // version 2
+            SecColors,     // version 4
+            SecUV1,        // version 4
             SecCount_      // one past the last id; also the number of rows in the table
         };
         static_assert( SecSubmeshes == Common::Content::kMeshBinarySubmeshSectionId );
-        constexpr uint32_t kSectionCount = SecCount_ - 1;
-        // Version 1 is version 2 without its last section (MeshBinary.hpp); the table is otherwise identical.
-        constexpr uint32_t kSectionCountV1 = SecStrings;
+        constexpr uint32_t kSectionCount = SecCount_ - 1; // the one version read has every row
 
-        uint32_t SectionCountOf( const uint32_t version )
-        {
-            return version == 1 ? kSectionCountV1 : kSectionCount;
-        }
+        constexpr uint32_t kFlagIsSkinned = Common::Content::kMeshFlagIsSkinned;
 
-        constexpr uint32_t kFlagIsSkinned            = Common::Content::kMeshFlagIsSkinned;
-        constexpr uint32_t kFlagHasSkeletonSignature = Common::Content::kMeshFlagHasSkeletonSignature;
-
-        /// The element size version 1 declares for each section, indexed by id. A reader that finds a
+        /// The element size the format declares for each section, indexed by id. A reader that finds a
         /// different number in the file stops there: see the header's note on type width.
-        uint32_t ExpectedElementSize( const uint32_t id, const uint32_t version )
+        uint32_t ExpectedElementSize( const uint32_t id )
         {
             switch ( id )
             {
@@ -169,7 +159,7 @@ namespace Desert::Assets::Serialization
                 case SecIndices:
                     return sizeof( IndexData );
                 case SecSubmeshes:
-                    return version >= 3 ? static_cast<uint32_t>( sizeof( BinSubmesh ) ) : kBinSubmeshSizeV2;
+                    return sizeof( BinSubmesh );
                 case SecLODRanges:
                     return sizeof( BinLODRange );
                 case SecLODIndices:
@@ -182,6 +172,10 @@ namespace Desert::Assets::Serialization
                     return 1;
                 case SecPolyGroups:
                     return sizeof( int32_t );
+                case SecColors:
+                    return 4; // std::array<uint8_t, 4>
+                case SecUV1:
+                    return sizeof( glm::vec2 );
                 default:
                     return 0;
             }
@@ -211,6 +205,10 @@ namespace Desert::Assets::Serialization
                     return "Strings";
                 case SecPolyGroups:
                     return "PolyGroups";
+                case SecColors:
+                    return "Colors";
+                case SecUV1:
+                    return "UV1";
                 default:
                     return "<unknown>";
             }
@@ -340,19 +338,20 @@ namespace Desert::Assets::Serialization
              { SecMorphDeltas, AsBytes( morphDeltas.data(), morphDeltas.size() ), morphDeltas.size() },
              { SecStrings, AsBytes( strings.data(), strings.size() ), strings.size() },
              { SecPolyGroups, AsBytes( data.PolyGroups.data(), data.PolyGroups.size() ), data.PolyGroups.size() },
+             { SecColors, AsBytes( data.Colors.data(), data.Colors.size() ), data.Colors.size() },
+             { SecUV1, AsBytes( data.UV1.data(), data.UV1.size() ), data.UV1.size() },
         };
 
         // Offsets are computed before anything is written, because the table sits in front of the
         // payloads it describes.
         SectionRow     table[kSectionCount] = {};
-        const uint64_t tableEnd             = Common::Content::kMeshBinaryPrefixV3 + sizeof( table );
+        const uint64_t tableEnd             = Common::Content::kMeshBinaryPrefixSize + sizeof( table );
         uint64_t       at                   = tableEnd;
-        static_assert( ( Common::Content::kMeshBinaryPrefixV3 + sizeof( SectionRow ) * kSectionCount ) % 8 == 0,
+        static_assert( ( Common::Content::kMeshBinaryPrefixSize + sizeof( SectionRow ) * kSectionCount ) % 8 == 0,
                        "the first section must start 8-byte aligned without padding after the table" );
         for ( uint32_t i = 0; i < kSectionCount; ++i )
         {
-            const uint32_t elementSize =
-                 ExpectedElementSize( payloads[i].Id, Common::Content::kMeshBinaryVersion );
+            const uint32_t elementSize = ExpectedElementSize( payloads[i].Id );
             table[i].Id                = payloads[i].Id;
             table[i].ElementSize       = elementSize;
             table[i].Offset            = at;
@@ -367,9 +366,8 @@ namespace Desert::Assets::Serialization
         header.Version      = kMeshBinaryVersion;
         header.FileSize     = at;
         header.SectionCount = kSectionCount;
-        header.Flags        = ( data.IsSkinned ? kFlagIsSkinned : 0u ) |
-                       ( data.SkeletonSignature.has_value() ? kFlagHasSkeletonSignature : 0u );
-        header.SkeletonSignature = data.SkeletonSignature.value_or( 0 );
+        header.Flags        = data.IsSkinned ? kFlagIsSkinned : 0u;
+        header.SkeletonGuid = data.Skeleton;
         // The box goes into the header so the content scan learns it from 64 bytes, without the body.
         Common::Content::StateMeshBounds( header, MeshDataBounds( data ) );
 
@@ -417,12 +415,16 @@ namespace Desert::Assets::Serialization
                  who, header.ByteOrder, kByteOrderTag );
         }
 
-        if ( header.Version < 1 || header.Version > kMeshBinaryVersion )
+        // ONE GENERATION IS READ. Versions 1-4 named the rig by a bone hash (SKEL-TREE replaced it with the
+        // skeleton's GUID); Tools/SceneMigrator raises them, this reader refuses them by name.
+        if ( header.Version != kMeshBinaryVersion )
         {
             return Common::MakeFormattedError<MeshAssetData>(
-                 "'{}' is cooked-mesh format version {}, this build reads version {}. Re-cook it "
-                 "(Assets > Rebuild Cooked Assets).",
-                 who, header.Version, kMeshBinaryVersion );
+                 "'{}' is cooked-mesh format version {}, this build reads only version {}{}.", who, header.Version,
+                 kMeshBinaryVersion,
+                 header.Version < kMeshBinaryVersion
+                      ? " - raise it with Tools/SceneMigrator (scripts/Dev/migrate.sh)"
+                      : " - it was written by a later build" );
         }
 
         // THE TRUNCATION CHECK, AND THE REASON `FileSize` IS IN THE HEADER AT ALL. A file that stops
@@ -435,14 +437,14 @@ namespace Desert::Assets::Serialization
                  who, header.FileSize, bytes.size() );
         }
 
-        const uint32_t sectionCount = SectionCountOf( header.Version );
+        const uint32_t sectionCount = kSectionCount;
         if ( header.SectionCount != sectionCount )
         {
             return Common::MakeFormattedError<MeshAssetData>(
                  "'{}' declares {} sections, version {} has exactly {}.", who, header.SectionCount, header.Version,
                  sectionCount );
         }
-        const std::size_t prefixSize = Common::Content::MeshHeaderSize( header.Version );
+        const std::size_t prefixSize = Common::Content::kMeshBinaryPrefixSize;
         if ( bytes.size() < prefixSize + sizeof( SectionRow ) * sectionCount )
         {
             return Common::MakeFormattedError<MeshAssetData>(
@@ -450,11 +452,10 @@ namespace Desert::Assets::Serialization
                  sectionCount );
         }
 
-        // Rows past the version's count stay zero, and read as empty sections below.
         SectionRow table[kSectionCount] = {};
         std::memcpy( table, bytes.data() + prefixSize, sizeof( SectionRow ) * sectionCount );
 
-        // THE LAYOUT IS DERIVED, NOT TRUSTED. Version 1 packs the sections in table order, each starting
+        // THE LAYOUT IS DERIVED, NOT TRUSTED. The format packs the sections in table order, each starting
         // at the next 8-byte boundary after the last, so the offset a row SHOULD carry follows from the
         // counts alone — and a row that carries a different one is refused rather than followed.
         //
@@ -467,7 +468,7 @@ namespace Desert::Assets::Serialization
         for ( uint32_t i = 0; i < sectionCount; ++i )
         {
             const SectionRow& row      = table[i];
-            const uint32_t    expectId = i + 1; // ids are 1..sectionCount in table order, in every version
+            const uint32_t    expectId = i + 1; // ids are 1..sectionCount in table order
             if ( row.Id != expectId )
             {
                 return Common::MakeFormattedError<MeshAssetData>(
@@ -475,7 +476,7 @@ namespace Desert::Assets::Serialization
                      header.Version, expectId, SectionName( expectId ) );
             }
 
-            const uint32_t expectSize = ExpectedElementSize( row.Id, header.Version );
+            const uint32_t expectSize = ExpectedElementSize( row.Id );
             if ( row.ElementSize != expectSize )
             {
                 return Common::MakeFormattedError<MeshAssetData>(
@@ -528,8 +529,7 @@ namespace Desert::Assets::Serialization
         data.IsSkinned = ( header.Flags & kFlagIsSkinned ) != 0;
         if ( const auto guid = Common::Content::ReadMeshHeaderGuid( bytes ) )
             data.Guid = *guid;
-        if ( ( header.Flags & kFlagHasSkeletonSignature ) != 0 )
-            data.SkeletonSignature = header.SkeletonSignature;
+        data.Skeleton = header.SkeletonGuid;
 
         data.StaticVertices.resize( N( SecStaticVertices ) );
         std::memcpy( data.StaticVertices.data(), At( SecStaticVertices ),
@@ -559,25 +559,7 @@ namespace Desert::Assets::Serialization
         for ( size_t i = 0; i < data.Submeshes.size(); ++i )
         {
             BinSubmesh  rec{};
-            const char* row = At( SecSubmeshes ) + i * ExpectedElementSize( SecSubmeshes, header.Version );
-            if ( header.Version >= 3 )
-            {
-                std::memcpy( &rec, row, sizeof( rec ) );
-            }
-            else
-            {
-                std::memcpy( &rec, row, kBinSubmeshShared );
-                uint64_t materialNumber = 0;
-                std::memcpy( &materialNumber, row + kBinSubmeshShared, sizeof( materialNumber ) );
-                if ( materialNumber != 0 )
-                {
-                    return Common::MakeFormattedError<MeshAssetData>(
-                         "'{}' is cooked-mesh format version {}, and submesh {} names its material by the "
-                         "pre-GUID number {}. Run SceneMigrator: its mesh pass maps the number to the material's "
-                         "GUID through the legacy material register.",
-                         who, header.Version, i, materialNumber );
-                }
-            }
+            std::memcpy( &rec, At( SecSubmeshes ) + i * sizeof( BinSubmesh ), sizeof( rec ) );
 
             SubmeshData& out = data.Submeshes[i];
             if ( !Substring( rec.NameOffset, rec.NameLength, out.Name ) )
@@ -662,6 +644,24 @@ namespace Desert::Assets::Serialization
         data.PolyGroups.resize( N( SecPolyGroups ) );
         if ( !data.PolyGroups.empty() )
             std::memcpy( data.PolyGroups.data(), At( SecPolyGroups ), N( SecPolyGroups ) * sizeof( int32_t ) );
+
+        // The optional streams: one entry per vertex or none, the same rule as the polygroups' per face.
+        const size_t vertexTotal = N( SecStaticVertices ) + N( SecSkinnedVertices );
+        for ( const uint32_t stream : { static_cast<uint32_t>( SecColors ), static_cast<uint32_t>( SecUV1 ) } )
+        {
+            if ( N( stream ) != 0 && N( stream ) != vertexTotal )
+            {
+                return Common::MakeFormattedError<MeshAssetData>( "'{}' carries {} {} entries for {} vertices.",
+                                                                  who, N( stream ), SectionName( stream ),
+                                                                  vertexTotal );
+            }
+        }
+        data.Colors.resize( N( SecColors ) );
+        if ( !data.Colors.empty() )
+            std::memcpy( data.Colors.data(), At( SecColors ), N( SecColors ) * 4 );
+        data.UV1.resize( N( SecUV1 ) );
+        if ( !data.UV1.empty() )
+            std::memcpy( data.UV1.data(), At( SecUV1 ), N( SecUV1 ) * sizeof( glm::vec2 ) );
 
         data.MorphTargets.resize( N( SecMorphTargets ) );
         for ( size_t i = 0; i < data.MorphTargets.size(); ++i )

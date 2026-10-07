@@ -1,5 +1,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanGpuBatch.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -15,6 +16,9 @@
 #include <Common/Utilities/String.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <unordered_map>
 #include <limits>
 #include <optional>
 #include <thread>
@@ -70,14 +74,33 @@ namespace Desert::Graphic::API::Vulkan
             AlwaysLinear
         };
 
-        static void CreateSampler( VkDevice device, VkSampler& outSampler, SamplerFilterPolicy policy )
+        static VkSamplerAddressMode AddressModeOf( Core::Formats::SamplerWrap wrap )
+        {
+            switch ( wrap )
+            {
+                case Core::Formats::SamplerWrap::Repeat:
+                    return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                case Core::Formats::SamplerWrap::Clamp:
+                    return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                case Core::Formats::SamplerWrap::Mirror:
+                    return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+            }
+            return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        }
+
+        // @p slot is the material slot's state (Core::Formats::SamplerState); the default state is exactly
+        // the REPEAT/global-filter sampler every image carries, so an image's own sampler and a slot's
+        // default one are the same VkSamplerCreateInfo.
+        static void CreateSampler( VkDevice device, VkSampler& outSampler, SamplerFilterPolicy policy,
+                                   const Core::Formats::SamplerState& slot = {} )
         {
             // The machine's global filter (Common::Settings::MachineSettings, pushed into RenderConfig by
             // SceneRenderer): Nearest | Bilinear (linear, nearest mip) | Trilinear | Anisotropic.
             using FM               = Common::Settings::TextureFilter;
             const bool forceLinear = policy == SamplerFilterPolicy::AlwaysLinear;
             const int  mode        = Graphic::RenderConfig::TextureFilter.load();
-            const bool nearest     = !forceLinear && mode == static_cast<int>( FM::Nearest );
+            const bool nearest     = !forceLinear && ( mode == static_cast<int>( FM::Nearest ) ||
+                                                   slot.Filter == Core::Formats::SamplerFilter::Nearest );
             const bool linearMip   = forceLinear || mode == static_cast<int>( FM::Trilinear ) ||
                                    mode == static_cast<int>( FM::Anisotropic );
 
@@ -89,29 +112,35 @@ namespace Desert::Graphic::API::Vulkan
             // level above 1 means the device runs it. Never for a volume: anisotropic filtering of a 3D noise
             // field buys nothing and is not guaranteed for VK_IMAGE_TYPE_3D.
             const int   anisoLevel = Graphic::RenderConfig::AnisotropyLevel.load();
-            const bool  useAniso   = !forceLinear && mode == static_cast<int>( FM::Anisotropic ) && anisoLevel > 1;
-            const float maxAniso   = useAniso ? static_cast<float>( anisoLevel ) : 1.0f;
+            const bool  useAniso =
+                 !forceLinear && !nearest && mode == static_cast<int>( FM::Anisotropic ) && anisoLevel > 1;
+            const float maxAniso = useAniso ? static_cast<float>( anisoLevel ) : 1.0f;
 
-            VkSamplerCreateInfo info = {
-                 .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                 .magFilter        = filter,
-                 .minFilter        = filter,
-                 .mipmapMode       = mipMode,
-                 .addressModeU     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                 .addressModeV     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                 .addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                 .mipLodBias       = 0.0f,
-                 .anisotropyEnable = useAniso ? VK_TRUE : VK_FALSE,
-                 .maxAnisotropy    = maxAniso,
-                 .minLod           = 0.0f,
-                 .maxLod           = 100.0f,
-                 .borderColor      = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE };
+            const VkSamplerCreateInfo info = { .sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                               .pNext                   = nullptr,
+                                               .flags                   = 0,
+                                               .magFilter               = filter,
+                                               .minFilter               = filter,
+                                               .mipmapMode              = mipMode,
+                                               .addressModeU            = AddressModeOf( slot.WrapU ),
+                                               .addressModeV            = AddressModeOf( slot.WrapV ),
+                                               .addressModeW            = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                               .mipLodBias              = 0.0f,
+                                               .anisotropyEnable        = useAniso ? VK_TRUE : VK_FALSE,
+                                               .maxAnisotropy           = maxAniso,
+                                               .compareEnable           = VK_FALSE,
+                                               .compareOp               = VK_COMPARE_OP_NEVER,
+                                               .minLod                  = 0.0f,
+                                               .maxLod                  = 100.0f,
+                                               .borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+                                               .unnormalizedCoordinates = VK_FALSE };
 
             // Guard the promise, not the branch: everything above is derived from several variables, and
             // a later edit that reintroduces the global filter into this path would otherwise be found
             // only by looking at a voxelised sky.
             if ( forceLinear )
             {
+                DESERT_VERIFY( slot == Core::Formats::SamplerState{}, "A volume sampler takes no slot state" );
                 DESERT_VERIFY( info.magFilter == VK_FILTER_LINEAR && info.minFilter == VK_FILTER_LINEAR &&
                                     info.addressModeU == VK_SAMPLER_ADDRESS_MODE_REPEAT &&
                                     info.addressModeV == VK_SAMPLER_ADDRESS_MODE_REPEAT &&
@@ -176,6 +205,17 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     // --- VulkanImage2D ---
+
+    namespace
+    {
+        // Monotonic over the process, so a generation never names two (view, sampler) pairs. Main thread
+        // creates images, but an atomic costs nothing here and keeps the rule independent of that.
+        uint64_t NextResourceGeneration()
+        {
+            static std::atomic<uint64_t> s_Next{ 0 };
+            return ++s_Next;
+        }
+    } // namespace
 
     VulkanImage2D::VulkanImage2D( const Core::Formats::Image2DSpecification& spec ) : m_Specification( spec ) {}
     VulkanImage2D::~VulkanImage2D()
@@ -252,15 +292,87 @@ namespace Desert::Graphic::API::Vulkan
 
         // The tracked layout (SHADER_READ_ONLY after the first upload) is the transition source.
         TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
-        VkBufferImageCopy copy = {
-             .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
-             .imageExtent      = { m_Specification.Width, m_Specification.Height, 1 } };
+        const VkBufferImageCopy copy = { .bufferOffset      = 0,
+                                         .bufferRowLength   = 0,
+                                         .bufferImageHeight = 0,
+                                         .imageSubresource  = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                .mipLevel       = 0,
+                                                                .baseArrayLayer = 0,
+                                                                .layerCount     = 1 },
+                                         .imageOffset       = { 0, 0, 0 },
+                                         .imageExtent = { m_Specification.Width, m_Specification.Height, 1 } };
         vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
         TransitionLayout( cmd, finalLayout );
 
         CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
         allocator->RT_DestroyBuffer( staging, stagingAlloc );
 
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanImage2D::RecordSetData( GpuBatch&                            batch,
+                                                        const Core::Formats::ImagePixelData& data )
+    {
+        if ( !m_IsLoaded || m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeError<bool>( "Image2D::RecordSetData on an uninitialised image" );
+        if ( !Core::Formats::HasData( data ) )
+            return Common::MakeError<bool>( "Image2D::RecordSetData with empty pixel data" );
+        auto* const cmd = RecordingBuffer( batch );
+        if ( cmd == VK_NULL_HANDLE )
+            return Common::MakeError<bool>( "Image2D::RecordSetData into a batch that was already submitted" );
+
+        auto* allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                               ->GetVulkanAllocator()
+                               .get();
+        const uint64_t size = Core::Formats::CalculateImageSize( m_Specification.Width, m_Specification.Height,
+                                                                 m_Specification.Format );
+
+        VkBuffer                 staging = VK_NULL_HANDLE;
+        const VkBufferCreateInfo bInfo   = { .sType                 = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                             .pNext                 = nullptr,
+                                             .flags                 = 0,
+                                             .size                  = size,
+                                             .usage                 = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                             .sharingMode           = VK_SHARING_MODE_EXCLUSIVE,
+                                             .queueFamilyIndexCount = 0,
+                                             .pQueueFamilyIndices   = nullptr };
+        const auto               stagingResult =
+             allocator->RT_AllocateBuffer( "RecordSetDataStaging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
+        if ( !stagingResult.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "Image2D::RecordSetData: {} byte staging buffer failed: {}",
+                                                     size, stagingResult.GetError() );
+        auto* const stagingAlloc = stagingResult.GetValue();
+        {
+            MappedMemory staged = allocator->MapMemory( stagingAlloc );
+            const auto   wrote  = staged.Write( Utils::GetPixelDataPtr( data ), static_cast<size_t>( size ) );
+            if ( !wrote.IsSuccess() )
+            {
+                allocator->RT_DestroyBuffer( staging, stagingAlloc );
+                return Common::MakeFormattedError<bool>( "Image2D::RecordSetData: {}", wrote.GetError() );
+            }
+        }
+        // The staging copy belongs to the batch from here: it is released when the batch is (after the GPU).
+        // (A null owner whose deleter is the release: shared_ptr calls it on the null pointer it owns.)
+        batch.Retain( std::shared_ptr<const void>( nullptr, [allocator, staging, stagingAlloc]( const void* )
+                                                   { allocator->RT_DestroyBuffer( staging, stagingAlloc ); } ) );
+
+        // Write-after-read on the previous frame's readers (any shader stage, earlier on the queue), then the
+        // copy, then visible to every shader that reads it after this batch.
+        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT );
+        const VkBufferImageCopy copy = { .bufferOffset      = 0,
+                                         .bufferRowLength   = 0,
+                                         .bufferImageHeight = 0,
+                                         .imageSubresource  = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                .mipLevel       = 0,
+                                                                .baseArrayLayer = 0,
+                                                                .layerCount     = 1 },
+                                         .imageOffset       = { 0, 0, 0 },
+                                         .imageExtent = { m_Specification.Width, m_Specification.Height, 1 } };
+        vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
+        TransitionLayout( cmd, Utils::GetDefaultLayout( m_Specification.Format, m_Specification.Properties ),
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT );
         return BOOLSUCCESS;
     }
 
@@ -541,7 +653,8 @@ namespace Desert::Graphic::API::Vulkan
 
         CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
 
-        m_IsLoaded = true;
+        m_IsLoaded           = true;
+        m_ResourceGeneration = NextResourceGeneration();
         return Common::MakeSuccess( true );
     }
 
@@ -1457,6 +1570,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanImage2D::RecreateSampler()
     {
         RecreateSamplerImpl( m_Resource, Utils::SamplerFilterPolicy::Global );
+        m_ResourceGeneration = NextResourceGeneration();
     }
     void VulkanImageCube::RecreateSampler()
     {
@@ -1470,4 +1584,57 @@ namespace Desert::Graphic::API::Vulkan
             RecreateSamplerImpl( m_Resource, Utils::SamplerFilterPolicy::AlwaysLinear );
     }
 
+    // --- Slot sampler cache (MAT1s): one sampling state, one VkSampler ---
+    //
+    // A material slot that states a non-default SamplerState (clamp, mirror, nearest) does not use the
+    // image's own sampler; it takes one from here. The key carries the global texture-filter setting too,
+    // so a filter change mints new samplers instead of recreating ones a descriptor may still point at; the
+    // superseded ones live until ReleaseSlotSamplers at device teardown (a handful at most: 3*3*2 states
+    // times the settings a session visits).
+    namespace
+    {
+        struct SlotSamplerCache
+        {
+            std::mutex                              Mutex;
+            std::unordered_map<uint64_t, VkSampler> Samplers;
+        };
+
+        SlotSamplerCache& SlotSamplers()
+        {
+            static SlotSamplerCache cache;
+            return cache;
+        }
+    } // namespace
+
+    VkSampler AcquireSlotSampler( const Core::Formats::SamplerState& state )
+    {
+        // The resolved anisotropy level already folds in the device's limit (Scalability::Resolve narrows it to
+        // CapabilityCatalog::AnisotropyLevels), so the global filter state is TextureFilter + AnisotropyLevel.
+        const uint64_t key = static_cast<uint64_t>( state.Key() ) |
+                             ( static_cast<uint64_t>( Graphic::RenderConfig::TextureFilter.load() & 0xFF ) << 16 ) |
+                             ( static_cast<uint64_t>( Graphic::RenderConfig::AnisotropyLevel.load() & 0xFF ) << 24 );
+        auto&                             cache = SlotSamplers();
+        const std::lock_guard<std::mutex> lock( cache.Mutex );
+        if ( const auto it = cache.Samplers.find( key ); it != cache.Samplers.end() )
+            return it->second;
+        VkSampler sampler = VK_NULL_HANDLE;
+        Utils::CreateSampler(
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice(),
+             sampler, Utils::SamplerFilterPolicy::Global, state );
+        cache.Samplers.emplace( key, sampler );
+        return sampler;
+    }
+
+    void ReleaseSlotSamplers()
+    {
+        auto&                             cache = SlotSamplers();
+        const std::lock_guard<std::mutex> lock( cache.Mutex );
+        if ( cache.Samplers.empty() )
+            return;
+        VkDevice device =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        for ( const auto& [key, sampler] : cache.Samplers )
+            vkDestroySampler( device, sampler, nullptr );
+        cache.Samplers.clear();
+    }
 } // namespace Desert::Graphic::API::Vulkan

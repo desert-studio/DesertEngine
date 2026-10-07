@@ -1,0 +1,51 @@
+// Surface cell vertex path: instanced static mesh, one transform per instance in InstanceTransforms (binding 17),
+// bent by the foliage wind the push block carries — the vertex stage of Programs/PBR/StaticMeshPBR_Instanced.shader,
+// StaticMeshGBuffer_Instanced.shader and Programs/Shadow/Shadow_Instanced.shader (which share one push block).
+layout( location = 0 ) in vec3 a_Position;
+layout( location = 1 ) in vec3 a_Normal;
+layout( location = 2 ) in vec3 a_Tangent;
+layout( location = 3 ) in vec3 a_Bitangent;
+layout( location = 4 ) in vec2 a_TextureCoord;
+// Binding 1, the optional streams (MeshVertexLayout.hpp): a mesh without them binds the shared
+// white / (0,0) buffer at the same stride.
+// Declared only where the stages talk: an opaque depth cell reads the position alone, binds exactly where
+// Programs/Shadow/Shadow*.shader bind, and leaves the pipeline's locations 7/8 unconsumed (legal Vulkan).
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+layout( location = 7 ) in vec4 a_Color;
+layout( location = 8 ) in vec2 a_TexCoord1;
+#endif
+
+#include <Common/CameraUB.glslh>
+
+layout( std430, binding = 17 ) readonly buffer InstanceTransforms
+{
+    mat4 transforms[];
+};
+
+#include <Common/MaterialTransport.glslh>
+#include <Common/FoliageWind.glslh>
+
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+DESERT_SURFACE_VARYINGS( out )
+#endif
+
+void main()
+{
+    const mat4 model = transforms[gl_InstanceIndex];
+    const vec3 worldPosition =
+         InstancedWorldPosition( model, a_Position, m_PushConstants.WindA, m_PushConstants.WindB );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    const mat3 normalMatrix  = transpose( inverse( mat3( model ) ) );
+    const vec3 T             = normalize( normalMatrix * a_Tangent );
+    const vec3 B             = normalize( normalMatrix * a_Bitangent );
+    const vec3 N             = normalize( normalMatrix * a_Normal );
+    v_Surface.WorldPosition  = worldPosition;
+    v_Surface.Normal         = N;
+    v_Surface.UV0            = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
+    v_Surface.UV1            = vec2( a_TexCoord1.x, 1.0 - a_TexCoord1.y );
+    v_Surface.VertexColor    = a_Color;
+    v_Surface.TBN            = mat3( T, B, N );
+    v_Surface.CameraPosition = cameraUB.CameraPos;
+#endif
+    gl_Position = cameraUB.Projection * cameraUB.View * vec4( worldPosition, 1.0 );
+}

@@ -120,7 +120,7 @@ namespace
         // Relative to the repository root. Every place this engine writes a .deprefab lives under an
         // assets root — Common::Constants::Path::PREFAB_PATH is `<assets>/Prefabs/`, and the editor's
         // save dialog is rooted in the same tree.
-        static constexpr const char* kAssetRoots[] = { "Editor/Resources/Assets" };
+        static constexpr const char* kAssetRoots[] = { "Projects/Desert/Content" };
 
         std::vector<std::filesystem::path> prefabs;
         const std::filesystem::path        root = RepoRoot();
@@ -146,7 +146,7 @@ namespace
     {
         const std::filesystem::path root = RepoRoot();
         std::error_code             ec;
-        return std::filesystem::is_directory( root / "Editor/Resources/Assets", ec );
+        return std::filesystem::is_directory( root / "Projects/Desert/Content", ec );
     }
 
     std::string ReadAll( const std::filesystem::path& path )

@@ -17,4 +17,10 @@ namespace Desert::Editor
     // The popup id lives in the caller's ID scope, so two fields on one row need the PushID the row already
     // has for its own widgets. `handle == 0` (an empty slot) draws nothing: there is nothing to open.
     void DrawAssetFieldOpen( uint64_t handle );
+
+    // UE's buttons beside an asset slot (SPropertyEditorAsset: "Browse to asset", and the asset editor one
+    // double-click away made visible): Open in its editor, and Show in the Content Browser. SameLine after the
+    // slot, the SAME two AssetFieldRequests the gesture above queues - one route, two ways to reach it.
+    // `handle == 0` draws the buttons disabled: an empty slot has nothing to open.
+    void DrawAssetFieldButtons( uint64_t handle );
 } // namespace Desert::Editor

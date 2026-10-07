@@ -394,6 +394,11 @@ namespace
                "\"DefaultSurfaceFallback\"", Verdict::Shipped,
                "the engine stand-in pipeline every mesh draws with until its own material's pipeline "
                "finishes compiling; the product needs it every frame a material hasn't loaded yet" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp", "\"_TwoSided\"",
+               Verdict::Shipped,
+               "MeshRenderer::CullPermutation — the CullMode None twin of a mesh pipeline, built the first time a "
+               "material or instance with TwoSided draws on it (foliage, glass panes); authored content reaches "
+               "it" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
                "\"SkinnedMesh_Load\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
@@ -406,8 +411,18 @@ namespace
                "\"StaticMeshRSM\"", Verdict::Shipped, "reflective shadow map — the GI bounce's caster" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDeferred.cpp",
                "\"StaticMeshGBufferInstanced\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
-               "\"StaticMeshGlass\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp", "cellShader",
+               Verdict::Shipped,
+               "a translucent material's forward cell (Surface template x Pass_Forward_Translucent), cached per "
+               "cell; every glass/translucent material an author saves draws through it" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp",
+               "std::format( \"{} {}\", spec.DebugName, key.CellShader )", Verdict::Shipped,
+               "MeshRenderer's per-cell pipeline cache: a pass's shared specification with the material's cell "
+               "shader (vertex path x pass) swapped in; every opaque material draws through it" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp",
+               "std::format( \"ShadowPipelineMasked {}\", name )", Verdict::Shipped,
+               "the masked shadow caster of a material with an opacity mask (foliage): the shared caster "
+               "specification with the material's caster cell swapped in" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
                "\"SkinnedMeshGeometry\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
@@ -519,6 +534,10 @@ namespace
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Render2D/UIMaterialCache.cpp", "\"UIMat_\" + shaderName",
                Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp", "\"UIRetainerPipeline\"",
+               Verdict::Shipped, "a Retainer Box layer composited into its parent (the startup movies use it)" },
+             { "Desert/Desert/Source/Engine/Media/MediaTexture.cpp", "\"MediaYuvToRgb\"", Verdict::Shipped,
+               "the startup movies' decoded frames, YUV to RGB" },
              { "Runtime/Source/RuntimeLayer.cpp", "\"SwapchainBlitPipeline\"", Verdict::Shipped,
                "the present blit — the one pipeline without which nothing reaches the screen" },
         };

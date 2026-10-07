@@ -4,8 +4,10 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <chrono>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -157,6 +159,19 @@ namespace Desert::Core
                         WalkIncludes( *substituted, full, variant, visited, out, depth + 1 );
                         continue;
                     }
+                    // THE GENERATED SHADING-MODEL DISPATCH IS VIRTUAL (UE /Engine/Generated/): the loaded set's
+                    // text, served by the includer and never written to disk. Its own includes (the contract, the
+                    // models' code) are walked from that text, so editing them is a change like any header's.
+                    if ( requested == ShadingModels::kGeneratedInclude )
+                    {
+                        out.push_back( full );
+                        const auto  held   = ShadingModels::ShaderRootShadingModels();
+                        const auto& models = *held;
+                        if ( models.IsSuccess() )
+                            WalkIncludes( models.GetValue().GeneratedGlsl, full, variant, visited, out,
+                                          depth + 1 );
+                        continue;
+                    }
                 }
 
                 const auto file = ReadShaderFileCached( full );
@@ -179,6 +194,23 @@ namespace Desert::Core
         return includes;
     }
 
+    std::string ShaderFileText( const std::filesystem::path& shaderFile )
+    {
+        const auto file = ReadShaderFileCached( shaderFile );
+        return file->Readable ? file->Text : std::string{};
+    }
+
+    std::vector<std::filesystem::path> ShaderSourceFiles( const std::filesystem::path& shaderFile )
+    {
+        std::vector<std::filesystem::path> files{ shaderFile };
+        const auto                         file = ReadShaderFileCached( shaderFile );
+        if ( !file->Readable )
+            return files;
+        for ( auto& include : CollectShaderIncludes( file->Text, shaderFile ) )
+            files.push_back( std::move( include ) );
+        return files;
+    }
+
     bool SpirvDebugInfoThisBuild()
     {
         // The one home of the policy. ShaderCompiler generates debug info exactly when this is true,
@@ -198,6 +230,28 @@ namespace Desert::Core
         // SpirvDebugInfoThisBuild() in both configs.
         return configName == "Debug";
     }
+
+    namespace
+    {
+        // THE SHADING-MODEL LAYOUT (ShadingModelRegistry::IndexLayoutKey): a program that includes the generated
+        // dispatch was compiled against one Guid->index layout, and a set that gains a model may move the others'
+        // indices — so the layout is a key input of exactly the programs that include it. The generated text is
+        // mixed too: the include is virtual, so the file loop below has no bytes of it to hash.
+        void MixShadingModelLayout( uint64_t& key, const std::filesystem::path& include )
+        {
+            if ( !include.generic_string().ends_with( ShadingModels::kGeneratedInclude ) )
+                return;
+            const auto  held   = ShadingModels::ShaderRootShadingModels();
+            const auto& models = *held;
+            // A set that failed to load fails the compile itself (the includer serves its error); the key
+            // only has to differ from every loaded layout's.
+            FnvMix( key, "|shadingmodels:" );
+            FnvMix( key, models.IsSuccess() ? std::string_view( models.GetValue().IndexLayoutKey )
+                                            : std::string_view( models.GetError() ) );
+            if ( models.IsSuccess() )
+                FnvMix( key, models.GetValue().GeneratedGlsl );
+        }
+    } // namespace
 
     uint64_t ComputeShaderCacheKey( Formats::ShaderStage stage, const std::string& source,
                                     const std::filesystem::path& requestingFile, const ShaderVariant& variant )
@@ -241,6 +295,7 @@ namespace Desert::Core
         for ( const auto& include : CollectShaderIncludes( source, requestingFile, variant ) )
         {
             FnvMix( key, include.generic_string() );
+            MixShadingModelLayout( key, include );
             // A read that fails mixes nothing — byte-identical to the empty string the old untyped
             // read produced here, so existing cache keys stay valid.
             if ( const auto file = ReadShaderFileCached( include ); file->Readable )
@@ -254,12 +309,18 @@ namespace Desert::Core
                                   const std::string& passName, const bool spirvDebugInfo,
                                   const ShaderVariant& variant )
     {
+        (void)ShadingModels::ShaderRootShadingModels(); // writes the generated include before the walk reads it
         uint64_t key = kFnvOffset;
         FnvMix( key, "shadermap|" );
         FnvMix( key, kOptionsFingerprint );
         FnvMix( key, spirvDebugInfo ? "|debuginfo" : "|nodebuginfo" );
         FnvMix( key, "|pass:" );
-        FnvMix( key, passName );
+        // ONE KEY PER CELL: a surface template's default cell and its default program are one program
+        // (IsSurfaceDefaultCell), so asking by either name finds the same map.
+        FnvMix( key, Preprocess::IsSurfaceDefaultCell(
+                          Preprocess::DShaderParser::MayDeclareSurface( programSource ), passName )
+                          ? std::string_view()
+                          : std::string_view( passName ) );
         FnvMix( key, "|" );
         const uint64_t variantHash = variant.Hash();
         FnvMix( key, std::string_view( reinterpret_cast<const char*>( &variantHash ), sizeof variantHash ) );
@@ -270,9 +331,14 @@ namespace Desert::Core
         std::string scanned = programSource;
         for ( const std::string_view injected : Preprocess::kParserInjectedIncludes )
             scanned.append( "\n#include <" ).append( injected ).append( ">\n" );
+        // A surface template's cells compile engine headers its text never names (DShaderParser.hpp).
+        if ( Preprocess::DShaderParser::MayDeclareSurface( programSource ) )
+            for ( const std::string& header : Preprocess::SurfaceTemplateIncludes() )
+                scanned.append( std::format( "\n#include <{}>\n", header ) );
         for ( const auto& include : CollectShaderIncludes( scanned, programPath, variant ) )
         {
             FnvMix( key, include.generic_string() );
+            MixShadingModelLayout( key, include );
             const auto     file = ReadShaderFileCached( include );
             const uint64_t hash = file->Readable ? file->ContentHash : 0;
             FnvMix( key, std::string_view( reinterpret_cast<const char*>( &hash ), sizeof hash ) );

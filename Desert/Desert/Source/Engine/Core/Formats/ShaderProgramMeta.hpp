@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Core/Formats/DefaultTexture.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
 
 #include <glm/glm.hpp>
@@ -110,7 +111,7 @@ namespace Desert::Core::Formats
         // texture (the MaterialExecutor gives it a property holding its default), and it is the reason the
         // DSL can say so without lying: the Material Editor's Details never list it
         // (MaterialEdit::PlanParameterGroups) and a .demat never carries a value for it
-        // (MaterialFactory::ApplyShaderAsset), because a value an artist wrote would be overwritten by
+        // (Runtime::ApplySurfaceAsset, MaterialService.cpp), because a value an artist wrote would be overwritten by
         // the next draw.
         bool EngineSet = false;
 
@@ -126,6 +127,11 @@ namespace Desert::Core::Formats
         // Meaningless (and left at White) for a non-texture param; see DefaultTexture.hpp for why the
         // implicit value reproduces the old picture rather than choosing a new one.
         DefaultTextureKind DefaultTexture = DefaultTextureKind::White;
+
+        // The template's sampling state for this Texture2D slot — the DSL `Sampler(Clamp, Clamp, Nearest)`
+        // attribute. A material slot may override it (MaterialAssetRef::Sampler); ResolveSlotSampler picks.
+        // Meaningless for a non-texture param and left at the Repeat/Linear default there.
+        SamplerState Sampler;
 
         bool IsAssetRef() const
         {
@@ -277,6 +283,27 @@ namespace Desert::Core::Formats
         return domain == kUIPathDomain;
     }
 
+    // What a template's `Properties Binding(n) TextureBinding(n)` asked for. Carried on the metadata (and
+    // so through the shader-map cache) because the material layout is DERIVED from Params + these two
+    // numbers (Core/Formats/MaterialLayout.hpp BuildMaterialLayout), on a cache hit as on a parse.
+    struct MaterialLayoutBindings
+    {
+        std::optional<uint32_t> Row;          // Binding(n): the Materials[] storage buffer
+        std::optional<uint32_t> FirstTexture; // TextureBinding(n): the first generated sampler
+
+        bool operator==( const MaterialLayoutBindings& ) const = default;
+    };
+
+    // A surface template's blend mode, as UE's EBlendMode: a property of the TEMPLATE, carried on its program's
+    // metadata so the mesh renderer routes an object by the material it draws with — a Translucent template's
+    // objects go to the translucency pass and nowhere else — and never by the value of one of its parameters.
+    enum class SurfaceBlendMode : uint8_t
+    {
+        Opaque,
+        Masked,      // the pass headers discard below u_Material.OpacityMaskClipValue
+        Translucent, // drawn over the composited scene by the translucency pass; Forward cells only
+    };
+
     struct ShaderProgramMeta
     {
         std::vector<ShaderParam> Params;
@@ -301,6 +328,11 @@ namespace Desert::Core::Formats
         // Empty for every ordinary program, which is what makes IsMediumProgram() a fact about the file
         // rather than a convention.
         std::string MediumSource;
+
+        MaterialLayoutBindings LayoutBindings;
+
+        // The `BlendMode` of a `Domain Surface` template (Opaque for every other program).
+        SurfaceBlendMode Blend = SurfaceBlendMode::Opaque;
 
         // A program fragment and nothing else: no stages of its own, so it compiles to no modules and is
         // never used to build a pipeline. ShaderService registers it by name without complaining that it

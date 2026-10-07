@@ -31,6 +31,9 @@ namespace Desert::Editor
         // The outliner's "Add > Shapes" entry for one primitive: an entity drawing it, one undo step. The
         // palette's "Add shape" entries call the same function, so the two cannot disagree.
         static Common::UUID SpawnPrimitive( Desert::Core::Scene& scene, Geometry::PrimitiveType type );
+        // The outliner's "Add > Animation > Character (Procedural)": the code-generated humanoid on a skinned
+        // mesh with an Animation component, one undo step. The palette's "Spawn Procedural Humanoid" calls it too.
+        static Common::UUID SpawnProceduralHumanoid( Desert::Core::Scene& scene );
 
     private:
         // What the outliner calls this entity — one lookup, so the Type column's text, the row icon's

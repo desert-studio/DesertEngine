@@ -318,7 +318,7 @@ def strip_text_kind_header(old, new, ext, path):
 
 def strip_retarget_rig_guid(root, old, new, ext):
     """.retarget RTGT 2 -> 3 (T7f): the bare rig path becomes {Guid, Path}, the Guid the one the named
-    Editor/Resources/Assets rig's header states and the header's one Dependency. Normalised back to the v2 shape
+    Projects/Desert/Content rig's header states and the header's one Dependency. Normalised back to the v2 shape
     only when all of that holds. True when stripped."""
     if ext != ".retarget" or not isinstance(old, dict) or not isinstance(new, dict):
         return False
@@ -326,7 +326,7 @@ def strip_retarget_rig_guid(root, old, new, ext):
     if old_header.get("Versions") != {"RTGT": 2} or header.get("Versions") != {"RTGT": 3} or \
             not isinstance(old.get("SourceSkeleton"), str) or not isinstance(rig, dict) or \
             rig.get("Path") != old["SourceSkeleton"] or header.get("Dependencies") != [rig.get("Guid")] or \
-            locator_header_guid(f"{root}/Editor/Resources/Assets/{rig['Path']}") != rig.get("Guid"):
+            locator_header_guid(f"{root}/Projects/Desert/Content/{rig['Path']}") != rig.get("Guid"):
         return False
     new["SourceSkeleton"] = rig["Path"]
     header["Versions"] = {"RTGT": 2}
@@ -351,7 +351,7 @@ def dcnv_envelope_guid(file):
 
 def strip_cloud_type_noise_guid(root, old, new, ext):
     """.decloudtype CLTY 4 -> 5 (T7h): the bare NoiseVolume path becomes {Guid, Path}, the Guid the one the
-    named Editor/Resources/Assets `.dcnv` envelope states and the header's one Dependency; a type naming no
+    named Projects/Desert/Content `.dcnv` envelope states and the header's one Dependency; a type naming no
     volume only moves its version. Normalised back to the v4 shape only when all of that holds. True when
     stripped."""
     if ext != ".decloudtype" or not isinstance(old, dict) or not isinstance(new, dict):
@@ -366,7 +366,7 @@ def strip_cloud_type_noise_guid(root, old, new, ext):
         volume = new.get("NoiseVolume")
         if not isinstance(old["NoiseVolume"], str) or not isinstance(volume, dict) or \
                 volume.get("Path") != old["NoiseVolume"] or header.get("Dependencies") != [volume.get("Guid")] or \
-                dcnv_envelope_guid(f"{root}/Editor/Resources/Assets/{volume['Path']}") != volume.get("Guid"):
+                dcnv_envelope_guid(f"{root}/Projects/Desert/Content/{volume['Path']}") != volume.get("Guid"):
             return False
         new["NoiseVolume"] = volume["Path"]
     header["Versions"] = {"CLTY": 4}
@@ -464,7 +464,7 @@ def compare_binary_envelopes(root, base, at_base):
 def locator_file(root, locator):
     """The tracked file an `assets:` / `engine:` locator names."""
     scheme, _, rel = locator.partition(":")
-    base = {"assets": "Editor/Resources/Assets", "engine": "Editor/Resources"}.get(scheme)
+    base = {"assets": "Projects/Desert/Content", "engine": "Editor/Resources"}.get(scheme)
     return None if base is None or not rel else f"{root}/{base}/{rel}"
 
 

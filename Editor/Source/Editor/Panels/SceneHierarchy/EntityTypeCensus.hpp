@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 
@@ -105,5 +106,29 @@ namespace Desert::Editor
                 widest = w;
         }
         return widest + padding;
+    }
+
+    // UE's Outliner (SSceneOutliner's header row): the Label column FILLS and keeps a minimum width, the service
+    // columns are fixed. The minimum is stated in font heights so it scales with the UI font: about ten
+    // characters of an entity's name, beside its tree indent and icon.
+    inline constexpr float kOutlinerNameMinEm = 10.0f;
+
+    struct OutlinerColumnWidths
+    {
+        float Name = 0.0f; // what the fill column receives
+        float Type = 0.0f; // 0: the Type column is dropped for this frame (no room beside Name's minimum)
+    };
+
+    // The per-frame split of @p available (the table's inner width less the gutters and cell chrome) between
+    // Name and Type. Type gives way first: it shrinks from @p typeWidth down to nothing so that Name keeps
+    // @p nameMin; only a panel narrower than @p nameMin itself leaves Name below it (all of the room is Name's).
+    // Without this the fixed Type column kept its full width and Name, the column the outliner exists for,
+    // was squeezed to one character in a docked panel ("F Actor").
+    [[nodiscard]] constexpr OutlinerColumnWidths OutlinerColumns( float available, float typeWidth, float nameMin )
+    {
+        const float room  = available > 0.0f ? available : 0.0f;
+        const float spare = room - nameMin;
+        const float type  = spare <= 0.0f ? 0.0f : std::min( spare, typeWidth );
+        return { room - type, type };
     }
 } // namespace Desert::Editor

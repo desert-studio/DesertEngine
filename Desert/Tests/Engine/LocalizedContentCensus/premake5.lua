@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- THE GATE (Ю15 decision 4). It reads the shipped CONTENT off the disk — every `.desce`, `.deprefab`
-    -- and `.destrings` under Editor/Resources/Assets — rather than embedding anything, for the same reason
+    -- and `.destrings` under Projects/Desert/Content — rather than embedding anything, for the same reason
     -- the cloud-type suite opens the shipped presets: an embedded copy passes while the files are broken.
     --
     -- The string-table format comes along because the census has to READ the tables to answer "does this

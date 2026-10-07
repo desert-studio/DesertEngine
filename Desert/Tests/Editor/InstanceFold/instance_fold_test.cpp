@@ -15,6 +15,7 @@
 #include <fstream>
 #include <set>
 #include <string>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert::Editor::Commands;
 namespace Geometry = Desert::Geometry;
@@ -221,9 +222,7 @@ TEST( InstanceFold, TheStaticMeshPassDoesNotReturnBeforeItReachesTheInstancedQue
 {
     namespace fs = std::filesystem;
 
-    fs::path root = fs::current_path();
-    for ( int i = 0; i < 8 && !( fs::exists( root / "Desert" / "Common" ) && fs::exists( root / "Editor" ) ); ++i )
-        root = root.parent_path();
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) ) << "tree not found -- this census saw nothing";
 
     const fs::path renderer = root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /
@@ -241,7 +240,7 @@ TEST( InstanceFold, TheStaticMeshPassDoesNotReturnBeforeItReachesTheInstancedQue
             if ( line.compare( glyph, 2, "//" ) == 0 || line.compare( glyph, 1, "*" ) == 0 )
                 continue; // prose, including the paragraph above and the one beside the guard itself
         }
-        if ( line.find( "void MeshRenderer::DrawStaticMeshes()" ) != std::string::npos )
+        if ( line.find( "MeshRenderer::DrawStaticMeshes(" ) != std::string::npos )
         {
             inside = true;
             continue;
@@ -249,7 +248,7 @@ TEST( InstanceFold, TheStaticMeshPassDoesNotReturnBeforeItReachesTheInstancedQue
         if ( !inside )
             continue;
         guard += line;
-        if ( line.find( "return;" ) != std::string::npos )
+        if ( line.find( "return" ) != std::string::npos )
             break; // the FIRST early-out is the one that can skip the instanced batches
     }
 

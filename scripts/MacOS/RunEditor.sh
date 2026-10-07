@@ -27,12 +27,10 @@ fi
 # Make sure the Vulkan loader finds the MoltenVK ICD and validation layers from
 # Homebrew even when the environment doesn't provide them.
 BREW_PREFIX="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null || echo /opt/homebrew)}"
-export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-$BREW_PREFIX/etc/vulkan/icd.d/MoltenVK_icd.json}"
 export VK_LAYER_PATH="${VK_LAYER_PATH:-$BREW_PREFIX/share/vulkan/explicit_layer.d}"
 
 # GLFW loads the Vulkan loader with dlopen("libvulkan.1.dylib"), and dyld does
 # not search the Homebrew prefix by default.
-export DYLD_FALLBACK_LIBRARY_PATH="$BREW_PREFIX/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
 
 # Where this engine lives, so the Editor can record itself in ~/.desertengine/engines.json — the
 # file the launcher reads to find an engine at all. Exported BEFORE the `cd`, because after it the
@@ -43,9 +41,9 @@ export DESERT_ROOT="$PWD"
 cd Editor
 
 # The editor REQUIRES a project (--project <.deproj>); picking projects is the Project Hub's job.
-# With no extra args, fall back to the built-in sandbox project (the historical Resources/Assets tree).
+# With no extra args, open the sample project (Projects/Desert); there is no content without a project.
 if [ $# -eq 0 ]; then
-    set -- --project Desert.deproj
+    set -- --project ../Projects/Desert/Desert.deproj
 fi
 
 exec "../$EDITOR" "$@"

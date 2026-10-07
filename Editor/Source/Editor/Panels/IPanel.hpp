@@ -9,7 +9,7 @@
 
 #include <glm/ext/vector_float2.hpp>
 
-#include <Common/Core/Events/Event.hpp>
+#include <Common/Core/Events/EventTree.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/EditableProperty.hpp>
@@ -34,9 +34,6 @@ namespace Desert::Editor
         {
         }
 
-        virtual void OnEvent( Common::Event& /*e*/ )
-        {
-        }
         virtual void OnPreUpdate()               {}
         virtual ~IPanel()                        = default;
         virtual void       OnUIRender()          = 0;
@@ -110,10 +107,28 @@ namespace Desert::Editor
             return { 0.0f, 0.0f };
         }
 
+        void JoinEvents( Common::EventNodeLink link )
+        {
+            m_EventNode = std::move( link );
+        }
+        [[nodiscard]] Common::EventNodeId EventNode() const
+        {
+            return m_EventNode.Id();
+        }
+        [[nodiscard]] bool HoldsKeyboardFocus() const;
+        [[nodiscard]] bool IsUnderPointer() const;
+        void               TrackWindowInteraction();
+
     protected:
         const std::string m_PanelName;
         bool              m_SowPanel;
         bool              m_Pinned = false; // opened by hand: never auto-closed (see IsContextual)
+
+    private:
+        Common::EventNodeLink m_EventNode;
+        int                   m_InteractionFrame = -1;
+        bool                  m_KeyboardFocus    = false;
+        bool                  m_UnderPointer     = false;
     };
 
     // The window title a document must carry: "<display name>###doc<subject>".

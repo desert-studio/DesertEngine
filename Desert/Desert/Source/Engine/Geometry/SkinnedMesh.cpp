@@ -9,7 +9,8 @@ namespace Desert
 {
 
     SkinnedMesh::SkinnedMesh( const std::vector<SkinnedVertex>& vertices, const std::vector<Index>& indices,
-                              const std::vector<Submesh>& submeshes, const Animation::Skeleton* skeleton )
+                              const std::vector<Submesh>& submeshes, const Animation::Skeleton* skeleton,
+                              const std::vector<MeshVertexStreams>& streams )
          : m_Skeleton( skeleton )
     {
         m_Submeshes = submeshes;
@@ -44,6 +45,7 @@ namespace Desert
 
         m_VertexBuffer =
              Graphic::VertexBuffer::Create( (void*)vertices.data(), vertices.size() * sizeof( SkinnedVertex ) );
+        CreateStreamBuffer( streams );
 
         m_IndexBuffer = Graphic::IndexBuffer::Create( indices.data(), indices.size() * sizeof( Index ) );
     }
@@ -60,7 +62,7 @@ namespace Desert
             return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
                                                                 indices.GetError() );
 
-        return Common::MakeSuccessWithCodes<bool, MeshError>( true );
+        return InvalidateStreamBuffer();
     }
 
 } // namespace Desert

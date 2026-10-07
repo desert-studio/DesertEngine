@@ -101,6 +101,12 @@ else
     BASE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
 fi
 
+# The checkout is blob:none (ci.yml): every blob git-clang-format reads is otherwise fetched lazily,
+# ONE network round trip per file. On an int/* batch that cost 15 minutes against the job's 10, the
+# job was cancelled and Windows (`needs: format`) skipped -- six runs of int/animfix on 2026-10-05.
+# A whole-tree diff prefetches every blob it needs in one batch, so the formatter then reads locally.
+git diff --numstat "$BASE" HEAD -- '*.cpp' '*.hpp' >/dev/null 2>&1 || true
+
 # The exit STATUS is captured separately from the output, because the two answer different questions:
 # git-clang-format exits non-zero both for "reformatted something" and for "I broke", and only the
 # output can tell those apart. Anything that is neither a clean report nor a diff is an environment

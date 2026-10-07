@@ -5,13 +5,13 @@
 // to verify a change has the command palette and the control channel but no cursor. So each widget of
 // Editor/Source/Editor/Panels/Modeling/ModelingPanel.cpp is a row of the register below, saying how it is
 // reached instead:
-//   - Palette: an entry in EditorLayer::BuildPaletteCommands; every token must appear in EditorLayer.cpp;
+//   - Palette: an entry in AppendModelingCommands; every token must appear in ModelingCommands.cpp;
 //   - Set:     a row of Core::kModelingStateRows, the control channel's `modeling` subject (a dragged value);
 //   - Exempt:  not an action, with the reason.
 //
-// The panel and EditorLayer are compiled by no suite, so both are READ AS TEXT; the subject's table is a header
+// The panel and the provider are compiled by no suite, so both are READ AS TEXT; the subject's table is a header
 // and is compiled in. A widget added to the panel without a row, a row whose widget is gone, and a palette entry
-// removed from EditorLayer.cpp are each red here.
+// removed from ModelingCommands.cpp are each red here.
 
 #include <Editor/Core/Selection/ModelingStateProperties.hpp>
 
@@ -21,6 +21,7 @@
 #include <regex>
 #include <set>
 #include <sstream>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -42,7 +43,7 @@ namespace
         const char*              Kind;  // the ImGui call
         const char*              Label; // its first argument, whitespace collapsed
         Reach                    How;
-        std::vector<std::string> Tokens; // Palette: substrings of EditorLayer.cpp; Set: subject row names;
+        std::vector<std::string> Tokens; // Palette: substrings of ModelingCommands.cpp; Set: subject row names;
                                          // Exempt: the reason
     };
 
@@ -261,8 +262,22 @@ namespace
         return widgets;
     }
 
+    // A palette label is spelled either as a literal glued to its value ("Grid Power " + …) or as the format
+    // string of std::format( "Grid Power {}", … ); a quoted token names the label's text up to the value, so the
+    // label counts as built when the literal is there or when a std::format string starts with that text and a
+    // '{'.
+    bool LayerBuildsLabel( const std::string& layer, const std::string& token )
+    {
+        if ( layer.find( token ) != std::string::npos )
+            return true;
+        if ( token.size() < 2 || token.front() != '"' || token.back() != '"' )
+            return false;
+        return layer.find( std::format( "std::format( {}{{", token.substr( 0, token.size() - 1 ) ) ) !=
+               std::string::npos;
+    }
+
     constexpr const char* kPanel             = "Editor/Source/Editor/Panels/Modeling/ModelingPanel.cpp";
-    constexpr const char* kLayer             = "Editor/Source/EditorLayer.cpp";
+    constexpr const char* kLayer             = "Editor/Source/Editor/Panels/Modeling/ModelingCommands.cpp";
     const std::string     kSelectableInCombo = "Selectable|Geometry::ToString( mode )";
     const std::string     kSelectablePivot   = "Selectable|Geometry::ToString( pivot )";
     const std::string     kSelectableStairs  = "Selectable|Geometry::ToString( type )";
@@ -299,7 +314,7 @@ TEST( ModelingPaletteCensus, EveryPanelWidgetHasARow )
         EXPECT_TRUE( registered.count( widget ) )
              << "ModelingPanel draws '" << widget
              << "' and nothing reaches it without a mouse. Add a palette entry in "
-                "EditorLayer::BuildPaletteCommands "
+                "AppendModelingCommands "
                 "(or a row of Core::kModelingStateRows for a dragged value) and a row here.";
     }
 }
@@ -321,9 +336,9 @@ TEST( ModelingPaletteCensus, EveryPaletteRowIsInTheRegistry )
         if ( row.How != Reach::Palette )
             continue;
         for ( const std::string& token : row.Tokens )
-            EXPECT_NE( layer.find( token ), std::string::npos )
+            EXPECT_TRUE( LayerBuildsLabel( layer, token ) )
                  << row.Kind << "( " << row.Label << " ) is reached through the palette entry built from '"
-                 << token << "', and EditorLayer.cpp no longer contains it";
+                 << token << "', and ModelingCommands.cpp no longer contains it";
     }
 }
 
