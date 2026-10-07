@@ -25,7 +25,7 @@ PushConstant PushConstants
 {
     mat4 Transform;     // offset 0
     uint MaterialIndex; // offset 64 — the row in Materials[]
-    uint BoneOffset;    // offset 68 — skinned vertex only: first bone of THIS draw in BoneMatrices[] (Material::SetSkinnedBoneOffset)
+    uint BoneOffset;    // offset 68 — skinned LIGHT-view cell only (masked shadow): first bone of THIS draw in BoneMatrices[]; a view pass reads its row
     uint PrimitiveIndex; // offset 72 — view passes only: the draw's row in ObjectMotions[] (Common/ObjectMotion.glslh,
                          // Material::SetPrimitiveIndex). Every submesh draw of one object reads the same row; in a
                          // view pass Transform is then the submesh's transform RELATIVE TO that row's World.

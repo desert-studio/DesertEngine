@@ -93,6 +93,10 @@ namespace Desert::Graphic
         // primitive, per frame x view). Bound by NAME onto every material whose template reads ObjectMotion —
         // the same buffer for all of them, so a draw's PrimitiveIndex means the same row in every pass.
         std::shared_ptr<ShaderResources::StorageBuffer> ObjectMotions;
+        // The view's palettes this frame: current and previous palette of every skinned primitive, end to end,
+        // named by its row's BoneOffset / PrevBoneOffset. Bound onto every material whose template reads
+        // ObjectBones (the view-pass skinned cell).
+        std::shared_ptr<ShaderResources::StorageBuffer> ObjectBones;
 
         // Writes the whole snapshot onto @p material. One call, so a new piece of frame state can never
         // be applied at four of the five sites and forgotten at the fifth.

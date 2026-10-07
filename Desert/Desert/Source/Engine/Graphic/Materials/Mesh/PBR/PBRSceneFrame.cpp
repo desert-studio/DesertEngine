@@ -61,6 +61,13 @@ namespace Desert::Graphic
                            "a view-pass material reads ObjectMotions but the frame carries none" );
             rows->SetBuffer( ObjectMotions );
         }
+        if ( Reads( groups, SceneRead::ObjectBones ) )
+        {
+            auto* palettes = material->Get<StorageBufferProperty>( kObjectBonesName );
+            DESERT_VERIFY( palettes != nullptr && ObjectBones != nullptr,
+                           "a skinned view-pass material reads ObjectBones but the frame carries none" );
+            palettes->SetBuffer( ObjectBones );
+        }
     }
 
     void PBRSceneFrame::ApplyTo( MaterialInstance* instance ) const

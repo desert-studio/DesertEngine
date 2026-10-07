@@ -74,6 +74,10 @@ namespace Desert::Core::Formats
         // The view's per-primitive motion rows (Common/ObjectMotion.glslh `ObjectMotions`): every view-pass
         // static / skinned surface vertex stage reads its world from them.
         ObjectMotion = 1u << 6,
+        // The view's per-(frame x view) palette buffer (Common/ObjectMotion.glslh `ObjectBones`): both frames'
+        // palettes of every skinned primitive the view draws, named by the row's BoneOffset / PrevBoneOffset.
+        // Read by the view-pass skinned surface vertex stage.
+        ObjectBones = 1u << 7,
     };
     constexpr SceneRead operator|( SceneRead a, SceneRead b )
     {

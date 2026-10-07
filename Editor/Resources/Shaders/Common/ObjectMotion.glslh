@@ -1,8 +1,8 @@
 // Per-draw object motion (TAA1 step 4): the current and the previous world transform of one draw, and the
 // velocity a geometry pass writes from them.
 //
-// C++ twin: Graphic::GpuObjectMotion (Engine/Graphic/View/SceneViewState.hpp), std430, 128 bytes, PrevWorld at
-// byte 64 — Desert/Tests/Engine/VelocityTarget pins the two against each other. PrevWorld is what the view's
+// C++ twin: Graphic::GpuObjectMotion (Engine/Graphic/View/SceneViewState.hpp), std430, 144 bytes, PrevWorld at
+// byte 64, BoneOffset at 128, PrevBoneOffset at 132 — Desert/Tests/Engine/VelocityTarget pins the two. PrevWorld is what the view's
 // MotionHistory answered for the draw: World itself when the object was not drawn in the view's previous frame,
 // so a newly visible object carries camera motion only.
 //
@@ -18,22 +18,36 @@ struct GpuObjectMotion
 {
     mat4 World;          // offset 0
     mat4 PrevWorld;      // offset 64
-    uint PrevBoneOffset; // offset 128 — skinned: first bone of the PREVIOUS palette in BoneMatrices[]; 0 otherwise
+    uint BoneOffset;     // offset 128 — skinned: first bone of the CURRENT palette in objectBones; 0 otherwise
+    uint PrevBoneOffset; // offset 132 — skinned: first bone of the PREVIOUS palette in objectBones; 0 otherwise
     uint Pad0;
     uint Pad1;
-    uint Pad2;
 };
 
 // ONE ROW PER DRAWN PRIMITIVE (object), per (frame x view) — UE GPUScene primitive data. Built once per frame per
 // view from the view's MotionHistory (MeshRenderer::BuildObjectMotions); the submesh draws of one object index the
 // same row through the push block's PrimitiveIndex. Declared only by the stages of a VIEW pass: a light view
 // (shadow depth) has no previous frame of its own and keeps the world in its push block.
+//
+// ObjectBones: ONE per-(frame x view) palette buffer holding BOTH frames' palettes of every skinned primitive the
+// view draws; the row names both slices, so every pass that draws the primitive (G-buffer, forward, silhouette...)
+// skins it from the same bytes — no per-material-group copy, no push field.
+//
+// Bindings 16 / 17 are the reserved SCENE-READ range (Core::kSceneReadBindingFirst / Count,
+// ShaderGraphBindings.hpp): the material layout builder refuses a row or texture binding inside it by name.
 #ifdef DESERT_OBJECT_MOTION_ROWS
 layout( std430, binding = 16 ) readonly buffer ObjectMotions
 {
     GpuObjectMotion Motions[];
 }
 objectMotions;
+#endif
+#ifdef DESERT_OBJECT_BONES
+layout( std430, binding = 17 ) readonly buffer ObjectBones
+{
+    mat4 Palettes[];
+}
+objectBones;
 #endif
 
 vec2 DesertVelocity( vec4 clip, vec4 prevClip )

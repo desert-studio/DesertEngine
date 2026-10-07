@@ -88,13 +88,15 @@ TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
          ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
     ASSERT_FALSE( source.empty() );
     const auto members = GlslStructMembers( source, "GpuObjectMotion" );
-    ASSERT_EQ( members.size(), 6u );
+    ASSERT_EQ( members.size(), 6u ); // World, PrevWorld, BoneOffset, PrevBoneOffset, Pad0, Pad1
     EXPECT_EQ( members[0].second, "World" );
     EXPECT_EQ( members[1].second, "PrevWorld" );
-    EXPECT_EQ( members[2].second, "PrevBoneOffset" );
+    EXPECT_EQ( members[2].second, "BoneOffset" );
+    EXPECT_EQ( members[3].second, "PrevBoneOffset" );
 
     std::size_t offset     = 0;
     std::size_t prevAt     = 0;
+    std::size_t boneAt     = 0;
     std::size_t prevBoneAt = 0;
     for ( const auto& [type, name] : members )
     {
@@ -102,12 +104,15 @@ TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
         ASSERT_NE( size, 0u ) << "unknown GLSL type " << type << " of " << name;
         if ( name == "PrevWorld" )
             prevAt = offset;
+        if ( name == "BoneOffset" )
+            boneAt = offset;
         if ( name == "PrevBoneOffset" )
             prevBoneAt = offset;
         offset += size;
     }
     EXPECT_EQ( offset, sizeof( GpuObjectMotion ) );
     EXPECT_EQ( prevAt, offsetof( GpuObjectMotion, PrevWorld ) );
+    EXPECT_EQ( boneAt, offsetof( GpuObjectMotion, BoneOffset ) );
     EXPECT_EQ( prevBoneAt, offsetof( GpuObjectMotion, PrevBoneOffset ) );
 }
 
@@ -135,7 +140,16 @@ TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
         EXPECT_NE( src.find( "v_Surface.Clip=cameraUB.ViewProjection*" ), std::string::npos ) << vertex;
         EXPECT_NE( src.find( "v_Surface.PrevClip=cameraUB.PrevViewProjection*" ), std::string::npos ) << vertex;
     }
-    EXPECT_NE( noWs( ReadFile( root / "Vertex_Skinned.glslh" ) ).find( "row.PrevBoneOffset" ), std::string::npos );
+    // Skinned view pass: BOTH palettes from the view's one ObjectBones buffer at the row's two offsets (lead
+    // decision: the row names them, so every pass drawing the primitive skins it from the same bytes).
+    // Mutation: skin the view pass from the push BoneOffset / the material's Bones buffer -> red.
+    {
+        const std::string skinned = noWs( ReadFile( root / "Vertex_Skinned.glslh" ) );
+        EXPECT_NE( skinned.find( "constintb=int(row.BoneOffset);" ), std::string::npos );
+        EXPECT_NE( skinned.find( "constintpb=int(row.PrevBoneOffset);" ), std::string::npos );
+        EXPECT_NE( skinned.find( "#defineDESERT_SKIN_MATRIX(base,i)objectBones.Palettes[(base)+(i)]" ),
+                   std::string::npos );
+    }
 
     const std::string gbuffer = noWs( ReadFile( root / "Pass_GBuffer.glslh" ) );
     const auto        gate    = gbuffer.find( "#ifndefDESERT_GBUFFER_RSM" );
