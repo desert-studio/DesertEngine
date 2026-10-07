@@ -1,4 +1,5 @@
 #include "EditorCubemapPreviewPass.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -23,7 +24,7 @@ namespace Desert::Editor::Render
         Graphic::GraphicsPipelineSpecification spec;
         spec.DebugName   = "EditorCubemapPreviewPipeline";
         spec.Shader      = shader;
-        spec.Framebuffer = scene->GetTargetFramebuffer();
+        spec.TargetLayout = Desert::Graphic::SceneTargetLayout();
         // A real object, not an overlay: the ball writes its own ray-traced depth so the scene's
         // backdrop stays behind it whichever order the graph runs the sky, and tests against what the
         // geometry pass left so a mesh in the same scene would still occlude it correctly.

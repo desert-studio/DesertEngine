@@ -1,4 +1,5 @@
 #include "ParticleRenderer.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include "ParticleGpuLayout.hpp"
 
@@ -59,7 +60,7 @@ namespace Desert::Graphic::System
 
         GraphicsPipelineSpecification base;
         base.Shader      = billShader;
-        base.Framebuffer = target;
+        base.TargetLayout = SceneTargetLayout();
         // Additive FX read as "always visible": depth-testing billboards against the scene made them vanish
         // when the camera looked DOWN at particles sitting near a surface (the surface occluded them), while
         // they showed when looking up (nothing behind). Draw them without a depth test (never write depth

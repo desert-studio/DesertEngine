@@ -9,8 +9,11 @@
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
+
+#include <memory>
 
 namespace Desert::Graphic
 {
@@ -88,6 +91,15 @@ namespace Desert::Graphic
         // TimeUB — the shader graph's Time node. The scene's clock, so a paused world's materials hold
         // still and two headless captures of one scene see the same material at the same frame.
         float TimeSeconds = 0.0f;
+
+        // The view's motion rows this frame (MeshRenderer::BuildObjectMotions: one GpuObjectMotion per drawn
+        // primitive, per frame x view). Bound by NAME onto every material whose template reads ObjectMotion —
+        // the same buffer for all of them, so a draw's PrimitiveIndex means the same row in every pass.
+        std::shared_ptr<ShaderResources::StorageBuffer> ObjectMotions;
+        // The view's palettes this frame: current and previous palette of every skinned primitive, end to end,
+        // named by its row's BoneOffset / PrevBoneOffset. Bound onto every material whose template reads
+        // ObjectBones (the view-pass skinned cell).
+        std::shared_ptr<ShaderResources::StorageBuffer> ObjectBones;
 
         // Writes the whole snapshot onto @p material. One call, so a new piece of frame state can never
         // be applied at four of the five sites and forgotten at the fifth.

@@ -16,6 +16,8 @@
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Core/ViewBudget.hpp>
@@ -91,6 +93,7 @@ namespace Desert::Graphic
 
         struct RenderSubmissionExtra
         {
+            uint32_t               Entity = 0;   // owner of the draw: its MotionHistory key (velocity)
             std::vector<glm::mat4> BoneMatrices; // optional
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
@@ -215,15 +218,15 @@ namespace Desert::Graphic
         // castShadows: rasterize this draw into the shadow cascades. Off by default — see the note on
         // GenericMeshRenderData::CastShadows; only a producer that knows the draw is a solid mesh, and
         // that no OTHER draw of the same entity is already casting, may turn it on.
-        void SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform, const std::string& shaderName,
-                                const MaterialOverrides& overrides, bool outlined = false,
-                                Image2D* directTexture = nullptr, const std::string& directTextureSampler = {},
-                                bool castShadows = false );
+        void SubmitGenericMesh( uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
+                                const std::string& shaderName, const MaterialOverrides& overrides,
+                                bool outlined = false, Image2D* directTexture = nullptr,
+                                const std::string& directTextureSampler = {}, bool castShadows = false );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial).
-        void SubmitSlotMaterialMesh( const Mesh* mesh, const glm::mat4& transform, Material* material,
-                                     uint64_t visibleSubmeshMask, bool outlined = false,
+        void SubmitSlotMaterialMesh( uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
+                                     Material* material, uint64_t visibleSubmeshMask, bool outlined = false,
                                      bool castShadows = false );
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
@@ -575,6 +578,8 @@ namespace Desert::Graphic
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
+        // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
+        void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );
 
         // The scene sample count the device can run for `requested` (the method's effective count).
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.

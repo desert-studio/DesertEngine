@@ -1,6 +1,7 @@
 // MeshRenderer's overlays: the selection-silhouette mask and the developer instruments (debug lines,
 // overdraw) that only DESERT_DEV_INSTRUMENTS builds carry.
 #include "MeshRendererInternal.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 namespace Desert::Graphic::System
@@ -113,7 +114,7 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "DebugLinePipeline";
         spec.Shader            = m_DebugLineShader;
-        spec.Framebuffer       = targetFb;
+        spec.TargetLayout      = SceneTargetLayout();
         spec.Topology          = PrimitiveTopology::Lines;
         spec.LineWidth         = 1.0f; // dynamic line width is set to 1.0 in SubmitLines (no wideLines feature)
         spec.DepthTestEnabled  = true;
@@ -181,10 +182,9 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification rspec;
         rspec.DebugName            = "OverdrawResolvePipeline";
         rspec.Shader               = m_OverdrawResolveShader;
-        rspec.Framebuffer          = targetFb;
+        rspec.TargetLayout         = SceneTargetLayout();
         rspec.DepthTestEnabled     = false;
         rspec.DepthWriteEnabled    = false;
-        rspec.UseLoadRenderPass    = true;
         const auto overdrawResolve = GraphicsPipeline::Create( rspec );
         if ( !overdrawResolve )
         {

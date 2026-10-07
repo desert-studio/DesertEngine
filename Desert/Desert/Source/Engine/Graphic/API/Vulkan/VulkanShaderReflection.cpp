@@ -363,6 +363,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
 
         if ( stage == Core::Formats::ShaderStage::Vertex )
             data.VertexInputLocations = ReflectVertexInputLocations( spirv );
+        if ( stage == Core::Formats::ShaderStage::Fragment )
+            data.FragmentOutputLocations = ReflectFragmentOutputLocations( spirv );
 
         return diagnostics;
     }
@@ -386,6 +388,51 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         std::sort( locations.begin(), locations.end() );
         locations.erase( std::unique( locations.begin(), locations.end() ), locations.end() );
         return locations;
+    }
+
+    std::vector<uint32_t> ReflectFragmentOutputLocations( const std::vector<uint32_t>& spirv )
+    {
+        const spirv_cross::Compiler        compiler( spirv );
+        const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+
+        std::vector<uint32_t> locations;
+        for ( const auto& output : resources.stage_outputs )
+        {
+            const uint32_t first = compiler.get_decoration( output.id, spv::DecorationLocation );
+            const auto&    type  = compiler.get_type( output.type_id );
+            uint32_t       count = 1;
+            for ( const uint32_t length : type.array )
+                count *= std::max( length, 1u );
+            for ( uint32_t i = 0; i < count; ++i )
+                locations.push_back( first + i );
+        }
+        std::sort( locations.begin(), locations.end() );
+        locations.erase( std::unique( locations.begin(), locations.end() ), locations.end() );
+        return locations;
+    }
+
+    std::vector<VkPipelineColorBlendAttachmentState>
+    BuildColorBlendAttachments( const std::vector<uint32_t>& writtenLocations, const std::vector<bool>& blendPerSlot,
+                                const VkBlendFactor srcColor, const VkBlendFactor dstColor )
+    {
+        const auto colorAttachmentCount = static_cast<uint32_t>( blendPerSlot.size() );
+        std::vector<VkPipelineColorBlendAttachmentState> attachments( colorAttachmentCount );
+        for ( uint32_t slot = 0; slot < colorAttachmentCount; ++slot )
+        {
+            const bool written = std::binary_search( writtenLocations.begin(), writtenLocations.end(), slot );
+            attachments[slot]  = { .blendEnable         = ( written && blendPerSlot[slot] ) ? VK_TRUE : VK_FALSE,
+                                   .srcColorBlendFactor = srcColor,
+                                   .dstColorBlendFactor = dstColor,
+                                   .colorBlendOp        = VK_BLEND_OP_ADD,
+                                   .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+                                   .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                                   .alphaBlendOp        = VK_BLEND_OP_ADD,
+                                   .colorWriteMask      = written
+                                                               ? ( VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT )
+                                                               : VkColorComponentFlags{ 0 } };
+        }
+        return attachments;
     }
 
     VkFormat VertexAttributeFormat( const ShaderDataType type )

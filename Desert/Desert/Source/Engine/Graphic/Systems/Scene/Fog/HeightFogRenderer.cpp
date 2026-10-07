@@ -1,4 +1,5 @@
 #include "HeightFogRenderer.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Core/Camera.hpp>
@@ -85,7 +86,7 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification spec;
         spec.DebugName   = kApplyShaderName;
         spec.Shader      = applyShader;
-        spec.Framebuffer = target;
+        spec.TargetLayout = SceneTargetLayout();
 
         // A fullscreen triangle has no meaningful depth of its own; occlusion was resolved inside the
         // compute pass, which evaluated every pixel at the distance the depth attachment reported.
@@ -99,10 +100,6 @@ namespace Desert::Graphic::System
         spec.BlendEnable         = true;
         spec.SrcColorBlendFactor = BlendFactor::One;
         spec.DstColorBlendFactor = BlendFactor::SrcAlpha;
-
-        // Replayed by ExecuteTransparency with a LOAD begin, so the pipeline is built against the
-        // framebuffer's LOAD render pass.
-        spec.UseLoadRenderPass = true;
 
         const auto apply = GraphicsPipeline::Create( spec );
         if ( !apply )

@@ -1,4 +1,5 @@
 #include "SkyboxRenderer.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <utility>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
@@ -61,7 +62,7 @@ namespace Desert::Graphic::System
 
         Graphic::GraphicsPipelineSpecification pipeSpec;
         pipeSpec.DebugName   = debugName;
-        pipeSpec.Framebuffer = compositeFramebuffer;
+        pipeSpec.TargetLayout = SceneTargetLayout();
         pipeSpec.Shader      = m_Shader;
 
         pipeSpec.CullMode          = CullMode::None;
@@ -81,7 +82,7 @@ namespace Desert::Graphic::System
         {
             Graphic::GraphicsPipelineSpecification skySpec;
             skySpec.DebugName         = "ProceduralSky";
-            skySpec.Framebuffer       = compositeFramebuffer;
+            skySpec.TargetLayout      = SceneTargetLayout();
             skySpec.Shader            = m_ProceduralShader;
             skySpec.CullMode          = CullMode::None;
             skySpec.DepthTestEnabled  = false;

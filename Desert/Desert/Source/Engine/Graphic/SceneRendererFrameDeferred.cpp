@@ -38,6 +38,7 @@
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 
 namespace Desert::Graphic
 {
@@ -98,12 +99,15 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         const RDG::ImportedFramebuffer& target = *targets;
+        // The first node of the frame on both paths: the scene colour to the engine grey, and every graph colour
+        // (the view's velocity) to its own clear (no motion) - FrameTextures::ColorLoads.
+        const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, EngineClearColor() );
         graph.AddPass(
              "ClearMainFramebuffer", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  for ( uint32_t i = 0; i < target.Colors.size(); ++i )
-                     pass.ColorTarget( i, target.Colors[i], EngineClearColor() );
+                     pass.ColorTarget( i, target.Colors[i], colors[i] );
                  if ( target.Depth.IsValid() )
                  {
                      const glm::vec2 depthStencil = RenderPassSpecification{}.ClearColor.DepthStencil;
@@ -111,8 +115,7 @@ namespace Desert::Graphic
                           target.Depth,
                           RDG::LoadOp::ClearDepth( depthStencil.x, static_cast<uint32_t>( depthStencil.y ) ) );
                  }
-                 for ( uint32_t i = 0; i < target.Resolves.size(); ++i )
-                     pass.ResolveTarget( i, target.Resolves[i] );
+                 DeclareResolves( pass, target.Resolves );
              },
              []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
     }
@@ -184,6 +187,37 @@ namespace Desert::Graphic
              { resolve->DeclareBindings( pass, depth ); },
              [resolve]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return resolve->Record( context ); } );
+    }
+
+    void SceneRenderer::AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures )
+    {
+        const std::vector<GraphColor>* colors = textures.GraphColorsOf( m_TargetFramebuffer.get() );
+        if ( colors == nullptr )
+            return;
+        const auto                         found   = m_RenderSystems.find( "GraphColorResolveSystem" );
+        System::GraphColorResolveRenderer* resolve = nullptr;
+        if ( found != m_RenderSystems.end() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            resolve = UNIQUE_GET_AS( System::GraphColorResolveRenderer, found->second );
+        AddGraphColorResolves(
+             graph, *colors,
+             [resolve]( RDG::PassBuilder& pass, const GraphColor& color )
+             {
+                 if ( resolve != nullptr )
+                     resolve->DeclareBindings( pass, color.Multisample );
+             },
+             [resolve, &graph]( const GraphColor& color )
+             {
+                 const auto                                      desc = graph.GetTextureDesc( color.Color );
+                 const std::optional<Core::Formats::ImageFormat> format =
+                      desc.IsSuccess() ? std::optional( desc.GetValue().Format ) : std::nullopt;
+                 return [resolve, format]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     if ( resolve == nullptr || !format )
+                         return Common::MakeError( "GraphColorResolve: no system or no format for the colour" );
+                     return resolve->Record( context, *format );
+                 };
+             } );
     }
 
     void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
@@ -341,6 +375,7 @@ namespace Desert::Graphic
             return;
         }
         const RDG::ImportedFramebuffer& target = *targets;
+        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
 
         // Every input by name; an input not produced this frame is the system texture neutral for it (UE
         // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not RSM, fewer cascades).
@@ -402,7 +437,7 @@ namespace Desert::Graphic
                                          shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ),
                                          cloudShadow, environment );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
-                 DeferredFrameNodes::LoadTarget( pass, target );
+                 DeferredFrameNodes::LoadTarget( pass, target, loads );
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->Record( context ); } );
@@ -467,6 +502,7 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         const RDG::ImportedFramebuffer& target = *targets;
+        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
         if ( gbuffer.size() < 3 )
         {
             LOG_ERROR( "[SceneRenderer] Deferred: SSR needs the G-buffer albedo and normal, the graph has {}",
@@ -518,7 +554,7 @@ namespace Desert::Graphic
                  // Every G-buffer colour but the normal the block samples stays declared as before.
                  ReadAll( pass, { gbuffer[0], gbuffer[2] }, RDG::Access::SampledGraphics );
                  ReadAll( pass, { gbuffer.begin() + 3, gbuffer.end() }, RDG::Access::SampledGraphics );
-                 DeferredFrameNodes::LoadTarget( pass, target ); // blend over the scene
+                 DeferredFrameNodes::LoadTarget( pass, target, loads ); // blend over the scene
              },
              [ssr, index = frame.FrameIndex]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return ssr->RecordComposite( context, index ); } );

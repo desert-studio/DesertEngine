@@ -484,23 +484,14 @@ namespace Desert::Graphic::API::Vulkan
         const std::vector<bool> blends = ColourAttachmentBlendEnables( ColourAttachmentFormats( m_Specification ),
                                                                        m_Specification.BlendEnable );
 
-        const VkBlendFactor  srcCol = ConvertBlendFactor( m_Specification.SrcColorBlendFactor );
-        const VkBlendFactor  dstCol = ConvertBlendFactor( m_Specification.DstColorBlendFactor );
-
-        m_ColorBlendAttachments.resize( blends.size() );
-        for ( size_t slot = 0; slot < blends.size(); ++slot )
-        {
-            m_ColorBlendAttachments[slot] = { .blendEnable         = blends[slot] ? VK_TRUE : VK_FALSE,
-                                              .srcColorBlendFactor = srcCol,
-                                              .dstColorBlendFactor = dstCol,
-                                              .colorBlendOp        = VK_BLEND_OP_ADD,
-                                              .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                                              .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                                              .alphaBlendOp        = VK_BLEND_OP_ADD,
-                                              .colorWriteMask =
-                                                   VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                                   VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT };
-        }
+        // Per slot: blending from the attachment's FORMAT (above), the write mask from what the fragment stage writes
+        // — a slot the stage does not write is masked (write mask 0), so a target carrying the view's velocity next
+        // to scene colour keeps the velocity the depth-writing passes left there.
+        const auto* vulkanShader =
+             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
+        m_ColorBlendAttachments = ShaderReflection::BuildColorBlendAttachments(
+             vulkanShader->GetFragmentOutputLocations(), blends, ConvertBlendFactor( m_Specification.SrcColorBlendFactor ),
+             ConvertBlendFactor( m_Specification.DstColorBlendFactor ) );
 
         m_ColorBlending = VkPipelineColorBlendStateCreateInfo{
              .sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,

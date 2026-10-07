@@ -4,6 +4,7 @@
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <glm/glm.hpp>
@@ -165,8 +166,18 @@ namespace Desert::Graphic
     {
         glm::mat4 World{ 1.0f };
         glm::mat4 PrevWorld{ 1.0f };
+        // Skinned: where this frame's palette and the PREVIOUS one (MotionHistory::PreviousBones) start in the
+        // view's ObjectBones buffer — ONE per-(frame x view) buffer holding both frames' palettes of every skinned
+        // primitive, so every pass that draws the primitive skins it from the same bytes. 0 for a rigid primitive.
+        uint32_t BoneOffset     = 0;
+        uint32_t PrevBoneOffset = 0;
+        uint32_t Pad0           = 0;
+        uint32_t Pad1           = 0;
     };
-    static_assert( sizeof( GpuObjectMotion ) == 128, "std430 twin in Common/ObjectMotion.glslh" );
+    static_assert( sizeof( GpuObjectMotion ) == 144, "std430 twin in Common/ObjectMotion.glslh" );
+    static_assert( offsetof( GpuObjectMotion, BoneOffset ) == 128, "std430 twin in Common/ObjectMotion.glslh" );
+    static_assert( offsetof( GpuObjectMotion, PrevBoneOffset ) == 132,
+                   "std430 twin in Common/ObjectMotion.glslh" );
 
     // ---- Velocity --------------------------------------------------------------------------------------------
     //
@@ -175,7 +186,7 @@ namespace Desert::Graphic
     // character's motion). Value: current unjittered NDC.xy minus previous unjittered NDC.xy of the surface point
     // (ViewFrame rule: velocity never carries the jitter). Pixels no geometry covered (sky, clouds, far plane)
     // keep the clear value 0 and the TAA pass derives their motion from depth and the two view matrices.
-    inline constexpr Core::Formats::ImageFormat kVelocityFormat = Core::Formats::ImageFormat::RG16F;
+    inline constexpr Core::Formats::ImageFormat kVelocityFormat = ViewTargetFormats::kVelocity;
 
     // RDG-FAULT1 fit. Velocity lost to a fault (every geometry pass that wrote it removed) is read as Black = zero
     // motion: the TAA resolve then treats each pixel as static and its neighbourhood clamp still bounds the error

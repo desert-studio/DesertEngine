@@ -16,6 +16,13 @@ layout( location = 2 ) out uint oGBufferShadingWord; // R32_UINT shading word (S
                                                    // world position: readers reconstruct it from the depth
 #endif
 layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the deferred resolve adds it), AO.a
+// The view's velocity (Graphic::kVelocityFormat, slot 4 of the G-buffer target): this pass writes the view's depth,
+// so it writes the same surface's motion. DESERT_GBUFFER_RSM is the RSM permutation of this pass (a light view with
+// its own attachment set and no previous frame): defined (to 1) only there, it compiles without the output.
+#ifndef DESERT_GBUFFER_RSM
+#include <Common/ObjectMotion.glslh>
+layout( location = 4 ) out vec2 oVelocity;
+#endif
 
 void main()
 {
@@ -32,4 +39,7 @@ void main()
     oGBufferShadingWord = DesertMarkSunShadowReceive( word, s.ReceiveSunShadows );
 #endif
     oGBufferEmissive = vec4( s.Emissive, s.AmbientOcclusion );
+#ifndef DESERT_GBUFFER_RSM
+    oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+#endif
 }

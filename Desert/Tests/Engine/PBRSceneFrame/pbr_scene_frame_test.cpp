@@ -224,13 +224,30 @@ namespace
         const char* Path;
         const char* Cell;                  // the StandardSurface cell (SURF1c: the three were programs)
         const char* PerObjectVertexBuffer; // nullptr = none
+        // The view's motion groups the cell's VIEW-pass vertex stage reads (TAA1 step 4): the per-primitive rows
+        // (static, skinned) and the view's palettes (skinned: both frames' palettes, named by the row). A batch
+        // of instances is world-static and reads neither. Filled by PBRSceneFrame::ApplyTo like every scene group.
+        bool ReadsObjectMotions = false;
+        bool ReadsObjectBones   = false;
     };
 
+    // The skinned cell has no per-object buffer of its own any more: its palettes are the view's ObjectBones.
     const MeshShader kMeshShaders[] = {
-         { "PBR/StandardSurface.shader", "Static.Forward", nullptr },
-         { "PBR/StandardSurface.shader", "Instanced.Forward", "InstanceTransforms" },
-         { "PBR/StandardSurface.shader", "Skinned.Forward", "Bones" },
+         { "PBR/StandardSurface.shader", "Static.Forward", nullptr, true, false },
+         { "PBR/StandardSurface.shader", "Instanced.Forward", "InstanceTransforms", false, false },
+         { "PBR/StandardSurface.shader", "Skinned.Forward", nullptr, true, true },
     };
+
+    // The motion names one cell is handed by the frame snapshot, by the constants ApplyTo looks them up under.
+    std::vector<std::string> MotionNamesOf( const MeshShader& shader )
+    {
+        std::vector<std::string> names;
+        if ( shader.ReadsObjectMotions )
+            names.emplace_back( SceneResources::kObjectMotionsName );
+        if ( shader.ReadsObjectBones )
+            names.emplace_back( SceneResources::kObjectBonesName );
+        return names;
+    }
 } // namespace
 
 // ---- The payload ------------------------------------------------------------------------------------
@@ -299,6 +316,9 @@ TEST_F( PBRSceneFrameShaderRoot, EverySceneBindingTheOneApplierFillsIsDeclaredBy
         const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
+        // Mutation: drop DESERT_OBJECT_MOTION_ROWS / DESERT_OBJECT_BONES from a view-pass vertex path -> red.
+        for ( const auto& name : MotionNamesOf( shader ) )
+            EXPECT_TRUE( declared.count( name ) != 0 ) << shader.Cell << " does not declare '" << name << "'";
         for ( const auto& name : expected )
             EXPECT_TRUE( declared.count( name ) != 0 )
                  << shader.Path << " does not declare '" << name
@@ -342,6 +362,9 @@ TEST_F( PBRSceneFrameShaderRoot, NoMeshPBRShaderDeclaresASceneResourceNoApplierF
             accounted.insert( name );
         if ( shader.PerObjectVertexBuffer )
             accounted.insert( shader.PerObjectVertexBuffer );
+        // Only the motion groups THIS cell is meant to read: the instanced cell declaring rows is red here.
+        for ( const auto& name : MotionNamesOf( shader ) )
+            accounted.insert( name );
 
         for ( const auto& name : declared )
             EXPECT_TRUE( accounted.count( name ) != 0 )
@@ -369,6 +392,9 @@ TEST_F( PBRSceneFrameShaderRoot, TheThreeMeshPBRShadersDeclareOneSceneContractAn
             EXPECT_TRUE( declared.erase( shader.PerObjectVertexBuffer ) != 0 )
                  << shader.Path << " no longer declares its own " << shader.PerObjectVertexBuffer;
         }
+        // The motion groups differ by vertex path by design (asserted per cell above), not by scene contract.
+        for ( const auto& name : MotionNamesOf( shader ) )
+            declared.erase( name );
 
         if ( reference.empty() )
             reference = declared;

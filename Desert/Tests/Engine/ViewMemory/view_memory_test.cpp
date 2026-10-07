@@ -41,17 +41,18 @@ TEST( ViewMemory, PrintsTheCensusForMainAndPreview )
 
 TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 {
-    // 52 scene targets (GBUF1: the shading word R32UI replaced the RGBA32F world position, -12) + 72 post stack
-    // + 17.8 half/quarter chains and fog + 9 clouds + 24 SSR + 24 GI.
-    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 198.83, 0.01 );
+    // 52 scene targets (GBUF1: the shading word R32UI replaced the RGBA32F world position, -12) + 4 velocity
+    // (TAA1, RG16F) + 72 post stack + 17.8 half/quarter chains and fog + 9 clouds + 24 SSR + 24 GI.
+    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 202.83, 0.01 );
     // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (6 MiB: its slot 2 is an unused colour slot with
-    // no image — the DESERT_GBUFFER_RSM permutation writes no shading word — and there is no RGBA32F position).
+    // no image — the DESERT_GBUFFER_RSM permutation writes no shading word — there is no RGBA32F position and no
+    // velocity).
     EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 140509184u );
 }
 
 TEST( ViewMemory, PreviewViewBytesPerPixelIsPinned )
 {
-    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 150.83, 0.01 );
+    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 154.83, 0.01 );
     // One 1024 cascade (R32F + D24S8).
     EXPECT_EQ( SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).FixedBytes, 8388608u );
 }

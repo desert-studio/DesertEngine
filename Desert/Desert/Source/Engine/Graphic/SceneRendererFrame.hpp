@@ -9,6 +9,7 @@
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
+#include <Engine/Graphic/ViewRasterTargets.hpp>
 
 #include <algorithm>
 #include <format>
@@ -17,6 +18,8 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -197,6 +200,28 @@ namespace Desert::Graphic
             return refs;
         }
 
+        // A colour the graph provides on @p framebuffer (ViewRasterTargets.hpp GraphColor), appended after the
+        // framebuffer's own colours by every TargetsOf of it in this graph, in the order added.
+        void AddGraphColor( const std::shared_ptr<Framebuffer>& framebuffer, const GraphColor& color )
+        {
+            if ( framebuffer )
+                m_GraphColors[framebuffer.get()].push_back( color );
+        }
+
+        // The graph colours of @p framebuffer; nullptr when it has none.
+        [[nodiscard]] const std::vector<GraphColor>* GraphColorsOf( const Framebuffer* framebuffer ) const
+        {
+            const auto found = m_GraphColors.find( framebuffer );
+            return found == m_GraphColors.end() ? nullptr : &found->second;
+        }
+
+        // The per-slot LoadOps of one raster node on @p targets (Graphic::ColorLoads): call in the order the nodes
+        // are added (= the frame's order), so a slot's own clear lands on its first writer.
+        std::vector<RDG::LoadOp> ColorLoads( const RasterTargets& targets, const RDG::LoadOp& pass )
+        {
+            return Graphic::ColorLoads( targets, pass, m_StartedColors );
+        }
+
     private:
         void ImportSystemTextures()
         {
@@ -245,12 +270,9 @@ namespace Desert::Graphic
         std::map<const Image*, RDG::TextureRef>            m_Refs;
         std::map<const Image*, RDG::ExternalTexture*>      m_Externals; // Import's registrations, for Extract
         std::vector<std::pair<uint32_t, std::function<void()>>> m_Histories; // MarkHistory: external index, reset
+        std::map<const Framebuffer*, std::vector<GraphColor>>   m_GraphColors; // AddGraphColor
+        std::set<uint32_t> m_StartedColors;                                    // ColorLoads: slots already written
     };
-
-    // Shared by every raster node on an engine framebuffer (SceneRendererFrameMesh.cpp,
-    // SceneRendererFrameDeferred.cpp). The whole of a framebuffer as graph names: every colour attachment by slot,
-    // and the depth.
-    using RasterTargets = RDG::ImportedFramebuffer;
 
     // A target the graph cannot declare whole is refused with its pass, never half-declared: a render pass
     // missing an attachment is not the one the pass's pipelines were built against. That covers a colour
@@ -270,8 +292,19 @@ namespace Desert::Graphic
         targets.Depth = textures.Depth( framebuffer, name );
         if ( multisampled )
             targets.Resolves = textures.Colors( framebuffer, name );
-        const uint32_t colours  = framebuffer->GetColorAttachmentCount();
+        // The graph's own colours on this target (the view's velocity), after the framebuffer's.
+        const std::vector<GraphColor>* graphColors = textures.GraphColorsOf( framebuffer.get() );
+        const uint32_t                 provided    = graphColors ? uint32_t( graphColors->size() ) : 0u;
+        const uint32_t                 colours     = framebuffer->GetColorAttachmentCount() + provided;
         const bool     hasDepth = framebuffer->GetDepthAttachmentCount() != 0;
+        if ( graphColors && targets.Colors.size() + provided == colours &&
+             !AppendGraphColors( targets, *graphColors, multisampled ) )
+        {
+            LOG_ERROR( "[SceneRenderer] '{}' is not recorded: a graph colour of '{}' ({} sample(s)) is invalid or "
+                       "lacks its multisampled attachment",
+                       pass, name, samples );
+            return std::nullopt;
+        }
         if ( targets.Colors.size() != colours || hasDepth != targets.Depth.IsValid() ||
              targets.Resolves.size() != ( multisampled ? colours : 0u ) )
         {

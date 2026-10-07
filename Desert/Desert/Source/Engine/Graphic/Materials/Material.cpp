@@ -48,6 +48,12 @@ namespace Desert::Graphic
         WritePushField( "Transform", &matrix, sizeof( glm::mat4 ) );
     }
 
+    void Material::SetPrimitiveIndex( uint32_t row )
+    {
+        const bool written = WritePushField( "PrimitiveIndex", &row, sizeof( uint32_t ) );
+        DESERT_VERIFY( written, "SetPrimitiveIndex on a cell with no PrimitiveIndex push field" );
+    }
+
     void Material::SetInstancedWind( const InstanceWindPush& wind )
     {
         WritePushField( "WindA", &wind.A, sizeof( glm::vec4 ) );

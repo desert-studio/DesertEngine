@@ -1,4 +1,5 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -342,6 +343,17 @@ namespace Desert::Graphic
              !resolveInit )
             LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
                        resolveInit.GetError() );
+
+        // The sample-0 shader resolve of the scene target's SampleZero graph colours (the view's velocity at
+        // MSAA).
+        RegisterSystem<System::GraphColorResolveRenderer>( "GraphColorResolveSystem", this, m_TargetFramebuffer,
+                                                           m_RenderGraphBuilder );
+        if ( const auto colorResolveInit =
+                  SP_CAST( System::GraphColorResolveRenderer, m_RenderSystems["GraphColorResolveSystem"] )
+                       ->Initialize();
+             !colorResolveInit )
+            LOG_ERROR( "[SceneRenderer] GraphColorResolve unavailable (velocity at MSAA reads zero motion): {}",
+                       colorResolveInit.GetError() );
 
         RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer,
                                               m_RenderGraphBuilder );
@@ -908,7 +920,49 @@ namespace Desert::Graphic
         }
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
+        // The view's velocity: one transient of this graph at the VIEW EXTENT (the one extent source: the scene
+        // target and the G-buffer are built and resized at m_ViewExtent too), a colour slot of the scene target
+        // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
+        // kGBufferVelocitySlot) — never of a light view (RSM, cascades) or a debug target. Created before any node
+        // is added; its first writer (ClearMainFramebuffer, the first node on both paths) clears it to no motion.
+        // A target at another extent than the view's is refused by name: the frame is not drawn.
+        if ( m_TargetFramebuffer )
+        {
+            const FramebufferSpecification& target = m_TargetFramebuffer->GetSpecification();
+            std::string mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height,
+                                                             "scene target", target.Width, target.Height );
+            if ( mismatch.empty() && m_GBuffer )
+                mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height, "G-buffer",
+                                                     m_GBuffer->GetSpecification().Width,
+                                                     m_GBuffer->GetSpecification().Height );
+            if ( !mismatch.empty() )
+            {
+                LOG_ERROR( "[SceneRenderer] view '{}' frame refused: {}", m_ViewResources.GetName(), mismatch );
+                return;
+            }
+            const ViewVelocity velocity = CreateViewVelocity(
+                 graph, RDG::Extent3D{ m_ViewExtent.Width, m_ViewExtent.Height, 1 }, target.Samples );
+            textures.Transients.Velocity = velocity.Resolved;
+            textures.AddGraphColor( m_TargetFramebuffer, VelocityColor( velocity, target.Samples ) );
+            textures.AddGraphColor( m_GBuffer, VelocityColor( velocity, 1 ) );
+        }
         const auto values = std::make_shared<FrameValues>();
+
+        // The view's per-primitive motion rows (current + previous world, both bone palettes) from the view's
+        // MotionHistory, built once before any pass is declared: every view pass of this frame reads the same
+        // rows.
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
+            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions( m_ViewState.Motion() ); !rows )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
+                           "frame: {}",
+                           m_ViewResources.GetName(), rows.GetError() );
+                return;
+            }
+        }
 
         const auto sceneColor = [this, &textures]()
         {
@@ -1009,6 +1063,10 @@ namespace Desert::Graphic
 
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false );
+        // After the last node that draws the scene geometry's velocity into the scene target, before any reader
+        // of the resolved velocity (TAA). The post nodes below never write velocity (their fragment shaders do
+        // not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
+        AddFrameGraphColorResolves( graph, textures );
 
         AddFrameJumpFlood( graph, textures );
         AddFrameAutoExposure( graph, textures, sceneColor() );
@@ -1262,7 +1320,8 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
         auto* drawnMesh = const_cast<Mesh*>( mesh );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitMesh( { .Mesh                     = drawnMesh,
+             ->SubmitMesh( { .Entity                   = extra.Entity,
+                             .Mesh                     = drawnMesh,
                              .Transform                = transform,
                              .MaterialSlots            = materialSlots,
                              .BoneMatrices             = extra.BoneMatrices,
@@ -1284,13 +1343,14 @@ namespace Desert::Graphic
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
     }
 
-    void SceneRenderer::SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform,
+    void SceneRenderer::SubmitGenericMesh( const uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
                                            const std::string& directTextureSampler, bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitGenericMesh( { .Mesh                 = const_cast<Mesh*>( mesh ),
+             ->SubmitGenericMesh( { .Entity               = entity,
+                                    .Mesh                 = const_cast<Mesh*>( mesh ),
                                     .Transform            = transform,
                                     .ShaderName           = shaderName,
                                     .Overrides            = overrides,
@@ -1300,11 +1360,13 @@ namespace Desert::Graphic
                                     .DirectTextureSampler = directTextureSampler } );
     }
 
-    void SceneRenderer::SubmitSlotMaterialMesh( const Mesh* mesh, const glm::mat4& transform, Material* material,
+    void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, const Mesh* mesh,
+                                                const glm::mat4& transform, Material* material,
                                                 uint64_t visibleSubmeshMask, bool outlined, bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitGenericMesh( { .Mesh               = const_cast<Mesh*>( mesh ),
+             ->SubmitGenericMesh( { .Entity             = entity,
+                                    .Mesh               = const_cast<Mesh*>( mesh ),
                                     .Transform          = transform,
                                     .Outlined           = outlined,
                                     .CastShadows        = castShadows,

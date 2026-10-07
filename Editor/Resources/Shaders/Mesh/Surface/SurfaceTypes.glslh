@@ -74,6 +74,14 @@ SurfaceOutput DefaultSurfaceOutput()
 #define DESERT_SURFACE_HAS_VARYINGS 1
 #endif
 
+// A cell of a VIEW pass (G-buffer, forward, translucent — the camera's own frame) reads its object's motion row and
+// hands the fragment stage both unjittered clip positions; a shadow-depth cell draws a light view, which has no
+// previous frame, and keeps its world transform in the push block. So does the RSM permutation of the G-buffer
+// cell (DESERT_GBUFFER_RSM, MeshRendererShadow DeclareRSMDraws pushes the world): a light view as well.
+#if defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PASS_ShadowDepth ) && !defined( DESERT_GBUFFER_RSM )
+#define DESERT_SURFACE_VIEW_PASS 1
+#endif
+
 // The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
 // The PBR shaders' five `Vertex` members first, in the same order, then UV1 and VertexColor — so a cell's fragment
 // inputs sit at the locations the shader it replaces read them from.
@@ -87,6 +95,8 @@ SurfaceOutput DefaultSurfaceOutput()
         vec3 CameraPosition; \
         vec2 UV1; \
         vec4 VertexColor; \
+        vec4 Clip; \
+        vec4 PrevClip; \
     } v_Surface;
 
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor )

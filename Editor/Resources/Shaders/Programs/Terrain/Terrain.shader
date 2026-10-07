@@ -61,6 +61,7 @@ Shader "Terrain"
     Fragment
     {
         Out(0) vec4 o_Color;
+        Out(1) vec2 oVelocity; // the view's velocity, slot 1 of the scene target (TerrainSurface.glslh)
 
         #include <Programs/Terrain/TerrainSurface.glslh>
 
@@ -108,7 +109,8 @@ Shader "Terrain"
 
             vec3 lit = albedo * ( ambient + sun * ndl * cloudShadow );
 
-            o_Color = vec4( lit * u_Material.Tint.rgb, 1.0 );
+            o_Color   = vec4( lit * u_Material.Tint.rgb, 1.0 );
+            oVelocity = TerrainVelocity();
         }
     }
 }
