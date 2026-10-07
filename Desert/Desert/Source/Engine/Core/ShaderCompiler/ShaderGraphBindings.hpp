@@ -28,8 +28,8 @@ namespace Desert::Core
      * binding falls at or above this value. It names no engine binding and counts nothing, so a slot
      * added tomorrow reddens it whatever spelled the number.
      *
-     * 24 IS ONE ABOVE THE HIGHEST BINDING THE TREE DECLARES TODAY, and that is not comfortable headroom —
-     * it is none. The lit shader-graph surface layout reaches 23 (the fourth cascade shadow map in
+     * 24 WAS ONE ABOVE THE HIGHEST BINDING THE TREE DECLARED, and that was not comfortable headroom —
+     * it was none; the window now opens at 27, above the scene-read range below. The lit shader-graph surface layout reaches 23 (the fourth cascade shadow map in
      * Programs/Graph/MatLitConst.shader), so the next binding that layout grows lands here. That is what
      * the census is for: the collision becomes a red test rather than a wrong picture.
      *
@@ -39,5 +39,32 @@ namespace Desert::Core
      * texture today, so there is no stale artifact to fix; whoever raises this value owns finding out
      * whether that is still true.
      */
-    inline constexpr uint32_t kGraphOwnedBindingFirst = 24u;
+    /**
+     * THE RESERVED SCENE-READ RANGE: set-0 slots a VIEW-pass surface cell reads per-(frame x view) scene data at,
+     * bound by name by Graphic::PBRSceneFrame::ApplyTo — the view's per-primitive motion rows (`ObjectMotions`)
+     * and the view's bone palettes (`ObjectBones`), both declared by Common/ObjectMotion.glslh (TAA1 step 4).
+     *
+     * They need fixed numbers because one header declares them into EVERY view-pass cell of EVERY surface
+     * template, beside a template's own hand-numbered textures and the forward pass's lighting slots, which
+     * together already fill 0-24 (measured 2026-10-07: SpotLightsUB 16, InstanceTransforms 17, emissive 24).
+     * So the range sits ABOVE the engine's last slot and BELOW the graph's window, which moved up to make room.
+     *
+     * A hope is not a guarantee, so two seams hold it: DShaderParser refuses a Properties `Binding(n)` /
+     * `TextureBinding(n)` whose row or texture run reaches into this range (a named parse error), and
+     * Tests/Engine/VelocityTarget asserts that over the whole shipped tree nothing but the two scene-read
+     * resources is declared at these numbers, and that ObjectMotion.glslh spells exactly these numbers.
+     */
+    inline constexpr uint32_t kSceneReadBindingFirst  = 25u;
+    inline constexpr uint32_t kObjectMotionsBinding   = kSceneReadBindingFirst;      // Common/ObjectMotion.glslh
+    inline constexpr uint32_t kObjectBonesBinding     = kSceneReadBindingFirst + 1u; // Common/ObjectMotion.glslh
+    inline constexpr uint32_t kSceneReadBindingCount  = 2u;
+
+    [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
+    {
+        return binding >= kSceneReadBindingFirst && binding < kSceneReadBindingFirst + kSceneReadBindingCount;
+    }
+
+    // Raised from 24 (TAA1 step 4) to sit above the scene-read range; see the paragraph on moving it above.
+    inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
+    static_assert( kGraphOwnedBindingFirst == 27u, "the graph's window opens right above the scene-read range" );
 } // namespace Desert::Core

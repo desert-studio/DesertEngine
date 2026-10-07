@@ -3,6 +3,8 @@
 // (CPU twin Graphic::VelocityNdc, GLSL DesertVelocity in Common/ObjectMotion.glslh).
 
 #include <Engine/Core/Projection.hpp>
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/Velocity.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -18,6 +20,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -167,6 +170,96 @@ TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
 
 // Mutation: DesertVelocity / VelocityNdc swap the operands or drop the w-divide -> red (the GLSL check reads the
 // expression; the numeric checks pin the CPU twin).
+namespace VelocityTargetTest
+{
+    // A minimal surface program whose Properties block is @p properties; nothing else in it can fail to parse.
+    std::string ProbeWithProperties( const std::string& properties )
+    {
+        return "Shader \"SceneReadRangeProbe\"\n{\n    Domain Surface\n\n    " + properties +
+               "\n    State { Cull Back ZTest LEqual ZWrite On }\n"
+               "    Vertex\n    {\n        In(0) vec3 a_Position;\n"
+               "        void main() { gl_Position = vec4( a_Position, 1.0 ); }\n    }\n"
+               "    Fragment\n    {\n        Out(0) vec4 o_Color;\n"
+               "        void main() { o_Color = vec4( 1.0 ); }\n    }\n}\n";
+    }
+} // namespace VelocityTargetTest
+
+// Lead decision (TAA1-VEL-d): the scene-read slots are FIXED numbers, so they need a guarantee and not a hope.
+// Seam 1, the material layout: a Properties row or a run of texture properties that reaches into the reserved
+// range is a named parse error. The control parses the same block one run higher, so the refusal is about the
+// range and not about the probe.
+// Mutation: delete the IsSceneReadBinding refusal in DShaderParser::Parse -> red.
+TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange )
+{
+    using Desert::Core::Preprocess::DShaderParser;
+    using Desert::Core::kSceneReadBindingFirst;
+
+    const auto textures = []( uint32_t first )
+    {
+        return "Properties Binding(1) TextureBinding(" + std::to_string( first ) +
+               ")\n    {\n        Color Tint (\"Tint\") = (1, 1, 1, 1)\n"
+               "        Texture2D u_First (\"First\")\n        Texture2D u_Second (\"Second\")\n    }\n";
+    };
+    // Two textures from one below the range: the second lands on its first slot.
+    const auto intoRange = DShaderParser::Parse( ProbeWithProperties( textures( kSceneReadBindingFirst - 1u ) ) );
+    ASSERT_FALSE( intoRange.IsSuccess() );
+    EXPECT_NE( intoRange.GetError().find( "scene-read" ), std::string::npos ) << intoRange.GetError();
+    EXPECT_NE( intoRange.GetError().find( "u_Second" ), std::string::npos ) << intoRange.GetError();
+
+    const auto row = DShaderParser::Parse( ProbeWithProperties(
+         "Properties Binding(" + std::to_string( kSceneReadBindingFirst ) +
+         ")\n    {\n        Color Tint (\"Tint\") = (1, 1, 1, 1)\n    }\n" ) );
+    ASSERT_FALSE( row.IsSuccess() );
+    EXPECT_NE( row.GetError().find( "scene-read" ), std::string::npos ) << row.GetError();
+
+    const auto above = DShaderParser::Parse( ProbeWithProperties(
+         textures( Desert::Core::kSceneReadBindingFirst + Desert::Core::kSceneReadBindingCount ) ) );
+    EXPECT_TRUE( above.IsSuccess() ) << ( above.IsSuccess() ? "" : above.GetError() );
+}
+
+// Seam 2, the hand-numbered declarations (a template's own `layout( binding = n )` textures, a pass header's
+// lighting slots — none of which goes through the Properties block): over the WHOLE shipped shader tree, the
+// reserved numbers carry the two scene-read resources and nothing else, and ObjectMotion.glslh spells exactly the
+// C++ numbers PBRSceneFrame's resources are reserved under. Text, not reflection, because a resource that only
+// collides inside one cell would need that cell compiled to be seen; the after-compile half is
+// ShaderReflection::ReflectStage, which refuses a slot claimed twice by name.
+// Mutation: move SpotLightsUB (or any texture) to 25 / spell ObjectMotions at 16 (where SpotLightsUB lives) -> red.
+TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
+{
+    const auto shaders = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders";
+    const std::regex declaration(
+         R"(binding\s*=\s*(\d+)\s*\)\s*(?:readonly\s+|writeonly\s+)?(?:uniform|buffer)\s+(?:\w+\s+)?(\w+))"
+         R"(|\b(?:Uniform|Buffer|ReadBuffer|WriteBuffer)\s*\(\s*(\d+)\s*\)\s*(?:\w+\s+)?(\w+))" );
+
+    std::map<std::string, uint32_t> sceneRead; // resource -> number, from ObjectMotion.glslh
+    std::size_t                     files = 0;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders ) )
+    {
+        const auto ext = entry.path().extension().string();
+        if ( !entry.is_regular_file() || ( ext != ".shader" && ext != ".glslh" && ext != ".glsl" ) )
+            continue;
+        ++files;
+        const std::string text = ReadFile( entry.path() );
+        for ( std::sregex_iterator it( text.begin(), text.end(), declaration ), end; it != end; ++it )
+        {
+            const auto&       m       = *it;
+            const uint32_t    binding = static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) );
+            const std::string name    = m[2].matched ? m[2].str() : m[4].str();
+            if ( entry.path().filename() == "ObjectMotion.glslh" )
+                sceneRead[name] = binding;
+            else
+                EXPECT_FALSE( Desert::Core::IsSceneReadBinding( binding ) )
+                     << entry.path().string() << " declares '" << name << "' at binding " << binding
+                     << ", inside the reserved scene-read range — it would share a slot with the view's motion "
+                        "rows in every view-pass cell";
+        }
+    }
+    EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
+    ASSERT_EQ( sceneRead.size(), 2u );
+    EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
+    EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
+}
+
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )
 {
     const std::string source =
