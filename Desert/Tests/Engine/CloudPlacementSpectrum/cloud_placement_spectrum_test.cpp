@@ -3361,9 +3361,10 @@ TEST( CloudPlacementSpectrum, TheWeatherRedistributesTheCellsCoverWithoutMovingI
                 for ( int iz = 0; iz < across; ++iz )
                     for ( int ix = 0; ix < across; ++ix )
                     {
-                        const glm::vec2 centre = region + glm::vec2( ( static_cast<float>( ix ) + 0.5f ) * extent.x,
-                                                                     ( static_cast<float>( iz ) + 0.5f ) * extent.y );
-                        const double    local  = CloudProceduralCellCoverage( params, 0u, centre );
+                        const glm::vec2 centre =
+                             region + glm::vec2( ( static_cast<float>( ix ) + 0.5f ) * extent.x,
+                                                 ( static_cast<float>( iz ) + 0.5f ) * extent.y );
+                        const double local = CloudProceduralCellCoverage( params, 0u, centre );
                         sum += local;
                         sq += local * local;
                     }
