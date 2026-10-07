@@ -858,6 +858,98 @@ TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
     std::filesystem::remove_all( root, ec );
 }
 
+// IMP-INST: A MESH THE SOURCE SHARES BETWEEN NODES IS IMPORTED ONCE PER NODE, at that node's own transform (UE: the
+// static mesh import bakes every mesh-bearing node, FbxStaticMeshImport ImportStaticMeshAsSingle; with Combine
+// Meshes off each node is its own asset). The file is written here: one glTF mesh (a 1 m triangle) placed by three
+// nodes - LampA at the origin, LampB 5 m along +X, LampC 3 m along -Z and turned 90 degrees about Y. Before the fix
+// the importer kept the FIRST node only (Bistro's string lights and repeated chairs vanished).
+// Mutation: AssimpImporter.cpp ProcessScene walk -> `if ( !meshPlacements[mi].empty() ) continue;` for every mesh
+// => one node, one mesh written => red in both tests. Mutation: the static bake reading the mesh's first placement
+// for every copy => the three triangles coincide => red in CombinedHoldsEveryNodeAtItsOwnTransform.
+namespace
+{
+    std::string ThreeNodesOneMeshGltf()
+    {
+        std::vector<unsigned char> b;
+        for ( const float f : { -0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f } )
+            Put( b, f );
+        EXPECT_EQ( b.size(), 36u );
+        const std::string uri = std::format( "data:application/octet-stream;base64,{}", Base64( b ) );
+        return std::format(
+             R"({{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0,1,2]}}],
+"nodes":[
+ {{"name":"LampA","mesh":0}},
+ {{"name":"LampB","mesh":0,"translation":[5,0,0]}},
+ {{"name":"LampC","mesh":0,"translation":[0,0,-3],"rotation":[0,0.70710678,0,0.70710678]}}],
+"meshes":[{{"name":"Lamp","primitives":[{{"attributes":{{"POSITION":0}}}}]}}],
+"accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[-0.5,0,0],"max":[0.5,1,0]}}],
+"bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}}],
+"buffers":[{{"byteLength":36,"uri":"{}"}}]}})",
+             uri );
+    }
+
+    class InstancedNodeImport : public SkinnedImport
+    {
+    protected:
+        void SetUp() override
+        {
+            Assets::ContentRegistry::ResetForTest();
+            const std::filesystem::path onDisk = Common::Constants::Path::FullPath( m_Lamps );
+            std::filesystem::create_directories( onDisk.parent_path() );
+            std::ofstream( onDisk, std::ios::binary ) << ThreeNodesOneMeshGltf();
+        }
+
+        std::filesystem::path m_Lamps = "Resources/Assets/Mock/Lamps.gltf";
+    };
+} // namespace
+
+TEST_F( InstancedNodeImport, EveryNodeOfASharedMeshIsItsOwnMesh )
+{
+    const Editor::ImportOutcome outcome = ImportManager().ImportWithSettings( m_Lamps, {} );
+    ASSERT_EQ( outcome.Verdict, Editor::CookVerdict::Cooked );
+    EXPECT_EQ( outcome.WrittenMeshes.size(), 3u ) << "three nodes place the one mesh, so the split writes three";
+    const auto record = Ser::ReadImportRecord( m_Lamps );
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    ASSERT_TRUE( record.GetValue().has_value() );
+    ASSERT_TRUE( record.GetValue()->Nodes.has_value() );
+    EXPECT_EQ( *record.GetValue()->Nodes, ( std::vector<std::string>{ "LampA", "LampB", "LampC" } ) );
+}
+
+TEST_F( InstancedNodeImport, CombinedHoldsEveryNodeAtItsOwnTransform )
+{
+    Assets::SourceImportSettings combine;
+    combine.CombineMeshes             = true;
+    const Editor::ImportOutcome outcome = ImportManager().ImportWithSettings( m_Lamps, combine );
+    ASSERT_EQ( outcome.Verdict, Editor::CookVerdict::Cooked );
+    ASSERT_EQ( outcome.WrittenMeshes.size(), 1u );
+    const auto asset = Assets::LoadMeshSourceAsset( outcome.WrittenMeshes.front() );
+    ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
+    const Geometry::EditMeshSer& mesh = asset.GetValue().Source.Models.front().Mesh;
+    ASSERT_EQ( mesh.Triangles.size(), 9u ) << "one triangle per node";
+
+    // Each triangle's centroid and its first edge (the authored +X edge), in cm.
+    const auto at = [&]( int index )
+    {
+        return glm::vec3( mesh.Positions[3 * index], mesh.Positions[3 * index + 1], mesh.Positions[3 * index + 2] );
+    };
+    std::vector<glm::vec3> centre;
+    std::vector<glm::vec3> edge;
+    for ( std::size_t t = 0; t < 3; ++t )
+    {
+        const glm::vec3 a = at( mesh.Triangles[3 * t] );
+        const glm::vec3 b = at( mesh.Triangles[3 * t + 1] );
+        const glm::vec3 c = at( mesh.Triangles[3 * t + 2] );
+        centre.push_back( ( a + b + c ) / 3.0f );
+        edge.push_back( b - a );
+    }
+    // Distances and angles only: they hold whatever axis convention the import applies to the whole file.
+    EXPECT_NEAR( glm::distance( centre[0], centre[1] ), 500.0f, 0.05f ) << "LampB sits 5 m from LampA";
+    EXPECT_NEAR( glm::distance( centre[0], centre[2] ), 300.0f, 0.05f ) << "LampC sits 3 m from LampA";
+    EXPECT_NEAR( glm::length( edge[0] ), 100.0f, 0.05f );
+    EXPECT_NEAR( glm::dot( edge[0], edge[1] ), 100.0f * 100.0f, 0.5f ) << "LampB is not turned";
+    EXPECT_NEAR( glm::dot( edge[0], edge[2] ), 0.0f, 0.5f ) << "LampC is turned a quarter about Y";
+}
+
 int main( int argc, char** argv )
 {
     // The host step (as the editor takes it in Sandbox.hpp): every engine path read after it answers off

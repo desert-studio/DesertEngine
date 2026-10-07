@@ -517,15 +517,28 @@ namespace Desert::Editor
 
         bool hasBones = false;
 
-        // Map each mesh index -> its node's WORLD transform. FBX keeps the real orientation/placement (and the
-        // exporter's axis conversion, e.g. Blender's Z-up -> our Y-up) in the NODE hierarchy, NOT the raw
-        // vertices. We bake that world transform into STATIC vertices below so the prop faces the right way
-        // (without it a Blender FBX imports rotated ~90° about X — "looking at the floor"). Skinned meshes are
-        // NOT baked: their bind/bone hierarchy (BuildSkeletonHierarchy) already carries the same transforms.
-        std::vector<glm::mat4>   meshWorld( scene->mNumMeshes, glm::mat4( 1.0f ) );
-        std::vector<std::string> meshNode( scene->mNumMeshes );
+        // EVERY NODE THAT REFERENCES A MESH IS ITS OWN INSTANCE (UE: the FBX static mesh import bakes each
+        // mesh-bearing node into the combined mesh, FbxStaticMeshImport ImportStaticMeshAsSingle over every node;
+        // with Combine Meshes off each node is its own UStaticMesh, FbxFactory RecursiveImportNode). A source
+        // shares one aiMesh between nodes that place the same geometry (Bistro's string lights, its repeated
+        // chairs): mesh index -> every (node, WORLD transform) that places it, in node-walk order. FBX keeps the
+        // real orientation/placement (and the exporter's axis conversion, e.g. Blender's Z-up -> our Y-up) in the
+        // NODE hierarchy, NOT the raw vertices, so each placement's world transform is baked into its own copy of
+        // the STATIC vertices below (without it a Blender FBX imports rotated ~90 degrees about X). Skinned meshes
+        // are NOT baked and NOT copied: their bind/bone hierarchy (BuildSkeletonHierarchy) already carries the
+        // node transforms, so a skinned mesh keeps its first placement only. A mesh no node references keeps one
+        // placement at the identity, unnamed.
+        struct MeshPlacement
         {
-            std::vector<bool> meshHasXf( scene->mNumMeshes, false );
+            uint32_t    Mesh = 0;
+            glm::mat4   World{ 1.0f };
+            std::string Node;
+        };
+        // One entry per submesh of the imported mesh: mesh-index major, then the mesh's placements in node-walk order, so
+        // a source that shares no mesh keeps the submesh order it always had.
+        std::vector<MeshPlacement> placements;
+        {
+            std::vector<std::vector<MeshPlacement>> meshPlacements( scene->mNumMeshes );
             std::function<void( const aiNode*, const glm::mat4& )> walk =
                  [&]( const aiNode* node, const glm::mat4& parent )
             {
@@ -533,18 +546,23 @@ namespace Desert::Editor
                 for ( unsigned i = 0; i < node->mNumMeshes; ++i )
                 {
                     const unsigned mi = node->mMeshes[i];
-                    if ( mi < meshWorld.size() && !meshHasXf[mi] )
-                    {
-                        meshWorld[mi]  = world;
-                        meshNode[mi]   = node->mName.C_Str();
-                        meshHasXf[mi]  = true;
-                    }
+                    if ( mi >= meshPlacements.size() )
+                        continue;
+                    if ( scene->mMeshes[mi]->HasBones() && !meshPlacements[mi].empty() )
+                        continue;
+                    meshPlacements[mi].push_back( { mi, world, node->mName.C_Str() } );
                 }
                 for ( unsigned i = 0; i < node->mNumChildren; ++i )
                     walk( node->mChildren[i], world );
             };
             if ( scene->mRootNode )
                 walk( scene->mRootNode, glm::mat4( 1.0f ) );
+            for ( uint32_t mi = 0; mi < scene->mNumMeshes; ++mi )
+            {
+                if ( meshPlacements[mi].empty() )
+                    meshPlacements[mi].push_back( { mi, glm::mat4( 1.0f ), {} } );
+                placements.insert( placements.end(), meshPlacements[mi].begin(), meshPlacements[mi].end() );
+            }
         }
 
         // ============================
@@ -567,9 +585,9 @@ namespace Desert::Editor
         // vertex arrays below are filled.
         const SceneVertexStreams streams = StreamsOf( *scene );
 
-        for ( uint32_t meshIdx = 0; meshIdx < scene->mNumMeshes; ++meshIdx )
+        for ( const MeshPlacement& placement : placements )
         {
-            aiMesh* mesh = scene->mMeshes[meshIdx];
+            aiMesh* mesh = scene->mMeshes[placement.Mesh];
 
             bool meshHasBones = mesh->HasBones();
             hasBones |= meshHasBones;
@@ -593,7 +611,7 @@ namespace Desert::Editor
             {
                 // -------- STATIC -------- (bake the node world transform so orientation/placement match the
                 // DCC tool; normals/tangents use the 3x3 part, renormalized to survive any scale.)
-                const glm::mat4 world     = meshWorld[meshIdx];
+                const glm::mat4 world     = placement.World;
                 const glm::mat3 normalMat = glm::mat3( world );
 
                 for ( uint32_t i = 0; i < mesh->mNumVertices; ++i )
@@ -744,7 +762,7 @@ namespace Desert::Editor
                 if ( hasNorm )
                     mc.DeltaNorm.resize( mesh->mNumVertices );
 
-                const glm::mat3 dirMat = meshHasBones ? glm::mat3( 1.0f ) : glm::mat3( meshWorld[meshIdx] );
+                const glm::mat3 dirMat = meshHasBones ? glm::mat3( 1.0f ) : glm::mat3( placement.World );
                 for ( uint32_t i = 0; i < mesh->mNumVertices; ++i )
                 {
                     const glm::vec3 dp( anim->mVertices[i].x - mesh->mVertices[i].x,
@@ -783,7 +801,7 @@ namespace Desert::Editor
                 // node world transform baked in (above), so the box must be baked too — otherwise it's stale
                 // (wrong size/position) and everything that frames by it (thumbnail FitTarget, picking, cull)
                 // misbehaves: the preview camera ends up inside/off the mesh. Skinned verts aren't baked.
-                const glm::mat4 boxXf = meshHasBones ? glm::mat4( 1.0f ) : meshWorld[meshIdx];
+                const glm::mat4 boxXf = meshHasBones ? glm::mat4( 1.0f ) : placement.World;
                 glm::vec3       aabbMin( std::numeric_limits<float>::max() );
                 glm::vec3       aabbMax( -std::numeric_limits<float>::max() );
 
@@ -799,7 +817,7 @@ namespace Desert::Editor
             }
 
             meshData.Submeshes.push_back( submesh );
-            result.SubmeshNodes.push_back( meshNode[meshIdx] );
+            result.SubmeshNodes.push_back( placement.Node );
         }
 
         // ============================
