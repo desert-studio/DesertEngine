@@ -21,6 +21,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <format>
 
 namespace Desert::Graphic::Render2D
 {
@@ -104,6 +105,19 @@ namespace Desert::Graphic::Render2D
 
         // 1x1 white texture so solid shapes collapse to their vertex colour (texture * colour == colour).
         // Created once and reused; the pipeline is rebuilt every Init but the texture/buffers persist.
+        // The retained-layer composite (UE Retainer Box's effect material). Not optional: a canvas that
+        // retains a layer has no other way to show it.
+        m_RetainerShader = shaderService->GetByName( "UIRetainer" );
+        if ( !m_RetainerShader )
+            return Common::MakeError( "Render2D::Init: missing shader 'UIRetainer'" );
+        GraphicsPipelineSpecification retainerSpec = spec;
+        retainerSpec.DebugName                     = "UIRetainerPipeline";
+        retainerSpec.Shader                        = m_RetainerShader;
+        const auto retainerPipeline                = GraphicsPipeline::Create( retainerSpec );
+        if ( !retainerPipeline )
+            return Common::MakeError( std::format( "Render2D::Init: {}", retainerPipeline.GetError() ) );
+        m_RetainerPipeline = retainerPipeline.GetValue();
+
         if ( !m_WhiteTexture )
         {
             const unsigned char           whitePixel[4] = { 255, 255, 255, 255 };
@@ -135,6 +149,9 @@ namespace Desert::Graphic::Render2D
         m_ViewportPx = viewportPx;
         m_DrawList.Reset();
         m_Prepared.Reset();
+        m_PreparedList = nullptr;
+        m_Retained.clear();
+        m_TargetOrigin = glm::vec2( 0.0f );
     }
 
     void Render2D::EnsureCapacity( uint32_t vertexCount, uint32_t indexCount )
@@ -207,6 +224,27 @@ namespace Desert::Graphic::Render2D
             glm::vec4 InvRow1;
         };
         static_assert( sizeof( GlassPush ) == 128 );
+
+        // A retained layer's composite push block (UIRetainer.shader).
+        struct RetainerPush
+        {
+            glm::mat4 Projection;
+            glm::vec4 Rect; // min.xy, max.xy screen px
+            glm::vec4 Uv;   // xy = layer extent in target UV, zw = 1 / target size
+            glm::vec4 Mask; // x = mask on, y = invert, z = opacity, w = haze on
+            glm::vec4 Haze; // amplitude px, cell px, cells/s, time s
+        };
+        static_assert( sizeof( RetainerPush ) == 128, "UIRetainer.shader push block" );
+
+        RetainerPush RetainerPushOf( const glm::mat4& projection, const DrawCommand& cmd, const glm::vec4& uv,
+                                     const bool hasMask )
+        {
+            const RetainerEffect& fx = cmd.Effect;
+            return RetainerPush{ projection, cmd.RetainedRect, uv,
+                                 glm::vec4( fx.Mask && hasMask ? 1.0f : 0.0f, fx.InvertMask ? 1.0f : 0.0f,
+                                            fx.Opacity, fx.Haze ? 1.0f : 0.0f ),
+                                 glm::vec4( fx.HazeAmplitude, fx.HazeScale, fx.HazeSpeed, fx.Time ) };
+        }
     } // namespace
 
     Render2D::ResolvedCommand Render2D::Resolve( const DrawCommand& cmd, const bool backdrop )
@@ -214,6 +252,41 @@ namespace Desert::Graphic::Render2D
         ResolvedCommand resolved;
         if ( cmd.IndexCount == 0 )
             return resolved;
+        if ( cmd.Retained )
+        {
+            const auto it = m_Retained.find( &cmd );
+            if ( it == m_Retained.end() || !it->second.Content.IsValid() )
+            {
+                if ( !m_RefusedUnrendered )
+                {
+                    LOG_ERROR( "[Render2D] a retained UI layer was not rendered this frame, so its composite "
+                               "is not drawn: the host must call Render2D::AddRetainedPasses on the graph after "
+                               "the walk and before the pass that Flushes, and DeclareRetainedReads in that "
+                               "pass's setup (see Render2D.hpp)" );
+                }
+                m_RefusedUnrendered = true;
+                return resolved;
+            }
+            resolved.Kind     = CommandKind::Retained;
+            resolved.Pipeline = m_RetainerPipeline.get();
+            resolved.Layout   = &m_RetainerLayout;
+            resolved.Retained = &it->second;
+            if ( !it->second.Mask.IsValid() )
+            {
+                // Without a mask, u_Mask is the engine's white image, a written slot of the retainer executor,
+                // which then carries the push block; a slot is never bound by both routes.
+                MaterialExecutor* rexec =
+                     ExecutorFor( m_RetainerExecutors, m_RetainerShader, "u_Mask", nullptr, m_WhiteImage );
+                if ( rexec == nullptr )
+                {
+                    LOG_ERROR( "[Render2D] a retained UI layer's composite is not drawn: no UIRetainer executor" );
+                    return ResolvedCommand{};
+                }
+                resolved.Plain    = rexec;
+                resolved.Executor = rexec;
+            }
+            return resolved;
+        }
         if ( cmd.Glass && m_GlassPipeline && backdrop )
         {
             resolved.Kind     = CommandKind::Glass;
@@ -265,14 +338,15 @@ namespace Desert::Graphic::Render2D
     }
 
     template <class Declaration>
-    void Render2D::DeclareInto( Declaration& declared, const RDG::TextureRef backdrop )
+    void Render2D::DeclareInto( Declaration& declared, const DrawList2D& list, const RDG::TextureRef backdrop )
     {
-        if ( !m_Pipeline || !m_TextPipeline || m_DrawList.Empty() )
+        if ( !m_Pipeline || !m_TextPipeline || list.Empty() )
             return; // Flush draws nothing either
         // THE ONE PREPARATION of this frame's draws (PreparedDraws): Resolve - and for a UI material
         // UIMaterialCache::DrawableOrDefault's PrepareDraw - runs here once per command; Flush records the result.
         const bool backdropValid = backdrop.IsValid();
-        m_Prepared.Prepare( m_DrawList.GetCommands(),
+        m_PreparedList = &list;
+        m_Prepared.Prepare( list.GetCommands(),
                             [&]( const DrawCommand& cmd ) -> std::optional<ResolvedCommand>
                             {
                                 ResolvedCommand resolved = Resolve( cmd, backdropValid );
@@ -286,6 +360,33 @@ namespace Desert::Graphic::Render2D
         {
             const ResolvedCommand&    resolved = draw.Value;
             ShaderBindingLayoutCache& layout   = *resolved.Layout;
+            if ( resolved.Kind == CommandKind::Retained )
+            {
+                // The composite samples the layer (and its mask) the retained pass drew: graph textures, read by
+                // name through this block. A masked composite's push block goes through the graph too; a
+                // mask-less one is carried by the retainer executor (u_Mask = white), written here.
+                const DrawCommand&     cmd    = list.GetCommands()[draw.Command];
+                const RetainedPicture& pic    = *resolved.Retained;
+                const auto&            shader = resolved.Pipeline->GetSpecification().Shader;
+                if ( pic.Mask.IsValid() )
+                {
+                    declared.Bindings( layout.Get( shader ), RDG::OtherRouteFill{} )
+                         .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
+                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
+                         .Sampled( "u_Mask", pic.Mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                                   RDG::SamplerDesc::LinearClamp() )
+                         .PushConstantBytes( static_cast<uint32_t>( sizeof( RetainerPush ) ) );
+                }
+                else
+                {
+                    const RetainerPush push = RetainerPushOf( m_Projection, cmd, pic.Uv, false );
+                    resolved.Plain->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                    declared.Bindings( layout.Get( shader ), resolved.Executor->GetRouteFill() )
+                         .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
+                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+                }
+                continue;
+            }
             if ( resolved.Kind == CommandKind::Glass )
             {
                 // The sampler the glass sampled its backdrop with before: LinearClamp over every mip.
@@ -309,29 +410,45 @@ namespace Desert::Graphic::Render2D
 
     void Render2D::DeclareBindings( RDG::PassBuilder& pass, const RDG::TextureRef backdrop )
     {
-        DeclareInto( pass, backdrop );
+        DeclareInto( pass, m_DrawList, backdrop );
     }
 
     void Render2D::DeclareBindings( RenderPassDeclaration& declared, const RDG::TextureRef backdrop )
     {
-        DeclareInto( declared, backdrop );
+        DeclareInto( declared, m_DrawList, backdrop );
+    }
+
+    void Render2D::DeclareListBindings( RDG::PassBuilder& pass, const DrawList2D& list, const RDG::TextureRef backdrop )
+    {
+        DeclareInto( pass, list, backdrop );
     }
 
     Common::BoolResultStr Render2D::Flush( const RDG::PassContext& context, RDG::TextureRef backdrop,
                                            const uint32_t firstBlock )
     {
+        return FlushList( context, m_DrawList, backdrop, firstBlock );
+    }
+
+    Common::BoolResultStr Render2D::FlushList( const RDG::PassContext& context, const DrawList2D& list,
+                                               RDG::TextureRef backdrop, const uint32_t firstBlock )
+    {
         if ( !m_Pipeline || !m_TextPipeline )
-            return Common::MakeError( "Render2D::Flush: the 2D pipelines were not created (Init)" );
-        if ( m_DrawList.Empty() )
-            return BOOLSUCCESS;
-        if ( !m_Prepared.Ready() )
         {
-            return Common::MakeError( "Render2D::Flush: the draws were not prepared - DeclareBindings must run in "
-                                      "the node's setup for this frame's draw list" );
+            return Common::MakeError( "Render2D::Flush: the 2D pipelines were not created (Init)" );
+        }
+        if ( list.Empty() )
+        {
+            return BOOLSUCCESS;
+        }
+        if ( !m_Prepared.Ready() || m_PreparedList != &list )
+        {
+            return Common::MakeError( "Render2D::Flush: the draws were not prepared - DeclareBindings (or "
+                                      "DeclareListBindings for this list) must run in the node's setup for this "
+                                      "frame's draw list" );
         }
 
-        const auto& verts = m_DrawList.GetVertices();
-        const auto& idx   = m_DrawList.GetIndices();
+        const auto& verts = list.GetVertices();
+        const auto& idx   = list.GetIndices();
 
         EnsureCapacity( (uint32_t)verts.size(), (uint32_t)idx.size() );
 
@@ -366,23 +483,59 @@ namespace Desert::Graphic::Render2D
         // Clip a batch (UILayout ClipContents) via the scissor, or reset it to the full viewport.
         const auto ApplyScissor = [&]( const DrawCommand& cmd )
         {
-            if ( cmd.ClipRect.z > 0.0f && cmd.ClipRect.w > 0.0f )
-                renderer.SetScissor( (int32_t)cmd.ClipRect.x, (int32_t)cmd.ClipRect.y, (uint32_t)cmd.ClipRect.z,
-                                     (uint32_t)cmd.ClipRect.w );
-            else
-                renderer.SetScissor( (int32_t)m_ViewportPx.x, (int32_t)m_ViewportPx.y, (uint32_t)m_ViewportPx.z,
-                                     (uint32_t)m_ViewportPx.w );
+            // A layer's renderer draws screen px into a target whose (0,0) is m_TargetOrigin; the main one
+            // has a zero origin, so this is the plain screen scissor there.
+            glm::vec4 box = ( cmd.ClipRect.z > 0.0f && cmd.ClipRect.w > 0.0f ) ? cmd.ClipRect : m_ViewportPx;
+            box.x -= m_TargetOrigin.x;
+            box.y -= m_TargetOrigin.y;
+            if ( box.x < 0.0f )
+            {
+                box.z += box.x;
+                box.x = 0.0f;
+            }
+            if ( box.y < 0.0f )
+            {
+                box.w += box.y;
+                box.y = 0.0f;
+            }
+            renderer.SetScissor( static_cast<int32_t>( box.x ), static_cast<int32_t>( box.y ),
+                                 static_cast<uint32_t>( std::max( box.z, 0.0f ) ),
+                                 static_cast<uint32_t>( std::max( box.w, 0.0f ) ) );
         };
 
         // The draws the setup prepared (DeclareBindings), recorded as they are: the n-th opens block n. Nothing is
         // resolved, prepared or validated again here.
-        const auto& commands = m_DrawList.GetCommands();
+        const auto& commands = list.GetCommands();
         uint32_t    block    = firstBlock;
         for ( const auto& draw : m_Prepared.Draws() )
         {
             const DrawCommand&     cmd      = commands[draw.Command];
             const ResolvedCommand& resolved = draw.Value;
             const uint32_t         index    = block++;
+
+            if ( resolved.Kind == CommandKind::Retained )
+            {
+                // A retained layer's composite. The layer (and its mask) are graph textures this pass's setup
+                // declared (DeclareRetainedReads + the block DeclareInto opened); with a mask the push block goes
+                // through the graph bindings, without one the retainer executor (u_Mask = white) carries it.
+                const RetainedPicture& pic = *resolved.Retained;
+                ApplyScissor( cmd );
+                RDG::PassBindings bindings( context, context.GetBindingBlock( index ) );
+                if ( pic.Mask.IsValid() )
+                {
+                    const RetainerPush push = RetainerPushOf( m_Projection, cmd, pic.Uv, true );
+                    bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                }
+                const Common::BoolResultStr drawn =
+                     renderer.DrawIndexed( bindings, *resolved.Pipeline, resolved.Plain, *m_VertexBuffer,
+                                           *m_IndexBuffer, cmd.IndexCount, cmd.IndexOffset );
+                if ( !drawn.IsSuccess() && failure.IsSuccess() )
+                {
+                    failure =
+                         Common::MakeError( "a retained UI layer's composite was not drawn: " + drawn.GetError() );
+                }
+                continue;
+            }
 
             if ( resolved.Kind == CommandKind::Glass )
             {
@@ -429,12 +582,14 @@ namespace Desert::Graphic::Render2D
         }
 
         // Leave the scissor at the full viewport so nothing downstream inherits a UI clip.
-        renderer.SetScissor( (int32_t)m_ViewportPx.x, (int32_t)m_ViewportPx.y, (uint32_t)m_ViewportPx.z,
-                             (uint32_t)m_ViewportPx.w );
+        renderer.SetScissor( static_cast<int32_t>( m_ViewportPx.x - m_TargetOrigin.x ),
+                             static_cast<int32_t>( m_ViewportPx.y - m_TargetOrigin.y ),
+                             static_cast<uint32_t>( m_ViewportPx.z ), static_cast<uint32_t>( m_ViewportPx.w ) );
 
         m_UsedBackdrop = usedBackdrop;
 
         m_Prepared.Reset();
+        m_PreparedList = nullptr;
         RetireUnusedExecutors();
         m_MaterialCache.RetireUnused();
         return failure;
@@ -447,7 +602,7 @@ namespace Desert::Graphic::Render2D
         const uint64_t frame  = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const uint32_t window = ExecutorRetireWindow();
 
-        for ( ExecutorCache* cache : { &m_Executors, &m_TextExecutors } )
+        for ( ExecutorCache* cache : { &m_Executors, &m_TextExecutors, &m_RetainerExecutors } )
         {
             for ( auto it = cache->begin(); it != cache->end(); )
             {
@@ -457,5 +612,195 @@ namespace Desert::Graphic::Render2D
                     ++it;
             }
         }
+    }
+
+    Common::BoolResultStr Render2D::AddRetainedPasses( RDG::Builder& graph )
+    {
+        const Common::BoolResultStr added = AddRetainedPassesOf( graph, m_DrawList );
+
+        const uint64_t frame  = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint32_t window = ExecutorRetireWindow();
+        std::erase_if( m_RetainedPool, [&]( const std::unique_ptr<RetainedTarget>& t )
+                       { return MayRetireExecutor( t->LastUsedFrame, frame, window ); } );
+        return added;
+    }
+
+    void Render2D::DeclareRetainedReads( RDG::PassBuilder& pass ) const
+    {
+        for ( const auto& [cmd, pic] : m_Retained )
+        {
+            if ( pic.Content.IsValid() )
+            {
+                pass.Read( pic.Content, RDG::Access::SampledGraphics );
+            }
+            if ( pic.Mask.IsValid() )
+            {
+                pass.Read( pic.Mask, RDG::Access::SampledGraphics );
+            }
+        }
+    }
+
+    Common::BoolResultStr Render2D::AddRetainedPassesOf( RDG::Builder& graph, const DrawList2D& root )
+    {
+        const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+
+        // Expand: every retainer, at any depth, becomes a job; a job's nested retainers are appended after
+        // it, so walking the jobs backwards adds the most nested layer's pass first: by the time a layer's pass is
+        // added, the layers it composites are already in its renderer's m_Retained, and its setup declares them.
+        std::vector<RetainedJob>                             jobs;
+        std::vector<std::pair<Render2D*, const DrawList2D*>> pending{ { this, &root } };
+        while ( !pending.empty() )
+        {
+            const auto [owner, list] = pending.back();
+            pending.pop_back();
+            for ( const DrawCommand& cmd : list->GetCommands() )
+            {
+                if ( !cmd.Retained || cmd.RetainedLayer >= list->GetLayers().size() )
+                    continue;
+                const glm::vec4 r = cmd.RetainedRect;
+                const auto      w = static_cast<uint32_t>( r.z - r.x );
+                const auto      h = static_cast<uint32_t>( r.w - r.y );
+                if ( w == 0 || h == 0 )
+                    continue;
+
+                RetainedTarget* content = AcquireRetainedTarget( w, h, frame );
+                if ( content == nullptr )
+                    continue;
+                const DrawList2D* layer = list->GetLayers()[cmd.RetainedLayer].get();
+                OpenTarget( *content, r );
+                const size_t contentJob = jobs.size();
+                jobs.push_back(
+                     { .Owner = owner, .Cmd = &cmd, .Target = content, .Layer = layer, .Width = w, .Height = h } );
+                pending.emplace_back( content->Renderer.get(), layer );
+
+                if ( !cmd.Effect.Mask )
+                    continue;
+                const auto& masks = root.GetMaskLayers();
+                const auto  it    = masks.find( cmd.RetainedMask );
+                if ( it == masks.end() )
+                    continue;
+                RetainedTarget* mask = AcquireRetainedTarget( content->Width, content->Height, frame );
+                if ( mask == nullptr )
+                    continue;
+                const DrawList2D* maskLayer = root.GetLayers()[it->second].get();
+                OpenTarget( *mask, r );
+                jobs.push_back( { .Owner  = owner,
+                                  .Cmd    = &cmd,
+                                  .Target = mask,
+                                  .Layer  = maskLayer,
+                                  .Width  = w,
+                                  .Height = h,
+                                  .MaskOf = contentJob } );
+                pending.emplace_back( mask->Renderer.get(), maskLayer );
+            }
+        }
+
+        auto&                 renderer = Renderer::GetInstance();
+        Common::BoolResultStr failure  = BOOLSUCCESS;
+        for ( auto job = jobs.rbegin(); job != jobs.rend(); ++job )
+        {
+            RetainedTarget& target = *job->Target;
+            if ( const auto imported =
+                      renderer.ImportImage( target.Target->GetColorAttachmentImage( 0 ), target.External );
+                 !imported )
+            {
+                LOG_ERROR( "[Render2D] retained layer {}x{} not drawn: {}", target.Width, target.Height,
+                           imported.GetError() );
+                if ( failure.IsSuccess() )
+                {
+                    failure = Common::MakeError( "a retained UI layer was not added: " + imported.GetError() );
+                }
+                continue;
+            }
+            const RDG::TextureRef layerRef      = graph.RegisterExternal( target.External, "UIRetainedLayer" );
+            Render2D*             layerRenderer = target.Renderer.get();
+            const DrawList2D*     layer         = job->Layer;
+            graph.AddPass(
+                 "UIRetainedLayer", RDG::PassFlags::Raster,
+                 [layerRef, layerRenderer, layer]( RDG::PassBuilder& pass )
+                 {
+                     // Transparent: the layer is premultiplied.
+                     pass.ColorTarget( 0, layerRef, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                     layerRenderer->DeclareRetainedReads( pass );
+                     layerRenderer->DeclareListBindings( pass, *layer, RDG::TextureRef{} );
+                 },
+                 // The layer's blocks are the pass's only ones (DeclareRetainedReads declares reads, no block).
+                 [layerRenderer, layer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return layerRenderer->FlushList( context, *layer, RDG::TextureRef{}, 0 ); } );
+
+            if ( job->MaskOf != SIZE_MAX )
+            {
+                jobs[job->MaskOf].Mask = layerRef;
+                continue;
+            }
+            RetainedPicture pic;
+            pic.Content = layerRef;
+            pic.Mask    = job->Mask;
+            pic.Uv      = glm::vec4( static_cast<float>( job->Width ) / static_cast<float>( target.Width ),
+                                     static_cast<float>( job->Height ) / static_cast<float>( target.Height ),
+                                     1.0f / static_cast<float>( target.Width ),
+                                     1.0f / static_cast<float>( target.Height ) );
+            job->Owner->m_Retained[job->Cmd] = pic;
+        }
+        return failure;
+    }
+
+    Render2D::RetainedTarget* Render2D::AcquireRetainedTarget( uint32_t width, uint32_t height, uint64_t frame )
+    {
+        constexpr uint32_t kRetainedQuantum = 64;
+        const uint32_t     W = ( width + kRetainedQuantum - 1 ) / kRetainedQuantum * kRetainedQuantum;
+        const uint32_t     H = ( height + kRetainedQuantum - 1 ) / kRetainedQuantum * kRetainedQuantum;
+
+        for ( auto& t : m_RetainedPool )
+            if ( t->Width == W && t->Height == H && t->LastUsedFrame != frame )
+            {
+                t->LastUsedFrame = frame;
+                return t.get();
+            }
+
+        const ResourceAttributionScope owned( ResourceOwner::UserInterface );
+        auto                           t = std::make_unique<RetainedTarget>();
+        FramebufferSpecification       spec;
+        spec.Width       = W;
+        spec.Height      = H;
+        spec.Attachments = { Core::Formats::ImageFormat::RGBA8F };
+        spec.DebugName   = "UIRetainedLayer";
+        spec.NoResizeble = true;
+        t->Target        = Framebuffer::Create( spec );
+        if ( !t->Target )
+        {
+            LOG_ERROR( "[Render2D] a {}x{} retained-layer target could not be created; the layer is not drawn", W,
+                       H );
+            return nullptr;
+        }
+        // Framebuffer::Create only constructs: the colour image the graph imports and the VkRenderPass the layer
+        // renderer's pipelines are built against are made by the first Resize.
+        if ( const auto made = t->Target->Resize( W, H ); !made )
+        {
+            LOG_ERROR(
+                 "[Render2D] a {}x{} retained-layer target could not be allocated: {}; the layer is not drawn", W,
+                 H, made.GetError() );
+            return nullptr;
+        }
+        t->Renderer = std::make_unique<Render2D>();
+        if ( const auto init = t->Renderer->Init( t->Target ); !init )
+        {
+            LOG_ERROR( "[Render2D] retained-layer renderer: {}", init.GetError() );
+            return nullptr;
+        }
+        t->Width         = W;
+        t->Height        = H;
+        t->LastUsedFrame = frame;
+        m_RetainedPool.push_back( std::move( t ) );
+        return m_RetainedPool.back().get();
+    }
+
+    void Render2D::OpenTarget( RetainedTarget& target, const glm::vec4& rect )
+    {
+        Render2D& r2d = *target.Renderer;
+        // Screen px in, target px out: the layer's top-left lands on the target's (0,0), one to one.
+        r2d.BeginFrame(
+             { rect.x, rect.y, static_cast<float>( target.Width ), static_cast<float>( target.Height ) } );
+        r2d.m_TargetOrigin = glm::vec2( rect.x, rect.y );
     }
 } // namespace Desert::Graphic::Render2D

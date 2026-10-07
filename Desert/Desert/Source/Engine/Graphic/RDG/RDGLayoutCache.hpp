@@ -23,7 +23,7 @@ namespace Desert::Graphic::RDG
     public:
         template <class Source, class Derive>
         [[nodiscard]] const std::shared_ptr<const ShaderBindingLayout>& Get( const std::shared_ptr<Source>& source,
-                                                                             uint32_t generation, Derive&& derive )
+                                                                             uint64_t generation, Derive&& derive )
         {
             const std::weak_ptr<const void> observed = source;
             const bool                      sameSource =
@@ -41,7 +41,7 @@ namespace Desert::Graphic::RDG
     private:
         std::shared_ptr<const ShaderBindingLayout> m_Layout;
         std::weak_ptr<const void>                  m_Source;     // the object m_Layout was derived from
-        std::optional<uint32_t>                    m_Generation; // its reload generation at that time
+        std::optional<uint64_t>                    m_Generation; // its reload generation at that time
     };
 
     // One LayoutCache PER SOURCE OBJECT, for a node that declares one block per shader its draws record with (a
@@ -54,7 +54,7 @@ namespace Desert::Graphic::RDG
     public:
         template <class Source, class Derive>
         [[nodiscard]] const std::shared_ptr<const ShaderBindingLayout>& Get( const std::shared_ptr<Source>& source,
-                                                                             uint32_t generation, Derive&& derive )
+                                                                             uint64_t generation, Derive&& derive )
         {
             return m_Caches[std::weak_ptr<const void>( source )].Get( source, generation,
                                                                       std::forward<Derive>( derive ) );

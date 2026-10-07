@@ -1,0 +1,40 @@
+// DefaultLit — UE's MSM_DefaultLit: Cook-Torrance for every analytic light (Mesh/DirectLighting.glslh, the
+// kd * albedo / PI diffuse plus GGX specular) and the split-sum environment with the ambient floor and the
+// one-bounce indirect (Mesh/AmbientIBL.glslh). The model of a surface template that names none.
+Guid 6570679776162095495;
+Payload
+{
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+}
+
+#include <Mesh/PBRFunctions.glslh>
+#include <Mesh/DirectLighting.glslh>
+// The pure half of the ambient text. A lighting pass has already included the whole file (its samplers too);
+// a G-buffer pass, which only packs the shading word, has not, and gets the half that declares no binding.
+#ifndef AMBIENT_IBL_GLSLH
+#define AMBIENT_IBL_NO_SAMPLERS
+#include <Mesh/AmbientIBL.glslh>
+#endif
+
+vec3 DefaultLitF0( DesertSurface S )
+{
+    return mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, DefaultLitF0( S ), S.Metallic, S.Roughness, S.BaseColor ) *
+           L.Shadow;
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, DefaultLitF0( S ), S.BaseColor,
+                                         S.Metallic, max( dot( S.N, S.V ), 0.0 ) );
+    return ComposeAmbient( ibl, S.BaseColor, A.Occlusion, A.Indirect );
+}

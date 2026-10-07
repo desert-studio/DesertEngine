@@ -244,9 +244,15 @@ Dependencies = {
                 gtest = getGTestLib("Release"),
             }
         },
+        -- THE ROOTS A SUITE READS, BAKED IN AS ABSOLUTE PATHS (UE: FPaths::EngineDir): the engine directory it
+        -- hands to SetEngineDir (TestSupport/engine_dir.hpp), the checkout, and the suite data tree
+        -- Desert/Tests/Data. A suite never finds them from its working directory.
         Defines = {
             "GTEST",
-            "TESTING"
+            "TESTING",
+            'DESERT_TEST_ENGINE_DIR="' .. path.getabsolute(_MAIN_SCRIPT_DIR .. "/Editor") .. '"',
+            'DESERT_TEST_REPO_ROOT="' .. path.getabsolute(_MAIN_SCRIPT_DIR) .. '"',
+            'DESERT_TEST_DATA_DIR="' .. path.getabsolute(_MAIN_SCRIPT_DIR .. "/Desert/Tests/Data") .. '"',
         },
         EnvVars = {
             GTEST_OUTPUT = "xml:%{_MAIN_SCRIPT_DIR}/build/TestReports/%{prj.name}.xml",

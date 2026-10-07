@@ -3,6 +3,9 @@
 // maps — metadata and every SPIR-V word — at the same index. Each side runs against its own empty derived
 // data cache, so neither reads what the other compiled.
 
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
 #include <gtest/gtest.h>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
@@ -21,6 +24,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Common/Core/Constants.hpp>
 
 namespace
 {
@@ -31,14 +35,11 @@ namespace
     {
         static void SetUpTestSuite()
         {
-            // Includes resolve against "Resources/Shaders/", relative: run from Editor/ as the editor does.
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
+            // Programs are listed and includes resolve off ShaderDir(), derived from this engine directory.
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
             ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
-            std::filesystem::current_path( here / "Editor" );
+                 << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
+            Common::Constants::Path::SetEngineDir( here / "Editor" );
         }
     };
 
@@ -57,7 +58,7 @@ namespace
         std::vector<std::filesystem::path> files;
         for ( const char* dir : { "FXAA", "Bloom", "Unlit", "SMAA", "Composite", "UI", "Text", "JFA" } )
         {
-            const auto root = std::filesystem::path( "Resources/Shaders/Programs" ) / dir;
+            const auto root = Common::Constants::Path::ShaderDir() / "Programs" / dir;
             if ( !std::filesystem::exists( root ) )
                 continue;
             for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
@@ -271,8 +272,29 @@ TEST_F( ShaderMapBuildFixture, OneStageTextInEightFilesIsOneCompileWithoutDebugI
     }
 }
 
+// A BROKEN SHADER IS AN ERROR NAMING ITS FILE, NOT A DEAD PROCESS. Text that is not Desert Shader Language used to
+// reach DESERT_VERIFY inside the preprocessor's parse and take the editor down at boot with no file named; the
+// preprocessor now returns a ResultStr carrying the path, and BootContent logs it and carries on. Mutation:
+// restore DESERT_VERIFY in ShaderPreprocessor's ParseNamed and this suite dies instead of failing one expectation.
+TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
+{
+    const std::filesystem::path path = std::filesystem::path( "Resources/Shaders/Programs/Tmp" ) / "Broken.shader";
+    const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildBroken" );
+    const auto built = Desert::Core::BuildShaderMap( { "this is not a shader { at all", path, {}, {}, "Broken" } );
+    ASSERT_FALSE( built.IsSuccess() ) << "text that is not a shader built a map";
+    EXPECT_NE( built.GetError().find( path.generic_string() ), std::string::npos )
+         << "the error does not name the file: " << built.GetError();
+
+    const auto outcomes = Desert::Core::BuildShaderMaps(
+         std::vector<ShaderMapRequest>{ { "this is not a shader { at all", path, {}, {}, "Broken" } } );
+    ASSERT_EQ( outcomes.size(), 1u );
+    EXPECT_NE( outcomes[0].Error.find( path.generic_string() ), std::string::npos ) << outcomes[0].Error;
+}
+
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

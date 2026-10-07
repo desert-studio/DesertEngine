@@ -1,7 +1,5 @@
 #include "ComponentWidgetRegistry.hpp"
 
-#include <Editor/Widgets/PreviewViewport.hpp>
-
 #include <Editor/Core/AssetOpen.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -137,23 +135,6 @@ namespace Desert::Editor
                 ImGui::EndMenu();
             }
         }
-    }
-
-    bool ComponentEditContext::DrawPreview( const ImVec2& size, DetailsPreviewKind kind,
-                                            uint64_t openHandle ) const
-    {
-        if ( !Preview || !PreviewUI )
-            return false;
-
-        // Draw()'s own bool means "it has content yet", NOT "it drew something": it always submits an
-        // item of `size` and paints its own frame (with a "No preview" label when empty). So the caller
-        // must never add a placeholder of its own — hence `true` regardless.
-        const PreviewInputResult input = Preview->Draw( *PreviewUI, size, DetailsPreviewInteraction( kind ) );
-        if ( input.Open && openHandle != 0 )
-            Core::AssetFieldRequests::Request( Assets::AssetHandle( openHandle ), Core::AssetFieldAction::Open );
-        if ( PreviewUsed )
-            *PreviewUsed = true; // the panel pays for next frame's offscreen render only while it is drawn
-        return true;
     }
 
 } // namespace Desert::Editor

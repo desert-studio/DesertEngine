@@ -15,7 +15,8 @@ namespace Desert
     {
     public:
         SkinnedMesh( const std::vector<SkinnedVertex>& vertices, const std::vector<Index>& indices,
-                     const std::vector<Submesh>& submeshes, const Animation::Skeleton* skeleton );
+                     const std::vector<Submesh>& submeshes, const Animation::Skeleton* skeleton,
+                     const std::vector<MeshVertexStreams>& streams );
 
         MeshType GetType() const override
         {

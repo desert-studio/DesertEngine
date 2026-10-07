@@ -232,12 +232,66 @@ TEST( DrawList2D, RoundedRectFansFromCentre )
     DrawList2D dl;
     dl.AddRectFilled( { 0, 0 }, { 100, 100 }, { 1, 1, 1, 1 }, 12.0f );
 
-    // Centre vertex + 4 corners * (segments+1) perimeter vertices (kSeg=6 -> 7 each).
-    EXPECT_EQ( dl.GetVertices().size(), 1u + 4u * 7u );
-    // One fan triangle per perimeter vertex.
-    EXPECT_EQ( dl.GetIndices().size(), ( 4u * 7u ) * 3u );
+    // A 12 px corner stays at the 6-segment floor: 4 * 7 perimeter vertices. Centre + perimeter for the
+    // fan, then the closed fringe strip: (perimeter + 1) outer/inner pairs.
+    ASSERT_EQ( DrawList2D::RoundedCornerSegments( 12.0f ), 6 );
+    const uint32_t perim = 4u * 7u;
+    EXPECT_EQ( dl.GetVertices().size(), 1u + perim + 2u * ( perim + 1u ) );
+    // One fan triangle per perimeter vertex, two fringe triangles per perimeter edge.
+    EXPECT_EQ( dl.GetIndices().size(), perim * 3u + perim * 6u );
     ASSERT_EQ( dl.GetCommands().size(), 1u );
     EXPECT_EQ( dl.GetCommands()[0].Texture, nullptr );
+}
+
+// A disc the size of a dune (r = 2200 px at 4K) was a 24-gon: six chords per quarter, each straying ~45 px
+// from the arc. Every chord of the solid rim must now stay within kArcError of the inner circle, and the
+// fringe must fade from opaque at r - 0.5 to clear at r + 0.5.
+TEST( DrawList2D, LargeRoundedDiscStaysRoundAndFeathered )
+{
+    const float     r = 2200.0f;
+    const glm::vec2 c = { 2200.0f, 2200.0f };
+    DrawList2D      dl;
+    dl.AddRectFilled( { 0, 0 }, { 2 * r, 2 * r }, { 1, 0.5f, 0.25f, 1 }, r );
+
+    const int      seg   = DrawList2D::RoundedCornerSegments( r );
+    const uint32_t perim = 4u * static_cast<uint32_t>( seg + 1 );
+    const auto&    v     = dl.GetVertices();
+    ASSERT_EQ( v.size(), 1u + perim + 2u * ( perim + 1u ) );
+
+    const float inner = r - DrawList2D::kEdgeFringe * 0.5f;
+    for ( uint32_t i = 0; i < perim; ++i )
+    {
+        const glm::vec2 a   = v[1 + i].Position;
+        const glm::vec2 b   = v[1 + ( i + 1 ) % perim].Position;
+        const float     mid = glm::length( ( a + b ) * 0.5f - c );
+        EXPECT_NEAR( glm::length( a - c ), inner, 1e-2f ) << "rim vertex " << i;
+        EXPECT_GE( mid, inner - DrawList2D::kArcError - 1e-2f ) << "chord " << i << " strays from the arc";
+        EXPECT_EQ( v[1 + i].Color.a, 1.0f );
+    }
+    for ( uint32_t i = 0; i <= perim; ++i )
+    {
+        const auto& outer = v[1 + perim + i * 2];
+        EXPECT_NEAR( glm::length( outer.Position - c ), r + DrawList2D::kEdgeFringe * 0.5f, 1e-2f );
+        EXPECT_EQ( outer.Color.a, 0.0f ) << "fringe vertex " << i << " is not clear";
+        EXPECT_EQ( v[1 + perim + i * 2 + 1].Color.a, 1.0f );
+    }
+}
+
+// The sibling drawn after a Retainer Box (a dune after the masked sun) went into the composite's command:
+// texture null, not text, same scissor — so it merged, was drawn with the layer's picture, and vanished.
+TEST( DrawList2D, AFillAfterARetainedCompositeGetsItsOwnCommand )
+{
+    DrawList2D dl;
+    uint32_t   layer = 0;
+    dl.BeginRetainedLayer( &layer ).AddRectFilled( { 0, 0 }, { 10, 10 }, { 1, 1, 1, 1 } );
+    ASSERT_TRUE( dl.AddRetainedComposite( layer, -1, {}, glm::vec4( 1.0f ) ) );
+    dl.AddRectFilled( { 20, 20 }, { 40, 40 }, { 0, 0, 0, 1 }, 6.0f );
+
+    ASSERT_EQ( dl.GetCommands().size(), 2u );
+    EXPECT_TRUE( dl.GetCommands()[0].Retained );
+    EXPECT_EQ( dl.GetCommands()[0].IndexCount, 6u ) << "the fill was appended to the composite's quad";
+    EXPECT_FALSE( dl.GetCommands()[1].Retained );
+    EXPECT_GT( dl.GetCommands()[1].IndexCount, 0u );
 }
 
 TEST( DrawList2D, ZeroRoundingStaysSharpQuad )
@@ -1096,7 +1150,7 @@ TEST( UIMaterialFallback, OneBrokenMaterialAmongSeveralThroughThePreparedPath )
 }
 
 // RDG-FAULT1 C3b: a UI material built from a shader that has since HOT-RELOADED is rebuilt on the reload, not left
-// on the default. The entry records its shader's reload generation (Shader::GetReloadGeneration, the key
+// on the default. The entry records its shader's reload generation (Shader::GetCodeGeneration, the key
 // ShaderBindingLayoutCache uses); UIMaterialCache::Resolve runs UIMaterialFallback::RebuildIfReloaded on every hit
 // before the frame's draws are prepared (census RenderGraphCompile.UIMaterialDrawsFallBackPerDrawNotPerNode).
 // Here: the reload adds a parameter, so the old row no longer fits; bumping the generation rebuilds the row from
@@ -1111,10 +1165,10 @@ TEST( UIMaterialFallback, AShaderReloadRebuildsTheMaterialInsteadOfFallingBack )
         bool        Error = false;
         std::string AssetName;
         Fields      Row;
-        uint32_t    ShaderGeneration = 0;
+        uint64_t    ShaderGeneration = 0;
     };
     Fields      layout     = { "TopColor", "BottomColor" }; // the shader's parameter layout, as compiled
-    uint32_t    generation = 0;                             // Shader::GetReloadGeneration
+    uint64_t    generation = 0;                             // Shader::GetCodeGeneration
     Entry       material{ false, "UI_Gradient", layout, generation };
     const Entry error{ true, "", {}, 0 };
     int         rebuilds = 0;

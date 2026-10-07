@@ -1,5 +1,7 @@
 #include "EditorResources.hpp"
 
+#include <Common/Core/Constants.hpp>
+
 namespace Desert::Editor
 {
     // The editor's text glyph ranges: ImGui's GetGlyphRangesCyrillic() with General Punctuation added.
@@ -46,14 +48,17 @@ namespace Desert::Editor
 
         const ImWchar* textRanges = s_TextRanges;
 
-        s_BoldFont =
-             io.Fonts->AddFontFromFileTTF( "Resources/Fonts/Roboto-Bold.ttf", 16.0F, &textConfig, textRanges );
+        s_BoldFont = io.Fonts->AddFontFromFileTTF(
+             ( Common::Constants::Path::FONTS_PATH / "Roboto-Bold.ttf" ).string().c_str(), 16.0F, &textConfig,
+             textRanges );
 
-        s_ExtraBoldFont =
-             io.Fonts->AddFontFromFileTTF( "Resources/Fonts/Roboto-Bold.ttf", 22.0F, &textConfig, textRanges );
+        s_ExtraBoldFont = io.Fonts->AddFontFromFileTTF(
+             ( Common::Constants::Path::FONTS_PATH / "Roboto-Bold.ttf" ).string().c_str(), 22.0F, &textConfig,
+             textRanges );
 
-        s_RegularFont =
-             io.Fonts->AddFontFromFileTTF( "Resources/Fonts/Roboto-Regular.ttf", 18.0F, &textConfig, textRanges );
+        s_RegularFont = io.Fonts->AddFontFromFileTTF(
+             ( Common::Constants::Path::FONTS_PATH / "Roboto-Regular.ttf" ).string().c_str(), 18.0F, &textConfig,
+             textRanges );
 
         if ( !s_RegularFont)
         {

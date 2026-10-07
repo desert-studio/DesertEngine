@@ -1,0 +1,61 @@
+// THE glTF METALLIC-ROUGHNESS SURFACE INPUTS, in one place for every PBR shader that reads them.
+//
+// What a PBR material's sources are turned into before any light is evaluated: which UV a texture is
+// read at, the base colour, the occlusion/roughness/metallic triple, the strength of the normal map and
+// the emission. Each is a small pure function of fetched texels and material factors, so the same text
+// is compiled by the forward mesh shaders and, AS C++, by Desert/Tests/Engine/PBRSurfaceInputs — which
+// asserts that every parameter changes the result and that its identity value changes nothing.
+//
+// It lives in Common/ beside TangentNormal.glslh and not in Mesh/: Mesh/ holds the LIGHTING texts every
+// lit surface (the shader graph included) must share, while this is the decode of one material family's
+// sources — a graph material computes its own inputs from its nodes.
+//
+// No sampler is named here on purpose: which texture a shader binds, and at which slot, is the shader's
+// layout (and the forward family must keep one layout, see ShaderCacheKey). What this file owns is the
+// arithmetic between the fetch and the lighting.
+//
+// Conventions are glTF 2.0's, because that is what the imported corpus is authored against:
+//   * KHR_texture_transform — scale, then rotate about the UV origin, then offset (T * R * S);
+//   * the ORM texture packs R = occlusion, G = roughness, B = metallic;
+//   * occlusion strength blends from "no occlusion" (1) towards the texel, it does not scale it;
+//   * normal scale multiplies the tangent-space X and Y only, then renormalises.
+
+// UV after KHR_texture_transform. At offset 0, scale 1, rotation 0 this is the input UV exactly.
+vec2 PBRTransformUV(vec2 uv, vec2 offset, vec2 scale, float rotation)
+{
+	vec2  s  = uv * scale;
+	float c  = cos(rotation);
+	float sn = sin(rotation);
+	return vec2(c * s.x + sn * s.y, c * s.y - sn * s.x) + offset;
+}
+
+// Which of the mesh's UV sets a texture reads: 0 = TEXCOORD_0, anything else = TEXCOORD_1.
+vec2 PBRSelectUV(vec2 uv0, vec2 uv1, int uvSet)
+{
+	return uvSet == 0 ? uv0 : uv1;
+}
+
+// Base colour: the factor times the (already linear) texel times the vertex colour.
+vec3 PBRBaseColor(vec3 factor, vec3 texelLinear, vec3 vertexColor)
+{
+	return factor * texelLinear * vertexColor;
+}
+
+// The ORM texel resolved against its factors. Returns (occlusion, roughness, metallic).
+vec3 PBRResolveORM(vec3 ormTexel, float occlusionStrength, float roughnessFactor, float metallicFactor)
+{
+	float occlusion = 1.0 + occlusionStrength * (ormTexel.x - 1.0);
+	return vec3(occlusion, ormTexel.y * roughnessFactor, ormTexel.z * metallicFactor);
+}
+
+// A tangent-space normal (as SampleTangentNormal returns it) with its strength applied.
+vec3 PBRScaleTangentNormal(vec3 tangentNormal, float normalScale)
+{
+	return normalize(vec3(tangentNormal.x * normalScale, tangentNormal.y * normalScale, tangentNormal.z));
+}
+
+// Emitted radiance: the (linear) emissive texel times the emissive colour times its strength.
+vec3 PBREmission(vec3 texelLinear, vec3 color, float strength)
+{
+	return texelLinear * color * strength;
+}

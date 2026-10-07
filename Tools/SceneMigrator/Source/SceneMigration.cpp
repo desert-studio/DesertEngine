@@ -1,8 +1,10 @@
 #include "SceneMigration.hpp"
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <format>
 #include <fstream>
 #include <sstream>
+#include <tuple>
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
@@ -10,9 +12,18 @@
 // The graph model and its JSON round trip, for the v20 -> v21 step: the blob it moves out of the entity
 // IS this type serialized, so reading it with anything else would be a second statement of the format.
 #include <Engine/Animation/Graph/AnimGraph.hpp>
+#include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Assets/Serialization/ControlRig.hpp>
+#include <Engine/Assets/Serialization/Retarget.hpp>
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include "UILift.hpp"
+#include "ClipInterpShift.hpp"
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
@@ -36,6 +47,7 @@
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/ByteText.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
@@ -51,8 +63,10 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <optional>
 #include <string>
@@ -61,6 +75,16 @@ namespace Desert::Migration
 {
     namespace
     {
+        // A step that refused entities refuses the whole scene: one line naming the scene and every refusal.
+        std::string RefusedWhole( const std::string& scene, const std::vector<std::string>& refusals )
+        {
+            std::string text = std::format( "'{}': ", scene );
+            for ( size_t i = 0; i < refusals.size(); ++i )
+                std::format_to( std::back_inserter( text ), "{}{}", i == 0 ? "" : "; ", refusals[i] );
+            text += ". Nothing was written.";
+            return text;
+        }
+
         // The offending value, spelled out. A warning that says "wrong type" without saying WHAT was in
         // the file sends the next reader back to the file anyway.
         std::string Describe( const rfl::Generic& g )
@@ -120,7 +144,7 @@ namespace Desert::Migration
         {
             {
                 std::ifstream in( file, std::ios::binary );
-                std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+                std::string   prefix( Common::Content::kMeshBinaryPrefixSize, '\0' );
                 in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
                 prefix.resize( static_cast<std::size_t>( in.gcount() ) );
                 const auto guid = Common::Content::ReadMeshHeaderGuid( prefix );
@@ -383,6 +407,131 @@ namespace Desert::Migration
                                report.OverridesDropped += dropped ? 1 : 0;
                                return dropped;
                            } );
+        }
+        return report;
+    }
+
+    UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities )
+    {
+        namespace TL = Animation::Timeline;
+        UIAnimationsReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            EditBlock(
+                 entity.Components, "UIAnim",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto v40 =
+                          rfl::json::read<TL::UIAnimationV40, rfl::DefaultIfMissing>( rfl::json::write( block ) );
+                     if ( !v40 )
+                     {
+                         report.Refused.push_back( std::format(
+                              "entity {}: its UIAnim block is not a v40 clip: {}", who, v40.error().what() ) );
+                         return false;
+                     }
+                     auto lifted = TL::LiftUIAnimation( v40.value(), who, Animation::PROJECT_TICK_RATE,
+                                                        Animation::DEFAULT_DISPLAY_RATE );
+                     if ( !lifted )
+                     {
+                         report.Refused.push_back( std::format( "entity {}: {}", who, lifted.GetError() ) );
+                         return false;
+                     }
+                     auto written = TL::WriteSequence( lifted.GetValue().Lifted );
+                     if ( !written )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: the TMLN writer refused: {}", who, written.GetError() ) );
+                         return false;
+                     }
+                     const std::vector<uint8_t> bytes = written.ExtractValue();
+                     const auto sequence = rfl::json::read<rfl::Generic>( std::string( Common::TextOf( bytes ) ) );
+                     if ( !sequence )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: the TMLN writer's text does not read: {}", who,
+                                           sequence.error().what() ) );
+                         return false;
+                     }
+                     ++report.Clips;
+                     report.RoundedKeys += lifted.GetValue().Report.RoundedKeys;
+                     rfl::Generic::Object next;
+                     next["Sequence"] = sequence.value();
+                     next["Loop"]     = rfl::Generic(
+                          static_cast<int64_t>( v40.value().Loop ? TL::LoopMode::Loop : TL::LoopMode::Once ) );
+                     next["AutoPlay"] = rfl::Generic( v40.value().Playing );
+                     block            = std::move( next );
+                     return true;
+                 } );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( const auto& override_ : *entity.PrefabOverrides )
+                if ( override_.Components.get( "UIAnim" ).has_value() )
+                    report.Refused.push_back( std::format(
+                         "entity {}: a prefab override restates UIAnim, which has no v40 whole to lift "
+                         "- move the clip onto the prefab's own record",
+                         who ) );
+        }
+        return report;
+    }
+
+    UIAnimationTimelinesReport MigrateUIAnimationTimelinesV1ToV2( std::vector<Assets::EntityData>& entities )
+    {
+        UIAnimationTimelinesReport report;
+        const auto shift = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock(
+                 components, "UIAnim",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto sequence = block.get( "Sequence" );
+                     if ( !sequence )
+                         return false; // an override restating Loop/AutoPlay only
+                     const std::string text   = rfl::json::write( sequence.value() );
+                     const auto        stated = StatedTimelineVersion( text );
+                     if ( !stated )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: UIAnim: {}", who, stated.GetError() ) );
+                         return false;
+                     }
+                     if ( stated.GetValue() != Animation::Timeline::kTimelineLastArrivingInterpVersion )
+                         return false;
+                     auto shifted = ShiftTimelineV1( text );
+                     if ( !shifted )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: UIAnim: {}", who, shifted.GetError() ) );
+                         return false;
+                     }
+                     auto written = Animation::Timeline::WriteSequence( shifted.GetValue().Shifted );
+                     if ( !written )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: the TMLN writer refused: {}", who, written.GetError() ) );
+                         return false;
+                     }
+                     const std::vector<uint8_t> bytes = written.ExtractValue();
+                     const auto next = rfl::json::read<rfl::Generic>( std::string( Common::TextOf( bytes ) ) );
+                     if ( !next )
+                     {
+                         report.Refused.push_back( std::format(
+                              "entity {}: the TMLN writer's text does not read: {}", who, next.error().what() ) );
+                         return false;
+                     }
+                     block["Sequence"] = next.value();
+                     ++report.Clips;
+                     report.SamplesProved += shifted.GetValue().SamplesProved;
+                     return true;
+                 } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            shift( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    shift( override_.Components, std::format( "{} (prefab override)", who ) );
         }
         return report;
     }
@@ -688,6 +837,28 @@ namespace Desert::Migration
             bool                                                      IncludeInHLOD = true;
         };
 
+        // FOLT 6's body: v5, Kind and Prefab. The engine's struct is v7.
+        struct FoliageTypeDataV6
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::Serialization::FoliageTypeKind      Kind = Assets::Serialization::FoliageTypeKind::Mesh;
+            Assets::AssetGuidRef                        Mesh;
+            Assets::AssetGuidRef                        Prefab;
+            float                                       Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ZOffset{ 0.0f, 0.0f };
+            bool                                        AlignToNormal    = true;
+            bool                                        RandomYaw        = true;
+            float                                       RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>           LandscapeLayers;
+            float                                       MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
+            Assets::Serialization::FoliageWind          Wind;
+            bool                                        IncludeInHLOD = true;
+        };
+
         // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.
         struct FoliageTypeDataV1
         {
@@ -702,6 +873,562 @@ namespace Desert::Migration
             Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
         };
     } // namespace
+
+    // Named, not anonymous: rfl reflects these by aggregate conversion, which needs types with linkage.
+    namespace SkeletonLegacy
+    {
+        // Where SKEL 1-2 said an imported rig came from; SKEL 3 dropped it (read here, never written).
+        struct SkeletonImportInfoV2
+        {
+            std::string Source;
+            uint64_t    SourceHash = 0;
+        };
+        // SKEL 1 and 2 as they were written: SKEL 1 lacks PreviewMesh / CompatibleSkeletons, both carry Import.
+        struct SkeletonAssetDataV1V2
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            uint64_t                                                  Signature = 0;
+            std::vector<Desert::Animation::BoneInfo>                  Bones;
+            std::optional<SkeletonImportInfoV2>                       Import;
+            std::optional<Assets::AssetGuidRef>                       PreviewMesh;
+            std::optional<std::vector<Assets::AssetGuidRef>>          CompatibleSkeletons;
+        };
+
+        // The rig as ANY generation this tool raises states it (SKEL 1, 2 or the current one), with the
+        // version it states; an unreadable body or a missing header is an error naming why.
+        // The header is handed out on its own, as a value: the reader is what proves it is there.
+        struct AnySkeleton
+        {
+            SkeletonAssetDataV1V2                      Data;
+            Common::Content::TextAssetHeaderSerialized Header;
+            uint32_t                                   Version = 0;
+        };
+        static Common::ResultStr<AnySkeleton> ReadAnySkeleton( const std::string& text )
+        {
+            const auto read = Common::Json::Read<SkeletonAssetDataV1V2>( text );
+            if ( !read )
+                return Common::MakeFormattedError<AnySkeleton>( "the skeleton body does not read: {}",
+                                                                read.GetError() );
+            const auto& header = read.GetValue().Header;
+            if ( !header.has_value() )
+                return Common::MakeFormattedError<AnySkeleton>( "the file states no header" );
+            const auto stated = header->Versions.find( "SKEL" );
+            if ( stated == header->Versions.end() )
+                return Common::MakeFormattedError<AnySkeleton>( "the header states no SKEL version" );
+            return Common::MakeSuccess( AnySkeleton{ read.GetValue(), *header, stated->second } );
+        }
+    } // namespace SkeletonLegacy
+    using SkeletonLegacy::ReadAnySkeleton;
+
+    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text )
+    {
+        const auto any = ReadAnySkeleton( text );
+        if ( !any )
+            return Common::MakeError<std::string>( any.GetError() );
+        const auto& [old, header, version] = any.GetValue();
+        if ( version != 1u && version != 2u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states SKEL {}, and this step raises SKEL 1 and 2 only", version );
+
+        Assets::Serialization::SkeletonAssetData   data;
+        Common::Content::TextAssetHeaderSerialized stamped = header;
+        stamped.Versions["SKEL"]                           = Assets::kSkeletonSchemaVersion;
+        data.Header                                        = std::move( stamped );
+        data.Signature                                     = old.Signature;
+        data.Bones                                         = old.Bones;
+        data.PreviewMesh                                   = old.PreviewMesh;
+        data.CompatibleSkeletons = old.CompatibleSkeletons.value_or( std::vector<Assets::AssetGuidRef>{} );
+        std::string written      = Common::Json::Write( data );
+        // What the step writes, the engine's reader must read.
+        if ( auto back = Assets::Serialization::ReadSkeletonJson( written ); !back )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as SKEL {}: {}",
+                                                            Assets::kSkeletonSchemaVersion, back.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    namespace AnimGraphLegacy
+    {
+        namespace G = Animation::Graph;
+        // ANGR 2: the current layout without the Output Pose node's position.
+        struct AnimLayerGraphV2
+        {
+            std::string              Interface;
+            std::string              Layer;
+            std::vector<G::PoseNode> Nodes;
+            std::string              OutputPose;
+        };
+        struct AnimGraphLayersV2
+        {
+            std::vector<G::AnimLayerInterface> Interfaces;
+            std::vector<AnimLayerGraphV2>      Implemented;
+        };
+        struct AnimGraphV2
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            std::string                                               Name;
+            std::vector<G::Parameter>                                 Parameters;
+            std::vector<G::PoseNode>                                  Nodes;
+            std::string                                               OutputPose;
+            std::optional<AnimGraphLayersV2>                          Layers;
+        };
+    } // namespace AnimGraphLegacy
+
+    Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text )
+    {
+        namespace G     = Animation::Graph;
+        const auto read = Common::Json::Read<AnimGraphLegacy::AnimGraphV2>( text );
+        if ( !read )
+            return Common::MakeFormattedError<std::string>( "ANGR 2 body does not read: {}", read.GetError() );
+        const AnimGraphLegacy::AnimGraphV2& old = read.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        const auto stated = old.Header->Versions.find( "ANGR" );
+        if ( stated == old.Header->Versions.end() || stated->second != 2u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states ANGR {}, and this step raises ANGR 2 only",
+                 stated == old.Header->Versions.end() ? std::string( "nothing" )
+                                                      : std::to_string( stated->second ) );
+
+        G::AnimGraph graph;
+        graph.Header                   = old.Header;
+        graph.Header->Versions["ANGR"] = 3u;
+        graph.Name                     = old.Name;
+        graph.Parameters               = old.Parameters;
+        graph.Nodes                    = old.Nodes;
+        graph.OutputPose               = old.OutputPose;
+        std::tie( graph.OutputPoseX, graph.OutputPoseY ) =
+             G::DefaultOutputPosePosition( old.Nodes, old.OutputPose );
+        if ( old.Layers )
+        {
+            G::AnimGraphLayers layers;
+            layers.Interfaces = old.Layers->Interfaces;
+            for ( const AnimGraphLegacy::AnimLayerGraphV2& was : old.Layers->Implemented )
+            {
+                G::AnimLayerGraph layer;
+                layer.Interface  = was.Interface;
+                layer.Layer      = was.Layer;
+                layer.Nodes      = was.Nodes;
+                layer.OutputPose = was.OutputPose;
+                std::tie( layer.OutputPoseX, layer.OutputPoseY ) =
+                     G::DefaultOutputPosePosition( was.Nodes, was.OutputPose );
+                layers.Implemented.push_back( std::move( layer ) );
+            }
+            graph.Layers = std::move( layers );
+        }
+
+        // ANGR 3 IS NOT THE CURRENT GENERATION (ANGR 4 added TargetSkeleton): the engine's writer stamps the
+        // current one and an empty TargetSkeleton, so the text is put back to ANGR 3's shape; the next run's
+        // StateTargetSkeleton raises it on and re-reads it with the engine's reader.
+        auto raised = rfl::json::read<rfl::Generic::Object>( G::Serialize( graph ) );
+        if ( !raised )
+            return Common::MakeFormattedError<std::string>( "the raised graph does not re-read: {}",
+                                                            raised.error().what() );
+        rfl::Generic::Object v3;
+        for ( const auto& [key, field] : raised.value() )
+            if ( key != "TargetSkeleton" )
+                v3[key] = field;
+        auto header   = v3.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        auto versions = header ? header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object()
+                               : rfl::Result<rfl::Generic::Object>( rfl::Error( "no header" ) );
+        if ( !header || !versions )
+            return Common::MakeFormattedError<std::string>( "the raised graph states no header versions" );
+        versions.value()["ANGR"]   = rfl::Generic( 3 );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        v3["Header"]               = rfl::Generic( std::move( header.value() ) );
+        return Common::Content::CanonicalJsonText( rfl::json::write( v3 ) );
+    }
+
+    Common::ResultStr<Animation::SkeletonCandidate> ReadSkeletonCandidate( const std::filesystem::path& path,
+                                                                           const std::string&           text )
+    {
+        // Any generation this tool raises: the candidates are gathered BEFORE the rigs themselves are raised.
+        const auto read = ReadAnySkeleton( text );
+        if ( !read )
+            return Common::MakeFormattedError<Animation::SkeletonCandidate>(
+                 "'{}' is not a skeleton candidate: {}", path.string(), read.GetError() );
+        const auto& data = read.GetValue().Data;
+        const auto  guid = Common::Content::AssetGuidFromText( read.GetValue().Header.Guid );
+        if ( !guid )
+            return Common::MakeFormattedError<Animation::SkeletonCandidate>( "'{}' header GUID: {}", path.string(),
+                                                                             guid.GetError() );
+        std::filesystem::path stated = path.filename();
+        for ( auto dir = path.parent_path(); !dir.empty() && dir != dir.parent_path(); dir = dir.parent_path() )
+        {
+            if ( dir.filename() == "Assets" )
+            {
+                stated = path.lexically_relative( dir );
+                break;
+            }
+        }
+        return Common::MakeSuccess(
+             Animation::SkeletonCandidate{ guid.GetValue(), data.Signature, stated.generic_string() } );
+    }
+
+    Common::ResultStr<TargetSkeletonRig> ReadTargetSkeletonRig( const std::filesystem::path& path,
+                                                                const std::string&           text )
+    {
+        const auto candidate = ReadSkeletonCandidate( path, text );
+        if ( !candidate )
+            return Common::MakeError<TargetSkeletonRig>( candidate.GetError() );
+        TargetSkeletonRig rig{
+             Common::Content::AssetGuidToText( candidate.GetValue().Guid ), candidate.GetValue().Path, {} };
+        const auto skeleton = ReadAnySkeleton( text );
+        if ( !skeleton )
+            return Common::MakeError<TargetSkeletonRig>( skeleton.GetError() );
+        for ( const auto& bone : skeleton.GetValue().Data.Bones )
+            rig.Bones.insert( bone.Name );
+        return Common::MakeSuccess( std::move( rig ) );
+    }
+
+    namespace TargetSkeletonStep
+    {
+        struct Evidence
+        {
+            std::unordered_set<std::string> Bones;
+            std::unordered_set<std::string> Clips;
+        };
+
+        void Collect( const rfl::Generic& node, Evidence& out )
+        {
+            if ( const auto array = node.to_array(); array.has_value() )
+            {
+                for ( const auto& item : array.value() )
+                    Collect( item, out );
+                return;
+            }
+            const auto object = node.to_object();
+            if ( !object.has_value() )
+                return;
+            bool boneSpace = false;
+            if ( const auto kind = object.value().get( "Kind" ); kind.has_value() )
+                boneSpace = kind.value().to_string().value_or( "" ) == "Bone";
+            for ( const auto& [key, field] : object.value() )
+            {
+                if ( key.starts_with( "Source" ) || key == "Header" )
+                    continue;
+                if ( const auto value = field.to_string(); value.has_value() )
+                {
+                    const bool bone = key == "Bone" || key == "BoneName" || key.ends_with( "Bone" ) ||
+                                      ( boneSpace && key == "Target" );
+                    if ( bone && !value.value().empty() )
+                        out.Bones.insert( value.value() );
+                    else if ( key == "Clip" && !value.value().empty() )
+                        out.Clips.insert( value.value() );
+                    continue;
+                }
+                Collect( field, out );
+            }
+        }
+
+        // The engine's reader and writer of the kind: what the step writes, the engine must read.
+        Common::ResultStr<std::string> Canonical( const std::string& tag, const std::string& text )
+        {
+            namespace S = Assets::Serialization;
+            if ( tag == "ANGR" )
+            {
+                const auto read = Animation::Graph::Deserialize( text );
+                return read ? Common::MakeSuccess( Animation::Graph::Serialize( read.GetValue() ) )
+                            : Common::MakeError<std::string>( read.GetError() );
+            }
+            if ( tag == "CRIG" )
+            {
+                const auto read = S::ParseControlRig( text );
+                return read ? Common::MakeSuccess( S::WriteControlRig( read.GetValue() ) )
+                            : Common::MakeError<std::string>( read.GetError() );
+            }
+            const auto read = S::ParseRetarget( text );
+            return read ? Common::MakeSuccess( S::WriteRetarget( read.GetValue() ) )
+                        : Common::MakeError<std::string>( read.GetError() );
+        }
+    } // namespace TargetSkeletonStep
+
+    Common::ResultStr<std::string>
+    StateTargetSkeleton( const std::string& text, const std::string& tag,
+                         const std::vector<TargetSkeletonRig>&               rigs,
+                         const std::unordered_map<std::string, std::string>& clipRigs )
+    {
+        const uint32_t from = tag == "ANGR" ? 3u : tag == "CRIG" ? 2u : 3u;
+        const uint32_t to   = tag == "ANGR"   ? Assets::kAnimGraphSchemaVersion
+                              : tag == "CRIG" ? Assets::kControlRigSchemaVersion
+                                              : Assets::kRetargetSchemaVersion;
+        auto           read = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<std::string>( "{} {} body does not read: {}", tag, from,
+                                                            read.error().what() );
+        rfl::Generic::Object document = std::move( read.value() );
+        auto                 header   = document.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        if ( !header.has_value() )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        auto versions = header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object();
+        if ( !versions.has_value() ||
+             versions.value().get( tag ).value_or( rfl::Generic() ).to_int().value_or( -1 ) !=
+                  static_cast<int>( from ) )
+            return Common::MakeFormattedError<std::string>(
+                 "the header does not state {} {}, and this step raises "
+                 "{} {} only",
+                 tag, from, tag, from );
+
+        TargetSkeletonStep::Evidence evidence;
+        TargetSkeletonStep::Collect( rfl::Generic( document ), evidence );
+        std::unordered_set<std::string> clipSkeletons;
+        for ( const std::string& clip : evidence.Clips )
+        {
+            const auto rig = clipRigs.find( clip );
+            if ( rig == clipRigs.end() )
+                return Common::MakeFormattedError<std::string>( "plays clip '{}', which no .anim of the corpus is "
+                                                                "named; its skeleton cannot be stated",
+                                                                clip );
+            clipSkeletons.insert( rig->second );
+        }
+        if ( evidence.Bones.empty() && clipSkeletons.empty() )
+            return Common::MakeFormattedError<std::string>( "names no bone and plays no clip: nothing states its "
+                                                            "skeleton; author TargetSkeleton by hand" );
+        std::vector<const TargetSkeletonRig*> fits;
+        for ( const TargetSkeletonRig& rig : rigs )
+        {
+            bool fit =
+                 clipSkeletons.empty() || ( clipSkeletons.size() == 1 && clipSkeletons.contains( rig.Guid ) );
+            for ( const std::string& bone : evidence.Bones )
+                fit = fit && rig.Bones.contains( bone );
+            if ( fit )
+                fits.push_back( &rig );
+        }
+        if ( fits.size() != 1 )
+        {
+            std::string named;
+            for ( const TargetSkeletonRig* rig : fits )
+                named += ( named.empty() ? "" : ", " ) + rig->Path;
+            return Common::MakeFormattedError<std::string>(
+                 "{} skeletons fit its {} bone name(s) and {} clip rig(s) ({}); exactly one must - author "
+                 "TargetSkeleton by hand",
+                 fits.size(), evidence.Bones.size(), clipSkeletons.size(), named.empty() ? "none" : named );
+        }
+
+        versions.value()[tag]      = rfl::Generic( static_cast<int>( to ) );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        document["Header"]         = rfl::Generic( std::move( header.value() ) );
+        rfl::Generic::Object target;
+        target["Guid"]             = rfl::Generic( fits.front()->Guid );
+        target["Path"]             = rfl::Generic( fits.front()->Path );
+        document["TargetSkeleton"] = rfl::Generic( std::move( target ) );
+
+        const auto written = TargetSkeletonStep::Canonical( tag, rfl::json::write( document ) );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as {} {}: {}", tag, to,
+                                                            written.GetError() );
+        return written;
+    }
+
+    Common::ResultStr<std::string>
+    MigrateMeshBinaryToV5( const std::string_view path, const std::string_view bytes,
+                           const std::span<const Animation::SkeletonCandidate> skeletons )
+    {
+        namespace C = Common::Content;
+        // The v3/v4 layout: a 64-byte header {Magic 8, ByteOrder 4, Version 4, FileSize 8, SectionCount 4,
+        // Flags 4, SkeletonSignature 8, BoundsMin 12, BoundsMax 12}, the mesh GUID at 64, the table at 80.
+        constexpr std::size_t kOldHeader       = 64;
+        constexpr std::size_t kOldPrefix       = kOldHeader + 16;
+        constexpr uint32_t    kOldSignatureBit = 1u << 1; // v1-v4 kMeshFlagHasSkeletonSignature
+        constexpr uint32_t    kRows            = 12;      // v4 and v5: through Colors (11) and UV1 (12)
+        struct Row
+        {
+            uint32_t Id;
+            uint32_t ElementSize;
+            uint64_t Offset;
+            uint64_t Count;
+        };
+        static_assert( sizeof( Row ) == C::kMeshBinarySectionRowSize );
+
+        if ( bytes.size() < kOldPrefix || std::memcmp( bytes.data(), C::kMeshBinaryMagic, 8 ) != 0 )
+            return Common::MakeFormattedError<std::string>( "'{}' is not a cooked mesh", path );
+        uint32_t version      = 0;
+        uint32_t sectionCount = 0;
+        uint32_t flags        = 0;
+        uint64_t fileSize     = 0;
+        uint64_t signature    = 0;
+        std::memcpy( &version, bytes.data() + 12, 4 );
+        std::memcpy( &fileSize, bytes.data() + 16, 8 );
+        std::memcpy( &sectionCount, bytes.data() + 24, 4 );
+        std::memcpy( &flags, bytes.data() + 28, 4 );
+        std::memcpy( &signature, bytes.data() + 32, 8 );
+        if ( version != 3u && version != 4u )
+            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 3 and 4",
+                                                            path, version );
+        const uint32_t oldRows = version == 3u ? 10u : kRows;
+        const uint64_t oldEnd  = kOldPrefix + sizeof( Row ) * oldRows;
+        if ( fileSize != bytes.size() || sectionCount != oldRows || bytes.size() < oldEnd )
+            return Common::MakeFormattedError<std::string>(
+                 "'{}' declares {} bytes and {} sections ({} present, v{} has {})", path, fileSize, sectionCount,
+                 bytes.size(), version, oldRows );
+
+        C::AssetGuid skeleton;
+        if ( ( flags & kOldSignatureBit ) != 0 )
+        {
+            const auto guid = Animation::MigrateSkeletonReference( path, signature, skeletons );
+            if ( !guid )
+                return Common::MakeError<std::string>( guid.GetError() );
+            skeleton = guid.GetValue();
+        }
+
+        const uint64_t          delta = C::kMeshBinaryPrefixSize + sizeof( Row ) * kRows - oldEnd;
+        C::MeshBinaryFileHeader header{};
+        std::memcpy( header.Magic, bytes.data(), 8 );
+        std::memcpy( &header.ByteOrder, bytes.data() + 8, 4 );
+        header.Version      = C::kMeshBinaryVersion;
+        header.FileSize     = fileSize + delta;
+        header.SectionCount = kRows;
+        header.Flags        = flags & ~kOldSignatureBit;
+        header.SkeletonGuid = skeleton;
+        std::memcpy( header.BoundsMin, bytes.data() + 40, 12 );
+        std::memcpy( header.BoundsMax, bytes.data() + 52, 12 );
+
+        std::string raised;
+        raised.reserve( static_cast<std::size_t>( header.FileSize ) );
+        const auto headerBytes = std::bit_cast<std::array<char, sizeof( header )>>( header );
+        raised.append( headerBytes.data(), headerBytes.size() );
+        raised.append( bytes.data() + kOldHeader, 16 ); // the mesh GUID
+        for ( uint32_t i = 0; i < kRows; ++i )
+        {
+            Row row{};
+            if ( i < oldRows )
+            {
+                std::memcpy( &row, bytes.data() + kOldPrefix + sizeof( Row ) * i, sizeof( Row ) );
+                row.Offset += delta;
+            }
+            else // v3 had no Colors / UV1: empty sections at the end of the file
+                row = Row{ i + 1, i + 1 == 11 ? 4u : 8u, header.FileSize, 0 };
+            const auto rowBytes = std::bit_cast<std::array<char, sizeof( row )>>( row );
+            raised.append( rowBytes.data(), rowBytes.size() );
+        }
+        raised.append( bytes.data() + oldEnd, bytes.size() - oldEnd );
+
+        // THE ENGINE JUDGES THE RESULT, and its writer states it: a raise that shifted one byte wrong is refused
+        // here by the same reader the editor uses, not discovered as a torn mesh later.
+        auto decoded = Assets::Serialization::DecodeMeshBinary( raised, path );
+        if ( !decoded )
+            return Common::MakeFormattedError<std::string>( "'{}': the raised v{} does not read: {}", path,
+                                                            C::kMeshBinaryVersion, decoded.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
+    }
+
+    Common::ResultStr<std::string>
+    MigrateMeshSourceToV3( const std::string_view path, const std::string_view bytes,
+                           const std::span<const Animation::SkeletonCandidate> skeletons )
+    {
+        namespace C   = Common::Content;
+        auto envelope = C::ReadAssetEnvelope( std::as_bytes( std::span( bytes.data(), bytes.size() ) ),
+                                              Assets::MeshAssetHeaderReadContext() );
+        if ( !envelope )
+            return Common::MakeFormattedError<std::string>( "'{}': {}", path, envelope.GetError() );
+        C::AssetEnvelope e      = envelope.ExtractValue();
+        const auto       source = std::find_if( e.Sections.begin(), e.Sections.end(), []( const auto& section )
+                                                { return section.Tag == C::EnvelopeSection::Source; } );
+        if ( source == e.Sections.end() )
+            return Common::MakeFormattedError<std::string>( "'{}' has no SRCE section", path );
+
+        // THE SRCE 2 LAYOUT (MeshSourceAsset.cpp Reader/EncodeSource at version 2), walked without decoding:
+        // U32 version; models {Floats, Ints x3, 3 optional overlays, UV overlays}; slots {String, U64, U64};
+        // U8 skinned; skin {U64 signature, bone names, influences}. Little-endian, counts are U32.
+        const std::vector<std::byte>& old = source->Bytes;
+        std::size_t                   at  = 0;
+        bool                          ok  = true;
+        const auto                    u32 = [&]() -> uint32_t
+        {
+            if ( !ok || old.size() - at < 4 )
+            {
+                ok = false;
+                return 0;
+            }
+            uint32_t v = 0;
+            std::memcpy( &v, old.data() + at, 4 );
+            at += 4;
+            return v;
+        };
+        const auto skip = [&]( const uint64_t n )
+        {
+            if ( !ok || old.size() - at < n )
+                ok = false;
+            else
+                at += static_cast<std::size_t>( n );
+        };
+        const auto array   = [&]() { skip( uint64_t{ 4 } * u32() ); }; // Floats / Ints
+        const auto overlay = [&]()
+        {
+            array();
+            array();
+        };
+        const uint32_t version = u32();
+        if ( !ok || version != 2u )
+            return Common::MakeFormattedError<std::string>(
+                 "'{}' states mesh Source version {}; this step raises 2", path, version );
+        const uint32_t models = u32();
+        for ( uint32_t m = 0; ok && m < models; ++m )
+        {
+            for ( int i = 0; i < 4; ++i )
+                array();
+            for ( int i = 0; ok && i < 3; ++i )
+            {
+                skip( 1 );
+                if ( ok && std::to_integer<uint8_t>( old[at - 1] ) == 1 )
+                    overlay();
+            }
+            const uint32_t uvs = u32();
+            for ( uint32_t i = 0; ok && i < uvs; ++i )
+                overlay();
+        }
+        const uint32_t slots = u32();
+        for ( uint32_t i = 0; ok && i < slots; ++i )
+        {
+            skip( u32() );
+            skip( 16 );
+        }
+        skip( 1 );
+        if ( !ok )
+            return Common::MakeFormattedError<std::string>( "'{}': its SRCE 2 section is truncated", path );
+        const bool skinned = std::to_integer<uint8_t>( old[at - 1] ) == 1;
+
+        std::vector<std::byte> raised( old.begin(), old.begin() + static_cast<std::ptrdiff_t>( at ) );
+        const uint32_t         three = 3u;
+        std::memcpy( raised.data(), &three, 4 );
+        if ( skinned )
+        {
+            uint64_t signature = 0;
+            if ( old.size() - at < 8 )
+                return Common::MakeFormattedError<std::string>( "'{}': its SRCE 2 skin is truncated", path );
+            std::memcpy( &signature, old.data() + at, 8 );
+            at += 8;
+            const auto guid = Animation::MigrateSkeletonReference( path, signature, skeletons );
+            if ( !guid )
+                return Common::MakeError<std::string>( guid.GetError() );
+            const C::AssetGuid skeleton = guid.GetValue();
+            for ( const uint64_t half : { skeleton.Hi, skeleton.Lo } )
+                for ( int i = 0; i < 8; ++i )
+                    raised.push_back( static_cast<std::byte>( ( half >> ( 8 * i ) ) & 0xFFu ) );
+            if ( std::find( e.Asset.Dependencies.begin(), e.Asset.Dependencies.end(), skeleton ) ==
+                 e.Asset.Dependencies.end() )
+                e.Asset.Dependencies.push_back( skeleton );
+        }
+        raised.insert( raised.end(), old.begin() + static_cast<std::ptrdiff_t>( at ), old.end() );
+        source->Bytes = std::move( raised );
+
+        const auto written = C::WriteAssetEnvelope( e );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "'{}': {}", path, written.GetError() );
+        // THE ENGINE JUDGES THE RESULT: the raised file must read as the asset the editor opens, and its writer
+        // states it (canonical bytes).
+        auto decoded = Assets::DecodeMeshSourceAsset( written.GetValue() );
+        if ( !decoded )
+            return Common::MakeFormattedError<std::string>( "'{}': the raised SRCE 3 does not read: {}", path,
+                                                            decoded.GetError() );
+        const auto encoded = Assets::EncodeMeshSourceAsset( decoded.GetValue() );
+        if ( !encoded )
+            return Common::MakeFormattedError<std::string>( "'{}': {}", path, encoded.GetError() );
+        const auto& canonical = encoded.GetValue();
+        std::string text( canonical.size(), '\0' );
+        std::ranges::transform( canonical, text.begin(),
+                                []( const std::byte b ) { return static_cast<char>( b ); } );
+        return Common::MakeSuccess( std::move( text ) );
+    }
 
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text )
     {
@@ -866,9 +1593,13 @@ namespace Desert::Migration
         if ( !v5 )
             return Common::MakeFormattedError<std::string>( "FOLT 5 body does not read: {}", v5.GetError() );
         const FoliageTypeDataV5& old = v5.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
 
-        Assets::Serialization::FoliageTypeData data;
-        data.Header = old.Header;
+        // v6 text, not the engine's struct: the engine is v7, and v6 -> v7 is the chain's next step.
+        FoliageTypeDataV6 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 6u;
         // Every v5 type drew a mesh: FOLT 5 had no other kind.
         data.Kind               = Assets::Serialization::FoliageTypeKind::Mesh;
         data.Mesh               = old.Mesh;
@@ -886,9 +1617,48 @@ namespace Desert::Migration
         data.Wind               = old.Wind;
         data.IncludeInHLOD      = old.IncludeInHLOD;
 
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV6ToV7( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 6: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV6ToV7( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 6u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 6 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v6 = Common::Json::Read<FoliageTypeDataV6>( text );
+        if ( !v6 )
+            return Common::MakeFormattedError<std::string>( "FOLT 6 body does not read: {}", v6.GetError() );
+        const FoliageTypeDataV6& old = v6.GetValue();
+
+        Assets::Serialization::FoliageTypeData data;
+        data.Header             = old.Header;
+        data.Kind               = old.Kind;
+        data.Mesh               = old.Mesh;
+        data.Prefab             = old.Prefab;
+        data.Density            = old.Density;
+        data.ScaleX             = old.ScaleX;
+        data.ZOffset            = old.ZOffset;
+        data.AlignToNormal      = old.AlignToNormal;
+        data.RandomYaw          = old.RandomYaw;
+        data.RandomPitchAngle   = old.RandomPitchAngle;
+        data.GroundSlopeAngle   = old.GroundSlopeAngle;
+        data.Height             = old.Height;
+        data.LandscapeLayers    = old.LandscapeLayers;
+        data.MinimumLayerWeight = old.MinimumLayerWeight;
+        data.CullDistance       = old.CullDistance;
+        data.Wind               = old.Wind;
+        data.IncludeInHLOD      = old.IncludeInHLOD;
+        // UE UFoliageType's procedural defaults: FOLT 6 had no procedural simulation to state them for.
+        data.Procedural = Assets::Serialization::FoliageProcedural{};
+
         std::string written = Assets::Serialization::WriteFoliageType( data );
         if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 6: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 7: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }
@@ -993,10 +1763,7 @@ namespace Desert::Migration
                 report.UndeclaredKeys       = MigrateUndeclaredKeysV38ToV39( entities );
                 if ( !report.UndeclaredKeys.Refused.empty() )
                 {
-                    std::string lines;
-                    for ( const auto& line : report.UndeclaredKeys.Refused )
-                        lines += ( lines.empty() ? "" : "; " ) + line;
-                    report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
+                    report.Refused = RefusedWhole( name, report.UndeclaredKeys.Refused );
                     return;
                 }
             }
@@ -1006,6 +1773,27 @@ namespace Desert::Migration
             {
                 report.PlayerViewFlagRaised = true;
                 report.PlayerViewFlag       = MigratePlayerViewFlagV39ToV40( entities );
+            }
+
+            // UI animation is a Timeline sequence (ANIM-I9): the v40 key model is lifted once, here.
+            if ( statedSceneVersion < kSceneVersionUIAnimationSequences )
+            {
+                report.UIAnimationsRaised = true;
+                report.UIAnimations       = MigrateUIAnimationsV40ToV41( entities );
+                if ( !report.UIAnimations.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.UIAnimations.Refused );
+                    return;
+                }
+            }
+
+            // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
+            report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
+            report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
+            if ( !report.UIAnimationTimelines.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( name, report.UIAnimationTimelines.Refused );
+                return;
             }
         }
 

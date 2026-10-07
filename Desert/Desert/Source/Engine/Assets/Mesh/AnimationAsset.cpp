@@ -58,8 +58,7 @@ namespace Desert::Assets
         // A NEW GENERATION OF THE TRACK LIST. Stamped here rather than by the builder: the builder makes a
         // fresh clip that knows nothing of the one it is about to replace, and it is the REPLACEMENT that
         // any cache downstream has to notice.
-        m_Clip.TrackRevision = ++m_TrackRevision;
-        m_SkeletonSignature  = m_Clip.SkeletonSignature;
+        m_Clip.Sequence.Revision = ++m_TrackRevision;
         m_HasClip            = true;
         return BOOLSUCCESS;
     }
@@ -77,19 +76,25 @@ namespace Desert::Assets
                  m_Metadata.Filepath.string() );
         }
 
-        m_Clip.Tracks.clear();
-        m_Clip.Tracks.shrink_to_fit();
-        m_Clip.TrackRevision = ++m_TrackRevision; // the list this asset handed out no longer exists
-        m_Clip.Notifies.clear();
-        m_Clip.Notifies.shrink_to_fit();
+        // The sequence goes whole (bindings, tracks, keys); its Revision still moves, so a cache keyed on it
+        // cannot mistake the reload's sequence for the one this asset handed out.
+        m_Clip.Sequence          = Animation::AnimationClip::MakeClipSequence();
+        m_Clip.Sequence.Revision = ++m_TrackRevision;
         m_Clip.AnimationName.clear();
-        m_Clip.DurationTicks = Animation::FrameNumber{};
-        // The signature is what ResolveDependencies matches a rig on, so an unloaded clip must not keep
-        // answering with one — the same reason the skeleton's readiness is now the skeleton itself.
-        m_Clip.SkeletonSignature = 0;
-        m_SkeletonSignature      = 0;
-        m_HasClip                = false;
+        // The skeleton reference goes with the payload: an unloaded clip names no skeleton until it is read.
+        m_Clip.Skeleton = {};
+        m_HasClip       = false;
         return BOOLSUCCESS;
+    }
+
+    Common::Content::AssetGuid AnimationAsset::GetSkeleton() const
+    {
+        return m_Clip.Skeleton;
+    }
+
+    void AnimationAsset::SetSkeleton( const Common::Content::AssetGuid skeleton )
+    {
+        m_Clip.Skeleton = skeleton;
     }
 
 } // namespace Desert::Assets

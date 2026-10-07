@@ -10,6 +10,7 @@
 #include <set>
 #include <sstream>
 #include <tuple>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Index;
 using Desert::Submesh;
@@ -423,11 +424,7 @@ TEST( MeshLOD, TheBoundsTakingAndSubmeshTakingSelectorsAreOnePolicy )
 TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
 {
     namespace fs  = std::filesystem;
-    fs::path root = fs::current_path();
-    for ( int i = 0; i < 8 && !( fs::exists( root / "Desert" / "Common" ) && fs::exists( root / "Editor" ) ); ++i )
-    {
-        root = root.parent_path();
-    }
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) );
 
     // The opaque instanced batch is recorded in MeshRendererForward.cpp, the cascade's in MeshRendererShadow.cpp.
@@ -449,8 +446,9 @@ TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
     };
 
     const Row rows[] = {
-         { "= instancedPipeline,", "d.LodLevel",
-           "the opaque instanced batch — auto-batched statics and ISM instances" },
+         { "= instancedDrawPipeline,", "d.LodLevel",
+           "the opaque instanced batch — auto-batched statics and ISM instances (instancedPipeline, or its "
+           "CullMode None twin for a TwoSided material)" },
          { "= m_ShadowInstancedPipeline.get(),", "b.LodLevel",
            "the cascade's instanced casters; a caster at a coarser level than the object the camera "
            "sees casts a silhouette that does not match it" },

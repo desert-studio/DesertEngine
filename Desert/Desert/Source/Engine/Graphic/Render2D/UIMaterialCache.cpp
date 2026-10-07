@@ -123,7 +123,7 @@ namespace Desert::Graphic::Render2D
 
         entry.Pipeline         = pipeline.GetValue();
         entry.Material         = std::make_unique<DataDrivenMaterial>( shaderName );
-        entry.ShaderGeneration = shader->GetReloadGeneration();
+        entry.ShaderGeneration = shader->GetCodeGeneration();
         return entry;
     }
 
@@ -134,7 +134,7 @@ namespace Desert::Graphic::Render2D
         {
             return;
         }
-        const uint32_t generation = entry.Pipeline->GetSpecification().Shader->GetReloadGeneration();
+        const uint64_t generation = entry.Pipeline->GetSpecification().Shader->GetCodeGeneration();
         UIMaterialFallback::RebuildIfReloaded(
              entry, generation,
              [&]( Entry& stale )
@@ -273,14 +273,15 @@ namespace Desert::Graphic::Render2D
             return Entry{};
         }
 
-        const std::string shaderName = materialService->ShaderNameOf( handle );
-        Entry             built;
-        if ( shaderName.empty() )
+        const auto materialTemplate = materialService->ShaderHandleOf( handle );
+        Entry      built;
+        if ( materialTemplate.Shader.IsNull() )
         {
-            refusal = "the handle names no material asset (it was deleted, or never registered)";
+            refusal = "the handle names no material asset with a loaded template (it was deleted, never "
+                      "registered, or names no template)";
             return built;
         }
-        built = Build( shaderName, refusal );
+        built = Build( materialTemplate.CompileName, refusal );
         if ( !built.Pipeline )
             return built;
 
@@ -294,7 +295,7 @@ namespace Desert::Graphic::Render2D
                 if ( !built.Material->SetParam( name, value ) )
                     LOG_WARN( "[UIMaterial] '{}' has no parameter '{}' — the value in the .demat is "
                               "ignored",
-                              shaderName, name );
+                              materialTemplate.CompileName, name );
             for ( const auto& [name, texture] : overrides.Textures )
             {
                 // A HANDLE THAT NAMES A TEXTURE AND A HANDLE THAT NAMES NOTHING ARE NOT THE SAME SLOT,
@@ -308,11 +309,11 @@ namespace Desert::Graphic::Render2D
                     LOG_ERROR( "[UIMaterial] '{}' binds texture {} to '{}' and it did not resolve; the "
                                "slot falls back to the shader's own default and the surface will not "
                                "look like the file says",
-                               shaderName, texture, name );
+                               materialTemplate.CompileName, texture, name );
                 if ( !built.Material->SetTexture( name, image ) )
                     LOG_WARN( "[UIMaterial] '{}' has no Texture2D '{}' — the binding in the .demat is "
                               "ignored",
-                              shaderName, name );
+                              materialTemplate.CompileName, name );
             }
         }
 

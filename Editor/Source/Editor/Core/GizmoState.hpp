@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
+
 namespace Desert::Editor::Core
 {
     // Editor-global transform-gizmo mode, and the gizmo's view of the snap settings.
@@ -155,6 +158,34 @@ namespace Desert::Editor::Core
             s_ControlInteraction = held;
         }
 
+        // THE SAME BIT FOR AN ACTOR. The entity gizmo's drag (`GizmoController::Render`) — what a level
+        // sequence's Auto Key keys on the release of (`ECS::LevelSequenceAutoKey`). A third bit rather than
+        // either of the two above: an actor gesture writes no bone and no control, and the transactions
+        // reading those must not open on it.
+        static bool EntityInteraction()
+        {
+            return s_EntityInteraction;
+        }
+
+        static void SetEntityInteraction( bool held )
+        {
+            s_EntityInteraction = held;
+        }
+
+        // The undo history's revision right after the entity gizmo's LAST release recorded its move
+        // (`RecordTransformEdits`), or empty when that release recorded nothing (a click without a drag) or a
+        // new drag started since. The level sequence's Auto Key joins its key entry to exactly this one
+        // (`CommandHistory::JoinFollowUp`): the move and its key are one Ctrl+Z, as in UE.
+        static std::optional<uint64_t> EntityGestureEntry()
+        {
+            return s_EntityGestureEntry;
+        }
+
+        static void SetEntityGestureEntry( std::optional<uint64_t> revision )
+        {
+            s_EntityGestureEntry = revision;
+        }
+
         // Snap increments, owned by EditorPreferences (~/.desertengine/editor.json). Snapping is active
         // when the persistent toggle is ON, or while Ctrl is held — and Ctrl INVERTS the toggle (so with
         // snap-always on, Ctrl gives a temporary free drag).
@@ -181,5 +212,7 @@ namespace Desert::Editor::Core
         inline static Space     s_Space     = Space::World; // UE's default, and the behaviour before this existed
         inline static bool      s_PoseInteraction = false;
         inline static bool      s_ControlInteraction = false;
+        inline static bool      s_EntityInteraction  = false;
+        inline static std::optional<uint64_t> s_EntityGestureEntry;
     };
 } // namespace Desert::Editor::Core

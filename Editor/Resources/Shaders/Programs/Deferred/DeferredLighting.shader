@@ -24,8 +24,8 @@ Shader "DeferredLighting"
         // instead shows a raw G-buffer channel full-screen. Non-geometry texels are discarded so the LOADed forward
         // scene (real procedural sky / skybox + grid) shows through.
 
-        #include <Mesh/PointLight.glslh>      // binding 6  (SSBO PointLightsUB) + CalculatePointLight + PBRFunctions
-        #include <Mesh/Spotlight.glslh>       // binding 16 (SSBO SpotLightsUB)  + CalculateSpotLight
+        #include <Mesh/PointLight.glslh>      // binding 6  (SSBO PointLightsUB) + PBRFunctions
+        #include <Mesh/Spotlight.glslh>       // binding 16 (SSBO SpotLightsUB)
         #include <Mesh/LightsMetadata.glslh>  // binding 4  (UB LightsMetadata: point/spot/dir counts)
         // THE direct-light BRDF, shared with the forward mesh shaders and with the point/spot headers
         // above (which already include it). Named explicitly because this pass calls it directly.
@@ -37,11 +37,12 @@ Shader "DeferredLighting"
 
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_GBufferC; // rgb = world position
+        // The G-buffer's layout and the shading-model ids it carries (C.w, Emissive.a).
+        Uniform(1) sampler2D u_GBufferC; // rgb = world position, a = ShadingModelID | texture count (packed)
         Uniform(2) sampler2D u_GBufferA; // rgb = albedo, a = metallic
         Uniform(3) sampler2D u_GBufferB; // rgb = world normal, a = roughness
         Uniform(8) sampler2D u_SSAO;     // r = ambient-occlusion factor (1 = lit)
-        Uniform(9) sampler2D u_GBufferEmissive; // rgb = HDR emissive (self-illumination, added below)
+        Uniform(9) sampler2D u_GBufferEmissive; // rgb = HDR emissive (added below), a = material AO
         // RSM GI mode only: one-bounce indirect light PRE-RESOLVED into its own buffer by the GIResolve pass
         // (already temporally denoised there). Unused — and left bound to its dummy — in the other GI modes.
         Uniform(10) sampler2D u_GI;
@@ -75,13 +76,17 @@ Shader "DeferredLighting"
         // The ambient model itself, shared verbatim with StaticMeshPBR / StaticMeshPBR_Instanced /
         // SkinnedMeshPBR. Included after the three bindings above because it names them.
         #include <Mesh/AmbientIBL.glslh>
+        #include <Mesh/LightSources.glslh>
+        // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
+        // same two calls as the forward pass (Mesh/Surface/Pass_Forward.glslh); this shader names no model.
+        #include <Generated/ShadingModels.glslh>
 
         // The directional (sun) Cook-Torrance contribution used to be a local copy of the BRDF right here,
         // with a comment recording that the raw albedo*NdotL*intensity Lambert made the sun ~PI× too bright
         // and washed out the point/spot lights. The forward mesh shaders had shipped exactly that raw form
         // for as long, so the comment described a defect that was live one file away. The copy is gone: the
-        // sun is now EvaluateDirectionalLight from Mesh/DirectLighting.glslh, which the forward path and the
-        // point/spot headers compile too. Included at the top with Mesh/PointLight.glslh, which pulls it in.
+        // sun, like every point and spot light, is a DesertLight (Mesh/LightSources.glslh) handed to the
+        // surface's shading model, whose DefaultLit body is EvaluateDirectLight from Mesh/DirectLighting.glslh.
 
         Uniform(0) DeferredUB
         {
@@ -229,7 +234,15 @@ Shader "DeferredLighting"
         		discard;
         	}
 
-        	float ao = (u_Params.z > 0.5) ? texture(u_SSAO, v_TexCoord).r : 1.0; // z = SSAO enabled
+        	const vec4          ge           = texture(u_GBufferEmissive, v_TexCoord);
+        	const float         word         = DesertShadingWordMagnitude(gc.w);
+        	const int           shadingModel = DesertShadingModelIndex(word);
+        	const DesertPayload payload      = DesertUnpackPayload(word);
+
+        	// Ambient occlusion as UE composes it for the ambient: the MATERIAL's (GBuffer AO, from the surface's
+        	// AmbientOcclusion output — the forward path's whole AO) times the screen-space one. z = SSAO enabled.
+        	const float ssao = (u_Params.z > 0.5) ? texture(u_SSAO, v_TexCoord).r : 1.0;
+        	float       ao   = ge.a * ssao;
 
         	// --- Debug channels (shown on the geometry, over the sky) ---
         	if (dbg == 1) { oColor = vec4(albedo, 1.0); return; }                          // Albedo
@@ -257,14 +270,13 @@ Shader "DeferredLighting"
         		return;
         	}
 
-        	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in GBufferC.w
+        	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in GBufferC.w's upper bits
         	// (0..3). Heat-map it as a proxy for per-pixel shading cost (UE-style shader/material complexity).
-        	if (dbg == 9) { oColor = vec4(HeatColor(gc.w / 3.0), 1.0); return; }
+        	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(word) / 3.0), 1.0); return; }
 
         	// --- Lit: shadow-mapped directional sun (N·L) + full PBR point/spot lights ---
         	vec3 N    = normalize(normal);
         	vec3 view = normalize(u_CameraPos.xyz - worldPos);
-        	vec3 F0   = mix(Fdielectric, albedo, metallic);
 
         	// Directional sun (energy-normalized PBR), occluded by the cascaded shadow map.
         	// TWO OCCLUDERS OF ONE SUN, multiplied: the cascaded maps for opaque geometry and the cloud
@@ -279,19 +291,26 @@ Shader "DeferredLighting"
         	// debug modes are a different, G-buffer-driven set. Read and dropped rather than given a second
         	// ShadowFactor overload, because a second overload is how the four copies started.
         	int   cascade  = -1;
-        	float shadow   = ShadowFactor(worldPos, N, L, cascade) * CloudShadowFactor(worldPos);
+        	// The cascades skip a surface whose material does not receive them (the shading word's sign), then the
+        	// cloud layer — the cloud factor AFTER the toggle, exactly as the forward pass assembles it.
+        	float shadow   = DesertReceivesSunShadows(gc.w) ? ShadowFactor(worldPos, N, L, cascade) : 1.0;
+        	shadow        *= CloudShadowFactor(worldPos);
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
-        	vec3  result   = EvaluateDirectionalLight(u_LightDir.xyz, radiance, view, N, F0, metallic, roughness,
-        	                                          albedo)
-        	               * shadow;
+
+        	const DesertSurface surface = DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness);
+
+        	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
+        	                                         surface, payload);
 
         	// Point lights (the city payoff): every source contributes full Cook-Torrance PBR (not shadowed yet).
         	for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        		result += CalculatePointLight(pointLights[i], worldPos, view, N, F0, metallic, roughness, albedo);
+        		result += DesertEvaluateShadingModel(shadingModel, DesertPointLightAt(pointLights[i], worldPos), surface,
+        		                                     payload);
 
         	// Spot lights (street lamps / headlights).
         	for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		result += CalculateSpotLight(spotLights[i], worldPos, view, N, F0, metallic, roughness, albedo);
+        		result += DesertEvaluateShadingModel(shadingModel, DesertSpotLightAt(spotLights[i], worldPos), surface,
+        		                                     payload);
 
         	// One-bounce GI (D6). Two interchangeable sources, picked by u_Params.w:
         	//  1 = SCREEN-SPACE: gather from sun-lit G-buffer neighbours. Cheap and self-contained, but only
@@ -332,12 +351,12 @@ Shader "DeferredLighting"
         	// forward mesh shaders call, so a scene rendered through either RenderingPath gets one ambient
         	// model. The only argument that differs there is `indirect`, which the forward path passes as
         	// zero because it has no bounce gather.
-        	vec3 ibl     = AmbientIBL(view, N, F0, metallic, roughness, albedo);
-        	vec3 ambient = ComposeAmbient(ibl, albedo, ao, indirect);
+        	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, DesertSampleAmbient(surface, indirect, ao),
+        	                                                 surface, payload);
 
         	// Self-illumination (view-independent) — added here (not lit) so HDR emissive reaches the composite
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.
-        	vec3 emissive = texture(u_GBufferEmissive, v_TexCoord).rgb;
+        	vec3 emissive = ge.rgb;
 
         	oColor = vec4(result + ambient + emissive, 1.0);
         }

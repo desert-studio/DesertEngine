@@ -36,6 +36,14 @@ namespace Desert::Graphic::API::Vulkan
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 
+        // EVT-2c: a resize only REQUESTS a rebuild; it is applied here, at the frame boundary before the acquire,
+        // so no frame ever records against a swapchain that changed under it.
+        if ( const auto requested = m_SwapChain->ApplyRequestedRebuild();
+             !requested.IsSuccess() && !Graphic::DeviceLost::IsLost() )
+        {
+            LOG_ERROR( "[SwapChain] rebuild at the frame boundary failed: {}", requested.GetError() );
+        }
+
         uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
 
         // SUBOPTIMAL IS AN IMAGE; ONLY OUT_OF_DATE IS A REBUILD (Engine/Graphic/SwapchainAcquire.hpp). The
@@ -44,7 +52,11 @@ namespace Desert::Graphic::API::Vulkan
         auto* const presentComplete = m_FrameSemaphores[currentIndex].PresentComplete;
         const auto  acquired        = Graphic::AcquireForFrame(
              [&] { return m_SwapChain->AcquireNextImage( presentComplete, &m_ImageIndex ); },
-             [&] { return m_SwapChain->Rebuild( m_SwapChain->GetWidth(), m_SwapChain->GetHeight() ); } );
+             [&]
+             {
+                 m_SwapChain->RequestRebuildAtCurrentSize();
+                 return m_SwapChain->ApplyRequestedRebuild();
+             } );
         // A LOST DEVICE IS NOT A RESIZE: AcquireNextImage and Rebuild both refuse on a lost device and the
         // latch already carries the explanation, so only a failure of another kind is worth a line here.
         if ( !acquired.IsSuccess() && !Graphic::DeviceLost::IsLost() )
@@ -107,11 +119,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( NoteIfDeviceLost( res, "vkQueuePresentKHR", __FILE__, __LINE__ ) )
             return Common::MakeFormattedError<VkResult>( "result: {}", VkResultToString( res ) );
 
-        // Window was resized/minimized between acquire and present — recreate the swapchain (it re-queries
-        // the current surface extent) and treat this frame as handled. Standard Vulkan resize handling.
+        // Window was resized/minimized between acquire and present: the rebuild is requested and applied at the
+        // next frame boundary (AcquireImage), the same path as an OUT_OF_DATE acquire. This frame is handled.
         if ( res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR )
         {
-            m_SwapChain->OnResize( m_SwapChain->GetWidth(), m_SwapChain->GetHeight() );
+            m_SwapChain->RequestRebuildAtCurrentSize();
             return Common::MakeSuccess( VK_SUCCESS );
         }
 

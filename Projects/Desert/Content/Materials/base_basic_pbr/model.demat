@@ -1,0 +1,71 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "0e9b8e4ceacda82ab24a400acb62fa97",
+        "Versions": {
+            "MATL": 4
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "235a4677ab990d51e1ab19be0ad75fc2", "4935766ceb333c400238ec9d78b344c2"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/PBR/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.5, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AOStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "EmissiveIntensity",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AlphaCutoff",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "UVTiling",
+            "Value": [1.0, 1.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "u_AlbedoTexture",
+            "Guid": "235a4677ab990d51e1ab19be0ad75fc2",
+            "Path": "assets:Meshes/texture_diffuse.detex"
+        },
+        {
+            "Name": "u_NormalTexture",
+            "Guid": "4935766ceb333c400238ec9d78b344c2",
+            "Path": "assets:Meshes/texture_normal.detex"
+        },
+        {
+            "Name": "u_OpacityTexture",
+            "Guid": "",
+            "Path": ""
+        },
+        {
+            "Name": "u_EmissiveTexture",
+            "Guid": "",
+            "Path": ""
+        }
+    ],
+    "CloudAssets": []
+}

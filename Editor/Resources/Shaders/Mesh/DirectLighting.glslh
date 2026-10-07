@@ -26,7 +26,7 @@
 // of their deferred siblings. There was no 1/PI hiding in the units.
 //
 // It declares no uniform block and no sampler on purpose: that makes it includable at any point in any
-// shader — PointLight.glslh includes it before the scene's light blocks even exist — and it also makes
+// shader — a shading model's body (ShadingModels/DefaultLit.shadingmodel) includes it — and it also makes
 // it compile as C++, so Desert/Tests/Engine/DirectLighting asserts these properties on the shipped text
 // rather than on a paraphrase of it.
 //
@@ -34,10 +34,9 @@
 
 // The Cook-Torrance response of a surface to ONE analytic light.
 //
-//   L         — UNIT vector from the surface toward the light. Not normalized here: the point and spot
-//               callers already hold a normalized L (they needed its length for attenuation), and
-//               EvaluateDirectionalLight below normalizes for the two sun call sites. A caller that
-//               passes an unnormalized L gets a wrong cosine, not a rescued one.
+//   L         — UNIT vector from the surface toward the light. Not normalized here: every source reaches
+//               this through a DesertLight (Mesh/LightSources.glslh), whose L is already unit. A caller
+//               that passes an unnormalized L gets a wrong cosine, not a rescued one.
 //   radiance  — the light's incident radiance at this surface, colour * intensity * whatever
 //               attenuation and cone the caller's own light model applies. The BRDF knows nothing
 //               about falloff.
@@ -74,17 +73,6 @@ vec3 EvaluateDirectLight(vec3 L, vec3 radiance, vec3 view, vec3 N, vec3 F0, floa
 	vec3 diffuse = kd * albedo / PI; // Lambert BRDF = albedo/PI. NOT albedo.
 
 	return (diffuse + specular) * radiance * cosLi;
-}
-
-// The same response for a DIRECTIONAL light, whose payload gives the direction the light TRAVELS
-// (away from the source) rather than the direction toward it. Both sun call sites — the forward mesh
-// shaders' DirectionLightsUB and the deferred composite's DeferredUB.u_LightDir — carry it in that
-// form, so the negate-and-normalize belongs here beside them and not in two shaders.
-vec3 EvaluateDirectionalLight(vec3 lightTravel, vec3 radiance, vec3 view, vec3 N, vec3 F0,
-                              float metalness, float roughness, vec3 albedo)
-{
-	return EvaluateDirectLight(normalize(-lightTravel), radiance, view, N, F0, metalness, roughness,
-	                           albedo);
 }
 
 #endif // DIRECT_LIGHTING_GLSLH

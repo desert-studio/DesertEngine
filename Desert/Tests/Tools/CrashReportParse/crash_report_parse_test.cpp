@@ -3,11 +3,13 @@
 // report, the same report with the CR1c gpu_* / game keys, and the damaged ones a real crash can leave (a
 // process killed mid-write, a garbled stack line, a file that is not a report at all).
 
+#include <format>
 #include <CrashReport.hpp>
 
 #include <gtest/gtest.h>
 
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -157,6 +159,99 @@ TEST( CrashReportParse, NotAReportIsRefusedWithThePath )
          CrashReporter::ParseCrashText( "DESERTCRASH 2\n[report]\n", "c/crash.txt" );
     EXPECT_FALSE( future.valid );
     EXPECT_NE( future.error.find( "version 2" ), std::string::npos ) << future.error;
+}
+
+// CR2b — the two views of the window. The rows are a census: the exact labels, in order, so a row
+// added to or dropped from either view is a red test rather than a silent change of what a player sees.
+namespace
+{
+    std::vector<std::string> Labels( const CrashReporter::ReportView& inView )
+    {
+        std::vector<std::string> labels;
+        for ( const CrashReporter::SummaryLine& line : inView.summary )
+        {
+            labels.push_back( line.label );
+        }
+        return labels;
+    }
+
+    // A report as a Shipping writer emits it: config=Shipping, and no sha / branch / dirty / machine /
+    // scene key, no file:line in [stack], an empty [log].
+    const std::string kPlayerReport = "DESERTCRASH 1\n"
+                                      "[report]\n"
+                                      "host=Runtime\n"
+                                      "crash_epoch=1790000000\n"
+                                      "[exception]\n"
+                                      "kind=exception\n"
+                                      "codename=EXCEPTION_ACCESS_VIOLATION\n"
+                                      "[build]\n"
+                                      "config=Shipping\n"
+                                      "version=0.1.0\n"
+                                      "[context]\n"
+                                      "os=Windows 11 Pro 10.0.26200\n"
+                                      "gpu=NVIDIA GeForce RTX 3070 Ti\n"
+                                      "game=Sandbox\n"
+                                      "[stack]\n"
+                                      "frame=0|0x7FF600001234|Runtime.exe|CreateApplication|\n"
+                                      "[log]\n"
+                                      "[end]\n"
+                                      "written=complete\n";
+} // namespace
+
+TEST( CrashReportParse, TheDeveloperViewDrawsEveryDevelopmentRow )
+{
+    const CrashReporter::Report r = CrashReporter::ParseCrashText( kHead + kGpuKeys + kTail, "crash.txt" );
+    ASSERT_TRUE( r.valid ) << r.error;
+    EXPECT_TRUE( r.config.empty() ); // kHead predates the key: the developer view, not a guess
+    const CrashReporter::ReportView view = CrashReporter::ComposeView( r );
+    EXPECT_EQ( view.audience, CrashReporter::Audience::Developer );
+    EXPECT_TRUE( view.showLog );
+    EXPECT_TRUE( view.showPath );
+    const std::vector<std::string> expected = { "Kind", "Code",    "Module", "Version",
+                                                "Time", "Machine", "GPU",    "Scene" };
+    EXPECT_EQ( Labels( view ), expected );
+    EXPECT_NE( view.summary[3].value.find( "branch task/CR1c" ), std::string::npos ) << view.summary[3].value;
+    EXPECT_NE( view.summary[5].value.find( "DESKTOP" ), std::string::npos ) << view.summary[5].value;
+
+    const CrashReporter::Report release =
+         CrashReporter::ParseCrashText( "DESERTCRASH 1\n[build]\nconfig=Release\n", "crash.txt" );
+    EXPECT_EQ( release.config, "Release" );
+    EXPECT_EQ( CrashReporter::AudienceOf( release ), CrashReporter::Audience::Developer );
+}
+
+TEST( CrashReportParse, ThePlayerViewDrawsOnlyThePlayersRows )
+{
+    const CrashReporter::Report r = CrashReporter::ParseCrashText( kPlayerReport, "crash.txt" );
+    ASSERT_TRUE( r.valid ) << r.error;
+    EXPECT_TRUE( r.complete );
+    EXPECT_EQ( r.config, "Shipping" );
+    EXPECT_TRUE( r.sha.empty() );
+    EXPECT_TRUE( r.machine.empty() );
+    EXPECT_TRUE( r.log.empty() );
+    ASSERT_EQ( r.frames.size(), 1u );
+    EXPECT_TRUE( r.frames[0].source.empty() );
+
+    const CrashReporter::ReportView view = CrashReporter::ComposeView( r );
+    EXPECT_EQ( view.audience, CrashReporter::Audience::Player );
+    EXPECT_FALSE( view.showLog );
+    EXPECT_FALSE( view.showPath );
+    const std::vector<std::string> expected = { "Game", "Error", "Version", "Time", "System", "GPU" };
+    EXPECT_EQ( Labels( view ), expected );
+    EXPECT_EQ( view.summary[0].value, "Sandbox" );
+    EXPECT_EQ( view.summary[2].value, "0.1.0" );
+
+    // Even a Shipping-tagged report that DID carry the development keys draws none of them: the view
+    // asks for the player's fields only.
+    const CrashReporter::Report leaky =
+         CrashReporter::ParseCrashText( std::format( "{}game=Sandbox\n{}", kHead, kTail ), "crash.txt" );
+    CrashReporter::Report tagged = leaky;
+    tagged.config                = "Shipping";
+    for ( const CrashReporter::SummaryLine& line : CrashReporter::ComposeView( tagged ).summary )
+    {
+        EXPECT_EQ( line.value.find( "bca1e0a98" ), std::string::npos ) << line.label;
+        EXPECT_EQ( line.value.find( "task/CR1c" ), std::string::npos ) << line.label;
+        EXPECT_EQ( line.value.find( "DESKTOP" ), std::string::npos ) << line.label;
+    }
 }
 
 int main( int argc, char** argv )

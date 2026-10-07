@@ -39,15 +39,17 @@ namespace Desert::Assets
     inline constexpr uint32_t kUIThemeSchemaTag     = Common::Content::FourCC( "UITH" );
     inline constexpr uint32_t kUIThemeSchemaVersion = 2;
     // A .derig: the control rig file layout, stated in the header since v2 (T7c; v1 as the string table's).
+    // v3 (ANIM-SKELREF): the rig states its TargetSkeleton {Guid, Path}.
     inline constexpr uint32_t kControlRigSchemaTag     = Common::Content::FourCC( "CRIG" );
-    inline constexpr uint32_t kControlRigSchemaVersion = 2;
+    inline constexpr uint32_t kControlRigSchemaVersion = 3;
     // A .retarget: the retarget file layout, stated in the header since v2 (T7c; v1 as the string table's).
     // v3 (T7f): the source rig is named by {Guid, Path} and stated as the header's one Dependency.
+    // v4 (ANIM-SKELREF): the target rig is named too (TargetSkeleton {Guid, Path}); not a Dependency.
     inline constexpr uint32_t kRetargetSchemaTag     = Common::Content::FourCC( "RTGT" );
-    inline constexpr uint32_t kRetargetSchemaVersion = 3;
+    inline constexpr uint32_t kRetargetSchemaVersion = 4;
     // A .defoliage: the foliage type file layout, stated in the header from its first version (FO-1).
     inline constexpr uint32_t kFoliageTypeSchemaTag     = Common::Content::FourCC( "FOLT" );
-    inline constexpr uint32_t kFoliageTypeSchemaVersion = 6;
+    inline constexpr uint32_t kFoliageTypeSchemaVersion = 7;
     // A .delayerinfo: the landscape layer info file layout, stated in the header from its first version (LS-12b).
     // v2 (GR-1): the layer named a grass type by {Guid, Path}, the header's one Dependency.
     // v3 (LS-16): that field left with the landscape grass generator; the header states no Dependencies.
@@ -60,15 +62,32 @@ namespace Desert::Assets
     // A .danimgraph: the anim graph file layout, stated in the header since v1 (T7d). The files before it
     // stated no version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
-    inline constexpr uint32_t kAnimGraphSchemaVersion = 1;
+    // v2 (ANIM-I12): the graph is a pose graph (Nodes + OutputPose); v1's lone Entry/States became one
+    // StateMachine node wired to Output Pose, in the files. v3 (TAIL-ANIM): the Output Pose node's canvas
+    // position (OutputPoseX/Y, graph and every layer graph); Tools/SceneMigrator raises v2 through
+    // Migration::MigrateAnimGraphV2ToV3 at Animation::Graph::DefaultOutputPosePosition. v4 (ANIM-SKELREF): the
+    // graph states its TargetSkeleton {Guid, Path} (UE UAnimBlueprint::TargetSkeleton).
+    inline constexpr uint32_t kAnimGraphSchemaVersion = 4;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
-    // version at all - that generation is 0, and a file of it is refused by name.
+    // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
+    // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the
+    // import record's SourceHash is the one freshness). Tools/SceneMigrator raises v1 and v2 to v3.
     inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );
-    inline constexpr uint32_t kSkeletonSchemaVersion = 1;
+    inline constexpr uint32_t kSkeletonSchemaVersion = 3;
     // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
+    // v5 (SKEL-TREE): the clip names its skeleton by GUID (`Skeleton`, an AssetGuidRef, also the header's one
+    // Dependency); the bone-hash `SkeletonSignature` is gone. Tools/SceneMigrator raises v4 through
+    // Animation::MigrateSkeletonReference (exactly one .skeleton with that signature, else a refusal).
+    // v6 (ANIM-I8a/I8b-6, ANIM-SKEL): the body is the TMLN block (a key's mode shapes the segment LEAVING it,
+    // UE's rule) beside the Skeleton GUID; SceneMigrator lifts v5's per-bone Channels, proved per tick.
     inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
-    inline constexpr uint32_t kAnimationSchemaVersion = 4;
+    inline constexpr uint32_t kAnimationSchemaVersion = 6;
+    // A timeline block (Animation/Timeline/Sequence.hpp): the Sequence every host (.anim, a UI clip, .dseq)
+    // carries, stated since v1 under this tag; its version is Timeline::kTimelineFormatVersion, which the
+    // contract header owns. v2 (ANIM-FMT): a key's mode shapes the segment LEAVING it; v1 is read by
+    // SceneMigrator only.
+    inline constexpr uint32_t kTimelineSchemaTag = Common::Content::FourCC( "TMLN" );
     // A .shader: stated since v1 (T7j) on the source's first line (ShaderAssetHeader.hpp). The files before it
     // stated nothing - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kShaderSchemaTag     = Common::Content::FourCC( "SHDR" );

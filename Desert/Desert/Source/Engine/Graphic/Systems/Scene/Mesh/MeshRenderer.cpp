@@ -5,95 +5,117 @@ namespace Desert::Graphic::System
 {
     namespace MeshRendererDetail
     {
-        // Per-instance material override (MaterialPropertyBlock-style): start from the material's
-        // reflected data and apply any overridden instance properties on top — generically, by name,
-        // through reflection. Each drawn object thus gets its own effective material in the SSBO.
-        PBRGpuMaterial BuildEffectiveMaterial( MaterialPBR* material, MaterialInstance* instance )
+        // One object's row of `Materials[]` (MaterialPropertyBlock-style): the material's own row, then every
+        // overridden instance property written into ITS slot, found by name in the shader's manifest — the
+        // generic transport (Core/Formats/MaterialParamRow.hpp), no per-parameter code. Names without a slot
+        // (the Transform push value, textures) are not row bytes and are skipped.
+        Core::Formats::MaterialParamRow EffectiveRow( const DataDrivenMaterial* material,
+                                                      MaterialInstance*         instance )
         {
-            Assets::PBRSurfaceParams data = material->Data();
-
-            if ( instance )
+            Core::Formats::MaterialParamRow row = material->GetParamRow();
+            if ( instance == nullptr )
+                return row;
+            for ( const auto& [name, prop] : instance->GetPropertySet().GetProperties() )
             {
-                // Apply instance overrides by schema name onto the typed hot-path view. The names
-                // are the StaticMeshPBR schema (single material protocol) — same ones the tint
-                // path (MeshECSSystem) and the material canon use.
-                const auto vec4Of = []( const auto& v, const glm::vec4& current ) -> glm::vec4
-                {
-                    if ( auto* v4 = std::get_if<glm::vec4>( &v ) )
-                        return *v4;
-                    if ( auto* v3 = std::get_if<glm::vec3>( &v ) )
-                        return glm::vec4( *v3, current.w );
-                    return current;
-                };
-                const auto floatOf = []( const auto& v, float current ) -> float
-                {
-                    if ( auto* f = std::get_if<float>( &v ) )
-                        return *f;
-                    // A bare-instance override (no pre-existing typed property) is stored as a vec4; a scalar
-                    // param authored that way (e.g. RoughnessFactor from MaterialComponent) rides in .x.
-                    if ( auto* v4 = std::get_if<glm::vec4>( &v ) )
-                        return v4->x;
-                    return current;
-                };
-
-                for ( const auto& [name, prop] : instance->GetPropertySet().GetProperties() )
-                {
-                    if ( !prop.bIsOverridden )
-                        continue;
-                    const auto& v = prop.Value;
-
-                    if ( name == "AlbedoColor" )
-                        data.AlbedoColor = vec4Of( v, data.AlbedoColor );
-                    else if ( name == "MetallicFactor" )
-                        data.MetallicFactor = floatOf( v, data.MetallicFactor );
-                    else if ( name == "RoughnessFactor" )
-                        data.RoughnessFactor = floatOf( v, data.RoughnessFactor );
-                    else if ( name == "AOStrength" )
-                        data.AOStrength = floatOf( v, data.AOStrength );
-                    else if ( name == "EmissiveColor" )
-                        data.EmissiveColor = vec4Of( v, data.EmissiveColor );
-                    else if ( name == "EmissiveIntensity" )
-                        data.EmissiveIntensity = floatOf( v, data.EmissiveIntensity );
-                    else if ( name == "AlphaCutoff" )
-                        data.AlphaCutoff = floatOf( v, data.AlphaCutoff );
-                    else if ( name == "Transmission" )
-                        data.Transmission = floatOf( v, data.Transmission );
-                    else if ( name == "IOR" )
-                        data.IOR = floatOf( v, data.IOR );
-                    else if ( name == "GlassTint" )
-                        data.GlassTint = vec4Of( v, data.GlassTint );
-                    else if ( name == "UVTiling" )
-                    {
-                        const glm::vec4 t =
-                             vec4Of( v, glm::vec4( data.UVTiling.value_or( glm::vec2( 1.0f ) ), 0, 0 ) );
-                        data.UVTiling = glm::vec2( t );
-                    }
-                    // Textures are per-material descriptors, not SSBO data — not overridable here.
-                }
+                if ( !prop.bIsOverridden )
+                    continue;
+                const auto slot = Core::Formats::MaterialParamSlot( material->GetSchema(), name );
+                if ( !slot || *slot >= row.size() )
+                    continue;
+                glm::vec4& dst = row[*slot];
+                std::visit(
+                     [&dst]( const auto& v )
+                     {
+                         using T = std::decay_t<decltype( v )>;
+                         if constexpr ( std::is_same_v<T, float> )
+                             dst = glm::vec4( v, 0.0f, 0.0f, 0.0f );
+                         else if constexpr ( std::is_same_v<T, glm::vec2> )
+                             dst = glm::vec4( v, 0.0f, 0.0f );
+                         else if constexpr ( std::is_same_v<T, glm::vec3> )
+                             dst = glm::vec4( v, dst.w );
+                         else if constexpr ( std::is_same_v<T, glm::vec4> )
+                             dst = v;
+                     },
+                     prop.Value );
             }
-
-            return BuildPBRGpuMaterial( data );
+            return row;
         }
 
-        // First slot instance whose parent is a PBR material ON THE GIVEN VERTEX PATH. Slots holding a
-        // custom-shader material (DataDrivenMaterial, v3 per-slot shaders) belong to the generic path —
-        // they must never be fed into the PBR SSBO machinery. nullptr when the object has no such slot.
-        //
-        // The PATH argument is what makes one function serve both queues. Its skinned half used to be a
-        // second, hand-written loop inside SubmitMesh looking for a different CLASS, and the two answered
-        // differently about the same `.demat`: the static loop found a material, the skinned one found
-        // nothing, and a character with authored materials was silently dropped.
-        MaterialInstance* FirstPBRSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path )
+        // UE routes by the material's BLEND MODE: a Translucent template's objects are drawn by the translucency
+        // pass and skipped by every opaque one. A property of the template the material draws with, read off its
+        // program — no parameter value of any material decides a pass.
+        bool IsTranslucent( const DataDrivenMaterial* material )
+        {
+            return material->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent;
+        }
+
+        // Appends one row to a buffer of rows laid end to end and returns its index there. Every PBR pass
+        // declares one layout, so every row in a buffer has the same length.
+        uint32_t AppendRow( std::vector<glm::vec4>& rows, const Core::Formats::MaterialParamRow& row )
+        {
+            const auto index = row.empty() ? 0u : static_cast<uint32_t>( rows.size() / row.size() );
+            rows.insert( rows.end(), row.begin(), row.end() );
+            return index;
+        }
+
+        PBRSlot FirstPBRSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path )
         {
             for ( auto* inst : slots )
             {
-                if ( !inst )
+                if ( inst == nullptr )
                     continue;
-                auto* pbr = dynamic_cast<MaterialPBR*>( inst->GetParentMaterial() );
-                if ( pbr && pbr->VertexPath() == path )
-                    return inst;
+                // The batched paths draw a material allocated from a cell of the mesh-shader table, on the
+                // path the cell belongs to (MeshCellPath) — the vertex factory's question, asked of the shader.
+                auto* surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
+                if ( surface != nullptr && MeshCellPath( surface->GetShaderName() ) == path )
+                    return { inst, surface };
             }
-            return nullptr;
+            return {};
+        }
+
+        // THE RENDERER'S OWN DRAWS take the (path x pass) cell of the DEFAULT SURFACE template, found by that
+        // role (MaterialService::DefaultSurfaceShader) and never by a name written here. Refused with the pair and
+        // the registry's reason, because "shader is missing" is unactionable.
+        std::optional<std::string> DefaultSurfaceShaderName( MeshVertexPath path, MeshPass pass )
+        {
+            const auto name = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader( path, pass );
+            if ( !name )
+            {
+                LOG_ERROR( "[MeshRenderer] no default surface shader for vertex path '{}' in pass '{}': {}",
+                           MeshVertexPathName( path ), MeshPassName( pass ), name.GetError() );
+                return std::nullopt;
+            }
+            return name.GetValue();
+        }
+
+        std::shared_ptr<Shader> DefaultSurfaceProgram( MeshVertexPath path, MeshPass pass )
+        {
+            const auto name = DefaultSurfaceShaderName( path, pass );
+            return name ? Runtime::ResourceRegistry::GetShaderService()->GetByName( *name ) : nullptr;
+        }
+
+        // A renderer-owned material of one (path x pass) cell of the default surface template — the same
+        // DataDrivenMaterial every `.demat` builds, with the cell's default row.
+        std::shared_ptr<DataDrivenMaterial> CreateCellMaterial( MeshVertexPath path, MeshPass pass )
+        {
+            const auto shaderName = DefaultSurfaceShaderName( path, pass );
+            return shaderName ? std::make_shared<DataDrivenMaterial>( *shaderName ) : nullptr;
+        }
+
+        // The storage buffer the path adds to a caster cell (MeshPathOwnBinding): instance matrices or bone
+        // poses; empty for the static path, which has none.
+        std::string MeshPathOwnBufferName( MeshVertexPath path )
+        {
+            switch ( path )
+            {
+                case MeshVertexPath::Instanced:
+                    return "InstanceTransforms";
+                case MeshVertexPath::Skinned:
+                    return ShaderProtocols::SkinnedUB::Name;
+                case MeshVertexPath::Static:
+                    return {};
+            }
+            return {};
         }
     } // namespace MeshRendererDetail
 
@@ -126,8 +148,6 @@ namespace Desert::Graphic::System
         // here compiles the deferred shader + validates the MRT pipeline at startup.
         if ( !SetupGBufferPass() )
             LOG_WARN( "[MeshRenderer] Deferred G-buffer pipeline not set up (deferred path unavailable)." );
-        if ( !SetupGlassPass() )
-            LOG_WARN( "[MeshRenderer] Glass pipeline not set up (transparent materials won't draw)." );
 
         if ( !SetupSkinnedGeometryPass() )
             return Common::MakeError( "Failed to setup skinned geometry pass" );
@@ -152,7 +172,7 @@ namespace Desert::Graphic::System
         // SSBOs are written into it in DrawStaticMeshes before the instanced draws are recorded.
         if ( m_StaticInstancedPipeline )
         {
-            m_StaticInstancedMaterial = MaterialPBR::Create( MeshVertexPath::Instanced );
+            m_StaticInstancedMaterial = CreateCellMaterial( MeshVertexPath::Instanced );
             if ( m_StaticInstancedMaterial )
                 m_StaticInstancedInstance = m_StaticInstancedMaterial->CreateInstance( "StaticInstancedBatch" );
         }
@@ -255,9 +275,9 @@ namespace Desert::Graphic::System
         // One block per (executor, recording shader), in block-index order: the layout kept for the shader the
         // block's draws record with, the executor's route fill, and the scene/view inputs where the layout has
         // their slots.
-        template <typename Declaration>
-        void MeshDrawList::DeclareBlocks( Declaration&                          declaration,
-                                          const std::optional<SceneViewInputs>& view ) const
+        template <typename Declaration, typename PerBlock>
+        void MeshDrawList::DeclareBlocks( Declaration& declaration, const std::optional<SceneViewInputs>& view,
+                                          const PerBlock& perBlock ) const
         {
             for ( const Block& declared : m_Blocks )
             {
@@ -268,18 +288,25 @@ namespace Desert::Graphic::System
                 {
                     BindSceneViewInputs( block, *view, *layout );
                 }
+                perBlock( block );
             }
         }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const
         {
-            DeclareBlocks( pass, view );
+            DeclareBlocks( pass, view, []( auto& ) {} );
+        }
+
+        void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
+                                    const std::function<void( RDG::BindingBlockBuilder& )>& perBlock ) const
+        {
+            DeclareBlocks( pass, view, perBlock );
         }
 
         void MeshDrawList::Declare( RenderPassDeclaration&                declared,
                                     const std::optional<SceneViewInputs>& view ) const
         {
-            DeclareBlocks( declared, view );
+            DeclareBlocks( declared, view, []( auto& ) {} );
         }
 
         Common::BoolResultStr MeshDrawList::Record( const RDG::PassContext& context ) const
@@ -442,6 +469,7 @@ namespace Desert::Graphic::System
                 staticData.LODBias         = data.LODBias;
                 staticData.CastShadows     = data.CastShadows;
                 staticData.ReceiveShadows  = data.ReceiveShadows;
+                staticData.TranslucencySortPriority = data.TranslucencySortPriority;
 
                 m_StaticQueue.push_back( staticData );
                 break;
@@ -459,13 +487,13 @@ namespace Desert::Graphic::System
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
                 {
                     // THE SAME selector the static queue uses, asked for the SKINNED path. It used to be
-                    // a second loop hunting a different C++ CLASS, and since MaterialFactory could not
+                    // a second loop hunting a different C++ CLASS, and since the material build could not
                     // produce that class from an asset under any circumstances, an imported character
                     // with its own materials matched nothing and was dropped without drawing.
-                    if ( auto* inst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Skinned ) )
+                    if ( const auto slot = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Skinned ) )
                     {
-                        skinnedData.Instance = inst;
-                        skinnedData.Material = static_cast<MaterialPBR*>( inst->GetParentMaterial() );
+                        skinnedData.Instance = slot.Instance;
+                        skinnedData.Material = slot.Surface;
                     }
                     else
                     {

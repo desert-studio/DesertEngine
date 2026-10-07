@@ -18,6 +18,8 @@ project(test_name)
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailFoliage.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
     }
 
@@ -44,10 +46,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- FileSystem/VFS live in Common; Common's JobSystem registers with Optick
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialog) — pulled in because this suite
-    -- references FileSystem, so the ObjC runtime + AppKit must link too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "system:windows"

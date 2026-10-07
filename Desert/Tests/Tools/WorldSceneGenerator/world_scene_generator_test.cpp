@@ -17,7 +17,7 @@
 // below instead, which is the part that could silently move under a measurement.
 //
 // AND WHY THE GENERATED FILE IS CHECKED AGAINST THE CORPUS RULES HERE RATHER THAN BY THE CORPUS. The
-// scene's home is outside Editor/Resources/Assets/Scenes (see Docs/World/WORLD_SCENE.md for the
+// scene's home is outside Projects/Desert/Content/Scenes (see Docs/World/WORLD_SCENE.md for the
 // measurement that decided it), so the nineteen suites that walk that tree never see it. That is a
 // deliberate trade and it comes with a debt: every rule those suites enforce over a shipped scene is
 // restated here, over the generator's output, so the file cannot quietly become one the engine would
@@ -58,6 +58,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Core::kSceneVersion;
 using Desert::Core::kUnitVersion;
@@ -71,23 +73,11 @@ using Desert::Core::Serialize::MergeSceneDocument;
 
 namespace
 {
-    // The repository root, found by walking up until the assets tree appears. Same shape the scene corpus
-    // suites use: the working directory of a test binary is not a thing to assume.
-    std::string RepoRoot()
-    {
-        std::string prefix;
-        for ( int depth = 0; depth < 8; ++depth )
-        {
-            if ( std::filesystem::exists( prefix + "Editor/Resources/Assets/Materials" ) )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
-    }
-
+    // The engine's content root, off the engine directory the build baked in (never off the working directory):
+    // the materials every preset furnishes with.
     std::string AssetsRoot()
     {
-        return RepoRoot() + "Editor/Resources/Assets";
+        return ( Desert::TestSupport::RepositoryRoot() / "Projects/Desert/Content" ).generic_string();
     }
 
     std::filesystem::path Scratch()
@@ -943,15 +933,18 @@ int main( int argc, char** argv )
 
 namespace
 {
+    // The corpus is the suite data project's (Desert/Tests/Data/WorldCorpus.json - the probes); its materials
+    // are the engine's, so every corpus run also names --assets.
     std::string ProjectRoot()
     {
-        return RepoRoot() + "Editor";
+        return Desert::TestSupport::TestDataDir().generic_string();
     }
 
     int GenerateCorpus( const std::filesystem::path& out, std::string& bytes,
                         const std::vector<std::string>& extra = {} )
     {
-        std::vector<std::string> args{ "--preset", "corpus-smoke", "--project", ProjectRoot(), "--partition" };
+        std::vector<std::string> args{ "--preset", "corpus-smoke", "--project",  ProjectRoot(),
+                                       "--assets", AssetsRoot(),   "--partition" };
         args.insert( args.end(), extra.begin(), extra.end() );
         return Generate( out, args, bytes );
     }
@@ -1082,7 +1075,8 @@ TEST( WorldSceneGenerator, EveryCorpusAssetResolvesByItsGuidAndTheCorpusIsReal )
 
              // The mesh, by GUID.
              const std::string meshPath = text( *block, "MeshPath" );
-             const auto header = Common::Content::ReadAssetHeader( ProjectRoot() + "/" + meshPath, recordOnly );
+             const auto        header   = Common::Content::ReadAssetHeader(
+                  std::filesystem::path( ProjectRoot() ) / meshPath, recordOnly );
              ASSERT_TRUE( header.IsSuccess() ) << meshPath << ": " << header.GetError();
              EXPECT_EQ( Common::Content::AssetGuidToText( header.GetValue().Guid ), text( *block, "MeshGuid" ) )
                   << meshPath << ": MeshGuid is not the file's header GUID";
@@ -1136,19 +1130,57 @@ TEST( WorldSceneGenerator, EveryCorpusAssetResolvesByItsGuidAndTheCorpusIsReal )
 }
 
 // 8c. A missing asset is a refusal that names the file, and nothing is written - never a world with a hole in it.
+// The corpus list itself is the project's (WorldCorpus.json): a project without one is refused naming that path.
 TEST( WorldSceneGenerator, CorpusPresetRefusesAMissingAssetByPathAndWritesNothing )
 {
     const auto out = Scratch() / "corpus_missing.desce";
     std::filesystem::remove( out );
+    {
+        const std::vector<std::string> args{
+             "--out",    out.string(),   "--assets",  AssetsRoot(),
+             "--preset", "corpus-smoke", "--project", "/nonexistent-project-root" };
+        std::ostringstream reported;
+        std::ostringstream refused;
+        EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 3 );
+        EXPECT_NE( refused.str().find( "/nonexistent-project-root/WorldCorpus.json" ), std::string::npos )
+             << refused.str();
+        EXPECT_FALSE( std::filesystem::exists( out ) );
+    }
+    const auto project = Scratch() / "corpus_missing_project";
+    std::filesystem::create_directories( project );
+    std::ofstream( project / "WorldCorpus.json", std::ios::trunc )
+         << R"({"Props":[{"Theme":"Gone","Mesh":"Resources/Assets/Meshes/Gone.skmesh","Skinned":true,)"
+         << R"("Material":"Materials/M_CheckerFloor.demat","ScalePercent":100}]})";
     const std::vector<std::string> args{ "--out",    out.string(),   "--assets",  AssetsRoot(),
-                                         "--preset", "corpus-smoke", "--project", "/nonexistent-project-root" };
+                                         "--preset", "corpus-smoke", "--project", project.string() };
     std::ostringstream             reported;
     std::ostringstream             refused;
     EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 3 );
-    EXPECT_NE( refused.str().find( "/nonexistent-project-root/Resources/Assets/Meshes/Skinned/SkinProbe.skmesh" ),
+    EXPECT_NE( refused.str().find( ( project / "Resources/Assets/Meshes/Gone.skmesh" ).generic_string() ),
                std::string::npos )
          << refused.str();
     EXPECT_FALSE( std::filesystem::exists( out ) );
+}
+
+// 8c'. NO PROJECT IS ASSUMED. A corpus preset is furnished from the project's meshes and a run with no --assets
+// reads the project's materials; without --project either one is refused with the flag to pass (exit 2) and
+// nothing is written - never a world built from the engine directory or the working directory.
+TEST( WorldSceneGenerator, ARunThatNeedsAProjectAndNamesNoneIsRefusedWithTheFlag )
+{
+    const auto out = Scratch() / "no_project.desce";
+    std::filesystem::remove( out );
+    const std::vector<std::vector<std::string>> runs{
+         { "--out", out.string(), "--assets", AssetsRoot(), "--preset", "corpus-smoke" },
+         { "--out", out.string() },
+    };
+    for ( const auto& args : runs )
+    {
+        std::ostringstream reported;
+        std::ostringstream refused;
+        EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 2 ) << refused.str();
+        EXPECT_NE( refused.str().find( "pass --project" ), std::string::npos ) << refused.str();
+        EXPECT_FALSE( std::filesystem::exists( out ) );
+    }
 }
 
 // 8d. NEIGHBOURING DISTRICTS HOLD DIFFERENT ASSETS. The shipped `corpus` world, along the row the flight takes:
@@ -1159,7 +1191,7 @@ TEST( WorldSceneGenerator, NeighbouringCorpusDistrictsHoldDisjointMaterialsAndAR
 {
     std::string bytes;
     ASSERT_EQ( Generate( Scratch() / "corpus_districts.desce",
-                         { "--preset", "corpus", "--project", ProjectRoot() }, bytes ),
+                         { "--preset", "corpus", "--project", ProjectRoot(), "--assets", AssetsRoot() }, bytes ),
                0 )
          << bytes;
     const auto parsed = Common::Json::Parse( bytes );
@@ -1217,11 +1249,11 @@ TEST( WorldSceneGenerator, NeighbouringCorpusDistrictsHoldDisjointMaterialsAndAR
 TEST( WorldSceneGenerator, EveryCorpusPropFitsItsTileSoNothingIsPromotedOrAlwaysLoaded )
 {
     std::string bytes;
-    ASSERT_EQ(
-         Generate( Scratch() / "corpus_fit.desce",
-                   { "--preset", "corpus", "--project", ProjectRoot(), "--partition", "--loading-range", "4000" },
-                   bytes ),
-         0 )
+    ASSERT_EQ( Generate( Scratch() / "corpus_fit.desce",
+                         { "--preset", "corpus", "--project", ProjectRoot(), "--assets", AssetsRoot(),
+                           "--partition", "--loading-range", "4000" },
+                         bytes ),
+               0 )
          << bytes;
     const auto scene = ReadScene( bytes );
     ASSERT_TRUE( scene.has_value() && scene->WorldPartition.has_value() );

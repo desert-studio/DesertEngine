@@ -60,9 +60,9 @@ namespace Desert::Graphic::Render2D
             // The binding layout Render2D declares this entry's draws against (RDG-FAULT1), kept with the pipeline
             // whose shader keys it. Mutable: the draw list hands the entry out const.
             mutable ShaderBindingLayoutCache Layout;
-            // The reload generation of Pipeline's shader when this entry was built (Shader::GetReloadGeneration):
+            // The reload generation of Pipeline's shader when this entry was built (Shader::GetCodeGeneration):
             // a different one on Resolve rebuilds the entry (UIMaterialFallback::RebuildIfReloaded).
-            uint32_t ShaderGeneration = 0;
+            uint64_t ShaderGeneration = 0;
         };
 
         // (Re)build every pipeline against @p target. Called from Render2D::Init, i.e. after every

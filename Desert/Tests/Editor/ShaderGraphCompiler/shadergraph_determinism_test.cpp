@@ -581,7 +581,7 @@ TEST( ShaderGraphDeterminism, EveryCommittedGraphCompilesToTheSameTextTwice )
 {
     // The corpus, not a fixture: whatever the shipped graphs contain is what the shader cache and the
     // cloud fingerprint are computed over.
-    const std::filesystem::path directory = RepoRoot() / "Editor/Resources/Assets/ShaderGraphs";
+    const std::filesystem::path directory = RepoRoot() / "Projects/Desert/Content/ShaderGraphs";
     ASSERT_TRUE( std::filesystem::is_directory( directory ) ) << directory;
 
     int seen = 0;

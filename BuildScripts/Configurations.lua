@@ -3,6 +3,13 @@
 filter "configurations:Debug"
     runtime "Debug"
     symbols "On"
+    -- /Zi, NOT /ZI (BUILD1 P3, owner 2026-10-06: Edit and Continue is not used). premake's `symbols "On"`
+    -- defaults Debug to EditAndContinue (/ZI), which adds hot-patch padding and edit-and-continue
+    -- records to every object and runs each compile through the incremental-PDB path of mspdbsrv. /Zi
+    -- keeps the same full program database (the linker still writes the complete .pdb that
+    -- DesertCrashReporter and CrashHandler symbolise with), so nothing a debugger or a crash report reads
+    -- is lost. MSBuildProperties.lua fails generation for a .vcxproj that carries /ZI again.
+    editandcontinue "Off"
 
 filter "configurations:Release"
     runtime "Release"

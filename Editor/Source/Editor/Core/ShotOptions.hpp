@@ -260,16 +260,15 @@ namespace Desert::Editor
         // makes two runs of one command the same frame — and otherwise it is the measured value returned on
         // the exact float, which is what makes every capture taken before this flag existed still valid.
         //
-        // @p counting: whether the capture's frame count has started (EditorLayer arms it once the window is
-        // revealed, content has settled and the image size held for a frame). Under `--play`, time STANDS
-        // STILL until then: how many frames the start-up takes depends on the machine and on asynchronous
-        // loads, and a world advanced by that many steps is a different world on every run. Outside `--play`
-        // the flag changes nothing - the editor's own time is never held.
-        float FrameSeconds( float wallClockSeconds, bool counting ) const
+        // @p recordedFrame is ShotRecordGate's verdict on this frame. Under `--play` a frame that is not
+        // recorded advances the world by NOTHING: frame N of the sequence is tick N of game time, so a tick
+        // spent under the splash, at a viewport size still settling or while content loads would be motion
+        // no file shows. Outside `--play` the verdict is irrelevant and the wall clock passes through.
+        [[nodiscard]] float FrameSeconds( float wallClockSeconds, bool recordedFrame ) const
         {
             if ( !PlayActive() )
                 return wallClockSeconds;
-            return counting ? PlayStepSeconds : 0.0f;
+            return recordedFrame ? PlayStepSeconds : 0.0f;
         }
 
         // Whether the camera MOVES. False is the whole of the existing behaviour: the pose is placed once

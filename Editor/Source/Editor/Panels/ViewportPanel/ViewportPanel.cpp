@@ -17,11 +17,14 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Editor/Import/ImportOptionsDialog.hpp>
+#include <Common/Content/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Import/AsyncMeshLoader.hpp>
 #include <filesystem>
 #include <Engine/Graphic/Render2D/Transform2D.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
+#include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -254,7 +257,7 @@ namespace Desert::Editor
         m_UIHelper = std::make_unique<Editor::UI::UIHelper>();
         m_UIHelper->Init();
 
-        m_LightGizmoRenderer = std::make_unique<LightGizmoRenderer>( scene, m_UIHelper.get() );
+        m_LightGizmoRenderer = std::make_unique<LightGizmoRenderer>( scene, assetManager, m_UIHelper.get() );
         m_AsyncLoader        = std::make_unique<AsyncMeshLoader>(); // starts the background cook worker
 
         s_Live.push_back( this );
@@ -295,28 +298,49 @@ namespace Desert::Editor
     }
 
     Common::BoolResultStr ViewportPanel::DropMeshIntoActiveViewport( const std::string&       path,
-                                                                     std::optional<glm::vec3> at )
+                                                                     const ActorDrop::Target& target )
     {
         ViewportPanel* viewport = ActiveViewport();
         if ( viewport == nullptr )
             return Common::MakeFormattedError<bool>( "'{}': no viewport is live to drop it into", path );
-        return viewport->DropMeshAsset( path, at );
+        return viewport->DropMeshAsset( path, target );
     }
 
-    Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, std::optional<glm::vec3> at )
+    Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, const ActorDrop::Target& target )
     {
         if ( !m_Scene || m_AssetManager == nullptr || !m_AsyncLoader )
             return Common::MakeFormattedError<bool>( "'{}': this viewport has no scene or no asset manager",
                                                      path );
+
+        // A FILE NEVER IMPORTED (no import record) asks for its options first, as UE's drop runs the FBX
+        // factory and its options window before the actor exists: nothing is placed now, and the confirmed
+        // import places it at the same point (a cancelled one places nothing). This is the one entrance for
+        // every door - the mouse, the palette, the control channel.
+        if ( std::error_code ec;
+             !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( path ), ec ) )
+        {
+            // The closure (a std::string and an ActorDrop::Target, moved into std::function) throws nothing the
+            // check can name: it flags the closure's implicit constructor, not the drop.
+            ImportOptions::Request(
+                 path,
+                 // NOLINTNEXTLINE(bugprone-exception-escape)
+                 [path, target]
+                 {
+                     if ( const auto placed = DropMeshIntoActiveViewport( path, target ); !placed )
+                         LOG_ERROR( "[Viewport] '{}' imported but not placed: {}", path, placed.GetError() );
+                 } );
+            LOG_INFO( "[Viewport] '{}' is new: confirm the Import Options window to place it", path );
+            return BOOLSUCCESS;
+        }
 
         // ASYNC spawn: create the (empty) entity NOW and cook the mesh on a worker thread so a heavy FBX
         // doesn't hitch the editor. UpdateAsyncLoads() assigns the mesh once the cook finishes.
         const std::string name = std::filesystem::path( path ).stem().string();
         auto&             e    = m_Scene->CreateNewEntity( std::string( name ) );
         e.AddComponent<ECS::StaticMeshComponent>(); // pending: no MeshHandle until the cook completes
-        if ( at )
-            e.GetComponent<ECS::TransformComponent>().Translation = *at;
+        e.GetComponent<ECS::TransformComponent>().Translation = target.Point;
         const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
+        m_PendingDrops[static_cast<uint64_t>( uuid )]         = target;
         Core::SelectionManager::SetSelected( uuid );
         Commands::NotifyCreated( { uuid } ); // undo removes the pending entity; the async cook no-ops when
                                              // its target entity is gone
@@ -335,6 +359,12 @@ namespace Desert::Editor
             // The cook finished on the worker -> the main-thread register is now fast (already cooked). Spawn
             // the matching component: a rigged source becomes a SkinnedMesh (+ Animation) so a character can be
             // animated; everything else stays a StaticMesh + gets the pack's sidecar material.
+            std::optional<ActorDrop::Target> dropTarget;
+            if ( const auto pending = m_PendingDrops.find( done.UserData ); pending != m_PendingDrops.end() )
+            {
+                dropTarget = pending->second;
+                m_PendingDrops.erase( pending );
+            }
             const auto resolved = MeshDnD::ResolveOrImportMesh( mgr, done.SourcePath );
             if ( resolved.Handle.IsNull() )
                 continue;
@@ -364,6 +394,15 @@ namespace Desert::Editor
                         e.GetComponent<ECS::StaticMeshComponent>().MeshHandle = resolved.Handle;
                     ApplySidecarMaterial( e, done.SourcePath );
                 }
+                // THE BOUNDS REST ON THE SURFACE (UE FActorPositioning): the mesh is resident now (the
+                // closure was awaited), so its box - skinned ones in their baked bind pose - is known. An
+                // entity the user already moved off the drop point keeps where they put it.
+                auto& transform = e.GetComponent<ECS::TransformComponent>();
+                if ( dropTarget && transform.Translation == dropTarget->Point )
+                    if ( const auto* meshAsset =
+                              Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
+                        transform.Translation = ActorDrop::PlacedOrigin(
+                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.Scale );
             }
         }
 
@@ -748,6 +787,43 @@ namespace Desert::Editor
         if ( !target )
             return Common::MakeError<bool>( "there is no viewport to aim." );
         return target->ApplyCameraPreset( preset );
+    }
+
+    Common::BoolResultStr ViewportPanel::RequestCommand( ViewportCommand command )
+    {
+        ViewportPanel* target = ActiveViewport();
+        if ( target == nullptr )
+            return Common::MakeFormattedError<bool>( "'{}': there is no viewport to run it in.",
+                                                     CommandInfo( command ).Label );
+        return target->RunCommand( command );
+    }
+
+    Common::BoolResultStr ViewportPanel::RunCommand( ViewportCommand command )
+    {
+        switch ( command )
+        {
+            case ViewportCommand::SelectNone:
+                Core::SelectionManager::ClearSelection();
+                return Common::MakeSuccess( true );
+            case ViewportCommand::FocusSelected:
+            {
+                const auto selected = Core::SelectionManager::GetSelected();
+                if ( !selected )
+                    return Common::MakeError<bool>( "Focus Selected: nothing is selected." );
+                const auto camera       = ViewCamera();
+                auto*      editorCamera = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
+                if ( editorCamera == nullptr )
+                    return Common::MakeError<bool>(
+                         "Focus Selected: this viewport looks through a scene camera, not the editor camera." );
+                const auto entity = m_Scene ? m_Scene->FindEntityByID( *selected ) : std::nullopt;
+                if ( !entity )
+                    return Common::MakeError<bool>(
+                         "Focus Selected: the selected entity is not in this viewport's scene." );
+                editorCamera->Focus( glm::vec3( entity->get().GetWorldTransform()[3] ) );
+                return Common::MakeSuccess( true );
+            }
+        }
+        return Common::MakeError<bool>( "unknown viewport command" );
     }
 
     Common::BoolResultStr ViewportPanel::SetCameraPreset( uint64_t sceneViewId, ViewportCameraPreset preset )
@@ -1507,6 +1583,14 @@ namespace Desert::Editor
                 pv.Scroll       = m_ViewportData.IsHovered ? ImGui::GetIO().MouseWheel : 0.0f;
                 pv.Tab          = ImGui::IsKeyPressed( ImGuiKey_Tab, false );
                 pv.Submit       = ImGui::IsKeyPressed( ImGuiKey_Enter, false );
+                // Down/S wins over Up/W when both are pressed on one frame.
+                if ( ImGui::IsKeyPressed( ImGuiKey_DownArrow, false ) || ImGui::IsKeyPressed( ImGuiKey_S, false ) )
+                    pv.Navigate = 1;
+                else if ( ImGui::IsKeyPressed( ImGuiKey_UpArrow, false ) ||
+                          ImGui::IsKeyPressed( ImGuiKey_W, false ) )
+                    pv.Navigate = -1;
+                else
+                    pv.Navigate = 0;
                 pv.Backspace    = ImGui::IsKeyPressed( ImGuiKey_Backspace, false );
                 pv.TypedText.clear();
                 for ( ImWchar c : ImGui::GetIO().InputQueueCharacters )
@@ -1578,10 +1662,7 @@ namespace Desert::Editor
             {
                 const std::string path( static_cast<const char*>( payload->Data ),
                                         payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
-                std::optional<glm::vec3> at;
-                if ( const auto surface = SurfaceAtCursor() )
-                    at = surface->Point;
-                if ( const auto dropped = DropMeshAsset( path, at ); !dropped )
+                if ( const auto dropped = DropMeshAsset( path, DropTargetAtCursor() ); !dropped )
                     LOG_ERROR( "[Viewport] mesh drop of '{}' refused: {}", path, dropped.GetError() );
             }
 
@@ -2242,7 +2323,7 @@ namespace Desert::Editor
         std::sort( tips2.begin(), tips2.end(), []( const Tip& l, const Tip& r ) { return l.Depth < r.Depth; } );
 
         // Clickable: a tip under the cursor snaps the editor camera to view FROM that axis end (forward =
-        // -worldDir). Hover state suppresses picking (see OnMousePressed). Nearest-to-cursor tip wins.
+        // -worldDir). Hover state suppresses picking (see OnMouseButtonPressed). Nearest-to-cursor tip wins.
         const ImVec2 mouse = ::ImGui::GetMousePos();
         auto*        editorCam =
              m_Scene ? dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) : nullptr;
@@ -2290,22 +2371,7 @@ namespace Desert::Editor
             editorCam->SnapToDirection( -tips2[hotTip].WorldDir );
     }
 
-    void ViewportPanel::OnEvent( Common::Event& e )
-    {
-        // NO EventWindowResize SUBSCRIPTION. There was one, and it called an `OnWindowResize` whose whole
-        // body was two commented-out lines naming members this class does not have (`m_ImGuiLayer`,
-        // `m_EditorCamera`) and a `return false`. A viewport takes its size from its ImGui window, not
-        // from the OS window; the handler and the subscription are both gone rather than left looking
-        // like the resize is being handled somewhere.
-        Common::EventManager eventManager( e );
-        eventManager.Notify<Common::MouseButtonPressedEvent>( [this]( Common::MouseButtonPressedEvent& e )
-                                                              { return OnMousePressed( e ); } );
-
-        eventManager.Notify<Common::KeyPressedEvent>( [this]( Common::KeyPressedEvent& e )
-                                                      { return OnKeyPressedEvent( e ); } );
-    }
-
-    bool ViewportPanel::OnMousePressed( Common::MouseButtonPressedEvent& e )
+    bool ViewportPanel::OnMouseButtonPressed( Common::MouseButtonPressedEvent& e )
     {
         // LMB picks/selects ONLY in Select mode and when no brush is active (terrain brush / Foliage paint
         // both consume LMB in OnUIRender instead).
@@ -2429,17 +2495,19 @@ namespace Desert::Editor
         return false;
     }
 
-    bool ViewportPanel::OnKeyPressedEvent( Common::KeyPressedEvent& e )
+    bool ViewportPanel::OnKeyPressed( Common::KeyPressedEvent& e )
     {
+        if ( const std::optional<ViewportCommand> command = ViewportCommandForKey( e.GetKeyCode() ) )
+        {
+            if ( *command == ViewportCommand::SelectNone &&
+                 m_Gizmo.GetOperation() != Tools::GizmoController::Operation::None )
+                m_Gizmo.SetOperation( Tools::GizmoController::Operation::None );
+            else if ( const auto ran = RunCommand( *command ); !ran )
+                LOG_WARN( "[Viewport] {}", ran.GetError() );
+            return false;
+        }
         switch ( e.GetKeyCode() )
         {
-            case Common::KeyCode::Escape:
-                // First Esc turns the gizmo off; a second Esc (gizmo already off) clears the selection.
-                if ( m_Gizmo.GetOperation() == Tools::GizmoController::Operation::None )
-                    Core::SelectionManager::ClearSelection();
-                else
-                    m_Gizmo.SetOperation( Tools::GizmoController::Operation::None );
-                break;
             case Common::KeyCode::T:
                 m_Gizmo.SetOperation( Tools::GizmoController::Operation::Translate );
                 break;
@@ -2464,14 +2532,6 @@ namespace Desert::Editor
                         LOG_WARN( "[Animation] the control manipulator mode was not changed: {}", set.GetError() );
                     }
                 }
-                break;
-            case Common::KeyCode::F:
-                // Frame the selected entity (Unity/Godot 'F').
-                if ( const auto sel = Core::SelectionManager::GetSelected() )
-                    if ( auto cam = ViewCamera() )
-                        if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
-                            if ( auto ref = m_Scene->FindEntityByID( *sel ) )
-                                editorCam->Focus( glm::vec3( ref->get().GetWorldTransform()[3] ) );
                 break;
             // A `default` and not 115 empty cases: this is a KEYBOARD, and the shortcuts it handles are a
             // deliberately small set. Enumerating the rest would make every key an editing decision and
@@ -2521,6 +2581,21 @@ namespace Desert::Editor
         return hit;
     }
 
+    ActorDrop::Target ViewportPanel::DropTargetAtCursor() const
+    {
+        const auto camera = ViewCamera();
+        if ( !camera || !m_Scene )
+            return ActorDrop::Target{};
+        const auto ray = Common::Math::Ray::FromScreenPosition(
+             { m_ViewportData.MousePosition.x, m_ViewportData.MousePosition.y }, camera->GetProjectionMatrix(),
+             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+        ::Desert::Core::RaycastHit hit;
+        const bool                 met = m_Scene->Raycast( ray, hit );
+        return ActorDrop::TargetFor( met ? std::optional<glm::vec3>( hit.Point ) : std::nullopt, hit.Normal,
+                                     ray.Origin, ray.Direction );
+    }
+
     void ViewportPanel::AssignMaterialAtCursor( const std::string& materialPath )
     {
         if ( m_AssetManager == nullptr )
@@ -2555,3 +2630,6 @@ namespace Desert::Editor
     }
 
 } // namespace Desert::Editor
+
+static_assert( Common::HandlesEvent<Desert::Editor::ViewportPanel, Common::MouseButtonPressedEvent> &&
+               Common::HandlesEvent<Desert::Editor::ViewportPanel, Common::KeyPressedEvent> );

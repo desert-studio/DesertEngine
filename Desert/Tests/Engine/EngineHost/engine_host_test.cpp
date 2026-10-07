@@ -28,6 +28,10 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
+#include "../../TestSupport/derived_data_sandbox.hpp"
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/project_scope.hpp"
+
 #include <GLFW/glfw3.h>
 #include <gtest/gtest.h>
 
@@ -89,18 +93,8 @@ Shader "EngineHostFill"
         static Host host = []
         {
             Host h;
-            // The engine resolves Resources/Shaders (and their #includes) from the Editor directory, the working
-            // directory the Editor and the packaged game start in; walk up from wherever the runner started.
-            for ( fs::path dir = fs::current_path(); !dir.empty(); dir = dir.parent_path() )
-            {
-                if ( fs::exists( dir / "Editor" / "Resources" / "Shaders" ) )
-                {
-                    fs::current_path( dir / "Editor" );
-                    break;
-                }
-                if ( dir == dir.parent_path() )
-                    break;
-            }
+            // The shader root (and its #includes) answers off the engine directory and the project main()
+            // opened (SetSuiteEngineDir, OpenSuiteProject), never off the working directory.
             if ( glfwInit() != GLFW_TRUE ) // the instance asks glfwVulkanSupported(); no window is created
             {
                 h.Error = "glfwInit failed";
@@ -566,6 +560,10 @@ TEST( EngineHost, AnUnwrittenMaterialStorageBufferIsNotAmongTheMaterialsWrittenS
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
+    Desert::TestSupport::OpenSuiteProject();
+    // The suite's shaders compile through the DDC: a throwaway cache, so a run leaves nothing in the project.
+    const Desert::TestSupport::DerivedDataSandbox cache( "EngineHost" );
     ::testing::InitGoogleTest( &argc, argv );
     ::testing::AddGlobalTestEnvironment( new HostEnvironment );
     return RUN_ALL_TESTS();

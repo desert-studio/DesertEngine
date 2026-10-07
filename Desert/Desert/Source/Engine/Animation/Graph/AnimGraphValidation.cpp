@@ -198,13 +198,14 @@ namespace Desert::Animation::Graph
         /// Whether `Evaluator::Update` would ever ACT on this transition. It skips a transition whose
         /// target does not resolve and one that points at the state it leaves — so such a transition
         /// shadows nothing, and saying otherwise would blame the wrong line.
-        [[nodiscard]] bool CanBeTaken( const AnimGraph& graph, const State& from, const Transition& transition )
+        [[nodiscard]] bool CanBeTaken( const StateMachine& machine, const State& from,
+                                       const Transition& transition )
         {
             if ( transition.To == from.Name )
             {
                 return false;
             }
-            return std::any_of( graph.States.begin(), graph.States.end(),
+            return std::any_of( machine.States.begin(), machine.States.end(),
                                 [&]( const State& state ) { return state.Name == transition.To; } );
         }
 
@@ -222,19 +223,25 @@ namespace Desert::Animation::Graph
         // condition of every candidate transition, every frame. See `Evaluator::GetStructureError`.
         std::string missing;
         std::size_t count = 0;
-        for ( const auto& state : graph.States )
+        for ( const PoseNode& node : graph.Nodes )
         {
-            for ( const auto& transition : state.Transitions )
+            if ( !node.Machine )
+                continue;
+            for ( const auto& state : node.Machine->States )
             {
-                for ( const auto& condition : transition.Conditions )
+                for ( const auto& transition : state.Transitions )
                 {
-                    if ( FindParameter( graph, condition.Parameter ) != nullptr )
+                    for ( const auto& condition : transition.Conditions )
                     {
-                        continue;
+                        if ( FindParameter( graph, condition.Parameter ) != nullptr )
+                        {
+                            continue;
+                        }
+                        ++count;
+                        missing += missing.empty() ? "" : ", ";
+                        missing +=
+                             fmt::format( "{} -> {} on '{}'", state.Name, transition.To, condition.Parameter );
                     }
-                    ++count;
-                    missing += missing.empty() ? "" : ", ";
-                    missing += fmt::format( "{} -> {} on '{}'", state.Name, transition.To, condition.Parameter );
                 }
             }
         }
@@ -248,107 +255,124 @@ namespace Desert::Animation::Graph
                             count, missing );
     }
 
-    std::vector<GraphWarning> Validate( const AnimGraph& graph, const ClipSet& clips )
+    namespace
     {
-        std::vector<GraphWarning> warnings;
-
-        for ( std::size_t si = 0; si < graph.States.size(); ++si )
+        /// W1-W3 over one state machine node's states.
+        void ValidateMachine( const AnimGraph& graph, const StateMachine& machine, const ClipSet& clips,
+                              std::vector<GraphWarning>& warnings )
         {
-            const State& state = graph.States[si];
-
-            // ── W1 ────────────────────────────────────────────────────────────────────────────────────
-            if ( state.Clip.empty() )
+            for ( std::size_t si = 0; si < machine.States.size(); ++si )
             {
-                warnings.push_back(
-                     { WarningKind::StateHasNoClip, state.Name, -1,
-                       fmt::format( "'{}' names no clip - entering it plays nothing.", state.Name ) } );
-            }
-            else if ( clips.Known &&
-                      std::find( clips.Names.begin(), clips.Names.end(), state.Clip ) == clips.Names.end() )
-            {
-                warnings.push_back(
-                     { WarningKind::StateClipNotAvailable, state.Name, -1,
-                       fmt::format( "'{}' names clip '{}', which this skeleton has no animation for.", state.Name,
-                                    state.Clip ) } );
-            }
+                const State& state = machine.States[si];
 
-            // ── W2 ────────────────────────────────────────────────────────────────────────────────────
-            //
-            // SHARPENED FROM "THEIR CONDITIONS OVERLAP", AND DELIBERATELY. Mere overlap is the normal
-            // shape of an authored graph: `Speed > 0.1` and `Jump is true` overlap at every jump, and the
-            // author meant the order to be a priority. A strip that fired there would light up on every
-            // real graph and be learned as noise. What is never intended is a transition that can NEVER
-            // fire, and that is decidable here: an earlier transition whose eligible set CONTAINS this
-            // one's. The doc's own example is this case — the later `Speed > 3.0` sits behind an earlier
-            // `Speed > 0.1` and is dead.
-            std::vector<DomainMap> domains;
-            domains.reserve( state.Transitions.size() );
-            for ( const auto& transition : state.Transitions )
-            {
-                domains.push_back( DomainsOf( transition ) );
-            }
-
-            for ( std::size_t ti = 0; ti < state.Transitions.size(); ++ti )
-            {
-                const Transition& later = state.Transitions[ti];
-                if ( !CanBeTaken( graph, state, later ) )
-                {
-                    continue;
-                }
-
-                if ( !AllSatisfiable( domains[ti] ) )
+                // ── W1 ────────────────────────────────────────────────────────────────────────────────────
+                if ( state.Clip.empty() )
                 {
                     warnings.push_back(
-                         { WarningKind::TransitionNeverFires, state.Name, static_cast<int>( ti ),
-                           fmt::format( "'{}' -> '{}' can never fire: its own conditions contradict each other.",
-                                        state.Name, later.To ) } );
-                    continue;
+                         { WarningKind::StateHasNoClip, state.Name, -1,
+                           fmt::format( "'{}' names no clip - entering it plays nothing.", state.Name ) } );
+                }
+                else if ( clips.Known &&
+                          std::find( clips.Names.begin(), clips.Names.end(), state.Clip ) == clips.Names.end() )
+                {
+                    warnings.push_back(
+                         { WarningKind::StateClipNotAvailable, state.Name, -1,
+                           fmt::format( "'{}' names clip '{}', which this skeleton has no animation for.",
+                                        state.Name, state.Clip ) } );
                 }
 
-                for ( std::size_t ei = 0; ei < ti; ++ei )
+                // ── W2 ────────────────────────────────────────────────────────────────────────────────────
+                //
+                // SHARPENED FROM "THEIR CONDITIONS OVERLAP", AND DELIBERATELY. Mere overlap is the normal
+                // shape of an authored graph: `Speed > 0.1` and `Jump is true` overlap at every jump, and the
+                // author meant the order to be a priority. A strip that fired there would light up on every
+                // real graph and be learned as noise. What is never intended is a transition that can NEVER
+                // fire, and that is decidable here: an earlier transition whose eligible set CONTAINS this
+                // one's. The doc's own example is this case — the later `Speed > 3.0` sits behind an earlier
+                // `Speed > 0.1` and is dead.
+                std::vector<DomainMap> domains;
+                domains.reserve( state.Transitions.size() );
+                for ( const auto& transition : state.Transitions )
                 {
-                    const Transition& earlier = state.Transitions[ei];
-                    if ( !CanBeTaken( graph, state, earlier ) || !AllSatisfiable( domains[ei] ) )
-                    {
-                        continue;
-                    }
-                    if ( !ExitGateIsNoStricter( earlier, later ) )
-                    {
-                        continue;
-                    }
-                    if ( !Shadows( domains[ei], domains[ti] ) )
-                    {
-                        continue;
-                    }
-
-                    warnings.push_back(
-                         { WarningKind::TransitionNeverFires, state.Name, static_cast<int>( ti ),
-                           fmt::format( "'{}' -> '{}' can never fire: '{}' -> '{}' is earlier in the list and "
-                                        "holds in every case this one does.",
-                                        state.Name, later.To, state.Name, earlier.To ) } );
-                    break; // one culprit is enough to act on; naming all of them is a wall of text
+                    domains.push_back( DomainsOf( transition ) );
                 }
-            }
 
-            // ── W3, per condition, so the strip can name the state that carries it ────────────────────
-            for ( std::size_t ti = 0; ti < state.Transitions.size(); ++ti )
-            {
-                for ( const auto& condition : state.Transitions[ti].Conditions )
+                for ( std::size_t ti = 0; ti < state.Transitions.size(); ++ti )
                 {
-                    if ( FindParameter( graph, condition.Parameter ) != nullptr )
+                    const Transition& later = state.Transitions[ti];
+                    if ( !CanBeTaken( machine, state, later ) )
                     {
                         continue;
                     }
-                    warnings.push_back(
-                         { WarningKind::UndeclaredConditionParam, state.Name, static_cast<int>( ti ),
-                           fmt::format( "'{}' -> '{}' tests '{}', which this graph does not declare; it reads "
-                                        "0 and compares against that.",
-                                        state.Name, state.Transitions[ti].To,
-                                        condition.Parameter.empty() ? "<unnamed>" : condition.Parameter ) } );
+
+                    if ( !AllSatisfiable( domains[ti] ) )
+                    {
+                        warnings.push_back(
+                             { WarningKind::TransitionNeverFires, state.Name, static_cast<int>( ti ),
+                               fmt::format(
+                                    "'{}' -> '{}' can never fire: its own conditions contradict each other.",
+                                    state.Name, later.To ) } );
+                        continue;
+                    }
+
+                    for ( std::size_t ei = 0; ei < ti; ++ei )
+                    {
+                        const Transition& earlier = state.Transitions[ei];
+                        if ( !CanBeTaken( machine, state, earlier ) || !AllSatisfiable( domains[ei] ) )
+                        {
+                            continue;
+                        }
+                        if ( !ExitGateIsNoStricter( earlier, later ) )
+                        {
+                            continue;
+                        }
+                        if ( !Shadows( domains[ei], domains[ti] ) )
+                        {
+                            continue;
+                        }
+
+                        warnings.push_back(
+                             { WarningKind::TransitionNeverFires, state.Name, static_cast<int>( ti ),
+                               fmt::format( "'{}' -> '{}' can never fire: '{}' -> '{}' is earlier in the list and "
+                                            "holds in every case this one does.",
+                                            state.Name, later.To, state.Name, earlier.To ) } );
+                        break; // one culprit is enough to act on; naming all of them is a wall of text
+                    }
+                }
+
+                // ── W3, per condition, so the strip can name the state that carries it ────────────────────
+                for ( std::size_t ti = 0; ti < state.Transitions.size(); ++ti )
+                {
+                    for ( const auto& condition : state.Transitions[ti].Conditions )
+                    {
+                        if ( FindParameter( graph, condition.Parameter ) != nullptr )
+                        {
+                            continue;
+                        }
+                        warnings.push_back(
+                             { WarningKind::UndeclaredConditionParam, state.Name, static_cast<int>( ti ),
+                               fmt::format( "'{}' -> '{}' tests '{}', which this graph does not declare; it reads "
+                                            "0 and compares against that.",
+                                            state.Name, state.Transitions[ti].To,
+                                            condition.Parameter.empty() ? "<unnamed>" : condition.Parameter ) } );
+                    }
                 }
             }
         }
+    } // namespace
 
+    std::vector<GraphWarning> Validate( const AnimGraph& graph, const ClipSet& clips )
+    {
+        // Every state machine node, wired to Output Pose or not: an unwired machine is still authored
+        // content, and a dead transition in it is as dead as one at the output.
+        std::vector<GraphWarning> warnings;
+        // The pose graph first: a graph that does not plan is refused by the loader and by the evaluator,
+        // so every other finding is about a graph that cannot run yet.
+        if ( const auto plan = PlanPoseGraph( graph ); !plan.IsSuccess() )
+            warnings.push_back( { WarningKind::PoseGraphRefused, std::string(), -1, plan.GetError() } );
+        for ( const PoseNode& node : graph.Nodes )
+            if ( node.Machine )
+                ValidateMachine( graph, *node.Machine, clips, warnings );
         return warnings;
     }
 } // namespace Desert::Animation::Graph

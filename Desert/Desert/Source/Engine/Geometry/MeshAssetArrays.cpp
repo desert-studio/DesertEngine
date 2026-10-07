@@ -38,6 +38,15 @@ namespace Desert::Geometry
         }
 
         data.PolyGroups = std::move( polyGroups );
+        // Linear colour to linear RGBA8, rounded: the file's precision is UE's FColor vertex colour.
+        data.Colors.reserve( render.Colors.size() );
+        for ( const glm::vec4& c : render.Colors )
+        {
+            const glm::vec4 q = glm::round( glm::clamp( c, 0.0f, 1.0f ) * 255.0f );
+            data.Colors.push_back( { static_cast<uint8_t>( q.r ), static_cast<uint8_t>( q.g ),
+                                     static_cast<uint8_t>( q.b ), static_cast<uint8_t>( q.a ) } );
+        }
+        data.UV1 = render.UV1;
         return data;
     }
 
@@ -58,6 +67,16 @@ namespace Desert::Geometry
         render.Indices.reserve( data.Indices.size() );
         for ( const Ser::IndexData& i : data.Indices )
             render.Indices.push_back( { i.V1, i.V2, i.V3 } );
+        const size_t vertexCount = data.StaticVertices.size();
+        if ( ( !data.Colors.empty() && data.Colors.size() != vertexCount ) ||
+             ( !data.UV1.empty() && data.UV1.size() != vertexCount ) )
+            return Common::MakeFormattedError<RenderMeshData>( "the asset has {} vertices, {} colours and {} UV1 "
+                                                               "entries (each stream is one per vertex or none)",
+                                                               vertexCount, data.Colors.size(), data.UV1.size() );
+        render.Colors.reserve( data.Colors.size() );
+        for ( const std::array<uint8_t, 4>& c : data.Colors )
+            render.Colors.push_back( glm::vec4( c[0], c[1], c[2], c[3] ) / 255.0f );
+        render.UV1 = data.UV1;
         render.Submeshes.reserve( data.Submeshes.size() );
         for ( const Ser::SubmeshData& s : data.Submeshes )
             render.Submeshes.push_back( { s.Name, s.VertexOffset, s.VertexCount, s.IndexOffset, s.IndexCount,

@@ -82,8 +82,8 @@ namespace
         return ss.str();
     }
 
-    const char* kShippedThemes[] = { "Editor/Resources/Assets/UI/Themes/Desert_Dark.detheme",
-                                     "Editor/Resources/Assets/UI/Themes/Desert_Light.detheme" };
+    const char* kShippedThemes[] = { "Projects/Desert/Content/UI/Themes/Desert_Dark.detheme",
+                                     "Projects/Desert/Content/UI/Themes/Desert_Light.detheme" };
 
     // A minimal legal theme with one colour, one metric, one font and one style binding all three.
     UIThemeData Minimal()

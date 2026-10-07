@@ -41,6 +41,9 @@ namespace Desert::UI
         bool        Backspace = false;    // backspace pressed this frame
         bool        Tab       = false;    // Tab pressed: advance keyboard focus to the next focusable
         bool        Submit    = false;    // Enter pressed: activate the focused control (button/toggle/...)
+        // Directional focus step this frame: -1 = previous focusable (Up / W), +1 = next (Down / S), 0 = none.
+        // A menu is walked with the arrows the way UE's Slate navigation walks it; Tab is the same +1 step.
+        int Navigate = 0;
     };
 
     // --- A FRAME OF A VIEW, AND THE CANVASES INSIDE IT ------------------------------------------------
@@ -55,7 +58,7 @@ namespace Desert::UI
     //
     // Hence the boundary:
     //
-    //     BeginUIFrame( view, reg, viewportPx );
+    //     BeginUIFrame( view, reg, viewportPx, frameDtSeconds );
     //     for ( canvas : CanvasesInDrawOrder( reg ) )  RenderCanvas2D( view, reg, canvas, ... );
     //     EndUIFrame( view, reg, dl, input, ... );
     //
@@ -71,8 +74,10 @@ namespace Desert::UI
     // Open a frame of @p view: advance its clock, drop the cells of canvases that no longer exist, and
     // start a fresh hot election. Rebinds the view to @p reg (dropping everything) when it is looking at
     // another scene, because entity ids are unique only inside a registry. @p viewportPx is where this view
-    // draws, for the whole frame — see above.
-    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx );
+    // draws, for the whole frame — see above. @p frameDtSeconds is the frame's timestep as the HOST steps
+    // it (the editor's frame Timestep, fixed under --play): the view's eases, tweens, transitions and UI
+    // clips advance by exactly that, so frame N of a fixed-step run is tick N. Clamped to 0.1 s.
+    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx, float frameDtSeconds );
 
     // Close it: hand this frame's hot election to the next frame, route the pointer events that election
     // implies (enter/exit, down/up, drop) across EVERY canvas the frame drew, advance keyboard focus on

@@ -37,6 +37,14 @@ namespace Desert::Editor::Render
         }
     }
 
+    void RenderRegistry::BeginFrame( const Common::Timestep& ts )
+    {
+        if ( m_UIPass )
+        {
+            m_UIPass->BeginFrame( ts );
+        }
+    }
+
     void RenderRegistry::Render()
     {
         // Per-frame editor draws that DON'T go through the render graph would go here. The graph-injected

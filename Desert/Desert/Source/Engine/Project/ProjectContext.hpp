@@ -74,6 +74,12 @@ namespace Desert::Project
         // Absolute path of the project's default scene ("" when the project has none / no project).
         static std::string DefaultScenePath();
 
+        // The project's optional override of the default surface template: the `.deproj` key
+        // "DefaultSurfaceTemplate" (a shader GUID; the key is the engine's, carried by ProjectFile::UnknownKeys
+        // so the launcher's format needs no field). Empty = not stated → the template declaring
+        // `Default Surface`. Resolved and refused by Assets::FindDefaultSurfaceTemplate.
+        static std::string DefaultSurfaceTemplate();
+
         // Recent projects (most recent first) from <config>/projects.json (shared with the Project
         // Hub). The whole registry, not a list of paths: each entry carries the LastOpened the
         // launcher draws its relative time from, and RegisterRecent has to write the entries back.

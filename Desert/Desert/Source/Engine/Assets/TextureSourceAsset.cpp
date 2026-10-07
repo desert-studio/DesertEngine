@@ -15,6 +15,7 @@
 
 #include <fstream>
 #include <mutex>
+#include <span>
 #include <utility>
 
 namespace Desert::Assets
@@ -244,6 +245,50 @@ namespace Desert::Assets
         return Common::Utils::FileSystem::WriteBytesToFileAtomic(
              file, std::span<const std::byte>( reinterpret_cast<const std::byte*>( bytes.GetValue().data() ),
                                                bytes.GetValue().size() ) );
+    }
+
+    Common::ResultStr<TextureSourceWrite> WriteTextureSource( const std::filesystem::path& asset,
+                                                              const CC::ContentKind kind, std::string sourceKey,
+                                                              std::vector<std::byte>       sourceBytes,
+                                                              const TextureImportSettings& settingsIfCreated )
+    {
+        if ( IsTextureSourceAssetFile( asset ) )
+        {
+            auto existing = ReadTextureSourceAssetFile( asset );
+            if ( !existing.IsSuccess() )
+                return Common::MakeError<TextureSourceWrite>( existing.GetError() );
+            const uint64_t hash = Common::Utils::PakContentHash( sourceBytes.data(), sourceBytes.size() );
+            if ( existing.GetValue().Import.SourceHash == hash )
+                return Common::MakeSuccess( TextureSourceWrite::Unchanged );
+            TextureSourceAsset updated = existing.ExtractValue();
+            updated.Import.SourceFile  = std::move( sourceKey );
+            updated.Import.SourceHash  = hash;
+            updated.Source             = std::move( sourceBytes );
+            if ( auto w = WriteTextureSourceAssetFile( asset, updated ); !w.IsSuccess() )
+                return Common::MakeError<TextureSourceWrite>( w.GetError() );
+            return Common::MakeSuccess( TextureSourceWrite::Updated );
+        }
+        const TextureSourceAsset created =
+             MakeTextureSourceAsset( kind, std::move( sourceKey ), std::move( sourceBytes ), settingsIfCreated );
+        if ( auto w = WriteTextureSourceAssetFile( asset, created ); !w.IsSuccess() )
+            return Common::MakeError<TextureSourceWrite>( w.GetError() );
+        return Common::MakeSuccess( TextureSourceWrite::Created );
+    }
+
+    Common::ResultStr<std::vector<std::byte>> ReadTextureSourceImage( const std::filesystem::path& file )
+    {
+        if ( IsTextureSourceAssetFile( file ) )
+        {
+            auto asset = ReadTextureSourceAssetFile( file );
+            if ( !asset.IsSuccess() )
+                return Common::MakeError<std::vector<std::byte>>( asset.GetError() );
+            return Common::MakeSuccess( std::move( asset.ExtractValue().Source ) );
+        }
+        const auto raw = Common::Utils::FileSystem::ReadFileContent( file );
+        if ( !raw.IsSuccess() )
+            return Common::MakeError<std::vector<std::byte>>( raw.GetError() );
+        const auto bytes = std::as_bytes( std::span( raw.GetValue() ) );
+        return Common::MakeSuccess( std::vector<std::byte>( bytes.begin(), bytes.end() ) );
     }
 
     bool IsTextureSourceAssetFile( const std::filesystem::path& file )

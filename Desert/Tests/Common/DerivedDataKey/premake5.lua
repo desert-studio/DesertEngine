@@ -30,10 +30,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Common drags Optick in through its JobSystem
 
-    -- Common contains Objective-C (MacOSFileSystem file dialog), so any binary that links Common
-    -- must bring the ObjC runtime + AppKit along.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     -- gtest comes from Dependencies.lua (prebuilt .lib on Windows, Homebrew on macOS)

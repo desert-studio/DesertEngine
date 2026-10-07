@@ -2,7 +2,7 @@
 # OpenAndShoot.sh — start a FRESH editor, open one document by name, photograph the window, close.
 #
 #     scripts/MacOS/OpenAndShoot.sh <project.deproj> <Open label> <out.png> [config]
-#     scripts/MacOS/OpenAndShoot.sh Editor/Desert.deproj Materials/M_Clouds_Demo_Clouds.demat /tmp/m.png
+#     scripts/MacOS/OpenAndShoot.sh Projects/Desert/Desert.deproj Materials/M_Clouds_Demo_Clouds.demat /tmp/m.png
 #
 # WHY THIS SCRIPT IS THE DELIVERABLE OF A6-1 AND NOT A CONVENIENCE.
 #

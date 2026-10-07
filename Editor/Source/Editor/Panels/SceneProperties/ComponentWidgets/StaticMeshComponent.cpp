@@ -8,12 +8,8 @@
 
 #include "MaterialsPanelComponent.hpp"
 
-#include "Helper/MeshDetailsWidget.hpp"
-
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
-#include <Editor/Core/MeshResolve.hpp>
-#include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
@@ -35,7 +31,7 @@ namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
 
-    StaticMeshComponentWidget::StaticMeshComponentWidget( const Assets::AssetManager* assetManager,
+    StaticMeshComponentWidget::StaticMeshComponentWidget( Assets::AssetManager*       assetManager,
                                                           const ComponentEditContext* ctx )
          : IComponentWidget( "3D Model" ), m_AssetManager( assetManager ), m_Ctx( ctx )
     {
@@ -95,6 +91,7 @@ namespace Desert::Editor
                 ImGui::OpenPopup( "mesh_selector" );
             }
             DrawAssetFieldOpen( emptySlot ? 0 : static_cast<uint64_t>( staticMesh.MeshHandle ) );
+            DrawAssetFieldButtons( emptySlot ? 0 : static_cast<uint64_t>( staticMesh.MeshHandle ) );
 
             if ( ImGui::BeginPopup( "mesh_selector" ) )
             {
@@ -149,8 +146,9 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::EndPropertyRow();
         }
 
-        ShowMeshDetails( entity, scene, staticMesh );
-
+        // What the mesh IS (statistics, elements, Import Settings) is the ASSET's, shown by its editor
+        // (MeshAssetDetails, UE's Static Mesh Editor); a component's Details is the slot, its materials and
+        // the component's own properties.
         {
             static MaterialComponentWidget materialComponent( m_AssetManager );
             materialComponent.Render( entity, scene );
@@ -195,6 +193,7 @@ namespace Desert::Editor
         std::shared_ptr<Graphic::Image2D> thumb;
         std::string                       png;
         std::string                       source;
+        bool                              materialPicture = false;
         if ( m_AssetManager )
         {
             if ( staticMesh.MeshHandle )
@@ -207,7 +206,7 @@ namespace Desert::Editor
                     // picture of the asset: handing over THIS entity's slot materials would put two
                     // entities that share one mesh in a fight over one file, and the second one selected
                     // would be shown the first one's paint with nothing able to tell them apart. The
-                    // per-entity answer is the live preview BELOW; this one is per-asset by construction.
+                    // per-asset picture is what Details shows, as UE's does (THM-FIXF: no live view here).
                     png = ThumbnailService::Get().RequestMesh( staticMesh.MeshHandle, source );
                 }
             }
@@ -220,47 +219,25 @@ namespace Desert::Editor
                     // WHICH PICTURE, from the one place that decides — this file used to hold its own
                     // copy of the cutout rule and to ask nothing at all about the domain. A refusal leaves
                     // `png` empty, which this row already reads as "no rendered thumbnail".
-                    if ( const auto route = ThumbnailSubject::PreviewRouteFor( *mat ) )
-                    {
-                        png = ThumbnailService::Get().RequestMaterial( mat->GetMetadata().Handle, source,
-                                                                       route.GetValue() );
-                    }
+                    png = ThumbnailService::Get().RequestLoadedMaterial( *m_AssetManager, mat, source );
+                    materialPicture = true;
                 }
             }
 
             if ( !png.empty() )
             {
-                // Through the shared rule, not a bare exists(): a picture whose asset has moved on is not
-                // the asset's picture (Editor/Widgets/ThumbnailFreshness.hpp). When it says Capture the
-                // request above has already queued the replacement, so the decoded copy is dropped here —
-                // otherwise this cache would keep handing back the OLD render after the new one lands.
-                if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, source ) ) ==
-                     ThumbnailFreshness::Verdict::Show )
+                // The service's one verdict for this picture — the key and hash its enqueue gate used above,
+                // not a second judgement of our own. When it says Capture the request above has already queued
+                // the replacement, so the decoded copy is dropped here — otherwise this cache would keep
+                // handing back the OLD render after the new one lands.
+                const ThumbnailFreshness::Verdict verdict = materialPicture
+                                                                 ? ThumbnailService::JudgeMaterialPicture( source )
+                                                                 : ThumbnailService::JudgeMeshPicture( source );
+                if ( verdict == ThumbnailFreshness::Verdict::Show )
                     thumb = s_Thumbnails.Get( png );
                 else
                     s_Thumbnails.Invalidate( png );
             }
-        }
-
-        // NOW the live one, if there is a live one with something in it. It is the better picture —
-        // live, wearing this entity's own materials, and it follows a material edit while you drag the
-        // slider — and it is safe because per-frame GPU state is stored per (frame x renderer slot)
-        // (Docs/RENDERER_FRAME_STATE.md).
-        //
-        // HasContent() IS PART OF THE CONDITION, and it is what makes the cached picture above reachable at
-        // all. ScenePropertiesPanel builds the viewport as soon as a mesh entity is selected and only points
-        // it at the mesh on the NEXT OnPreUpdate, and it declines to build one when every renderer slot is
-        // taken. Asking DrawPreview alone answers "was a widget lent", which was true in every state this
-        // row is ever drawn in — so the fallback underneath was unreachable code wearing a fallback's
-        // clothes. Asking whether the preview has anything to SHOW is the question the row actually has.
-        if ( m_Ctx && m_Ctx->Preview && m_Ctx->Preview->HasContent() &&
-             m_Ctx->DrawPreview( ImVec2( size, size ), DetailsPreviewKind::StaticMesh,
-                                 static_cast<uint64_t>( staticMesh.MeshHandle ) ) )
-        {
-            // Interactive (DetailsPreviewInteraction): drag orbits, the wheel zooms without scrolling
-            // Details, double-click re-frames. Opening the mesh is the field's own Open button.
-            ImGui::SameLine();
-            return;
         }
 
         const ImVec2 at = ImGui::GetCursorScreenPos();
@@ -294,24 +271,6 @@ namespace Desert::Editor
                                                       : "Preview queued — it will appear in a moment" );
 
         ImGui::SameLine();
-    }
-
-    void StaticMeshComponentWidget::ShowMeshDetails( const ECS::Entity& entity, ::Desert::Core::Scene* scene,
-                                                     const ECS::StaticMeshComponent& staticMesh ) const
-    {
-        MeshDetailsWidget::Context ctx;
-        ctx.Entity    = &entity;
-        ctx.Scene     = scene;
-        ctx.ForcedLOD = staticMesh.ForcedLOD;
-        ctx.LODBias   = staticMesh.LODBias;
-
-        // The mesh that is ACTUALLY drawn — one shared resolver, so the panel, the viewport overlay and
-        // the collider fit can never disagree about which mesh an entity shows.
-        ctx.RuntimeMesh = ResolveDrawnMesh( entity );
-        if ( staticMesh.MeshHandle )
-            ctx.Asset = m_AssetManager->FindByHandle<Assets::MeshAsset>( staticMesh.MeshHandle );
-
-        MeshDetailsWidget::Show( ctx );
     }
 
     void StaticMeshComponentWidget::RenderRigging( ECS::Entity& entity, ECS::StaticMeshComponent& staticMesh )

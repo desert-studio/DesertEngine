@@ -356,6 +356,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanPipelineCompute::Invalidate()
     {
         Release();
+        RecordShaderCodeGeneration();
 
         VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
                               ->GetVulkanLogicalDevice();
@@ -383,7 +384,7 @@ namespace Desert::Graphic::API::Vulkan
         // keeps the layouts alive if the shader recompiles under us, and using only these is what keeps
         // the set and the pipeline layout describing the same contract.
         m_Layouts          = vulkanShader->GetAllDescriptorSetLayouts();
-        m_ShaderGeneration = vulkanShader->GetReloadGeneration();
+        m_ShaderGeneration = vulkanShader->GetCodeGeneration();
 
         // The material backend allocated its descriptor sets in this pipeline's constructor. If the
         // shader was recompiled between then and now, those sets belong to a different contract than

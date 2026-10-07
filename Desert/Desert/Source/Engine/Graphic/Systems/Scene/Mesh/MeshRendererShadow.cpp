@@ -40,27 +40,27 @@ namespace Desert::Graphic::System
         // Their effective materials go into the DEDICATED RSM material's Materials SSBO, so each texel's
         // albedo is the real per-object one — that albedo IS the flux colour, i.e. the colour bleeding.
         std::vector<const StaticMeshRenderData*> objs;
-        std::vector<PBRGpuMaterial>              gpuMats;
+        std::vector<glm::vec4>                   gpuMats;
         for ( const auto& data : m_StaticQueue )
         {
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+            {
                 continue;
-            MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
-            if ( pbrInst == nullptr )
+            }
+            const auto [pbrInst, mat] = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
+            if ( pbrInst == nullptr || IsTranslucent( mat ) )
+            {
                 continue;
-            const PBRGpuMaterial gm =
-                 BuildEffectiveMaterial( static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() ), pbrInst );
-            if ( gm.GlassTint.a > 0.001f )
-                continue;
+            }
             objs.push_back( &data );
-            gpuMats.push_back( gm );
+            AppendRow( gpuMats, EffectiveRow( mat, pbrInst ) );
         }
         if ( objs.empty() )
             return;
 
         // Written ONCE, before the block is declared, so its route fill is what the draws will read.
         if ( auto* sb = m_RSMMaterial->Get<StorageBufferProperty>( "Materials" ) )
-            sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( PBRGpuMaterial ) ) );
+            sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( glm::vec4 ) ) );
 
         // Render from the SUN. A DEDICATED material+instance (like the glass pass) keeps this camera write
         // off the opaque passes' per-frame UBs — two writes to the same UB in one frame is the hazard that
@@ -82,7 +82,7 @@ namespace Desert::Graphic::System
                               .HiddenSubmeshMask = obj->HiddenSubmeshes,
                               .BindState         = [rsmMaterial, ri, transform = obj->Transform, i]
                               {
-                                  MaterialPBR::UpdateTransform( ri, transform );
+                                  rsmMaterial->SetPushMatrix( transform );
                                   rsmMaterial->SetMaterialIndex( i );
                                   rsmMaterial->Bind( ri );
                               } } );
@@ -133,7 +133,7 @@ namespace Desert::Graphic::System
             return true;
         }
 
-        m_ShadowShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "Shadow" );
+        m_ShadowShader = DefaultSurfaceProgram( MeshVertexPath::Static, MeshPass::ShadowDepth );
         if ( !m_ShadowShader )
         {
             LOG_ERROR( "Failed to load shadow shader" );
@@ -169,11 +169,7 @@ namespace Desert::Graphic::System
 
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "ShadowPipeline";
-        spec.Layout            = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                   { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                   { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                   { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                   { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
         spec.DepthTestEnabled  = true;
         spec.DepthWriteEnabled = true;
         // STANDARD-Z, AND THE ONLY PASS IN THE ENGINE THAT IS. Everything else renders reversed-Z
@@ -204,7 +200,7 @@ namespace Desert::Graphic::System
         // Instanced shadow caster (optional): same depth-only state, but the vertex pulls per-instance model
         // matrices from the InstanceTransforms SSBO. One instanced material per cascade (each its own light
         // matrix UBO + SSBO). If the shader is missing, instanced shadows are simply disabled.
-        m_ShadowInstancedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "Shadow_Instanced" );
+        m_ShadowInstancedShader = DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::ShadowDepth );
         if ( m_ShadowInstancedShader )
         {
             GraphicsPipelineSpecification ispec = spec;
@@ -227,19 +223,12 @@ namespace Desert::Graphic::System
         // skinned vertex layout and a vertex stage that skins before projecting. Without this cell the
         // cascade pass had nothing it could draw a skinned mesh WITH, which is half of why a character
         // cast no shadow; the other half is the queue the pass walks (RegisterShadowPass).
-        m_ShadowSkinnedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
-             MeshShaderFor( MeshVertexPath::Skinned, MeshPass::ShadowDepth ) );
+        m_ShadowSkinnedShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::ShadowDepth );
         if ( m_ShadowSkinnedShader )
         {
             GraphicsPipelineSpecification sspec = spec;
             sspec.DebugName                     = "ShadowPipelineSkinned";
-            sspec.Layout                        = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                                    { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                                    { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                                    { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                                    { Graphic::ShaderDataType::Float2, "a_TextureCoord" },
-                                                    { Graphic::ShaderDataType::Int4, "a_BoneIndices" },
-                                                    { Graphic::ShaderDataType::Float4, "a_BoneWeights" } };
+            sspec.Layout                        = MeshVertexLayout( MeshVertexPath::Skinned );
             sspec.Shader                        = m_ShadowSkinnedShader;
             if ( const auto skinnedShadow = GraphicsPipeline::Create( sspec ) )
             {
@@ -255,7 +244,7 @@ namespace Desert::Graphic::System
         }
         else
         {
-            LOG_WARN( "[MeshRenderer] Shadow_Skinned shader missing — skinned meshes will cast no shadow." );
+            LOG_WARN( "[MeshRenderer] Skinned shadow-depth cell missing — skinned meshes will cast no shadow." );
         }
 
         return true;
@@ -331,6 +320,95 @@ namespace Desert::Graphic::System
         }
     }
 
+    DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
+                                                            MeshVertexPath path, uint32_t cascade )
+    {
+        auto* caster = Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant(
+             material, path, MeshPass::ShadowDepth, cascade );
+        if ( caster == nullptr )
+        {
+            // Not drawn through the shared program instead: that is the square shadow this route exists to end.
+            static std::unordered_set<const DataDrivenMaterial*> s_Refused;
+            if ( s_Refused.insert( material ).second )
+                LOG_ERROR( "[Shadows] a Masked material ('{}') has no ({} x ShadowDepth) caster of its own; its "
+                           "objects cast NO shadow on that path (MaterialService named the cell it refused).",
+                           material->GetShaderName(), MeshVertexPathName( path ) );
+        }
+        return caster;
+    }
+
+    GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const DataDrivenMaterial& cell )
+    {
+        if ( passState == nullptr )
+            return nullptr;
+        MeshCellPipelineKey key{ passState, cell.GetShaderName() };
+        if ( const auto found = m_CellPipelines.find( key ); found != m_CellPipelines.end() )
+            return found->second.get(); // null = refused before (said once, below)
+        auto& slot = m_CellPipelines[key];
+
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( key.CellShader );
+        if ( !shader )
+        {
+            LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': no such shader is registered",
+                       key.CellShader, passState->GetSpecification().DebugName );
+            return nullptr;
+        }
+        GraphicsPipelineSpecification spec = passState->GetSpecification();
+        spec.DebugName                     = std::format( "{} {}", spec.DebugName, key.CellShader );
+        spec.Shader                        = shader;
+        const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+        {
+            LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': {}", key.CellShader,
+                       passState->GetSpecification().DebugName, pipeline.GetError() );
+            return nullptr;
+        }
+        slot = pipeline.GetValue();
+        return slot.get();
+    }
+
+    GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path )
+    {
+        const auto& name = caster.GetShaderName();
+        if ( const auto found = m_MaskedCasterPipelines.find( name ); found != m_MaskedCasterPipelines.end() )
+            return found->second.get(); // null = refused before (said once, below)
+        auto& slot = m_MaskedCasterPipelines[name];
+
+        // The shared caster's state for this path (vertex layout, standard-Z depth, the cascade target) — only
+        // the program differs, which is the whole difference between an opaque and a masked caster.
+        const GraphicsPipeline* shared = nullptr;
+        switch ( path )
+        {
+            case MeshVertexPath::Instanced:
+                shared = m_ShadowInstancedPipeline.get();
+                break;
+            case MeshVertexPath::Skinned:
+                shared = m_ShadowSkinnedPipeline.get();
+                break;
+            case MeshVertexPath::Static:
+                shared = m_ShadowPipeline.get();
+                break;
+        }
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
+        if ( shared == nullptr || !shader )
+        {
+            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: {}", name,
+                       !shader ? "no such shader is registered" : "the path has no shared caster pipeline" );
+            return nullptr;
+        }
+        GraphicsPipelineSpecification spec = shared->GetSpecification();
+        spec.DebugName                     = std::format( "ShadowPipelineMasked {}", name );
+        spec.Shader                        = shader;
+        const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+        {
+            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: {}", name, pipeline.GetError() );
+            return nullptr;
+        }
+        slot = pipeline.GetValue();
+        return slot.get();
+    }
+
     // SETUP of cascade @p c (its node's Declare): every caster of the cascade is chosen here, ONCE, into @p list,
     // and the cascade's material state (light matrix, the packed instance transforms and poses) is written here;
     // the node's exec only records the list. The cascade matrix is this frame's: UpdateCascades runs before the
@@ -383,11 +461,70 @@ namespace Desert::Graphic::System
             byMesh.emplace_back( mesh, std::vector<const StaticMeshRenderData*>{} );
             return byMesh.back().second;
         };
+        // MASKED CASTERS, by the material's blend mode (ShadowCasterCellFor): each draws through its own
+        // template's ShadowDepth cell on a per-cascade copy of its material, with its mask texture and clip
+        // threshold. One set per copy: its rows, instance transforms or bone poses end to end, uploaded once in
+        // this setup, before the list is declared.
+        m_ScratchMaskedDraws.clear();
+        std::size_t maskedSetCount = 0;
+        const auto  maskedSetFor   = [&]( DataDrivenMaterial* caster ) -> MaskedCasterSet&
+        {
+            for ( std::size_t i = 0; i < maskedSetCount; ++i )
+            {
+                if ( m_ScratchMaskedSets[i]->Caster == caster )
+                {
+                    return *m_ScratchMaskedSets[i];
+                }
+            }
+            if ( maskedSetCount == m_ScratchMaskedSets.size() )
+            {
+                m_ScratchMaskedSets.push_back( std::make_unique<MaskedCasterSet>() );
+            }
+            auto& set  = *m_ScratchMaskedSets[maskedSetCount++];
+            set.Caster = caster;
+            set.Rows.clear();
+            set.Transforms.clear();
+            return set;
+        };
+        const auto isMasked = []( const DataDrivenMaterial* material )
+        {
+            return material != nullptr &&
+                   ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
+        };
+
         for ( const auto& rd : m_StaticQueue )
-            if ( rd.Mesh != nullptr && rd.CastShadows &&
-                 IsVisibleInView( cascadeFrustum, rd.Transform,
-                                  Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+        {
+            if ( rd.Mesh == nullptr || !rd.CastShadows ||
+                 !IsVisibleInView( cascadeFrustum, rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+            {
+                continue;
+            }
+            const PBRSlot slot = rd.MaterialSlots != nullptr
+                                      ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                      : PBRSlot{};
+            MaterialInstance*         inst = slot.Instance;
+            const DataDrivenMaterial* mat  = slot.Surface;
+            if ( !isMasked( mat ) )
+            {
                 bucketFor( rd.Mesh ).push_back( &rd );
+                continue;
+            }
+            auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
+            if ( caster == nullptr )
+            {
+                continue; // refused by name, once
+            }
+            auto&            set = maskedSetFor( caster );
+            MaskedCasterDraw draw;
+            draw.Set       = &set;
+            draw.Path      = MeshVertexPath::Static;
+            draw.Mesh      = rd.Mesh;
+            draw.Transform = rd.Transform;
+            draw.Instance  = inst;
+            draw.Row       = AppendRow( set.Rows, EffectiveRow( mat, inst ) );
+            draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
+            m_ScratchMaskedDraws.push_back( draw );
+        }
 
         // Pack all instanced-batch transforms contiguously; each batch reads its slice via
         // firstInstance. Upload the SSBO ONCE (final size) before any instanced draw is recorded.
@@ -469,6 +606,46 @@ namespace Desert::Graphic::System
                 if ( visible.empty() )
                     continue;
 
+                // A MASKED ISM - foliage, grass cards - casts through its own template's (Instanced x
+                // ShadowDepth) cell, never the shared batch that casts whole quads.
+                MaterialInstance* ismInst = ism.Material.get();
+                const auto*       ismMat =
+                     ismInst != nullptr ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
+                                        : nullptr;
+                if ( isMasked( ismMat ) )
+                {
+                    auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
+                    if ( caster == nullptr )
+                    {
+                        continue; // refused by name, once
+                    }
+                    auto&          set = maskedSetFor( caster );
+                    const uint32_t row = AppendRow( set.Rows, EffectiveRow( ismMat, ismInst ) );
+                    for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                    {
+                        const auto first = static_cast<uint32_t>( set.Transforms.size() );
+                        for ( std::size_t i = 0; i < visible.size(); ++i )
+                        {
+                            if ( levels[i] == level )
+                            {
+                                set.Transforms.push_back( visible[i] );
+                            }
+                        }
+                        MaskedCasterDraw draw;
+                        draw.Set      = &set;
+                        draw.Path     = MeshVertexPath::Instanced;
+                        draw.Mesh     = ism.Mesh;
+                        draw.Instance = ismInst;
+                        draw.Row      = row;
+                        draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
+                        draw.First    = first;
+                        draw.LodLevel = level;
+                        draw.Wind     = PackInstanceWind( ism.Wind );
+                        m_ScratchMaskedDraws.push_back( draw );
+                    }
+                    continue;
+                }
+
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                 {
                     const auto first = static_cast<uint32_t>( instTransforms.size() );
@@ -543,6 +720,27 @@ namespace Desert::Graphic::System
             {
                 if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() )
                     continue;
+                if ( isMasked( sd.Material ) )
+                {
+                    // Hair cards, cloth fringes: the (Skinned x ShadowDepth) cell of ITS template.
+                    auto* caster = MaskedCasterMaterial( sd.Material, MeshVertexPath::Skinned, c );
+                    if ( caster == nullptr )
+                    {
+                        continue; // refused by name, once
+                    }
+                    auto&            set = maskedSetFor( caster );
+                    MaskedCasterDraw draw;
+                    draw.Set       = &set;
+                    draw.Path      = MeshVertexPath::Skinned;
+                    draw.Mesh      = sd.Mesh;
+                    draw.Transform = sd.Transform;
+                    draw.Instance  = sd.Instance;
+                    draw.Row       = AppendRow( set.Rows, EffectiveRow( sd.Material, sd.Instance ) );
+                    draw.First     = static_cast<uint32_t>( set.Transforms.size() );
+                    set.Transforms.insert( set.Transforms.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
+                    m_ScratchMaskedDraws.push_back( draw );
+                    continue;
+                }
                 casters.emplace_back( &sd, static_cast<uint32_t>( skinBones.size() ) );
                 skinBones.insert( skinBones.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
             }
@@ -583,8 +781,61 @@ namespace Desert::Graphic::System
                             .BindState     = [instMat, wind = b.Wind] { instMat->SetInstancedWind( wind ); } } );
             }
         }
-    }
 
+        // Masked casters: each copy's rows and transforms uploaded once, here in setup, its camera set to THIS
+        // cascade (the copy is this cascade's alone); then its draws, in collection order.
+        for ( std::size_t i = 0; i < maskedSetCount; ++i )
+        {
+            auto& set = *m_ScratchMaskedSets[i];
+            WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeVP[c] );
+            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( "Materials" ) )
+            {
+                sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );
+            }
+            if ( set.Transforms.empty() )
+            {
+                continue;
+            }
+            // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
+            const auto        path = MeshCellPath( set.Caster->GetShaderName() );
+            const std::string own  = path ? MeshPathOwnBufferName( *path ) : std::string();
+            if ( own.empty() )
+            {
+                continue;
+            }
+            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( own ) )
+            {
+                sb->SetRawData( set.Transforms.data(),
+                                static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+            }
+        }
+        for ( const MaskedCasterDraw& draw : m_ScratchMaskedDraws )
+        {
+            DataDrivenMaterial* material  = draw.Set->Caster;
+            const bool          instanced = draw.Path == MeshVertexPath::Instanced;
+            list.Add( { .Pipeline      = MaskedCasterPipeline( *material, draw.Path ),
+                        .Mesh          = draw.Mesh,
+                        .Transform     = draw.Transform,
+                        .Material      = material->GetMaterialExecutor(),
+                        .InstanceCount = instanced ? draw.Count : 1,
+                        .FirstInstance = instanced ? draw.First : 0,
+                        .LodLevel      = draw.LodLevel,
+                        .BindState     = [material, draw]
+                        {
+                            material->SetPushMatrix( draw.Transform );
+                            material->SetMaterialIndex( draw.Row );
+                            if ( draw.Path == MeshVertexPath::Instanced )
+                            {
+                                material->SetInstancedWind( draw.Wind );
+                            }
+                            if ( draw.Path == MeshVertexPath::Skinned )
+                            {
+                                material->SetSkinnedBoneOffset( draw.First );
+                            }
+                            material->Bind( draw.Instance );
+                        } } );
+        }
+    }
     void MeshRenderer::RegisterShadowPass( RenderGraphBuilder& builder )
     {
         // Same guard as the geometry pass: the cascade pass reads m_ShadowPipeline's spec, and

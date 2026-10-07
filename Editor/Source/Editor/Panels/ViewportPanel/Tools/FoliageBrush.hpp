@@ -195,6 +195,17 @@ namespace Desert::Editor::Tools
                                                  const FoliageBrushDab& dab, FoliageRandom& rng,
                                                  const FoliageBrushWorld& world );
 
+    /**
+     * @brief The procedural branch of UE FPotentialInstance::PlaceInstance: a simulated instance on its traced
+     *        @p hit, kept only when the type's height, slope and layer rules pass (UE
+     *        CheckLocationForPotentialInstance_ThreadSafe + IsFilteredByWeight). The yaw, pitch and scale are the
+     *        simulation's (UE: "procedural foliage uses its own scaling system", Rotation = DesiredInstance's);
+     *        the Z offset and the normal alignment are the type's, drawn from @p rng.
+     */
+    std::optional<glm::mat4> FoliageProceduralPlace( const Assets::Serialization::FoliageTypeData& type,
+                                                     const FoliageTraceHit& hit, float yawDegrees,
+                                                     float pitchDegrees, float scale, FoliageRandom& rng );
+
     /// UE SelectInstancesForBrush (the Lasso tool): the instances whose origin lies in the sphere join the
     /// selection (@p select) or leave it. Returns how many changed state.
     size_t FoliageSelectInSphere( std::span<const glm::mat4> instances, const glm::vec3& center, float radius,

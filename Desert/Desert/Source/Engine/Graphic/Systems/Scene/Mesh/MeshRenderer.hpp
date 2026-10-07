@@ -19,7 +19,9 @@
 #include <Engine/Graphic/Materials/Debug/MaterialOverdraw.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialOverdrawResolve.hpp>
 #endif
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
@@ -92,6 +94,10 @@ namespace Desert::Graphic::System
             // The blocks are the node's ONLY binding blocks (indices 0..n-1, in first-use order). @p view: the
             // scene/view inputs bound for every executor whose shader has slots for them (none: nothing bound).
             void Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const;
+            // @p perBlock adds the node's own pass parameters to EVERY block after the scene/view inputs (the
+            // translucency node's scene snapshot): a node whose cells are several shaders binds them once each.
+            void Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
+                          const std::function<void( RDG::BindingBlockBuilder& )>& perBlock ) const;
             void Declare( RenderPassDeclaration& declared, const std::optional<SceneViewInputs>& view ) const;
 
             [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const;
@@ -105,8 +111,9 @@ namespace Desert::Graphic::System
                 const GraphicsPipeline* Pipeline = nullptr;
             };
 
-            template <typename Declaration>
-            void DeclareBlocks( Declaration& declaration, const std::optional<SceneViewInputs>& view ) const;
+            template <typename Declaration, typename PerBlock>
+            void DeclareBlocks( Declaration& declaration, const std::optional<SceneViewInputs>& view,
+                                const PerBlock& perBlock ) const;
 
             std::vector<MeshDrawCommand> m_Commands;
             std::vector<uint32_t>        m_BlockOf; // per command: its block
@@ -137,6 +144,7 @@ namespace Desert::Graphic::System
         int      LODBias         = 0;  // shifts the auto LOD (ignored when forced)
         bool     CastShadows     = true;
         bool     ReceiveShadows  = true;
+        int      TranslucencySortPriority = 0; // lower draws first (translucency pass)
     };
 
     class MeshRenderer final : public RenderSystem
@@ -155,6 +163,7 @@ namespace Desert::Graphic::System
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
+            int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
         };
 
         struct SkinnedMeshRenderData
@@ -164,7 +173,7 @@ namespace Desert::Graphic::System
             // The (surface x Skinned) material. It is SHARED with every other entity using the same
             // `.demat`, which is why nothing per-object may be stored on it: the pose below is packed
             // into a per-frame buffer and named by a push constant instead.
-            class Graphic::MaterialPBR* Material = nullptr;
+            class Graphic::DataDrivenMaterial* Material = nullptr;
             // The binding the instance below was selected FROM, carried so that it keeps that instance
             // alive: the entity that authored it can be destroyed between the record and this queue being
             // drawn (A8-3). Holding the binding rather than a second shared_ptr to the instance keeps the
@@ -246,7 +255,7 @@ namespace Desert::Graphic::System
         // HOW MANY ARE ACTUALLY ALLOCATED IS NOT THIS, and the distinction is the whole of the preview
         // shadow budget: the count, the resolution and the distance come from the renderer's own
         // ShadowQuality (SceneRenderer::GetShadowQuality), read once in Initialize. See ShadowCascades.hpp.
-        static constexpr uint32_t kMaxCascades = MaterialPBRBase::kMaxCascades;
+        static constexpr uint32_t kMaxCascades = SceneResources::kMaxCascades;
         static_assert( kMaxCascades == kMaxShadowCascades,
                        "The ShadowUB block's cascade count and the fitter's array bound are the same "
                        "number seen from two sides; a renderer that fitted more than the block can carry "
@@ -264,19 +273,17 @@ namespace Desert::Graphic::System
         // G-buffer shaders sample no scene/view input). The exec records that list.
         void DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
-        // Forward transparent (glass) pass: draws meshes with material Transmission > 0 over the composited
-        // scene, inside the "Deferred: Glass" graph node whose @p context this is. @p sceneCopy is this frame's
-        // snapshot of the opaque scene (FrameTransients::SceneColorCopy, declared as a read of the node); the
-        // glass samples it for refraction as u_SceneColor and draws every object via Renderer::RenderMesh(
-        // bindings,
-        // ... ) with the binding block DeclareGlassBindings declared in the node's setup (block 0). Nothing to
-        // draw is success; a refused draw is the error.
+        // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
+        // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
+        // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties. Runs
+        // inside the "Deferred: Glass" graph node whose @p context this is and records the list
+        // DeclareGlassBindings built in the node's setup. Nothing to draw is success; a refused draw is the error.
         [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context ) const;
-        // SETUP of the "Deferred: Glass" node: the glass shader's binding block - u_SceneColor = @p sceneCopy and
-        // the scene/view inputs of @p view the glass shader has a slot for (its environment cubes, BRDF LUT and
-        // cloud shadow map; it declares no cascade, so u_ShadowMap0..3 are not bound), against the shader's
-        // reflected layout with the glass material as the other route. Declares nothing (and the node draws
-        // nothing) when the glass pass was not created; the error naming why is SetupGlassPass's.
+        // SETUP of the "Deferred: Glass" node: the frame's translucent draw list, one binding block per cell (its
+        // shader's reflected layout, its dedicated material as the other route), each carrying u_SceneColor =
+        // @p sceneCopy (this frame's snapshot of the opaque scene, FrameTransients::SceneColorCopy, sampled for
+        // refraction) and the scene/view inputs of @p view the cell's shader has a slot for. Declares nothing
+        // (and the node draws nothing) when no translucent object is visible.
         void DeclareGlassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy,
                                    const SceneViewInputs& view );
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
@@ -385,6 +392,24 @@ namespace Desert::Graphic::System
             return false;
 #endif
         }
+
+        // A TWO-SIDED MATERIAL'S PIPELINE (UE: TwoSided is a PSO permutation, not a shader input): the pass's
+        // pipeline with CullMode None, from the shared cache, remembered per source pipeline. A one-sided draw, or
+        // a pipeline that already culls nothing, answers @p pipeline itself. Null = the permutation was refused
+        // (logged once per pipeline); the caller does not draw that object culled instead.
+        [[nodiscard]] GraphicsPipeline* CullPermutation( GraphicsPipeline* pipeline, bool twoSided );
+        std::unordered_map<const GraphicsPipeline*, std::shared_ptr<GraphicsPipeline>> m_TwoSidedPipelines;
+
+        // THE PIPELINE OF ONE DRAW: @p passState's fixed state (layout, target, depth, polygon mode, load) with
+        // the program of @p cell — the material whose descriptor sets the draw binds, i.e. its template's
+        // (path x pass) cell. Built on first use from the shared pipeline cache and kept per
+        // MeshCellPipelineKey; the default template's cell is served the pass's own pipeline back by the cache's
+        // dedupe, with no case for it here. Null (logged once per key) when the cell's shader is not registered
+        // or the pipeline is refused — the caller skips that draw rather than binding another template's program.
+        [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline*         passState,
+                                                      const DataDrivenMaterial& cell );
+        std::unordered_map<MeshCellPipelineKey, std::shared_ptr<GraphicsPipeline>, MeshCellPipelineKeyHash>
+             m_CellPipelines; // null = refused
 
         [[nodiscard]] GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
         {
@@ -500,7 +525,12 @@ namespace Desert::Graphic::System
     private:
         bool SetupGeometryPass();
         bool SetupGBufferPass(); // deferred: static-mesh G-buffer write pipeline
-        bool SetupGlassPass();   // forward transparent: static-mesh glass pipeline (blend, composites over scene)
+        // The translucency pass's draw state for ONE translucent cell shader (a translucent template's
+        // Static.Forward cell), built on first use and kept: UE draws each translucent material with its own
+        // shader/PSO, so every translucent template gets its own pipeline here. Null (logged once per shader) when
+        // it cannot.
+        struct TranslucentDraw;
+        TranslucentDraw* TranslucentDrawFor( const std::string& cellShader );
         bool SetupSkinnedGeometryPass();
         bool SetupSilhouettePass();
         bool SetupShadowPass();
@@ -548,6 +578,15 @@ namespace Desert::Graphic::System
                                                                   bool useLoadPass );
         void RegisterSilhouettePass( RenderGraphBuilder& builder );
         void RegisterShadowPass( RenderGraphBuilder& builder );
+        // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
+        // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
+        // its mask texture and clip threshold with it. The cascade material of the draw, or null when the
+        // caster takes the shared program (opaque, or no batched-path material).
+        static DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
+                                                         uint32_t cascade );
+        // The pipeline of one masked caster cell: the shared caster's state for @p path with the cell's shader,
+        // built on first use and kept per cell shader. Null (logged once per shader) when it cannot.
+        GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path );
 #if DESERT_DEV_INSTRUMENTS
         bool SetupDebugLinePass();
         bool SetupOverdrawPass(); // overdraw accumulation pipeline + FB + fullscreen heat resolve
@@ -568,7 +607,7 @@ namespace Desert::Graphic::System
 
         // Deferred G-buffer geometry pipeline (static): writes Albedo+Metallic / Normal+Roughness into the
         // scene renderer's MRT G-buffer instead of shading. Same vertex layout + material bindings as the
-        // forward static pipeline, so the same StaticMaterialPBR data binds. Null if the shader is missing.
+        // forward static pipeline, so the same static-cell data binds. Null if the shader is missing.
         std::shared_ptr<Shader>           m_StaticGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_StaticGBufferPipeline;
         // (Instanced x GBuffer). The G-buffer pass used to have no instanced cell at all, and the ISM
@@ -578,21 +617,17 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
-        std::shared_ptr<Shader>           m_StaticGlassShader;
-        std::shared_ptr<GraphicsPipeline> m_StaticGlassPipeline;
-        // The glass block's layout, keyed on m_StaticGlassPipeline's shader (kept, not re-derived per frame).
-        ShaderBindingLayoutCache m_GlassLayout;
-        // `bool m_GlassPass` stood here, described as "set true only while drawing the transparent glass
-        // pass". No line in the engine ever set it, so its two readers were a transparency test that could
-        // only ever mean "skip glass" and a pipeline branch nothing could reach — and the unreachable
-        // branch was the one that would have bound a FORWARD material against the glass pipeline, which is
-        // the only reason StaticMeshGlass.shader was padded to the forward layout. Both are gone.
-        // DEDICATED glass material (never drawn by the opaque passes) so its per-frame UB ring is written ONCE
-        // per frame in the glass pass — sharing an opaque material across two passes/frame hangs the GPU.
-        // It is (Static x Glass) rather than its own class: what made it different from the opaque
-        // material was always the shader, and the shader is what the pair names.
-        std::shared_ptr<MaterialPBR> m_GlassMaterial;
-        MaterialInstancePtr          m_GlassInstance;
+        // THE TRANSLUCENCY PASS, PER TRANSLUCENT CELL. One entry per translucent template's cell shader: its
+        // blended pipeline and a DEDICATED material (+ instance) owning that pass's per-frame UBs / Materials
+        // rows — never shared with an opaque material, whose per-frame ring would then be written twice a frame
+        // (the GPU hang). There is no engine-wide glass material: the object's template decides its shader.
+        struct TranslucentDraw
+        {
+            std::shared_ptr<GraphicsPipeline>   Pipeline;
+            std::shared_ptr<DataDrivenMaterial> Material;
+            MaterialInstancePtr                 Instance;
+        };
+        std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_Translucent;
 
         // Reflective Shadow Map (G-buffer from the sun) — the off-screen bounce source for the RSM GI mode.
         // Its camera UB carries the SUN's matrices, so like glass it needs its OWN material: sharing one with
@@ -600,7 +635,7 @@ namespace Desert::Graphic::System
         // from cascade 1 in UpdateCascades(), so the pass draws through a STANDARD-Z matrix and needs its
         // own pipeline (m_RSMPipeline) rather than the reversed-Z G-buffer one — see SetupDeferredPass.
         // (Static x GBuffer) — the RSM is literally a G-buffer rasterized from the sun.
-        std::shared_ptr<MaterialPBR>       m_RSMMaterial;
+        std::shared_ptr<DataDrivenMaterial> m_RSMMaterial;
         MaterialInstancePtr                m_RSMInstance;
         std::shared_ptr<GraphicsPipeline>  m_RSMPipeline;
         glm::mat4                          m_RSMViewProj = glm::mat4( 1.0f );
@@ -610,7 +645,7 @@ namespace Desert::Graphic::System
         // practice only MeshECSSystem's default material, which stands in for a mesh whose slot did not
         // resolve. It has no `.demat`, so it has no sibling in any other pass, and the deferred pass
         // dropped those meshes entirely until this existed. See SetupGBufferPass for why ONE is enough.
-        std::shared_ptr<MaterialPBR> m_GBufferUnownedMaterial;
+        std::shared_ptr<DataDrivenMaterial> m_GBufferUnownedMaterial;
 
         std::shared_ptr<Shader>   m_GeometryShader;
         std::shared_ptr<Shader>   m_InstancedGeometryShader;
@@ -620,18 +655,18 @@ namespace Desert::Graphic::System
         // mesh whose slot did not resolve.
         //
         // IT USED TO RECORD EVERY BATCH, AND THAT WAS THE DEFECT. A material built here has never been
-        // through MaterialFactory, so every 2D sampler it declares holds the shader schema's 1x1 white.
+        // through MaterialService, so every 2D sampler it declares holds the shader schema's 1x1 white.
         // Recording an asset-backed group with it deleted that surface's whole texture channel while
         // leaving its colours, tiling-independent, intact — see InstancedRecorder.hpp for the numbers and
         // for why rebinding this one material per batch cannot be the fix. A batch now finds its own
         // (Instanced x pass) sibling through MaterialService; this stays for the one group that has none.
-        std::shared_ptr<Graphic::MaterialPBR> m_StaticInstancedMaterial;
+        std::shared_ptr<Graphic::DataDrivenMaterial> m_StaticInstancedMaterial;
         MaterialInstancePtr                   m_StaticInstancedInstance;
         // The same pair for the G-buffer pass. A material is one shader's descriptor sets plus a payload,
         // so the pass that binds the (Instanced x GBuffer) pipeline has to bind sets allocated from that
         // cell's own reflection -- the same reason m_RSMMaterial and m_GBufferUnownedMaterial exist for
         // the static path.
-        std::shared_ptr<Graphic::MaterialPBR> m_InstancedGBufferMaterial;
+        std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedGBufferMaterial;
         MaterialInstancePtr                   m_InstancedGBufferInstance;
 
         // ONE MaterialInstance per instanced material the service hands out, kept because an instance is
@@ -641,7 +676,7 @@ namespace Desert::Graphic::System
         // moves: a reloaded `.demat` graveyards every runtime material it built, so an entry surviving
         // that bump is a MaterialInstance holding a parent pointer into a material about to be destroyed.
         // The same stamp MeshECSSystem already rebuilds its cached slots on.
-        std::unordered_map<const Graphic::MaterialPBR*, MaterialInstancePtr> m_InstancedVariantInstances;
+        std::unordered_map<const Graphic::DataDrivenMaterial*, MaterialInstancePtr> m_InstancedVariantInstances;
         uint32_t                                                             m_InstancedVariantStamp = 0;
 
         // Skinned
@@ -670,7 +705,7 @@ namespace Desert::Graphic::System
 
         // Instanced shadow caster: one pipeline + per-cascade instanced material (each owns the cascade's
         // light matrix UBO + an InstanceTransforms SSBO). Batched casters of one mesh collapse to a single
-        // instanced draw per cascade. Optional — null if the Shadow_Instanced shader is missing.
+        // instanced draw per cascade. Optional — null if the Instanced.ShadowDepth cell is missing.
         std::shared_ptr<GraphicsPipeline>        m_ShadowInstancedPipeline;
         std::shared_ptr<Shader>                  m_ShadowInstancedShader;
         std::unique_ptr<MaterialShadowInstanced> m_ShadowInstancedMaterial[kMaxCascades];
@@ -678,7 +713,7 @@ namespace Desert::Graphic::System
         // Skinned shadow caster: the (Skinned x ShadowDepth) cell, which did not exist — the cascade pass
         // walked the static queue by name and a character cast nothing. One material per cascade, exactly
         // like the two above, and every skinned caster's pose packed into its single Bones buffer.
-        // Optional — null if the Shadow_Skinned shader is missing, and then skinned shadows are simply off.
+        // Optional — null if the Skinned.ShadowDepth cell is missing, and then skinned shadows are simply off.
         std::shared_ptr<GraphicsPipeline>      m_ShadowSkinnedPipeline;
         std::shared_ptr<Shader>                m_ShadowSkinnedShader;
         std::unique_ptr<MaterialShadowSkinned> m_ShadowSkinnedMaterial[kMaxCascades];
@@ -780,7 +815,7 @@ namespace Desert::Graphic::System
         {
             const StaticMeshRenderData* Obj  = nullptr;
             MaterialInstance*           Inst = nullptr;
-            PBRGpuMaterial              Gm{};
+            Core::Formats::MaterialParamRow Row; // this object's effective Materials[] row
             bool                        HasOverrides = false;
         };
         struct InstancedDraw
@@ -811,10 +846,10 @@ namespace Desert::Graphic::System
         // only the last write (VulkanMaterialBackend::ApplyTexture2D reports the swallowed rebind).
         struct InstancedBatchSet
         {
-            Graphic::MaterialPBR*       Mat  = nullptr;
+            Graphic::DataDrivenMaterial* Mat  = nullptr;
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
-            std::vector<PBRGpuMaterial> Materials;
+            std::vector<glm::vec4>       Materials; // Materials[] rows, end to end
             std::vector<InstancedDraw>  Draws;
         };
 
@@ -846,7 +881,7 @@ namespace Desert::Graphic::System
 
         // Every skinned pose drawn in one pass, packed end to end; each draw names its slice with a
         // BoneOffset push constant. ONE buffer per material per pass instead of one upload per draw,
-        // which is what makes a shared skinned material correct — see MaterialPBR.hpp.
+        // which is what makes a shared skinned material correct — see Material::SetSkinnedBoneOffset.
         std::vector<glm::mat4>                   m_ScratchBones;
         std::vector<glm::mat4>      m_ScratchInstTransforms; // geometry + shadow instanced SSBOs
         // Per-batch LOD levels and the surviving ISM transforms. Members rather than locals for the
@@ -870,10 +905,35 @@ namespace Desert::Graphic::System
         // stable by construction.
         std::vector<std::unique_ptr<InstancedBatchSet>> m_ScratchInstSets;
         std::size_t                                     m_ScratchInstSetCount = 0;
-        std::vector<PBRGpuMaterial> m_ScratchGpuMaterials; // per-object Materials[] SSBO
+        std::vector<glm::vec4>                   m_ScratchGpuMaterials; // per-object Materials[] rows, end to end
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
         std::vector<const StaticMeshRenderData*> m_ScratchShadowSingles;
+        // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
+        // end (each uploaded once before the copy's draws are recorded), and the draws naming their slice.
+        struct MaskedCasterSet
+        {
+            DataDrivenMaterial*    Caster = nullptr;
+            std::vector<glm::vec4> Rows;
+            std::vector<glm::mat4> Transforms; // Instanced path: InstanceTransforms; Skinned path: Bones
+        };
+        struct MaskedCasterDraw
+        {
+            MaskedCasterSet*  Set       = nullptr;
+            MeshVertexPath    Path      = MeshVertexPath::Static;
+            Desert::Mesh*     Mesh      = nullptr;
+            glm::mat4         Transform = glm::mat4( 1.0f );
+            MaterialInstance* Instance  = nullptr;
+            uint32_t          Row       = 0;
+            uint32_t          Count     = 1; // instances (Instanced path)
+            uint32_t          First     = 0; // first instance transform / first bone
+            uint32_t          LodLevel  = 0;
+            InstanceWindPush  Wind;
+        };
+        std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
+        std::vector<MaskedCasterDraw>                 m_ScratchMaskedDraws;
+        std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
+                                                                  m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
         float                                                     m_WorldTimeSeconds = 0.0f;

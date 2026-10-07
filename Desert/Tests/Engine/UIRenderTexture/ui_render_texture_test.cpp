@@ -99,7 +99,7 @@ namespace Desert::Runtime
         ADD_FAILURE() << "AnimatedImageService::Resolve reached with no animated-image service";
         return nullptr;
     }
-    Graphic::Image2D* VideoService::Resolve( uint64_t )
+    Graphic::Image2D* VideoService::Resolve( uint64_t, SoundRequest )
     {
         ADD_FAILURE() << "VideoService::Resolve reached with no video service";
         return nullptr;
@@ -231,7 +231,7 @@ namespace
     // RenderCanvas2D bare would assert about an empty list and pass for the wrong reason.
     void Draw( UIViewContext& ctx, Fixture& f, R2D::DrawList2D& dl )
     {
-        Desert::UI::BeginUIFrame( ctx, f.Registry, kViewport );
+        Desert::UI::BeginUIFrame( ctx, f.Registry, kViewport, /*frameDtSeconds=*/0.0f );
         const auto drawn = Desert::UI::RenderCanvas2D( ctx, f.Registry, f.Canvas, dl );
         EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
         Desert::UI::EndUIFrame( ctx, f.Registry, dl, /*input=*/nullptr );

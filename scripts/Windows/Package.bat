@@ -19,8 +19,9 @@ REM the descriptor that would have made any of it reachable, Editor\Desert.depro
 REM all: the packaged editor had 129 MB of assets and no project able to see them.
 REM
 REM Now three things travel and each has a rule rather than a list:
-REM   1. the ENGINE resource trees — Shaders, Fonts, Icons. Whole, because the engine's own services
-REM      SCAN them (Engine/Runtime/Services/ServiceScanRoots.hpp) rather than naming files.
+REM   1. the ENGINE resource trees — Engine (the engine's content mount, ENGINE_CONTENT_PATH: the
+REM      built-in humanoid's skeleton, mesh and clips), Shaders, Fonts, Icons. Whole, because the engine's
+REM      own services SCAN them (Engine/Runtime/Services/ServiceScanRoots.hpp) rather than naming files.
 REM   2. the sandbox descriptor, Desert.deproj.
 REM   3. the CLOSURE of its DefaultScene, from Tools\AssetClosure, which walks the editor's own asset
 REM      reference graph. Not a list in this file: content moves every week, and a stale list fails in
@@ -42,7 +43,7 @@ if "%CONFIG%"=="" set "CONFIG=Release"
 
 set "BIN=%ROOT%\build\Bin\%CONFIG%"
 set "OUT=%ROOT%\dist\DesertEngine-%CONFIG%"
-set "PROJECT=%ROOT%\Editor\Desert.deproj"
+set "PROJECT=%ROOT%\Projects\Desert\Desert.deproj"
 
 if not exist "%BIN%\Runtime.exe" (
     echo Package.bat: no %CONFIG% binaries in %BIN% — build first 1>&2
@@ -140,7 +141,7 @@ REM unfiltered copy carried them. A FRESH CHECKOUT holds zero — Finder is what
 REM never saw one, and looking there says the hazard does not exist. Windows contributes Thumbs.db and
 REM desktop.ini the same way.
 REM ---------------------------------------------------------------------------
-for %%T in (Branding Shaders Fonts Icons Splash) do (
+for %%T in (Branding Engine Shaders Fonts Icons Splash) do (
     if not exist "%ROOT%\Editor\Resources\%%T" (
         echo Package.bat: engine resource tree Editor\Resources\%%T is missing 1>&2
         exit /b 1
@@ -154,7 +155,7 @@ for %%T in (Branding Shaders Fonts Icons Splash) do (
     )
 )
 
-REM The descriptor, verbatim: the drop's Resources\Assets sits exactly where the dev tree's does, so
+REM The descriptor, verbatim: the drop's Content sits beside it exactly as the project's does, so
 REM nothing about it needs rebasing (a GAME's does — see PackagedDescriptor()).
 copy /Y "%PROJECT%" "%OUT%\" >NUL || exit /b 1
 
@@ -171,8 +172,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "ASSETS_SRC=%ROOT%\Editor\Resources\Assets"
-set "ASSETS_DST=%OUT%\Resources\Assets"
+set "ASSETS_SRC=%ROOT%\Projects\Desert\Content"
+set "ASSETS_DST=%OUT%\Content"
 set "COPIED=0"
 for /f "usebackq delims=" %%L in ("!CLOSURE!") do (
     set "REL=%%L"
@@ -214,7 +215,7 @@ if not exist "%OUT%\Resources\Splash\Splash.tex" (
 )
 
 echo Package.bat: packaged -^> %OUT%
-echo   engine resources: Branding + Shaders + Fonts + Icons + Splash ^(its picture is committed there^)
+echo   engine resources: Branding + Engine + Shaders + Fonts + Icons + Splash ^(its picture is committed there^)
 echo   project assets:   !COPIED! files, the closure of Desert.deproj's DefaultScene
 endlocal
 exit /b 0

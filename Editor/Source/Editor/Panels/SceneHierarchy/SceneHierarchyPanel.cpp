@@ -143,17 +143,8 @@ namespace Desert::Editor
                     break;
                 }
                 case Archetype::Character:
-                {
-                    // Code-generated rounded humanoid mannequin (no import). Renders in bind/A-pose; pick
-                    // Idle/Walk/Run/Jump in Details ▸ Animation, or parent it to a Character Controller so
-                    // LocomotionSystem drives it from movement.
-                    auto e = scene.CreateNewEntity( "Character" );
-                    e.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle =
-                         Geometry::ProceduralCharacterFactory::GetHumanoidMesh();
-                    e.AddComponent<ECS::AnimationComponent>();
-                    Track( e );
+                    (void)SceneHierarchyPanel::SpawnProceduralHumanoid( scene );
                     break;
-                }
                 case Archetype::Camera:
                 {
                     // Spawn at the editor viewpoint (UE "Create Camera Here") instead of the origin, so the
@@ -183,6 +174,18 @@ namespace Desert::Editor
         // Primitive path: the shared mesh comes from PrimitiveMeshFactory, i.e. from ShapeGenerators.
         auto e = scene.CreateNewEntity( Geometry::PrimitiveTypeName( type ) );
         e.AddComponent<ECS::StaticMeshComponent>().Primitive = type;
+        Track( e );
+        return e.GetComponent<ECS::UUIDComponent>().UUID;
+    }
+
+    Common::UUID SceneHierarchyPanel::SpawnProceduralHumanoid( Desert::Core::Scene& scene )
+    {
+        // The engine's mannequin (UE's /Engine character): an ordinary entity REFERENCING engine content -
+        // Humanoid.skmesh by its GUID, and the default locomotion clip by name (the clip plays on the mesh by the
+        // skeleton GUID both state). A Play snapshot, a save and a load carry it like any imported character.
+        auto e                                                 = scene.CreateNewEntity( "Character" );
+        e.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle = Geometry::HumanoidMeshHandle();
+        e.AddComponent<ECS::AnimationComponent>().CurrentClip  = std::string( Geometry::kHumanoidDefaultClip );
         Track( e );
         return e.GetComponent<ECS::UUIDComponent>().UUID;
     }
@@ -487,8 +490,10 @@ namespace Desert::Editor
                     if ( ch == ' ' )
                         ch = '_';
                 m_SavePrefabTarget = UUID;
-                m_SavePrefabPath   = "Resources/Assets/Prefabs/" + stem +
-                                   std::string( Common::Constants::Extensions::PREFAB_EXTENSION );
+                // Off the project's own Prefabs directory (the census), never a working-directory spelling.
+                m_SavePrefabPath = ( Common::Constants::Path::PREFAB_PATH /
+                                     ( stem + std::string( Common::Constants::Extensions::PREFAB_EXTENSION ) ) )
+                                        .generic_string();
                 m_OpenSavePrefab = true; // deferred: OpenPopup at panel scope (see OnUIRender)
             }
             if ( ImGui::Selectable( ICON_MDI_PACKAGE_VARIANT " Instantiate Prefab..." ) )
@@ -877,10 +882,12 @@ namespace Desert::Editor
             // (This comment said "FOUR columns" while the call below asked for three, from the time the eye
             // was split out. It is four now for real; the count is written once, below, and read from there.)
             //
-            // Resizable stays: the user can still widen Name at the Type column's expense. What changed is
-            // the DEFAULT, which is what every fresh layout gets.
-            constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
-                                                   ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable;
+            // UE's Outliner: Name FILLS and keeps a minimum, Type and the gutters are fixed and not resizable
+            // (OutlinerColumns). A resizable Type column kept whatever width it was dragged or saved at, and a
+            // fixed column that is not resizable is the only kind ImGui re-sizes every frame from the width
+            // given here — so the split is recomputed per frame and Name never collapses to one character.
+            constexpr ImGuiTableFlags tableFlags =
+                 ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
 
             // A toggle gutter: one glyph plus the cell padding it is drawn inside. Measured on the WIDEST
             // glyph either gutter can show, so neither clips when its icon changes with the row's state.
@@ -891,11 +898,25 @@ namespace Desert::Editor
             const float typeWidth =
                  TypeColumnWidth( []( const char* s ) { return ImGui::CalcTextSize( s ).x; }, 12.0f );
 
-            ImGui::PushStyleVar( ImGuiStyleVar_CellPadding, ImVec2( 4.0f, 2.0f ) );
-            if ( ImGui::BeginTable( "##outliner", 4, tableFlags ) )
+            constexpr float kCellPadX = 4.0f;
+            constexpr int   kColumns  = 4;
+            // Each column's cell padding on both sides, and the three inner borders between four columns.
+            constexpr float            kChrome = ( kColumns * 2.0f * kCellPadX ) + ( kColumns - 1 );
+            const OutlinerColumnWidths split =
+                 OutlinerColumns( ImGui::GetContentRegionAvail().x - kChrome - ( 2.0f * gutterWidth ), typeWidth,
+                                  kOutlinerNameMinEm * ImGui::GetFontSize() );
+
+            ImGui::PushStyleVar( ImGuiStyleVar_CellPadding, ImVec2( kCellPadX, 2.0f ) );
+            if ( ImGui::BeginTable( "##outliner", kColumns, tableFlags ) )
             {
                 ImGui::TableSetupColumn( "Name", ImGuiTableColumnFlags_WidthStretch );
-                ImGui::TableSetupColumn( "Type", ImGuiTableColumnFlags_WidthFixed, typeWidth );
+                // A zero width drops the column for the frame (Disabled), never an ImGui auto-fit to content:
+                // a fixed column given no width measures its cells, which is the width Name had no room for.
+                ImGui::TableSetupColumn(
+                     "Type",
+                     ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize |
+                          ( split.Type > 0.0f ? ImGuiTableColumnFlags_None : ImGuiTableColumnFlags_Disabled ),
+                     split.Type );
                 // NoResize on the gutters: each holds one glyph, and a user who drags one to nothing loses
                 // the only control the outliner has for that state.
                 ImGui::TableSetupColumn( "##visible",

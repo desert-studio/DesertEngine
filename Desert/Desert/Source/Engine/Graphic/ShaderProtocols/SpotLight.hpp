@@ -8,7 +8,7 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    // std430 layout matching `struct SpotLight` in Spotlight.glslh (64 bytes). CosInner/CosOuter are the
+    // std430 layout matching `struct SpotLight` in Mesh/LightSources.glslh (64 bytes). CosInner/CosOuter are the
     // COSINES of the inner/outer cone half-angles (precomputed on the CPU so the shader avoids acos).
     struct SpotLightPayload
     {

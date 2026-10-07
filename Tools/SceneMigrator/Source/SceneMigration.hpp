@@ -1,4 +1,6 @@
 #pragma once
+#include <unordered_map>
+#include <unordered_set>
 
 // THIS IS TOOL CODE, AND THAT IS THE POINT OF IT BEING HERE.
 //
@@ -16,6 +18,10 @@
 // The current on-disk shape and the two head version integers. Owned by the ENGINE because the engine's
 // saver writes it and its loader parses it; read here because a migration whose input is "the parsed tree"
 // needs the tree's type, and a second copy of that struct is a format that can silently fork.
+#include <Engine/Animation/SkeletonReference.hpp>
+#include <filesystem>
+#include <span>
+#include <string_view>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
 // The `.deprefab` payload and its gate. A prefab's entities ARE Core::SceneSerialized::Entities - the
@@ -161,7 +167,15 @@ namespace Desert::Migration
     //       prefabs alike.
     inline constexpr int kSceneVersionPlayerViewFlag = 40;
 
-    static_assert( kSceneVersionPlayerViewFlag == kSceneVersion,
+    //  41 - UI ANIMATION IS A TIMELINE SEQUENCE (ANIM-I9). The UIAnim block's own key model (Tracks of
+    //       {Property, Keys{Time, Value, Easing}}, Duration, Loop, Playing) becomes {Sequence: the TMLN block
+    //       hosted as UIAnimation, Loop: LoopMode, AutoPlay} (MigrateUIAnimationsV40ToV41, through
+    //       Timeline::LiftUIAnimation — key times rounded onto the tick grid and REPORTED, easings baked into
+    //       keys). The one widget binding names the owning record's UUID. A UIAnim in a prefab override is
+    //       refused by name: an override that restates a clip has no v40 whole to lift. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionUIAnimationSequences = 41;
+
+    static_assert( kSceneVersionUIAnimationSequences == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -248,6 +262,31 @@ namespace Desert::Migration
     // kSceneVersionPlayerViewFlag states, and drops the key from prefab overrides. PURE.
     PlayerViewFlagReport MigratePlayerViewFlagV39ToV40( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateUIAnimationsV40ToV41 did to one file.
+    struct UIAnimationsReport
+    {
+        std::size_t              Clips       = 0; // UIAnim blocks lifted
+        std::size_t              RoundedKeys = 0; // keys whose time was not on the tick grid (UILiftReport)
+        std::vector<std::string> Refused;         // one line per clip that could not be lifted; nothing written
+    };
+
+    // Lifts every record's v40 UIAnim block into the v41 {Sequence, Loop, AutoPlay} form under the rule
+    // kSceneVersionUIAnimationSequences states; refuses a UIAnim in a prefab override. PURE.
+    UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
+    struct UIAnimationTimelinesReport
+    {
+        std::size_t              Clips         = 0; // UIAnim blocks whose TMLN v1 sequence was shifted
+        std::size_t              SamplesProved = 0; // (component, tick) samples equal under both rules
+        std::vector<std::string> Refused;           // one line per block that could not be shifted
+    };
+
+    // TMLN v1 -> v2 (ANIM-FMT): every UIAnim block whose Sequence states TMLN v1 has each key's mode moved to
+    // the segment leaving it (ClipInterpShift.hpp), proved bit for bit, rewritten by the one writer. Keyed on
+    // the block's own number, not the scene's: the timeline block states its meaning itself. PURE.
+    UIAnimationTimelinesReport MigrateUIAnimationTimelinesV1ToV2( std::vector<Assets::EntityData>& entities );
+
     // What MigrateInstanceTransformsV36ToV37 did to one scene.
     struct InstanceTransformsReport
     {
@@ -291,6 +330,62 @@ namespace Desert::Migration
     // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
 
+    // The SKEL 3 text of a SKEL 1 or 2 `.skeleton`: header GUID, signature, bones, PreviewMesh and
+    // CompatibleSkeletons kept (SKEL 1 stated neither: null, []); the dead `Import` provenance dropped (SKEL 3).
+    // A file that does not state SKEL 1 or 2 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text );
+
+    // The ANGR 3 text of an ANGR 2 `.danimgraph`: everything kept, the Output Pose node of the graph and of every
+    // implemented layer graph placed where the v2 editor drew it (Animation::Graph::DefaultOutputPosePosition:
+    // one column right of the rightmost node, level with the node wired into it). A file that does not state
+    // ANGR 2, or whose body does not read, is an error naming why. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text );
+
+    // ANIM-SKELREF: one .skeleton as the TargetSkeleton step matches it - header GUID, path relative to its
+    // `Assets` root (ReadSkeletonCandidate's form) and every bone name.
+    struct TargetSkeletonRig
+    {
+        std::string                     Guid;
+        std::string                     Path;
+        std::unordered_set<std::string> Bones;
+    };
+    Common::ResultStr<TargetSkeletonRig> ReadTargetSkeletonRig( const std::filesystem::path& path,
+                                                                const std::string&           text );
+
+    // ANGR 3 -> 4, CRIG 2 -> 3, RTGT 3 -> 4 (ANIM-SKELREF): the file gains TargetSkeleton {Guid, Path} - the one
+    // rig of @p rigs the file's own statements fit: every bone name it states of its target (keys "Bone",
+    // "BoneName",
+    // "*Bone", a Kind "Bone" space's "Target"; never under a "Source*" key) is a bone of the rig, and every clip
+    // it plays ("Clip", matched by name in @p clipRigs: clip Name -> its Skeleton GUID) is authored on it. No
+    // evidence, or not exactly one fitting rig, is an error naming the candidates. The result is re-read and
+    // re-written by the engine's own reader/writer of the kind. @p tag is "ANGR", "CRIG" or "RTGT". PURE.
+    Common::ResultStr<std::string>
+    StateTargetSkeleton( const std::string& text, const std::string& tag,
+                         const std::vector<TargetSkeletonRig>&               rigs,
+                         const std::unordered_map<std::string, std::string>& clipRigs );
+
+    // SKEL-TREE (Engine/Animation/SkeletonReference.hpp): what the two raises below resolve a legacy bone hash
+    // against - one .skeleton's header GUID, Signature and path (relative to its `Assets` root, the form an
+    // AssetGuidRef states). A file that does not read as the current SKEL is an error naming it.
+    Common::ResultStr<Animation::SkeletonCandidate> ReadSkeletonCandidate( const std::filesystem::path& path,
+                                                                           const std::string&           text );
+
+    // MeshBinary 3/4 -> 5: the 64-byte header's bone hash becomes the 80-byte header's SkeletonGuid (same rule);
+    // the table and payloads shift behind the longer prefix, v3 gains the empty Colors/UV1 rows. The result is
+    // judged by the engine's DecodeMeshBinary and re-stated by EncodeMeshBinary. PURE.
+    Common::ResultStr<std::string>
+    MigrateMeshBinaryToV5( std::string_view path, std::string_view bytes,
+                           std::span<const Animation::SkeletonCandidate> skeletons );
+
+    // MSAS SRCE 2 -> 3 (a `.stmesh` / `.skmesh` mesh source asset): the skin's bone signature (U64) becomes its
+    // skeleton's GUID (Hi, Lo; same rule as above) and the header's dependencies gain it after the materials; a
+    // static source changes its SRCE version only. Every other section and byte is kept. The result is judged
+    // by the engine's DecodeMeshSourceAsset. A source that does not state SRCE 2 is an error naming what it
+    // states. PURE.
+    Common::ResultStr<std::string>
+    MigrateMeshSourceToV3( std::string_view path, std::string_view bytes,
+                           std::span<const Animation::SkeletonCandidate> skeletons );
+
     // The v3 text of a v2 `.defoliage`: every v2 number kept, CullDistance at UE's default {0, 0} (never
     // culled), the header's GUID kept. A file that does not state FOLT 2 is an error naming what it states.
     // PURE - no filesystem access.
@@ -310,6 +405,11 @@ namespace Desert::Migration
     // GUID kept. A file that does not state FOLT 5 is an error naming what it states. PURE - no filesystem
     // access.
     Common::ResultStr<std::string> MigrateFoliageTypeV5ToV6( const std::string& text );
+
+    // The v7 text of a v6 `.defoliage`: every v6 value kept, Procedural at UE UFoliageType's defaults (FOLT 6
+    // had no procedural simulation), the header's GUID kept. A file that does not state FOLT 6 is an error naming
+    // what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV6ToV7( const std::string& text );
 
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
@@ -357,11 +457,19 @@ namespace Desert::Migration
         bool                 PlayerViewFlagRaised = false; // below kSceneVersionPlayerViewFlag
         PlayerViewFlagReport PlayerViewFlag;
 
+        bool               UIAnimationsRaised = false; // below kSceneVersionUIAnimationSequences
+        UIAnimationsReport UIAnimations;
+
+        // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
+        bool                       UIAnimationTimelinesRaised = false;
+        UIAnimationTimelinesReport UIAnimationTimelines;
+
         bool Changed() const
         {
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
-                   LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised;
+                   LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
+                   UIAnimationsRaised || UIAnimationTimelinesRaised;
         }
     };
 

@@ -11,6 +11,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/ResultWithCodes.hpp>
+#include <Common/Platform/DebuggerPresence.hpp>
 
 #define BUILD_ID "v0.1a"
 
@@ -52,20 +53,35 @@ decltype( auto ) initializeDefaultValue()
 // is new is that the fallback asks the COMPILER instead of giving up: a debug break is a compiler
 // facility, not a platform one, and DESERT_VERIFY calls std::abort() immediately afterwards in any
 // case — so the worst the last branch can cost is the breakpoint, never the abort.
+//
+// DESERT_PLATFORM_BREAK is the raw instruction; DESERT_DEBUG_BREAK executes it ONLY while a debugger is
+// attached (UE's UE_DEBUG_BREAK: `if (FPlatformMisc::IsDebuggerPresent()) PLATFORM_BREAK()`). With nobody
+// attached the trap is not a breakpoint but a death: macOS reported "trace trap" for a failed
+// DESERT_VERIFY and the std::abort() after it — the call the crash handler reports — never ran
+// (DEV-CRASH1). The handler also catches SIGTRAP / EXCEPTION_BREAKPOINT, for traps it does not own.
 #if defined( DESERT_PLATFORM_WINDOWS )
-#define DESERT_DEBUG_BREAK __debugbreak()
+#define DESERT_PLATFORM_BREAK __debugbreak()
 #elif defined( DESERT_PLATFORM_MACOS )
-#define DESERT_DEBUG_BREAK __builtin_debugtrap()
+#define DESERT_PLATFORM_BREAK __builtin_debugtrap()
 #elif defined( DESERT_PLATFORM_LINUX )
 #include <signal.h>
-#define DESERT_DEBUG_BREAK raise( SIGTRAP )
+#define DESERT_PLATFORM_BREAK raise( SIGTRAP )
 #elif defined( _MSC_VER )
-#define DESERT_DEBUG_BREAK __debugbreak()
+#define DESERT_PLATFORM_BREAK __debugbreak()
 #elif defined( __clang__ ) || defined( __GNUC__ )
-#define DESERT_DEBUG_BREAK __builtin_trap()
+#define DESERT_PLATFORM_BREAK __builtin_trap()
 #else
-#define DESERT_DEBUG_BREAK ( (void)0 )
+#define DESERT_PLATFORM_BREAK ( (void)0 )
 #endif
+
+#define DESERT_DEBUG_BREAK                                                                                        \
+    do                                                                                                            \
+    {                                                                                                             \
+        if ( Common::Platform::IsDebuggerAttached() )                                                             \
+        {                                                                                                         \
+            DESERT_PLATFORM_BREAK;                                                                                \
+        }                                                                                                         \
+    } while ( false )
 
 namespace Common::Detail
 {

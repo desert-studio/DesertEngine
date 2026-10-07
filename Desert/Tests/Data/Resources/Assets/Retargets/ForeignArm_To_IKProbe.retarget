@@ -1,0 +1,45 @@
+{
+    "Header": {
+        "Kind": "Retarget",
+        "Guid": "455394d648d9019f7c58ab61c2ed12d3",
+        "Versions": {
+            "RTGT": 4
+        },
+        "Dependencies": ["6e7625493009a5445f91e22e58561d44"]
+    },
+    "Name": "ForeignArm to IKProbe",
+    "SourceSkeleton": {
+        "Guid": "6e7625493009a5445f91e22e58561d44",
+        "Path": "Meshes/Skinned/ForeignArm.skeleton"
+    },
+    "TargetSkeleton": {
+        "Guid": "e2d99946999e4f5e83d40477c2056500",
+        "Path": "Meshes/Skinned/IKProbe.skeleton"
+    },
+    "SourcePelvisBone": "IK_Shoulder",
+    "TargetPelvisBone": "IK_Shoulder",
+    "SourceRetargetPose": {
+        "BoneOffsets": [],
+        "PelvisOffset": [0.0, 0.0, 0.0]
+    },
+    "TargetRetargetPose": {
+        "BoneOffsets": [],
+        "PelvisOffset": [0.0, 0.0, 0.0]
+    },
+    "Chains": [
+        {
+            "Name": "Arm",
+            "SourceStartBone": "IK_Shoulder",
+            "SourceEndBone": "Foreign_Hand",
+            "TargetStartBone": "IK_Shoulder",
+            "TargetEndBone": "IK_Hand",
+            "DriveWithIK": true
+        }
+    ],
+    "BoneRenames": [
+        {
+            "TargetBone": "IK_Hand",
+            "SourceBone": "Foreign_Hand"
+        }
+    ]
+}

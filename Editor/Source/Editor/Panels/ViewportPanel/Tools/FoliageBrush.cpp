@@ -322,6 +322,23 @@ namespace Desert::Editor::Tools
         return PlaceInstance( type, { hit->Point, glm::normalize( hit->Normal ) }, rng );
     }
 
+    std::optional<glm::mat4> FoliageProceduralPlace( const Assets::Serialization::FoliageTypeData& type,
+                                                     const FoliageTraceHit& hit, float yawDegrees,
+                                                     float pitchDegrees, float scale, FoliageRandom& rng )
+    {
+        if ( !PassesTypeRules( type, hit, !type.LandscapeLayers.empty(), rng ) )
+            return std::nullopt;
+        const float zOffset = glm::mix( type.ZOffset.Min, type.ZOffset.Max, rng.Next01() );
+        glm::mat4   m       = glm::translate( glm::mat4( 1.0f ), hit.Point );
+        if ( type.AlignToNormal )
+            m *= glm::mat4_cast( AlignUpToNormal( glm::normalize( hit.Normal ) ) );
+        m = glm::translate( m, glm::vec3( 0.0f, zOffset, 0.0f ) );
+        // UE FRotator(Pitch, Yaw, 0): yaw about the up axis, then pitch about the yawed side axis.
+        m = glm::rotate( m, glm::radians( yawDegrees ), glm::vec3( 0.0f, 1.0f, 0.0f ) );
+        m = glm::rotate( m, glm::radians( pitchDegrees ), glm::vec3( 1.0f, 0.0f, 0.0f ) );
+        return glm::scale( m, glm::vec3( scale ) );
+    }
+
     size_t FoliageSelectInSphere( std::span<const glm::mat4> instances, const glm::vec3& center, float radius,
                                   bool select, FoliageSelection& selected )
     {

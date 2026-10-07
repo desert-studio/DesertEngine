@@ -96,7 +96,7 @@ TEST( SceneLandscapeLayerModesMigration, CorpusLandscapesStateOnlyTheKeptFields 
     const std::set<std::string> keptLook = { "Material" }; // ALandscape::LandscapeMaterial
 
     const std::filesystem::path scenes =
-         Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Scenes";
+         Desert::TestSupport::RepositoryRoot() / "Projects" / "Desert" / "Content" / "Scenes";
     ASSERT_TRUE( std::filesystem::is_directory( scenes ) ) << std::filesystem::absolute( scenes );
     size_t roots = 0;
     for ( const auto& entry : std::filesystem::directory_iterator( scenes ) )

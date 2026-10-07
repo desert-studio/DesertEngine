@@ -25,7 +25,6 @@
 #include <Engine/Core/Camera.hpp>
 
 #include <Common/Core/Events/WindowEvents.hpp>
-#include <Common/Core/EventRegistry.hpp>
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 
@@ -97,6 +96,7 @@ namespace Desert::Graphic
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
+            int                    TranslucencySortPriority = 0; // lower draws first (translucency pass)
         };
 
         // Each renderer IS a view: it owns its ViewResources, so per-frame state is stored per view instead of

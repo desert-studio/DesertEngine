@@ -15,6 +15,7 @@
 #include "WorldTime.hpp"
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/Subsystems/WorldSubsystems.hpp>
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/UUID.hpp>
 #include <glm/glm.hpp>
@@ -46,6 +47,14 @@ namespace Common::Math
 {
     class Ray;
 }
+
+namespace Desert::Core
+{
+    class Scene;
+}
+
+template <>
+inline constexpr bool Common::SubsystemsJoinEventTree<Desert::Core::Scene> = false;
 
 namespace Desert::Core
 {
@@ -96,6 +105,12 @@ namespace Desert::Core
          * destructor, so an entry can never be dangling and nothing here extends a lifetime.
          */
         [[nodiscard]] static const std::vector<Scene*>& LiveScenes();
+
+        template <typename T>
+        [[nodiscard]] T* GetSubsystem() const
+        {
+            return m_Subsystems.template Get<T>();
+        }
 
         void Clear();
 
@@ -211,6 +226,10 @@ namespace Desert::Core
         {
             return m_SceneName;
         }
+        [[nodiscard]] const std::string& GetSceneName() const
+        {
+            return m_SceneName;
+        }
 
         void SetSceneName( const std::string& name )
         {
@@ -275,8 +294,15 @@ namespace Desert::Core
         void SetState( SceneState state )
         {
             if ( m_State == SceneState::Edit && state == SceneState::Play )
+            {
                 m_WorldTime.Reset();
+            }
             m_State = state;
+            m_Subsystems.SetPlaying( state != SceneState::Edit );
+            if ( state != SceneState::Paused )
+            {
+                m_SingleFramePending = false; // a step belongs to the pause it was asked in
+            }
         }
         [[nodiscard]] bool IsPlaying() const
         {
@@ -304,6 +330,24 @@ namespace Desert::Core
         [[nodiscard]] bool IsPreviewRealtime() const
         {
             return m_PreviewRealtime;
+        }
+
+        // UE's "Advance Single Frame" (PIE Frame Skip): a PAUSED world ticks gameplay for exactly the next
+        // OnUpdate, then holds again. Refused (false) in any other state - there is no frame to skip to in
+        // Edit, and in Play every frame already advances.
+        [[nodiscard]] bool RequestSingleFrame()
+        {
+            if ( m_State != SceneState::Paused )
+                return false;
+            m_SingleFramePending = true;
+            return true;
+        }
+        // Whether gameplay time advances in THIS update: Play, or the one stepped frame of a pause. Every
+        // system that gates simulation on the play state asks this, not GetState() == Play, or a frame
+        // skip would advance animation while physics and scripts held.
+        [[nodiscard]] bool TicksGameplay() const
+        {
+            return m_State == SceneState::Play || ( m_State == SceneState::Paused && m_SingleFramePending );
         }
 
         // THE PLAYER'S PAWN AND VIEW TARGET (UE: the PlayerController's possessed pawn and
@@ -336,6 +380,12 @@ namespace Desert::Core
         [[nodiscard]] entt::entity                    GetViewTarget() const
         {
             return m_ViewTarget;
+        }
+        // A Camera Cut (UE: the Level Sequence's camera cut calling APlayerController::SetViewTarget) moves the
+        // view to another camera entity; the sequence hands the previous target back when its cut ends.
+        void SetViewTarget( entt::entity target )
+        {
+            m_ViewTarget = target;
         }
 
         [[nodiscard]] SceneSettings& GetSettings()
@@ -518,6 +568,7 @@ namespace Desert::Core
         SceneState                    m_State = SceneState::Edit;
         WorldTime                     m_WorldTime;
         bool                          m_PreviewRealtime = true;
+        bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
         bool                          m_PlayFromHere   = false;
@@ -535,5 +586,9 @@ namespace Desert::Core
         std::optional<Common::Json::TextDocument> m_LoadedDocument;
         // See GetWorldPartition().
         std::optional<WorldPartitionSerialized> m_WorldPartition;
+
+        Common::WorldSubsystems<Scene> m_Subsystems{ *this };
     };
+
+    void CreateSubsystems( Common::SubsystemCollection<Scene>& collection );
 } // namespace Desert::Core

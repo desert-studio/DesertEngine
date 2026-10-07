@@ -3675,7 +3675,12 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
                              "Graphic::RDG::Access::SampledGraphics,Graphic::RDG::SubresourceRange::All(),"
                              "Graphic::RDG::SamplerDesc::LinearClamp());" ),
                std::string::npos );
-    EXPECT_NE( runtime.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ),
+    // The ref the graph extracts is the imported back buffer itself, not the node's target: under
+    // --render-movie the node composes into the movie target and the back buffer is only cleared.
+    EXPECT_NE( runtime.find( "constGraphic::RDG::TextureRefbackBufferRef=graph.RegisterExternal(backBuffer,"
+                             "\"BackBuffer\");" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "graph.Extract(backBufferRef,backBuffer,Graphic::RDG::Access::Present)" ),
                std::string::npos );
     EXPECT_NE( runtime.find( "renderer.ExecuteGraph(graph)" ), std::string::npos );
     for ( const char* gone : { "BeginSwapChainRenderPass", "SubmitIndexed", "SubmitFullscreenTriangle",
@@ -4401,11 +4406,11 @@ TEST( RenderGraphCompile, UIMaterialDrawsFallBackPerDrawNotPerNode )
     // A SHADER HOT RELOAD REBUILDS THE ENTRY (drawlist2d AShaderReloadRebuildsTheMaterialInsteadOfFallingBack pins
     // RebuildIfReloaded): Build records the generation, every Resolve hit and the error fill follow it, and the
     // follow keys on the entry's PIPELINE's shader - the one PrepareDraw judges the row against.
-    EXPECT_NE( cache.find( "entry.ShaderGeneration=shader->GetReloadGeneration();" ), std::string::npos )
+    EXPECT_NE( cache.find( "entry.ShaderGeneration=shader->GetCodeGeneration();" ), std::string::npos )
          << "Build no longer records the shader generation the entry was built at";
     const std::string follow = FunctionBody( cache, "voidUIMaterialCache::FollowShaderReload(" );
     ASSERT_FALSE( follow.empty() ) << "UIMaterialCache::FollowShaderReload moved";
-    EXPECT_NE( follow.find( "entry.Pipeline->GetSpecification().Shader->GetReloadGeneration()" ),
+    EXPECT_NE( follow.find( "entry.Pipeline->GetSpecification().Shader->GetCodeGeneration()" ),
                std::string::npos );
     EXPECT_NE( follow.find( "UIMaterialFallback::RebuildIfReloaded(entry,generation," ), std::string::npos );
     EXPECT_NE( follow.find( "m_RetiredBuilds.push_back(" ), std::string::npos )

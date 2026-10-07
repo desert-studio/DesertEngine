@@ -9,6 +9,7 @@
 // The parser is the same translation unit the engine/editor uses (compiled in via premake) — this
 // tool can never drift from what the runtime actually accepts.
 
+#include <ToolEngineDir.hpp>
 #include <ToolMain.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
@@ -57,6 +58,12 @@ static int RunTool( int argc, char** argv )
     if ( argc < 2 )
     {
         std::fprintf( stderr, "Usage: DShaderTool <file|dir> [<file|dir> ...]\n" );
+        return 2;
+    }
+    // Shader includes resolve off the engine directory (ENG-ROOT), the one beside the tool, never the cwd.
+    if ( const std::string refused = Desert::Tools::SetEngineDirFromExecutable( {} ); !refused.empty() )
+    {
+        std::fprintf( stderr, "DShaderTool: %s\n", refused.c_str() );
         return 2;
     }
 

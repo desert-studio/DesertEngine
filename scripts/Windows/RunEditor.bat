@@ -40,7 +40,7 @@ shift
 goto collect
 :run
 if not defined ARGS (
-    "%EDITOR%" --project Desert.deproj
+    "%EDITOR%" --project ..\Projects\Desert\Desert.deproj
 ) else (
     "%EDITOR%"%ARGS%
 )
