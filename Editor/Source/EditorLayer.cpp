@@ -668,6 +668,15 @@ namespace Desert::Editor
 
         m_Control.ServiceChannel();
 
+        // THE EDITOR'S FRAME BOUNDARY FOR Core::OpenLevel (UEngine::TickWorldTravel for the PIE world context).
+        // In Play the queued level replaces the PLAYED world and Stop still returns to the authored one
+        // (PlayWorldTravel); outside Play there is no game world and the request is refused with its target.
+        if ( const auto travelled = m_Play.ServiceTravel(); !travelled )
+        {
+            LOG_ERROR( "[Editor] {}", travelled.GetError() );
+            Editor::ToastManager::Push( travelled.GetError(), Editor::ToastLevel::Warning, 5.0f );
+        }
+
         // A New Landscape run that finished on the JobSystem is applied here, on the main thread and ahead of
         // this frame's scene update, as one undo step. A cancel is the user's own act, so it is told, not flagged.
         if ( auto created = Commands::FinishCreateLandscape() )

@@ -75,9 +75,10 @@ namespace Desert::Player
         void OnFramePresented() override;
 
     private:
-        // Tear down the current scene and deserialize `path` in its place (systems survive Clear()). Runs
-        // between frames from OnUpdate — a UI button's "scene:<path>" click queues it into m_PendingSceneLoad.
-        void LoadSceneInternal( const std::string& path );
+        // Tear down the current scene and deserialize `path` in its place (systems survive Clear()). The load
+        // half of Core::LevelTravel -- run only from its TickTravel at the head of OnUpdate, between frames.
+        // A refusal before teardown leaves the running level untouched.
+        Common::BoolResultStr LoadSceneInternal( const std::string& path );
 
     private:
         std::string          m_ScenePathOverride;
@@ -161,9 +162,6 @@ namespace Desert::Player
         void                                  CollectMovieFrame();
 #endif
         uint32_t                                     m_LastWidth = 0, m_LastHeight = 0;
-
-        // A UI button clicked this frame with an "scene:<path>" OnClickMessage — applied next OnUpdate.
-        std::optional<std::string> m_PendingSceneLoad;
 
         // ===== THE STATE A SHIPPING GAME NEEDS AND DID NOT HAVE =====
         //

@@ -512,4 +512,5 @@ namespace Desert::Scripting
     void RegisterUIBindings( ScriptEngine::Impl& impl );         // ui.set/get/send + OnUIMessage bridge
     void RegisterLocalizationBindings( ScriptEngine::Impl& impl ); // loc.text/plural/number/money/date
     void RegisterProjectBindings( ScriptEngine::Impl& impl );      // project.name/company
+    void RegisterLevelBindings( ScriptEngine::Impl& impl );        // level.open (Core::OpenLevel)
 } // namespace Desert::Scripting

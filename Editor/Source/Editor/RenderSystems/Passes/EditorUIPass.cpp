@@ -3,6 +3,7 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
+#include <Engine/Core/LevelTravel.hpp>
 #include <Engine/UI/LoadingOverlay.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -182,17 +183,27 @@ namespace Desert::Editor::Render
                                Graphic::RDG::SubresourceRange::All() );
             m_Render2D.DeclareBindings( declared, ctx.Graph.Transients.BackdropBlur );
 
-            // A button fired in preview: report it, but DON'T execute scene-load / quit / open-URL here —
-            // that would close or switch the editor. Interactive toggles/sliders/inputs already mutated in
-            // the walk. Everything that is NOT one of those three process-level encodings is a gameplay
-            // message and goes on the same queue as the pointer events below, because a preview whose
-            // buttons are heard by scripts and whose pointer events are heard by scripts is one preview;
-            // dropping the button half was the defect this replaces.
+            // A button fired in preview: report it; quit / open-URL are NOT executed here — they would close
+            // the editor or leave it. Scene-load is, in Play, through Core::OpenLevel (below). Interactive
+            // toggles/sliders/inputs already mutated in the walk. Everything that is NOT one of those three
+            // process-level encodings is a gameplay message and goes on the same queue as the pointer events
+            // below, because a preview whose buttons are heard by scripts and whose pointer events are heard by
+            // scripts is one preview; dropping the button half was the defect this replaces.
             if ( feed && !clicked.empty() )
             {
                 LOG_INFO( "[UI Preview] button action: {}", clicked );
+                constexpr std::string_view kScene = "scene:";
+                // LoadScene is Core::OpenLevel, the call the game's own button makes: in Play the editor's
+                // boundary loads the level into the PLAYED world (PlayWorldTravel) and Stop returns to the
+                // authored one. A preview of the authored level (Edit) has no game world to travel.
+                if ( clicked.rfind( kScene, 0 ) == 0 && m_UIView.GameWorld )
+                {
+                    if ( const auto queued = ::Desert::Core::OpenLevel( clicked.substr( kScene.size() ) );
+                         !queued )
+                        LOG_ERROR( "[UI Preview] {}", queued.GetError() );
+                }
                 const bool processLevel =
-                     clicked == "quit" || clicked.rfind( "scene:", 0 ) == 0 || clicked.rfind( "url:", 0 ) == 0;
+                     clicked == "quit" || clicked.rfind( kScene, 0 ) == 0 || clicked.rfind( "url:", 0 ) == 0;
                 if ( !processLevel )
                     UI::UIMessageQueue::Get().Push( clicked );
             }

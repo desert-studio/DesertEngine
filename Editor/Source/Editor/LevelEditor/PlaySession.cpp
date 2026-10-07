@@ -13,6 +13,10 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneLoadPhases.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
+#include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <ImGui/imgui.h>
 
@@ -83,7 +87,7 @@ namespace Desert::Editor
         // like a load: it is the other half of the round trip Stop pays.
         Desert::Core::SceneLoadPhases       phases( "Play start" );
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
-        m_Snapshot = serializer.SerializeToJson();
+        m_PlayWorld.Begin( serializer.SerializeToJson() );
         phases.Lap( "write the Play snapshot", scene->GetAllEntities().size() );
         // The pawn is spawned AFTER the snapshot, so Stop's restore has never heard of it, and BEFORE the
         // streamer, which may unload the cell the PlayerStart stands in.
@@ -103,12 +107,12 @@ namespace Desert::Editor
             LOG_ERROR( "[Scene] Play refused: {0}", began.GetError() );
             Editor::ToastManager::Push( std::format( "Play refused: {}", began.GetError() ),
                                         Editor::ToastLevel::Error );
-            m_Snapshot.clear();
+            m_PlayWorld.Discard();
             return;
         }
         phases.Lap( "spawn the player's pawn", scene->GetAllEntities().size() );
-        auto streamer =
-             Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, m_Snapshot, InstrumentStreamingSources() );
+        auto streamer = Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, m_PlayWorld.AuthoredSnapshot(),
+                                                            InstrumentStreamingSources() );
         phases.Lap( "begin the world streamer", scene->GetAllEntities().size() );
         phases.LogSummary();
         if ( !streamer )
@@ -122,7 +126,7 @@ namespace Desert::Editor
             scene->SetPlayerPawn( entt::null );
             scene->SetPlayFromHere( false );
             scene->SetState( SceneState::Edit );
-            m_Snapshot.clear();
+            m_PlayWorld.Discard();
             return;
         }
         m_WorldStreamer    = streamer.ExtractValue();
@@ -144,7 +148,7 @@ namespace Desert::Editor
     {
         using SceneState  = ::Desert::Core::Scene::SceneState;
         const auto& scene = m_Workspace.ActiveScene();
-        if ( scene->GetState() == SceneState::Edit || m_Snapshot.empty() )
+        if ( scene->GetState() == SceneState::Edit || !m_PlayWorld.Active() )
             return;
 
         Desert::Core::SceneLoadPhases phases( "Stop restore" );
@@ -152,13 +156,20 @@ namespace Desert::Editor
         CommandHistory::Get().Clear(); // anything recorded during Play targets entities about to be rebuilt
         m_WorldStreamer.reset();       // before Clear: the snapshot below brings every cell back
         phases.Lap( "wait for the GPU, drop the undo history and the streamer", 0 );
-        const std::size_t outgoing = scene->GetAllEntities().size();
-        scene->Clear();
-        phases.Lap( "clear the played scene", outgoing );
 
-        const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
-        // NOT A FILE: named "<Play snapshot>" so a failure says which of the two "loading a scene" broke.
-        if ( const auto restored = serializer.DeserializeFromJson( m_Snapshot, "<Play snapshot>" ); !restored )
+        // Whatever map Play ended on -- the authored one or one a travel loaded -- the snapshot taken when Play
+        // began is what comes back (UEditorEngine::EndPlayMap: the PIE world goes, the editor's level stays).
+        const auto restored = m_PlayWorld.End(
+             [&]( const std::string& snapshot ) -> Common::BoolResultStr
+             {
+                 const std::size_t outgoing = scene->GetAllEntities().size();
+                 scene->Clear();
+                 phases.Lap( "clear the played scene", outgoing );
+                 const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
+                 // NOT A FILE: named "<Play snapshot>" so a failure says which of the two "loading a scene" broke.
+                 return serializer.DeserializeFromJson( snapshot, "<Play snapshot>" );
+             } );
+        if ( !restored )
         {
             LOG_ERROR( "[Scene] Play snapshot could not be restored: {0}", restored.GetError() );
             Editor::ToastManager::Push( "Play snapshot could not be restored — see the log",
@@ -182,7 +193,70 @@ namespace Desert::Editor
         // The session ends with the world: without this the editor kept reporting Play (MCP state "playing")
         // after every Stop — only a closed scene view used to end it (EndIfBoundTo).
         m_State = State::Paused;
-        m_Snapshot.clear();
+    }
+
+    Common::BoolResultStr PlaySession::ServiceTravel()
+    {
+        return m_PlayWorld.Tick( [this]( const std::string& path ) { return LoadIntoPlayWorld( path ); } );
+    }
+
+    Common::BoolResultStr PlaySession::LoadIntoPlayWorld( const std::string& path )
+    {
+        using SceneState  = ::Desert::Core::Scene::SceneState;
+        const auto& scene = m_Workspace.ActiveScene();
+
+        // ASKED BEFORE ANYTHING IS TORN DOWN: a level that cannot load leaves the played world running.
+        auto text = Desert::Core::ExternalEntities::ReadSceneFileText( path );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "Travel refused, the played level is untouched: {}",
+                                                     text.GetError() );
+        const std::string json     = text.ExtractValue();
+        auto              loadable = Desert::Core::ParseLoadableScene( path, json );
+        if ( !loadable )
+            return Common::MakeFormattedError<bool>( "Travel refused, the played level is untouched: {}",
+                                                     loadable.GetError() );
+
+        Desert::Core::SceneLoadPhases phases( std::format( "PIE travel '{}'", path ) );
+        EngineContext::GetInstance().GetDevice()->WaitIdle(); // scene teardown frees GPU resources
+        m_WorldStreamer.reset();                              // streams the world about to be cleared
+        const std::size_t outgoing = scene->GetAllEntities().size();
+        scene->Clear();
+        // A notification of the level being left names one of ITS overlay canvases (RuntimeLayer's switch).
+        UI::UIOverlayRequests::Get().Clear();
+        phases.Lap( "clear the played world", outgoing );
+
+        // Whatever fails from here on, the scene stays in Play: Stop restores the authored level only from a
+        // world that is not in Edit, and a half-travelled world is still the game's, never the document's.
+        const auto stayInPlay = [&]( std::string error ) -> Common::BoolResultStr
+        {
+            scene->SetState( SceneState::Play );
+            m_Workspace.ActiveSceneReplaced();
+            return Common::MakeError( std::move( error ) );
+        };
+        const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
+        if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), path ); !loaded )
+            return stayInPlay(
+                 std::format( "Travel to '{}' failed after teardown: {}", path, loaded.GetError() ) );
+        (void)Runtime::AwaitSceneClosure( *scene ); // the new level's dependency closure, read by the workers
+        if ( const auto inited = scene->Init(); !inited.IsSuccess() )
+            return stayInPlay( std::format( "Travel to '{}': init failed: {}", path, inited.GetError() ) );
+        phases.Lap( "load the travelled level", scene->GetAllEntities().size() );
+
+        // Play first: the spawned pawn is the source the streamer begins around (PawnIsAStreamingSource).
+        if ( const auto began = Desert::Core::BeginPlay( *scene, *m_Assets, {} ); !began )
+            return stayInPlay( std::format( "Play refused for '{}': {}", path, began.GetError() ) );
+        auto streamer =
+             Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, json, InstrumentStreamingSources() );
+        if ( !streamer )
+            return stayInPlay(
+                 std::format( "Travel to '{}' could not stream the world: {}", path, streamer.GetError() ) );
+        m_WorldStreamer    = streamer.ExtractValue();
+        m_WorldStreamClock = 0.0;
+        m_Workspace.ActiveSceneReplaced();
+        phases.Lap( "begin Play and the world streamer", scene->GetAllEntities().size() );
+        phases.LogSummary();
+        LOG_INFO( "[Play] travelled to '{}' -- Stop returns to the authored level", path );
+        return BOOLSUCCESS;
     }
 
     void PlaySession::ServiceRequests()
@@ -205,7 +279,7 @@ namespace Desert::Editor
                   sceneViewId );
         m_State       = State::Paused;
         m_PendingStop = false;
-        m_Snapshot.clear();
+        m_PlayWorld.Discard();
         m_WorldStreamer.reset();
     }
 

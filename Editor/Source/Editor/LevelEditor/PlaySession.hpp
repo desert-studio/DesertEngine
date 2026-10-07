@@ -10,6 +10,7 @@
 #include <Engine/Core/WorldStreamer.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
+#include "Editor/Core/PlayWorldTravel.hpp"
 #include "Editor/Widgets/ToolbarLayout.hpp"
 
 #include <memory>
@@ -42,6 +43,11 @@ namespace Desert::Editor
         }
         void ServiceRequests();
 
+        // The editor's frame boundary for Core::OpenLevel (PlayWorldTravel): in Play the queued level is loaded
+        // into the PLAYED world and Stop still restores the authored one; outside Play the request is refused.
+        // Returns false when nothing was pending.
+        [[nodiscard]] Common::BoolResultStr ServiceTravel();
+
         // The document about to close is the one playing: Play ends with it and its snapshot is discarded.
         void EndIfBoundTo( uint64_t sceneViewId );
 
@@ -51,7 +57,7 @@ namespace Desert::Editor
         }
         [[nodiscard]] const std::string& AuthoredSnapshot() const
         {
-            return m_Snapshot;
+            return m_PlayWorld.AuthoredSnapshot();
         }
         [[nodiscard]] Desert::Core::WorldStreamer* Streamer() const
         {
@@ -67,6 +73,11 @@ namespace Desert::Editor
         void AppendPlayCommands( std::vector<PaletteCommand>& commands );
 
     private:
+        // Tears the played world down and plays the level at @p path in it (Runtime's LoadSceneInternal, with
+        // the editor's scene): read and version-gated before anything is destroyed, then cleared, loaded,
+        // initialised, Play begun and the world streamer started on the new level.
+        [[nodiscard]] Common::BoolResultStr LoadIntoPlayWorld( const std::string& path );
+
         enum class State
         {
             Paused = 0,
@@ -76,7 +87,7 @@ namespace Desert::Editor
         SceneWorkspace&                              m_Workspace;
         const std::shared_ptr<Assets::AssetManager>& m_Assets;
         State                                        m_State = State::Paused;
-        std::string                                  m_Snapshot; // serialized scene captured on Play
+        PlayWorldTravel                              m_PlayWorld; // the authored snapshot + the travelled map
         bool                                         m_PendingStop = false;
         std::unique_ptr<Desert::Core::WorldStreamer> m_WorldStreamer;
         double                                       m_WorldStreamClock = 0.0; // seconds of Play, for retries
