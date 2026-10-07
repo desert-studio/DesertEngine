@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Core/Application.hpp>
+#include <Common/Core/Timestep.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/EditorCameraBasis.hpp>
 #include <Engine/Core/Projection.hpp>

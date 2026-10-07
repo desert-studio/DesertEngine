@@ -787,7 +787,7 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
 // mesh and a rig state none (SKEL 3: the rig is a shared asset), so the import record beside them that wrote them
 // answers - by its Kind, not by the first record with the stem (Fox.fbx, a static import beside, wrote no
 // `.skmesh`).
-TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
+TEST( SkinnedImportThumbnailKind, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
 {
     namespace IAS        = Desert::Editor::ImportedAssetSource;
     namespace Ser        = Desert::Assets::Serialization;

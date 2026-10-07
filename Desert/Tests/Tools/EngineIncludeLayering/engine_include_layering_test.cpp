@@ -14,6 +14,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -39,21 +41,13 @@ namespace
         const char* why;
     };
     constexpr GpuSideFile kGpuSideFiles[] = {
-         { "Geometry/ProceduralCharacterFactory.cpp",
-           "creates the character's materials through the ResourceRegistry" },
          { "World/Foliage/FoliagePrefabsScene.cpp", "instantiates foliage prefabs into a live Scene" },
     };
 
+    // The checkout the build baked in (scratch_dir.hpp), not one searched for from the working directory.
     fs::path RepoRoot()
     {
-        for ( fs::path p = fs::current_path(); !p.empty(); p = p.parent_path() )
-        {
-            if ( fs::exists( p / "Desert" / "Tests" / "TestSupport" ) && fs::exists( p / "Editor" ) )
-                return p;
-            if ( p == p.parent_path() )
-                break;
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     bool IsWindowOrGpuApiHeader( const std::string& include )
@@ -139,8 +133,8 @@ namespace
     TEST( EngineIncludeLayering, CpuSideDirectoriesReachNoGpuApiHeader )
     {
         const fs::path root = RepoRoot();
-        ASSERT_FALSE( root.empty() ) << "walked up from " << fs::current_path()
-                                     << " without finding the tree root";
+        ASSERT_TRUE( fs::is_directory( root / "Desert" / "Tests" / "TestSupport" ) )
+             << root << " (DESERT_TEST_REPO_ROOT) is not the checkout";
         const fs::path     engine = root / "Desert" / "Desert" / "Source" / "Engine";
         std::set<fs::path> gpuSide;
         for ( const GpuSideFile& file : kGpuSideFiles )
