@@ -839,51 +839,21 @@ jobs:
       # The engine links shaderc*.lib and spirv-cross-*.lib out of the SDK's Lib directory, so a
       # headers-only Vulkan install is not enough — this is the real LunarG SDK. Pinned so a new SDK
       # release cannot change the build under us, and cached because it is a ~200 MB download.
+      # The cache only restores; scripts/CI/EnsureVulkanSdk.ps1 judges the restored TREE and installs
+      # what is missing — the same script the test shards run, so both jobs see the same SDK.
       - name: Cache Vulkan SDK
-        id: cache-vulkan
         uses: actions/cache@v4
         with:
           path: C:\VulkanSDK
-          # The suffix is part of the key because the cache stores an INSTALL, not a download: a cached
-          # tree built without the debug component would make the install step below skip, and the
-          # component would never appear. Change the component set -> change this suffix.
-          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-debuglibs
+          # The suffix is part of the key because the cache stores an INSTALL, not a download: an entry
+          # saved without a part is restored forever under the same key and the script must re-add that
+          # part on every run. The suffix names the parts EnsureVulkanSdk.ps1 requires (debug component,
+          # loader). Change that set -> change this suffix.
+          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-debuglibs-loader
 
-      - name: Install Vulkan SDK
-        if: steps.cache-vulkan.outputs.cache-hit != 'true'
+      - name: Ensure Vulkan SDK
         shell: pwsh
-        run: |
-          $ver = "${{ env.VULKAN_SDK_VERSION }}"
-          $url = "https://sdk.lunarg.com/sdk/download/$ver/windows/VulkanSDK-$ver-Installer.exe"
-          Write-Host "Downloading $url"
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\vulkan.exe" -MaximumRetryCount 3 -RetryIntervalSec 15
-          # com.lunarg.vulkan.debug — the "Debuggable Shader API Libraries", which is where the debug
-          # halves of the shader libs (shadercd.lib and friends) live. It is an OPTIONAL component, and
-          # a bare `install` with --default-answer takes the core only, so the Debug configuration
-          # linked against a shadercd.lib that was never installed. The cache key above carries the
-          # component set for exactly this reason — see the note on it.
-          # The installer downloads its components from sdk.lunarg.com itself, and that download drops
-          # ("archiveDownloadError ... Connection") often enough to have failed three gate runs on
-          # 2026-09-27. The cache above does not save us there: a cache is visible only to its own branch
-          # and the default branch, so every new integration/batch branch reinstalls. Retry the whole
-          # install, clearing the half-written root between attempts.
-          $ok = $false
-          for ($attempt = 1; $attempt -le 3 -and -not $ok; $attempt++) {
-            & "$env:RUNNER_TEMP\vulkan.exe" --root "C:\VulkanSDK\$ver" --accept-licenses `
-                --default-answer --confirm-command install com.lunarg.vulkan.debug
-            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
-            Write-Host "Vulkan SDK install attempt $attempt failed ($LASTEXITCODE)"
-            if (Test-Path "C:\VulkanSDK\$ver") { Remove-Item -Recurse -Force "C:\VulkanSDK\$ver" }
-            Start-Sleep -Seconds 30
-          }
-          if (-not $ok) { throw "Vulkan SDK install failed after 3 attempts" }
-
-      - name: Export VULKAN_SDK
-        shell: pwsh
-        run: |
-          $sdk = "C:\VulkanSDK\${{ env.VULKAN_SDK_VERSION }}"
-          if (-not (Test-Path "$sdk\Include\vulkan\vulkan.h")) { throw "Vulkan SDK missing at $sdk" }
-          "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        run: ./scripts/CI/EnsureVulkanSdk.ps1 -Version ${{ env.VULKAN_SDK_VERSION }}
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
@@ -1075,10 +1045,29 @@ jobs:
           Get-ChildItem build\Bin\Tests\${{ matrix.config }} -Recurse -File | Group-Object Extension |
             ForEach-Object { "{0,-8} {1,5} files {2,10:N0} MB" -f $_.Name, $_.Count, (($_.Group | Measure-Object Length -Sum).Sum / 1MB) }
 
-      # PDBs STAY, except CrashHandler's. Measured in run 36441711706 (Windows Debug): 354 .exe = 2.3 GB,
-      # 354 .pdb = 16.9 GB; the bundle with them zipped to 3.85 GB and took 6.6 min to upload. CrashHandler
-      # asserts a symbol for its faulting frame and reads the PDB beside itself, so its PDB travels; a
-      # failing suite elsewhere still prints its gtest assertion, only a native crash loses line numbers.
+      # PDBs STAY, except the one CrashHandler reads. Measured in run 36441711706 (Windows Debug): 354 .exe =
+      # 2.3 GB, 354 .pdb = 16.9 GB; the bundle with them zipped to 3.85 GB and took 6.6 min to upload.
+      # CrashHandler asserts a symbol for its faulting frame and reads the PDB beside its own executable,
+      # so THAT executable's PDB travels; a failing suite elsewhere still prints its gtest assertion, only a
+      # native crash loses line numbers. Which executable holds the suite is build/TestManifest.txt's answer
+      # (`<Runner> <Suite>`, written by Desert/Tests/premake5.lua), not a name written here: BUILD1-P1 moved
+      # the suite from its own CrashHandler.exe into its layer's runner, and a hard-coded CrashHandler.pdb
+      # kept "travelling" while no such file existed — eight CrashHandler failures on the shard.
+      - name: Name the PDB that travels
+        id: symbols
+        if: matrix.shards > 0
+        shell: pwsh
+        run: |
+          $runners = @(Get-Content build/TestManifest.txt | ForEach-Object {
+              $f = -split $_
+              if ($f.Count -eq 2 -and $f[1] -eq "CrashHandler") { $f[0] }
+          })
+          if ($runners.Count -ne 1) { throw "build/TestManifest.txt names CrashHandler in $($runners.Count) runners, want exactly 1" }
+          $pdb = "build/Bin/Tests/${{ matrix.config }}/$($runners[0]).pdb"
+          if (-not (Test-Path $pdb)) { throw "CrashHandler runs in $($runners[0]), but $pdb was not built" }
+          Write-Host "CrashHandler runs in $($runners[0]); $pdb travels"
+          "pdb=$pdb" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Upload the test bundle
         if: matrix.shards > 0
         uses: actions/upload-artifact@v4
@@ -1093,7 +1082,7 @@ jobs:
             !build/Bin/Tests/${{ matrix.config }}/**/*.lib
             !build/Bin/Tests/${{ matrix.config }}/**/*.exp
             !build/Bin/Tests/${{ matrix.config }}/**/*.pdb
-            build/Bin/Tests/${{ matrix.config }}/CrashHandler.pdb
+            ${{ steps.symbols.outputs.pdb }}
           retention-days: 3
 
       - name: Upload the shard plan
@@ -1239,20 +1228,20 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      # The same environment the suites had when they ran inside the build job.
+      # The SDK the build had, by the build's own path: restore the same cache key, then
+      # EnsureVulkanSdk.ps1 checks the tree and installs whatever part is missing. The suites need the
+      # LOADER at process start (EngineTests/EditorTests/ToolsTests import vulkan-1.dll; without it every
+      # suite of those runners exits -1073741515 before main), and the loader is part of the tree. A
+      # restore is not trusted to be complete — the script judges the files, not "Cache restored".
       - name: Restore Vulkan SDK
         uses: actions/cache/restore@v4
         with:
           path: C:\VulkanSDK
-          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-debuglibs
-          fail-on-cache-miss: true
+          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-debuglibs-loader
 
-      - name: Export VULKAN_SDK
+      - name: Ensure Vulkan SDK
         shell: pwsh
-        run: |
-          $sdk = "C:\VulkanSDK\${{ env.VULKAN_SDK_VERSION }}"
-          if (-not (Test-Path "$sdk\Include\vulkan\vulkan.h")) { throw "Vulkan SDK missing at $sdk" }
-          "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        run: ./scripts/CI/EnsureVulkanSdk.ps1 -Version ${{ env.VULKAN_SDK_VERSION }}
 
       - name: Download the test bundle
         uses: actions/download-artifact@v4
