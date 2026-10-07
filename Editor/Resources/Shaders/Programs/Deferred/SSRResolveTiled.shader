@@ -8,7 +8,6 @@ Shader "SSRResolveTiled"
     Vertex
     {
         #include <Common/FullscreenTriangle.glslh>
-        #include <Common/ReconstructPosition.glslh>
         #include <Common/SSRTiles.glslh>
 
         Out(0) vec2 v_TexCoord;

@@ -7,7 +7,6 @@ Shader "SSRResolve"
     Vertex
     {
         #include <Common/FullscreenTriangle.glslh>
-        #include <Common/ReconstructPosition.glslh>
 
         Out(0) vec2 v_TexCoord;
 
