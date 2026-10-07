@@ -6,24 +6,6 @@
 
 namespace Desert::Graphic::System
 {
-    namespace
-    {
-        // A camera whose matrices are set directly — used to render the Reflective Shadow Map from the
-        // sun's point of view. The cascade fitter produces a COMBINED light view-projection, so (exactly
-        // like the shadow pass does with SetLightMatrix) it goes in as the projection against an identity
-        // view: the vertex shader forms Projection * View * Transform, so the product is unchanged.
-        class LightCamera final : public Core::Camera
-        {
-        public:
-            LightCamera( const glm::mat4& viewProj, const glm::vec3& eye )
-            {
-                m_ViewMatrix       = glm::mat4( 1.0f );
-                m_ProjectionMatrix = viewProj;
-                m_Position         = eye;
-            }
-        };
-    } // namespace
-
     void MeshRenderer::DeclareRSMDraws( RDG::PassBuilder& pass )
     {
         // Reuses the G-buffer SHADER and attachment layout — the RSM framebuffer is created to match, so
@@ -65,9 +47,14 @@ namespace Desert::Graphic::System
         // Render from the SUN. A DEDICATED material+instance (like the glass pass) keeps this camera write
         // off the opaque passes' per-frame UBs — two writes to the same UB in one frame is the hazard that
         // previously hung the GPU.
-        LightCamera       lightCam( m_RSMViewProj, m_RSMEye );
-        MaterialInstance* ri = m_RSMInstance.get();
-        CaptureFrameState( &lightCam ).ApplyTo( ri );
+        // The sun is not a view (MakeStillViewFrame: no jitter, no previous frame). The cascade fitter produces a
+        // COMBINED light view-projection, so (exactly like the shadow pass does with SetLightMatrix) it goes in as
+        // the projection against an identity view: the vertex shader forms Projection * View * Transform, so the
+        // product is unchanged.
+        const ViewFrame   sunView =
+             MakeStillViewFrame( glm::mat4( 1.0f ), m_RSMViewProj, m_RSMEye, m_WorldTimeSeconds );
+        MaterialInstance* ri      = m_RSMInstance.get();
+        CaptureFrameState( &sunView ).ApplyTo( ri );
 
         // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM). The
         // per-object transform, material row and instance bind are each draw's state, written right before it.

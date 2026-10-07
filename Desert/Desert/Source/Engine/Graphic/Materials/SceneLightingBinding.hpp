@@ -53,23 +53,19 @@ namespace Desert::Graphic
     // writer and a test cannot end up describing two different ShadowUBs.
     // ------------------------------------------------------------------------------------------------
 
-    /// The camera block (Common/CameraUB.glslh: mat4 Projection, mat4 View, vec3 CameraPos).
-    inline void SceneCameraBind( Material* material, const Core::Camera* camera )
+    /// The camera block (Common/CameraUB.glslh) — THE one write of CameraUB into a material: the block is
+    /// ShaderProtocols::MakeCameraUB of the view being drawn (SceneRenderer::GetViewFrame for a scene view,
+    /// MakeStillViewFrame for a camera that is not a view: a light, an editor tool camera, a thumbnail).
+    /// The C++ struct and the reflected block have one size (camera_ub_layout_test), so the whole struct goes.
+    inline void SceneCameraBind( Material* material, const ViewFrame& frame )
     {
-        if ( !material || !camera )
+        if ( !material )
             return;
-
-        ShaderProtocols::Camera data;
-        data.Projection = camera->GetProjectionMatrix();
-        data.View       = camera->GetViewMatrix();
-        data.CameraPos  = camera->GetPosition();
 
         if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
         {
-            // The block ends in a vec3, so its reflected size (140) is smaller than the C++ struct's
-            // padded sizeof (144). Clamp, or the last write runs four bytes past the buffer.
-            const size_t size = std::min( sizeof( data ), static_cast<size_t>( ub->GetUniform()->GetSize() ) );
-            ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), size );
+            const ShaderProtocols::Camera data = ShaderProtocols::MakeCameraUB( frame );
+            ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
     }
 

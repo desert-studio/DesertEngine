@@ -887,6 +887,18 @@ namespace Desert::Graphic
         }
         m_CameraCutPending     = false;
         const ViewFrame& frame = begun.GetValue();
+        // GetViewFrame() answers `frame` from here until OnUpdate returns, by every path (the destructor clears
+        // it), so a writer can never read a finished frame's view.
+        struct CurrentViewFrameScope
+        {
+            const ViewFrame*& Slot;
+            ~CurrentViewFrameScope()
+            {
+                Slot = nullptr;
+            }
+        };
+        m_CurrentViewFrame = &frame;
+        const CurrentViewFrameScope currentViewFrameScope{ m_CurrentViewFrame };
         if ( const Common::BoolResultStr physical =
                   m_ViewState.History().AllocatePhysical( DeviceImageFactory{}, RendererGraphImageImporter{} );
              !physical )

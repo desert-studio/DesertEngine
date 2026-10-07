@@ -359,6 +359,17 @@ namespace Desert::Graphic
             return m_SceneInfo.ActiveCamera;
         }
 
+        // THE CURRENT FRAME'S VIEW (TAA1 step 3) — what every camera-block writer of this renderer fills
+        // CameraUB from (ShaderProtocols::MakeCameraUB). CONTRACT: non-null only while OnUpdate runs, from the
+        // moment m_ViewState.BeginFrame accepted the frame until OnUpdate returns (the graph executes and
+        // EndFrame commits inside that window). Outside it — before the first frame, after a refused frame,
+        // between frames, from another view — it is nullptr, never the last frame's view: a writer that gets
+        // nullptr has no view to draw for and writes nothing.
+        [[nodiscard]] const ViewFrame* GetViewFrame() const
+        {
+            return m_CurrentViewFrame;
+        }
+
         const auto& GetDirectionLights() const
         {
             return m_DirectionLights;
@@ -466,6 +477,9 @@ namespace Desert::Graphic
         // TAA1 step 3 — THE one previous-frame source of this view (UE: FSceneViewState): every AddFrame* that
         // reads a matrix, a camera position or a previous-frame value takes the ViewFrame BeginFrame returned.
         SceneViewState m_ViewState;
+        // GetViewFrame's answer: the ViewFrame OnUpdate's BeginFrame returned, set and cleared by OnUpdate's
+        // CurrentViewFrameScope so no exit path leaves it pointing at a finished frame.
+        const ViewFrame* m_CurrentViewFrame = nullptr;
         // Set by ResetTemporalHistory (the one cut entry point: ShotDirector, headless capture); consumed by the
         // next BeginFrame that succeeds as ViewInputs::CameraCut.
         bool m_CameraCutPending = false;

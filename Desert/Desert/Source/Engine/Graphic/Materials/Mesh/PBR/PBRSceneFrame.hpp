@@ -8,6 +8,7 @@
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <glm/glm.hpp>
 
@@ -48,7 +49,9 @@ namespace Desert::Graphic
      */
     struct PBRSceneFrame
     {
-        const Core::Camera* Camera = nullptr;
+        // The view being drawn — SceneRenderer::GetViewFrame for the scene, a MakeStillViewFrame for a light
+        // view (the RSM). The camera block is MakeCameraUB of it; null writes no camera block.
+        const ViewFrame* View = nullptr;
 
         const ShaderProtocols::PointLight*     PointLights     = nullptr;
         const ShaderProtocols::SpotLight*      SpotLights      = nullptr;

@@ -65,7 +65,7 @@ namespace Desert::Graphic::System
         // exactly what it did: a flat ambient constant, an unnormalized Lambert and full sun under a
         // cloud. Every one of those blocks is bound by NAME and guarded, so this costs the shaders that
         // do not declare them nothing.
-        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
         const Core::Frustum frustum = camera->GetFrustum();
 
@@ -559,7 +559,7 @@ namespace Desert::Graphic::System
 
         // --- Per translucent cell, once per frame and BEFORE the blocks are declared, so each cell's route fill
         // is what its draws will read: its rows and the scene snapshot ---
-        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
         for ( auto& [state, cellRows] : rows )
         {
             if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
@@ -644,7 +644,7 @@ namespace Desert::Graphic::System
         // The scene's whole contribution to a lit draw, gathered ONCE (camera, lights, shadow cascades and
         // the resolved IBL cubes + BRDF LUT). Applied per material GROUP below, not per object: only the
         // transform is per-object, and it rides a push constant.
-        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
         // FRUSTUM CULLING, AND IT LIVES IN THE PASS RATHER THAN AT SUBMIT. The queues this pass reads are
         // read by FIVE passes, and three of them look at the scene from somewhere else: the four shadow
@@ -1207,7 +1207,7 @@ namespace Desert::Graphic::System
         // deferred scene they are drawn FORWARD over the composite and receive nothing the composite
         // computed: this is the only route by which the sun's shadows, the baked sky and the cloud
         // layer's shadow reach them at all.
-        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
         // Deferred forward-over-composite: a LOAD-render-pass variant of the skinned pipeline (built once via
         // the pipeline cache), so skinned meshes draw OVER the deferred scene instead of clearing it. Same

@@ -3,8 +3,7 @@
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
-#include <Engine/Core/Camera.hpp>
-#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
+#include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
@@ -29,17 +28,12 @@ namespace Desert::Graphic
 
         // The transmittance / sky-view LUTs are pass parameters (SkyboxRenderer::Render binds them through
         // RDG::PassBindings); the material owns only the camera block and the sky buffer.
-        void Update( const Core::Camera* camera, const std::shared_ptr<ShaderResources::StorageBuffer>& skyParams )
+        // `view` is the view the sky is drawn for (SceneRenderer::GetViewFrame); without one the camera block is
+        // left as it is and nothing is drawn for it this frame.
+        void Update( const ViewFrame* view, const std::shared_ptr<ShaderResources::StorageBuffer>& skyParams )
         {
-            if ( camera )
-            {
-                ShaderProtocols::Camera cameraUB;
-                cameraUB.View       = camera->GetViewMatrix();
-                cameraUB.Projection = camera->GetProjectionMatrix();
-                cameraUB.CameraPos  = camera->GetPosition();
-                if ( auto* ub = Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
-                    ub->SetRawData( reinterpret_cast<const std::byte*>( &cameraUB ), sizeof( cameraUB ) );
-            }
+            if ( view != nullptr )
+                SceneCameraBind( this, *view );
 
             if ( auto* sb = Get<StorageBufferProperty>( "SkyBuffer" ) )
                 sb->SetBuffer( skyParams );

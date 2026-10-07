@@ -239,7 +239,8 @@ namespace Desert::Graphic::System
         // renderer + this renderer's own cascade state. One place that knows what "per-frame scene state"
         // IS; the snapshot itself lives beside the materials it is applied to, because it is their
         // payload and not this renderer's private business.
-        PBRSceneFrame CaptureFrameState( const Core::Camera* camera ) const;
+        // `view` is the view the draws are for (PBRSceneFrame::View).
+        PBRSceneFrame CaptureFrameState( const ViewFrame* view ) const;
 
         // The scene's game time this frame (Core::WorldTime), handed over by SceneRenderer::BeginScene and
         // published to materials through CaptureFrameState.

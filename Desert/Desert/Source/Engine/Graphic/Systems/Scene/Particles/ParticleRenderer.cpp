@@ -392,8 +392,9 @@ namespace Desert::Graphic::System
                        {
                            if ( m_FrameEmitters.empty() )
                                return BOOLSUCCESS;
-                           auto* const camera = m_SceneRenderer->GetMainCamera();
-                           if ( camera == nullptr )
+                           // The same condition the Declare below filled the blocks under.
+                           if ( m_SceneRenderer->GetMainCamera() == nullptr ||
+                                m_SceneRenderer->GetViewFrame() == nullptr )
                                return BOOLSUCCESS;
 
                            auto&    renderer = Renderer::GetInstance();
@@ -427,8 +428,8 @@ namespace Desert::Graphic::System
             // block against that fill before anything is recorded, so it is filled here and never in the exec.
             // Each emitter fills ITS OWN material: a shared one routed every emitter through one descriptor set,
             // written at most once per frame - so every emitter after the first drew the first one's buffer.
-            const auto camera = m_SceneRenderer->GetMainCamera();
-            if ( !camera )
+            const ViewFrame* view = m_SceneRenderer->GetViewFrame();
+            if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
                 return; // the exec draws nothing either
             for ( const FrameEmitter& fe : m_FrameEmitters )
             {
@@ -437,7 +438,7 @@ namespace Desert::Graphic::System
                 GraphicsPipeline* pipeline = BillboardPipeline( fe );
                 if ( pipeline == nullptr )
                     continue; // the exec refuses the emitter by name before it opens a block
-                fe.Gpu->Material->Update( camera );
+                fe.Gpu->Material->Update( *view );
                 ShaderBindingLayoutCache& layout = fe.Additive ? m_AddLayout : m_AlphaLayout;
                 declared
                      .Bindings( layout.Get( pipeline->GetSpecification().Shader ),

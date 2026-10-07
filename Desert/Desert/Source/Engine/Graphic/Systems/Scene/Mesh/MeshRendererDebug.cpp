@@ -200,14 +200,16 @@ namespace Desert::Graphic::System
     void MeshRenderer::DeclareOverdrawDraws( RDG::PassBuilder& pass )
     {
         m_OverdrawDraws.Clear();
-        auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
-        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || camera == nullptr )
+        auto* const      camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        const ViewFrame* view   = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || camera == nullptr ||
+             view == nullptr )
             return;
 
         // 1) Accumulate into m_OverdrawFB (the graph opens it cleared to 0): every opaque mesh additively
         //    (static + generic; both use the static vertex layout). Skinned meshes are skipped — they'd need
         //    the skinned layout + bone SSBO.
-        m_OverdrawMaterial->UpdateCamera( camera );
+        m_OverdrawMaterial->UpdateCamera( *view );
 
         // CULLED LIKE THE PASS IT REPORTS ON. This view exists to answer "how many times was this
         // pixel shaded", and an uncalled re-rasterization would answer it about a frame the engine
@@ -281,8 +283,9 @@ namespace Desert::Graphic::System
              {
                  if ( !m_ShowBoundingBoxes )
                      return;
-                 auto* const camera = m_SceneRenderer->GetMainCamera();
-                 if ( camera == nullptr )
+                 auto* const      camera = m_SceneRenderer->GetMainCamera();
+                 const ViewFrame* view   = m_SceneRenderer->GetViewFrame();
+                 if ( camera == nullptr || view == nullptr )
                      return;
 
                  // 12 box edges as index pairs into the 8 AABB corners (index bits = x|y<<1|z<<2).
@@ -315,7 +318,7 @@ namespace Desert::Graphic::System
                  if ( lines.empty() )
                      return;
 
-                 m_DebugLineMaterial->Update( camera, lines );
+                 m_DebugLineMaterial->Update( *view, lines );
                  Renderer::GetInstance().SubmitLines(
                       m_DebugLinePipeline.get(), static_cast<uint32_t>( lines.size() ), m_BoundingBoxLineWidth,
                       m_DebugLineMaterial->GetMaterialExecutor() );
@@ -346,10 +349,11 @@ namespace Desert::Graphic::System
             // SETUP: every outlined mesh is chosen here, ONCE, into the node's draw list (the mask cameras and the
             // packed poses written before any command is recorded); one block per mask material.
             m_SilhouetteDraws.Clear();
-            auto* const camera = m_SceneRenderer->GetMainCamera();
-            if ( camera == nullptr )
+            auto* const      camera = m_SceneRenderer->GetMainCamera();
+            const ViewFrame* view   = m_SceneRenderer->GetViewFrame();
+            if ( camera == nullptr || view == nullptr )
                 return;
-            m_SilhouetteMaterial->UpdateCamera( camera );
+            m_SilhouetteMaterial->UpdateCamera( *view );
             const MaterialExecutor* mask         = m_SilhouetteMaterial->GetMaterialExecutor();
             const GraphicsPipeline* maskPipeline = m_SilhouettePipeline.get();
 
@@ -394,7 +398,7 @@ namespace Desert::Graphic::System
                 }
                 if ( !outlined.empty() )
                 {
-                    m_SilhouetteSkinnedMaterial->UpdateCamera( camera );
+                    m_SilhouetteSkinnedMaterial->UpdateCamera( *view );
                     m_SilhouetteSkinnedMaterial->UploadBones( outlineBones );
                     auto* const skinnedMask = m_SilhouetteSkinnedMaterial.get();
                     for ( const auto& [sd, boneOffset] : outlined )

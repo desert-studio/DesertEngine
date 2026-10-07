@@ -1,7 +1,7 @@
 #include "MaterialShadow.hpp"
 
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
-#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
+#include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -9,7 +9,6 @@
 #include <Common/Core/Logger.hpp>
 
 #include <cstddef>
-#include <span>
 
 namespace Desert::Graphic
 {
@@ -53,14 +52,8 @@ namespace Desert::Graphic
     {
         // A light camera is not a view: no jitter, no previous frame (MakeStillViewFrame); the camera block still
         // has its one writer. Its position is the light camera's eye.
-        const ShaderProtocols::Camera cameraUB = ShaderProtocols::MakeCameraUB(
-             MakeStillViewFrame( view, projection, glm::vec3( glm::inverse( view )[3] ), 0.0 ) );
-
-        if ( auto* camera = material.Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
-        {
-            const auto bytes = std::as_bytes( std::span{ &cameraUB, 1 } );
-            camera->SetRawData( bytes.data(), bytes.size() );
-        }
+        SceneCameraBind( &material,
+                         MakeStillViewFrame( view, projection, glm::vec3( glm::inverse( view )[3] ), 0.0 ) );
     }
 
     void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection )

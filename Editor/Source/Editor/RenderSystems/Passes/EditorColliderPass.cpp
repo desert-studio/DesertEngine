@@ -100,6 +100,10 @@ namespace Desert::Editor::Render
             const auto scene = m_Scene.lock();
             if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
                 return BOOLSUCCESS;
+            // The lines are drawn over the scene view: its frame's camera block (the pass runs inside OnUpdate).
+            const Graphic::ViewFrame* view = ctx.Renderer->GetViewFrame();
+            if ( view == nullptr )
+                return BOOLSUCCESS;
             if ( !ctx.Renderer->GetDebugView().ShowColliders )
                 return BOOLSUCCESS;
 
@@ -108,7 +112,7 @@ namespace Desert::Editor::Render
             if ( lines.empty() )
                 return BOOLSUCCESS;
 
-            m_Material->Update( ctx.Camera, lines );
+            m_Material->Update( *view, lines );
             Graphic::Renderer::GetInstance().SubmitLines( m_Pipeline.get(),
                                                           static_cast<uint32_t>( lines.size() ), 1.0f,
                                                           m_Material->GetMaterialExecutor() );
