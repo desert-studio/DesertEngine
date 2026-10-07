@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp> // MaterialSSRResolve (shared temporal resolve)
+#include <Engine/Graphic/View/PassHistory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
@@ -99,7 +100,7 @@ namespace Desert::Graphic::System
         // other event that does.
         void OnSceneReplaced() override
         {
-            m_HistoryValid = false;
+            m_History.Invalidate();
         }
 
         // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
@@ -108,7 +109,7 @@ namespace Desert::Graphic::System
         void OnTemporalHistoryReset() override
         {
             m_FrameIndex   = 0;
-            m_HistoryValid = false;
+            m_History.Invalidate();
         }
 
         // The frame graph declares the images below before any pass runs, so the accumulation targets follow
@@ -125,22 +126,23 @@ namespace Desert::Graphic::System
             {
                 m_AccumFB[0]->Resize( w, h );
                 m_AccumFB[1]->Resize( w, h );
-                m_HistoryValid = false;
+                m_History.Invalidate();
             }
             return true;
         }
 
         // Pass 1, inside the render pass the graph opens on the gather transient (cleared to 0): jittered VPL
-        // gather. Its textures are block 0, declared by DeclareGatherBindings.
+        // gather. Its textures are block 0, declared by DeclareGatherBindings. @p invJitteredViewProjection:
+        // ViewFrame::InvJitteredViewProjection (the pixel's world position from the G-buffer depth).
         [[nodiscard]] Common::BoolResultStr RecordGather( const RDG::PassContext& context,
                                                           const glm::mat4&        rsmViewProj,
-                                                          const glm::mat4&        cameraViewProj,
+                                                          const glm::mat4&        invJitteredViewProjection,
                                                           const glm::vec4& sunColorIntensity, float giIntensity,
                                                           int samples )
         {
             // @p samples: VPL gather taps per pixel (GlobalIllumination.Samples, Scalability), a uniform like
             // every other cost knob so one pipeline serves every level.
-            m_Material->BindInputs( rsmViewProj, cameraViewProj, sunColorIntensity, giIntensity,
+            m_Material->BindInputs( rsmViewProj, invJitteredViewProjection, sunColorIntensity, giIntensity,
                                     static_cast<float>( m_FrameIndex % 1024u ), samples );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
@@ -187,25 +189,39 @@ namespace Desert::Graphic::System
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
         }
 
+        // Whether the accumulation target this frame reprojects is the view's previous frame (PassHistory.hpp).
+        // Asked while the graph is built, before this frame's RecordTemporal stamps it.
+        [[nodiscard]] bool HistoryReadableIn( const ViewFrame& frame ) const
+        {
+            return m_History.ReadableIn( frame );
+        }
+
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): temporal
         // accumulation (shared SSRResolve denoiser) of the gather over the history (GetHistoryImage, imported).
         // Advances the ping-pong; the graph imported both accumulation images before this runs.
+        // @p prevViewProjection: ViewFrame::PrevViewProjection (unjittered); @p invJitteredViewProjection:
+        // ViewFrame::InvJitteredViewProjection (the pixel's world position from the G-buffer depth);
+        // @p historyReadable: HistoryReadableIn of the frame; @p viewFrameIndex: its FrameIndex, stamped on the
+        // history this draw writes.
         [[nodiscard]] Common::BoolResultStr RecordTemporal( const RDG::PassContext& context,
-                                                            const glm::mat4&        cameraViewProj )
+                                                            const glm::mat4&        prevViewProjection,
+                                                            const glm::mat4&        invJitteredViewProjection,
+                                                            const bool              historyReadable,
+                                                            const uint64_t          viewFrameIndex )
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
                 return Common::MakeError( "Deferred: GITemporal: the scene target framebuffer is gone" );
             const glm::vec2 texel( 1.0f / static_cast<float>( target->GetFramebufferWidth() ),
                                    1.0f / static_cast<float>( target->GetFramebufferHeight() ) );
-            m_ResolveMaterial->BindValues( m_PrevViewProj, cameraViewProj, texel, m_HistoryValid ? 0.92f : 0.0f );
+            m_ResolveMaterial->BindValues( prevViewProjection, invJitteredViewProjection, texel,
+                                           historyReadable ? 0.92f : 0.0f );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             const auto drawn = Renderer::GetInstance().DrawFullscreen( bindings, *m_ResolvePipeline,
                                                                        m_ResolveMaterial->GetMaterialExecutor() );
 
-            m_PrevViewProj = cameraViewProj;
-            m_HistoryValid = true;
-            m_AccumIndex   = 1u - m_AccumIndex;
+            m_History.Stamp( viewFrameIndex );
+            m_AccumIndex = 1u - m_AccumIndex;
             ++m_FrameIndex;
             return drawn;
         }
@@ -233,9 +249,8 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache    m_ResolveLayout;
         std::shared_ptr<Framebuffer>        m_AccumFB[2];
 
-        glm::mat4 m_PrevViewProj{ 1.0f };
-        bool      m_HistoryValid = false;
-        uint32_t  m_AccumIndex   = 0;
-        uint32_t  m_FrameIndex   = 0;
+        PassHistoryStamp m_History; // which view frame wrote GetHistoryImage()
+        uint32_t         m_AccumIndex = 0;
+        uint32_t         m_FrameIndex = 0;
     };
 } // namespace Desert::Graphic::System

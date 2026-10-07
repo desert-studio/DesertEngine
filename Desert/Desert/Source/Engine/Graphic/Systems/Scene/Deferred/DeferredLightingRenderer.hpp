@@ -112,14 +112,15 @@ namespace Desert::Graphic::System
         // = camera world position; debugMode selects a raw channel (0 = lit); giMode picks the indirect-light
         // source (0 = off, 1 = screen-space, 2 = RSM).
         void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
-                           const glm::mat4& viewProj, int debugMode, uint32_t pointCount, uint32_t spotCount,
-                           const DeferredShadowInput& shadow, float giIntensity, bool ssaoEnabled, int giMode,
-                           const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
+                           const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
+                           uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
+                           bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
+                           const DeferredEnvironmentInput& environment )
         {
             if ( !m_Material )
                 return;
             ReportEnvironmentGap( environment );
-            m_Material->BindInputs( lightDir, lightColor, cameraPos, viewProj, debugMode, pointCount, spotCount,
+            m_Material->BindInputs( lightDir, lightColor, cameraPos, invJitteredViewProjection, debugMode, pointCount, spotCount,
                                     shadow, giIntensity, ssaoEnabled, giMode, cloudShadow, environment );
         }
 

@@ -28,13 +28,14 @@ namespace Desert::Graphic
 
         // The SSAOUB values only: u_GBufferDepth / u_GBufferNormal are graph resources, bound by name through
         // RDG::PassBindings (SSAORenderer::Record).
-        void BindInputs( const glm::mat4& viewProj, const glm::vec4& cameraPos, float radius, float bias,
-                         float power, int sampleCount )
+        // @p viewProj / @p invJitteredViewProjection: ViewFrame::JitteredViewProjection (the matrix the G-buffer
+        // was rasterised with) and its inverse, ViewFrame::InvJitteredViewProjection - never recomputed here.
+        void BindInputs( const glm::mat4& viewProj, const glm::mat4& invJitteredViewProjection,
+                         const glm::vec4& cameraPos, float radius, float bias, float power, int sampleCount )
         {
             SSAOUBData data;
-            data.ViewProj  = viewProj;
-            // The G-buffer is rasterised with viewProj (jittered and unjittered are one matrix until TAA lands).
-            data.InvJitteredViewProjection = glm::inverse( viewProj );
+            data.ViewProj                  = viewProj;
+            data.InvJitteredViewProjection = invJitteredViewProjection;
             data.CameraPos = cameraPos;
             data.Params    = glm::vec4( radius, bias, power, static_cast<float>( sampleCount ) );
 

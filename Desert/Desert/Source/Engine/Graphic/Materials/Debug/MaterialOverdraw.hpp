@@ -2,7 +2,7 @@
 
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
-#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
+#include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 #include <Engine/Core/Camera.hpp>
 
 namespace Desert::Graphic
@@ -17,18 +17,10 @@ namespace Desert::Graphic
         {
         }
 
-        void UpdateCamera( const Core::Camera* camera )
+        // The camera block from the view the heat map is drawn for (MakeCameraUB).
+        void UpdateCamera( const ViewFrame& view )
         {
-            if ( !camera )
-                return;
-
-            ShaderProtocols::Camera cameraUB;
-            cameraUB.Projection = camera->GetProjectionMatrix();
-            cameraUB.View       = camera->GetViewMatrix();
-            cameraUB.CameraPos  = camera->GetPosition();
-
-            Get<UniformBufferProperty>( ShaderProtocols::Camera::Name )
-                 ->SetRawData( reinterpret_cast<const std::byte*>( &cameraUB ), sizeof( cameraUB ) );
+            SceneCameraBind( this, view );
         }
     };
 } // namespace Desert::Graphic

@@ -1,7 +1,6 @@
 #include "MaterialSkybox.hpp"
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -34,13 +33,8 @@ namespace Desert::Graphic
         if ( m_CubeMapTexture )
             m_CubeMapTexture->SetTexture( image );
 
-        static ShaderProtocols::Camera CameraUB;
-        CameraUB.View       = data.Camera->GetViewMatrix();
-        CameraUB.Projection = data.Camera->GetProjectionMatrix();
-        CameraUB.CameraPos  = data.Camera->GetPosition();
-
-        Get<UniformBufferProperty>( CameraUB.Name )
-             ->SetRawData( reinterpret_cast<std::byte*>( &CameraUB ), sizeof( ShaderProtocols::Camera ) );
+        if ( data.View != nullptr )
+            SceneCameraBind( this, *data.View );
 
         // THE SCENE'S LOOK, per draw — the same value, through the same struct, that the lit materials
         // receive (SceneEnvironmentBind), so the backdrop and the light it casts are one sky. It used to be

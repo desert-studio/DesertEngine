@@ -14,8 +14,8 @@ namespace Desert::Graphic
         using Core::Formats::SceneRead;
         const SceneRead groups = Groups( material->GetMaterialLayout() );
 
-        if ( Reads( groups, SceneRead::Camera ) )
-            SceneCameraBind( material, Camera );
+        if ( Reads( groups, SceneRead::Camera ) && View != nullptr )
+            SceneCameraBind( material, *View );
 
         // World time, for any shader declaring TimeUB — the shader graph's Time node. It belongs in the
         // snapshot for the same reason everything else here does: it is per-frame scene state, and it is

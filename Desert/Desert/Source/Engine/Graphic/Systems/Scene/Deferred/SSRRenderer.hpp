@@ -11,6 +11,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp>
+#include <Engine/Graphic/View/PassHistory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
@@ -111,7 +112,7 @@ namespace Desert::Graphic::System
         // next door, at a blend weight of 0.88.
         void OnSceneReplaced() override
         {
-            m_HistoryValid = false;
+            m_History.Invalidate();
         }
 
         // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
@@ -120,7 +121,7 @@ namespace Desert::Graphic::System
         void OnTemporalHistoryReset() override
         {
             m_FrameIndex   = 0;
-            m_HistoryValid = false;
+            m_History.Invalidate();
         }
 
         // The two images the trace writes and the tiled passes read, both transients of this frame's graph
@@ -148,7 +149,7 @@ namespace Desert::Graphic::System
             {
                 m_AccumFB[0]->Resize( w, h );
                 m_AccumFB[1]->Resize( w, h );
-                m_HistoryValid = false;
+                m_History.Invalidate();
             }
             return TraceTargets{
                  .Trace    = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
@@ -174,20 +175,21 @@ namespace Desert::Graphic::System
             glm::vec4 Params;    // x = maxSteps, y = maxDistance, z = intensity, w = thickness
         };
 
-        // The trace's uniform block (SSR.shader SSRTraceUB, std140: one mat4). The inverse is computed HERE, on
-        // the CPU, once per frame from the view's matrix - never per workgroup in the shader. The field keeps the
-        // name every reconstructing reader uses (SSRResolveUB, DeferredUB) so the camera block can take it over.
+        // The trace's uniform block (SSR.shader SSRTraceUB, std140: one mat4): ViewFrame::InvJitteredViewProjection,
+        // inverted once per view frame on the CPU - never per workgroup in the shader. The field keeps the name
+        // every reconstructing reader uses (SSRResolveUB, DeferredUB) so the camera block can take it over.
         struct TraceUniforms
         {
             glm::mat4 InvJitteredViewProjection;
         };
 
         // GRAPH BUILD (before "Deferred: SSR"): this frame's TraceUniforms as a graph buffer, uploaded by the
-        // graph's upload pass (Builder::QueueBufferUpload) so the trace is ordered after it. @p viewProj = the
-        // matrix this frame's G-buffer depth was rasterised with.
-        static RDG::BufferRef UploadTraceUniforms( RDG::Builder& graph, const glm::mat4& viewProj )
+        // graph's upload pass (Builder::QueueBufferUpload) so the trace is ordered after it.
+        // @p invJitteredViewProjection = ViewFrame::InvJitteredViewProjection.
+        static RDG::BufferRef UploadTraceUniforms( RDG::Builder& graph,
+                                                   const glm::mat4& invJitteredViewProjection )
         {
-            const TraceUniforms  uniforms{ glm::inverse( viewProj ) };
+            const TraceUniforms  uniforms{ invJitteredViewProjection };
             const RDG::BufferRef buffer =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( TraceUniforms ) }, "SSR.TraceUB" );
             graph.QueueBufferUpload( buffer, std::as_bytes( std::span<const TraceUniforms>( &uniforms, 1 ) ) );
@@ -266,13 +268,25 @@ namespace Desert::Graphic::System
                            RDG::SamplerDesc::PointClamp() );
         }
 
-        // EXEC: draws the block DeclareResolveBindings declared. @p viewProj = this frame's matrix the G-buffer
-        // depth was rasterised with (its inverse rebuilds the world positions the reprojection needs).
+        // Whether the accumulation target this frame reprojects is the view's previous frame (PassHistory.hpp).
+        // Asked while the graph is built, before this frame's composite stamps it.
+        [[nodiscard]] bool HistoryReadableIn( const ViewFrame& frame ) const
+        {
+            return m_History.ReadableIn( frame );
+        }
+
+        // EXEC: draws the block DeclareResolveBindings declared. @p prevViewProjection is the view's
+        // (ViewFrame::PrevViewProjection, unjittered); @p invJitteredViewProjection is ViewFrame::
+        // InvJitteredViewProjection (rebuilds the world positions the reprojection needs from the G-buffer depth);
+        // @p historyReadable is HistoryReadableIn of this frame.
         [[nodiscard]] Common::BoolResultStr RecordResolve( const RDG::PassContext& context,
-                                                           const glm::mat4&        viewProj )
+                                                           const glm::mat4&        prevViewProjection,
+                                                           const glm::mat4&        invJitteredViewProjection,
+                                                           const bool              historyReadable )
         {
             DESERT_PROFILE_PASS( "SSR: Resolve" );
-            m_ResolveMaterial->BindValues( m_PrevViewProj, viewProj, Texel(), m_HistoryValid ? 0.88f : 0.0f );
+            m_ResolveMaterial->BindValues( prevViewProjection, invJitteredViewProjection, Texel(),
+                                           historyReadable ? 0.88f : 0.0f );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawProcedural(
                  bindings, *m_ResolvePipeline, m_ResolveMaterial->GetMaterialExecutor(), TileVertices(), 1u );
@@ -301,9 +315,9 @@ namespace Desert::Graphic::System
         }
 
         // EXEC: draws the block DeclareCompositeBindings declared. Advances the ping-pong only when the draw was
-        // recorded.
+        // recorded, and stamps the history with @p viewFrameIndex (the ViewFrame this graph was built for).
         [[nodiscard]] Common::BoolResultStr RecordComposite( const RDG::PassContext& context,
-                                                             const glm::mat4&        viewProj )
+                                                             const uint64_t          viewFrameIndex )
         {
             DESERT_PROFILE_PASS( "SSR: Composite" );
             m_CompositeMaterial->BindValues( Texel() );
@@ -313,9 +327,8 @@ namespace Desert::Graphic::System
             if ( !drawn.IsSuccess() )
                 return drawn;
 
-            m_PrevViewProj = viewProj;
-            m_HistoryValid = true;
-            m_AccumIndex   = 1u - m_AccumIndex;
+            m_History.Stamp( viewFrameIndex );
+            m_AccumIndex = 1u - m_AccumIndex;
             ++m_FrameIndex;
             return drawn;
         }
@@ -383,9 +396,8 @@ namespace Desert::Graphic::System
         std::unique_ptr<MaterialSSRComposite> m_CompositeMaterial;
         std::shared_ptr<Framebuffer>          m_AccumFB[2];
 
-        glm::mat4 m_PrevViewProj{ 1.0f };
-        bool      m_HistoryValid = false;
-        uint32_t  m_AccumIndex   = 0;
-        uint32_t  m_FrameIndex   = 0;
+        PassHistoryStamp m_History; // which view frame wrote GetHistoryImage()
+        uint32_t         m_AccumIndex = 0;
+        uint32_t         m_FrameIndex = 0;
     };
 } // namespace Desert::Graphic::System

@@ -50,6 +50,18 @@ namespace Desert::Graphic
 // textures and every Prev* matrix belong to — the three stay consistent with each other.
 namespace Desert::Graphic
 {
+    // PURE. ViewInputs::CameraIdentity of the camera source @p sourceId (Core::Camera::GetSourceId: an entity
+    // id, or the id issued to an outside-driven camera object, bit 32 set — Core/CameraSourceId.hpp) in the world
+    // of @p sceneGeneration (Core::Scene::GetGeneration): the generation's low 31 bits above the 33-bit source id.
+    // A reload — same Scene object, same entity ids, new generation — is a different camera, and so is switching
+    // between two editor cameras: SceneViewState resets with CameraCut. An object address never enters it.
+    // Generations repeat only after 2^31 scene loads.
+    [[nodiscard]] constexpr uint64_t MakeViewCameraIdentity( const uint64_t sceneGeneration,
+                                                             const uint64_t sourceId )
+    {
+        return ( ( sceneGeneration & 0x7FFFFFFFull ) << 33u ) | ( sourceId & 0x1FFFFFFFFull );
+    }
+
     // What a view is asked to draw this frame. Filled by the SceneRenderer from its camera and the resolved
     // quality.
     struct ViewInputs

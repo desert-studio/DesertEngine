@@ -9,12 +9,14 @@
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 
 namespace Desert::Graphic
 {
     struct UpdateMaterialSkyboxInfo
     {
-        Core::Camera* Camera;
+        // The view this sky is drawn for (SceneRenderer::GetViewFrame); its camera block is MakeCameraUB of it.
+        const ViewFrame* View = nullptr;
         // The look of the SCENE drawing this sky. It travels per draw rather than living on the material
         // because the material is one per `.hdr` and shared by every view that names it — two scenes at
         // two rotations used to rebake it alternately; now each simply binds its own value.

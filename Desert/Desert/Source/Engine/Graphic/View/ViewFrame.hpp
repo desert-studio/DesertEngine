@@ -199,4 +199,11 @@ namespace Desert::Graphic
             return HistoryReset == HistoryResetReason::None;
         }
     };
+
+    // PURE. The frame of a camera that is NOT a SceneViewState view — a shadow cascade's light camera, an editor
+    // preview drawing one overlay with no temporal history: no jitter (the jittered matrices are the unjittered
+    // ones), no previous frame (every Prev* equals the current value, HistoryReset FirstFrame), MaterialMipBias 0.
+    // It exists so the camera block has ONE writer (ShaderProtocols::MakeCameraUB) whatever drives the camera.
+    [[nodiscard]] ViewFrame MakeStillViewFrame( const glm::mat4& view, const glm::mat4& projection,
+                                                const glm::vec3& cameraPosition, double timeSeconds );
 } // namespace Desert::Graphic

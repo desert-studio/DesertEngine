@@ -51,9 +51,10 @@ namespace Desert::Graphic::System
 
         // Records AO into the colour target the graph node opened (the SSAO transient). @p depth = the G-buffer
         // depth (world position reconstructed from it), @p normal = GBufferB, bound by shader name through
-        // RDG::PassBindings. viewProj = world->clip; cameraPos.xyz = camera. radius and bias are WORLD distances
-        // (the shader offsets samples in world space), and a world unit is a centimetre - callers passing
-        // literature values must convert through Common::Units.
+        // RDG::PassBindings. viewProj = world->clip the G-buffer was rasterised with (ViewFrame::
+        // JitteredViewProjection), invJitteredViewProjection = its inverse (ViewFrame); cameraPos.xyz = camera.
+        // radius and bias are WORLD distances (the shader offsets samples in world space), and a world unit is a
+        // centimetre - callers passing literature values must convert through Common::Units.
         //
         // SETUP: DeclareBindings declares the node's one block (block 0): u_GBufferDepth through a nearest sampler
         // (a DEPTH32F image is not guaranteed linear-filterable, MoltenVK included), u_GBufferNormal with the
@@ -72,13 +73,14 @@ namespace Desert::Graphic::System
         }
 
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, const glm::mat4& viewProj,
+                                                    const glm::mat4& invJitteredViewProjection,
                                                     const glm::vec4& cameraPos, float radius, float bias,
                                                     float power, int sampleCount )
         {
             if ( !m_Pipeline || !m_Material )
                 return Common::MakeError( "Deferred: SSAO: the SSAO pipeline is not initialised" );
 
-            m_Material->BindInputs( viewProj, cameraPos, radius, bias, power, sampleCount );
+            m_Material->BindInputs( viewProj, invJitteredViewProjection, cameraPos, radius, bias, power, sampleCount );
 
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,

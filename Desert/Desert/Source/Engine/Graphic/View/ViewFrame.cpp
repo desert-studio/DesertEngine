@@ -197,4 +197,32 @@ namespace Desert::Graphic
     {
         return glm::translate( glm::mat4( 1.0f ), glm::vec3( ndc.x, ndc.y, 0.0f ) ) * projection;
     }
+
+    ViewFrame MakeStillViewFrame( const glm::mat4& view, const glm::mat4& projection,
+                                  const glm::vec3& cameraPosition, const double timeSeconds )
+    {
+        ViewFrame f;
+        f.View                      = view;
+        f.InvView                   = glm::inverse( view );
+        f.Projection                = projection;
+        f.InvProjection             = glm::inverse( projection );
+        f.JitteredProjection        = projection;
+        f.ViewProjection            = projection * view;
+        f.InvViewProjection         = glm::inverse( f.ViewProjection );
+        f.JitteredViewProjection    = f.ViewProjection;
+        f.InvJitteredViewProjection = f.InvViewProjection;
+        f.CameraPosition            = cameraPosition;
+
+        f.PrevView                   = f.View;
+        f.PrevProjection             = f.Projection;
+        f.PrevViewProjection         = f.ViewProjection;
+        f.PrevInvViewProjection      = f.InvViewProjection;
+        f.PrevJitteredViewProjection = f.JitteredViewProjection;
+        f.PrevCameraPosition         = f.CameraPosition;
+
+        f.TimeSeconds     = timeSeconds;
+        f.PrevTimeSeconds = timeSeconds;
+        f.HistoryReset    = HistoryResetReason::FirstFrame;
+        return f;
+    }
 } // namespace Desert::Graphic

@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <vector>
 #include <glm/glm.hpp>
@@ -18,7 +19,8 @@ namespace Desert::Graphic
     public:
         MaterialSilhouette();
 
-        void UpdateCamera( const Core::Camera* camera );
+        // The camera block from the view the mask is drawn for (MakeCameraUB).
+        void UpdateCamera( const ViewFrame& view );
     };
 
     // Skinned silhouette mask: feeds the camera UB AND the bone matrices (the same pose the mesh is rendered
@@ -28,7 +30,7 @@ namespace Desert::Graphic
     public:
         MaterialSilhouetteSkinned();
 
-        void UpdateCamera( const Core::Camera* camera );
+        void UpdateCamera( const ViewFrame& view );
 
         // Every selected skinned mesh's pose, packed end to end, uploaded ONCE; each draw then names its
         // slice with SetBoneOffset. It used to be one upload per mesh into a buffer the already-recorded

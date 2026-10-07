@@ -76,9 +76,9 @@ namespace Desert::Graphic
         // the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world pos (view vector);
         // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spotCount = the uploaded lights' counts.
         void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
-                         const glm::mat4& viewProj, int debugMode, uint32_t pointCount, uint32_t spotCount,
-                         const DeferredShadowInput& shadow, float giIntensity, bool ssaoEnabled, int giMode,
-                         const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
+                         const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
+                         uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity, bool ssaoEnabled,
+                         int giMode, const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
         {
             // The baked sky's cubes and the BRDF LUT are pass parameters (SceneViewInputs, bound by the Composite
             // node: System.BlackCube / System.Black when absent, UE GBlackTextureCube) - a graph ref of THIS
@@ -90,8 +90,9 @@ namespace Desert::Graphic
             SetLightDir( lightDir );
             SetLightColor( lightColor );
             SetCameraPos( cameraPos );
-            // World position is rebuilt from the G-buffer depth (Common/ReconstructPosition.glslh).
-            SetInvJitteredViewProjection( glm::inverse( viewProj ) );
+            // World position is rebuilt from the G-buffer depth (Common/ReconstructPosition.glslh) with
+            // ViewFrame::InvJitteredViewProjection, the view's one copy of that inverse.
+            SetInvJitteredViewProjection( invJitteredViewProjection );
             // u_Params: x = debug mode, y = GI intensity (0 = off), z = SSAO enabled (else shader uses AO=1),
             // w = GI mode (0 = off, 1 = screen-space gather, 2 = RSM buffer). Mode picks WHERE the indirect
             // light comes from; intensity scales it (the RSM path pre-applies it in GIResolve).

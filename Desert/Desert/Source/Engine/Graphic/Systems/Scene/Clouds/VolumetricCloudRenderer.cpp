@@ -1671,7 +1671,7 @@ namespace Desert::Graphic::System
         // Every image is fresh, so whatever the resolve read last frame is gone. Saying so here rather
         // than at the call site is what keeps the flag true to the memory it describes: a resize is the
         // one event that invalidates the history without the camera moving at all.
-        m_HistoryValid = false;
+        m_History.Invalidate();
 
         // The cost is announced once, on the allocation, not discovered in a memory graph later. All four
         // are named and counted, because targets of the same size are exactly what a reader of a memory
@@ -1783,7 +1783,8 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder& graph )
+    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder&    graph,
+                                                                                    const ViewFrame& frame )
     {
         std::vector<ComputeNodeDeclaration> nodes;
         m_HasFrameResult = false;
@@ -1856,7 +1857,6 @@ namespace Desert::Graphic::System
             return nodes;
         }
 
-        const glm::mat4     viewProjection = camera->GetProjectionMatrix() * camera->GetViewMatrix();
         const CloudSubPixel subPixel       = CloudTraceSubPixel( m_FrameIndex );
 
         // ---- THE SKY-LIGHT OCCLUSION VOLUME ----------------------------------------------------------
@@ -1911,8 +1911,10 @@ namespace Desert::Graphic::System
         m_SkyOcclusionValid = skyOcclusionReady;
 
         CloudPush push{};
-        push.InverseViewProjection = glm::inverse( viewProjection );
-        push.CameraPosition = glm::vec4( camera->GetPosition(), static_cast<float>( m_FrameIndex & 0xFFFFu ) );
+        // The jittered inverse: the march's depth test reads the scene depth rasterised with the jittered matrix,
+        // and its ray directions jitter with the geometry they are resolved together with (ViewFrame.hpp).
+        push.InverseViewProjection = frame.InvJitteredViewProjection;
+        push.CameraPosition = glm::vec4( frame.CameraPosition, static_cast<float>( m_FrameIndex & 0xFFFFu ) );
         push.Trace          = glm::vec4( static_cast<float>( subPixel.X ), static_cast<float>( subPixel.Y ),
                                          static_cast<float>( m_HalfWidth ), static_cast<float>( m_HalfHeight ) );
         // THE GATES ARE "WAS IT WRITTEN", not "was it asked for". A layer whose flag is on but whose volume
@@ -2024,15 +2026,17 @@ namespace Desert::Graphic::System
 
         // S2 — THE TEMPORAL RECONSTRUCTION. The slot written alternates with the frame index, so the one
         // written last frame is still intact to be read. Both are real allocations from the first frame
-        // onwards; what changes is whether their CONTENT means anything, and that is m_HistoryValid.
+        // onwards; what changes is whether their CONTENT means anything, and that is m_History, decided here at
+        // build time.
+        bool           historyReadable = m_History.ReadableIn( frame );
         const uint32_t writeIndex = m_FrameIndex & 1u;
         const uint32_t readIndex  = 1u - writeIndex;
 
         CloudResolveParams resolve{};
         resolve.InverseViewProjection = push.InverseViewProjection;
-        resolve.PrevViewProjection    = m_PrevViewProjection;
-        resolve.CameraPosition        = camera->GetPosition();
-        resolve.HistoryValid          = m_HistoryValid ? 1.0f : 0.0f;
+        resolve.PrevViewProjection    = frame.PrevViewProjection;
+        resolve.CameraPosition        = frame.CameraPosition;
+        resolve.HistoryValid          = historyReadable ? 1.0f : 0.0f;
         resolve.SubPixelOffset =
              glm::ivec2( static_cast<int32_t>( subPixel.X ), static_cast<int32_t>( subPixel.Y ) );
         // BUILD TIME, like the trace's upload: the resolve node exists only when it lands.
@@ -2046,7 +2050,8 @@ namespace Desert::Graphic::System
             // PrevViewProjection that never described it. That is a smear locked to the camera path —
             // the hardest artefact in this subsystem to attribute to its cause. One un-reconstructed
             // frame is visible for one frame; a poisoned history is visible until the camera stops.
-            m_HistoryValid = false;
+            historyReadable = false;
+            m_History.Invalidate();
             LOG_ERROR( "[Clouds] the temporal reconstruction is skipped and the history dropped; its "
                        "parameters were not uploaded: {}",
                        resolveParams.GetError() );
@@ -2071,13 +2076,13 @@ namespace Desert::Graphic::System
         const std::shared_ptr<Image> fallback =
              FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
         const std::shared_ptr<Image> historyScatter =
-             m_HistoryValid ? std::shared_ptr<Image>( m_HistoryImage[readIndex] ) : fallback;
+             historyReadable ? std::shared_ptr<Image>( m_HistoryImage[readIndex] ) : fallback;
         const std::shared_ptr<Image> historyGuide =
-             m_HistoryValid ? std::shared_ptr<Image>( m_HistoryGuideImage[readIndex] ) : fallback;
+             historyReadable ? std::shared_ptr<Image>( m_HistoryGuideImage[readIndex] ) : fallback;
         const std::string historyName =
-             m_HistoryValid ? std::format( "Clouds.History{}", readIndex ) : "Clouds.HistoryFallback";
+             historyReadable ? std::format( "Clouds.History{}", readIndex ) : "Clouds.HistoryFallback";
         const std::string historyGuideName =
-             m_HistoryValid ? std::format( "Clouds.HistoryGuide{}", readIndex ) : "Clouds.HistoryFallback";
+             historyReadable ? std::format( "Clouds.HistoryGuide{}", readIndex ) : "Clouds.HistoryFallback";
         // This frame's trace pair, by shader name. Linear + clamp: the reconstruction texelFetches the texel it
         // owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
         DeclareComputeBlock( temporal.Access, m_ResolvePipeline.get(), m_ResolveLayout, 0 )
@@ -2105,7 +2110,7 @@ namespace Desert::Graphic::System
 
         // BUILD TIME, deliberately: the write/read slots name the images these nodes declare, so they are fixed
         // here. The advance itself waits for SettleFrameNodes, i.e. for the graph to accept the nodes.
-        m_PendingResolve = PendingResolve{ writeIndex, viewProjection };
+        m_PendingResolve = PendingResolve{ writeIndex, frame.FrameIndex };
         return nodes;
     }
 
@@ -2117,17 +2122,15 @@ namespace Desert::Graphic::System
             // Nothing of this frame is recorded: no occlusion volume, no resolve, and the history slot the next
             // frame would read was not written by the frame its matrix would describe.
             m_SkyOcclusionValid = false;
-            m_HistoryValid      = false;
+            m_History.Invalidate();
             m_HasFrameResult    = false;
             return;
         }
         if ( !pending )
             return;
-        // Applied after the resolve's parameters were uploaded with the previous value, so the matrix always
-        // describes the frame whose pixels are now in the history rather than the frame being drawn.
-        m_PrevViewProjection = pending->ViewProjection;
-        m_ResolvedIndex      = pending->WriteIndex;
-        m_HistoryValid       = true;
+        // The history now holds the pixels of the view frame the resolve was built for.
+        m_History.Stamp( pending->ViewFrameIndex );
+        m_ResolvedIndex = pending->WriteIndex;
         ++m_FrameIndex;
         m_HasFrameResult = true;
     }

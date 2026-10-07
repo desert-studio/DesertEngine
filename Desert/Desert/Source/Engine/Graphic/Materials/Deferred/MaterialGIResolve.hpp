@@ -30,14 +30,15 @@ namespace Desert::Graphic
 
         // The GIResolveUB values only: u_GBufferB/Depth and u_RSMAlbedo/Normal/Depth are graph resources, bound
         // by name through RDG::PassBindings (GIResolveRenderer::RecordGather).
-        void BindInputs( const glm::mat4& rsmViewProj, const glm::mat4& cameraViewProj,
+        // @p invJitteredViewProjection: ViewFrame::InvJitteredViewProjection (the G-buffer's rasterisation matrix
+        // inverted once per view frame).
+        void BindInputs( const glm::mat4& rsmViewProj, const glm::mat4& invJitteredViewProjection,
                          const glm::vec4& sunColorIntensity, float giIntensity, float jitterSeed, int samples )
         {
             GIResolveUBData data;
             data.RSMViewProj    = rsmViewProj;
             data.InvRSMViewProj = glm::inverse( rsmViewProj );
-            // The G-buffer is rasterised with cameraViewProj (jittered == unjittered until TAA lands).
-            data.InvJitteredViewProjection = glm::inverse( cameraViewProj );
+            data.InvJitteredViewProjection = invJitteredViewProjection;
             data.SunColor    = sunColorIntensity;
             const bool valid = giIntensity > 0.0f;
             data.Params = glm::vec4( giIntensity, valid ? 1.0f : 0.0f, static_cast<float>( samples ), jitterSeed );

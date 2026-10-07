@@ -394,10 +394,10 @@ namespace Desert::Graphic::System
 #endif
     }
 
-    PBRSceneFrame MeshRenderer::CaptureFrameState( const Core::Camera* camera ) const
+    PBRSceneFrame MeshRenderer::CaptureFrameState( const ViewFrame* view ) const
     {
         PBRSceneFrame frame;
-        frame.Camera      = camera;
+        frame.View        = view;
         frame.TimeSeconds = m_WorldTimeSeconds;
 
         frame.PointLights     = &m_SceneRenderer->GetPointLights();
