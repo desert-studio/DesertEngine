@@ -29,6 +29,7 @@ namespace Desert::Scripting
         RegisterUIBindings( *m_Impl );
         RegisterLocalizationBindings( *m_Impl );
         RegisterProjectBindings( *m_Impl );
+        RegisterLevelBindings( *m_Impl );
     }
 
     ScriptEngine::~ScriptEngine() = default;

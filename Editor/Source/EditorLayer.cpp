@@ -5,6 +5,7 @@
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
+#include <Engine/Core/LevelTravel.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
 #include <Editor/Core/ContentCreateCommands.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
@@ -662,6 +663,23 @@ namespace Desert::Editor
         Core::ControlNudgeRequests::Tick();
 
         m_Control.ServiceChannel();
+
+        // THE EDITOR'S FRAME BOUNDARY FOR Core::OpenLevel. Play-in-editor does not travel between levels: the
+        // level open here is the one being AUTHORED, and replacing it from a script would discard the edits
+        // under the user. A travel a script or a button queued during Play is therefore refused here, loudly
+        // and with its target, rather than left queued for a world that never applies it.
+        if ( const auto travelled = ::Desert::Core::LevelTravel::Get().TickTravel(
+                  []( const std::string& path )
+                  {
+                      return Common::MakeFormattedError<bool>(
+                           "OpenLevel('{}') is not applied in Play-in-editor -- run the game (Runtime) to travel",
+                           path );
+                  } );
+             !travelled )
+        {
+            LOG_ERROR( "[Editor] {}", travelled.GetError() );
+            Editor::ToastManager::Push( travelled.GetError(), Editor::ToastLevel::Warning, 5.0f );
+        }
 
         // A New Landscape run that finished on the JobSystem is applied here, on the main thread and ahead of
         // this frame's scene update, as one undo step. A cancel is the user's own act, so it is told, not flagged.
