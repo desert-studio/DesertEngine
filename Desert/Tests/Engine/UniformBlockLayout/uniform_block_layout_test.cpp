@@ -126,9 +126,8 @@ TEST( UniformBlockLayout, DeferredUBHasExactlyTheDeferredLightingMaterialsProper
     const std::string header = Std140::StripComments(
          Std140::ReadText( Desert::TestSupport::RepositoryRoot() / "Desert" / "Desert" / "Source" / "Engine" /
                            "Graphic" / "Materials" / "Deferred" / "MaterialDeferredLighting.hpp" ) );
-    const std::regex property( R"(MPROPERTY\(\s*(?:glm::)?(\w+)\s*,\s*\w+\s*,\s*"(\w+)" ) " );
-         std::set<std::pair<std::string, std::string>>
-              cpp;
+    const std::regex property( R"re(MPROPERTY\(\s*(?:glm::)?(\w+)\s*,\s*\w+\s*,\s*"(\w+)")re" );
+    std::set<std::pair<std::string, std::string>> cpp;
     for ( auto it = std::sregex_iterator( header.begin(), header.end(), property ); it != std::sregex_iterator();
           ++it )
         cpp.insert( { ( *it )[2], ( *it )[1] } ); // glm::vec4 / glm::mat4 spell the GLSL type
