@@ -51,6 +51,19 @@ namespace Desert::Assets
         /// more than a twentieth of the sky.
         constexpr float kDensityCompensation = 0.40f;
 
+        /// A cluster's footprint radius in cell means, before the size draw and the density compensation.
+        ///
+        /// THE BAKE HAS TO COVER THE WHOLE SKY, because since FARWX-a it holds EVERY cell and the slider is
+        /// the march's cut through the rank's column CDF — and a CDF can only hand out the columns that have
+        /// cloud in them. At the 0.72 that sized a cluster for "an alive cell is mostly full" the bake of all
+        /// cells covered 0.69 of the columns, so a Coverage of 0.75 delivered 0.69 and every setting under
+        /// it lost the part of the weather's spread that rose above that ceiling. 1.6 raises the clusters'
+        /// summed area per cell about 4.9-fold, from a Boolean-model cover of 1 - e^-1.17 = 0.69 to
+        /// 1 - e^-5.7 > 0.99, so Coverage 1 is cloud over the whole sky and every lower setting is exactly
+        /// its own fraction of it. Pinned by CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne
+        /// (Desert/Tests/Engine/CloudProceduralField), which reads the bake's column cover at Coverage 1.
+        constexpr float kClusterFootprintCells = 1.6f;
+
         /// How many lumps one cluster is built from. A COUNT AND NOT A CEILING ANY MORE, and the change is
         /// the visible half of §SIL.
         ///
@@ -1161,7 +1174,8 @@ namespace Desert::Assets
         // compensation that pushed a body under it would trade a lying slider for speckle.
         const float cellMeanKm    = std::sqrt( extent.x * extent.y );
         const float footprintGain = CloudClusterFootprintGain( shape );
-        const float baseRadiusKm = std::max( 0.72f * cellMeanKm / footprintGain, 0.5f * params.ResolvableChordKm );
+        const float baseRadiusKm =
+             std::max( kClusterFootprintCells * cellMeanKm / footprintGain, 0.5f * params.ResolvableChordKm );
 
         // AND THE STRETCH THE CELL NO LONGER SPENDS ON ITS AREA IS SPENT ON THE CLUSTER'S SHAPE. A cluster
         // is drawn out along the wind by the same factor its cell is, so a cluster covers the same fraction

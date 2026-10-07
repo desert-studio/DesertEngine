@@ -266,6 +266,44 @@ namespace
         double LagKm = 0.0;
     };
 
+    /// THE SKY THE MARCH DRAWS, seen from below: per column, the profile summed over the voxels whose rank
+    /// CloudProceduralKeep keeps at the local cover. Read from the bake and not from the lumps, because the
+    /// bake holds every cell since FARWX-a and the cut is the march's — a raster of lumps would measure the
+    /// clusters at a size the sky never shows them, overlapping until the lattice drowns.
+    std::vector<float> KeptThickness( const CloudProceduralFieldParams& params, const glm::vec2& originKm )
+    {
+        std::vector<float> map( static_cast<size_t>( kMapSide ) * kMapSide, 0.0f );
+
+        const auto baked = BakeCloudProceduralVolumeRanked( params, originKm, {} );
+        EXPECT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
+        EXPECT_EQ( params.VolumeSideVoxels, static_cast<uint32_t>( kMapSide ) )
+             << "the bake's grid is not the map's, so the lattice period below is in the wrong units";
+        if ( !baked || params.VolumeSideVoxels != static_cast<uint32_t>( kMapSide ) )
+            return map;
+
+        const CloudProceduralVolumeBake& bake  = baked.GetValue();
+        const float                      voxel = params.RegionSizeKm / static_cast<float>( kMapSide );
+        for ( int z = 0; z < kMapSide; ++z )
+            for ( int x = 0; x < kMapSide; ++x )
+            {
+                const glm::vec2 world = originKm + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
+                                                              ( static_cast<float>( z ) + 0.5f ) * voxel );
+                const float     cover = CloudProceduralLocalCover( params, world );
+
+                float thickness = 0.0f;
+                for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+                {
+                    const size_t at =
+                         ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * kMapSide +
+                         static_cast<size_t>( x );
+                    if ( CloudProceduralKeep( bake.Ranks[at], cover ) )
+                        thickness += static_cast<float>( bake.Voxels[at * kCloudProceduralBytesPerVoxel] ) / 255.0f;
+                }
+                map[static_cast<size_t>( z ) * kMapSide + x] = thickness;
+            }
+        return map;
+    }
+
     LatticeVerdict MeasurePlacement( const CloudProceduralFieldParams& params, int regions )
     {
         const float perVoxelKm = params.RegionSizeKm / static_cast<float>( kMapSide );
@@ -286,8 +324,7 @@ namespace
             const float     cameraKm = static_cast<float>( region ) * params.RegionSizeKm * 4.0f;
             const glm::vec2 origin   = CloudProceduralRegionOriginKm( params, cameraKm, cameraKm );
 
-            const std::vector<float> map = RasteriseColumns( GenerateCloudProceduralBlobs( params, 0u, origin ),
-                                                             origin, params.RegionSizeKm );
+            const std::vector<float> map = KeptThickness( params, origin );
 
             curvesX.push_back( LatticePeak::CircularAutocorrelation( map, kMapSide, kMapSide, true, maxLag ) );
             curvesZ.push_back( LatticePeak::CircularAutocorrelation( map, kMapSide, kMapSide, false, maxLag ) );

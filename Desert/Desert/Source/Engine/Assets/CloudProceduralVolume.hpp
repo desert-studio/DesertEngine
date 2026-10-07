@@ -870,8 +870,6 @@ namespace Desert::Assets
     float EvaluateCloudProceduralProfile( const CloudProceduralFieldParams&      params,
                                           const std::vector<CloudModellingBlob>& blobs, const glm::vec3& pointKm );
 
-    /// How many lumps the whole region holds, summed over the species — the quantity the bake's cost is
-    /// linear in, exposed so the renderer can log it beside the milliseconds rather than guessing.
     /// Which cells GenerateCloudProceduralLumps emits: every cell (what the bake needs — the cut is the
     /// march's) or only those whose rank is under the local cover at the cell's site (the view a
     /// rasterised placement measurement and the panels use).
@@ -892,6 +890,8 @@ namespace Desert::Assets
                                                                    uint32_t slot, const glm::vec2& regionOriginKm,
                                                                    CloudProceduralLumpSet set );
 
+    /// How many lumps the whole region holds, summed over the species — the quantity the bake's cost is
+    /// linear in, exposed so the renderer can log it beside the milliseconds rather than guessing.
     size_t CountCloudProceduralBlobs( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm );
 
     /**
