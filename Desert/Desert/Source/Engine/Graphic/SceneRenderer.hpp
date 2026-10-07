@@ -16,6 +16,7 @@
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Core/ViewBudget.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
@@ -377,6 +378,30 @@ namespace Desert::Graphic
         {
             return m_TargetFramebuffer;
         }
+
+        // THE ONE SOURCE of the attachment formats every pipeline drawing into the view's targets is built
+        // against (RDG-correct, UE-style: the graph owns the images, a pipeline knows only formats). The scene
+        // target: scene colour, the view's velocity (a graph transient, ViewRasterTargets.hpp), scene depth. The
+        // G-buffer: A, B, C, Emissive, velocity, depth. Samples 1: a pipeline binds its variant for the open
+        // pass's count (VulkanPipeline::GetVkPipelineFor).
+        // MERGE NOTE (GBUF1): slot 2 is kGBufferShadingWord on task/GBUF1 — take GBUF1's name there.
+        static RenderTargetLayout SceneTargetLayout()
+        {
+            return RenderTargetLayout{ { ViewTargetFormats::kSceneColor, ViewTargetFormats::kVelocity },
+                                       ViewTargetFormats::kSceneDepth,
+                                       1 };
+        }
+        static RenderTargetLayout GBufferLayout()
+        {
+            return RenderTargetLayout{ { ViewTargetFormats::kGBufferA, ViewTargetFormats::kGBufferB,
+                                         ViewTargetFormats::kGBufferC, ViewTargetFormats::kGBufferEmissive,
+                                         ViewTargetFormats::kVelocity },
+                                       ViewTargetFormats::kGBufferDepth,
+                                       1 };
+        }
+        // The graph-provided colour slots: velocity after the framebuffer's own colours.
+        static constexpr uint32_t kSceneTargetVelocitySlot = 1;
+        static constexpr uint32_t kGBufferVelocitySlot     = 4;
 
         // Deferred G-buffer (Albedo+Metallic / Normal+Roughness / depth). Populated only in the Deferred path.
         const std::shared_ptr<Framebuffer>& GetGBuffer() const

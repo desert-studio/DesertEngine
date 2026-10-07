@@ -10,6 +10,10 @@
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/Velocity.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/ViewRasterTargets.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
 
@@ -24,6 +28,8 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
+#include <array>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -618,10 +624,11 @@ TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
     // Light-view programs: they write a cascade's depth, never the view's; no previous frame of their own.
     const std::map<std::string, std::string> lightView = {
          { "Programs/Terrain/TerrainShadow.shader", "cascade depth (light view)" } };
-    const std::regex zwriteOn( R"(ZWrite\s+On)" );
-    const std::regex surfaceDomain( R"(Domain\s+Surface)" );
-    const std::regex surfaceBlock( R"((^|\n)\s*Surface\s*(\n|\{))" );
     const std::regex velocityOut( R"(Out\(\s*\d+\s*\)\s*vec2\s+oVelocity|out\s+vec2\s+oVelocity)" );
+    // The EFFECTIVE depth write of a pass: its State's ZWrite, else what a pipeline built from it gets when the
+    // State says nothing (PipelineCache applies a State field only when it is set; the spec default stands).
+    const bool unsetDepthWrite = Desert::Graphic::GraphicsPipelineSpecification{}.DepthWriteEnabled;
+    using Desert::Core::Formats::ShaderDomain;
 
     std::size_t depthWriters = 0;
     for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders ) )
@@ -630,7 +637,26 @@ TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
             continue;
         const std::string rel  = std::filesystem::relative( entry.path(), shaders ).generic_string();
         const std::string text = ReadFile( entry.path() );
-        if ( !std::regex_search( text, zwriteOn ) )
+        if ( !Desert::Core::Preprocess::DShaderParser::IsDShader( text ) )
+            continue;
+        const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( text );
+        if ( !parsed )
+        {
+            ADD_FAILURE() << rel << " does not parse: " << parsed.GetError();
+            continue;
+        }
+        const auto& program = parsed.GetValue();
+        // The census population: the view-geometry domains (whatever their State says, the default included) and
+        // every program that states its own depth write. Engine programs whose depth state the C++ sets (grid,
+        // debug lines, particles, sky) are outside a text census.
+        const bool viewDomain =
+             program.Meta.Domain == ShaderDomain::Surface || program.Meta.Domain == ShaderDomain::Terrain;
+        bool writesDepth = false;
+        for ( const auto& pass : program.Passes )
+            if ( ( viewDomain || pass.State.DepthWrite.has_value() ) &&
+                 pass.State.DepthWrite.value_or( unsetDepthWrite ) )
+                writesDepth = true;
+        if ( !writesDepth )
             continue;
         ++depthWriters;
         const bool writesVelocity = std::regex_search( text, velocityOut );
@@ -640,7 +666,7 @@ TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
                                            << ") and must not write the view's velocity";
             continue;
         }
-        const bool surfaceTemplate = std::regex_search( text, surfaceDomain ) && std::regex_search( text, surfaceBlock );
+        const bool surfaceTemplate = !program.Surface.Cells.empty();
         EXPECT_TRUE( surfaceTemplate || writesVelocity )
              << rel << " writes the view's depth (ZWrite On) with its own stages and no oVelocity output";
     }
@@ -660,4 +686,85 @@ TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
     EXPECT_TRUE( std::regex_search( text, std::regex( R"(ZWrite\s+Off)" ) ) )
          << "TextSDF is excluded from velocity because it writes no depth; with ZWrite On it owes oVelocity";
     EXPECT_EQ( text.find( "oVelocity" ), std::string::npos );
+}
+
+// Step E: THE VELOCITY TARGET. One transient per view (CreateViewVelocity), appended by AppendGraphColors to the
+// G-buffer at slot 4 and to the scene target at slot 1, so both name the SAME graph texture; its fault default is
+// kVelocityFaultDefault (Black = zero motion). Mutations: create a second "Velocity" per target / append a
+// different ref to one target / drop the SetFaultDefault or change kVelocityFaultDefault -> red.
+TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
+{
+    using namespace Desert::Graphic;
+    static_assert( kVelocityFaultDefault == RDG::FaultDefault::Black );
+    EXPECT_EQ( SceneRenderer::SceneTargetLayout().ColorFormats.at( SceneRenderer::kSceneTargetVelocitySlot ),
+               ViewTargetFormats::kVelocity );
+    EXPECT_EQ( SceneRenderer::GBufferLayout().ColorFormats.at( SceneRenderer::kGBufferVelocitySlot ),
+               ViewTargetFormats::kVelocity );
+
+    RDG::Builder       graph( "VelocityProbe" );
+    const ViewVelocity velocity = CreateViewVelocity( graph, RDG::Extent3D{ 64, 32, 1 }, 1 );
+    ASSERT_TRUE( velocity.Resolved.IsValid() );
+    EXPECT_FALSE( velocity.Multisample.IsValid() );
+    const auto name = graph.GetTextureName( velocity.Resolved );
+    ASSERT_TRUE( name.IsSuccess() );
+    EXPECT_EQ( name.GetValue(), "Velocity" );
+
+    RDG::TextureDesc colour;
+    colour.Size = RDG::Extent3D{ 64, 32, 1 };
+    RasterTargets scene;
+    scene.Colors = { graph.CreateTexture( colour, "SceneColor" ) };
+    RasterTargets gbuffer;
+    for ( const char* slot : { "A", "B", "C", "Emissive" } )
+        gbuffer.Colors.push_back( graph.CreateTexture( colour, slot ) );
+    const GraphColor onScene[]   = { VelocityColor( velocity, 1 ) };
+    const GraphColor onGBuffer[] = { VelocityColor( velocity, 1 ) };
+    ASSERT_TRUE( AppendGraphColors( scene, onScene, false ) );
+    ASSERT_TRUE( AppendGraphColors( gbuffer, onGBuffer, false ) );
+    ASSERT_EQ( scene.Colors.size(), SceneRenderer::SceneTargetLayout().ColorFormats.size() );
+    ASSERT_EQ( gbuffer.Colors.size(), SceneRenderer::GBufferLayout().ColorFormats.size() );
+    EXPECT_EQ( scene.Colors[SceneRenderer::kSceneTargetVelocitySlot], velocity.Resolved );
+    EXPECT_EQ( gbuffer.Colors[SceneRenderer::kGBufferVelocitySlot], velocity.Resolved );
+
+    // At MSAA the scene target draws the multisampled twin and resolves it into the one transient.
+    const ViewVelocity msaa = CreateViewVelocity( graph, RDG::Extent3D{ 64, 32, 1 }, 4 );
+    ASSERT_TRUE( msaa.Multisample.IsValid() );
+    RasterTargets      multisampled;
+    multisampled.Colors   = { graph.CreateTexture( colour, "SceneColor.MS" ) };
+    multisampled.Resolves = { graph.CreateTexture( colour, "SceneColor.Resolved" ) };
+    const GraphColor onMsaa[] = { VelocityColor( msaa, 4 ) };
+    ASSERT_TRUE( AppendGraphColors( multisampled, onMsaa, true ) );
+    EXPECT_EQ( multisampled.Colors[1], msaa.Multisample );
+    EXPECT_EQ( multisampled.Resolves[1], msaa.Resolved );
+    // A single-sample colour on a multisampled target is refused, nothing appended.
+    RasterTargets refused = multisampled;
+    EXPECT_FALSE( AppendGraphColors( refused, onScene, true ) );
+    EXPECT_EQ( refused.Colors.size(), multisampled.Colors.size() );
+}
+
+// Step E: LoadOp PER SLOT. A node clearing scene colour to the sky grey clears velocity to ZERO (its own clear
+// value), not to the grey; the next node on the target loads velocity even when it clears colour again.
+// Mutations: ColorLoads applies the pass's LoadOp to every slot / clears the own-clear slot on every writer -> red.
+TEST( VelocityTarget, EachColourSlotTakesItsOwnClearOnItsFirstWriter )
+{
+    using namespace Desert::Graphic;
+    RasterTargets targets;
+    targets.Colors    = { RDG::TextureRef{ 0 } };
+    const GraphColor velocity[] = { GraphColor{ RDG::TextureRef{ 7 }, {}, RDG::ClearValue{} } };
+    ASSERT_TRUE( AppendGraphColors( targets, velocity, false ) );
+
+    std::set<uint32_t> started;
+    const RDG::LoadOp  grey  = RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f );
+    const auto         first = ColorLoads( targets, grey, started );
+    ASSERT_EQ( first.size(), 2u );
+    EXPECT_EQ( first[0].Action, RDG::LoadAction::Clear );
+    EXPECT_EQ( first[0].Value.Color, ( std::array<float, 4>{ 0.1f, 0.1f, 0.1f, 1.0f } ) );
+    EXPECT_EQ( first[1].Action, RDG::LoadAction::Clear );
+    EXPECT_EQ( first[1].Value.Color, ( std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 0.0f } ) );
+
+    const auto second = ColorLoads( targets, grey, started );
+    EXPECT_EQ( second[0].Action, RDG::LoadAction::Clear );
+    EXPECT_EQ( second[1].Action, RDG::LoadAction::Load );
+    const auto loaded = ColorLoads( targets, RDG::LoadOp::Load(), started );
+    EXPECT_EQ( loaded[0].Action, RDG::LoadAction::Load );
+    EXPECT_EQ( loaded[1].Action, RDG::LoadAction::Load );
 }
