@@ -1862,11 +1862,16 @@ namespace Desert::Assets
                     }
         }
 
-        // A BODY VOXEL TAKES THE LOWEST CONE TOO, not only air: two fused lumps of different cell ranks
-        // otherwise keep the wall between them inside the body (the nearest lump's rank, jumping on their
-        // bisector). Its own rank is one of the cones, so a lone body is unchanged.
+        // ONLY AIR TAKES THE CONE; A BODY KEEPS ITS OWN RANK (FARWX-b9). Letting a body voxel take the
+        // lowest cone too (b7) handed every body within (rank difference) / rise of a low-rank neighbour
+        // that neighbour's rank: the rank went smooth over kilometres, the column CDF turned it into whole
+        // contiguous regions, and the cut kept them as one dark deck over the camera (--cloud-visualize 1
+        // showed the kept columns as one connected sheet with a slowly varying rank). Two DIFFERENT
+        // clusters touching are two clouds and may keep two ranks; lumps of one cluster share its cell rank,
+        // so a fused cluster has no wall inside it.
         for ( size_t at = 0; at < count; ++at )
-            rankField[at] = std::min( rankField[at], grown[at] );
+            if ( !std::isfinite( rankField[at] ) )
+                rankField[at] = grown[at];
         }
 
         namespace

@@ -551,7 +551,7 @@ Shader "CloudRaymarch"
                     shown = vec3(kept / 32.0f, min(seam * 8.0f, 1.0f), body / 32.0f);
                 }
                 float sunLuminance = dot(u_CloudSunColour.rgb, vec3(0.2126f, 0.7152f, 0.0722f));
-                imageStore(u_CloudScatter, coord, vec4(shown * sunLuminance, 0.0f));
+                imageStore(u_CloudScatter, coord, vec4(shown * sunLuminance * 0.03f, 0.0f));
                 imageStore(u_CloudGuide, coord, vec4(segment.x, sceneKm, 0.0f, 0.0f));
                 return;
             }
