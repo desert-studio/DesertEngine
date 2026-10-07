@@ -2538,10 +2538,11 @@ TEST( CloudFieldCut, TheShadersCutIsTheCoverProfileAgainstTheLocalCover )
 
             for ( int iy = 0; iy < height; iy += 3 )
             {
-                const vec3   uvw( ( ix + 0.5f ) / side, ( iy + 0.5f ) / height, ( iz + 0.5f ) / side );
-                const size_t voxel = ( static_cast<size_t>( iz ) * height + iy ) * side + ix;
-                const unsigned char core = ( *state.Ranks )[voxel * Desert::Assets::kCloudProceduralRankChannels];
-                const float profile = ( *state.Voxels )[voxel * Desert::Assets::kCloudProceduralBytesPerVoxel] / 255.0f;
+                const vec3          uvw( ( ix + 0.5f ) / side, ( iy + 0.5f ) / height, ( iz + 0.5f ) / side );
+                const size_t        voxel = ( static_cast<size_t>( iz ) * height + iy ) * side + ix;
+                const unsigned char core  = ( *state.Ranks )[voxel * Desert::Assets::kCloudProceduralRankChannels];
+                const float         profile =
+                     ( *state.Voxels )[voxel * Desert::Assets::kCloudProceduralBytesPerVoxel] / 255.0f;
 
                 const float gpu =
                      CloudCoverProfile( profile, CLOUD_SAMPLE_MODELLING_RANK( uvw ), gpuCover, weather.z );
@@ -2593,7 +2594,8 @@ TEST( CloudFieldCut, AnOverrunClusterStandsAtItsOwnProfileAndAJustKeptOneShowsIt
 
     // A cluster over the cover does not exist, at any depth.
     EXPECT_EQ( CloudCoverProfile( 1.0f, core, core, soft ), 0.0f );
-    EXPECT_FALSE( Desert::Assets::CloudProceduralKeep( static_cast<unsigned char>( core * 255.0f ), core - 0.01f ) );
+    EXPECT_FALSE(
+         Desert::Assets::CloudProceduralKeep( static_cast<unsigned char>( core * 255.0f ), core - 0.01f ) );
 
     // Air is never cloud, and "no cluster" is never kept.
     EXPECT_EQ( CloudCoverProfile( 0.0f, 0.0f, 1.0f, soft ), 0.0f );

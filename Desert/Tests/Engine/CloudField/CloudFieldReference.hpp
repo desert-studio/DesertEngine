@@ -335,7 +335,7 @@ namespace Desert::Tests::CloudFieldRef
             if ( cache.size() >= kMaxBakedVolumes )
                 cache.erase( cache.begin() );
 
-            cache.push_back( BakedVolume{ params, originKm, voxels, ranks, rise } );
+            cache.push_back( BakedVolume{ params, originKm, voxels, ranks } );
             return voxels;
         }
 

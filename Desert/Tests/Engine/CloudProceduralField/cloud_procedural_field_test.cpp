@@ -210,7 +210,8 @@ namespace
 {
     /// The lumps grouped by cluster (exact site), each group in the canonical order, keeping only the clusters
     /// whose rank is under @p cover (2 keeps them all).
-    std::vector<std::vector<CloudModellingBlob>> ClustersOf( const std::vector<CloudProceduralLump>& lumps, float cover )
+    std::vector<std::vector<CloudModellingBlob>> ClustersOf( const std::vector<CloudProceduralLump>& lumps,
+                                                             float                                   cover )
     {
         std::vector<glm::vec2>                       sites;
         std::vector<std::vector<CloudModellingBlob>> groups;
@@ -335,7 +336,6 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     // cloud in empty sky.
     std::vector<glm::u32vec3> inside;
     std::vector<glm::u32vec3> outside;
-
 
     size_t filled         = 0;
     size_t rankMismatches = 0;
@@ -1262,4 +1262,3 @@ TEST( CloudProceduralCacheKey, TheDeriverVersionChangesTheKey )
     EXPECT_NE( CloudProceduralVolumeCacheKey( params, origin ),
                CloudProceduralVolumeCacheKey( params, origin, kNextVersion ) );
 }
-

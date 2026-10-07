@@ -123,8 +123,8 @@ namespace Desert::Graphic
         // THE WORLD WEATHER'S CUT, as Assets::CloudFarWeatherUniform packs it: x the slider's Coverage, y rho
         // = sqrt(PatchStrength) (ZERO when a painted pattern is the weather or the strength is nil), z the
         // cover's softness past a cluster's core rank, w 1 / kCloudFarWeatherPeriodKm. The march keeps a
-        // cluster where its R8 core rank is under the local cover this decides — Assets::CloudProceduralKeep is the
-        // CPU half of the same comparison. Before the trailing vec3 for the reason Albedo is.
+        // cluster where its R8 core rank is under the local cover this decides — Assets::CloudProceduralKeep is
+        // the CPU half of the same comparison. Before the trailing vec3 for the reason Albedo is.
         glm::vec4 Weather;
 
         // A vec3 AND LAST, which is the only shape in which three values can be three values. It was a

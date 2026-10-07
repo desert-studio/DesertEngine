@@ -1895,9 +1895,10 @@ namespace Desert::Assets
                                  for ( uint32_t index : column )
                                  {
                                      const Placed& item = placed[index];
-                                     distances.push_back( point.y < item.MinKm.y || point.y > item.MaxKm.y
-                                                               ? std::numeric_limits<float>::infinity()
-                                                               : CloudModellingBlobDistanceKm( item.Blob, point ) );
+                                     distances.push_back(
+                                          point.y < item.MinKm.y || point.y > item.MaxKm.y
+                                               ? std::numeric_limits<float>::infinity()
+                                               : CloudModellingBlobDistanceKm( item.Blob, point ) );
                                  }
 
                                  float joined   = 0.0f;
@@ -1913,7 +1914,8 @@ namespace Desert::Assets
                                      const uint32_t cluster = placed[column[k]].Cluster;
                                      bool           seen    = false;
                                      for ( size_t j = 0; j < k && !seen; ++j )
-                                         seen = std::isfinite( distances[j] ) && placed[column[j]].Cluster == cluster;
+                                         seen = std::isfinite( distances[j] ) &&
+                                                placed[column[j]].Cluster == cluster;
                                      if ( seen )
                                          continue;
 
@@ -1924,7 +1926,8 @@ namespace Desert::Assets
 
                                      float sum = 0.0f;
                                      for ( size_t j = k; j < column.size(); ++j )
-                                         if ( placed[column[j]].Cluster == cluster && std::isfinite( distances[j] ) )
+                                         if ( placed[column[j]].Cluster == cluster &&
+                                              std::isfinite( distances[j] ) )
                                              sum += CloudModellingJoinTerm( placed[column[j]].Blob.Weight,
                                                                             distances[j], nearest, invBlend );
 
@@ -1998,8 +2001,8 @@ namespace Desert::Assets
         out.Ranks.resize( coreField.size() );
         for ( size_t at = 0; at < coreField.size(); ++at )
             out.Ranks[at] = std::isfinite( coreField[at] )
-                                 ? static_cast<unsigned char>( std::clamp( std::floor( coreField[at] * 255.0f ), 0.0f,
-                                                                           254.0f ) )
+                                 ? static_cast<unsigned char>(
+                                        std::clamp( std::floor( coreField[at] * 255.0f ), 0.0f, 254.0f ) )
                                  : kCloudProceduralNoRank;
         return Common::MakeSuccess( std::move( out ) );
     }
