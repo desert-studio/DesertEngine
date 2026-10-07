@@ -6,7 +6,6 @@ Shader "DeferredLighting"
     Vertex
     {
         #include <Common/FullscreenTriangle.glslh>
-        #include <Common/ReconstructPosition.glslh>
 
         Out(0) vec2 v_TexCoord;
 
@@ -35,6 +34,9 @@ Shader "DeferredLighting"
         // so it is the SAME BRDF, reached through the same text. Must follow DirectLighting.glslh, which it
         // calls.
         #include <Mesh/IndirectBounce.glslh>
+        // World position from the G-buffer depth (u_GBufferDepth below): the one reconstruction every deferred
+        // reader shares.
+        #include <Common/ReconstructPosition.glslh>
 
         In(0) vec2 v_TexCoord;
 

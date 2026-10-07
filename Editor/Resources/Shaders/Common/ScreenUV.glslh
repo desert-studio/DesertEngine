@@ -1,4 +1,5 @@
-// #pragma once
+#ifndef SCREEN_UV_GLSLH
+#define SCREEN_UV_GLSLH
 //
 // Screen texture coordinate -> NDC xy: the one mapping every screen-space stage shares — the fullscreen triangle
 // and the SSR tiles (vertex stages, through Common/FullscreenTriangle.glslh) and the world-position
@@ -13,3 +14,5 @@ vec2 ScreenUVToNdc(vec2 uv)
 {
 	return vec2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
 }
+
+#endif // SCREEN_UV_GLSLH

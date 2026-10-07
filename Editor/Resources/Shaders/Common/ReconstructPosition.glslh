@@ -1,4 +1,5 @@
-// #pragma once
+#ifndef RECONSTRUCT_POSITION_GLSLH
+#define RECONSTRUCT_POSITION_GLSLH
 //
 // THE WORLD POSITION OF A SCREEN PIXEL, FROM ITS DEPTH (UE: SceneDepth + ScreenToWorld / SvPositionToWorld).
 // Every pass that needs the world position of an opaque G-buffer pixel calls this; there is no world-position
@@ -28,3 +29,5 @@ vec3 ReconstructWorldPosition(vec2 uv, float deviceDepth, mat4 invJitteredViewPr
 	const vec4 world = invJitteredViewProjection * vec4(ScreenUVToNdc(uv), deviceDepth, 1.0f);
 	return vec3(world) / world.w;
 }
+
+#endif // RECONSTRUCT_POSITION_GLSLH
