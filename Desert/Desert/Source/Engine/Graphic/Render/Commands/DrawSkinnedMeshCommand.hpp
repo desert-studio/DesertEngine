@@ -11,6 +11,9 @@ namespace Desert::Graphic::Render
 {
     struct DrawSkinnedMeshCommand : RenderCommand
     {
+        // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
+        // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
+        uint32_t Entity;
         Desert::SkinnedMesh* Mesh;
         // CO-OWNED, not a copy of bare pointers: the copy this used to make kept the ARRAY safe and left
         // every MaterialInstance in it owned by an ECS component that Lua can destroy before this command
@@ -21,10 +24,10 @@ namespace Desert::Graphic::Render
         bool                            Outlined    = false;
         bool                            CastShadows = true;
 
-        DrawSkinnedMeshCommand( Desert::SkinnedMesh* mesh, Graphic::MaterialSlotBindingPtr materialSlot,
+        DrawSkinnedMeshCommand( uint32_t entity, Desert::SkinnedMesh* mesh, Graphic::MaterialSlotBindingPtr materialSlot,
                                 const glm::mat4& transform, const std::vector<glm::mat4>& bones,
                                 bool outlined = false, bool castShadows = true )
-             : Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
+             : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
                BoneMatrices( bones ), Outlined( outlined ), CastShadows( castShadows )
         {
         }
@@ -36,7 +39,7 @@ namespace Desert::Graphic::Render
             // the shadow for every skinned mesh whose component turned it off.
             renderer.SubmitMesh(
                  Mesh, MaterialSlot, Transform,
-                 { .BoneMatrices = BoneMatrices, .Outlined = Outlined, .CastShadows = CastShadows } );
+                 { .Entity = Entity, .BoneMatrices = BoneMatrices, .Outlined = Outlined, .CastShadows = CastShadows } );
         }
     };
 } // namespace Desert::Graphic::Render

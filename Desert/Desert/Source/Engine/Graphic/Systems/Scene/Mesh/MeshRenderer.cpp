@@ -454,6 +454,7 @@ namespace Desert::Graphic::System
             case MeshType::Static:
             {
                 StaticMeshRenderData staticData;
+                staticData.Entity          = data.Entity;
                 staticData.Mesh            = static_cast<StaticMesh*>( data.Mesh );
                 staticData.Transform       = data.Transform;
                 staticData.MaterialSlots   = data.MaterialSlots;
@@ -475,6 +476,7 @@ namespace Desert::Graphic::System
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): MeshType::Skinned is set only
                 // for a SkinnedMesh
                 skinnedData.Mesh          = static_cast<SkinnedMesh*>( data.Mesh );
+                skinnedData.Entity        = data.Entity;
                 skinnedData.Transform     = data.Transform;
                 skinnedData.BoneMatrices  = data.BoneMatrices;
                 skinnedData.Outlined      = data.Outlined;

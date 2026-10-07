@@ -245,7 +245,7 @@ namespace Desert::ECS
                                       Rules::MeshShadowCaster::ShaderOverride;
 
                                  renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
-                                      targetMesh, worldTransform, matc.ShaderName,
+                                      static_cast<uint32_t>( entity ), targetMesh, worldTransform, matc.ShaderName,
                                       Graphic::MaterialOverrides{ std::move( overrides ),
                                                                   std::move( texOverrides ) },
                                       outlined, /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{},
@@ -320,14 +320,14 @@ namespace Desert::ECS
                              slotCasterPlaced = slotCasterPlaced || casts;
 
                              renderCommandBuffer.Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(
-                                  targetMesh, worldTransform, d.Mat, visible, outlined, casts );
+                                  static_cast<uint32_t>( entity ), targetMesh, worldTransform, d.Mat, visible, outlined, casts );
                          }
 
                          // PBR path draws the remaining submeshes (skip entirely when every
                          // submesh went custom).
                          if ( pbrDrawEmitted )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawStaticMeshCommand>(
-                                  targetMesh, mesh.RuntimeSlots, worldTransform, outlined, pbrHidden,
+                                  static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots, worldTransform, outlined, pbrHidden,
                                   mesh.ForcedLOD, mesh.LODBias, shadowRoute == Rules::MeshShadowCaster::PbrDraw,
                                   mesh.ReceiveShadows, mesh.TranslucencySortPriority );
                      } );
@@ -571,7 +571,7 @@ namespace Desert::ECS
                          }
 
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
-                              skinnedMesh, slots, worldTransform, boneMatrices, isSelected, mesh.CastShadows );
+                              static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, boneMatrices, isSelected, mesh.CastShadows );
                      } );
             }
         }

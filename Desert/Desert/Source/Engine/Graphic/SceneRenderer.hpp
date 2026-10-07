@@ -90,6 +90,7 @@ namespace Desert::Graphic
 
         struct RenderSubmissionExtra
         {
+            uint32_t               Entity = 0; // owner of the draw: its MotionHistory key (velocity)
             std::vector<glm::mat4> BoneMatrices; // optional
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
@@ -214,14 +215,14 @@ namespace Desert::Graphic
         // castShadows: rasterize this draw into the shadow cascades. Off by default — see the note on
         // GenericMeshRenderData::CastShadows; only a producer that knows the draw is a solid mesh, and
         // that no OTHER draw of the same entity is already casting, may turn it on.
-        void SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform, const std::string& shaderName,
+        void SubmitGenericMesh( uint32_t entity, const Mesh* mesh, const glm::mat4& transform, const std::string& shaderName,
                                 const MaterialOverrides& overrides, bool outlined = false,
                                 Image2D* directTexture = nullptr, const std::string& directTextureSampler = {},
                                 bool castShadows = false );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial).
-        void SubmitSlotMaterialMesh( const Mesh* mesh, const glm::mat4& transform, Material* material,
+        void SubmitSlotMaterialMesh( uint32_t entity, const Mesh* mesh, const glm::mat4& transform, Material* material,
                                      uint64_t visibleSubmeshMask, bool outlined = false,
                                      bool castShadows = false );
 

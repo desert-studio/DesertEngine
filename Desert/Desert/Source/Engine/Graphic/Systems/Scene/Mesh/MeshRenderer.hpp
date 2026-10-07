@@ -126,6 +126,8 @@ namespace Desert::Graphic::System
 
     struct MeshRenderData
     {
+        // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+        uint32_t Entity = 0;
         class Mesh* Mesh;
         glm::mat4   Transform;
 
@@ -152,6 +154,8 @@ namespace Desert::Graphic::System
     public:
         struct StaticMeshRenderData
         {
+            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            uint32_t Entity = 0;
             class Desert::StaticMesh* Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
@@ -168,6 +172,8 @@ namespace Desert::Graphic::System
 
         struct SkinnedMeshRenderData
         {
+            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            uint32_t Entity = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
             glm::mat4                  Transform = glm::mat4( 1.0f );
             // The (surface x Skinned) material. It is SHARED with every other entity using the same
@@ -209,6 +215,8 @@ namespace Desert::Graphic::System
         //    params already applied) and VisibleSubmeshMask limits the draw to that slot's submeshes.
         struct GenericMeshRenderData
         {
+            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            uint32_t Entity = 0;
             class Mesh*               Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             std::string               ShaderName;

@@ -18,6 +18,9 @@ namespace Desert::Graphic::Render
     // shader). Per-object path — does NOT go through the batched PBR SSBO.
     struct DrawGenericMeshCommand : RenderCommand
     {
+        // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
+        // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
+        uint32_t Entity;
         Desert::Mesh*            Mesh;
         glm::mat4                Transform;
         std::string              ShaderName;
@@ -33,11 +36,11 @@ namespace Desert::Graphic::Render
         // shadow pass has no alpha test. Mesh producers opt in.
         bool CastShadows = false;
 
-        DrawGenericMeshCommand( Desert::Mesh* mesh, const glm::mat4& transform, std::string shaderName,
+        DrawGenericMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform, std::string shaderName,
                                 Graphic::MaterialOverrides overrides, bool outlined,
                                 Graphic::Image2D* directTexture = nullptr, std::string directTextureSampler = {},
                                 bool castShadows = false )
-             : Mesh( mesh ), Transform( transform ), ShaderName( std::move( shaderName ) ),
+             : Entity( entity ), Mesh( mesh ), Transform( transform ), ShaderName( std::move( shaderName ) ),
                Overrides( std::move( overrides ) ), Outlined( outlined ), DirectTexture( directTexture ),
                DirectTextureSampler( std::move( directTextureSampler ) ), CastShadows( castShadows )
         {
@@ -45,7 +48,7 @@ namespace Desert::Graphic::Render
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitGenericMesh( Mesh, Transform, ShaderName, Overrides, Outlined, DirectTexture,
+            renderer.SubmitGenericMesh( Entity, Mesh, Transform, ShaderName, Overrides, Outlined, DirectTexture,
                                         DirectTextureSampler, CastShadows );
         }
     };
