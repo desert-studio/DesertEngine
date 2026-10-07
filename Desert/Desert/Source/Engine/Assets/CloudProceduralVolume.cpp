@@ -1625,10 +1625,10 @@ namespace Desert::Assets
                     continue;
                 if ( k < 0 )
                 {
-                    k                  = 0;
-                    scratch.Sites[0]   = q;
-                    scratch.Bounds[0]  = -std::numeric_limits<double>::infinity();
-                    scratch.Bounds[1]  = std::numeric_limits<double>::infinity();
+                    k                 = 0;
+                    scratch.Sites[0]  = q;
+                    scratch.Bounds[0] = -std::numeric_limits<double>::infinity();
+                    scratch.Bounds[1] = std::numeric_limits<double>::infinity();
                     continue;
                 }
                 double cut = 0.0;
@@ -1696,8 +1696,10 @@ namespace Desert::Assets
             const int    h      = static_cast<int>( height );
             const int    d      = static_cast<int>( depth );
             const size_t stride = static_cast<size_t>( width ) * height; // one z slice
-            auto         index  = [&]( int x, int y, int z )
-            { return static_cast<size_t>( z ) * stride + static_cast<size_t>( y ) * width + static_cast<size_t>( x ); };
+            auto         index  = [&]( int x, int y, int z ) {
+                return static_cast<size_t>( z ) * stride + static_cast<size_t>( y ) * width +
+                       static_cast<size_t>( x );
+            };
 
             // ONE AXIS AT A TIME, lines independent of each other: Y and X inside a z slice, Z across them.
             auto axis = [&]( int lines, int length, bool wraps, double spacingKm,
@@ -1715,8 +1717,8 @@ namespace Desert::Assets
                          {
                              for ( int i = 0; i < unrolled; ++i )
                              {
-                                 const size_t from = at( static_cast<int>( line ), i % length );
-                                 lineCost[static_cast<size_t>( i )]    = cost[from];
+                                 const size_t from                  = at( static_cast<int>( line ), i % length );
+                                 lineCost[static_cast<size_t>( i )] = cost[from];
                                  lineFeature[static_cast<size_t>( i )] = feature[from];
                              }
                              SquaredDistanceLine( lineCost.data(), lineFeature.data(), unrolled,
@@ -1738,7 +1740,8 @@ namespace Desert::Assets
 
             for ( size_t at = 0; at < count; ++at )
                 if ( !std::isfinite( rankField[at] ) && feature[at] >= 0 )
-                    rankField[at] = rankField[static_cast<size_t>( feature[at] )] + risePerKm * std::sqrt( cost[at] );
+                    rankField[at] =
+                         rankField[static_cast<size_t>( feature[at] )] + risePerKm * std::sqrt( cost[at] );
         }
 
         /// The column CDF of the rank field, as bytes. Every column's rank is the MINIMUM over its voxels
