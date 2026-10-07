@@ -127,6 +127,19 @@ Shader "CloudTemporalResolve"
         Uniform(2) sampler2D u_CloudHistory;
         Uniform(3) sampler2D u_CloudHistoryGuide;
 
+        // THIS PIXEL'S OWN SCENE DEPTH — the same single-sample image the march cuts its rays with, read
+        // at the same texel the march would read for this half-res pixel. It is what makes the guide's .y
+        // a property of THIS pixel. Before it, .y was copied from whichever sub-pixel of the 2x2 block the
+        // frame traced, so on a block straddling a silhouette (a cube against the sky, the ground against
+        // the horizon) it flipped between the two surfaces on the {0, 2, 3, 1} cycle: the disocclusion
+        // test then rejected a good history every frame the traced sub-pixel sat on the other surface,
+        // and the pixel took that surface's radiance instead — the four-frame flicker along every
+        // silhouette (CLOUD-HORIZON: 5 % of the pixels around a cube changed by more than 4/255 per
+        // frame under a STATIC camera). Unreal's reconstruction compares against the pixel's own opaque
+        // depth for the same reason (VolumetricRenderTarget.usf, SceneDepthMinAndMax / the mode-4
+        // compose reading SceneDepth).
+        Uniform(7) sampler2D u_SceneDepth;
+
         // The C++ side of this block is Graphic::CloudResolveParams (Engine/Graphic/Clouds/CloudPayload.hpp),
         // where a static_assert pins every offset. Raw std430 rather than the ReadBuffer(n) sugar, as
         // CloudParams.glslh does, because this header describes a structure.
@@ -256,6 +269,41 @@ Shader "CloudTemporalResolve"
             // sides of a silhouette agrees with neither and fires the edge path along the whole silhouette.
             vec4 traceGuide = texelFetch(u_CloudTraceGuide, traceCoord, 0);
 
+            // The pixel's ray, from this frame's inverse view-projection. REVERSED-Z, like everything
+            // else in this engine (Core/Projection.hpp): 1 is the near plane and 0 the far one.
+            vec2 uv  = halfPos / vec2(size);
+            vec2 ndc = vec2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
+
+            vec4 nearH = u_InverseViewProjection * vec4(ndc.x, ndc.y, 1.0f, 1.0f);
+            vec4 farH  = u_InverseViewProjection * vec4(ndc.x, ndc.y, 0.0f, 1.0f);
+            vec3 nearP = nearH.xyz / max(nearH.w, 1e-9f);
+            vec3 farP  = farH.xyz / max(farH.w, 1e-9f);
+            vec3 rayDir = normalize(farP - nearP);
+
+            // THIS PIXEL'S SCENE DISTANCE, by the march's own expression (CloudRaymarch.shader, the
+            // `sceneKm` it writes into its guide's .y): the far plane where nothing was drawn, the opaque
+            // surface where something was. Same texel rule too — `(coord * depthSize) / size` truncates —
+            // so on the pixel this frame owns the two agree exactly.
+            ivec2 depthSize  = textureSize(u_SceneDepth, 0);
+            ivec2 depthCoord = clamp((coord * depthSize) / size, ivec2(0, 0), depthSize - ivec2(1, 1));
+            float deviceDepth = texelFetch(u_SceneDepth, depthCoord, 0).r;
+
+            float ownSceneKm = length(farP - u_CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            if (deviceDepth > 0.0f)
+            {
+                vec4 geomH = u_InverseViewProjection * vec4(ndc.x, ndc.y, deviceDepth, 1.0f);
+                vec3 geomP = geomH.xyz / max(geomH.w, 1e-9f);
+                ownSceneKm = length(geomP - u_CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            }
+
+            // WHETHER THIS FRAME'S SAMPLE DESCRIBES THIS PIXEL'S SURFACE. The owned pixel's does by
+            // construction. The other three take the BILINEAR reconstruction of the trace, so they are
+            // judged by the guide filtered over the same footprint: a footprint that reaches across a
+            // silhouette averages the near and far distances into one that matches neither, and its
+            // radiance is that same mixture — blending it in is the leak that crawled along every edge.
+            bool newSampleHere = owned ||
+                                 abs(texture(u_CloudTraceGuide, traceUv).y - ownSceneKm) <= kDisocclusionKm;
+
             float newWeight = owned ? kOwnedSampleWeight : kNewSampleWeight;
 
             // Every rejection below leaves this value in place: a history that was read and found to
@@ -269,19 +317,12 @@ Shader "CloudTemporalResolve"
             // was accepted. Only the first sends the pixel down case 3.
             bool historyRead = false;
 
+            // The front distance the output guide carries. It follows the RADIANCE: a pixel that keeps its
+            // history because this frame's sample belongs to another surface keeps that history's front.
+            float frontKm = traceGuide.x;
+
             if (u_HistoryValid > 0.5f)
             {
-                // The pixel's ray, from this frame's inverse view-projection. REVERSED-Z, like everything
-                // else in this engine (Core/Projection.hpp): 1 is the near plane and 0 the far one.
-                vec2 uv  = halfPos / vec2(size);
-                vec2 ndc = vec2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
-
-                vec4 nearH = u_InverseViewProjection * vec4(ndc.x, ndc.y, 1.0f, 1.0f);
-                vec4 farH  = u_InverseViewProjection * vec4(ndc.x, ndc.y, 0.0f, 1.0f);
-                vec3 nearP = nearH.xyz / max(nearH.w, 1e-9f);
-                vec3 farP  = farH.xyz / max(farH.w, 1e-9f);
-                vec3 rayDir = normalize(farP - nearP);
-
                 // THE SINGLE FRONT SURFACE. The guide's .x is where this ray first met material, or the
                 // end of its search when it met none; either way it is a real distance, so the point
                 // below is always on the ray and never a sentinel projected into the previous frame.
@@ -311,10 +352,21 @@ Shader "CloudTemporalResolve"
                         vec4 historyGuide = texture(u_CloudHistoryGuide, fetchUv);
 
                         bool finite      = IsFinite(history) && IsFinite(historyGuide);
-                        bool sameSurface = abs(historyGuide.y - traceGuide.y) <= kDisocclusionKm;
+                        // Against THIS pixel's distance, not the traced sub-pixel's — see u_SceneDepth.
+                        bool sameSurface = abs(historyGuide.y - ownSceneKm) <= kDisocclusionKm;
 
                         if (finite && sameSurface)
-                            resolved = mix(history, traceScatter, newWeight);
+                        {
+                            if (newSampleHere)
+                            {
+                                resolved = mix(history, traceScatter, newWeight);
+                            }
+                            else
+                            {
+                                resolved = history;
+                                frontKm  = historyGuide.x;
+                            }
+                        }
                     }
                 }
             }
@@ -328,14 +380,16 @@ Shader "CloudTemporalResolve"
             // exact texel in both, which is strictly better than a filter and is what Unreal's
             // bUseNewSample branch does as well.
             if (!historyRead && !owned)
-                traceGuide = texture(u_CloudTraceGuide, traceUv);
+                frontKm = texture(u_CloudTraceGuide, traceUv).x;
 
             // The guide always describes THIS frame, whichever branch the radiance came from: it is what
             // the composite measures edges with and what next frame's disocclusion test compares against,
             // and both questions are about the geometry in front of the camera now. It is never blended
             // with the history's own distances — mixing a distance from three frames ago with this one
             // produces a number describing nothing, which the composite would then read as an edge.
-            imageStore(u_ReconstructedGuide, coord, traceGuide);
+            // .y is this pixel's own scene distance on every branch, which is what keeps it from flipping
+            // with the jitter cycle; .x is the front of whichever sample the radiance came from.
+            imageStore(u_ReconstructedGuide, coord, vec4(frontKm, ownSceneKm, 0.0f, 0.0f));
 
             // Transmittance is clamped both ways because it multiplies the scene behind the cloud: a
             // value above 1 brightens what is BEHIND it, which reads as a glowing rectangle and is very

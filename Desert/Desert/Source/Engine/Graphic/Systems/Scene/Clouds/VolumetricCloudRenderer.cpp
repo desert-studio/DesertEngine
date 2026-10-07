@@ -2085,6 +2085,10 @@ namespace Desert::Graphic::System
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_CloudTraceGuide", traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
+             // The march's depth image again: the resolve gives every half-res pixel its OWN scene distance rather
+             // than the one the jitter cycle's traced sub-pixel saw (CloudTemporalResolve.shader, u_SceneDepth).
+             .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
+                       "SceneDepth.Compute" )
              .Sampled( "u_CloudHistory", historyScatter, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
                        historyName )
              .Sampled( "u_CloudHistoryGuide", historyGuide, RDG::Access::SampledCompute,
