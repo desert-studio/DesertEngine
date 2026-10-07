@@ -623,6 +623,8 @@ namespace Desert::Graphic::System
         // The R8 rank of the same bake (Assets::CloudProceduralVolumeBake::Ranks): created and dropped with
         // m_ModellingVolume, never one without the other.
         std::shared_ptr<Image3D> m_ModellingRank;
+        // The bake's RankRise beside the rank it measures (CloudFarWeatherUniform's z).
+        float m_ModellingRankRise = 1.0f;
         // The world weather over one kCloudFarWeatherPeriodKm torus (Assets::BakeCloudFarWeatherMap), rebuilt
         // only when its seed or its shortest wave moves — see EnsureFarWeatherMap.
         std::shared_ptr<Image2D> m_FarWeatherMap;

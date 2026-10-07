@@ -348,7 +348,8 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
 
     params.RegionOriginKm  = ModellingVolume().OriginKm;
     params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
-    params.Weather         = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+    params.Weather =
+         Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params, ModellingVolume().RankRise );
 
     // FIRST: the coordinate itself never reaches either face.
     const vec3 atTop    = CloudProceduralVolumeUvw( params, 1.0f, vec3( 0.0f ) );
@@ -2516,7 +2517,7 @@ TEST( CloudFieldCut, TheShadersCutIsCloudProceduralKeepAgainstTheLocalCover )
     state.Params.PatchTileKm    = 20.0f;
     ASSERT_TRUE( state.Ranks && !state.Ranks->empty() ) << "the bake returned no rank block";
 
-    const vec4 weather = Desert::Assets::CloudFarWeatherUniform( state.Params );
+    const vec4 weather = Desert::Assets::CloudFarWeatherUniform( state.Params, state.RankRise );
     ASSERT_GT( weather.y, 0.0f ) << "the weather stood down, so the copula is not under test";
 
     constexpr int side   = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );

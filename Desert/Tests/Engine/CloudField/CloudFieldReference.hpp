@@ -223,6 +223,8 @@ namespace Desert::Tests::CloudFieldRef
             ModellingVoxels                            Voxels;
             /// The R8 rank of the same bake (CloudProceduralVolumeBake::Ranks) — what the cut reads.
             ModellingVoxels                            Ranks;
+            /// The same bake's CloudProceduralVolumeBake::RankRise — the ramp the cut divides by.
+            float                                      RankRise = 1.0f;
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
         };
@@ -272,6 +274,7 @@ namespace Desert::Tests::CloudFieldRef
             glm::vec2                                  OriginKm{ 0.0f };
             ModellingVoxels                            Voxels;
             ModellingVoxels                            Ranks;
+            float                                      RankRise = 1.0f;
         };
 
         std::vector<BakedVolume>& BakedVolumeCache()
@@ -302,7 +305,8 @@ namespace Desert::Tests::CloudFieldRef
 
         /// Bake @p params over @p originKm, or hand back the bytes an identical request already made.
         ModellingVoxels CloudModellingBake( const Desert::Assets::CloudProceduralFieldParams& params,
-                                            const glm::vec2& originKm, ModellingVoxels* ranksOut = nullptr )
+                                            const glm::vec2& originKm, ModellingVoxels* ranksOut = nullptr,
+                                            float* riseOut = nullptr )
         {
             std::vector<BakedVolume>& cache = BakedVolumeCache();
 
@@ -314,6 +318,8 @@ namespace Desert::Tests::CloudFieldRef
                     ++BakeCounts().Served;
                     if ( ranksOut != nullptr )
                         *ranksOut = entry.Ranks;
+                    if ( riseOut != nullptr )
+                        *riseOut = entry.RankRise;
                     return entry.Voxels;
                 }
             }
@@ -331,11 +337,14 @@ namespace Desert::Tests::CloudFieldRef
                  baked ? baked.GetValue().Ranks : std::vector<unsigned char>{} );
             if ( ranksOut != nullptr )
                 *ranksOut = ranks;
+            const float rise = baked ? baked.GetValue().RankRise : 1.0f;
+            if ( riseOut != nullptr )
+                *riseOut = rise;
 
             if ( cache.size() >= kMaxBakedVolumes )
                 cache.erase( cache.begin() );
 
-            cache.push_back( BakedVolume{ params, originKm, voxels, ranks } );
+            cache.push_back( BakedVolume{ params, originKm, voxels, ranks, rise } );
             return voxels;
         }
 
@@ -384,7 +393,7 @@ namespace Desert::Tests::CloudFieldRef
 
             state.Params   = CloudModellingParams( shapes, count, coverage, contrast, windDirection );
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
-            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks );
+            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks, &state.RankRise );
         }
 
         /// The same bake over a layer WIDER than the species' own band, which is what makes the vertical
@@ -406,7 +415,7 @@ namespace Desert::Tests::CloudFieldRef
             state.Params.LayerThicknessKm = thicknessKm;
 
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
-            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks );
+            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm, &state.Ranks, &state.RankRise );
         }
 
         // THE R8 RANK, read as the device reads an R8_UNORM volume: trilinear, REPEAT, byte / 255.
@@ -612,7 +621,8 @@ namespace Desert::Tests::CloudFieldRef
 
             params.RegionOriginKm  = ModellingVolume().OriginKm;
             params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
-            params.Weather         = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+            params.Weather =
+                 Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params, ModellingVolume().RankRise );
         }
 
         /**

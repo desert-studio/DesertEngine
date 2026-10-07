@@ -1283,12 +1283,12 @@ TEST( CloudProceduralCacheKey, TheDeriverVersionChangesTheKey )
                CloudProceduralVolumeCacheKey( params, origin, kNextVersion ) );
 }
 
-// THE RANK IS CONTINUOUS ACROSS THE BISECTOR OF TWO BODIES (FARWX-b7). Two slabs of one species, rank 0
-// and rank 0.9, with air between: the nearest-body rank jumped by 0.9 on the plane halfway between them,
-// and the march's cut drew that plane as a straight vertical wall of cloud (the Showcase/Demo frames from
-// the horizon). The lowest cone is risePerKm-Lipschitz, so no two neighbouring voxels of the band may
-// differ by more than the rise over their distance — and the high slab's own voxels nearest the low one are
-// lowered to the low slab's cone.
+// THE AIR'S RANK IS CONTINUOUS ACROSS THE BISECTOR OF TWO BODIES, AND A BODY KEEPS ITS OWN (FARWX-b7, b9).
+// Two slabs of one species, rank 0 and rank 0.9, with air between: the nearest-body rank jumped by 0.9 on the
+// plane halfway between them, and the march's cut drew that plane as a straight vertical wall of cloud. The
+// lowest cone is risePerKm-Lipschitz, so no two neighbouring AIR voxels may differ by more than the rise over
+// their distance. A body voxel is not lowered to its neighbour's cone (b9: that smoothed the rank over
+// kilometres into one kept deck) — two clusters are two clouds and the step at a body's own edge is its edge.
 TEST( CloudProceduralRankGrowth, TheRankIsContinuousAcrossTheBisectorOfTwoBodies )
 {
     constexpr uint32_t w = 64, h = 8, d = 16;
@@ -1305,6 +1305,9 @@ TEST( CloudProceduralRankGrowth, TheRankIsContinuousAcrossTheBisectorOfTwoBodies
                 rank[index( 10 + x, y, z )] = 0.0f;
                 rank[index( 30 + x, y, z )] = 0.9f;
             }
+    std::vector<bool> body( rank.size() );
+    for ( size_t at = 0; at < rank.size(); ++at )
+        body[at] = std::isfinite( rank[at] );
 
     Desert::Assets::CloudProceduralGrowRankIntoAir( rank, owner, { glm::uvec2( 0u, h ) }, w, h, d, voxelKm, rise );
 
@@ -1313,17 +1316,22 @@ TEST( CloudProceduralRankGrowth, TheRankIsContinuousAcrossTheBisectorOfTwoBodies
         for ( uint32_t y = 0; y < h; ++y )
             for ( uint32_t x = 0; x < w; ++x )
             {
-                const float here = rank[index( x, y, z )];
+                const size_t at   = index( x, y, z );
+                const float  here = rank[at];
                 ASSERT_TRUE( std::isfinite( here ) ) << x << "," << y << "," << z;
-                const float stepX = std::abs( rank[index( ( x + 1 ) % w, y, z )] - here );
-                const float stepZ = std::abs( rank[index( x, y, ( z + 1 ) % d )] - here );
-                const float stepY = y + 1 < h ? std::abs( rank[index( x, y + 1, z )] - here ) : 0.0f;
-                if ( stepX > rise * voxelKm.x * 1.001f + 1e-5f || stepZ > rise * voxelKm.z * 1.001f + 1e-5f ||
-                     stepY > rise * voxelKm.y * 1.001f + 1e-5f )
+                if ( body[at] )
+                    continue;
+                const auto step = [&]( size_t other, float km )
+                { return !body[other] && std::abs( rank[other] - here ) > rise * km * 1.001f + 1e-5f; };
+                if ( step( index( ( x + 1 ) % w, y, z ), voxelKm.x ) ||
+                     step( index( x, y, ( z + 1 ) % d ), voxelKm.z ) ||
+                     ( y + 1 < h && step( index( x, y + 1, z ), voxelKm.y ) ) )
                     ++walls;
             }
-    EXPECT_EQ( walls, 0u ) << "the rank jumps between neighbouring voxels: a straight wall in the cut";
+    EXPECT_EQ( walls, 0u ) << "the air's rank jumps between neighbouring voxels: a straight wall in the cut";
 
-    // 18 voxels of 0.1 km from the low slab's edge (x 12) to the high slab's (x 30): 0.45 < 0.9.
-    EXPECT_NEAR( rank[index( 30, 3, 5 )], rise * 1.8f, 1e-4f );
+    // The high slab keeps its own rank; the air just before it carries the low slab's cone, 17 voxels of
+    // 0.1 km from the low slab's edge (x 12) to x 29: 0.425 < 0.9 + 0.025.
+    EXPECT_FLOAT_EQ( rank[index( 30, 3, 5 )], 0.9f );
+    EXPECT_NEAR( rank[index( 29, 3, 5 )], rise * 1.7f, 1e-4f );
 }

@@ -148,6 +148,7 @@ namespace Desert::Tests::CloudAuthoredRef
         {
             std::vector<unsigned char>                 Voxels;
             std::vector<unsigned char>                 Ranks; // the R8 rank the cut reads
+            float                                      RankRise = 1.0f; // the bake's ramp in the rank's units
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
         };
@@ -199,6 +200,7 @@ namespace Desert::Tests::CloudAuthoredRef
             {
                 built.Voxels = baked.GetValue().Voxels;
                 built.Ranks  = baked.GetValue().Ranks;
+                built.RankRise = baked.GetValue().RankRise;
             }
 
             return cache.emplace( key, std::move( built ) ).first->second;
@@ -550,7 +552,8 @@ namespace Desert::Tests::CloudAuthoredRef
             // seam through the bytes.
             params.RegionOriginKm  = Procedural( BoundCoverage() ).OriginKm;
             params.InvRegionSizeKm = 1.0f / Procedural( BoundCoverage() ).Params.RegionSizeKm;
-            params.Weather = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params );
+            params.Weather         = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params,
+                                                                             Procedural( BoundCoverage() ).RankRise );
 
             return params;
         }

@@ -566,6 +566,7 @@ namespace Desert::Graphic::System
                  .Properties = Core::Formats::Sample,
             };
             m_ModellingRank = m_ModellingVolume ? Image3D::Create( rankSpec ) : nullptr;
+            m_ModellingRankRise = baked.GetValue().RankRise;
             if ( !m_ModellingRank )
                 m_ModellingVolume.reset();
 
@@ -1010,10 +1011,11 @@ namespace Desert::Graphic::System
         // §2.3.1 of the contract is about.
         const CloudQualityScale quality = CloudQualityFor( m_Quality );
 
-        payload = PackCloudParams( m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
-                                   CloudRegionBinding{ m_ModellingOriginKm, m_ModellingParams.RegionSizeKm,
-                                                       Assets::CloudFarWeatherUniform( m_ModellingParams ) },
-                                   quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
+        payload = PackCloudParams(
+             m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
+             CloudRegionBinding{ m_ModellingOriginKm, m_ModellingParams.RegionSizeKm,
+                                 Assets::CloudFarWeatherUniform( m_ModellingParams, m_ModellingRankRise ) },
+             quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
         return true;
     }
 

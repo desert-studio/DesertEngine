@@ -766,6 +766,10 @@ namespace Desert::Assets
     {
         std::vector<unsigned char> Voxels;
         std::vector<unsigned char> Ranks;
+        /// The rank's rise across ProfileDepth IN THE UNITS OF Ranks — kCloudRankSoftness / CoverageContrast
+        /// carried through the column CDF (mean over the columns of F(min + softness) - F(min)); what the
+        /// march's ramp divides by (CloudFarWeatherUniform's z).
+        float RankRise = 1.0f;
     };
 
     /// THE bake; the vector-returning overloads below are its Voxels. EVERY cell of the lattice is baked —
@@ -807,9 +811,9 @@ namespace Desert::Assets
     /// What the march needs to turn a rank and a weather sample into a cut, as the GPU block carries it
     /// (CloudGpuPayload::Weather / u_CloudWeather): x the slider's Coverage, y rho = sqrt(PatchStrength)
     /// — ZERO when the weather stands down (no strength, or a painted pattern is the weather, exactly as
-    /// CloudProceduralLocalCover decides), z the rank's rise across ProfileDepth in CDF units
-    /// (kCloudRankSoftness / CoverageContrast), w 1 / kCloudFarWeatherPeriodKm.
-    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params );
+    /// CloudProceduralLocalCover decides), z the rank's rise across ProfileDepth in CDF units — @p rankRise,
+    /// the bake's CloudProceduralVolumeBake::RankRise, w 1 / kCloudFarWeatherPeriodKm.
+    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params, float rankRise );
 
     /// The cover the march compares a rank against at a world column: Coverage redistributed by the world
     /// weather (the Gaussian copula, mean exactly Coverage), or Coverage itself when a painted pattern is
@@ -845,7 +849,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000007ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000008ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
@@ -868,6 +872,8 @@ namespace Desert::Assets
         std::vector<unsigned char> Voxels;
         /// The R8 rank block, CloudProceduralRankBytes long (CloudProceduralVolumeBake::Ranks).
         std::vector<unsigned char> Ranks;
+        /// CloudProceduralVolumeBake::RankRise, stored after the rank block (deriver v8).
+        float                      RankRise  = 1.0f;
         bool                       FromCache = false;
         uint64_t                   Key       = 0;
         /// Why a fresh bake could not be stored (the file system's own reason), empty when it was — the

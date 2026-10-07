@@ -807,16 +807,20 @@ namespace Desert::Assets
         if ( auto hit = Common::DDC::Get( kCloudModellingDeriver, result.Key ); hit.has_value() )
         {
             const uint64_t voxelBytes = CloudProceduralVoxelBytes( params.VolumeSideVoxels );
-            const uint64_t expected   = voxelBytes + CloudProceduralRankBytes( params.VolumeSideVoxels );
+            const uint64_t rankBytes  = CloudProceduralRankBytes( params.VolumeSideVoxels );
+            const uint64_t expected   = voxelBytes + rankBytes + sizeof( float );
             if ( hit->size() != expected )
                 return Common::MakeFormattedError<CloudProceduralCachedBake>(
                      "the cached modelling volume '{}' holds {} bytes where a {}-voxel grid is {} — the entry is "
                      "damaged; delete it to re-bake",
                      Common::DDC::PathFor( kCloudModellingDeriver, result.Key ).string(), hit->size(),
                      params.VolumeSideVoxels, expected );
-            // ONE ENTRY, PROFILE THEN RANK: the two are one bake and must never be served from two keys.
-            result.Voxels.assign( hit->begin(), hit->begin() + static_cast<std::ptrdiff_t>( voxelBytes ) );
-            result.Ranks.assign( hit->begin() + static_cast<std::ptrdiff_t>( voxelBytes ), hit->end() );
+            // ONE ENTRY, PROFILE THEN RANK THEN THE RANK'S RISE: one bake, never served from two keys.
+            const auto ranksAt = hit->begin() + static_cast<std::ptrdiff_t>( voxelBytes );
+            const auto riseAt  = ranksAt + static_cast<std::ptrdiff_t>( rankBytes );
+            result.Voxels.assign( hit->begin(), ranksAt );
+            result.Ranks.assign( ranksAt, riseAt );
+            std::memcpy( &result.RankRise, &*riseAt, sizeof( float ) );
             result.FromCache = true;
             return Common::MakeSuccess( std::move( result ) );
         }
@@ -826,10 +830,14 @@ namespace Desert::Assets
             return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
         // A copy: Result hands out a const reference only (ResultWithCodes.hpp), so a move would be one in name.
         result.Voxels = baked.GetValue().Voxels;
-        result.Ranks  = baked.GetValue().Ranks;
+        result.Ranks    = baked.GetValue().Ranks;
+        result.RankRise = baked.GetValue().RankRise;
 
         std::vector<unsigned char> entry( result.Voxels );
         entry.insert( entry.end(), result.Ranks.begin(), result.Ranks.end() );
+        unsigned char rise[sizeof( float )];
+        std::memcpy( rise, &result.RankRise, sizeof( float ) );
+        entry.insert( entry.end(), rise, rise + sizeof( float ) );
 
         // The DDC stores bytes as chars; viewing uint8_t voxels through char is the one aliasing the language
         // permits, and a copy into a std::string would double an 8 MiB payload for nothing.
@@ -1884,9 +1892,18 @@ namespace Desert::Assets
             /// column minimum, and the fraction of columns that CloudProceduralKeep keeps at a cover c is c to
             /// within one 255th — for any density, size spread, scatter, species mix or seed. That is what the
             /// pow(cover, 0.68) and the packing gain used to fake, and why neither exists any more.
+            ///
+            /// THE RAMP IN THE SAME UNITS (FARWX-b11). The march's ramp (CloudRankProfile) divides the cover's
+            /// excess over a byte by the rank's rise across ProfileDepth, and that rise is `softness` in RAW
+            /// rank — but the byte is a column fraction. @p riseOut receives the softness carried through the
+            /// same map: the mean over the region's columns of F(min + softness) - F(min). Handing the march
+            /// the raw 0.25 instead (b10) compared a raw width against a fraction: on Clouds_Demo the column
+            /// minima are packed, F stretches them, every kept body sat a whole ramp past its threshold and
+            /// was drawn at profile 1 — a flat, featureless mass with only its halo for an edge.
             std::vector<unsigned char> CloudProceduralRankColumnCdf( const std::vector<float>& rankField,
                                                                      uint32_t width, uint32_t height,
-                                                                     uint32_t depth )
+                                                                     uint32_t depth, float softness,
+                                                                     float& riseOut )
             {
                 const size_t       columns = static_cast<size_t>( width ) * depth;
                 std::vector<float> minima;
@@ -1902,6 +1919,19 @@ namespace Desert::Assets
                             minima.push_back( lowest );
                     }
                 std::sort( minima.begin(), minima.end() );
+
+                double riseSum = 0.0;
+                for ( const float lowest : minima )
+                {
+                    const auto from = std::lower_bound( minima.begin(), minima.end(), lowest );
+                    const auto to   = std::lower_bound( from, minima.end(), lowest + softness );
+                    riseSum += static_cast<double>( to - from );
+                }
+                // One 255th at the least: the march divides by it, and a byte cannot resolve a narrower ramp.
+                riseOut = minima.empty() ? 1.0f
+                                         : std::max( static_cast<float>( riseSum / static_cast<double>( columns ) /
+                                                                         static_cast<double>( minima.size() ) ),
+                                                     1.0f / 255.0f );
 
                 std::vector<unsigned char> ranks( rankField.size(), kCloudProceduralNoRank );
                 for ( size_t at = 0; at < rankField.size(); ++at )
@@ -2274,7 +2304,7 @@ namespace Desert::Assets
         CloudProceduralGrowRankIntoAir( rankField, rankOwner, bandRows, width, height, depth,
                                         glm::vec3( voxelXKm, voxelYKm, voxelZKm ),
                                         rankSoftness / params.ProfileDepthKm );
-        out.Ranks  = CloudProceduralRankColumnCdf( rankField, width, height, depth );
+        out.Ranks = CloudProceduralRankColumnCdf( rankField, width, height, depth, rankSoftness, out.RankRise );
         return Common::MakeSuccess( std::move( out ) );
     }
 
@@ -2391,7 +2421,7 @@ namespace Desert::Assets
         return map;
     }
 
-    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params )
+    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params, float rankRise )
     {
         const float cover = std::clamp( params.Coverage, 0.0f, 1.0f );
 
@@ -2403,8 +2433,7 @@ namespace Desert::Assets
         const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
         const float rho      = ( painted || strength <= 1e-4f ) ? 0.0f : std::sqrt( strength );
 
-        return glm::vec4( cover, rho, kCloudRankSoftness / std::max( params.CoverageContrast, 1e-2f ),
-                          1.0f / kCloudFarWeatherPeriodKm );
+        return glm::vec4( cover, rho, rankRise, 1.0f / kCloudFarWeatherPeriodKm );
     }
 
     float CloudProceduralLocalCover( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )
