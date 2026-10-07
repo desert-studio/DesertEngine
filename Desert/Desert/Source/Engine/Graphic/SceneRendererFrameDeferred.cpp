@@ -471,11 +471,12 @@ namespace Desert::Graphic
         // World positions come from the G-buffer depth (Common/ReconstructPosition.glslh).
         const System::SSRRenderer::GBufferInputs inputs{ gbuffer[0], gbuffer[1],
                                                          textures.Depth( m_GBuffer, "GBuffer" ) };
+        const RDG::BufferRef traceUniforms = System::SSRRenderer::UploadTraceUniforms( graph, viewProj );
         graph.AddPass(
              "Deferred: SSR", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 ssr->DeclareTraceBindings( pass, trace, tiles, inputs, sceneCopy );
+                 ssr->DeclareTraceBindings( pass, trace, tiles, inputs, sceneCopy, traceUniforms );
                  // The G-buffer colours the trace does not sample stay declared as before.
                  ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
              },

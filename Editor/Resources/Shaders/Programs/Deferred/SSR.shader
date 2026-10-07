@@ -24,10 +24,19 @@ Shader "SSR"
 
         Uniform(0) sampler2D u_GBufferAlbedo;   // rgb = albedo, a = metallic
         Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest): world position via u_ViewProj's inverse
+        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest): world position via SSRTraceUB's inverse
         Uniform(3) sampler2D u_SceneColor;      // composited opaque scene (reflection source)
         layout(binding = 4, rgba16f) writeonly uniform image2D u_Trace;    // half resolution
         layout(binding = 5, rgba8) writeonly uniform image2D u_TileMask;   // one texel per tile
+
+        // Filled on the CPU from the view's matrices (SSRRenderer::UploadTraceUniforms, a graph buffer bound by
+        // the pass's block). u_InvJitteredViewProjection = inverse of the matrix the G-buffer depth was rasterised
+        // with (the caller's jittered view-projection, Common/ReconstructPosition.glslh); the same name every
+        // reconstructing reader uses (SSRResolveUB, DeferredUB) - the camera block carries it once TAA lands.
+        Uniform(6) SSRTraceUB
+        {
+        	mat4 u_InvJitteredViewProjection;
+        };
 
         PushConstant PushConstants
         {
@@ -39,11 +48,6 @@ Shader "SSR"
         LocalSize(8, 8, 1);
 
         shared uint s_TileReflects;
-        // inverse(u_ViewProj), computed once per workgroup. The push block is at the engine's 128-byte cap
-        // (ShaderReflectionTypes.hpp: kMaxPushBlockBytes) with u_ViewProj + the two vec4, so the inverse cannot
-        // travel beside it; deriving it here keeps ONE source matrix (the one the G-buffer depth was rasterised
-        // with - the caller passes the jittered view-projection, ReconstructPosition.glslh) for both directions.
-        shared mat4 s_InvViewProj;
 
         // Per-pixel hash (same one SSAO uses) — jitters the ray start so the coarse march's banding turns into
         // fine noise, which the composite pass's blur then resolves into a smooth reflection.
@@ -76,7 +80,7 @@ Shader "SSR"
         	ivec2 dSize = textureSize(u_GBufferDepth, 0);
         	ivec2 dPix  = clamp(ivec2(uv * vec2(dSize)), ivec2(0), dSize - 1);
         	vec3  sPos  = ReconstructWorldPosition((vec2(dPix) + 0.5) / vec2(dSize),
-        	                                       texelFetch(u_GBufferDepth, dPix, 0).r, s_InvViewProj);
+        	                                       texelFetch(u_GBufferDepth, dPix, 0).r, u_InvJitteredViewProjection);
         	return distance(u_CameraPos.xyz, p) - distance(u_CameraPos.xyz, sPos);
         }
 
@@ -97,7 +101,8 @@ Shader "SSR"
         	if (smoothFade < 0.01) return vec4(0.0);
 
         	N = normalize(N);
-        	vec3 worldPos = ReconstructWorldPosition(gUV, texelFetch(u_GBufferDepth, gPix, 0).r, s_InvViewProj);
+        	vec3 worldPos = ReconstructWorldPosition(gUV, texelFetch(u_GBufferDepth, gPix, 0).r,
+        	                                         u_InvJitteredViewProjection);
         	vec3 V = normalize(u_CameraPos.xyz - worldPos);
         	vec3 R = reflect(-V, N);
 
@@ -194,7 +199,6 @@ Shader "SSR"
         	if (gl_LocalInvocationIndex == 0u)
         	{
         		s_TileReflects = 0u;
-        		s_InvViewProj  = inverse(u_ViewProj);
         	}
         	barrier();
 

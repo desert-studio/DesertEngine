@@ -2068,7 +2068,11 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // RDG-A2-W4: the SSR passes sample the G-buffer as graph refs by name, never a framebuffer image.
     declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target)",
                                "GBufferInputsinputs{gbuffer[0],gbuffer[1],textures.Depth(m_GBuffer,\"GBuffer\")}",
-                               "RecordResolve(context,viewProj)", "RecordComposite(context,viewProj)" } );
+                               "RecordResolve(context,viewProj)", "RecordComposite(context,viewProj)",
+                               // The trace's inverse view-projection is a CPU-filled graph uniform buffer
+                               // (SSRTraceUB), uploaded before the trace and bound by its block.
+                               "System::SSRRenderer::UploadTraceUniforms(graph,viewProj)",
+                               "DeclareTraceBindings(pass,trace,tiles,inputs,sceneCopy,traceUniforms)" } );
 }
 
 // DepthResolve is a Copy node: G-buffer depth CopySrc -> target depth CopyDst, so the graph plans the barriers

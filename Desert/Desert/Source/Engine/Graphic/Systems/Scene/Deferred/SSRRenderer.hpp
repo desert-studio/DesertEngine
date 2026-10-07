@@ -16,7 +16,9 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <cstddef>
 #include <optional>
+#include <span>
 
 namespace Desert::Graphic::System
 {
@@ -172,12 +174,34 @@ namespace Desert::Graphic::System
             glm::vec4 Params;    // x = maxSteps, y = maxDistance, z = intensity, w = thickness
         };
 
+        // The trace's uniform block (SSR.shader SSRTraceUB, std140: one mat4). The inverse is computed HERE, on the
+        // CPU, once per frame from the view's matrix - never per workgroup in the shader. The field keeps the name
+        // every reconstructing reader uses (SSRResolveUB, DeferredUB) so the camera block can take it over.
+        struct TraceUniforms
+        {
+            glm::mat4 InvJitteredViewProjection;
+        };
+
+        // GRAPH BUILD (before "Deferred: SSR"): this frame's TraceUniforms as a graph buffer, uploaded by the
+        // graph's upload pass (Builder::QueueBufferUpload) so the trace is ordered after it. @p viewProj = the
+        // matrix this frame's G-buffer depth was rasterised with.
+        static RDG::BufferRef UploadTraceUniforms( RDG::Builder& graph, const glm::mat4& viewProj )
+        {
+            const TraceUniforms  uniforms{ glm::inverse( viewProj ) };
+            const RDG::BufferRef buffer =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( TraceUniforms ) }, "SSR.TraceUB" );
+            graph.QueueBufferUpload( buffer, std::as_bytes( std::span<const TraceUniforms>( &uniforms, 1 ) ) );
+            return buffer;
+        }
+
         // SETUP of the "Deferred: SSR" compute node: declares its one block (block 0) - the G-buffer and
         // @p sceneCopy sampled with the sampler the pipeline-setter route sampled them with (the images' own:
         // linear, REPEAT; the deferred composite reads the same G-buffer with it), @p trace / @p tiles as storage
-        // writes, the TracePush bytes; the pipeline's own setters are the other route. Not prepared: nothing.
+        // writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the TracePush bytes; the pipeline's own setters
+        // are the other route. Not prepared: nothing.
         void DeclareTraceBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef tiles,
-                                   const GBufferInputs& gbuffer, RDG::TextureRef sceneCopy ) const
+                                   const GBufferInputs& gbuffer, RDG::TextureRef sceneCopy,
+                                   RDG::BufferRef uniforms ) const
         {
             if ( !m_TracePipeline )
                 return;
@@ -193,6 +217,7 @@ namespace Desert::Graphic::System
                            RDG::SamplerDesc::LinearRepeat() )
                  .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
                  .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
+                 .Uniform( "SSRTraceUB", uniforms )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
         }
 
