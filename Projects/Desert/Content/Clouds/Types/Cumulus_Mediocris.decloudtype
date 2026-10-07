@@ -3,31 +3,35 @@
         "Kind": "CloudType",
         "Guid": "57d4bb1926b4607e95f65d4c092b2747",
         "Versions": {
-            "CLTY": 5
+            "CLTY": 6
         },
         "Dependencies": []
     },
     "DisplayName": "Cumulus mediocris",
     "Notes": "The fair-weather heap: base on the condensation level, top a kilometre above it. Placement scale 0.80 - a shade tighter than a congestus field, because a mediocris tops out before it has grown its patch out.",
     "Shape": {
-        "BaseAltitudeKm": 0.9,
-        "TopAltitudeKm": 1.9,
-        "EdgeTopFraction": 0.45,
-        "BaseRampFraction": 0.06,
+        "BaseAltitudeKm": 0.8999999761581421,
+        "TopAltitudeKm": 1.899999976158142,
+        "EdgeTopFraction": 0.44999998807907104,
+        "BaseRampFraction": 0.05999999865889549,
         "Profile": {
             "HalfWidth": [
-                0.62, 0.6001933, 0.58070666, 0.56154, 0.5426933, 0.52416664, 0.50596, 0.48807332,
-                0.47050667, 0.45326, 0.43633333, 0.41972667, 0.40344, 0.38747334, 0.37182668, 0.3565
+                0.6200000047683716, 0.6001933217048645, 0.5807066559791565, 0.5615400075912476, 0.5426933169364929, 0.5241666436195374, 0.5059599876403809, 0.48807331919670105,
+                0.4705066680908203, 0.45326000452041626, 0.4363333284854889, 0.4197266697883606, 0.403439998626709, 0.38747334480285645, 0.3718266785144806, 0.3564999997615814
+            ],
+            "Density": [
+                0.0, 0.25925928354263306, 0.7407407760620117, 1.0, 1.0, 1.0, 1.0, 1.0,
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
             ]
         },
         "AnvilAltitudeKm": 0.0,
         "AnvilThicknessKm": 0.0,
         "AnvilStrength": 0.0,
-        "DetailCharacter": 0.7,
+        "DetailCharacter": 0.699999988079071,
         "DetailFactor": 1.0,
         "DensityFactor": 1.0,
         "ExtinctionFactor": 1.0,
-        "PlacementScale": 0.8,
+        "PlacementScale": 0.800000011920929,
         "PlacementAnisotropy": 1.0
     }
 }
