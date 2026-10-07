@@ -293,11 +293,11 @@ namespace Desert::Graphic::System
         }
 
         // Before RecordComposite: the target the resolve writes this frame and the one it reprojects.
-        std::shared_ptr<Image2D> GetAccumImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetAccumImage() const
         {
             return m_AccumFB[m_AccumIndex] ? m_AccumFB[m_AccumIndex]->GetColorAttachmentImage( 0 ) : nullptr;
         }
-        std::shared_ptr<Image2D> GetHistoryImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetHistoryImage() const
         {
             const uint32_t prv = 1u - m_AccumIndex;
             return m_AccumFB[prv] ? m_AccumFB[prv]->GetColorAttachmentImage( 0 ) : nullptr;
@@ -319,20 +319,20 @@ namespace Desert::Graphic::System
             return ( pixels + kTileSize - 1u ) / kTileSize;
         }
         // The trace's size: one texel per 2x2 block, rounded up so an odd edge column still has a block.
-        uint32_t Width() const
+        [[nodiscard]] uint32_t Width() const
         {
             return m_TargetFramebuffer.lock()->GetFramebufferWidth();
         }
-        uint32_t Height() const
+        [[nodiscard]] uint32_t Height() const
         {
             return m_TargetFramebuffer.lock()->GetFramebufferHeight();
         }
-        glm::vec2 Texel() const
+        [[nodiscard]] glm::vec2 Texel() const
         {
-            return glm::vec2( 1.0f / static_cast<float>( Width() ), 1.0f / static_cast<float>( Height() ) );
+            return { 1.0f / static_cast<float>( Width() ), 1.0f / static_cast<float>( Height() ) };
         }
         // Six vertices per tile; SSRTiles.glslh collapses the unmarked ones.
-        uint32_t TileVertices() const
+        [[nodiscard]] uint32_t TileVertices() const
         {
             return TileGrid( Width() ) * TileGrid( Height() ) * 6u;
         }

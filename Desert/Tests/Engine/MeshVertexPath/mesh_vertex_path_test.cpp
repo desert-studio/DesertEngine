@@ -630,8 +630,8 @@ TEST_F( ShaderRootFixture, PipelineRangeAndMaterialBlockAreSizedByTheOneFunction
 {
     const std::filesystem::path engine =
          Desert::TestSupport::RepositoryRoot() / "Desert/Desert/Source/Engine/Graphic";
-    const std::string           pipeline = ReadFile( engine / "API/Vulkan/VulkanPipeline.cpp" );
-    const std::string           material = ReadFile( engine / "Materials/MaterialExecutor.cpp" );
+    const std::string pipeline = ReadFile( engine / "API/Vulkan/VulkanPipeline.cpp" );
+    const std::string material = ReadFile( engine / "Materials/MaterialExecutor.cpp" );
     ASSERT_FALSE( pipeline.empty() );
     ASSERT_FALSE( material.empty() );
     EXPECT_NE( pipeline.find( "ShaderLayout::PushBlockSize( pushConstant )" ), std::string::npos );

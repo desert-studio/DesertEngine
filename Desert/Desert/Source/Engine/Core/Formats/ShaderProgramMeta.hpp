@@ -112,8 +112,8 @@ namespace Desert::Core::Formats
         // texture (the MaterialExecutor gives it a property holding its default), and it is the reason the
         // DSL can say so without lying: the Material Editor's Details never list it
         // (MaterialEdit::PlanParameterGroups) and a .demat never carries a value for it
-        // (Runtime::ApplySurfaceAsset, MaterialService.cpp), because a value an artist wrote would be overwritten by
-        // the next draw.
+        // (Runtime::ApplySurfaceAsset, MaterialService.cpp), because a value an artist wrote would be overwritten
+        // by the next draw.
         bool EngineSet = false;
 
         std::optional<float> Min;                                // present => slider/clamped

@@ -175,7 +175,7 @@ namespace Desert::Graphic::Render2D
 
         [[nodiscard]] Common::BoolResultStr AddRetainedPassesOf( RDG::Builder& graph, const DrawList2D& root );
         RetainedTarget* AcquireRetainedTarget( uint32_t width, uint32_t height, uint64_t frame );
-        static void     OpenTarget( RetainedTarget& target, const glm::vec4& rect );
+        static void                         OpenTarget( RetainedTarget& target, const glm::vec4& rect );
 
         // Grow the dynamic buffers to hold at least the given counts (reused across frames otherwise).
         void EnsureCapacity( uint32_t vertexCount, uint32_t indexCount );

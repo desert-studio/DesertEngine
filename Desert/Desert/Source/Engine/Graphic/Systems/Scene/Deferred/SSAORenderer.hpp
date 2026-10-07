@@ -31,7 +31,8 @@ namespace Desert::Graphic::System
             // pass for that one colour target (no framebuffer of its own).
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "SSAO";
-            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kSSAO } };
+            spec.TargetLayout =
+                 RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kSSAO }, .DepthFormat = std::nullopt };
             spec.Shader            = m_Shader;
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;

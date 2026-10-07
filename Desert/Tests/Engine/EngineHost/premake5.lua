@@ -8,6 +8,8 @@
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 local test_name = path.getname(_SCRIPT_DIR)
 
+test_needs_vulkan_device(test_name)
+
 project(test_name)
     kind "ConsoleApp"
     language "C++"
@@ -44,13 +46,18 @@ project(test_name)
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
 
     -- What the Editor links next to Desert.lib (Editor/premake5.lua), minus the editor's own toolkit use.
-    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp" }
+    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus" }
 
     filter "system:windows"
         defines { "DESERT_PLATFORM_WINDOWS" }
         buildoptions { "/bigobj" }
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
+        -- gmake links no static-lib dependency transitively: what Desert.lib uses and the frameworks GLFW/MoltenVK
+        -- use, as the Editor lists them.
+        links { "Common", "Jolt", "Lua", "ReflectCpp",
+                "Cocoa.framework", "IOKit.framework", "CoreFoundation.framework", "CoreVideo.framework",
+                "CoreMedia.framework", "AVFoundation.framework", "QuartzCore.framework", "Foundation.framework" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}

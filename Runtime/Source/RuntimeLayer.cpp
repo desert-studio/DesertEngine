@@ -92,10 +92,14 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <string_view>
 
 namespace
 {
+    // The runtime present reports every failed import/pass under one prefix.
+    constexpr std::string_view kRuntimePresentErrorFormat = "[Runtime] present: {}";
+
     /// The device image behind an authored sprite handle, or nullptr if the project has none. Both the
     /// loading cover and the authored splash ask this, and they used to ask it in two hand-copied
     /// blocks -- which is how the two of them would have drifted apart the first time either was fixed.
@@ -1165,7 +1169,7 @@ namespace Desert::Player
         Graphic::RDG::ExternalTexture backBuffer;
         if ( const auto imported = renderer.ImportBackBuffer( backBuffer ); !imported )
         {
-            return Common::MakeError( "[Runtime] present: " + imported.GetError() );
+            return Common::MakeError( std::format( kRuntimePresentErrorFormat, imported.GetError() ) );
         }
         const Graphic::RDG::TextureRef backBufferRef = graph.RegisterExternal( backBuffer, "BackBuffer" );
         // The acquired image has no picture of its own: without its writer the frame has none (cleared to black).
@@ -1201,7 +1205,8 @@ namespace Desert::Player
         {
             if ( const auto imported = renderer.ImportImage( presented, sceneImage ); !imported )
             {
-                return Common::MakeError( "[Runtime] present: the scene's final image: " + imported.GetError() );
+                return Common::MakeError(
+                     std::format( "[Runtime] present: the scene's final image: {}", imported.GetError() ) );
             }
             sceneRef = graph.RegisterExternal( sceneImage, "SceneFinalImage" );
         }
@@ -1211,7 +1216,7 @@ namespace Desert::Player
         {
             if ( const auto retained = m_Render2D->AddRetainedPasses( graph ); !retained )
             {
-                return Common::MakeError( "[Runtime] present: " + retained.GetError() );
+                return Common::MakeError( std::format( kRuntimePresentErrorFormat, retained.GetError() ) );
             }
         }
         graph.AddPass(
@@ -1244,7 +1249,7 @@ namespace Desert::Player
                                renderer.DrawFullscreen( bindings, *m_BlitPipeline, m_BlitExecutor.get() );
                           !drawn )
                      {
-                         return Common::MakeError( "the scene blit: " + drawn.GetError() );
+                         return Common::MakeError( std::format( "the scene blit: {}", drawn.GetError() ) );
                      }
                  }
                  if ( drawUI )
@@ -1288,7 +1293,7 @@ namespace Desert::Player
             // and the frame presents it. Only a failure of ExecuteGraph itself (logged there) ends the frame here.
             if ( !graph.GetExecuteReport().Frame )
             {
-                return Common::MakeError( "[Runtime] present graph: " + executed.GetError() );
+                return Common::MakeError( std::format( "[Runtime] present graph: {}", executed.GetError() ) );
             }
         }
 

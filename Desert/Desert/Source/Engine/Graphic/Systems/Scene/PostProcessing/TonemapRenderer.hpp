@@ -31,13 +31,13 @@ namespace Desert::Graphic::System
             std::shared_ptr<Image2D> Source; // the configured source framebuffer's colour 0
             std::shared_ptr<Image2D> AutoExposure;
         };
-        Inputs GetInputs() const
+        [[nodiscard]] Inputs GetInputs() const
         {
             const auto source = m_TargetFramebuffer.lock();
             return { source ? source->GetColorAttachmentImage() : nullptr, m_AutoExposureImage.lock() };
         }
         // The tonemapped image, colour 0 of GetSystemFramebuffer(): the node's ColorTarget.
-        std::shared_ptr<Image2D> GetOutputImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetOutputImage() const
         {
             return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
         }

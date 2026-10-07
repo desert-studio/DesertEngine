@@ -185,7 +185,7 @@ namespace Desert::Graphic::System
 
         // True when an earlier frame's graph has written the transmittance and multi-scattering LUTs for the
         // atmosphere's current parameters, so the environment bake (outside the graph) may sample them.
-        bool CachedLutsCurrent() const;
+        [[nodiscard]] bool CachedLutsCurrent() const;
 
     private:
         std::weak_ptr<MaterialSkybox> m_MaterialSkybox;

@@ -25,12 +25,12 @@ namespace Desert::Graphic::System
         }
 
         // The sampled input (the configured source framebuffer's colour 0) and the ColorTarget.
-        std::shared_ptr<Image2D> GetInputImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetInputImage() const
         {
             const auto input = m_TargetFramebuffer.lock();
             return input ? input->GetColorAttachmentImage() : nullptr;
         }
-        std::shared_ptr<Image2D> GetOutputImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetOutputImage() const
         {
             return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
         }

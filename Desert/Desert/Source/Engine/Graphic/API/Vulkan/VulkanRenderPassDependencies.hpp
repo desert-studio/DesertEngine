@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -68,9 +69,10 @@ namespace Desert::Graphic::API::Vulkan
     // references) and the dependencies are built one way and a pipeline built against one of them is
     // compatible with the others on the same formats and sample count. @p resolves is empty, or has one entry
     // per colour (VK_ATTACHMENT_UNUSED for a colour that is not resolved).
-    inline VkResult CreateSinglePassRenderPass( VkDevice device, std::span<const VkAttachmentDescription> attachments,
-                                                std::span<const VkAttachmentReference> colours,
-                                                std::span<const VkAttachmentReference> resolves,
+    inline VkResult CreateSinglePassRenderPass( VkDevice                                 device,
+                                                std::span<const VkAttachmentDescription> attachments,
+                                                std::span<const VkAttachmentReference>   colours,
+                                                std::span<const VkAttachmentReference>   resolves,
                                                 const VkAttachmentReference* depth, bool presentTarget,
                                                 VkRenderPass& renderPass )
     {

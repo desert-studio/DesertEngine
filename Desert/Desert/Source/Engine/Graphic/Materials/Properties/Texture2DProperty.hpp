@@ -24,7 +24,7 @@ namespace Desert::Graphic
         // else was assigned, so no slot of a material ever shows "whatever was bound last".
         Texture2DProperty( std::shared_ptr<ShaderResources::UniformImage2D> uniform,
                            Core::Formats::DefaultTextureKind                defaultTexture )
-             : m_Uniform( uniform ), m_Default( defaultTexture )
+             : m_Uniform( std::move( uniform ) ), m_Default( defaultTexture )
         {
         }
 
@@ -33,13 +33,13 @@ namespace Desert::Graphic
         bool RestoreDefault()
         {
             const Image2D* image = DefaultTextures::Get().Resolve( m_Default );
-            if ( !image )
+            if ( image == nullptr )
                 return false;
             SetImage( image, RDG::Access::SampledGraphics );
             return true;
         }
 
-        Core::Formats::DefaultTextureKind GetDefault() const
+        [[nodiscard]] Core::Formats::DefaultTextureKind GetDefault() const
         {
             return m_Default;
         }

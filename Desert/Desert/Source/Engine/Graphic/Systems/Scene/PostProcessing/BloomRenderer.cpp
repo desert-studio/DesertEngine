@@ -109,11 +109,11 @@ namespace Desert::Graphic::System
     {
         if ( !m_DownsamplePipeline )
             return Common::MakeError( "BloomRenderer: the downsample pipeline is not initialised" );
-        const bool     first  = ( mip == 0 );
-        const uint32_t bw     = chainDesc.Size.Width;
-        const uint32_t bh     = chainDesc.Size.Height;
-        uint32_t       srcW   = 0;
-        uint32_t       srcH   = 0;
+        const bool     first = ( mip == 0 );
+        const uint32_t bw    = chainDesc.Size.Width;
+        const uint32_t bh    = chainDesc.Size.Height;
+        uint32_t       srcW  = 0;
+        uint32_t       srcH  = 0;
         if ( first )
         {
             // Mip 0 samples the full-resolution scene colour.

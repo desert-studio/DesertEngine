@@ -265,6 +265,8 @@ namespace Desert::Graphic::System
                     auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
                     if ( tex == nullptr )
                         continue;
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
+                    // type
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
                     if ( img != nullptr && !material->SetTexture( name, img ) )
@@ -417,9 +419,10 @@ namespace Desert::Graphic::System
         {
             static bool s_Unresolved = false;
             if ( !std::exchange( s_Unresolved, true ) )
-                LOG_ERROR( "[MeshRenderer] no default surface template: {}; a material whose pipeline is not ready "
-                           "yet is not drawn",
-                           key.GetError() );
+                LOG_ERROR(
+                     "[MeshRenderer] no default surface template: {}; a material whose pipeline is not ready "
+                     "yet is not drawn",
+                     key.GetError() );
             return nullptr;
         }
         auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( key.GetValue() );
@@ -500,9 +503,9 @@ namespace Desert::Graphic::System
         {
             return;
         }
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        const auto  camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
-        if ( !target || !camera )
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( !target || camera == nullptr )
         {
             return;
         }
@@ -634,7 +637,7 @@ namespace Desert::Graphic::System
         if ( m_StaticQueue.empty() && m_InstancedQueue.empty() )
             return;
 
-        auto* const camera   = m_SceneRenderer->GetMainCamera();
+        auto* const camera = m_SceneRenderer->GetMainCamera();
         if ( camera == nullptr )
             return;
 
@@ -671,7 +674,7 @@ namespace Desert::Graphic::System
         for ( const auto& data : m_StaticQueue )
         {
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() ||
-                 !data.MaterialSlots->Slots[0] )
+                 data.MaterialSlots->Slots[0] == nullptr )
                 continue;
 
             if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
@@ -744,8 +747,8 @@ namespace Desert::Graphic::System
             if ( !instancingOn || group == nullptr )
                 return nullptr;
 
-            auto*        materials = Runtime::ResourceRegistry::GetMaterialService();
-            const bool   hasAsset  = materials != nullptr && materials->Owns( group );
+            auto*               materials = Runtime::ResourceRegistry::GetMaterialService();
+            const bool          hasAsset  = materials != nullptr && materials->Owns( group );
             DataDrivenMaterial* variant =
                  hasAsset ? materials->GetVariant( group, MeshVertexPath::Instanced, instancedPass ) : nullptr;
 
@@ -1197,7 +1200,7 @@ namespace Desert::Graphic::System
         if ( m_SkinnedQueue.empty() )
             return;
 
-        auto* const camera   = m_SceneRenderer->GetMainCamera();
+        auto* const camera = m_SceneRenderer->GetMainCamera();
 
         // The SAME snapshot, from the SAME gather, that lights every static mesh in this frame — the
         // cascades and the environment cubes included. Skinned meshes have no G-buffer variant, so in a
@@ -1402,7 +1405,7 @@ namespace Desert::Graphic::System
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_Translucent[cellShader];
 
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         auto        shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
         if ( !shader || !target )
         {

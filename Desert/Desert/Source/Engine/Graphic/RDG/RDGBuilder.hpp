@@ -59,22 +59,22 @@ namespace Desert::Graphic::RDG
     class PassContext
     {
     public:
-        Common::ResultStr<TextureBinding> GetTexture( TextureRef texture, Access access,
-                                                      SubresourceRange range = SubresourceRange::All() ) const;
-        Common::ResultStr<BufferBinding>  GetBuffer( BufferRef buffer, Access access ) const;
+        [[nodiscard]] Common::ResultStr<TextureBinding>
+        GetTexture( TextureRef texture, Access access, SubresourceRange range = SubresourceRange::All() ) const;
+        [[nodiscard]] Common::ResultStr<BufferBinding> GetBuffer( BufferRef buffer, Access access ) const;
         // The description of any texture of this graph (UE: FRDGTexture::Desc) - Builder::GetTextureDesc seen
         // from a pass body. A description is not contents, so no declared access is needed to ask for it.
-        Common::ResultStr<TextureDesc> GetTextureDesc( TextureRef texture ) const;
+        [[nodiscard]] Common::ResultStr<TextureDesc> GetTextureDesc( TextureRef texture ) const;
 
-        std::string_view GetPassName() const;
+        [[nodiscard]] std::string_view GetPassName() const;
         // RDG-FAULT1. The @p index-th binding block this pass's setup declared (PassBuilder::Bindings, in
         // declaration order; RenderPassDeclaration::Bindings returns that index). The exec opens it with
         // PassBindings( context, context.GetBindingBlock( index ) ); an index the setup never declared is refused
         // there, naming the pass.
-        BindingBlockRef GetBindingBlock( uint32_t index ) const;
+        [[nodiscard]] BindingBlockRef GetBindingBlock( uint32_t index ) const;
         // RDG-CONTRACTS B(1). The pipe this pass records on (CompiledPass::OnPipe). For labels and profiling rows
         // only: an exec lambda records the same work on either pipe.
-        Pipe GetPipe() const;
+        [[nodiscard]] Pipe GetPipe() const;
 
         // RDG-CONTRACTS A(3) - the renderer-facing contract for a graph transient (UE: FRDGTexture accessed
         // through the pass parameters, never stored). A renderer moving an owned intermediate into the graph:
@@ -91,7 +91,7 @@ namespace Desert::Graphic::RDG
         // value, or the same image for a different resource); read a transient's contents from a previous frame
         // (a history buffer is an external, or an extracted transient registered back next frame).
         // The backend recording this graph; a backend-specific helper turns it into its command buffer.
-        IBackend& GetBackend() const
+        [[nodiscard]] IBackend& GetBackend() const
         {
             return m_Backend;
         }
@@ -184,7 +184,7 @@ namespace Desert::Graphic::RDG
         // The description a created or registered texture carries (UE: FRDGTexture::Desc): a reader derives
         // what depends on its shape (mip count, extent, format) from the texture itself, never from a value
         // its producer publishes beside the ref. Refused for a handle that is not a texture of this graph.
-        Common::ResultStr<TextureDesc> GetTextureDesc( TextureRef texture ) const;
+        [[nodiscard]] Common::ResultStr<TextureDesc> GetTextureDesc( TextureRef texture ) const;
 
         // The resource's current state is the one it carries (ExternalTexture::SubresourceStates); the
         // graph does not take a second copy of it as an argument.
@@ -254,7 +254,7 @@ namespace Desert::Graphic::RDG
         // it run on what is left. The returned error is reserved for a malformed GRAPH (a resource declared wrong
         // outside any pass, a FaultDefault in a graph whose FaultDefaults have no sources); a faulted pass is
         // never an error.
-        Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;
+        [[nodiscard]] Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;
 
         // RDG-CONTRACTS B(2). The same compile, scheduled for @p pipes. Compile(memory) above is this overload
         // with PipeCapabilities{} (no separate compute family). Scheduling runs after culling and before the
@@ -269,8 +269,8 @@ namespace Desert::Graphic::RDG
         //   3. ownership: one QueueOwnershipTransfer per (resource, range) whose contents cross pipes;
         //   4. lifetimes: AliasFirst/LastPosition widened over the fork..join window.
         // The single-pipe result equals Compile(memory) on the same graph, except DemotedAsyncPasses.
-        Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory,
-                                                  const PipeCapabilities&            pipes ) const;
+        [[nodiscard]] Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory,
+                                                                const PipeCapabilities&            pipes ) const;
 
         // Pass culling is on by default. Off, every pass is live and CulledPasses stays empty: the debug switch
         // DebugViewState::DisablePassCulling, so that a picture which changes with it names a pass whose effect
@@ -279,7 +279,7 @@ namespace Desert::Graphic::RDG
         {
             m_PassCulling = enabled;
         }
-        bool IsPassCullingEnabled() const
+        [[nodiscard]] bool IsPassCullingEnabled() const
         {
             return m_PassCulling;
         }
@@ -321,12 +321,12 @@ namespace Desert::Graphic::RDG
         Common::BoolResultStr Execute( IBackend& backend );
 
         // The faults of the last Execute (empty before it); what an editor panel or a test asks.
-        const ExecuteReport& GetExecuteReport() const;
+        [[nodiscard]] const ExecuteReport& GetExecuteReport() const;
         // RDG-FAULT1. The external texture registered as resource @p resource (null for a transient, a buffer or
         // an index out of range): how the caller reaches the images of FrameFault::Externals to clear them.
-        ExternalTexture* FindExternalTexture( uint32_t resource ) const;
+        [[nodiscard]] ExternalTexture* FindExternalTexture( uint32_t resource ) const;
 
-        const std::string& GetName() const
+        [[nodiscard]] const std::string& GetName() const
         {
             return m_Name;
         }
@@ -336,6 +336,8 @@ namespace Desert::Graphic::RDG
         friend class PassContext;
         friend class BindingBlockBuilder; // appends the entries of a declared block (RDGPassBindings.cpp)
         friend class PassBindings;        // resolves a declared block in the exec
+        // Compile's working state and its phases (RDGCompile.cpp; UE FRDGBuilder::Compile).
+        class Compiler;
 
         Common::BoolResultStr RecordExternalStates( std::span<const Barrier> barriers );
 
@@ -349,14 +351,14 @@ namespace Desert::Graphic::RDG
 
         struct AttachmentRecord
         {
-            uint32_t Slot     = 0;
-            bool     IsDepth   = false;
-            bool     IsResolve = false;
-            uint32_t Resource  = kInvalidResource;
-            LoadOp   Load;
-            uint32_t Mip        = 0;
-            uint32_t BaseLayer  = 0;
-            uint32_t LayerCount = 1;
+            uint32_t    Slot      = 0;
+            bool        IsDepth   = false;
+            bool        IsResolve = false;
+            uint32_t    Resource  = kInvalidResource;
+            LoadOp      Load;
+            uint32_t    Mip        = 0;
+            uint32_t    BaseLayer  = 0;
+            uint32_t    LayerCount = 1;
             StoreAction Store      = StoreAction::Store; // declared; Compile may still discard
         };
 
@@ -388,15 +390,15 @@ namespace Desert::Graphic::RDG
             FaultDefault        Default = FaultDefault::None;                 // SetFaultDefault (transients)
             ExternalFaultPolicy Policy  = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
 
-            bool IsExternal() const
+            [[nodiscard]] bool IsExternal() const
             {
                 return ExternalTex != nullptr || ExternalBuf != nullptr;
             }
-            bool IsExtracted() const
+            [[nodiscard]] bool IsExtracted() const
             {
                 return HasFinalAccess;
             }
-            uint32_t SubresourceCount() const
+            [[nodiscard]] uint32_t SubresourceCount() const
             {
                 return Kind == ResourceKind::Texture ? Texture.SubresourceCount() : 1;
             }
@@ -404,12 +406,12 @@ namespace Desert::Graphic::RDG
 
         PassBuilder BeginPass( std::string_view name, PassFlags flags );
         // Keeps the FIRST declaration error: later ones are usually its consequences.
-        void                  RecordError( std::string message );
+        void                                RecordError( std::string message );
         // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
-        void                  RecordPassError( uint32_t pass, std::string message );
-        const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
+        void                                RecordPassError( uint32_t pass, std::string message );
+        [[nodiscard]] const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
         // RDG-FAULT1: FrameFatal external @p resource as a FrameFault lists it (with its Extract's final access).
-        FrameFaultExternal MakeFrameFaultExternal( uint32_t resource ) const;
+        [[nodiscard]] FrameFaultExternal MakeFrameFaultExternal( uint32_t resource ) const;
 
         std::string                 m_Name;
         std::vector<ResourceRecord> m_Resources;

@@ -28,7 +28,8 @@ namespace Desert::Graphic::System
             // that one colour target (no framebuffer of its own).
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "Copy";
-            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kSceneColorCopy } };
+            spec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kSceneColorCopy },
+                                                         .DepthFormat  = std::nullopt };
             spec.Shader            = m_Shader;
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;

@@ -26,7 +26,7 @@ namespace Desert::Graphic::RDG
 {
     class Builder;
     class PassContext;
-}
+} // namespace Desert::Graphic::RDG
 
 namespace Desert::Graphic::System
 {

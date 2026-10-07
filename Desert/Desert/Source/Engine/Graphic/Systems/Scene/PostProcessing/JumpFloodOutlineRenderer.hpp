@@ -40,35 +40,35 @@ namespace Desert::Graphic::System
         }
 
         // False: nothing can be recorded this frame (the scene framebuffer is gone); the error is logged.
-        bool Prepare() const;
+        [[nodiscard]] bool Prepare() const;
         // Init runs when the outline is enabled and the silhouette mask exists, selected or not, so seed[0]
         // is written this frame and the composite may sample it.
-        bool RunsInit() const;
+        [[nodiscard]] bool RunsInit() const;
         // The ~log2(width) propagation steps run only when something is outlined this frame.
-        bool RunsSteps() const
+        [[nodiscard]] bool RunsSteps() const
         {
             return RunsInit() && m_OutlineActive;
         }
         // ~log2 of this frame's scene size (the seeds are sized from it).
-        uint32_t GetStepCount() const;
+        [[nodiscard]] uint32_t GetStepCount() const;
         // Step @p step samples seed[GetStepSource(step)] and writes the other seed.
         static uint32_t GetStepSource( uint32_t step )
         {
             return step % 2;
         }
         // The seed the composite samples: the last step's target, or seed[0] when no step ran.
-        uint32_t GetFinalSeedIndex() const
+        [[nodiscard]] uint32_t GetFinalSeedIndex() const
         {
             return RunsSteps() ? GetStepCount() % 2 : 0u;
         }
         // The seed transients of this frame: the scene's size, ViewTargetFormats::kJFASeed. Nullopt: the scene
         // framebuffer is gone (logged).
-        std::optional<RDG::TextureDesc> GetSeedDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetSeedDesc() const;
 
-        std::shared_ptr<Image2D> GetMaskImage() const;
-        std::shared_ptr<Image2D> GetSceneColorImage() const;
+        [[nodiscard]] std::shared_ptr<Image2D> GetMaskImage() const;
+        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const;
         // What the tonemap consumes: the outlined scene (or the scene passed through).
-        std::shared_ptr<Image2D> GetOutputImage() const
+        [[nodiscard]] std::shared_ptr<Image2D> GetOutputImage() const
         {
             return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage() : nullptr;
         }

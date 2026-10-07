@@ -49,11 +49,11 @@ namespace Desert::Graphic::System
         // (Builder::CreateTexture from GetTargetDesc()); the renderer keeps no image and has no Resize.
         // The last blur pass's target is FrameTextures::Transients.LightShafts, which the tonemap adds in.
         // Nullopt: nothing to record (no scene colour or pipelines).
-        std::optional<RDG::TextureDesc> GetTargetDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetTargetDesc() const;
 
         // @p screenFade is the CPU-computed fade for a sun leaving the view (0 = fully off-screen or behind):
         // when this is false the graph gets no shaft nodes and the tonemap reads the system black texture.
-        bool IsActive( float screenFade ) const
+        [[nodiscard]] bool IsActive( float screenFade ) const
         {
             return m_Params.Enabled && screenFade > 0.0f && m_Params.BloomScale > 0.0f;
         }
@@ -78,7 +78,7 @@ namespace Desert::Graphic::System
         {
             m_Params = params;
         }
-        const Params& GetParams() const
+        [[nodiscard]] const Params& GetParams() const
         {
             return m_Params;
         }

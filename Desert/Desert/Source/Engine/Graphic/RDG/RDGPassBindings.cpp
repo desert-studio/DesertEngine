@@ -103,7 +103,9 @@ namespace Desert::Graphic::RDG
                                             .Kind       = ShaderResourceKind::StorageTexture,
                                             .Texture    = resolved.GetValue(),
                                             .Range      = range,
-                                            .Declared   = declared } );
+                                            .Declared   = declared,
+                                            .Sampler    = std::nullopt } );
+        return *this;
     }
 
     // A declared uniform or storage buffer entry: the kind decides which accesses are legal.

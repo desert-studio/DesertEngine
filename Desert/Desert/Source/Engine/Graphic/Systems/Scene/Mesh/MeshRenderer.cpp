@@ -364,7 +364,7 @@ namespace Desert::Graphic::System
                        },
                        m_StaticPipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+             .Declare = []( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             // The frame's forward draw list - built HERE, before any command is recorded - and one binding block
             // per material of it, the scene/view inputs bound where its shader has slots for them. Forward path
@@ -432,12 +432,17 @@ namespace Desert::Graphic::System
         {
             frame.EnvironmentLook = env->Look;
             if ( env->IrradianceMap.IsValid() )
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
+                // type
                 frame.IrradianceMap = static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
             if ( env->PreFilteredMap.IsValid() )
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
+                // type
                 frame.PrefilteredMap = static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
         }
         if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
              brdf && brdf->GetImageHandle().IsValid() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact type
             frame.BrdfLut = static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
 
         // The cloud layer's shadow, from the SAME gather the deferred composite reads
@@ -478,6 +483,8 @@ namespace Desert::Graphic::System
             case MeshType::Skinned:
             {
                 SkinnedMeshRenderData skinnedData;
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): MeshType::Skinned is set only
+                // for a SkinnedMesh
                 skinnedData.Mesh          = static_cast<SkinnedMesh*>( data.Mesh );
                 skinnedData.Transform     = data.Transform;
                 skinnedData.BoneMatrices  = data.BoneMatrices;

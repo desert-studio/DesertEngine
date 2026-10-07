@@ -32,7 +32,7 @@ namespace Desert::Graphic::System
         // The chain this frame needs, from this frame's scene colour size: half resolution, mips capped so the
         // smallest stays a sane size. Nullopt when there is nothing to record (no scene colour or pipelines).
         // The texture is a transient of the frame graph (Builder::CreateTexture); the renderer keeps no image.
-        std::optional<RDG::TextureDesc> GetChainDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetChainDesc() const;
         // Downsample into @p mip of @p chain: mip 0 samples @p sceneColor (Karis + threshold), mip i samples
         // mip i-1, both LinearClamp. SETUP declares that block (block 0); the EXEC dispatches from it.
         void DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor, RDG::TextureRef chain,

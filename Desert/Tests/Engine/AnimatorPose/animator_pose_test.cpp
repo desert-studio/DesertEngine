@@ -360,8 +360,8 @@ TEST( AnimatorPose, TheEditorPreviewFollowsItsOwnScenesRealtime )
         return AnimationAdvanceSeconds( 0.0f, clock.EditorPreviewSeconds( true ), true );
     };
 
-    WorldTime main;
-    WorldTime preview;
+    WorldTime   main;
+    WorldTime   preview;
     const float mainFrozen      = editTick( main, false );
     const float previewOwnClock = editTick( preview, true ); // the same frame: main's Realtime is off
 
@@ -374,7 +374,8 @@ TEST( AnimatorPose, TheEditorPreviewFollowsItsOwnScenesRealtime )
          << "the preview scene's pose stopped with the MAIN scene's Realtime off — its clock is its own";
 
     const auto [liveA, liveB] = TwoTicks( editTick( main, true ) );
-    EXPECT_FALSE( MatNear( liveA, liveB ) ) << "the main scene's Realtime is on, yet the editor preview held still";
+    EXPECT_FALSE( MatNear( liveA, liveB ) )
+         << "the main scene's Realtime is on, yet the editor preview held still";
 
     // Play and Paused are not the editor world: no preview step, whatever Realtime says.
     EXPECT_FLOAT_EQ( main.EditorPreviewSeconds( false ), 0.0f );

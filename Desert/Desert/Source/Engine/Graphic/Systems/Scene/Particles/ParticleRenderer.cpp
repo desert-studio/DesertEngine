@@ -392,8 +392,8 @@ namespace Desert::Graphic::System
                        {
                            if ( m_FrameEmitters.empty() )
                                return BOOLSUCCESS;
-                           const auto camera = m_SceneRenderer->GetMainCamera();
-                           if ( !camera )
+                           auto* const camera = m_SceneRenderer->GetMainCamera();
+                           if ( camera == nullptr )
                                return BOOLSUCCESS;
 
                            auto&    renderer = Renderer::GetInstance();

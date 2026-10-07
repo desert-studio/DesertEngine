@@ -128,12 +128,12 @@ namespace Desert::Graphic::RDG
         PassBindings& PushConstants( const void* data, uint32_t size );
 
         // Success, or the first failed entry: "<pass>: '<shader name>' <- '<resource>': <why>".
-        Common::BoolResultStr GetStatus() const;
+        [[nodiscard]] Common::BoolResultStr GetStatus() const;
 
-        const PassContext&            GetContext() const;
-        std::span<const BoundTexture> GetTextures() const;
-        std::span<const BoundBuffer>  GetBuffers() const;
-        std::span<const std::byte>    GetPushConstants() const;
+        [[nodiscard]] const PassContext&            GetContext() const;
+        [[nodiscard]] std::span<const BoundTexture> GetTextures() const;
+        [[nodiscard]] std::span<const BoundBuffer>  GetBuffers() const;
+        [[nodiscard]] std::span<const std::byte>    GetPushConstants() const;
 
     private:
         // How the constructor resolves one declared entry. A sampled texture: @p range = Mip(m) is a view of that

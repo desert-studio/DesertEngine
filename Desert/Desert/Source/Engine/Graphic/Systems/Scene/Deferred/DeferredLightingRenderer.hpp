@@ -24,12 +24,12 @@ namespace Desert::Graphic::System
     // GSystemTextures): never an unbound slot, never a skipped draw.
     struct DeferredCompositeInputs
     {
-        RDG::TextureRef                GBufferA;        // albedo + metallic
-        RDG::TextureRef                GBufferB;        // normal + roughness
-        RDG::TextureRef                GBufferC;        // world position
-        RDG::TextureRef                GBufferEmissive; // HDR emissive
-        RDG::TextureRef                SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
-        RDG::TextureRef                GI;              // RSM-GI accumulation, or System.Black (no indirect)
+        RDG::TextureRef GBufferA;        // albedo + metallic
+        RDG::TextureRef GBufferB;        // normal + roughness
+        RDG::TextureRef GBufferC;        // world position
+        RDG::TextureRef GBufferEmissive; // HDR emissive
+        RDG::TextureRef SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
+        RDG::TextureRef GI;              // RSM-GI accumulation, or System.Black (no indirect)
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };

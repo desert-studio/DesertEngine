@@ -52,10 +52,11 @@ namespace Desert::Graphic
         // also advances the particle clock on a frame with no emitter, a write the graph cannot see. The graph
         // executes before OnUpdate returns, so the frame's UpdateInfo, and the imports held by the renderer's
         // frame emitters, outlive this pass.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
-        if ( !particles )
+        if ( particles == nullptr )
             return;
-        const float seconds = static_cast<float>( sceneRenderInfo.Timestep.GetSeconds() );
+        const float seconds = sceneRenderInfo.Timestep.GetSeconds();
         particles->ImportSimulationBuffers( graph );
         graph.AddPass(
              "Particles: Simulate", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
@@ -72,7 +73,7 @@ namespace Desert::Graphic
         // atmosphere LUT. NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this
         // exact type
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
-        if ( !clouds )
+        if ( clouds == nullptr )
             return;
         clouds->SettleShadowMapNodes( AddComputeNodes( graph, textures, clouds->DeclareShadowMapNodes() ) );
         // Its readers take this graph ref through SceneViewInputsOf (CloudShadowMapOrWhite): one registration
@@ -85,7 +86,7 @@ namespace Desert::Graphic
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
-        if ( sky )
+        if ( sky != nullptr )
             sky->SettleAtmosphereLutNodes( AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() ) );
     }
 
@@ -93,7 +94,7 @@ namespace Desert::Graphic
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* fog = UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] );
-        if ( fog )
+        if ( fog != nullptr )
             AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients ) );
     }
 
@@ -101,7 +102,7 @@ namespace Desert::Graphic
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
-        if ( !clouds )
+        if ( clouds == nullptr )
             return;
         clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes( graph ) ) );
         // The composite (a Transparency phase pass, declared after this) samples the pair by graph ref.

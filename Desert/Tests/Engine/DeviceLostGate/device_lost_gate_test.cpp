@@ -54,7 +54,8 @@ namespace
     const char* const k_FrameSequence[] = {
          "VulkanSwapChainOutput::AcquireImage",    // the acquire
          "VulkanSwapChain::AcquireNextImage",      // vkAcquireNextImageKHR <- "Semaphore must not have..."
-         "VulkanSwapChain::ApplyRequestedRebuild", // the rebuild (EVT-2c: at the frame boundary, before the acquire)
+         "VulkanSwapChain::ApplyRequestedRebuild", // the rebuild (EVT-2c: at the frame boundary, before the
+                                                   // acquire)
          "VulkanSwapChain::CreateSwapChain",       // vkCreateSwapchainKHR <- the abort, at line 165
          "VulkanRendererAPI::BeginFrame",          // vkBeginCommandBuffer
          "VulkanFrameLoop::Submit",                // vkResetFences <- "pFences[0] is in use" + vkQueueSubmit

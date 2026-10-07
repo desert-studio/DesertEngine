@@ -45,7 +45,7 @@ namespace Desert::Graphic
 
         // What every node added from here on is handed (FrameGraphRefs): a value of this frame's transients
         // and system textures as they stand now.
-        FrameGraphRefs GraphRefs() const
+        [[nodiscard]] FrameGraphRefs GraphRefs() const
         {
             return FrameGraphRefs{ Transients, System };
         }
@@ -145,8 +145,7 @@ namespace Desert::Graphic
                 imported.Colors.push_back(
                      Import( framebuffer->GetColorAttachmentImage( i ), std::format( "{}.Color{}", name, i ) ) );
             if ( framebuffer->GetDepthAttachmentCount() > 0 )
-                imported.Depth =
-                     Import( framebuffer->GetDepthAttachmentImage(), std::format( "{}.Depth", name ) );
+                imported.Depth = Import( framebuffer->GetDepthAttachmentImage(), std::format( "{}.Depth", name ) );
             return imported;
         }
 
@@ -188,7 +187,7 @@ namespace Desert::Graphic
             const std::shared_ptr<ImageCube> blackCube =
                  FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
             RDG::ExternalTexture* blackCubeExternal = ImportExternal( blackCube, "System.BlackCube" );
-            if ( !blackExternal || !whiteExternal || !blackCubeExternal )
+            if ( blackExternal == nullptr || whiteExternal == nullptr || blackCubeExternal == nullptr )
                 return;
             System = RDG::RegisterSystemTextures( m_Graph, *blackExternal, *whiteExternal, *blackCubeExternal );
             // A later Import of the same engine image names the same graph texture.
@@ -266,7 +265,7 @@ namespace Desert::Graphic
     // What one node hands a later one inside the same frame graph (the nodes record at Execute).
     struct FrameValues
     {
-        SunScreen                Sun{ glm::vec2( 0.5f ), 0.0f };
+        SunScreen Sun{ glm::vec2( 0.5f ), 0.0f };
     };
 
     // The graph textures of every image @p declared names, in order, each through the frame's one import of it

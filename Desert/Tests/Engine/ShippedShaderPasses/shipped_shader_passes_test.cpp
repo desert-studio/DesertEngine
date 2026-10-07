@@ -68,7 +68,7 @@ namespace
     // census of "the mesh renderer" reads every part, so code moving between them cannot step outside it.
     std::string ReadMeshRendererSources( const std::filesystem::path& repo )
     {
-        const std::filesystem::path dir = repo / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh";
+        const std::filesystem::path        dir = repo / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh";
         std::vector<std::filesystem::path> parts;
         std::error_code                    ec;
         for ( const auto& entry : std::filesystem::directory_iterator( dir, ec ) )
@@ -878,7 +878,7 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
     EXPECT_FALSE( Desert::Graphic::MeshShaderFor( "", MeshVertexPath::Static, MeshPass::Glass ).has_value() );
 
     const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
-    const std::string source = ReadMeshRendererSources( here );
+    const std::string           source = ReadMeshRendererSources( here );
     ASSERT_FALSE( source.empty() ) << "no MeshRenderer*.cpp was found from " << here;
     for ( const std::string_view single : { "m_GlassMaterial", "m_StaticGlassPipeline", "\"StaticMeshGlass\"" } )
         EXPECT_EQ( source.find( single ), std::string::npos )
@@ -892,7 +892,7 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
 TEST( ShippedShaderPasses, TheMeshRendererPicksNoPassByAParameterName )
 {
     const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
-    const std::string source = ReadMeshRendererSources( here );
+    const std::string           source = ReadMeshRendererSources( here );
     ASSERT_FALSE( source.empty() ) << "no MeshRenderer*.cpp was found from " << here;
     for ( const std::string_view name : { "\"Transmission\"", "\"IOR\"", "\"GlassTint\"" } )
         EXPECT_EQ( source.find( name ), std::string::npos )

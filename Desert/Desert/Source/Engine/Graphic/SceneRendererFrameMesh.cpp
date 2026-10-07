@@ -133,7 +133,7 @@ namespace Desert::Graphic
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer" );
-        if ( !targets || !meshRenderer )
+        if ( !targets || meshRenderer == nullptr )
             return;
         // ZERO, not the default 0.1 grey: empty texels need a zero normal, the lighting pass tells geometry from
         // sky by dot(normal, normal).
@@ -168,7 +168,7 @@ namespace Desert::Graphic
         if ( glm::distance( sunDir, m_RSMLastSunDir ) > 1e-4f || m_RSMFrameCounter == 0 )
         {
             const auto targets = TargetsOf( textures, m_RSMBuffer, "RSM", "Deferred: RSM" );
-            if ( !targets || !meshRenderer )
+            if ( !targets || meshRenderer == nullptr )
                 return;
             // Colour 0 = "no caster here" for the VPL gather. Standard-Z pass (drawn through a cascade matrix), so
             // depth clears to 1 = far, not to the engine's reversed-Z clear.
@@ -186,7 +186,7 @@ namespace Desert::Graphic
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
-        if ( !targets || !meshRenderer )
+        if ( !targets || meshRenderer == nullptr )
             return;
         // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
         // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
@@ -202,7 +202,7 @@ namespace Desert::Graphic
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
-        if ( !targets || !meshRenderer )
+        if ( !targets || meshRenderer == nullptr )
             return;
         // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
         // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
@@ -217,7 +217,7 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                                        System::MeshRenderer* meshRenderer )
     {
-        if ( !sceneCopy.IsValid() || !meshRenderer )
+        if ( !sceneCopy.IsValid() || meshRenderer == nullptr )
             return;
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
         if ( !targets )
@@ -238,7 +238,7 @@ namespace Desert::Graphic
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        if ( !meshRenderer )
+        if ( meshRenderer == nullptr )
             return;
         const auto accum =
              TargetsOf( textures, meshRenderer->GetOverdrawFramebuffer(), "Overdraw", "Debug: Overdraw" );

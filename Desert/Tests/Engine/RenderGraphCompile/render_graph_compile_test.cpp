@@ -33,6 +33,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Desert::Graphic::RDG;
@@ -2084,11 +2085,12 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBarriers )
 {
     const fs::path root = RepoRoot();
-    std::ifstream               file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    std::ifstream  file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
     ASSERT_TRUE( file );
     std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
-    text.erase( std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
-                text.end() );
+    text.erase(
+         std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+         text.end() );
     const size_t begin = text.find( "voidSceneRenderer::AddFrameDepthResolve(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
@@ -2160,14 +2162,15 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
     // JumpFlood 3, AutoExposure 3, Bloom 2, LightShafts 2, LensFlare 2, Tonemap 1, FXAA 1, SMAA 3, BackdropBlur 1.
     EXPECT_EQ( nodes, 18u );
 
-    const std::string dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
-    for ( const std::string& file :
-          { std::string( "SceneRendererFramePostFX.cpp" ), dir + "JumpFloodOutlineRenderer.cpp",
-            dir + "LensFlareRenderer.cpp", dir + "BackdropBlurRenderer.hpp", dir + "BloomRenderer.cpp",
-            dir + "AutoExposureRenderer.cpp", dir + "LightShaftRenderer.cpp", dir + "TonemapRenderer.cpp",
-            dir + "FXAARenderer.cpp", dir + "SMAARenderer.cpp" } )
+    // The frame's post-FX recorder (already read above) and every renderer in the PostProcessing folder.
+    constexpr std::string_view dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing";
+    for ( const std::string_view file :
+          { "SceneRendererFramePostFX.cpp", "JumpFloodOutlineRenderer.cpp", "LensFlareRenderer.cpp",
+            "BackdropBlurRenderer.hpp", "BloomRenderer.cpp", "AutoExposureRenderer.cpp", "LightShaftRenderer.cpp",
+            "TonemapRenderer.cpp", "FXAARenderer.cpp", "SMAARenderer.cpp" } )
     {
-        const std::string text = file == "SceneRendererFramePostFX.cpp" ? postFx : read( file );
+        const std::string text =
+             file == "SceneRendererFramePostFX.cpp" ? postFx : read( std::format( "{}/{}", dir, file ) );
         ASSERT_FALSE( text.empty() ) << file << " is gone";
         for ( const char* manual : { "ComputeImageBeginWrite(", "ComputeImageEndWrite(", "TransitionLayout(",
                                      "BeginRenderPass(", "EndRenderPass(", "RenderPass::Create(" } )
@@ -2248,8 +2251,8 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
 
 TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )
 {
-    ExternalTexture color   = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
-    color.RecordStates      = []( const std::vector<AccessState>&, bool )
+    ExternalTexture color = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
+    color.RecordStates    = []( const std::vector<AccessState>&, bool )
     { return Common::BoolResultStr( Common::MakeError( "record gone" ) ); };
     Builder                   graph( "import" );
     ExternalTexture* const    colors[] = { &color };

@@ -76,13 +76,13 @@ namespace Desert::Graphic::System
         // @p screenFade is SunScreen::Fade: 0 when the sun is behind the camera or far past the edge, in which
         // case nothing is dispatched, the graph gets no flare nodes and the tonemap reads the system black
         // texture.
-        bool Prepare( float screenFade ) const;
+        [[nodiscard]] bool Prepare( float screenFade ) const;
 
         // The two images of this frame, transients of its graph (Builder::CreateTexture): the half-resolution
         // source chain and the quarter-resolution feature image (FrameTextures::Transients.LensFlare, which the
         // tonemap adds in). The renderer keeps no image and has no Resize. Nullopt: no scene colour.
-        std::optional<RDG::TextureDesc> GetSourceDesc() const;
-        std::optional<RDG::TextureDesc> GetFlareDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetSourceDesc() const;
+        [[nodiscard]] std::optional<RDG::TextureDesc> GetFlareDesc() const;
 
         // Bright pass into @p source @p mip: block 0 of the setup samples @p sceneColor (mip 0, thresholded) or
         // source mip i-1, and writes source mip i. Record dispatches from that block.
