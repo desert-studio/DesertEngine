@@ -1695,6 +1695,18 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
     for ( const char* own : { "glm::vec3 WindDirection", "float WindSpeed" } )
         EXPECT_EQ( cloud.find( own ), std::string::npos ) << "VolumetricCloudData declares its own wind: " << own;
 
+    // Foliage sway: the direction (and whether the air moves at all) is the query's; the foliage type keeps only
+    // its response (Strength, Speed, Height), and MakeInstanceWind takes the scene's wind, not an angle.
+    const std::string meshSystem = ReadFile( root + "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp" );
+    EXPECT_NE( meshSystem.find( "ECS::WindAt(" ), std::string::npos ) << "foliage sway must ask ECS::WindAt";
+    const std::string foliageType =
+         ReadFile( root + "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" );
+    EXPECT_EQ( foliageType.find( "DirectionDegrees" ), std::string::npos )
+         << "FoliageWind declares its own wind direction";
+    const std::string instanceWind = ReadFile( root + "Desert/Desert/Source/Engine/Graphic/InstanceWind.hpp" );
+    EXPECT_EQ( instanceWind.find( "directionDegrees" ), std::string::npos )
+         << "MakeInstanceWind takes an authored angle instead of the scene's wind";
+
     // Cloth and groom are seams (no stepping system yet): their contexts carry the query's answer, and say so.
     for ( const char* seam : { "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
                                "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",

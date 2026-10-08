@@ -435,6 +435,12 @@ namespace Desert::Migration
     // what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV6ToV7( const std::string& text );
 
+    // The v8 text of a v7 `.defoliage`: every v7 value kept except Wind.DirectionDegrees, which leaves (the
+    // direction is the scene's WindSource, read through ECS::WindAt; the type keeps Strength, Speed, Height),
+    // the header's GUID kept. A file that does not state FOLT 7 is an error naming what it states. PURE - no
+    // filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV7ToV8( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport

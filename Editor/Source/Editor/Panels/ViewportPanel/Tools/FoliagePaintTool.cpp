@@ -462,17 +462,13 @@ namespace Desert::Editor::Tools
         if ( Row::SectionHeader( "Wind" ) )
         {
             meshOnly( true );
-            row( "Strength", "The tip's largest sway, cm; 0 = still", [&]
+            row( "Strength", "The tip's largest sway, cm; 0 = still. The scene's Wind Source gives the direction",
+                 [&]
                  { ImGui::DragFloat( "##WindStrength", &f.Wind.Strength, 1.0f, 0.0f, 10000.0f, "%.0f cm" ); } );
             row( "Speed", "Sway rate, Hz",
                  [&] { ImGui::DragFloat( "##WindSpeed", &f.Wind.Speed, 0.01f, 0.0f, 20.0f, "%.2f Hz" ); } );
             row( "Full Sway Height", "The height the full sway is reached at, cm",
                  [&] { ImGui::DragFloat( "##WindHeight", &f.Wind.Height, 1.0f, 1.0f, 100000.0f, "%.0f cm" ); } );
-            row( "Direction", "The direction the wind blows towards, degrees",
-                 [&] {
-                     ImGui::DragFloat( "##WindDirection", &f.Wind.DirectionDegrees, 1.0f, -360.0f, 360.0f,
-                                       "%.0f deg" );
-                 } );
             meshOnly( false );
         }
         // UE UFoliageType's Procedural category (S1): Collision, Clustering, Growth - what the procedural
