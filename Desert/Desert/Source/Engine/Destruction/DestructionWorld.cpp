@@ -2,6 +2,8 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -204,6 +206,22 @@ namespace Desert::Destruction
         if ( node < 0 || node >= static_cast<int32_t>( o.Nodes.size() ) || o.Nodes[node].Body < 0 )
             return Physics::kInvalidBody;
         return o.Bodies[o.Nodes[node].Body].Handle;
+    }
+
+    size_t DestructionWorld::GetNodeCount( DestructibleHandle object ) const
+    {
+        if ( object >= m_Objects.size() || !m_Objects[object].Data )
+            return 0u;
+        return m_Objects[object].Nodes.size();
+    }
+
+    std::optional<glm::mat4> DestructionWorld::GetNodeWorld( DestructibleHandle object, int32_t node ) const
+    {
+        const Physics::BodyHandle body = GetNodeBody( object, node );
+        if ( body == Physics::kInvalidBody )
+            return std::nullopt;
+        return glm::translate( glm::mat4( 1.0f ), m_Physics.GetPosition( body ) ) *
+               glm::mat4_cast( m_Physics.GetRotation( body ) );
     }
 
     uint32_t DestructionWorld::GetBodyCount( DestructibleHandle object ) const

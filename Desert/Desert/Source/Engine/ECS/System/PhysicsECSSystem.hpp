@@ -289,6 +289,8 @@ namespace Desert::ECS
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
             m_Ragdolls->WriteBackAfterStep( registry );
+            // Every simulated destructible's piece poses from its bodies (DST-06), what its pieces draw at.
+            m_Destructibles->WritePoses( registry );
             PublishEvents( registry );
             // The steps' breaks are destruction's own news, published by its owner into its own queue.
             m_Destructibles->PublishEvents( registry );

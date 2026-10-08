@@ -40,6 +40,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -110,6 +111,13 @@ namespace Desert::Destruction
         [[nodiscard]] Physics::BodyHandle GetNodeBody( DestructibleHandle object, int32_t node ) const;
         /// How many bodies @p object is in now.
         [[nodiscard]] uint32_t GetBodyCount( DestructibleHandle object ) const;
+
+        /// Where @p node draws now: its body's pose as the fracture-space -> world transform (a body's frame is
+        /// the fracture's, placed; WorldPoint maps a fracture-space point the same way). Empty once its body is
+        /// gone (removed on sleep, killed) or for an unknown object or node.
+        [[nodiscard]] std::optional<glm::mat4> GetNodeWorld( DestructibleHandle object, int32_t node ) const;
+        /// The node count of @p object's fracture; 0 for an unknown or removed object.
+        [[nodiscard]] size_t GetNodeCount( DestructibleHandle object ) const;
 
         /// Fires @p command once, now (DestructionField.hpp): strains break at once (UE MaxAppliedStrain =
         /// max(collision, external), PBDRigidClustering.cpp:1178), an impulse then pushes the bodies the break

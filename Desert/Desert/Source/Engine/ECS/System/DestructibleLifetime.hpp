@@ -55,6 +55,10 @@ namespace Desert::ECS
         /// physics step that broke them; the world's own Removed events stay its bookkeeping.
         void PublishEvents( entt::registry& registry ) const;
 
+        /// After a physics step: every simulated destructible's RuntimeNodeWorld from its bodies (UE: the
+        /// component's global matrices pulled from the physics proxy), what its pieces draw at.
+        void WritePoses( entt::registry& registry ) const;
+
     private:
         void OnDestructibleDestroyed( entt::registry& registry, entt::entity entity );
         void Refuse( entt::entity entity, const std::string& reason );
