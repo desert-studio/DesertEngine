@@ -51,6 +51,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Animation: // Persona's Animation mode (ANV1a)
             case Assets::AssetTypeID::Skeleton:  // Persona's Skeleton mode (ANV1f)
             case Assets::AssetTypeID::LevelSequence: // the Sequencer's Level timeline (ANIM-LSEQ)
+            case Assets::AssetTypeID::VFXDataChannel: // the `.dfxch` field-list editor (VFX-10c)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
@@ -66,7 +67,6 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel
             case Assets::AssetTypeID::VFXSystem:          // the VFX System editor is VFX-12
             case Assets::AssetTypeID::Fracture:           // the Fracture Mode panel arrives with DST-02
-            case Assets::AssetTypeID::VFXDataChannel:     // its field-list editor is in REMAINDER VFX-10
                 return kNoEditor;
             case Assets::AssetTypeID::Count:
                 return "AssetTypeID::Count is the number of types, not a type";
