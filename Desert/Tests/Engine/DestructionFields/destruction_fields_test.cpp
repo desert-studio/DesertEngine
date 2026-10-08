@@ -6,6 +6,8 @@
 #include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
+#include "../PhysicsFixture.hpp"
+
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 
@@ -57,7 +59,7 @@ namespace
 
         explicit Fixture( float threshold )
         {
-            physics.Init( 0.0f );
+            EXPECT_TRUE( physics.Init( 0.0f, TestSupport::PhysicsTestProfiles() ) );
             destruction = std::make_unique<DestructionWorld>( physics );
             auto added  = destruction->Add( TwoCubes( threshold ), DestructibleDesc{} );
             EXPECT_TRUE( added.IsSuccess() ) << added.GetError();

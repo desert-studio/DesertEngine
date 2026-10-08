@@ -6,6 +6,8 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
+#include "../PhysicsFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -59,7 +61,7 @@ namespace
 
         Fixture()
         {
-            physics.Init( 0.0f );
+            EXPECT_TRUE( physics.Init( 0.0f, TestSupport::PhysicsTestProfiles() ) );
             destruction = std::make_unique<DestructionWorld>( physics );
             lifetime    = std::make_unique<ECS::DestructibleLifetime>( *destruction );
             lifetime->Attach( registry );

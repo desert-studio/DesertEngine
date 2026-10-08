@@ -5,6 +5,8 @@
 #include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
+#include "../PhysicsFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -54,7 +56,7 @@ namespace
 
         explicit Fixture( float gravity )
         {
-            physics.Init( gravity );
+            EXPECT_TRUE( physics.Init( gravity, TestSupport::PhysicsTestProfiles() ) );
             destruction = std::make_unique<DestructionWorld>( physics );
         }
 
@@ -66,6 +68,7 @@ namespace
             ball.Radius   = 20.0f;
             ball.Mass     = 100.0f;
             ball.Position = { -150.0f, 50.0f, 50.0f };
+            ball.Profile  = TestSupport::ProfileId( physics, "PhysicsActor" );
             auto created  = physics.CreateBody( ball );
             ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
             physics.SetLinearVelocity( created.GetValue(), { speed, 0.0f, 0.0f } );
