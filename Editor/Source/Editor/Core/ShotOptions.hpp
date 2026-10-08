@@ -127,7 +127,11 @@ namespace Desert::Editor
         std::string Output; // --shot <out.png>; empty = no single final frame
         int         Frames = 90;
 
+        // HasCamera: the flags PLACE the camera (--camera, --camera-to, --look-to, --flight). Without it the
+        // shot frames the scene (ShotDirector::FrameScene) — along --look when HasLook, along UE's default
+        // perspective view otherwise.
         bool      HasCamera = false;
+        bool      HasLook   = false;
         glm::vec3 Position{ 0.0f, 200.0f, 0.0f }; // --camera x,y,z   (world units)
         glm::vec3 Forward{ 0.0f, 0.30f, -1.0f };  // --look   x,y,z   (need not be normalized)
 

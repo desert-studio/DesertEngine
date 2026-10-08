@@ -132,6 +132,14 @@ namespace Desert::Editor
             const std::lock_guard<std::mutex> lock( m_Mutex );
             return m_Running == 0;
         }
+        // Cooks not yet APPLIED: queued or running, plus completed ones the main thread has not drained. The
+        // capture's question ("is any asset still on its way?"), which `Outstanding()` alone answers wrong in the
+        // frame between a worker finishing and the drain reloading its mesh.
+        std::size_t Remaining() const
+        {
+            const std::lock_guard<std::mutex> lock( m_Mutex );
+            return m_Running + m_Completed.size();
+        }
         std::size_t Total() const
         {
             const std::lock_guard<std::mutex> lock( m_Mutex );

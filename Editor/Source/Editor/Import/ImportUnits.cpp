@@ -33,8 +33,12 @@ namespace Desert::Editor::ImportUnits
         return std::isfinite( scale ) && scale > 0.0f;
     }
 
-    Scale Resolve( std::string_view extension, bool fileStatedUnit, float statedCentimetresPerUnit )
+    Scale Resolve( std::string_view extension, bool fileStatedUnit, float statedCentimetresPerUnit,
+                   std::optional<float> settingsCentimetresPerUnit )
     {
+        if ( settingsCentimetresPerUnit && IsUsableScale( *settingsCentimetresPerUnit ) )
+            return { *settingsCentimetresPerUnit, Source::StatedBySettings };
+
         if ( fileStatedUnit )
         {
             if ( !IsUsableScale( statedCentimetresPerUnit ) )
@@ -68,6 +72,8 @@ namespace Desert::Editor::ImportUnits
                 return "assumed: the file states no unit";
             case Source::StatedButUnusable:
                 return "the file stated a unit that is not a usable scale";
+            case Source::StatedBySettings:
+                return "stated in the import settings";
         }
         return "unknown";
     }

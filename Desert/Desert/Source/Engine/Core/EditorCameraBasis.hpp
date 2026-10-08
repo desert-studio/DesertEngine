@@ -186,4 +186,39 @@ namespace Desert::Core
         }
         return std::nullopt;
     }
+
+    // ── THE VIEW MATRIX IS BUILT FROM THE DIRECTION, NEVER FROM A TARGET POINT ─────────────────────
+    //
+    // `glm::lookAt( eye, eye + forward, up )` recomputes the direction as normalize( target - eye ), and
+    // at a world position of 10^7 cm (a 100 km scene) one float step is a whole centimetre: adding a unit
+    // vector to the eye and subtracting it back rounds the direction itself. Measured (SHOT-AUTO-c):
+    // forward (0.577, -0.577, -0.577) at 1.8e7 cm came back as (0.408, -0.816, -0.408), 19 degrees off,
+    // and a framed box left the picture by half a screen. The camera already HAS the direction; going
+    // through a point only to subtract it out again is where it is lost.
+    //
+    // Port of UE FLookFromMatrix (Core/Public/Math/Matrix.inl — the look-at form forwards to it with
+    // LookAt - EyePosition), in glm's right-handed convention: the same matrix glm::lookAtRH builds, with
+    // the direction taken as given. @p basis must be unit and perpendicular — every ViewBasis this header
+    // produces is.
+    [[nodiscard]] inline glm::mat4 ViewMatrixFrom( const glm::vec3& eye, const ViewBasis& basis )
+    {
+        const glm::vec3 f = glm::normalize( basis.Forward );
+        const glm::vec3 s = glm::normalize( glm::cross( f, basis.Up ) );
+        const glm::vec3 u = glm::cross( s, f );
+
+        glm::mat4 view( 1.0f );
+        view[0][0] = s.x;
+        view[1][0] = s.y;
+        view[2][0] = s.z;
+        view[0][1] = u.x;
+        view[1][1] = u.y;
+        view[2][1] = u.z;
+        view[0][2] = -f.x;
+        view[1][2] = -f.y;
+        view[2][2] = -f.z;
+        view[3][0] = -glm::dot( s, eye );
+        view[3][1] = -glm::dot( u, eye );
+        view[3][2] = glm::dot( f, eye );
+        return view;
+    }
 } // namespace Desert::Core

@@ -675,6 +675,33 @@ namespace Desert::Assets
         return std::nullopt;
     }
 
+    std::string_view MeshFileUnitName( const MeshFileUnit unit )
+    {
+        switch ( unit )
+        {
+            case MeshFileUnit::FromFile:
+                return "FromFile";
+            case MeshFileUnit::Millimetres:
+                return "Millimetres";
+            case MeshFileUnit::Centimetres:
+                return "Centimetres";
+            case MeshFileUnit::Metres:
+                return "Metres";
+            case MeshFileUnit::Inches:
+                return "Inches";
+            case MeshFileUnit::Feet:
+                return "Feet";
+        }
+        return "?";
+    }
+    std::optional<MeshFileUnit> MeshFileUnitFromName( const std::string_view name )
+    {
+        for ( const auto u : { MeshFileUnit::FromFile, MeshFileUnit::Millimetres, MeshFileUnit::Centimetres,
+                               MeshFileUnit::Metres, MeshFileUnit::Inches, MeshFileUnit::Feet } )
+            if ( MeshFileUnitName( u ) == name )
+                return u;
+        return std::nullopt;
+    }
     std::string_view MeshSourceProvenanceName( const MeshSourceProvenance provenance )
     {
         switch ( provenance )

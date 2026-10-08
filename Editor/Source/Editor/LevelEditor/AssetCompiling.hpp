@@ -68,6 +68,13 @@ namespace Desert::Editor
         // active scene's cached material instances and refresh the asset panel.
         void RebuildCookedAssets( Desert::Core::Scene* activeScene, FileExplorerPanel* fileExplorer );
 
+        // Assets still compiling beside the session (UE FAssetCompilingManager::GetNumRemainingAssets): the
+        // background cook's unapplied work. 0 before the reveal queued it.
+        [[nodiscard]] std::size_t RemainingAssets() const
+        {
+            return m_BackgroundCook ? m_BackgroundCook->Remaining() : 0;
+        }
+
         // The queue the status bar reads (empty until the reveal).
         [[nodiscard]] const std::unique_ptr<BackgroundCookQueue>& CookQueue() const
         {
