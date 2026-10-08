@@ -10,6 +10,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace Desert::Assets
@@ -77,6 +78,12 @@ namespace Desert::Assets
         /// `ResetForTest`, read the OLD asset and settle the new request as loaded with its asset never
         /// read (FIX7: MeshServiceResidency failed about 4 % of Release runs exactly this way).
         std::atomic<int> InFlight{ 0 };
+        /// Submitted jobs that have returned, counted under `Lock` BEFORE the job settles its waiters, so a
+        /// host that sees `Outstanding() == 0` never sees this short of `Started` (LoadProgress).
+        uint64_t Finished = 0;
+        /// The read a worker began most recently, under `Lock`: the loading screen's current item.
+        std::string CurrentPath;
+        AssetTypeID CurrentType = AssetTypeID::Unknown;
     };
 
     namespace
@@ -253,10 +260,17 @@ namespace Desert::Assets
                               owner == inner->Tickets.end() || owner->second != ticket )
                          {
                              // FlushOne took this read onto the caller's thread and settled it there.
+                             ++inner->Finished;
                              inner->InFlight.fetch_sub( 1, std::memory_order_release );
                              return;
                          }
                          inner->WorkerReading.insert( handle );
+                         if ( !skip )
+                         {
+                             const AssetMetadata& metadata = record->Payload->GetMetadata();
+                             inner->CurrentPath            = metadata.Filepath.filename().string();
+                             inner->CurrentType            = metadata.AssetType;
+                         }
                      }
 
                      if ( !skip )
@@ -278,6 +292,7 @@ namespace Desert::Assets
                          const std::lock_guard<std::mutex> guard( inner->Lock );
                          inner->WorkerReading.erase( handle );
                          inner->Tickets.erase( handle );
+                         ++inner->Finished;
                          SettleWaitingLocked( *inner, handle, outcome, error );
                      }
 
@@ -414,15 +429,40 @@ namespace Desert::Assets
         State& state = *m_State;
         for ( ;; )
         {
+            LoadProgress now;
             {
                 const std::lock_guard<std::mutex> guard( state.Lock );
                 if ( state.Waiting.find( handle ) == state.Waiting.end() )
                     break;
+                if ( m_WaitFeedback )
+                    now = { state.Started.load( std::memory_order_relaxed ), state.Finished, state.CurrentPath,
+                            state.CurrentType };
             }
+            // EACH READ THAT LANDS WHILE THIS THREAD WAITS IS REPORTED (LOAD-SHOW-c), outside the lock: the
+            // feedback may draw a whole frame of the loading window (EditorLayer's slow-task frame).
+            ReportWaitProgress( now );
             // The queued job is a worker's to run; this thread only waits for it to settle.
             std::this_thread::yield();
         }
-        return DeliverCompleted( handle );
+        const bool delivered = DeliverCompleted( handle );
+        if ( m_WaitFeedback )
+            ReportWaitProgress( Progress() ); // the reads that landed since the last poll, this one included
+        return delivered;
+    }
+
+    void AsyncAssetLoader::ReportWaitProgress( LoadProgress now )
+    {
+        // ONE CALL PER READ THAT RETURNED, IN ORDER — UE's `EnterProgressFrame` once per unit of work. Two reads
+        // that land between two polls are two calls (`Finished` one apart), never one call that skips a number,
+        // so a host counting calls counts reads.
+        if ( !m_WaitFeedback )
+            return;
+        const uint64_t landed = now.Finished;
+        while ( m_WaitReported < landed )
+        {
+            now.Finished = ++m_WaitReported;
+            m_WaitFeedback( now );
+        }
     }
 
     bool AsyncAssetLoader::DeliverCompleted( const AssetHandle& handle )
@@ -483,6 +523,21 @@ namespace Desert::Assets
     uint64_t AsyncAssetLoader::StartedCount() const
     {
         return m_State->Started.load( std::memory_order_relaxed );
+    }
+
+    LoadProgress AsyncAssetLoader::Progress() const
+    {
+        const State&                      state = *m_State;
+        const std::lock_guard<std::mutex> guard( state.Lock );
+        return { state.Started.load( std::memory_order_relaxed ), state.Finished, state.CurrentPath,
+                 state.CurrentType };
+    }
+
+    AsyncAssetLoader::WaitFeedback AsyncAssetLoader::SetWaitFeedback( WaitFeedback feedback )
+    {
+        // Reads that returned before this feedback was installed are not its to report.
+        m_WaitReported = Progress().Finished;
+        return std::exchange( m_WaitFeedback, std::move( feedback ) );
     }
 
     uint64_t AsyncAssetLoader::CancelledCount() const
@@ -557,5 +612,9 @@ namespace Desert::Assets
         state.NextId = 1;
         state.Started.store( 0, std::memory_order_relaxed );
         state.Cancels.store( 0, std::memory_order_relaxed );
+        state.Finished    = 0;
+        state.CurrentPath = {};
+        state.CurrentType = AssetTypeID::Unknown;
+        m_WaitReported    = 0;
     }
 } // namespace Desert::Assets

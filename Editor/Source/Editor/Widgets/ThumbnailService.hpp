@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Editor/Widgets/ThumbnailWarmup.hpp>
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
@@ -179,29 +178,14 @@ namespace Desert::Editor
         // TickCapture — the renderer capture queue and the CPU cloud paint. Waits for the window
         //   (Splash::ThumbnailCaptureAllowed): a capture takes a renderer slot and the settle's frames.
         static void TickDiskAndDecode();
-        // @p scope: Everything after the hand-over; SceneWarmOnly on the splash (THUMB3), where only what
-        // WarmMaterial queued may be dispatched and the folder's requests wait behind it for the reveal.
-        void TickCapture( ThumbnailWarmup::CaptureScope scope );
-
-        /// Queue a capture of a material the OPEN SCENE uses, ahead of everything the browser asked for
-        /// (THUMB3; UE renders what is on screen first). Already queued -> moved forward; already fresh on
-        /// disk, failed or in flight -> nothing. These are the only captures the splash may run.
-        void WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath );
-        /// The same for a mesh (THM1m): the open scene's meshes and the opening folder's uncaptured mesh tiles
-        /// are photographed on the splash too, keyed on the cooked form as RequestMesh keys them.
-        void WarmMesh( const ThumbnailSubject::Mesh& mesh );
-        /// The same for a skinned mesh's pose (ThumbnailPose::ResolveSkinnedMesh's answer).
-        void WarmPose( const ThumbnailSubject::Mesh& mesh );
-        /// The same for a skybox (THM-FIXH): RequestSkybox's request — key the `.detex` path, freshness its
-        /// content hash — at the front, so the splash photographs every skybox of the project as it does every
-        /// material.
-        void WarmSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath );
-        /// THM1n-13: a painted picture of the project warmed on the splash — RequestPainted, counted in
-        /// SceneWarmPending until it lands, and painted before the hand-over (TickCapture(SceneWarmOnly) runs the
-        /// paint queue while its front is a warm one).
-        void WarmPainted( const std::string& assetPath );
-        /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
-        [[nodiscard]] std::size_t SceneWarmPending() const;
+        //
+        // ONLY WHAT IS ASKED FOR WHILE IT IS SHOWN IS CAPTURED (THUMB-LAZY; UE FAssetThumbnailPool renders the
+        // thumbnails whose widgets are alive, a few per tick). Every shower asks each frame it draws the
+        // picture (Request*), and TickCapture first drops every queued capture and paint no shower asked for
+        // since the previous tick — a tile scrolled away, a folder left, a Details row closed. So nothing that
+        // is not on screen is photographed, nothing is warmed ahead, and no start-up, scene load or shot waits
+        // on a picture.
+        void TickCapture();
 
         /**
          * @brief THE LIVE PREVIEW of Edit Thumbnail (UE renders the tile in real time with the orbit being
@@ -302,7 +286,7 @@ namespace Desert::Editor
         // The live preview (RequestPreview*): one slot, last wins, never recorded.
         ThumbnailPreview::Slot<Request> m_Preview;
         // Dispatch or settle the preview. True when it used this tick's renderer turn.
-        bool TickPreview( ThumbnailWarmup::CaptureScope scope );
+        bool TickPreview();
         // Anything the renderer still owes: the background queue or the preview.
         [[nodiscard]] bool CaptureOwed() const
         {
@@ -313,7 +297,7 @@ namespace Desert::Editor
         // asset's IDENTITY (ThumbnailKey::Identity), never a raw path — the sets below are keyed on it.
         bool ShouldQueue( const std::string& identity, const std::string& png, std::optional<uint64_t> current );
         // THE ONE REQUEST SHAPE of a mesh-like capture (Mesh, Pose): keyed and judged on the cooked file, so the
-        // browser tile, the splash and every kind ask for one picture of one file.
+        // browser tile, the Details rows and every kind ask for one picture of one file.
         static Request MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh, const std::string& cookedPath,
                                       const Assets::AssetHandle& material );
         // THE ONE REQUEST SHAPE of a material capture (queued, warmed, previewed): its preview primitive or mesh
@@ -325,8 +309,10 @@ namespace Desert::Editor
         bool ReadMeshOrbit( Request& req );
         // RequestMesh and RequestPose: one enqueue, one deduplication.
         std::string EnqueueMeshLike( Request req );
-        // Identities WarmMaterial queued; an entry leaves with its m_Queued one (settled, failed or skipped).
-        std::unordered_set<std::string> m_SceneWarm;
+        // Identities a shower asked for since the last TickCapture (ShouldQueue marks every ask, queued or not).
+        std::unordered_set<std::string> m_Wanted;
+        // Drops every queued capture and paint not in m_Wanted, then clears it: the visibility rule above.
+        void DropUnwanted();
 
         // THE SUBJECT OF A QUEUED CAPTURE IS HELD RESIDENT, as UE's thumbnail renderer holds the object it
         // photographs (THM1n). A request names handles, and the eviction sweep that follows a scene load
@@ -337,8 +323,6 @@ namespace Desert::Editor
         // m_Queued (settled, failed, skipped or invalidated) — reconciled by HoldSubjects.
         std::unordered_map<std::string, std::vector<std::unique_ptr<Assets::AssetRootPin>>> m_Held;
         void                                                                                HoldSubjects();
-        // The one queue-front insertion both Warm* entry points share.
-        void Warm( Request req );
 
         // The identity-free half of the question: is the PICTURE on disk missing or out of date? Split out
         // because dispatch asks it a second time, when the dedup sets deliberately still hold the entry.

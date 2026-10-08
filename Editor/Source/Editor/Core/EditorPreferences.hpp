@@ -84,6 +84,10 @@ namespace Desert::Editor
         bool  PersistentSnap  = false;
         int   AutosaveMinutes = 5;     // 0 = autosave off
         bool  ShowPerfHud     = false; // in-viewport FPS / frame-graph / top-scopes overlay
+        // How many thumbnail pictures each thumbnail cache keeps as GPU textures (UE's FAssetThumbnailPool size,
+        // 1024 in the Content Browser). The rest stay on disk and are decoded again when a tile shows them.
+        // Read by ThumbnailCache on every upload; per machine, because it is this GPU's memory.
+        int ThumbnailPoolSize = 1024;
         // Bumped when the default dock layout's window IDs change (e.g. panel-title icons add a ### suffix,
         // which changes every window's ImGui ID). A stored value below the current forces ONE automatic
         // "reset to default layout" so panels re-dock cleanly instead of scattering against a stale imgui.ini.

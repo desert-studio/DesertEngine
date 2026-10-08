@@ -1,5 +1,6 @@
 #include "ThumbnailCache.hpp"
 
+#include <Editor/Core/EditorPreferences.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 
@@ -10,6 +11,8 @@
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
+
+#include <ImGui/imgui.h>
 
 #include <algorithm>
 #include <cctype>
@@ -79,7 +82,11 @@ namespace Desert::Editor
         if ( const auto it = m_Cache.find( sourcePath ); it != m_Cache.end() )
         {
             if ( !m_Outdated.Contains( sourcePath ) )
+            {
+                if ( it->second )
+                    m_Pool.Touch( sourcePath, CurrentFrame() );
                 return it->second; // may be null (decode previously failed)
+            }
             // The file was rewritten since it was decoded (a capture landed): the old picture stays on
             // screen until the worker has the new one, instead of the icon for those frames.
             previous = it->second;
@@ -190,6 +197,10 @@ namespace Desert::Editor
                        sourcePath, failure );
         }
         m_Cache[sourcePath] = result; // cache success or failure (null)
+        if ( result )
+            AdmitToPool( sourcePath );
+        else
+            m_Pool.Forget( sourcePath ); // a remembered failure holds no texture
         // Current once the pixels were read after the rewrite was seen; a same-tick rewrite after that read is
         // the watch's to report (it hashes while the stamp is racy), so one capture costs one decode.
         if ( stampEc )
@@ -199,8 +210,42 @@ namespace Desert::Editor
         return result;
     }
 
+    std::uint64_t ThumbnailCache::CurrentFrame()
+    {
+        // Every Get() runs inside the ImGui pass (the tiles, the Details slots, the drag ghost), so ImGui's frame
+        // is the frame a picture was drawn in.
+        return static_cast<std::uint64_t>( ImGui::GetFrameCount() );
+    }
+
+    void ThumbnailCache::AdmitToPool( const std::string& sourcePath )
+    {
+        const std::uint64_t frame = CurrentFrame();
+        // Read on every admission, so the Preferences slider takes effect on the next picture without a push.
+        const int                preference = EditorPreferences::Get().ThumbnailPoolSize;
+        const auto               limit      = static_cast<std::size_t>( preference < 1 ? 1 : preference );
+        std::vector<std::string> evicted;
+        if ( limit != m_Pool.Limit() )
+            evicted = m_Pool.SetLimit( limit, frame );
+        for ( std::string& key : m_Pool.Admit( sourcePath, frame ) )
+            evicted.push_back( std::move( key ) );
+        // Dropped whole — picture, watch, outdated mark — so a tile that shows it again decodes the file as it is
+        // then, through the worker (Get's miss path). The GPU image is released through the allocator's deferred
+        // queue (VulkanImage2D::Release -> RT_DestroyImage), and its ImGui descriptor set by RetireReleased, so a
+        // frame still in flight keeps sampling a live image.
+        for ( const std::string& key : evicted )
+        {
+            m_Cache.erase( key );
+            m_Watch.Forget( key );
+            m_Outdated.Forget( key );
+        }
+        if ( !evicted.empty() )
+            LOG_DEBUG( "[Thumbnails] pool at its limit of {}: released {} picture(s) not drawn since frame {}",
+                       limit, evicted.size(), frame );
+    }
+
     void ThumbnailCache::Invalidate( const std::string& sourcePath )
     {
+        m_Pool.Forget( sourcePath );
         m_Cache.erase( sourcePath );
         m_Watch.Forget( sourcePath );
         m_Outdated.Forget( sourcePath );
@@ -208,6 +253,7 @@ namespace Desert::Editor
 
     void ThumbnailCache::Clear()
     {
+        m_Pool.Clear();
         m_Cache.clear();
         m_Watch.Clear();
         m_Outdated.Clear();

@@ -6,7 +6,9 @@
 
 #include <Common/Utilities/WriteWatch.hpp>
 #include <Editor/Widgets/ThumbnailOutdated.hpp>
+#include <Editor/Widgets/ThumbnailPool.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -18,11 +20,12 @@ namespace Desert::Editor
     // thumbnails — independent of the cook pipeline, so EVERY image previews consistently (not only
     // already-cooked ones). Keyed by the picture's path (ThumbnailKey::DiskPath for a rendered one).
     //
-    // RESIDENT, NOT BOUNDED (THM1n-13, owner 09-29 "all assets on the splash"): the browser's cache holds every
-    // picture of the project from the hand-over on — the splash uploads them all — and never drops one to make
-    // room, so entering a folder draws what is here instead of decoding it again. A picture leaves only when
-    // its file changes (WriteWatch, below) or its owner is torn down. Unloading for very large projects is a
-    // separate owner decision, not a silent cap here.
+    // BOUNDED, LIKE UE'S FAssetThumbnailPool (THUMB-POOL; reverses THM1n-13's "resident, not bounded", which held
+    // 1297 pictures on Bistro): the pictures live on disk and at most EditorPreferences::ThumbnailPoolSize of
+    // them (UE: 1024) are textures. The least recently drawn one is released when a new one is uploaded past
+    // the limit (ThumbnailPool — never one drawn this frame), and a tile that shows it again decodes it from
+    // disk on a worker. A picture also leaves when its file changes (WriteWatch, below) or its owner is torn
+    // down.
     class ThumbnailCache
     {
     public:
@@ -112,7 +115,12 @@ namespace Desert::Editor
         // the same Get() decodes those for the browser's texture previews. See its use for the argument.
         static bool IsOurGeneratedThumbnail( const std::string& path );
 
+        // Records a just-uploaded picture in the pool and releases what the pool evicts for it.
+        void                 AdmitToPool( const std::string& sourcePath );
+        static std::uint64_t CurrentFrame();
+
         std::unordered_map<std::string, std::shared_ptr<Graphic::Image2D>> m_Cache;
+        ThumbnailPool                                                      m_Pool;  // which pictures stay textures
         Common::Utils::WriteWatch                                          m_Watch; // the file as decoded
         ThumbnailOutdated m_Outdated;                                               // rewritten, not re-read yet
 
