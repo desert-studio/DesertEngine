@@ -112,6 +112,9 @@ namespace Desert::ECS
             desc.Settings.MaxSleepTime                = data.MaxSleepTime;
             desc.Settings.SlowMovingAsSleeping        = data.SlowMovingAsSleeping;
             desc.Settings.SlowMovingVelocityThreshold = data.SlowMovingVelocityThreshold;
+            // Collision events are recorded only for the objects that publish them (DestructionVFXEvents).
+            desc.Settings.CollisionEvents          = data.NotifyCollisions;
+            desc.Settings.CollisionEventMinImpulse = data.CollisionEventMinImpulse;
 
             auto added = m_World->Add( fracture.GetValue(), desc );
             if ( !added.IsSuccess() )
