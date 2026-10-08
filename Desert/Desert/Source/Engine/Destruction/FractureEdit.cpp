@@ -29,9 +29,10 @@ namespace Desert::Destruction
         return offsets;
     }
 
-    Common::ResultStr<FractureData> GenerateFracture( const Geometry::DynamicMesh3& source,
-                                                      const FractureData&           current,
-                                                      const FractureSettings&       settings )
+    Common::ResultStr<FractureData> GenerateFracture( const Geometry::DynamicMesh3&     source,
+                                                      const Common::Content::AssetGuid& sourceMesh,
+                                                      const FractureData&               current,
+                                                      const FractureSettings&           settings )
     {
         auto baked = BakeFracture( source, settings );
         if ( !baked )
@@ -39,7 +40,7 @@ namespace Desert::Destruction
 
         FractureData next;
         next.Guid               = current.Guid;
-        next.SourceMesh         = current.SourceMesh;
+        next.SourceMesh         = sourceMesh;
         next.InteriorMaterial   = current.InteriorMaterial;
         next.Settings           = settings;
         next.InteriorMaterialId = baked.GetValue().InteriorMaterialId;

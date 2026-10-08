@@ -20,6 +20,7 @@
 #include "Editor/Panels/Build/BuildCommands.hpp"
 #include "Editor/Panels/Clouds/CloudCommands.hpp"
 #include "Editor/Panels/Foliage/FoliageCommands.hpp"
+#include "Editor/Panels/Fracture/FractureCommands.hpp"
 #include "Editor/Panels/Landscape/LandscapeCommands.hpp"
 #include "Editor/Panels/Localization/LanguageCommands.hpp"
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
@@ -96,6 +97,8 @@ namespace Desert::Editor
                              []( Out& out ) { AppendSelectElementsCommand( out ); } );
         m_Commands.Register( "Landscape", [&workspace]( Out& out )
                              { AppendLandscapeCommands( out, workspace.ActiveScene() ); } );
+        m_Commands.Register( "Fracture", [&workspace]( Out& out )
+                             { AppendFractureCommands( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Modeling (Create Shape)", []( Out& out ) { AppendCreateShapeCommands( out ); } );
         m_Commands.Register( "Humanoid", [&workspace]( Out& out )
                              { AppendHumanoidCommands( out, workspace.ActiveScene() ); } );
