@@ -69,6 +69,21 @@ namespace Desert::Assets
         Specular,
         OcclusionRoughnessMetallic,
     };
+    // THE UNIT ONE LENGTH OF THE SOURCE FILE IS IN, AS THE USER STATES IT (UE: the import's unit conversion
+    // beside Import Uniform Scale - that one says "how much bigger", this one says "in what unit"). The question
+    // a Wavefront OBJ cannot answer about itself: the format has no unit field, so without this setting an OBJ
+    // authored in metres imports 100 times too small. `FromFile` = the file or its format decides (FBX
+    // UnitScaleFactor, glTF's metres; an OBJ is then taken as centimetres and the import warns that it was
+    // assumed). Any other value wins over what the file states, and the import logs both when they differ.
+    enum class MeshFileUnit : uint8_t
+    {
+        FromFile,
+        Millimetres,
+        Centimetres,
+        Metres,
+        Inches,
+        Feet,
+    };
     // Where SRCE came from. `Imported` names a file (key + hash); `Recovered` is a source rebuilt from an older
     // render-form asset whose original file is not known — an explicit state, never an empty string.
     enum class MeshSourceProvenance : uint8_t
@@ -102,8 +117,11 @@ namespace Desert::Assets
         // import (CheckSkeletonAssignment) - never a new .skeleton in its place.
         std::optional<Common::Content::AssetGuid> Skeleton;
         // How the file's FBX Specular map enters the material (ImportManager, before the template fill).
-        FbxSpecularMap SpecularMap                                     = FbxSpecularMap::Specular;
-        bool           operator==( const SourceImportSettings& ) const = default;
+        FbxSpecularMap SpecularMap = FbxSpecularMap::Specular;
+        // What one length of the file is (ImportUnits::Resolve, before the geometry is built): read by the
+        // importer, not copied into the meshes - the geometry it writes is already in centimetres.
+        MeshFileUnit FileUnit                                        = MeshFileUnit::FromFile;
+        bool         operator==( const SourceImportSettings& ) const = default;
     };
 
     struct MeshImportInfo
@@ -203,6 +221,29 @@ namespace Desert::Assets
     std::optional<MeshLodPolicy>        MeshLodPolicyFromName( std::string_view name );
     std::string_view                    FbxSpecularMapName( FbxSpecularMap meaning );
     std::optional<FbxSpecularMap>       FbxSpecularMapFromName( std::string_view name );
+    std::string_view                    MeshFileUnitName( MeshFileUnit unit );
+    std::optional<MeshFileUnit>         MeshFileUnitFromName( std::string_view name );
+    // Centimetres per file unit for a stated unit; nothing for `FromFile` (the file decides). Inline: the
+    // importer's unit rule (Editor ImportUnits) and its suites read it without linking the asset codec.
+    inline std::optional<float> MeshFileUnitCentimetres( const MeshFileUnit unit )
+    {
+        switch ( unit )
+        {
+            case MeshFileUnit::FromFile:
+                return std::nullopt;
+            case MeshFileUnit::Millimetres:
+                return 0.1f;
+            case MeshFileUnit::Centimetres:
+                return 1.0f;
+            case MeshFileUnit::Metres:
+                return 100.0f;
+            case MeshFileUnit::Inches:
+                return 2.54f;
+            case MeshFileUnit::Feet:
+                return 30.48f;
+        }
+        return std::nullopt;
+    }
     std::string_view                    MeshSourceProvenanceName( MeshSourceProvenance provenance );
     std::optional<MeshSourceProvenance> MeshSourceProvenanceFromName( std::string_view name );
 } // namespace Desert::Assets

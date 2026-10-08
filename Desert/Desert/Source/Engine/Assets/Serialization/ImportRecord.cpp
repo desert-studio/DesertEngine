@@ -21,7 +21,10 @@ namespace Desert::Assets::Serialization
                       : std::nullopt,
                  settings.SpecularMap == Assets::FbxSpecularMap::Specular
                       ? std::nullopt
-                      : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ) };
+                      : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ),
+                 settings.FileUnit == Assets::MeshFileUnit::FromFile
+                      ? std::nullopt
+                      : std::optional<std::string>( Assets::MeshFileUnitName( settings.FileUnit ) ) };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -54,6 +57,16 @@ namespace Desert::Assets::Serialization
                      "OcclusionRoughnessMetallic",
                      *text.SpecularMap );
             out.SpecularMap = *specular;
+        }
+        if ( text.FileUnit )
+        {
+            const auto unit = Assets::MeshFileUnitFromName( *text.FileUnit );
+            if ( !unit )
+                return Common::MakeFormattedError<Result>(
+                     "import settings name file unit '{}'; this build knows FromFile, Millimetres, "
+                     "Centimetres, Metres, Inches and Feet",
+                     *text.FileUnit );
+            out.FileUnit = *unit;
         }
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;

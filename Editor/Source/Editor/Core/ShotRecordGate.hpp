@@ -32,6 +32,12 @@ namespace Desert::Editor
         bool     StartupLoading   = false;
         bool     SplashOnScreen   = false;
         bool     ContentSettling  = false;
+        // Assets still being compiled beside the session (UE FAssetCompilingManager::GetNumRemainingAssets): the
+        // background mesh cook queued at the reveal and its completions not yet applied. Holds the START of a
+        // capture only - a heavy import's meshes stay Pending until their cook lands, and a capture begun before
+        // that photographs an empty scene (Bistro, GI-BISTRO2). Once recording, a cook landing mid-capture is
+        // part of what is being recorded, as a streamed cell is in a flight.
+        bool     AssetsCompiling  = false;
         uint32_t ViewportWidth    = 0;
         uint32_t ViewportHeight   = 0;
     };
@@ -51,7 +57,8 @@ namespace Desert::Editor
             // Stability is counted only over frames on which everything else already holds: the size the
             // viewport had under the splash says nothing about the size of the window once it is shown.
             const bool settled = !frame.SceneLoadPending && !frame.StartupLoading && !frame.SplashOnScreen &&
-                                 !frame.ContentSettling && frame.ViewportWidth > 0 && frame.ViewportHeight > 0;
+                                 !frame.ContentSettling && !( frame.AssetsCompiling && !m_Recording ) &&
+                                 frame.ViewportWidth > 0 && frame.ViewportHeight > 0;
             const bool sameSize = frame.ViewportWidth == m_LastWidth && frame.ViewportHeight == m_LastHeight;
             if ( !settled )
                 m_StableFrames = 0;

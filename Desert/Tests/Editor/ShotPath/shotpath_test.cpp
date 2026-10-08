@@ -469,3 +469,22 @@ TEST( ShotRecordGate, ContentUnsettlingMidCapturePausesWithoutRestarting )
     EXPECT_TRUE( reopened );
     EXPECT_EQ( gate.RecordWidth(), 1452u );
 }
+
+// A HEAVY IMPORT'S COOK HOLDS THE START OF THE CAPTURE, NOT ITS MIDDLE (SHOT-AUTO). Bistro was shot while its
+// meshes were still Pending behind the background cook: every other condition held, so the capture began on
+// an empty scene. Before recording, a compiling asset holds the frame; once recording, it does not.
+TEST( ShotRecordGate, CompilingAssetsHoldTheStartButNotTheMiddle )
+{
+    ShotRecordGate gate;
+    auto           compiling   = ReadyAt( 1280, 720 );
+    compiling.AssetsCompiling = true;
+    for ( int i = 0; i < 10; ++i )
+        EXPECT_FALSE( gate.Admit( compiling ) ) << "frame " << i << " recorded while an asset was compiling";
+    EXPECT_FALSE( gate.Recording() );
+
+    for ( int i = 1; i < ShotRecordGate::kStableFrames; ++i )
+        EXPECT_FALSE( gate.Admit( ReadyAt( 1280, 720 ) ) );
+    EXPECT_TRUE( gate.Admit( ReadyAt( 1280, 720 ) ) ) << "the cook landed and the size held: recording starts";
+
+    EXPECT_TRUE( gate.Admit( compiling ) ) << "a cook landing mid-capture is part of what is recorded";
+}

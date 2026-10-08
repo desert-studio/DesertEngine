@@ -974,6 +974,7 @@ namespace Desert::Editor
         frame.StartupLoading   = m_Startup.StartupLoading();
         frame.SplashOnScreen   = m_Startup.SplashOnScreen();
         frame.ContentSettling  = m_Startup.ContentSettling();
+        frame.AssetsCompiling  = m_AssetCompiling.RemainingAssets() > 0;
         // The picture the writer reads back (ViewportCapture), at the size this frame renders at: the panels'
         // deferred resizes were applied just before this call.
         if ( m_Workspace.ActiveScene() )

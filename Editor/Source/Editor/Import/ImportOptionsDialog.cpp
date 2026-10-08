@@ -101,6 +101,12 @@ namespace Desert::Editor::ImportOptions
         constexpr std::array<const char*, 2> kSpecularMapLabels = { "Specular (FBX's meaning)",
                                                                     "Packed AO/Roughness/Metal (R/G/B)" };
 
+        constexpr std::array<Assets::MeshFileUnit, 6> kFileUnits = {
+             Assets::MeshFileUnit::FromFile,    Assets::MeshFileUnit::Millimetres, Assets::MeshFileUnit::Centimetres,
+             Assets::MeshFileUnit::Metres,      Assets::MeshFileUnit::Inches,      Assets::MeshFileUnit::Feet };
+        constexpr std::array<const char*, 6> kFileUnitLabels = { "From File (OBJ: assumed cm)", "Millimetres",
+                                                                 "Centimetres", "Metres", "Inches", "Feet" };
+
         // The window's title and its options section, by what the file holds (UE: Static Mesh / Skeletal Mesh /
         // Animation import).
         const char* KindTitle( const ImportContentKind kind )
@@ -377,7 +383,21 @@ namespace Desert::Editor::ImportOptions
             UI::EndPropertyRow();
         }
 
-        UI::BeginPropertyRow( "Uniform Scale", "Applied on import: source units to centimetres." );
+        UI::BeginPropertyRow( "File Unit",
+                              "What one length of the file is. From File: FBX states it, glTF is metres; an OBJ "
+                              "states nothing and is taken as centimetres. Any other choice wins over the file." );
+        int unit = 0;
+        for ( std::size_t i = 0; i < kFileUnits.size(); ++i )
+            if ( kFileUnits[i] == settings.FileUnit )
+                unit = static_cast<int>( i );
+        if ( ImGui::Combo( "##FileUnit", &unit, kFileUnitLabels.data(), static_cast<int>( kFileUnitLabels.size() ) ) )
+        {
+            settings.FileUnit = kFileUnits[static_cast<std::size_t>( unit )];
+            changed           = true;
+        }
+        UI::EndPropertyRow();
+
+        UI::BeginPropertyRow( "Uniform Scale", "Applied on import, after the file unit: a further factor." );
         float scale = settings.Mesh.UniformScale;
         if ( ImGui::DragFloat( "##UniformScale", &scale, 0.01f, 0.001f, 1000.0f, "%.3f" ) &&
              SetUniformScale( settings, scale ) )
