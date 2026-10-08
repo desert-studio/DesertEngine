@@ -273,6 +273,22 @@ namespace Desert::ECS
         out.FiredEvents = host.FiredEvents();
         return out;
     }
+
+    void ApplyLevelSequencePlaySettings( T::Player& player, const LevelSequenceComponent& component )
+    {
+        player.SetLoopMode( component.Loop );
+        player.SetPlayRate( component.PlayRate );
+    }
+
+    LevelSequenceStep AdvanceLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
+                                            LevelSequencePlayback& playback, const double seconds,
+                                            const LevelSequenceClipSource&    clips,
+                                            const LevelSequenceMaterialSlots& materials )
+    {
+        ApplyLevelSequencePlaySettings( playback.Player, component );
+        const T::TimeStep step = playback.Player.Advance( seconds );
+        return StepLevelSequence( registry, component, playback, step, clips, materials );
+    }
     std::vector<std::string> TakeNewLevelSequenceErrors( LevelSequenceActorState& state,
                                                          const LevelSequenceStep& step )
     {

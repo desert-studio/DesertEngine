@@ -1994,6 +1994,7 @@ namespace Desert::Core::Serialize
                 // LoopMode is stored BY NAME ("Once" / "Loop" / "PingPong"): the scene is text a person reads.
                 out.Set( "Loop", actor.Loop );
                 out.Set( "AutoPlay", actor.AutoPlay );
+                out.Set( "PlayRate", actor.PlayRate );
                 Common::Json::Value::Array overrides;
                 for ( const auto& over : actor.BindingOverrides )
                     overrides.emplace_back(
@@ -2018,6 +2019,7 @@ namespace Desert::Core::Serialize
                 auto& actor = entity.AddComponent<ECS::LevelSequenceComponent>();
                 g.ReadInto( "Loop", actor.Loop, issues ); // an unknown name is a named issue, the default kept
                 g.ReadInto( "AutoPlay", actor.AutoPlay, issues );
+                g.ReadInto( "PlayRate", actor.PlayRate, issues );
                 if ( const auto overrides = g.Find( "BindingOverrides" ) )
                     overrides->ForEachElement(
                          [&]( std::size_t, const Common::Json::Node& element )

@@ -273,13 +273,17 @@ namespace Desert::ECS
 
     // A LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor + FMovieSceneSequencePlaybackSettings). Plays the
     // `.dseq` named by `Sequence` in Play (ECS/System/LevelSequenceSystem.hpp); its Entity bindings name
-    // entities of this scene by UUID. Saved as {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides}
-    // (ComponentRegistry.cpp); a sequence the project does not have refuses the load with both.
+    // entities of this scene by UUID. Saved as {SequenceGuid, SequencePath, Loop, AutoPlay, PlayRate,
+    // BindingOverrides} (ComponentRegistry.cpp); a sequence the project does not have refuses the load with both.
     struct LevelSequenceComponent
     {
         Assets::AssetHandle                       Sequence;
         Animation::Timeline::LoopMode             Loop     = Animation::Timeline::LoopMode::Once;
         bool                                      AutoPlay = true;
+        // Sequence seconds per game second (UE: FMovieSceneSequencePlaybackSettings::PlayRate). Read every
+        // frame by ApplyLevelSequencePlaySettings, so a change while playing takes effect on the next step; a
+        // negative rate plays backwards, 0 holds the current frame.
+        double                                    PlayRate = 1.0;
         std::vector<LevelSequenceBindingOverride> BindingOverrides;
     };
 

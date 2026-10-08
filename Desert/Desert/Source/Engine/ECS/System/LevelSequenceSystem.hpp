@@ -122,10 +122,9 @@ namespace Desert::ECS
                 if ( actor == nullptr )
                     continue;
 
-                const Animation::Timeline::TimeStep step = actor->Playback->Player.Advance( ts.GetSeconds() );
-                const LevelSequenceStep result = StepLevelSequence( registry, component, *actor->Playback, step,
-                                                                    LevelSequenceClips( *m_AssetManager ),
-                                                                    LevelSequenceMaterialSlotOverrides() );
+                const LevelSequenceStep result = AdvanceLevelSequence(
+                     registry, component, *actor->Playback, ts.GetSeconds(), LevelSequenceClips( *m_AssetManager ),
+                     LevelSequenceMaterialSlotOverrides() );
                 for ( const auto& error : TakeNewLevelSequenceErrors( actor->State, result ) )
                     LOG_ERROR( "[LevelSequence] '{}': {}", actor->Name, error );
                 for ( const auto& name : result.FiredEvents )
@@ -183,7 +182,7 @@ namespace Desert::ECS
                 return nullptr;
             }
             actor.Playback = std::make_unique<LevelSequencePlayback>( actor.Asset->GetSequence() );
-            actor.Playback->Player.SetLoopMode( component.Loop );
+            ApplyLevelSequencePlaySettings( actor.Playback->Player, component );
             if ( component.AutoPlay )
                 actor.Playback->Player.Play();
             return &actor;

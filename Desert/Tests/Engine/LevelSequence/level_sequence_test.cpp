@@ -989,3 +989,144 @@ TEST( LevelSequenceMaterialProperties, SetKeysTheTrackAtThePlayheadAsOneUndoStep
     EXPECT_FALSE( history.Undo() ) << "nothing else was recorded";
     history.Clear();
 }
+
+// ── SEQ1a: TRANSFORM KEYS THROUGH THE FILE, AND THE PLAYER STEP THE SYSTEM RUNS ─────────────────────────────
+namespace
+{
+    /// The Translation channel of @p sequence's first Transform track (the door's, in AuthoredDoor).
+    T::FloatChannel* DoorTranslationX( T::Sequence& sequence )
+    {
+        for ( auto& track : sequence.Tracks )
+        {
+            if ( track.Property != ECS::kLevelSequenceTransformProperty || track.Sections.empty() )
+                continue;
+            auto* channel = std::get_if<T::Channel>( &track.Sections.front().Content );
+            auto* pose    = channel != nullptr ? std::get_if<T::TransformChannel>( channel ) : nullptr;
+            if ( pose != nullptr )
+                return &pose->Translation.X;
+        }
+        return nullptr;
+    }
+
+    float DoorX( const World& world )
+    {
+        return world.registry.get<ECS::TransformComponent>( world.door ).Translation.x;
+    }
+
+    /// Seconds of game time that advance @p ticks of AuthoredDoor's tick rate at play rate 1.
+    double SecondsOf( const T::Sequence& sequence, int32_t ticks )
+    {
+        return static_cast<double>( ticks ) * sequence.TickRate.Denominator / sequence.TickRate.Numerator;
+    }
+} // namespace
+
+TEST( LevelSequenceAsset, ATransformTrackKeepsEveryInterpolationAndTangentThroughTheFile )
+{
+    T::Sequence             authored = AuthoredDoor();
+    auto                    door     = authored.Bindings.front().Guid;
+    ECS::TransformComponent middle;
+    middle.Translation.x = 30.0F;
+    ASSERT_TRUE( ECS::SetEntityTransformKey( authored, door, A::FrameNumber{ 50 }, ECS::EntityPose( middle ) )
+                      .IsSuccess() );
+    T::FloatChannel* x = DoorTranslationX( authored );
+    ASSERT_NE( x, nullptr );
+    ASSERT_EQ( x->Keys.size(), 3U );
+    x->Keys[0].Interp        = A::KeyInterp::Constant;
+    x->Keys[1].Interp        = A::KeyInterp::Cubic;
+    x->Keys[1].Mode          = A::TangentMode::User;
+    x->Keys[1].ArriveTangent = -55.5F;
+    x->Keys[1].LeaveTangent  = 1234.25F;
+    x->Keys[2].Interp        = A::KeyInterp::Linear;
+    ASSERT_TRUE( T::Validate( authored ).IsSuccess() ) << T::Validate( authored ).GetError();
+
+    const AssetGuid guid{ 0xA, 0xB };
+    const auto      text = Desert::Assets::LevelSequenceAsset::Write( authored, guid );
+    ASSERT_TRUE( text.IsSuccess() ) << text.GetError();
+    auto parsed = Desert::Assets::LevelSequenceAsset::Parse( text.GetValue() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    EXPECT_EQ( parsed.GetValue().Guid, guid );
+
+    T::Sequence      read  = parsed.GetValue().Sequence;
+    T::FloatChannel* readX = DoorTranslationX( read );
+    ASSERT_NE( readX, nullptr );
+    ASSERT_EQ( readX->Keys.size(), x->Keys.size() );
+    for ( size_t i = 0; i < x->Keys.size(); ++i )
+    {
+        EXPECT_EQ( readX->Keys[i].Tick, x->Keys[i].Tick ) << "key " << i;
+        EXPECT_EQ( readX->Keys[i].Value, x->Keys[i].Value ) << "key " << i;
+        EXPECT_EQ( readX->Keys[i].Interp, x->Keys[i].Interp ) << "key " << i;
+        EXPECT_EQ( readX->Keys[i].Mode, x->Keys[i].Mode ) << "key " << i;
+        EXPECT_EQ( readX->Keys[i].ArriveTangent, x->Keys[i].ArriveTangent ) << "key " << i;
+        EXPECT_EQ( readX->Keys[i].LeaveTangent, x->Keys[i].LeaveTangent ) << "key " << i;
+    }
+    for ( const int32_t tick : { 0, 25, 49, 50, 60, 75, 100 } )
+        EXPECT_EQ( T::Evaluate( *readX, At( tick ), read.TickRate ),
+                   T::Evaluate( *x, At( tick ), authored.TickRate ) )
+             << "tick " << tick;
+
+    const auto again = Desert::Assets::LevelSequenceAsset::Write( read, guid );
+    ASSERT_TRUE( again.IsSuccess() ) << again.GetError();
+    EXPECT_EQ( again.GetValue(), text.GetValue() );
+}
+
+TEST( LevelSequencePlayer, AdvancesAtThePlayRateAndLoopsTheBoundEntity )
+{
+    const T::Sequence           sequence = AuthoredDoor(); // door X = tick on 0..100
+    World                       world;
+    ECS::LevelSequenceComponent component;
+    component.Loop     = T::LoopMode::Loop;
+    component.PlayRate = 2.0;
+    ECS::LevelSequencePlayback playback( sequence );
+    playback.Player.Play();
+
+    // 25 ticks of game time at rate 2 = 50 ticks of sequence.
+    auto step = ECS::AdvanceLevelSequence( world.registry, component, playback, SecondsOf( sequence, 25 ) );
+    EXPECT_TRUE( step.Report.Unresolved.empty() );
+    EXPECT_NEAR( playback.Player.Current().AsTicks(), 50.0, 1e-3 );
+    EXPECT_NEAR( DoorX( world ), 50.0F, 1e-2F );
+
+    // 30 more = 60 ticks: past the end (100), so the loop wraps and the door is back near the start.
+    step = ECS::AdvanceLevelSequence( world.registry, component, playback, SecondsOf( sequence, 30 ) );
+    const double wrapped = playback.Player.Current().AsTicks();
+    EXPECT_LT( wrapped, 50.0 ) << "Loop wraps 110 back into the range";
+    EXPECT_EQ( playback.Player.State(), T::PlayState::Playing );
+    EXPECT_NEAR( DoorX( world ), static_cast<float>( wrapped ), 1e-2F );
+
+    // A rate changed while playing is the next step's rate: 0 holds the frame.
+    component.PlayRate = 0.0;
+    step = ECS::AdvanceLevelSequence( world.registry, component, playback, SecondsOf( sequence, 30 ) );
+    EXPECT_EQ( playback.Player.Current().AsTicks(), wrapped );
+}
+
+TEST( LevelSequencePlayer, OnceClampsTheBoundEntityOnTheLastKeyAndStops )
+{
+    const T::Sequence           sequence = AuthoredDoor();
+    World                       world;
+    ECS::LevelSequenceComponent component;
+    component.Loop     = T::LoopMode::Once;
+    component.PlayRate = 2.0;
+    ECS::LevelSequencePlayback playback( sequence );
+    playback.Player.Play();
+    (void)ECS::AdvanceLevelSequence( world.registry, component, playback, SecondsOf( sequence, 25 ) );
+    (void)ECS::AdvanceLevelSequence( world.registry, component, playback, SecondsOf( sequence, 30 ) );
+    EXPECT_NEAR( DoorX( world ), 100.0F, 1e-3F );
+    EXPECT_NE( playback.Player.State(), T::PlayState::Playing );
+}
+
+TEST( LevelSequencePlayer, ABindingToAMissingEntityIsReportedAndThePlayerGoesOn )
+{
+    T::Sequence sequence              = AuthoredDoor();
+    sequence.Bindings.front().Locator = "987654321"; // no entity of the scene carries this UUID
+    World                       world;
+    ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback  playback( sequence );
+    playback.Player.Play();
+    ECS::LevelSequenceActorState state;
+    const auto step = ECS::AdvanceLevelSequence( world.registry, component, playback, SecondsOf( sequence, 50 ) );
+    EXPECT_EQ( step.Report.Unresolved.size(), 1U );
+    const auto errors = ECS::TakeNewLevelSequenceErrors( state, step );
+    ASSERT_EQ( errors.size(), 1U );
+    EXPECT_NE( errors.front().find( "'Door'" ), std::string::npos ) << errors.front();
+    EXPECT_NEAR( playback.Player.Current().AsTicks(), 50.0, 1e-3 ) << "the transport still advanced";
+    EXPECT_EQ( DoorX( world ), 0.0F );
+}
