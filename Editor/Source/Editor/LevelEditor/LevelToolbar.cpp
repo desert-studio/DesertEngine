@@ -321,7 +321,7 @@ namespace Desert::Editor
         const SnapButtonFace gridFace  = SnapFace( /*rotation=*/false );
         const SnapButtonFace angleFace = SnapFace( /*rotation=*/true );
 
-        const std::array<LeftEntry, 13> leftEntries = { {
+        const std::array<LeftEntry, 14> leftEntries = { {
              // The file/history group. Save sets the SAME deferred flag the File menu sets: saving from a
              // toolbar and from a menu must be one code path, or one will grow a step the other forgets.
              { ICON_MDI_CONTENT_SAVE, "Save", true, false, false, true,
@@ -339,6 +339,9 @@ namespace Desert::Editor
                "Foliage — paint instanced vegetation", [] { Mode::Set( EMode::Foliage ); } },
              { ICON_MDI_TERRAIN, "Landscape", true, false, mode == EMode::Landscape, true,
                "Landscape — create, sculpt and paint landscapes", [] { Mode::Set( EMode::Landscape ); } },
+             { ICON_MDI_HAMMER, "Fracture", true, false, mode == EMode::Fracture, true,
+               "Fracture — break a static mesh into a geometry collection (.dfrac)",
+               [] { Mode::Set( EMode::Fracture ); } },
              { ICON_MDI_CURSOR_MOVE, "", false, true, op == Gz::Operation::Translate, true, "Translate (T)",
                [] { Gz::Set( Gz::Operation::Translate ); } },
              { ICON_MDI_ROTATE_ORBIT, "", false, false, op == Gz::Operation::Rotate, true, "Rotate (R)",

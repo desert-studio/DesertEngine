@@ -239,6 +239,8 @@ namespace Desert::Destruction
         w.F64( s.InteriorUVScale );
 
         w.I32( data.InteriorMaterialId );
+        w.U64( data.InteriorMaterial.Hi );
+        w.U64( data.InteriorMaterial.Lo );
         w.U32( static_cast<uint32_t>( data.Nodes.size() ) );
         for ( const FractureNode& n : data.Nodes )
         {
@@ -290,6 +292,8 @@ namespace Desert::Destruction
         s.InteriorUVScale             = r.F64();
 
         d.InteriorMaterialId = r.I32();
+        d.InteriorMaterial.Hi = r.U64();
+        d.InteriorMaterial.Lo = r.U64();
         d.Nodes.resize( r.Count( 1 ) );
         for ( FractureNode& n : d.Nodes )
         {
