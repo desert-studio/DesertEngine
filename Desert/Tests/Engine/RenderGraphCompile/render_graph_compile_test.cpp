@@ -3797,7 +3797,7 @@ TEST( RenderGraphCompile, EditorInterfaceIsAGraphNode )
                std::string::npos )
          << "the draw data is recorded on the node's command buffer";
     EXPECT_NE( imgui.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ), std::string::npos );
-    EXPECT_NE( imgui.find( "renderer.ExecuteGraph(graph)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "Renderer::ExecuteGraph(graph)" ), std::string::npos );
     EXPECT_NE( imgui.find( "ImGui_ImplVulkan_Init(&init_info,m_ImguiRenderPass)" ), std::string::npos );
     EXPECT_NE( imgui.find( "CreateRdgRenderPass(" ), std::string::npos );
     for ( const char* gone :
