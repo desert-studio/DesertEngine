@@ -431,7 +431,7 @@ namespace Desert::Core
                 static_cast<GameplayCamera*>( m_GameplayCamera.get() )
                      ->SetView(
                           CameraEntityViewOf( world, mainCam->Data.FOV, mainCam->Data.Near, mainCam->Data.Far ),
-                          m_ViewportWidth, m_ViewportHeight );
+                          m_ViewportWidth, m_ViewportHeight, static_cast<uint32_t>( mainEntity ) );
                 if ( GetActiveCamera() != m_GameplayCamera )
                     SetActiveCamera( m_GameplayCamera );
             }
@@ -1023,6 +1023,9 @@ namespace Desert::Core
     {
         m_Subsystems.End();
         m_Registry.clear();
+        // A reload empties this object and refills it: a new world at the same address. Entity ids restart, so
+        // a view's history keyed by (generation, entity) must not survive it (SceneRenderer::BeginScene).
+        m_Generation   = NextSceneGeneration();
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
         m_PlayFromHere = false;

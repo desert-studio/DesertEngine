@@ -396,7 +396,9 @@ namespace Desert::Graphic::API::Vulkan
         std::optional<Core::Formats::ImageFormat> depth;
         for ( const auto& attachment : spec.Attachments.Attachments )
         {
-            if ( Graphic::Utils::IsDepthFormat( attachment.Format ) )
+            if ( attachment.Unused )
+                colourFormats.push_back( VK_FORMAT_UNDEFINED ); // an unused colour slot: VK_ATTACHMENT_UNUSED
+            else if ( Graphic::Utils::IsDepthFormat( attachment.Format ) )
                 depth = attachment.Format;
             else
                 colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( attachment.Format ) );
@@ -478,29 +480,18 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanPipeline::CreateColorBlendState()
     {
         m_ColorBlendAttachments.clear();
-        uint32_t colorAttachmentCount = 1;
-        if ( m_Specification.Framebuffer )
-            colorAttachmentCount = m_Specification.Framebuffer->GetColorAttachmentCount();
-        else if ( m_Specification.TargetLayout )
-            colorAttachmentCount = static_cast<uint32_t>( m_Specification.TargetLayout->ColorFormats.size() );
+        // Per attachment, by its format: an integer target never blends (ColourAttachmentBlendEnables).
+        const std::vector<bool> blends = ColourAttachmentBlendEnables( ColourAttachmentFormats( m_Specification ),
+                                                                       m_Specification.BlendEnable );
 
-        const VkBool32       blend  = m_Specification.BlendEnable ? VK_TRUE : VK_FALSE;
-        const VkBlendFactor  srcCol = ConvertBlendFactor( m_Specification.SrcColorBlendFactor );
-        const VkBlendFactor  dstCol = ConvertBlendFactor( m_Specification.DstColorBlendFactor );
-
-        m_ColorBlendAttachments.resize( colorAttachmentCount );
-        for ( auto& attachment : m_ColorBlendAttachments )
-        {
-            attachment = { .blendEnable         = blend,
-                           .srcColorBlendFactor = srcCol,
-                           .dstColorBlendFactor = dstCol,
-                           .colorBlendOp        = VK_BLEND_OP_ADD,
-                           .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                           .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                           .alphaBlendOp        = VK_BLEND_OP_ADD,
-                           .colorWriteMask      = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT };
-        }
+        // Per slot: blending from the attachment's FORMAT (above), the write mask from what the fragment stage writes
+        // — a slot the stage does not write is masked (write mask 0), so a target carrying the view's velocity next
+        // to scene colour keeps the velocity the depth-writing passes left there.
+        const auto* vulkanShader =
+             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
+        m_ColorBlendAttachments = ShaderReflection::BuildColorBlendAttachments(
+             vulkanShader->GetFragmentOutputLocations(), blends, ConvertBlendFactor( m_Specification.SrcColorBlendFactor ),
+             ConvertBlendFactor( m_Specification.DstColorBlendFactor ) );
 
         m_ColorBlending = VkPipelineColorBlendStateCreateInfo{
              .sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -531,8 +522,11 @@ namespace Desert::Graphic::API::Vulkan
             const RenderTargetLayout& layout = *m_Specification.TargetLayout;
             std::vector<VkFormat>     colourFormats;
             colourFormats.reserve( layout.ColorFormats.size() );
-            for ( const Core::Formats::ImageFormat format : layout.ColorFormats )
-                colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( format ) );
+            // An unused colour slot is VK_FORMAT_UNDEFINED: CreateRdgRenderPass references it as
+            // VK_ATTACHMENT_UNUSED.
+            for ( const std::optional<Core::Formats::ImageFormat>& format : layout.ColorFormats )
+                colourFormats.push_back( format ? API::Vulkan::GetImageVulkanFormat( *format )
+                                                : VK_FORMAT_UNDEFINED );
             VkFormat depthFormat = VK_FORMAT_UNDEFINED;
             if ( layout.DepthFormat.has_value() )
                 depthFormat = API::Vulkan::GetImageVulkanFormat( layout.DepthFormat.value() );

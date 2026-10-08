@@ -50,6 +50,7 @@
 #include <shaderc/shaderc.hpp>
 
 #include <format>
+#include <iterator>
 #include <iostream>
 
 #include <algorithm>
@@ -70,6 +71,7 @@
 
 using Desert::Core::CollectShaderIncludes;
 using Desert::Core::ComputeShaderCacheKey;
+using Desert::Core::ComputeShaderMapKey;
 using Desert::Core::Formats::ShaderStage;
 using namespace Desert::Graphic::API::Vulkan;
 
@@ -488,6 +490,191 @@ TEST_F( ShaderCacheKeyShaderRoot, ASubstitutingVariantNeverHashesToTheDefaultsVa
     const Desert::Core::ShaderVariant substituting{ { { "Generated/CloudMedium.glslh", "" } } };
     EXPECT_NE( substituting.Hash(), 0u );
     EXPECT_FALSE( substituting.IsDefault() );
+}
+
+// A ShaderVariant's DEFINES are the permutation axis of a pass that draws one program into a different
+// target (the reflective shadow map draws the G-buffer program under DESERT_GBUFFER_RSM). The program's
+// text and every header on disk are identical between the two permutations; only the macro differs, so
+// the key must carry it or the first permutation compiled is served to the other from the disk cache.
+
+TEST_F( ShaderCacheKeyShaderRoot, ADefineSeparatesTheKeyOfOneProgramText )
+{
+    const std::string source = "#version 450\n#ifndef DESERT_GBUFFER_RSM\nlayout(location = 2) out uint oWord;\n"
+                               "#endif\nvoid main() {}\n";
+    const auto        path   = ShaderPath( "Fog/HeightFog.shader" );
+
+    Desert::Core::ShaderVariant rsm;
+    rsm.Defines = { "DESERT_GBUFFER_RSM" };
+
+    EXPECT_FALSE( rsm.IsDefault() );
+    EXPECT_NE( rsm.Hash(), 0u );
+    EXPECT_NE( ComputeShaderCacheKey( ShaderStage::Fragment, source, path ),
+               ComputeShaderCacheKey( ShaderStage::Fragment, source, path, rsm ) )
+         << "the DESERT_GBUFFER_RSM permutation and the plain program produced ONE cache key, so whichever "
+            "compiled first would be served to the other.";
+    EXPECT_NE( ComputeShaderMapKey( source, path, "", false ),
+               ComputeShaderMapKey( source, path, "", false, rsm ) )
+         << "the shader-map key does not separate the permutation either.";
+
+    // A define's value is part of it, and a define is not a virtual source of the same spelling.
+    Desert::Core::ShaderVariant valued;
+    valued.Defines = { "DESERT_GBUFFER_RSM=1" };
+    EXPECT_NE( rsm.Hash(), valued.Hash() );
+    const Desert::Core::ShaderVariant asSource{ { { "DESERT_GBUFFER_RSM", "" } } };
+    EXPECT_NE( rsm.Hash(), asSource.Hash() );
+
+    // The same macro set assembled in another order is the same permutation.
+    Desert::Core::ShaderVariant ab;
+    ab.Defines = { "A", "B=2" };
+    Desert::Core::ShaderVariant ba;
+    ba.Defines = { "B=2", "A" };
+    EXPECT_EQ( ab.Hash(), ba.Hash() );
+}
+
+TEST( ShaderVariantDefines, NameAndValueSplitAtTheFirstEquals )
+{
+    EXPECT_EQ( Desert::Core::ShaderDefineName( "DESERT_GBUFFER_RSM" ), "DESERT_GBUFFER_RSM" );
+    EXPECT_EQ( Desert::Core::ShaderDefineValue( "DESERT_GBUFFER_RSM" ), "" );
+    EXPECT_EQ( Desert::Core::ShaderDefineName( "N=a=b" ), "N" );
+    EXPECT_EQ( Desert::Core::ShaderDefineValue( "N=a=b" ), "a=b" );
+}
+
+// The key carrying a define is worth nothing if the compile never sees it (the deleted ShaderDefines did
+// exactly that: Shader.hpp records why). ShaderCompiler's options are local to its compile lambda, so this
+// is a census of that body: every define of the variant goes to CompileOptions::AddMacroDefinition with
+// the name and value split by the same helpers the test above checks. Mutation: drop the loop -> red.
+TEST( ShaderVariantDefines, EveryDefineOfTheVariantReachesTheCompileOptions )
+{
+    const auto file = Desert::TestSupport::RepositoryRoot() /
+                      "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp";
+    std::ifstream in( file, std::ios::binary );
+    ASSERT_TRUE( in ) << file.string();
+    std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+
+    const auto body = text.find( "shaderc::CompileOptionsoptions;" );
+    ASSERT_NE( body, std::string::npos );
+    const auto compile = text.find( "compiler.CompileGlslToSpv(source,", body );
+    ASSERT_NE( compile, std::string::npos );
+    const std::string between = text.substr( body, compile - body );
+    EXPECT_NE( between.find( "for(conststd::string&define:variant.Defines)" ), std::string::npos )
+         << "the compile options are built without walking the variant's defines.";
+    EXPECT_NE( between.find( "conststd::string_viewname=ShaderDefineName(define);" ), std::string::npos );
+    EXPECT_NE( between.find( "conststd::string_viewvalue=ShaderDefineValue(define);" ), std::string::npos );
+    EXPECT_NE( between.find( "options.AddMacroDefinition(name.data(),name.size(),value.data(),value.size());" ),
+               std::string::npos )
+         << "a define of the variant does not reach CompileOptions::AddMacroDefinition.";
+}
+
+// The permutation is worth nothing if the RSM pipeline is built from the plain G-buffer program: the RSM
+// would then write the shading word into its colour slot 2, which is an UNUSED slot (no image). This is a
+// census of MeshRenderer::SetupGBufferPass's RSM block: the program is acquired as the G-buffer cell under the
+// DESERT_GBUFFER_RSM variant, and the RSM spec - copied from the G-buffer spec - has its Shader replaced by
+// that program BEFORE the pipeline is asked for. Mutation: drop `rsmSpec.Shader = m_RSMShader;` (the copy
+// keeps the plain cell) -> red. And the shader side: Pass_GBuffer gates the word output on the macro.
+TEST( ShaderVariantDefines, TheRSMPipelineIsBuiltFromTheRSMPermutation )
+{
+    const auto read = []( const char* relative )
+    {
+        std::ifstream in( Desert::TestSupport::RepositoryRoot() / relative, std::ios::binary );
+        std::string   text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+        return text;
+    };
+
+    const std::string deferred =
+         read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDeferred.cpp" );
+    ASSERT_FALSE( deferred.empty() );
+    const auto acquire = deferred.find( "m_RSMShader=DefaultSurfaceProgramVariant(MeshVertexPath::Static,"
+                                        "MeshPass::GBuffer,ShaderVariant{.Defines={\"DESERT_GBUFFER_RSM\"}});" );
+    ASSERT_NE( acquire, std::string::npos )
+         << "the RSM program is not the G-buffer cell under DESERT_GBUFFER_RSM.";
+    const auto copy = deferred.find( "GraphicsPipelineSpecificationrsmSpec=spec;", acquire );
+    ASSERT_NE( copy, std::string::npos );
+    const auto create = deferred.find( "GetPipelineCache().GetOrCreate(rsmSpec)", copy );
+    ASSERT_NE( create, std::string::npos );
+    const std::string block = deferred.substr( copy, create - copy );
+    EXPECT_NE( block.find( "rsmSpec.Shader=m_RSMShader;" ), std::string::npos )
+         << "the RSM pipeline keeps the G-buffer spec's plain program: it would write the shading word into the "
+            "RSM's unused colour slot 2.";
+    EXPECT_EQ( block.find( "rsmSpec.Shader=m_StaticGBufferShader" ), std::string::npos );
+
+    const std::string pass = read( "Editor/Resources/Shaders/Mesh/Surface/Pass_GBuffer.glslh" );
+    ASSERT_FALSE( pass.empty() );
+    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMlayout(location=2)outuintoGBufferShadingWord;" ),
+               std::string::npos )
+         << "Pass_GBuffer declares the shading word in the RSM permutation too.";
+    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMconstuintword=" ), std::string::npos )
+         << "Pass_GBuffer writes the shading word in the RSM permutation too.";
+}
+
+TEST( ShaderVariantDefines, OnlyTheMeshRendererDrawsTheRSM )
+{
+    // The RSM framebuffer's colour slot 2 is unused (ViewTargetFormats::kRSMColourSlots), so every pipeline that
+    // draws into it must be built from the DESERT_GBUFFER_RSM permutation
+    // (TheRSMPipelineIsBuiltFromTheRSMPermutation). That holds because exactly one drawer exists: the "Deferred:
+    // RSM" pass records MeshRenderer's RSM draw list and nothing else, every draw on that list is m_RSMPipeline,
+    // and no other renderer (terrain, foliage, particles) reaches the RSM framebuffer. A second drawer must come
+    // with its own RSM permutation — this census goes red first.
+    const auto read = []( const std::filesystem::path& path )
+    {
+        std::ifstream in( path, std::ios::binary );
+        std::string   text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
+        return text;
+    };
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
+
+    const std::string frame = read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
+    ASSERT_FALSE( frame.empty() );
+    EXPECT_NE( frame.find( "{returnmeshRenderer->RenderRSMManual(context);},[meshRenderer](RDG::PassBuilder&pass)"
+                           "{meshRenderer->DeclareRSMDraws(pass);});" ),
+               std::string::npos )
+         << "the \"Deferred: RSM\" pass records something besides MeshRenderer's RSM draw list.";
+
+    const std::string shadow =
+         read( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp" );
+    ASSERT_FALSE( shadow.empty() );
+    std::size_t adds = 0;
+    for ( auto at = shadow.find( "m_RSMDraws.Add(" ); at != std::string::npos;
+          at      = shadow.find( "m_RSMDraws.Add(", at + 1 ) )
+    {
+        ++adds;
+        EXPECT_EQ( shadow.compare( at, 46, "m_RSMDraws.Add({.Pipeline=m_RSMPipeline.get()," ), 0 )
+             << "an RSM draw does not use the RSM-permutation pipeline.";
+    }
+    EXPECT_EQ( adds, 1u );
+
+    // Who can reach the RSM framebuffer: the scene renderer that owns it, and MeshRenderer's RSM draw list.
+    const std::set<std::string> allowed = { "SceneRenderer.cpp", "SceneRenderer.hpp", "SceneRendererFrameMesh.cpp",
+                                            "SceneRendererFrameDeferred.cpp", "MeshRendererShadow.cpp" };
+    std::vector<std::string>    reach;
+    for ( const char* dir : { "Desert/Desert/Source", "Editor/Source", "Runtime/Source" } )
+    {
+        if ( !std::filesystem::exists( root / dir ) )
+            continue;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / dir ) )
+        {
+            const auto ext = entry.path().extension();
+            if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                continue;
+            const std::string text  = read( entry.path() );
+            const bool        named = text.find( "GetRSMBuffer(" ) != std::string::npos ||
+                               text.find( "m_RSMBuffer" ) != std::string::npos;
+            if ( named && !allowed.contains( entry.path().filename().string() ) )
+                reach.push_back( entry.path().filename().string() );
+        }
+    }
+    EXPECT_TRUE( reach.empty() ) << "reaches the RSM framebuffer outside SceneRenderer / MeshRenderer's RSM list: "
+                                 << ::testing::PrintToString( reach );
+    const std::filesystem::path terrain = root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain";
+    ASSERT_TRUE( std::filesystem::exists( terrain ) );
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( terrain ) )
+        if ( entry.is_regular_file() )
+            EXPECT_EQ( read( entry.path() ).find( "RSM" ), std::string::npos )
+                 << entry.path().filename().string()
+                 << " mentions the RSM: a terrain RSM draw needs the DESERT_GBUFFER_RSM permutation and "
+                    "kRSMColourSlots.";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheClosureFollowsASubstitutedBodyRatherThanTheFileOnDisk )
@@ -943,7 +1130,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudParameterBlockIsTheSameNumberOfBytesOn
     }
 }
 
-TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyOneDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyTwoDescriptorsInSetZero )
 {
     // THE CONSUMER, and the pass this repository shares most widely — every deferred scene draws it, and
     // it is the one file the cloud work was told to touch as little as possible. Pinning its descriptor
@@ -957,9 +1144,14 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyOneDescri
     // the same baked environment the forward mesh shaders read. Twenty-one since 2026-09-24 (ENV1): the
     // sky's look (20, SkyLookUB) is applied where the environment cubes are sampled instead of being
     // baked into them, so the composite reads the rotation and gain the backdrop is drawn with.
+    // Twenty-two since GBUF1: the world-position target (u_GBufferC, RGBA32F, slot 1) is gone; slot 1 is the
+    // R32_UINT shading word (usampler2D, read by texelFetch) and the position is rebuilt from the depth
+    // attachment at slot 21 (Common/ReconstructPosition.glslh).
     const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 21u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 22u );
+    EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_GBufferShadingWord
+    EXPECT_TRUE( HasBinding( bindings, 21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_GBufferDepth
     EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) ); // SkyLookUB
 
     EXPECT_TRUE( HasBinding( bindings, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
@@ -1002,10 +1194,16 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteA
     const auto gbuffer = GraphicsSetZero( ShaderPath( "PBR/StandardSurface.shader" ), "Static.GBuffer" );
     ASSERT_FALSE( gbuffer.empty() );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( gbuffer ), 7u )
+    // TAA1-VEL: the G-buffer pass writes the view's velocity (slot 4), so the static cell reads its world and
+    // previous world from the view's motion row (ObjectMotions, Core::kObjectMotionsBinding) — the eighth slot.
+    EXPECT_TRUE( std::any_of( gbuffer.begin(), gbuffer.end(), []( const VkDescriptorSetLayoutBinding& b )
+                              { return b.binding == Desert::Core::kObjectMotionsBinding; } ) )
+         << "StandardSurface/Static.GBuffer writes velocity and declares no motion row";
+    EXPECT_EQ( ShaderReflection::CountDescriptors( gbuffer ), 8u )
          << "StandardSurface/Static.GBuffer's set 0 is " << DescribeBindings( gbuffer )
-         << " — a G-buffer write reads the camera, the material rows and the surface's five maps, and an "
-            "eighth descriptor is either a lighting slot that came back or a surface input nobody fills";
+         << " — a G-buffer write reads the camera, the material rows, the surface's five maps and the motion row "
+            "its velocity needs, and a ninth descriptor is either a lighting slot that came back or a surface "
+            "input nobody fills";
 
     EXPECT_TRUE( HasBinding( gbuffer, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // CameraUB (vertex)
     EXPECT_TRUE( HasBinding( gbuffer, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // Materials[]
@@ -1539,12 +1737,13 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
     const auto& set = setIt->second;
 
     // The shared half: TerrainUB holds ONLY what every terrain of a frame agrees on — View +
-    // Projection + SunDir + SunColor, 2*64 + 2*16 = 160 bytes. This is a size relation, not a spot
+    // Projection + SunDir + SunColor + the view's unjittered ViewProjection / PrevViewProjection (TAA1
+    // velocity), 4*64 + 2*16 = 288 bytes. This is a size relation, not a spot
     // value: putting any per-terrain field back (Model was the first to be forgotten here) grows the
-    // block past 160 and fails this line before it fails on screen.
+    // block past 288 and fails this line before it fails on screen.
     const auto ub = set.UniformBuffers.find( 0 );
     ASSERT_NE( ub, set.UniformBuffers.end() ) << "TerrainUB left binding 0";
-    EXPECT_EQ( ub->second.Size, 160u )
+    EXPECT_EQ( ub->second.Size, 288u )
          << "TerrainUB is no longer just the shared frame data - a per-draw field moved back in";
 
     // The per-draw half: TerrainInstances[] at binding 8, one struct per recorded draw.
@@ -2175,7 +2374,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheBrokenShaderFixtureStillDoesNotCompile )
 
 // ─── The window a shader graph's own resources live in is EMPTY in the shipped tree ──────────────
 //
-// О1-G. Core::kGraphOwnedBindingFirst reserves set-0 bindings from 24 upward for the resources a SHADER
+// О1-G. Core::kGraphOwnedBindingFirst reserves set-0 bindings from 27 (24 before TAA1) upward for what a SHADER
 // GRAPH declares — the textures a Surface graph's Properties block takes today, and whatever an authored
 // cloud medium declares tomorrow. A reservation is worth exactly what enforces it, and nothing enforced
 // this one: the claim lived in a comment listing the engine's slots by hand, and the check beside it was
@@ -2789,7 +2988,7 @@ TEST( ShaderMapProducerFingerprint, LineEndingsWhitespaceAndCommentsDoNotCount )
 
 TEST_F( ShaderCacheKeyShaderRoot, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
 {
-    // THE RELATION (SHM1): the index a G-buffer writer stores (GBufferC.w, low four bits) and the index the
+    // THE RELATION (SHM1): the index a G-buffer writer stores (the shading word, low four bits) and the index the
     // lighting passes dispatch on come from ONE place — the registry's generated header, which numbers the
     // ShadingModels/*.shadingmodel files. Writers store the template's index (DESERT_SHADING_MODEL_INDEX, set by
     // the parser) or, for the hand-written terrain, DefaultLit's generated define; both lighting passes call the

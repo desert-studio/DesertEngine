@@ -100,13 +100,14 @@ namespace Desert::Graphic
             AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients ) );
     }
 
-    void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,
+                                                  const ViewFrame& frame )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
         if ( clouds == nullptr )
             return;
-        clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes( graph ) ) );
+        clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes( graph, frame ) ) );
         // The composite (a Transparency phase pass, declared after this) samples the pair by graph ref.
         const System::VolumetricCloudRenderer::FrameResult result = clouds->GetFrameResult();
         textures.Transients.CloudScatter =

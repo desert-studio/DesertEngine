@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp> // MaterialSSRResolve (shared temporal resolve)
+#include <Engine/Graphic/View/PassHistory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
@@ -19,11 +20,11 @@ namespace Desert::Graphic::System
     // The graph textures the GI gather reads, bound by shader name (RecordGather).
     struct GIGatherInputs
     {
-        RDG::TextureRef GBufferNormal;   // GBufferB
-        RDG::TextureRef GBufferWorldPos; // GBufferC
-        RDG::TextureRef RSMAlbedo;       // RSM attachment 0 (flux colour)
-        RDG::TextureRef RSMNormal;       // RSM attachment 1
-        RDG::TextureRef RSMWorldPos;     // RSM attachment 2
+        RDG::TextureRef GBufferNormal; // GBufferB
+        RDG::TextureRef GBufferDepth;  // the G-buffer depth: the pixel's world position is reconstructed from it
+        RDG::TextureRef RSMAlbedo;     // RSM attachment 0 (flux colour)
+        RDG::TextureRef RSMNormal;     // RSM attachment 1
+        RDG::TextureRef RSMDepth;      // the RSM depth: the VPL world positions are reconstructed from it
     };
 
     // One-bounce RSM GI, two passes:
@@ -99,7 +100,7 @@ namespace Desert::Graphic::System
         // other event that does.
         void OnSceneReplaced() override
         {
-            m_HistoryValid = false;
+            m_History.Invalidate();
         }
 
         // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
@@ -108,7 +109,7 @@ namespace Desert::Graphic::System
         void OnTemporalHistoryReset() override
         {
             m_FrameIndex   = 0;
-            m_HistoryValid = false;
+            m_History.Invalidate();
         }
 
         // The frame graph declares the images below before any pass runs, so the accumulation targets follow
@@ -125,21 +126,23 @@ namespace Desert::Graphic::System
             {
                 m_AccumFB[0]->Resize( w, h );
                 m_AccumFB[1]->Resize( w, h );
-                m_HistoryValid = false;
+                m_History.Invalidate();
             }
             return true;
         }
 
         // Pass 1, inside the render pass the graph opens on the gather transient (cleared to 0): jittered VPL
-        // gather. Its textures are block 0, declared by DeclareGatherBindings.
+        // gather. Its textures are block 0, declared by DeclareGatherBindings. @p invJitteredViewProjection:
+        // ViewFrame::InvJitteredViewProjection (the pixel's world position from the G-buffer depth).
         [[nodiscard]] Common::BoolResultStr RecordGather( const RDG::PassContext& context,
                                                           const glm::mat4&        rsmViewProj,
+                                                          const glm::mat4&        invJitteredViewProjection,
                                                           const glm::vec4& sunColorIntensity, float giIntensity,
                                                           int samples )
         {
             // @p samples: VPL gather taps per pixel (GlobalIllumination.Samples, Scalability), a uniform like
             // every other cost knob so one pipeline serves every level.
-            m_Material->BindInputs( rsmViewProj, sunColorIntensity, giIntensity,
+            m_Material->BindInputs( rsmViewProj, invJitteredViewProjection, sunColorIntensity, giIntensity,
                                     static_cast<float>( m_FrameIndex % 1024u ), samples );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
@@ -157,17 +160,23 @@ namespace Desert::Graphic::System
                 block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                                                 kSampler );
             };
+            // The two depths through a nearest sampler: DEPTH32F is not guaranteed linear-filterable (MoltenVK).
+            const auto depth = [&]( std::string_view name, RDG::TextureRef texture )
+            {
+                block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                               RDG::SamplerDesc::PointClamp() );
+            };
             sampled( "u_GBufferB", inputs.GBufferNormal );
-            sampled( "u_GBufferC", inputs.GBufferWorldPos );
+            depth( "u_GBufferDepth", inputs.GBufferDepth );
             sampled( "u_RSMAlbedo", inputs.RSMAlbedo );
             sampled( "u_RSMNormal", inputs.RSMNormal );
-            sampled( "u_RSMWorldPos", inputs.RSMWorldPos );
+            depth( "u_RSMDepth", inputs.RSMDepth );
         }
 
-        // SETUP of pass 2: the node's one block (block 0) - u_Trace / u_History / u_GBufferWorldPos (linear,
-        // REPEAT, as the material route sampled them), the resolve material as the other route.
+        // SETUP of pass 2: the node's one block (block 0) - u_Trace / u_History (linear, REPEAT, as the material
+        // route sampled them) and u_GBufferDepth (nearest), the resolve material as the other route.
         void DeclareTemporalBindings( RDG::PassBuilder& pass, RDG::TextureRef gather, RDG::TextureRef history,
-                                      RDG::TextureRef worldPos ) const
+                                      RDG::TextureRef gbufferDepth ) const
         {
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             pass.Bindings( m_ResolveLayout.Get( m_ResolvePipeline->GetShader() ),
@@ -176,29 +185,43 @@ namespace Desert::Graphic::System
                            kSampler )
                  .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler )
-                 .Sampled( "u_GBufferWorldPos", worldPos, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), kSampler );
+                 .Sampled( "u_GBufferDepth", gbufferDepth, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+        }
+
+        // Whether the accumulation target this frame reprojects is the view's previous frame (PassHistory.hpp).
+        // Asked while the graph is built, before this frame's RecordTemporal stamps it.
+        [[nodiscard]] bool HistoryReadableIn( const ViewFrame& frame ) const
+        {
+            return m_History.ReadableIn( frame );
         }
 
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): temporal
         // accumulation (shared SSRResolve denoiser) of the gather over the history (GetHistoryImage, imported).
         // Advances the ping-pong; the graph imported both accumulation images before this runs.
+        // @p prevViewProjection: ViewFrame::PrevViewProjection (unjittered); @p invJitteredViewProjection:
+        // ViewFrame::InvJitteredViewProjection (the pixel's world position from the G-buffer depth);
+        // @p historyReadable: HistoryReadableIn of the frame; @p viewFrameIndex: its FrameIndex, stamped on the
+        // history this draw writes.
         [[nodiscard]] Common::BoolResultStr RecordTemporal( const RDG::PassContext& context,
-                                                            const glm::mat4&        cameraViewProj )
+                                                            const glm::mat4&        prevViewProjection,
+                                                            const glm::mat4&        invJitteredViewProjection,
+                                                            const bool              historyReadable,
+                                                            const uint64_t          viewFrameIndex )
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
                 return Common::MakeError( "Deferred: GITemporal: the scene target framebuffer is gone" );
             const glm::vec2 texel( 1.0f / static_cast<float>( target->GetFramebufferWidth() ),
                                    1.0f / static_cast<float>( target->GetFramebufferHeight() ) );
-            m_ResolveMaterial->BindValues( m_PrevViewProj, texel, m_HistoryValid ? 0.92f : 0.0f );
+            m_ResolveMaterial->BindValues( prevViewProjection, invJitteredViewProjection, texel,
+                                           historyReadable ? 0.92f : 0.0f );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             const auto drawn = Renderer::GetInstance().DrawFullscreen( bindings, *m_ResolvePipeline,
                                                                        m_ResolveMaterial->GetMaterialExecutor() );
 
-            m_PrevViewProj = cameraViewProj;
-            m_HistoryValid = true;
-            m_AccumIndex   = 1u - m_AccumIndex;
+            m_History.Stamp( viewFrameIndex );
+            m_AccumIndex = 1u - m_AccumIndex;
             ++m_FrameIndex;
             return drawn;
         }
@@ -226,9 +249,8 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache    m_ResolveLayout;
         std::shared_ptr<Framebuffer>        m_AccumFB[2];
 
-        glm::mat4 m_PrevViewProj{ 1.0f };
-        bool      m_HistoryValid = false;
-        uint32_t  m_AccumIndex   = 0;
-        uint32_t  m_FrameIndex   = 0;
+        PassHistoryStamp m_History; // which view frame wrote GetHistoryImage()
+        uint32_t         m_AccumIndex = 0;
+        uint32_t         m_FrameIndex = 0;
     };
 } // namespace Desert::Graphic::System

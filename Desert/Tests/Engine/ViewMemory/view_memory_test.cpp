@@ -41,15 +41,18 @@ TEST( ViewMemory, PrintsTheCensusForMainAndPreview )
 
 TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 {
-    // 64 scene targets + 72 post stack + 17.8 half/quarter chains and fog + 9 clouds + 24 SSR + 24 GI.
-    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 210.83, 0.01 );
-    // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (10 MiB).
-    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 144703488u );
+    // 52 scene targets (GBUF1: the shading word R32UI replaced the RGBA32F world position, -12) + 4 velocity
+    // (TAA1, RG16F) + 72 post stack + 17.8 half/quarter chains and fog + 9 clouds + 24 SSR + 24 GI.
+    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 202.83, 0.01 );
+    // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (6 MiB: its slot 2 is an unused colour slot with
+    // no image — the DESERT_GBUFFER_RSM permutation writes no shading word — there is no RGBA32F position and no
+    // velocity).
+    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 140509184u );
 }
 
 TEST( ViewMemory, PreviewViewBytesPerPixelIsPinned )
 {
-    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 162.83, 0.01 );
+    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 154.83, 0.01 );
     // One 1024 cascade (R32F + D24S8).
     EXPECT_EQ( SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).FixedBytes, 8388608u );
 }
@@ -59,8 +62,9 @@ TEST( ViewMemory, PreviewIsSmallerThanMainByTheMeasuredAmount )
     const uint64_t main    = SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).Total();
     const uint64_t preview = SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).Total();
     ASSERT_GT( main, preview );
-    // 96 B/px (SSR 48, GI 48) over 1920x1080 + (128 MiB - 8 MiB) of cascades + the 14 MiB RSM.
-    EXPECT_EQ( main - preview, 235847680u ) << "main " << main << " preview " << preview;
+    // 96 B/px (SSR 48, GI 48) over 1920x1080 + (128 MiB - 8 MiB) of cascades + the 6 MiB RSM (the G-buffer's -12
+    // B/px is in both).
+    EXPECT_EQ( main - preview, 231653376u ) << "main " << main << " preview " << preview;
 }
 
 TEST( ViewMemory, ShadowRowsAgreeWithTheShadowBudgetSpelling )

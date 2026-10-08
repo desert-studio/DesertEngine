@@ -93,6 +93,17 @@ TEST( ImageFormatBytesPerPixel, R32FIsOneColourChannelOfFourBytes )
     EXPECT_EQ( CalculateImageSize( 2048, 2048, ImageFormat::R32F ), 2048u * 2048u * 4u );
 }
 
+// The G-buffer shading word is one 32-bit unsigned integer, sampled as colour (texelFetch .r): an aspect,
+// channel count or size of anything else would make its barrier, its ViewMemory row or its attachment wrong.
+TEST( ImageFormatBytesPerPixel, R32UintIsOneColourChannelOfFourBytes )
+{
+    EXPECT_EQ( GetBytesPerPixel( ImageFormat::R32_UINT ), 4u );
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::R32_UINT ), 1u );
+    EXPECT_EQ( GetImageAspect( ImageFormat::R32_UINT ), Formats::ImageAspect_Colour );
+    EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::R32_UINT ) );
+    EXPECT_EQ( CalculateImageSize( 1920, 1080, ImageFormat::R32_UINT ), 1920u * 1080u * 4u );
+}
+
 // The landscape heightmap is one 16-bit channel, sampled as colour: an aspect or channel count of anything
 // else would make its barrier or its staging size wrong.
 TEST( ImageFormatBytesPerPixel, R16IsOneColourChannelOfTwoBytes )
@@ -111,6 +122,16 @@ TEST( ImageFormatBytesPerPixel, R8IsOneColourChannelOfOneByte )
     EXPECT_EQ( GetImageAspect( ImageFormat::R8_UNORM ), Formats::ImageAspect_Colour );
     EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::R8_UNORM ) );
     EXPECT_EQ( CalculateImageSize( 160, 90, ImageFormat::R8_UNORM ), 160u * 90u );
+}
+
+// The velocity target (TAA1 kVelocityFormat) is two half floats of NDC motion, sampled as colour: a channel count
+// or a size of anything else would make the view memory line and the staging of a readback wrong.
+TEST( ImageFormatBytesPerPixel, RG16FIsTwoColourChannelsOfFourBytes )
+{
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::RG16F ), 2u );
+    EXPECT_EQ( GetImageAspect( ImageFormat::RG16F ), Formats::ImageAspect_Colour );
+    EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::RG16F ) );
+    EXPECT_EQ( CalculateImageSize( 1920, 1080, ImageFormat::RG16F ), 1920u * 1080u * 4u );
 }
 
 // The property the deleted `return 0U;` used to violate: no declared format answers zero. A zero here

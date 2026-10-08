@@ -1,4 +1,5 @@
 #include "ParticleRenderer.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include "ParticleGpuLayout.hpp"
 
@@ -60,7 +61,7 @@ namespace Desert::Graphic::System
 
         GraphicsPipelineSpecification base;
         base.Shader      = billShader;
-        base.Framebuffer = target;
+        base.TargetLayout = SceneTargetLayout();
         // Additive FX read as "always visible": depth-testing billboards against the scene made them vanish
         // when the camera looked DOWN at particles sitting near a surface (the surface occluded them), while
         // they showed when looking up (nothing behind). Draw them without a depth test (never write depth
@@ -397,8 +398,9 @@ namespace Desert::Graphic::System
                        {
                            if ( m_FrameEmitters.empty() )
                                return BOOLSUCCESS;
-                           auto* const camera = m_SceneRenderer->GetMainCamera();
-                           if ( camera == nullptr )
+                           // The same condition the Declare below filled the blocks under.
+                           if ( m_SceneRenderer->GetMainCamera() == nullptr ||
+                                m_SceneRenderer->GetViewFrame() == nullptr )
                                return BOOLSUCCESS;
 
                            auto&    renderer = Renderer::GetInstance();
@@ -432,8 +434,8 @@ namespace Desert::Graphic::System
             // block against that fill before anything is recorded, so it is filled here and never in the exec.
             // Each emitter fills ITS OWN material: a shared one routed every emitter through one descriptor set,
             // written at most once per frame - so every emitter after the first drew the first one's buffer.
-            auto* const camera = m_SceneRenderer->GetMainCamera();
-            if ( camera == nullptr )
+            const ViewFrame* view = m_SceneRenderer->GetViewFrame();
+            if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
                 return; // the exec draws nothing either
             for ( const FrameEmitter& fe : m_FrameEmitters )
             {
@@ -442,7 +444,7 @@ namespace Desert::Graphic::System
                 GraphicsPipeline* pipeline = BillboardPipeline( fe );
                 if ( pipeline == nullptr )
                     continue; // the exec refuses the emitter by name before it opens a block
-                fe.Gpu->Material->Update( camera );
+                fe.Gpu->Material->Update( *view );
                 ShaderBindingLayoutCache& layout = fe.Additive ? m_AddLayout : m_AlphaLayout;
                 declared
                      .Bindings( layout.Get( pipeline->GetSpecification().Shader ),

@@ -6,6 +6,8 @@
 
 #include <Engine/Graphic/DynamicResources.hpp>
 
+#include <optional>
+
 namespace Desert::Graphic
 {
     enum class AttachmentLoad : uint8_t
@@ -21,11 +23,31 @@ namespace Desert::Graphic
         DontCare = 1
     };
 
+    // One slot of a framebuffer's attachment list. An UNUSED colour slot (UnusedColourSlot()) keeps the colour
+    // slots after it at their locations while having no image: the render pass references it as
+    // VK_ATTACHMENT_UNUSED, GetColorAttachmentImage(slot) is null, a graph import of it is an invalid TextureRef
+    // and a pipeline built against it sees no format there (ColourAttachmentFormats -> std::nullopt). The
+    // reflective shadow map's slot 2 is one: the G-buffer program's DESERT_GBUFFER_RSM permutation writes no
+    // shading word. Format and the load/store ops are not read for an unused slot.
     struct FramebufferAttachment
     {
         Core::Formats::ImageFormat Format  = Core::Formats::ImageFormat::RGBA8F;
         AttachmentLoad             LoadOp  = AttachmentLoad::Clear;
         AttachmentStore            StoreOp = AttachmentStore::Store;
+        bool                       Unused  = false;
+
+        [[nodiscard]] static FramebufferAttachment UnusedColourSlot()
+        {
+            FramebufferAttachment slot;
+            slot.Unused = true;
+            return slot;
+        }
+
+        // The format of a colour slot, std::nullopt for an unused one (a depth attachment is never unused).
+        [[nodiscard]] std::optional<Core::Formats::ImageFormat> ColourSlotFormat() const
+        {
+            return Unused ? std::nullopt : std::optional<Core::Formats::ImageFormat>( Format );
+        }
 
         FramebufferAttachment() = default;
         FramebufferAttachment( Core::Formats::ImageFormat format,

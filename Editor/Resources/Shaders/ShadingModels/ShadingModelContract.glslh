@@ -21,10 +21,10 @@
 // this file, then every model body, then the dispatch:
 //   vec3  DesertEvaluateShadingModel( int index, DesertLight L, DesertSurface S, DesertPayload P );
 //   vec3  DesertEvaluateShadingModelAmbient( int index, DesertAmbient A, DesertSurface S, DesertPayload P );
-//   float DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P );
-//   int   DesertShadingModelIndex( float shadingWord );
-//   float DesertSampledTextureCount( float shadingWord );
-//   DesertPayload DesertUnpackPayload( float shadingWord );
+//   uint  DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P );
+//   int   DesertShadingModelIndex( uint shadingWord );
+//   float DesertSampledTextureCount( uint shadingWord );
+//   DesertPayload DesertUnpackPayload( uint shadingWord );
 //   DesertPayload DesertQuantizePayload( DesertPayload P );
 //   #define SHADING_MODEL_INDEX_<NAME> <index>   (one per model; SHADING_MODEL_INDEX_UNLIT is 0)
 // The deferred composite (Programs/Deferred/DeferredLighting.shader) AND the forward passes
@@ -39,22 +39,26 @@
 //   vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 
 // ----------------------------------------------------------------------------------------------------------------
-// The payload: at most two floats per model, carried by the G-buffer WITHOUT a new target.
+// The payload: at most two floats per model, carried by the G-buffer's shading word.
 //
-// The G-buffer today (Mesh/Surface/Pass_GBuffer.glslh:7-10, read at Programs/Deferred/DeferredLighting.shader:216-236):
-//   GBufferA        RGBA8    BaseColor.rgb, Metallic.a                       — full
-//   GBufferB        RGBA16F  world Normal.rgb, Roughness.a                   — full
-//   GBufferC        RGBA32F  WorldPosition.xyz, shading word .w              — xyz full
-//   GBufferEmissive RGBA16F  Emissive.rgb, AmbientOcclusion.a                — full
-// The one free space is the shading word, GBufferC.w (Mesh/Surface/Pass_GBuffer.glslh): a 32-bit float
-// holds every integer below 2^24 exactly, and the word used only the id (4 bits) and the texture count above it.
-// The word becomes four bit fields, like UE's GBufferB.a (ShadingModelID | SelectiveOutputMask << 4) with the
-// payload in the place of UE's CustomData GBufferD (RGBA8 — the same 8-bit precision per float):
+// The G-buffer (Mesh/Surface/Pass_GBuffer.glslh, read at Programs/Deferred/DeferredLighting.shader):
+//   GBufferA           RGBA8    BaseColor.rgb, Metallic.a                       — full
+//   GBufferB           RGBA16F  world Normal.rgb, Roughness.a                   — full
+//   GBufferShadingWord R32_UINT the shading word below
+//   GBufferEmissive    RGBA16F  Emissive.rgb, AmbientOcclusion.a                — full
+// World position is not stored: every reader reconstructs it from the scene depth (Common/ReconstructPosition.glslh).
+// The word is a 32-bit unsigned integer, written and read with integer operations only (an integer target is
+// never filtered: readers texelFetch it). Its bit fields, like UE's GBufferB.a (ShadingModelID |
+// SelectiveOutputMask << 4) with the payload in the place of UE's CustomData GBufferD (RGBA8 — the same 8-bit
+// precision per float):
 //   bits  0.. 3  shading-model index (0..15; 0 = Unlit)
 //   bits  4.. 7  sampled-texture count (the Material Complexity proxy, clamped to 15)
 //   bits  8..15  payload 0, unorm8
 //   bits 16..23  payload 1, unorm8
-// Bits 24..31 are NOT free: above 2^24 a float no longer holds every integer.
+//   bit  24      NO_SUN_SHADOWS: set = the sun's cascaded shadows do not darken this surface
+//                (SurfaceOutput.ReceiveSunShadows < 0.5, the material half of UE's receive-CSM-shadows flag)
+//   bits 25..31  free
+// The target clears to 0: an untouched texel reads Unlit, no payload, receives sun shadows.
 // ShadingModelManifest.hpp (kShadingWordFields) is the C++ half of this table; the ShadingModelContract suite
 // holds the two equal and the fields disjoint.
 #define DESERT_SHADING_WORD_INDEX_FIRST_BIT    0
@@ -64,34 +68,19 @@
 #define DESERT_SHADING_WORD_PAYLOAD0_FIRST_BIT 8
 #define DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT 16
 #define DESERT_SHADING_WORD_PAYLOAD_BITS       8
-#define DESERT_SHADING_WORD_EXACT_BITS         24
+#define DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT 24
 
-// The word's SIGN is one more field, outside the 24 magnitude bits above (the float's IEEE sign bit, which
-// holds without costing the magnitude any precision): the surface's ReceiveSunShadows (SurfaceOutput), the
-// material half of UE's receive-CSM-shadows flag. Set (a negative word, -0.0 included) = the cascades do not
-// shadow this surface. The G-buffer writer marks it after DesertPackShadingWord; every reader takes the
-// magnitude before any unpack. So the deferred composite applies the toggle exactly as the forward pass does,
-// and a writer that forgets the mark gets the default, receives. ShadingModelManifest.hpp (kShadingWordSignField)
-// is the C++ half.
-#define DESERT_SHADING_WORD_RECEIVE_SUN_SHADOWS_BIT 31
-
-float DesertMarkSunShadowReceive( float shadingWord, float receiveSunShadows )
+// The G-buffer writer marks the flag after DesertPackShadingWord, so the deferred composite applies the toggle
+// exactly as the forward pass does, and a writer that forgets the mark gets the default, receives.
+uint DesertMarkSunShadowReceive( uint shadingWord, float receiveSunShadows )
 {
-    // Bits, not negation: the word of an Unlit texel with nothing in it is 0.0, and its mark must survive.
     const uint noReceive = receiveSunShadows < 0.5 ? 1u : 0u;
-    return uintBitsToFloat( floatBitsToUint( shadingWord ) |
-                            ( noReceive << DESERT_SHADING_WORD_RECEIVE_SUN_SHADOWS_BIT ) );
+    return shadingWord | ( noReceive << uint( DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT ) );
 }
 
-bool DesertReceivesSunShadows( float shadingWord )
+bool DesertReceivesSunShadows( uint shadingWord )
 {
-    return ( floatBitsToUint( shadingWord ) >> DESERT_SHADING_WORD_RECEIVE_SUN_SHADOWS_BIT ) == 0u;
-}
-
-// The 24-bit word the generated unpack functions read.
-float DesertShadingWordMagnitude( float shadingWord )
-{
-    return abs( shadingWord );
+    return ( ( shadingWord >> uint( DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT ) ) & 1u ) == 0u;
 }
 
 // A model's two payload floats, in [0, 1] (the pass clamps; 1/255 resolution). The manifest's `Payload` block

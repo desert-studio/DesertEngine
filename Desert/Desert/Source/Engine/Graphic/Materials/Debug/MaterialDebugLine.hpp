@@ -3,7 +3,7 @@
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Core/Camera.hpp>
-#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
+#include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 
 #include <glm/glm.hpp>
 
@@ -27,17 +27,11 @@ namespace Desert::Graphic
         {
         }
 
-        void Update( const Core::Camera* camera, const std::vector<LineVertex>& lines )
+        // The camera block from the view the lines are drawn over (MakeCameraUB; the shader reads the unjittered
+        // ViewProjection), then the lines themselves.
+        void Update( const ViewFrame& view, const std::vector<LineVertex>& lines )
         {
-            if ( camera )
-            {
-                ShaderProtocols::Camera cam;
-                cam.View       = camera->GetViewMatrix();
-                cam.Projection = camera->GetProjectionMatrix();
-                cam.CameraPos  = camera->GetPosition();
-                if ( auto* ub = Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
-                    ub->SetRawData( reinterpret_cast<const std::byte*>( &cam ), sizeof( cam ) );
-            }
+            SceneCameraBind( this, view );
 
             if ( !lines.empty() )
                 if ( auto* sb = Get<StorageBufferProperty>( "Lines" ) )

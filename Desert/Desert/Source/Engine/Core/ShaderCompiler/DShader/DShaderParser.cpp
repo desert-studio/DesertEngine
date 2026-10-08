@@ -2,6 +2,7 @@
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 
 #include <algorithm>
 #include <array>
@@ -1949,6 +1950,28 @@ namespace Desert::Core::Preprocess
 
         result.Meta.LayoutBindings  = MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding };
         result.Layout               = BuildMaterialLayout( result.Meta );
+        // The reserved scene-read range (Core::kSceneReadBindingFirst, ShaderGraphBindings.hpp) is declared into
+        // every view-pass cell by Common/ObjectMotion.glslh; a material row or texture numbered into it would
+        // share a descriptor slot with the view's motion rows, which GLSL accepts without a word.
+        if ( result.Layout.RowBinding && Core::IsSceneReadBinding( *result.Layout.RowBinding ) )
+        {
+            err = { c.Line, std::format( "Properties Binding({}) is inside the reserved scene-read range [{}, {}) "
+                                         "(ObjectMotions / ObjectBones); number the material row elsewhere",
+                                         *result.Layout.RowBinding, Core::kSceneReadBindingFirst,
+                                         Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
+            return fail();
+        }
+        for ( const auto& texture : result.Layout.Textures )
+            if ( Core::IsSceneReadBinding( texture.Binding ) )
+            {
+                err = { c.Line,
+                        std::format( "texture property '{}' lands on binding {}, inside the reserved scene-read "
+                                     "range [{}, {}) (ObjectMotions / ObjectBones); move TextureBinding() so the "
+                                     "run of texture properties stays clear of it",
+                                     texture.Name, texture.Binding, Core::kSceneReadBindingFirst,
+                                     Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
+                return fail();
+            }
         const std::string autoDecls = BuildAutoDeclarations( result.Layout );
 
         const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state )

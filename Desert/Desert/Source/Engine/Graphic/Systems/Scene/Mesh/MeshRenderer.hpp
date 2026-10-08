@@ -23,6 +23,8 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
+#include <Engine/Graphic/View/ObjectMotionRows.hpp>
+#include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
@@ -128,6 +130,8 @@ namespace Desert::Graphic::System
 
     struct MeshRenderData
     {
+        // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+        uint32_t    Entity = 0;
         class Mesh* Mesh;
         glm::mat4   Transform;
 
@@ -154,6 +158,11 @@ namespace Desert::Graphic::System
     public:
         struct StaticMeshRenderData
         {
+            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            uint32_t Entity = 0;
+            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
+            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                  MotionRow = 0;
             class Desert::StaticMesh* Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
@@ -170,6 +179,11 @@ namespace Desert::Graphic::System
 
         struct SkinnedMeshRenderData
         {
+            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            uint32_t Entity = 0;
+            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
+            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                   MotionRow = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
             glm::mat4                  Transform = glm::mat4( 1.0f );
             // The (surface x Skinned) material. It is SHARED with every other entity using the same
@@ -211,6 +225,11 @@ namespace Desert::Graphic::System
         //    params already applied) and VisibleSubmeshMask limits the draw to that slot's submeshes.
         struct GenericMeshRenderData
         {
+            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            uint32_t Entity = 0;
+            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
+            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                   MotionRow = 0;
             class Mesh*               Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             std::string               ShaderName;
@@ -241,7 +260,8 @@ namespace Desert::Graphic::System
         // renderer + this renderer's own cascade state. One place that knows what "per-frame scene state"
         // IS; the snapshot itself lives beside the materials it is applied to, because it is their
         // payload and not this renderer's private business.
-        PBRSceneFrame CaptureFrameState( const Core::Camera* camera ) const;
+        // `view` is the view the draws are for (PBRSceneFrame::View).
+        PBRSceneFrame CaptureFrameState( const ViewFrame* view ) const;
 
         // The scene's game time this frame (Core::WorldTime), handed over by SceneRenderer::BeginScene and
         // published to materials through CaptureFrameState.
@@ -249,6 +269,25 @@ namespace Desert::Graphic::System
         {
             m_WorldTimeSeconds = seconds;
         }
+        // The scene time of the view's PREVIOUS frame (ViewFrame::PrevTimeSeconds; equal to this frame's on a
+        // history reset), handed over by SceneRenderer::OnUpdate: the instanced view passes evaluate the wind at
+        // it for the instances' velocity (PackViewInstanceWind).
+        void SetPrevWorldTimeSeconds( double seconds )
+        {
+            m_PrevWorldTimeSeconds = seconds;
+        }
+
+        // The view's motion rows for this frame — UE's GPUScene primitive data: ONE GpuObjectMotion per drawn
+        // primitive (key {Entity, slot}; the static, generic and slot-material records of one entity share
+        // slot 0, the skinned records of an entity are slots 0..n-1 in submission order), its World, the world
+        // @p motion says the view drew it with last frame, and for a skinned primitive where this frame's palette
+        // and the previous one start in the view's ObjectBones buffer (both frames' palettes, end to end). Writes
+        // the row index into each queued record (MotionRow) and uploads both per-(frame x view) buffers at their
+        // final size, so CaptureFrameState hands every view pass the buffers its draws will read. Called by
+        // SceneRenderer once per frame per view after the queues are complete and before any pass is declared.
+        // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
+        // would read rows that are not this frame's).
+        [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory& motion );
 
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades
@@ -555,9 +594,9 @@ namespace Desert::Graphic::System
         // per-group material state (Materials[] / bones / instance SSBOs, the shared scene state) is written
         // here, at final size, before any draw is recorded; a refused build is the list's error.
         void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
-        void BuildSkinnedDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
+        void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
         // per-object data-driven materials (v3 slots + overrides)
-        void BuildGenericDraws( bool useLoadPass, MeshRendererDetail::MeshDrawList& list );
+        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list );
         void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
@@ -580,12 +619,10 @@ namespace Desert::Graphic::System
         // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,
         // which is what a draw uses until its own pipeline is Ready.
         [[nodiscard]] static GraphicsPipelineSpecification
-        GenericPipelineSpec( const std::shared_ptr<Shader>& shader, const std::shared_ptr<Framebuffer>& target,
-                             bool useLoadPass );
-        void PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target, bool useLoadPass );
+             GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
+        void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
-        std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target,
-                                                                  bool useLoadPass );
+        std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         void RegisterSilhouettePass( RenderGraphBuilder& builder );
         void RegisterShadowPass( RenderGraphBuilder& builder );
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
@@ -647,6 +684,7 @@ namespace Desert::Graphic::System
         // (Static x GBuffer) — the RSM is literally a G-buffer rasterized from the sun.
         std::shared_ptr<DataDrivenMaterial> m_RSMMaterial;
         MaterialInstancePtr                m_RSMInstance;
+        std::shared_ptr<Shader>             m_RSMShader; // the G-buffer cell under DESERT_GBUFFER_RSM
         std::shared_ptr<GraphicsPipeline>  m_RSMPipeline;
         glm::mat4                          m_RSMViewProj = glm::mat4( 1.0f );
         glm::vec3                          m_RSMEye      = glm::vec3( 0.0f );
@@ -975,5 +1013,13 @@ namespace Desert::Graphic::System
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
         float                                                     m_WorldTimeSeconds = 0.0f;
+        double                                                    m_PrevWorldTimeSeconds = 0.0;
+        // BuildObjectMotions' output: the rows and both frames' palettes (CPU scratch, capacity kept) and the
+        // per-(frame x view) buffers they are uploaded into (StorageBuffer::Create non-persistent: one copy per
+        // frame in flight). Created on the first frame, grown by SetData.
+        std::vector<MotionRecord>                       m_ScratchMotionRecords;
+        ObjectMotionRows                                m_ScratchMotionRows;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectMotions;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBones;
     };
 } // namespace Desert::Graphic::System

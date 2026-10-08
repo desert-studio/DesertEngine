@@ -19,15 +19,18 @@ Shader "SSAO"
 
     Fragment
     {
-        // Screen-space ambient occlusion (SSAO). Reads the G-buffer world position + world normal, samples a
+        // Screen-space ambient occlusion (SSAO). Reads the G-buffer depth (world position reconstructed through
+        // Common/ReconstructPosition.glslh) + world normal, samples a
         // hemisphere of points around each fragment, projects them back to screen space and counts how many are
         // occluded by nearer geometry -> an ambient-occlusion factor in [0,1] (1 = fully lit, 0 = fully occluded).
         // Self-contained: hemisphere directions come from a Hammersley sequence, rotated per-pixel by a hash (no
         // noise texture). The deferred lighting pass multiplies the ambient term by this.
 
+        #include <Common/ReconstructPosition.glslh>
+
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_GBufferPos;    // rgb = world position
+        Uniform(1) sampler2D u_GBufferDepth;  // r = device depth (nearest sampler: DEPTH32F is not filtered)
         Uniform(2) sampler2D u_GBufferNormal; // rgb = world normal
 
         Out(0) vec4 oAO;
@@ -35,6 +38,7 @@ Shader "SSAO"
         Uniform(0) SSAOUB
         {
         	mat4 u_ViewProj;    // world -> clip (to project sample points back to screen)
+        	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         	vec4 u_CameraPos;   // xyz = camera world position
         	vec4 u_SSAOParams;  // x = radius, y = bias, z = power, w = sample count
         };
@@ -78,7 +82,8 @@ Shader "SSAO"
         		return;
         	}
 
-        	vec3 worldPos = texture(u_GBufferPos, v_TexCoord).rgb;
+        	vec3 worldPos = ReconstructWorldPosition(v_TexCoord, texture(u_GBufferDepth, v_TexCoord).r,
+        	                                         u_InvJitteredViewProjection);
         	vec3 N        = normalize(normal);
 
         	float radius = u_SSAOParams.x;
@@ -114,7 +119,8 @@ Shader "SSAO"
         		vec3 sampledNormal = texture(u_GBufferNormal, suv).rgb;
         		if (dot(sampledNormal, sampledNormal) <= 0.001) continue; // sky -> not an occluder
 
-        		vec3  sampledPos   = texture(u_GBufferPos, suv).rgb;
+        		vec3  sampledPos   = ReconstructWorldPosition(suv, texture(u_GBufferDepth, suv).r,
+        		                                              u_InvJitteredViewProjection);
         		float camDistSurf  = distance(u_CameraPos.xyz, sampledPos);
         		float camDistSample= distance(u_CameraPos.xyz, samplePos);
 

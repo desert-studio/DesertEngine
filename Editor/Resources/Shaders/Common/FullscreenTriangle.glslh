@@ -11,13 +11,8 @@
 
 const vec2 FULLSCREEN_TRIANGLE_UV[3] = vec2[](vec2(0.0, 0.0), vec2(0.0, 2.0), vec2(2.0, 0.0));
 
-// Texture coordinate -> NDC xy, the one mapping every screen-space vertex stage shares (the fullscreen triangle
-// and the SSR tiles). uv (0,0) is the top-left texel: the engine's viewport has a negative height
-// (VulkanRendererAPI::SetViewportAndScissor), so NDC y = +1 is the top row.
-vec2 ScreenUVToNdc(vec2 uv)
-{
-	return vec2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-}
+// Texture coordinate -> NDC xy (ScreenUVToNdc): the one mapping every screen-space stage shares.
+#include <Common/ScreenUV.glslh>
 
 // This vertex's screen texture coordinate.
 vec2 FullscreenTriangleUV()

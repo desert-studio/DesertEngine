@@ -1192,6 +1192,8 @@ namespace Desert::Editor
                 VM_LightComplexity,
                 VM_Overdraw,
                 VM_MaterialComplexity,
+                VM_ShadingModel,
+                VM_SunShadowReceive,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1208,6 +1210,8 @@ namespace Desert::Editor
                                          ICON_MDI_FIRE "  Light Complexity",
                                          ICON_MDI_LAYERS_TRIPLE "  Overdraw",
                                          ICON_MDI_TEXTURE "  Material Complexity",
+                                         ICON_MDI_PALETTE_SWATCH "  Shading Model",
+                                         ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1241,6 +1245,10 @@ namespace Desert::Editor
                 vm = VM_Overdraw;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::MaterialComplexity )
                 vm = VM_MaterialComplexity;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::ShadingModel )
+                vm = VM_ShadingModel;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SunShadowReceive )
+                vm = VM_SunShadowReceive;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1376,6 +1384,12 @@ namespace Desert::Editor
                         break;
                     case VM_MaterialComplexity:
                         view.DeferredDebug = Graphic::DeferredDebugMode::MaterialComplexity;
+                        break;
+                    case VM_ShadingModel:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::ShadingModel;
+                        break;
+                    case VM_SunShadowReceive:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::SunShadowReceive;
                         break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;

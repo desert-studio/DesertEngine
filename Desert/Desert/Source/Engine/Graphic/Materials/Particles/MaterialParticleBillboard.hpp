@@ -2,7 +2,7 @@
 
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
-#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
+#include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 #include <Engine/Core/Camera.hpp>
 
 #include <memory>
@@ -27,17 +27,10 @@ namespace Desert::Graphic
         {
         }
 
-        void Update( const Core::Camera* camera )
+        // The camera block from the view the particles are drawn for (MakeCameraUB).
+        void Update( const ViewFrame& view )
         {
-            if ( camera )
-            {
-                ShaderProtocols::Camera cam;
-                cam.View       = camera->GetViewMatrix();
-                cam.Projection = camera->GetProjectionMatrix();
-                cam.CameraPos  = camera->GetPosition();
-                if ( auto* ub = Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
-                    ub->SetRawData( reinterpret_cast<const std::byte*>( &cam ), sizeof( cam ) );
-            }
+            SceneCameraBind( this, view );
         }
     };
 } // namespace Desert::Graphic

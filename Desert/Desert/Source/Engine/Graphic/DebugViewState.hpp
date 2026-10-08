@@ -19,16 +19,22 @@ namespace Desert::Graphic
     // screen with a raw G-buffer channel so the deferred passes can be inspected. Only used in the Deferred path.
     enum class DeferredDebugMode : int
     {
-        Off                = 0,
-        Albedo             = 1,
-        Normal             = 2,
-        Metallic           = 3,
-        Roughness          = 4,
-        AO                 = 5,
-        GI                 = 6, // indirect light only (whichever GIMode is active) — for judging GI in isolation
-        LightComplexity    = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
-        Overdraw           = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
-        MaterialComplexity = 9, // per-pixel sampled-texture count (from GBufferC.w), heat-mapped (UE-style)
+        Off             = 0,
+        Albedo          = 1,
+        Normal          = 2,
+        Metallic        = 3,
+        Roughness       = 4,
+        AO              = 5,
+        GI              = 6, // indirect light only (whichever GIMode is active) — for judging GI in isolation
+        LightComplexity = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
+        Overdraw        = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
+        MaterialComplexity =
+             9, // per-pixel sampled-texture count (the shading word's TEXTURES field), heat-mapped (UE-style)
+        // The other fields of the shading word (G-buffer slot 2, R32_UINT, read by texelFetch only — never through
+        // a float sampler): the shading-model index as a flat colour per model (UE "Shading Model" buffer view),
+        // and the NO_SUN_SHADOWS bit (green = receives the sun's cascades, red = the material opted out).
+        ShadingModel     = 10,
+        SunShadowReceive = 11,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a

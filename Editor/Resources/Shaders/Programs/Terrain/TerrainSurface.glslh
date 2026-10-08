@@ -18,8 +18,26 @@
             mat4 Projection;
             vec4 SunDir;     // xyz = normalized light direction (scene directional light)
             vec4 SunColor;   // rgb = color, a = intensity
+            // TAA1: the view's UNJITTERED matrices of this frame and the previous one (Graphic::ViewFrame
+            // ViewProjection / PrevViewProjection), for the velocity both terrain programs write.
+            mat4 ViewProjection;
+            mat4 PrevViewProjection;
         }
         u;
+
+        // THE TERRAIN'S VELOCITY (Graphic::kVelocityFormat), written by both programs that write the view's depth
+        // (Terrain = forward slot 1, TerrainGBuffer = G-buffer slot 4) so a pixel's depth and motion come from the
+        // same surface. The tiles are world-static, so the surface point's previous world position is its
+        // current one: both unjittered clip positions are the interpolated world position through the two
+        // frames' matrices, evaluated per pixel (exact for the point, no varying pair needed). The LOD geomorph
+        // is chosen on the CPU per tile and its sub-sample drift between two frames is not carried (UE's
+        // landscape writes no morph motion either); the TAA neighbourhood clamp bounds it.
+        #include <Common/ObjectMotion.glslh>
+        vec2 TerrainVelocity()
+        {
+            vec4 world = vec4( v_WorldPos, 1.0 );
+            return DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world );
+        }
 
         #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances

@@ -1,4 +1,5 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -6,6 +7,8 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
+#include <Engine/Graphic/GraphImageImporter.hpp>
+#include <Engine/Graphic/ImageFactory.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -199,9 +202,8 @@ namespace Desert::Graphic
 
         // Deferred G-buffer (populated only when SceneSettings::RenderPath == Deferred; allocated always so the
         // toggle is live). GBufferA = Albedo.rgb + Metallic.a (RGBA8F); GBufferB = Normal.rgb + Roughness.a
-        // (RGBA32F for banding-free normals — the format enum has no RGBA16F yet); GBufferC = world position.xyz
-        // (RGBA32F) so the lighting pass gets point/spot-light distances directly (bulletproof vs depth
-        // reconstruction, which is error-prone under the GL-on-Vulkan depth conventions); shared depth.
+        // (kGBufferB); slot 2 = the shading word (R32_UINT, ShadingModelContract.glslh). World position is not
+        // stored: readers rebuild it from the depth attachment (Common/ReconstructPosition.glslh); shared depth.
         FramebufferSpecification gbufferSpec;
         gbufferSpec.DebugName = "GBuffer";
         gbufferSpec.Attachments.Attachments.emplace_back(
@@ -209,7 +211,7 @@ namespace Desert::Graphic
         gbufferSpec.Attachments.Attachments.emplace_back(
              ViewTargetFormats::kGBufferB ); // GBufferB Normal+Roughness
         gbufferSpec.Attachments.Attachments.emplace_back(
-             ViewTargetFormats::kGBufferC ); // GBufferC WorldPosition.xyz
+             ViewTargetFormats::kGBufferShadingWord ); // shading word (uint)
         gbufferSpec.Attachments.Attachments.emplace_back(
              ViewTargetFormats::kGBufferEmissive ); // GBufferEmissive (HDR self-illum)
         // DEPTH32F for the same reason as the forward target above — and it is this attachment the
@@ -342,6 +344,17 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
                        resolveInit.GetError() );
 
+        // The sample-0 shader resolve of the scene target's SampleZero graph colours (the view's velocity at
+        // MSAA).
+        RegisterSystem<System::GraphColorResolveRenderer>( "GraphColorResolveSystem", this, m_TargetFramebuffer,
+                                                           m_RenderGraphBuilder );
+        if ( const auto colorResolveInit =
+                  SP_CAST( System::GraphColorResolveRenderer, m_RenderSystems["GraphColorResolveSystem"] )
+                       ->Initialize();
+             !colorResolveInit )
+            LOG_ERROR( "[SceneRenderer] GraphColorResolve unavailable (velocity at MSAA reads zero motion): {}",
+                       colorResolveInit.GetError() );
+
         RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer,
                                               m_RenderGraphBuilder );
         if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
@@ -468,6 +481,9 @@ namespace Desert::Graphic
             if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
                 it->second->OnTemporalHistoryReset();
         }
+        // The view's own history (previous matrices, history textures, motion records) resets with the next
+        // frame: an explicit camera cut (ViewInputs::CameraCut), consumed by the BeginFrame that succeeds.
+        m_CameraCutPending = true;
         LOG_INFO( "[SceneRenderer] {}: temporal history reset over {} render system(s).",
                   m_ViewResources.GetName(), m_RenderSystemOrder.size() );
     }
@@ -506,7 +522,7 @@ namespace Desert::Graphic
     {
         return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
                     .Total() +
-               m_ViewResources.HeldBytes();
+               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes();
     }
 
     std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
@@ -575,6 +591,9 @@ namespace Desert::Graphic
         // first view's camera, and "several viewports" could only ever mean "several worlds". The scene
         // holds a LIST of views now and each one carries its own camera; the view says which.
         m_SceneInfo.ActiveCamera = camera;
+        // The world this frame draws and its clock (ViewInputs::SceneIdentity / TimeSeconds, OnUpdate).
+        m_SceneGeneration  = scene.GetGeneration();
+        m_SceneTimeSeconds = scene.GetWorldTime().GetGameTimeSeconds();
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
 
@@ -633,6 +652,14 @@ namespace Desert::Graphic
         const Common::Scalability::PathAntiAliasing aa = Common::Scalability::ResolveAntiAliasingForPath(
              quality, Core::RenderPathSupportsMSAA( sceneSettings.RenderingPath ) );
         m_AAMode = aa.PostProcess;
+        // What the frame renders, handed to SceneViewState::BeginFrame: this build has no temporal pass, so the
+        // method is MSAA or the post-process filter (TAA resolves to PostProcess None -> no temporal method) at
+        // 100 % scale with no upscaler. TAA1-B step 5 replaces this with the resolved method and upscaler when it
+        // adds the ITemporalUpscaler pass.
+        m_RenderedAntiAliasing        = aa;
+        m_RenderedAntiAliasing.Method = aa.Method == Common::Scalability::AntiAliasingMethod::MSAA
+                                             ? Common::Scalability::AntiAliasingMethod::MSAA
+                                             : aa.PostProcess;
         ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
@@ -842,9 +869,101 @@ namespace Desert::Graphic
         // which outlives Execute; everything else they need is captured by value.
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
+
+        // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
+        // previous-frame value reads `frame`; nothing reads the camera for them again. A refused frame builds no
+        // graph: SceneViewState treats it as never having happened.
+        ViewInputs inputs;
+        if ( const auto* cam = GetMainCamera() )
+        {
+            inputs.View           = cam->GetViewMatrix();
+            inputs.Projection     = cam->GetProjectionMatrix();
+            inputs.CameraPosition = cam->GetPosition();
+            inputs.NearPlane      = cam->GetNear();
+            inputs.FarPlane       = cam->GetFar();
+            inputs.CameraIdentity = MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceId() );
+        }
+        inputs.CameraCut                         = m_CameraCutPending;
+        inputs.SceneIdentity                     = m_SceneGeneration;
+        inputs.Output                            = m_ViewExtent;
+        inputs.RenderScalePercent                = 100;
+        inputs.AntiAliasing                      = m_RenderedAntiAliasing;
+        inputs.Upscaler                          = Common::Scalability::Upscaler::None;
+        inputs.TimeSeconds                       = m_SceneTimeSeconds;
+        const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, nullptr );
+        if ( !begun )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the view refused this frame: {}", m_ViewResources.GetName(),
+                       begun.GetError() );
+            return;
+        }
+        m_CameraCutPending     = false;
+        const ViewFrame& frame = begun.GetValue();
+        // GetViewFrame() answers `frame` from here until OnUpdate returns, by every path (the destructor clears
+        // it), so a writer can never read a finished frame's view.
+        struct CurrentViewFrameScope
+        {
+            const ViewFrame*& Slot;
+            ~CurrentViewFrameScope()
+            {
+                Slot = nullptr;
+            }
+        };
+        m_CurrentViewFrame = &frame;
+        const CurrentViewFrameScope currentViewFrameScope{ m_CurrentViewFrame };
+        if ( const Common::BoolResultStr physical =
+                  m_ViewState.History().AllocatePhysical( DeviceImageFactory{}, RendererGraphImageImporter{} );
+             !physical )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the view's temporal history has no images: {}",
+                       m_ViewResources.GetName(), physical.GetError() );
+            return;
+        }
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
+        // The view's velocity: one transient of this graph at the VIEW EXTENT (the one extent source: the scene
+        // target and the G-buffer are built and resized at m_ViewExtent too), a colour slot of the scene target
+        // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
+        // kGBufferVelocitySlot) — never of a light view (RSM, cascades) or a debug target. Created before any node
+        // is added; its first writer (ClearMainFramebuffer, the first node on both paths) clears it to no motion.
+        // A target at another extent than the view's is refused by name: the frame is not drawn.
+        if ( m_TargetFramebuffer )
+        {
+            const FramebufferSpecification& target = m_TargetFramebuffer->GetSpecification();
+            std::string mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height,
+                                                             "scene target", target.Width, target.Height );
+            if ( mismatch.empty() && m_GBuffer )
+                mismatch = ViewTargetExtentMismatch( m_ViewExtent.Width, m_ViewExtent.Height, "G-buffer",
+                                                     m_GBuffer->GetSpecification().Width,
+                                                     m_GBuffer->GetSpecification().Height );
+            if ( !mismatch.empty() )
+            {
+                LOG_ERROR( "[SceneRenderer] view '{}' frame refused: {}", m_ViewResources.GetName(), mismatch );
+                return;
+            }
+            const ViewVelocity velocity = CreateViewVelocity(
+                 graph, RDG::Extent3D{ m_ViewExtent.Width, m_ViewExtent.Height, 1 }, target.Samples );
+            textures.Transients.Velocity = velocity.Resolved;
+            textures.AddGraphColor( m_TargetFramebuffer, VelocityColor( velocity, target.Samples ) );
+            textures.AddGraphColor( m_GBuffer, VelocityColor( velocity, 1 ) );
+        }
         const auto values = std::make_shared<FrameValues>();
+
+        // The view's per-primitive motion rows (current + previous world, both bone palettes) from the view's
+        // MotionHistory, built once before any pass is declared: every view pass of this frame reads the same
+        // rows.
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
+            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions( m_ViewState.Motion() ); !rows )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
+                           "frame: {}",
+                           m_ViewResources.GetName(), rows.GetError() );
+                return;
+            }
+        }
 
         const auto sceneColor = [this, &textures]()
         {
@@ -882,15 +1001,7 @@ namespace Desert::Graphic
                 lightDir   = dl[0].Direction;
                 lightColor = dl[0].ColorIntensity;
             }
-            glm::vec4 cameraPos( 0.0f );
-            glm::mat4 viewProj( 1.0f );
-            if ( const auto* cam = GetMainCamera() )
-            {
-                cameraPos = glm::vec4( cam->GetPosition(), 1.0f );
-                viewProj  = cam->GetProjectionMatrix() * cam->GetViewMatrix();
-            }
-
-            AddFrameSSAO( graph, textures, gbuffer, viewProj, cameraPos );
+            AddFrameSSAO( graph, textures, gbuffer, frame );
 
             RDG::TextureRef giAccum;
 
@@ -901,12 +1012,12 @@ namespace Desert::Graphic
                 AddFrameRSM( graph, textures, meshRenderer, sunDir );
                 m_RSMFrameCounter = ( m_RSMFrameCounter + 1 ) % kRSMRefreshEvery;
 
-                giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, viewProj, lightColor );
+                giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, frame, lightColor );
             }
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, cameraPos );
+            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
@@ -916,7 +1027,7 @@ namespace Desert::Graphic
 
             // SSR traces the copy made by the pass above; without a copy target there is nothing to trace.
             if ( m_EnableSSR && sceneCopy.IsValid() && EnsureSSRResources() )
-                AddFrameSSR( graph, textures, gbuffer, sceneCopy, viewProj, cameraPos );
+                AddFrameSSR( graph, textures, gbuffer, sceneCopy, frame );
 
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
         }
@@ -924,7 +1035,7 @@ namespace Desert::Graphic
         AddFrameSceneDepthResolve( graph, textures );
         AddFrameSkyAtmosphereLuts( graph, textures );
         AddFrameAtmosphericFog( graph, textures );
-        AddFrameVolumetricClouds( graph, textures );
+        AddFrameVolumetricClouds( graph, textures, frame );
 
         // Particles (Transparency phase), debug lines and the UI canvas run AFTER the deferred lighting
         // composite so lit geometry does not paint over them, and as LOAD overlays so a CLEAR begin never
@@ -953,6 +1064,10 @@ namespace Desert::Graphic
 
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false );
+        // After the last node that draws the scene geometry's velocity into the scene target, before any reader
+        // of the resolved velocity (TAA). The post nodes below never write velocity (their fragment shaders do
+        // not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
+        AddFrameGraphColorResolves( graph, textures );
 
         AddFrameJumpFlood( graph, textures );
         AddFrameAutoExposure( graph, textures, sceneColor() );
@@ -989,7 +1104,10 @@ namespace Desert::Graphic
 
         // Its faults are logged by the graph backend and its own failures by ExecuteGraph; a FrameFault leaves
         // the final image black for this frame.
-        (void)Renderer::ExecuteGraph( graph );
+        // A FrameFault never reaches EndFrame: the next BeginFrame still sees the last committed frame as
+        // previous. A frame that executed commits as previous with what its report says it lost.
+        if ( Renderer::ExecuteGraph( graph ).IsSuccess() )
+            m_ViewState.EndFrame( graph.GetExecuteReport() );
         textures.ResetInvalidatedHistories();
     }
 
@@ -1063,19 +1181,16 @@ namespace Desert::Graphic
 
         Renderer::GetInstance().WaitDeviceIdle();
 
-        // Reflective Shadow Map: a G-buffer rendered from the sun. The attachment layout MUST mirror
-        // m_GBuffer (including the emissive target) — the RSM pass reuses the G-buffer pipeline, and that
-        // only works while the two render passes stay compatible. Fixed light-space resolution, so it does
-        // NOT resize with the viewport.
+        // Reflective Shadow Map: a G-buffer rendered from the sun by the G-buffer program's DESERT_GBUFFER_RSM
+        // permutation. Its colour slots are ViewTargetFormats::kRSMColourSlots — the one list the RSM pipeline's
+        // target layout is built from too (MeshRenderer::SetupGBufferPass) — albedo (flux colour), normal, an
+        // UNUSED slot 2 (no image: the permutation writes no shading word, VPL positions come from the depth) and
+        // emissive. Fixed light-space resolution, so it does NOT resize with the viewport.
         FramebufferSpecification rsmSpec;
         rsmSpec.DebugName = "RSM";
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMAlbedo );   // Albedo (flux colour)
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMNormal );   // Normal
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMPosition ); // WorldPos
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMEmissive ); // Emissive (unused)
-        // Matches the G-buffer's depth format because "mirror m_GBuffer" includes the depth attachment:
-        // the RSM pipeline is created from the G-buffer's spec, and a differing depth format makes the
-        // two render passes incompatible.
+        for ( const std::optional<Core::Formats::ImageFormat>& slot : ViewTargetFormats::kRSMColourSlots )
+            rsmSpec.Attachments.Attachments.push_back( slot ? FramebufferAttachment( *slot )
+                                                            : FramebufferAttachment::UnusedColourSlot() );
         rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMDepth );
         m_RSMBuffer = Graphic::Framebuffer::Create( rsmSpec );
         m_RSMBuffer->Resize( kRSMResolution, kRSMResolution );
@@ -1206,7 +1321,8 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
         auto* drawnMesh = const_cast<Mesh*>( mesh );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitMesh( { .Mesh                     = drawnMesh,
+             ->SubmitMesh( { .Entity                   = extra.Entity,
+                             .Mesh                     = drawnMesh,
                              .Transform                = transform,
                              .MaterialSlots            = materialSlots,
                              .BoneMatrices             = extra.BoneMatrices,
@@ -1228,13 +1344,14 @@ namespace Desert::Graphic
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
     }
 
-    void SceneRenderer::SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform,
+    void SceneRenderer::SubmitGenericMesh( const uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
                                            const std::string& directTextureSampler, bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitGenericMesh( { .Mesh                 = const_cast<Mesh*>( mesh ),
+             ->SubmitGenericMesh( { .Entity               = entity,
+                                    .Mesh                 = const_cast<Mesh*>( mesh ),
                                     .Transform            = transform,
                                     .ShaderName           = shaderName,
                                     .Overrides            = overrides,
@@ -1244,11 +1361,13 @@ namespace Desert::Graphic
                                     .DirectTextureSampler = directTextureSampler } );
     }
 
-    void SceneRenderer::SubmitSlotMaterialMesh( const Mesh* mesh, const glm::mat4& transform, Material* material,
+    void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, const Mesh* mesh,
+                                                const glm::mat4& transform, Material* material,
                                                 uint64_t visibleSubmeshMask, bool outlined, bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitGenericMesh( { .Mesh               = const_cast<Mesh*>( mesh ),
+             ->SubmitGenericMesh( { .Entity             = entity,
+                                    .Mesh               = const_cast<Mesh*>( mesh ),
                                     .Transform          = transform,
                                     .Outlined           = outlined,
                                     .CastShadows        = castShadows,

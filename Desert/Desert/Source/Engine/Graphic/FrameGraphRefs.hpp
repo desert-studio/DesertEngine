@@ -44,6 +44,9 @@ namespace Desert::Graphic
         // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, imported: the renderer owns it),
         // set once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
         RDG::TextureRef CloudShadowMap;
+        // The view's velocity (ViewRasterTargets.hpp CreateViewVelocity): one per view graph, the colour slot
+        // every depth-writing node on the scene target / G-buffer writes, never on a light view   -> TAA
+        RDG::TextureRef Velocity;
         // The scene/view inputs every lit pass samples (UE: the view uniform buffer's shadow / sky /
         // PreIntegratedGF textures), imported once per graph by SceneRenderer::ImportSceneViewTextures before any
         // node is added: cascade c (MeshRenderer's CSM map, invalid past the valid count), the scene environment's

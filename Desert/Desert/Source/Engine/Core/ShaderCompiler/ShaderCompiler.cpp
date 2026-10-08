@@ -108,6 +108,13 @@ namespace Desert::Core
             shaderc::CompileOptions        options;
 
             options.SetIncluder( std::make_unique<ShaderIncluder>( shaderPath, variant ) );
+            // The variant's macros reach the compile here and only here; Hash() has already put them in the key.
+            for ( const std::string& define : variant.Defines )
+            {
+                const std::string_view name  = ShaderDefineName( define );
+                const std::string_view value = ShaderDefineValue( define );
+                options.AddMacroDefinition( name.data(), name.size(), value.data(), value.size() );
+            }
             // THE OLDEST ACCEPTED DEVICE, NOT THE CURRENT ONE. SPIR-V is cached on disk and shipped, so its
             // target cannot follow the GPU of the machine that compiled it; it follows DeviceCaps' minimum,
             // which every device that passes CheckRequired meets. Raising it is VKF2's call (with the minimum).

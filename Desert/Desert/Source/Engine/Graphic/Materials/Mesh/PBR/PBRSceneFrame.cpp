@@ -1,6 +1,7 @@
 #include "PBRSceneFrame.hpp"
 
 #include <Engine/Graphic/Clouds/CloudShadowBinding.hpp>
+#include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 
 namespace Desert::Graphic
@@ -14,8 +15,8 @@ namespace Desert::Graphic
         using Core::Formats::SceneRead;
         const SceneRead groups = Groups( material->GetMaterialLayout() );
 
-        if ( Reads( groups, SceneRead::Camera ) )
-            SceneCameraBind( material, Camera );
+        if ( Reads( groups, SceneRead::Camera ) && View != nullptr )
+            SceneCameraBind( material, *View );
 
         // World time, for any shader declaring TimeUB — the shader graph's Time node. It belongs in the
         // snapshot for the same reason everything else here does: it is per-frame scene state, and it is
@@ -51,6 +52,21 @@ namespace Desert::Graphic
         if ( Reads( groups, SceneRead::CloudShadow ) )
         {
             CloudShadowUpload( material, CloudShadow );
+        }
+        // A view-pass vertex stage with no rows would read an unbound buffer: the producer always fills them.
+        if ( Reads( groups, SceneRead::ObjectMotion ) )
+        {
+            auto* rows = material->Get<StorageBufferProperty>( SceneResources::kObjectMotionsName );
+            DESERT_VERIFY( rows != nullptr && ObjectMotions != nullptr,
+                           "a view-pass material reads ObjectMotions but the frame carries none" );
+            rows->SetBuffer( ObjectMotions );
+        }
+        if ( Reads( groups, SceneRead::ObjectBones ) )
+        {
+            auto* palettes = material->Get<StorageBufferProperty>( SceneResources::kObjectBonesName );
+            DESERT_VERIFY( palettes != nullptr && ObjectBones != nullptr,
+                           "a skinned view-pass material reads ObjectBones but the frame carries none" );
+            palettes->SetBuffer( ObjectBones );
         }
     }
 

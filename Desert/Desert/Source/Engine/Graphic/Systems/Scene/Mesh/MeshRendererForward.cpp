@@ -1,6 +1,7 @@
 // MeshRenderer's forward geometry: the static / skinned / generic queue walkers (the deferred G-buffer
 // reuses the static one), the manual forward passes drawn over the deferred composite, and their pipelines.
 #include "MeshRendererInternal.hpp"
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -44,14 +45,13 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
-    void MeshRenderer::BuildGenericDraws( const bool useLoadPass, MeshDrawList& list )
+    void MeshRenderer::BuildGenericDraws( MeshDrawList& list )
     {
-        const auto  targetFb = m_TargetFramebuffer.lock();
-        const auto* camera   = m_SceneRenderer->GetMainCamera();
-        if ( !targetFb || camera == nullptr )
+        const auto* camera = m_SceneRenderer->GetMainCamera();
+        if ( m_TargetFramebuffer.expired() || camera == nullptr )
             return;
 
-        PrecacheRequestedMaterials( targetFb, useLoadPass );
+        PrecacheRequestedMaterials();
         if ( m_GenericQueue.empty() )
             return;
 
@@ -65,7 +65,7 @@ namespace Desert::Graphic::System
         // exactly what it did: a flat ambient constant, an unnormalized Lambert and full sun under a
         // cloud. Every one of those blocks is bound by NAME and guarded, so this costs the shaders that
         // do not declare them nothing.
-        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
         const Core::Frustum frustum = camera->GetFrustum();
 
@@ -197,7 +197,7 @@ namespace Desert::Graphic::System
             // NAMED ONCE PER SHADER, for the reason the domain refusal above gives: this runs per frame
             // per submesh group. The cache remembers the refusal itself, so the rebuild happens once;
             // this set is only about the log line.
-            GraphicsPipelineSpecification spec = GenericPipelineSpec( shader, targetFb, useLoadPass );
+            GraphicsPipelineSpecification spec = GenericPipelineSpec( shader );
             spec.DebugName                     = std::format( kGenericMeshNameFormat, shader->GetName() );
             const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
             if ( built )
@@ -230,7 +230,7 @@ namespace Desert::Graphic::System
                               "ready (pipeline {})",
                               shaderName,
                               MaterialPipelineStateName( *m_MaterialPipelines.StateOf( shaderName ) ) );
-                pipeline = DefaultSurfacePipeline( targetFb, useLoadPass );
+                pipeline = DefaultSurfacePipeline();
                 if ( !pipeline || pipeline->GetReadiness() != PipelineReadiness::Ready )
                     continue;
                 material = m_DefaultSurfaceMaterial.get();
@@ -346,27 +346,29 @@ namespace Desert::Graphic::System
         for ( const auto& d : draws )
         {
             const auto& g = *d.Data;
-            list.Add(
-                 { .Pipeline          = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() ),
-                   .Mesh              = g.Mesh,
-                   .Transform         = g.Transform,
-                   .Material          = d.Material->GetMaterialExecutor(),
-                   .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
-                   .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
-                   .BindState = [material = &*d.Material, row = d.Row] { material->SetMaterialIndex( row ); } } );
+            list.Add( { .Pipeline = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() ),
+                        .Mesh     = g.Mesh,
+                        // View pass: World / PrevWorld from the motion row; the push is the submesh transform
+                        // relative to it (identity, RenderMesh multiplies the submesh's in).
+                        .Transform         = glm::mat4( 1.0f ),
+                        .Material          = d.Material->GetMaterialExecutor(),
+                        .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
+                        .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
+                        .BindState         = [material = &*d.Material, row = d.Row, motionRow = g.MotionRow]
+                        {
+                            material->SetPrimitiveIndex( motionRow );
+                            material->SetMaterialIndex( row );
+                        } } );
         }
     }
 
-    GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>&      shader,
-                                                                     const std::shared_ptr<Framebuffer>& target,
-                                                                     const bool useLoadPass )
+    GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>& shader )
     {
         GraphicsPipelineSpecification spec;
-        spec.DebugName         = std::format( kGenericMeshNameFormat, shader->GetName() );
-        spec.Shader            = shader;
-        spec.Framebuffer       = target;
-        spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
-        spec.UseLoadRenderPass = useLoadPass; // deferred manual pass begins with LOAD
+        spec.DebugName    = std::format( kGenericMeshNameFormat, shader->GetName() );
+        spec.Shader       = shader;
+        spec.TargetLayout = SceneTargetLayout();
+        spec.Layout       = MeshVertexLayout( MeshVertexPath::Static );
         ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
         return spec;
     }
@@ -390,10 +392,9 @@ namespace Desert::Graphic::System
     // Every frame, before the queue is looked at: the stand-in is an ENGINE pipeline, requested with the first
     // frame whatever the scene holds, so the reveal waits for it; then every material that LOADED since the
     // last frame gets its compile handed to a worker here, before any mesh using it is drawn.
-    void MeshRenderer::PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target,
-                                                   const bool                          useLoadPass )
+    void MeshRenderer::PrecacheRequestedMaterials()
     {
-        (void)DefaultSurfacePipeline( target, useLoadPass );
+        (void)DefaultSurfacePipeline();
         for ( const auto& name : MaterialPipelineRequests::Get().Since( m_MaterialRequestCursor ) )
         {
             m_MaterialPipelines.Request( name );
@@ -401,8 +402,8 @@ namespace Desert::Graphic::System
             auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
             if ( !shader || !shader->IsCompiled() )
                 continue;
-            const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial(
-                 GenericPipelineSpec( shader, target, useLoadPass ) );
+            const auto built =
+                 m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( GenericPipelineSpec( shader ) );
             if ( built )
                 TrackMaterialPipeline( name, *built.GetValue() );
             else
@@ -410,8 +411,7 @@ namespace Desert::Graphic::System
         }
     }
 
-    std::shared_ptr<GraphicsPipeline>
-    MeshRenderer::DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target, const bool useLoadPass )
+    std::shared_ptr<GraphicsPipeline> MeshRenderer::DefaultSurfacePipeline()
     {
         // Found by ROLE (the project's DefaultSurfaceTemplate, else the shader declaring `Default Surface`),
         // never by a template name.
@@ -436,7 +436,7 @@ namespace Desert::Graphic::System
                            key.GetValue() );
             return nullptr;
         }
-        GraphicsPipelineSpecification spec = GenericPipelineSpec( shader, target, useLoadPass );
+        GraphicsPipelineSpecification spec = GenericPipelineSpec( shader );
         spec.DebugName                     = "DefaultSurfaceFallback";
         const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !built )
@@ -478,16 +478,16 @@ namespace Desert::Graphic::System
     void MeshRenderer::DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
         m_GenericDraws.Clear();
-        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
+        if ( m_SceneRenderer == nullptr || !m_SceneRenderer->GetTargetFramebuffer() ||
+             m_SceneRenderer->GetMainCamera() == nullptr )
             return;
         if ( m_GenericQueue.empty() )
         {
-            PrecacheRequestedMaterials( target, /*useLoadPass*/ true );
+            PrecacheRequestedMaterials();
             return;
         }
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        BuildGenericDraws( /*useLoadPass*/ true, m_GenericDraws );
+        BuildGenericDraws( m_GenericDraws );
         m_GenericDraws.Declare( pass, view );
     }
 
@@ -577,7 +577,7 @@ namespace Desert::Graphic::System
 
         // --- Per translucent cell, once per frame and BEFORE the blocks are declared, so each cell's route fill
         // is what its draws will read: its rows and the scene snapshot ---
-        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
         for ( auto& [state, cellRows] : rows )
         {
             if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
@@ -595,15 +595,19 @@ namespace Desert::Graphic::System
             const auto*         obj      = draw.Object;
             DataDrivenMaterial* material = draw.State->Material.get();
             MaterialInstance*   instance = draw.State->Instance.get();
-            m_GlassDraws.Add( { .Pipeline          = draw.State->Pipeline.get(),
-                                .Mesh              = obj->Mesh,
-                                .Transform         = obj->Transform,
+            m_GlassDraws.Add( { .Pipeline = draw.State->Pipeline.get(),
+                                .Mesh     = obj->Mesh,
+                                // View pass: World / PrevWorld come from the object's motion row
+                                // (Common/ObjectMotion.glslh); the push carries the submesh transform RELATIVE
+                                // to it (identity here, RenderMesh multiplies the submesh's in).
+                                .Transform         = glm::mat4( 1.0f ),
                                 .Material          = material->GetMaterialExecutor(),
                                 .HiddenSubmeshMask = obj->HiddenSubmeshes,
                                 .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                .BindState = [material, instance, transform = obj->Transform, row = draw.Row]
+                                .BindState = [material, instance, motionRow = obj->MotionRow, row = draw.Row]
                                 {
-                                    material->SetPushMatrix( transform );
+                                    material->SetPushMatrix( glm::mat4( 1.0f ) );
+                                    material->SetPrimitiveIndex( motionRow );
                                     material->SetMaterialIndex( row );
                                     material->Bind( instance );
                                 } } );
@@ -665,7 +669,7 @@ namespace Desert::Graphic::System
         // The scene's whole contribution to a lit draw, gathered ONCE (camera, lights, shadow cascades and
         // the resolved IBL cubes + BRDF LUT). Applied per material GROUP below, not per object: only the
         // transform is per-object, and it rides a push constant.
-        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
         // FRUSTUM CULLING, AND IT LIVES IN THE PASS RATHER THAN AT SUBMIT. The queues this pass reads are
         // read by FIVE passes, and three of them look at the scene from somewhere else: the four shadow
@@ -1136,19 +1140,20 @@ namespace Desert::Graphic::System
                                                                 ? m_StaticGBufferPipeline.get()
                                                                 : WireframePipelineOr( m_StaticPipeline.get() ),
                                                            *drawMat );
-                pipeline =
-                     CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
-                const glm::mat4 transform = obj->Transform;
+                pipeline = CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
+                // View pass (forward or G-buffer): World / PrevWorld come from the object's motion row; the push
+                // carries the submesh transform RELATIVE to it (identity, RenderMesh multiplies the submesh's in).
                 list.Add( { .Pipeline          = pipeline,
                             .Mesh              = obj->Mesh,
-                            .Transform         = transform,
+                            .Transform         = glm::mat4( 1.0f ),
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj->HiddenSubmeshes,
                             .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .BindState = [drawMat, inst, transform, i]
+                            .BindState = [drawMat, inst, motionRow = obj->MotionRow, i]
                             {
                                 DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
-                                drawMat->SetPushMatrix( transform );
+                                drawMat->SetPushMatrix( glm::mat4( 1.0f ) );
+                                drawMat->SetPrimitiveIndex( motionRow );
                                 drawMat->SetMaterialIndex( i );
                                 drawMat->Bind( inst );
                             } } );
@@ -1240,7 +1245,8 @@ namespace Desert::Graphic::System
                     d.FirstInstance = static_cast<uint32_t>( ismSet->Transforms.size() );
                     d.MaterialIndex = materialIndex;
                     d.LodLevel      = level;
-                    d.Wind          = PackInstanceWind( ism.Wind );
+                    // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
+                    d.Wind = PackViewInstanceWind( ism.Wind, m_PrevWorldTimeSeconds );
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
                             ismSet->Transforms.push_back( visible[i] );
@@ -1309,7 +1315,7 @@ namespace Desert::Graphic::System
         }
     }
 
-    void MeshRenderer::BuildSkinnedDraws( const bool useLoadPass, MeshDrawList& list )
+    void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list )
     {
         if ( m_SkinnedQueue.empty() )
             return;
@@ -1321,34 +1327,11 @@ namespace Desert::Graphic::System
         // deferred scene they are drawn FORWARD over the composite and receive nothing the composite
         // computed: this is the only route by which the sun's shadows, the baked sky and the cloud
         // layer's shadow reach them at all.
-        const PBRSceneFrame frameState = CaptureFrameState( camera );
+        const PBRSceneFrame frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
-        // Deferred forward-over-composite: a LOAD-render-pass variant of the skinned pipeline (built once via
-        // the pipeline cache), so skinned meshes draw OVER the deferred scene instead of clearing it. Same
-        // mechanism the generic + glass passes use. Forward path keeps the plain pipeline (no load).
+        // One pipeline on both paths: it is built against SceneTargetLayout, and the graph opens the pass with
+        // each slot's load op (LOAD over the deferred composite, CLEAR on the forward path's first writer).
         GraphicsPipeline* pipeline = m_SkinnedPipeline.get();
-        if ( useLoadPass && m_SkinnedPipeline )
-        {
-            GraphicsPipelineSpecification spec = m_SkinnedPipeline->GetSpecification();
-            spec.UseLoadRenderPass             = true;
-            spec.DebugName                     = "SkinnedMesh_Load";
-            // A refusal here is not fatal: `pipeline` still holds the non-LOAD skinned pipeline, which
-            // draws over a cleared target instead of the composited one. Named once, because this runs
-            // every frame.
-            const auto loadVariant = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
-            if ( loadVariant )
-            {
-                pipeline = loadVariant.GetValue().get();
-            }
-            else
-            {
-                static bool s_Warned = false;
-                if ( !std::exchange( s_Warned, true ) )
-                    LOG_ERROR( "[MeshRenderer] skinned meshes draw through the non-LOAD pipeline in the "
-                               "deferred path: {}",
-                               loadVariant.GetError() );
-            }
-        }
 
         // Grouped by material, exactly like DrawStaticMeshes — and for the same two reasons, which the
         // skinned path did not have before and paid for twice:
@@ -1375,8 +1358,8 @@ namespace Desert::Graphic::System
 
         // AL1-12 INSIDE THE GRAPH (RDG-PSO), as DrawStaticMeshes: a material whose skinned cell is still in the
         // driver leaves its objects to ONE stand-in group recorded by the default surface's skinned cell (its
-        // bones and rows filled once in the pass); recording the cell itself would fail the node and drop the
-        // frame graph.
+        // rows filled once in the pass; the bones come from the view's ObjectBones like every other group);
+        // recording the cell itself would fail the node and drop the frame graph.
         using CellDraw                        = MaterialPipelineTracker::CellDraw;
         StandInCell* const            standIn = StandIn( MeshVertexPath::Skinned, MeshPass::Forward );
         const GraphicsPipeline* const standInPipeline =
@@ -1398,9 +1381,10 @@ namespace Desert::Graphic::System
                 groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
         }
 
-        auto& bones        = m_ScratchBones;
         auto& gpuMaterials = m_ScratchGpuMaterials;
 
+        // The view pass skins from the view's ObjectBones (both frames' palettes, named by the object's motion
+        // row — MeshRenderer::BuildObjectMotions); the group uploads only its material rows.
         for ( auto& [mat, objects] : groups )
         {
             if ( objects.empty() )
@@ -1410,22 +1394,13 @@ namespace Desert::Graphic::System
             const bool standsIn = standIn != nullptr && mat == standIn->Material.get();
             const auto instOf   = [&]( const SkinnedMeshRenderData* obj ) -> MaterialInstance*
             { return standsIn ? standIn->Instance.get() : obj->Instance; };
-            bones.clear();
             gpuMaterials.clear();
             gpuMaterials.reserve( objects.size() );
-
-            std::vector<uint32_t> boneOffsets;
-            boneOffsets.reserve( objects.size() );
             for ( const auto* obj : objects )
-            {
-                boneOffsets.push_back( static_cast<uint32_t>( bones.size() ) );
-                bones.insert( bones.end(), obj->BoneMatrices.begin(), obj->BoneMatrices.end() );
                 AppendRow( gpuMaterials, EffectiveRow( mat, instOf( obj ) ) );
-            }
 
-            // Both buffers at FINAL size before any draw is recorded, so the descriptor points at the
-            // buffer the draws will actually read (a later grow reallocates it).
-            mat->UploadSkinnedBones( bones.data(), bones.size() );
+            // At FINAL size before any draw is recorded, so the descriptor points at the buffer the draws will
+            // actually read (a later grow reallocates it).
             if ( auto* sb = mat->Get<StorageBufferProperty>( "Materials" ) )
                 sb->SetRawData( gpuMaterials.data(),
                                 static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
@@ -1441,14 +1416,13 @@ namespace Desert::Graphic::System
                                       instOf( obj ) != nullptr ? instOf( obj )->IsTwoSided() : mat->IsTwoSided() );
                 list.Add( { .Pipeline  = twin,
                             .Mesh      = obj->Mesh,
-                            .Transform = obj->Transform,
+                            .Transform = glm::mat4( 1.0f ), // relative to the motion row's World
                             .Material  = mat->GetMaterialExecutor(),
-                            .BindState = [mat = &*mat, inst = instOf( obj ), transform = obj->Transform, i,
-                                          bones = boneOffsets[i]]
+                            .BindState = [mat = &*mat, inst = instOf( obj ), motionRow = obj->MotionRow, i]
                             {
-                                mat->SetPushMatrix( transform );
+                                mat->SetPushMatrix( glm::mat4( 1.0f ) );
+                                mat->SetPrimitiveIndex( motionRow );
                                 mat->SetMaterialIndex( i );
-                                mat->SetSkinnedBoneOffset( bones );
                                 mat->Bind( inst );
                             } } );
             }
@@ -1460,11 +1434,11 @@ namespace Desert::Graphic::System
         m_SkinnedDraws.Clear();
         if ( m_SkinnedQueue.empty() )
             return;
-        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
+        if ( m_SceneRenderer == nullptr || !m_SceneRenderer->GetTargetFramebuffer() ||
+             m_SceneRenderer->GetMainCamera() == nullptr )
             return;
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        BuildSkinnedDraws( /*useLoadPass*/ true, m_SkinnedDraws );
+        BuildSkinnedDraws( m_SkinnedDraws );
         m_SkinnedDraws.Declare( pass, view );
     }
 
@@ -1492,7 +1466,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_GeometryShader;
-        spec.Framebuffer    = targetFb;
+        spec.TargetLayout   = SceneTargetLayout();
 
         // Pipelines come from the shared cache (deduped by shader + target + state). The mesh keeps its
         // explicit state for now; PBR's render-state moves to the shader's #pragma state in Phase 2.
@@ -1534,7 +1508,7 @@ namespace Desert::Graphic::System
             ispec.DepthCompareOp = DepthCompare::CloserOrEqual;
             ispec.CullMode       = CullMode::Back;
             ispec.Shader         = m_InstancedGeometryShader;
-            ispec.Framebuffer    = targetFb;
+            ispec.TargetLayout   = SceneTargetLayout();
             if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
                 m_StaticInstancedPipeline = instanced.GetValue();
             else
@@ -1563,12 +1537,11 @@ namespace Desert::Graphic::System
         spec.DebugName         = cellShader;
         spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
         spec.Shader            = shader;
-        spec.Framebuffer       = target;
+        spec.TargetLayout      = SceneTargetLayout();
         spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
         spec.DepthWriteEnabled = false; // translucent: don't occlude later fragments / itself
         spec.CullMode          = CullMode::Back;
         spec.BlendEnable       = true; // src-alpha over the composited scene
-        spec.UseLoadRenderPass = true; // begun with clearFrame=false to preserve the opaque scene
 
         const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !pipeline )
@@ -1612,7 +1585,7 @@ namespace Desert::Graphic::System
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_SkinnedShader;
-        spec.Framebuffer    = targetFb;
+        spec.TargetLayout   = SceneTargetLayout();
 
         const auto skinned = GraphicsPipeline::Create( spec );
         if ( !skinned )

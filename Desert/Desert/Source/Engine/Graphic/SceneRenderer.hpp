@@ -16,7 +16,10 @@
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
+#include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Core/ViewBudget.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -90,6 +93,7 @@ namespace Desert::Graphic
 
         struct RenderSubmissionExtra
         {
+            uint32_t               Entity = 0;   // owner of the draw: its MotionHistory key (velocity)
             std::vector<glm::mat4> BoneMatrices; // optional
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
@@ -214,15 +218,15 @@ namespace Desert::Graphic
         // castShadows: rasterize this draw into the shadow cascades. Off by default — see the note on
         // GenericMeshRenderData::CastShadows; only a producer that knows the draw is a solid mesh, and
         // that no OTHER draw of the same entity is already casting, may turn it on.
-        void SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform, const std::string& shaderName,
-                                const MaterialOverrides& overrides, bool outlined = false,
-                                Image2D* directTexture = nullptr, const std::string& directTextureSampler = {},
-                                bool castShadows = false );
+        void SubmitGenericMesh( uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
+                                const std::string& shaderName, const MaterialOverrides& overrides,
+                                bool outlined = false, Image2D* directTexture = nullptr,
+                                const std::string& directTextureSampler = {}, bool castShadows = false );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial).
-        void SubmitSlotMaterialMesh( const Mesh* mesh, const glm::mat4& transform, Material* material,
-                                     uint64_t visibleSubmeshMask, bool outlined = false,
+        void SubmitSlotMaterialMesh( uint32_t entity, const Mesh* mesh, const glm::mat4& transform,
+                                     Material* material, uint64_t visibleSubmeshMask, bool outlined = false,
                                      bool castShadows = false );
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
@@ -358,6 +362,17 @@ namespace Desert::Graphic
             return m_SceneInfo.ActiveCamera;
         }
 
+        // THE CURRENT FRAME'S VIEW (TAA1 step 3) — what every camera-block writer of this renderer fills
+        // CameraUB from (ShaderProtocols::MakeCameraUB). CONTRACT: non-null only while OnUpdate runs, from the
+        // moment m_ViewState.BeginFrame accepted the frame until OnUpdate returns (the graph executes and
+        // EndFrame commits inside that window). Outside it — before the first frame, after a refused frame,
+        // between frames, from another view — it is nullptr, never the last frame's view: a writer that gets
+        // nullptr has no view to draw for and writes nothing.
+        [[nodiscard]] const ViewFrame* GetViewFrame() const
+        {
+            return m_CurrentViewFrame;
+        }
+
         const auto& GetDirectionLights() const
         {
             return m_DirectionLights;
@@ -462,6 +477,21 @@ namespace Desert::Graphic
         // top of each frame phase (BeginScene/OnUpdate/EndScene).
         ViewResources m_ViewResources;
 
+        // TAA1 step 3 — THE one previous-frame source of this view (UE: FSceneViewState): every AddFrame* that
+        // reads a matrix, a camera position or a previous-frame value takes the ViewFrame BeginFrame returned.
+        SceneViewState m_ViewState;
+        // GetViewFrame's answer: the ViewFrame OnUpdate's BeginFrame returned, set and cleared by OnUpdate's
+        // CurrentViewFrameScope so no exit path leaves it pointing at a finished frame.
+        const ViewFrame* m_CurrentViewFrame = nullptr;
+        // Set by ResetTemporalHistory (the one cut entry point: ShotDirector, headless capture); consumed by the
+        // next BeginFrame that succeeds as ViewInputs::CameraCut.
+        bool m_CameraCutPending = false;
+        // Scene::GetGeneration() of the scene BeginScene was handed (a reload at the same address is a new
+        // generation, so a new identity: SceneViewState resets the history).
+        uint64_t m_SceneGeneration = 0;
+        // The scene's game time at BeginScene, seconds (ViewInputs::TimeSeconds).
+        double m_SceneTimeSeconds = 0.0;
+
         // Constructor-set, const in everything but name: MeshRenderer copies it in Initialize and the
         // cascade framebuffers exist from that moment until this renderer dies.
         ViewProfile m_ViewProfile;
@@ -548,23 +578,24 @@ namespace Desert::Graphic
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
+        // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
+        void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );
 
         // The scene sample count the device can run for `requested` (the method's effective count).
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.
         void ApplySceneSampleCount( uint32_t samples );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
-                           const std::vector<RDG::TextureRef>& gbuffer, const glm::mat4& viewProj,
-                           const glm::vec4& cameraPos );
+                           const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         // The GI accumulation ref the composite samples (u_GI), invalid when GI did not run this frame.
         RDG::TextureRef AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer,
                                            const std::vector<RDG::TextureRef>& rsm,
-                                           System::MeshRenderer* meshRenderer, const glm::mat4& viewProj,
+                                           System::MeshRenderer* meshRenderer, const ViewFrame& frame,
                                            const glm::vec4& lightColor );
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const glm::vec4& cameraPos );
+                                           const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
         // raster node): published as FrameTransients::SceneColorCopy and returned; invalid when no copy was made
         // (no copy system, no scene colour, its desc refused - logged).
@@ -574,7 +605,7 @@ namespace Desert::Graphic
         // @p sceneCopy: the snapshot SSR traces reflections from (valid; the caller skips SSR without one).
         void AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,
-                          const glm::mat4& viewProj, const glm::vec4& cameraPos );
+                          const ViewFrame& frame );
         void AddFrameParticlesSimulate( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
@@ -582,7 +613,7 @@ namespace Desert::Graphic
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
-        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor );
@@ -616,7 +647,9 @@ namespace Desert::Graphic
         ShaderProtocols::SpotLight      m_SpotLight;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
-        Common::Scalability::AntiAliasingMethod m_AAMode       = Common::Scalability::AntiAliasingMethod::FXAA;
+        Common::Scalability::AntiAliasingMethod m_AAMode    = Common::Scalability::AntiAliasingMethod::FXAA;
+        // The anti-aliasing this view's frames ACTUALLY render, as ViewInputs::AntiAliasing (BeginScene).
+        Common::Scalability::PathAntiAliasing m_RenderedAntiAliasing;
         bool                               m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest

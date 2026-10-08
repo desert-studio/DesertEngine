@@ -137,8 +137,8 @@ namespace Desert::ECS
                                                     glm::vec4( text.EmissiveIntensity, 0, 0, 0 ) );
 
                      renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
-                          text.RuntimeMesh.get(), worldTransform, std::string( "TextSDF" ),
-                          std::move( overrides ), /*outlined*/ false, font->Atlas.get(),
+                          static_cast<uint32_t>( entity ), text.RuntimeMesh.get(), worldTransform,
+                          std::string( "TextSDF" ), std::move( overrides ), /*outlined*/ false, font->Atlas.get(),
                           std::string( "u_SDFAtlas" ) );
                  } );
         }

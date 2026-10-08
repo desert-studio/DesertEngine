@@ -9,6 +9,8 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <optional>
+#include <span>
+#include <vector>
 #include <Engine/Graphic/VertexBuffer.hpp>
 
 #include <Common/Core/Memory/Buffer.hpp>
@@ -214,7 +216,9 @@ namespace Desert::Graphic
     // Framebuffer while both kinds of pass exist and is removed with Framebuffer in RDG-Z.
     struct RenderTargetLayout
     {
-        std::vector<Core::Formats::ImageFormat>   ColorFormats; // by colour slot
+        // By colour slot; std::nullopt is an UNUSED colour slot (FramebufferAttachment::UnusedColourSlot): no
+        // image, VK_ATTACHMENT_UNUSED in the render pass, and the slots after it keep their locations.
+        std::vector<std::optional<Core::Formats::ImageFormat>> ColorFormats;
         std::optional<Core::Formats::ImageFormat> DepthFormat;
         uint32_t                                  Samples = 1;
     };
@@ -257,6 +261,57 @@ namespace Desert::Graphic
 
         std::string DebugName;
     };
+
+    // The colour attachment formats @p spec is built against, by colour slot (std::nullopt: an unused slot): the
+    // TargetLayout's, or the Framebuffer's own colour attachments in order (depth left out) followed by its
+    // external colour attachments (VulkanFramebuffer::GetColorAttachmentCount counts own + external in that
+    // order).
+    [[nodiscard]] inline std::vector<std::optional<Core::Formats::ImageFormat>>
+    ColourAttachmentFormats( const GraphicsPipelineSpecification& spec )
+    {
+        if ( spec.TargetLayout )
+            return spec.TargetLayout->ColorFormats;
+        std::vector<std::optional<Core::Formats::ImageFormat>> formats;
+        if ( !spec.Framebuffer )
+            return formats;
+        const FramebufferSpecification framebuffer = spec.Framebuffer->GetSpecification();
+        for ( const auto& attachment : framebuffer.Attachments.Attachments )
+            if ( attachment.Unused || !Utils::IsDepthFormat( attachment.Format ) )
+                formats.push_back( attachment.ColourSlotFormat() );
+        for ( const ExternalAttachment& external : framebuffer.ExternalAttachments.ColorAttachments )
+        {
+            // The source's own attachment list, indexed as the external attachment names it.
+            const auto& source = external.SourceFramebuffer->GetSpecification().Attachments.Attachments;
+            DESERT_VERIFY( external.AttachmentIndex < source.size(), "external colour attachment out of range" );
+            formats.push_back( source[external.AttachmentIndex].ColourSlotFormat() );
+        }
+        return formats;
+    }
+
+    // Whether the colour attachment of @p format blends under a pipeline whose blend state is
+    // @p pipelineBlend. An INTEGER attachment never does, whatever the material asked: Vulkan forbids
+    // blending into one (VUID-VkGraphicsPipelineCreateInfo-renderPass-06041 /
+    // VUID-VkGraphicsPipelineCreateInfo-renderPass-06062) - the G-buffer's R32_UINT shading word drawn by a
+    // blended material is the case. Decided by the format alone, so any future *_UINT / *_SINT target is covered.
+    [[nodiscard]] constexpr bool ColourAttachmentBlends( bool pipelineBlend, Core::Formats::ImageFormat format )
+    {
+        return pipelineBlend && !Core::Formats::IsIntegerFormat( format );
+    }
+
+    // The blend switch of every colour attachment, by colour slot: @p formats (ColourAttachmentFormats) under a
+    // pipeline that asked for @p requested. The ONE rule pipeline creation obeys (VulkanPipeline::
+    // CreateColorBlendState takes its blendEnable from here and from nowhere else - PipelineBlendState census).
+    // An unused slot still has an entry (Vulkan wants one blend state per colour reference) and never blends.
+    [[nodiscard]] inline std::vector<bool>
+    ColourAttachmentBlendEnables( std::span<const std::optional<Core::Formats::ImageFormat>> formats,
+                                  bool                                                       requested )
+    {
+        std::vector<bool> blends;
+        blends.reserve( formats.size() );
+        for ( const std::optional<Core::Formats::ImageFormat>& format : formats )
+            blends.push_back( format.has_value() && ColourAttachmentBlends( requested, *format ) );
+        return blends;
+    }
 
     /**
      * Whether a graphics pipeline may be built from @p spec at all — the same arrangement, and for the

@@ -2,6 +2,9 @@
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
+#include <array>
+#include <optional>
+
 namespace Desert::Graphic::ViewTargetFormats
 {
     /**
@@ -24,9 +27,16 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kSceneColorCopy  = kSceneColor; // snapshot of the scene target, same texel
     inline constexpr ImageFormat kGBufferA        = ImageFormat::RGBA8F;  // albedo.rgb + metallic
     inline constexpr ImageFormat kGBufferB        = ImageFormat::RGBA16F; // normal.xyz + roughness
-    inline constexpr ImageFormat kGBufferC        = ImageFormat::RGBA32F; // world position.xyz
+    // The shading word (ShadingModels/ShadingModelContract.glslh): model index, payload, texture count and the
+    // no-sun-shadows bit, as a uint. World position is NOT stored: every reader rebuilds it from kGBufferDepth
+    // (Common/ReconstructPosition.glslh).
+    inline constexpr ImageFormat kGBufferShadingWord = ImageFormat::R32_UINT;
     inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGBufferDepth    = ImageFormat::DEPTH32F;
+    // Screen motion of the surface each pixel shows: current minus previous UNJITTERED NDC.xy (TAA1, see
+    // View/SceneViewState.hpp "Velocity" — kVelocityFormat there is this constant). A colour attachment of the
+    // G-buffer AND of the scene target, because both hold passes that write the view's depth.
+    inline constexpr ImageFormat kVelocity        = ImageFormat::RG16F;
     inline constexpr ImageFormat kSSAO            = ImageFormat::RGBA8F;
 
     // Post stack. A target written by a compute shader as a storage image (bloom, light shafts, lens flare,
@@ -56,13 +66,19 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kSSRTileMask = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA16F;
-    // The RSM render pass MUST stay compatible with the G-buffer's (it reuses the G-buffer pipeline), so its
-    // attachments are the G-buffer's formats by construction rather than a second spelling of them.
+    // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output
+    // locations, so its attachments are the G-buffer's formats by construction rather than a second spelling of
+    // them.
     inline constexpr ImageFormat kRSMAlbedo   = kGBufferA;
     inline constexpr ImageFormat kRSMNormal   = kGBufferB;
-    inline constexpr ImageFormat kRSMPosition = kGBufferC;
     inline constexpr ImageFormat kRSMEmissive = kGBufferEmissive;
     inline constexpr ImageFormat kRSMDepth    = kGBufferDepth;
+    // The RSM's colour slots, by location — read by the framebuffer (SceneRenderer::EnsureGIResources) AND by the
+    // RSM pipeline's target layout (MeshRenderer::SetupGBufferPass). Slot 2 is an UNUSED colour slot
+    // (std::nullopt; FramebufferAttachment::UnusedColourSlot): the permutation writes no shading word and GI reads
+    // VPL positions from kRSMDepth, so it has no image.
+    inline constexpr std::array<std::optional<ImageFormat>, 4> kRSMColourSlots = { kRSMAlbedo, kRSMNormal,
+                                                                                   std::nullopt, kRSMEmissive };
 
     // MeshRenderer::SetupShadowPass, one of each per cascade.
     inline constexpr ImageFormat kShadowColor = ImageFormat::R32F;

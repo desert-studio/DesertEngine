@@ -121,6 +121,10 @@ namespace Desert::Graphic::API::Vulkan
             // layout INTERSECTED with this (ShaderReflection::BuildVertexInput) — UE's vertex declaration
             // built against the shader's inputs, not the mesh's full stream list.
             std::vector<uint32_t> VertexInputLocations;
+
+            // Every colour location the FRAGMENT stage writes, sorted and unique. A colour slot of the target
+            // outside this set is drawn with write mask 0 (ShaderReflection::BuildColorBlendAttachments).
+            std::vector<uint32_t> FragmentOutputLocations;
         };
 
     } // namespace ShaderResource
