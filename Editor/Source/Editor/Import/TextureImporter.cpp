@@ -972,9 +972,15 @@ namespace Desert::Editor
     }
 
     Common::ResultStr<std::filesystem::path>
-    TextureImporter::ImportSourceAsset( const std::filesystem::path& source, const Fmt::TextureIntent slotIntent )
+    TextureImporter::ImportSourceAsset( const std::filesystem::path& sourcePath,
+                                        const Fmt::TextureIntent     slotIntent )
     {
-        namespace fs             = std::filesystem;
+        namespace fs = std::filesystem;
+        // ONE RESOLUTION AT THE BOUNDARY (UE FPaths::ConvertRelativePathToFull): a content-relative source is
+        // made absolute off the project here, so the "does the asset exist" probe below and the write that
+        // created it name the same file. Probing the relative path read the working directory instead: a
+        // material import's first-import Intent(NormalMap) was then re-created as Unspecified by the cook.
+        const fs::path source    = Common::Constants::Path::FullPath( sourcePath );
         const fs::path assetPath = TextureIntentPath( source ); // `<stem>.detex` beside the file
         const auto     rawRead   = Common::Utils::FileSystem::ReadFileContent( source );
         if ( !rawRead.IsSuccess() )
