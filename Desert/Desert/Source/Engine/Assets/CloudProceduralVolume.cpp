@@ -2314,40 +2314,6 @@ namespace Desert::Assets
                 waves.push_back( { kx, kz, kTau * HashUnit( HashCombine( waveSeed, 3u ) ) } );
             }
 
-            // THE WORLD'S ORIGIN STANDS IN THE BUSIEST WEATHER NEAR IT (CLOUD-SHAPE-b). The type's Coverage is
-            // the share of the sky that is cloud where there is weather, and the scene is authored around its
-            // origin: a clear patch landing there (PatchStrength is the clear share, ~30 % of the sky in
-            // 15-30 km holes) emptied the whole zenith of Clouds_Demo — W 0.27 over the camera, the march
-            // taking 0.73 off every profile. The field is TRANSLATED so the lowest weather (the busy end,
-            // CloudWeatherPresence) found within two tiles of the origin lands on it: a translation is a phase
-            // shift of every wave, so the statistics (E[W] = 1 - strength, the gaps' sizes) and the GPU map's
-            // equality with this point function are untouched — both read these waves.
-            if ( !waves.empty() )
-            {
-                const double tile    = std::max( static_cast<double>( tileKm ), 1e-3 );
-                const double stepKm  = tile / 8.0;
-                const int    reach   = 16;
-                double       bestSum = std::numeric_limits<double>::max();
-                double       bestFx  = 0.0;
-                double       bestFz  = 0.0;
-                for ( int iz = -reach; iz <= reach; ++iz )
-                    for ( int ix = -reach; ix <= reach; ++ix )
-                    {
-                        const double fx  = static_cast<double>( ix ) * stepKm / period;
-                        const double fz  = static_cast<double>( iz ) * stepKm / period;
-                        double       sum = 0.0;
-                        for ( const CloudFarWeatherWave& w : waves )
-                            sum += std::cos( kTau * ( w.Kx * fx + w.Kz * fz ) + w.Phase );
-                        if ( sum < bestSum )
-                        {
-                            bestSum = sum;
-                            bestFx  = fx;
-                            bestFz  = fz;
-                        }
-                    }
-                for ( CloudFarWeatherWave& w : waves )
-                    w.Phase = std::fmod( w.Phase + kTau * ( w.Kx * bestFx + w.Kz * bestFz ), kTau );
-            }
             return waves;
         }
 
