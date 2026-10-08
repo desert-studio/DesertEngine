@@ -548,7 +548,8 @@ namespace Desert::Graphic
     }
 
     SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
-         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ), m_RenderExtent( extent )
+         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ),
+           m_RenderExtent( extent )
     {
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
@@ -891,8 +892,8 @@ namespace Desert::Graphic
         // frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
         using Common::Scalability::Parameter;
         const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
-             m_ViewExtent, m_Quality.As<int>( Parameter::RenderScalePercent ), std::nullopt, m_RenderedAntiAliasing,
-             m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
+             m_ViewExtent, m_Quality.As<int>( Parameter::RenderScalePercent ), std::nullopt,
+             m_RenderedAntiAliasing, m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
              [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
              {
                  EnsureTemporalUpscaler( method );
@@ -958,8 +959,8 @@ namespace Desert::Graphic
             std::string mismatch = ViewTargetExtentMismatch( frame.Split.Render.Width, frame.Split.Render.Height,
                                                              "scene target", target.Width, target.Height );
             if ( mismatch.empty() && m_GBuffer )
-                mismatch = ViewTargetExtentMismatch( frame.Split.Render.Width, frame.Split.Render.Height, "G-buffer",
-                                                     m_GBuffer->GetSpecification().Width,
+                mismatch = ViewTargetExtentMismatch( frame.Split.Render.Width, frame.Split.Render.Height,
+                                                     "G-buffer", m_GBuffer->GetSpecification().Width,
                                                      m_GBuffer->GetSpecification().Height );
             if ( !mismatch.empty() )
             {
@@ -1335,7 +1336,7 @@ namespace Desert::Graphic
     {
         if ( !m_TargetFramebuffer || m_RenderExtent == render )
             return;
-        m_RenderExtent              = render;
+        m_RenderExtent        = render;
         const uint32_t width  = render.Width;
         const uint32_t height = render.Height;
         Renderer::GetInstance().WaitDeviceIdle();
@@ -1594,7 +1595,8 @@ namespace Desert::Graphic
                  pass.ColorTarget( 0, overlay.Velocity, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
                  pass.DepthTarget( overlay.Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ), /*write*/ true );
              },
-             [populate]( RDG::PassContext& context ) -> Common::BoolResultStr { return populate->Record( context ); } );
+             [populate]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return populate->Record( context ); } );
         return overlay;
     }
 

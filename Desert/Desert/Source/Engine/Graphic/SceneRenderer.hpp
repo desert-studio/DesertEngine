@@ -526,8 +526,9 @@ namespace Desert::Graphic
         // resolve, the silhouette mask, the overdraw target and the outline were last built at — the frame's
         // ResolutionSplit::Render, set by ResizeRenderTargets. The constructor's extent until the first frame.
         ViewExtent m_RenderExtent;
-        // The render scale the view last resolved (ResolveViewResolution): Resize() sizes the render set by it, so a
-        // resize does not rebuild the render targets at the output extent only for the next frame to shrink them.
+        // The render scale the view last resolved (ResolveViewResolution): Resize() sizes the render set by it, so
+        // a resize does not rebuild the render targets at the output extent only for the next frame to shrink
+        // them.
         int m_LastRenderScalePercent = 100;
 
         // Has EnsureRendererResources() run? Set once, never cleared — see its comment for why there is no
@@ -569,9 +570,9 @@ namespace Desert::Graphic
         // overlay velocity (never read) and the overlay depth PopulateSceneDepth filled. Invalid: no resolve.
         struct OverlayTargets
         {
-            RDG::TextureRef Color;
-            RDG::TextureRef Velocity;
-            RDG::TextureRef Depth;
+            RDG::TextureRef    Color;
+            RDG::TextureRef    Velocity;
+            RDG::TextureRef    Depth;
             [[nodiscard]] bool IsValid() const
             {
                 return Color.IsValid();

@@ -43,10 +43,10 @@ namespace Desert::Graphic::System
             if ( !m_Shader )
                 return Common::MakeError( "PopulateSceneDepth shader not found" );
             GraphicsPipelineSpecification pipelineSpec;
-            pipelineSpec.DebugName    = "PopulateSceneDepth";
-            pipelineSpec.TargetLayout = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kVelocity },
-                                                            .DepthFormat  = ViewTargetFormats::kSceneDepth,
-                                                            .Samples      = 1 };
+            pipelineSpec.DebugName         = "PopulateSceneDepth";
+            pipelineSpec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kVelocity },
+                                                                 .DepthFormat  = ViewTargetFormats::kSceneDepth,
+                                                                 .Samples      = 1 };
             pipelineSpec.Shader            = m_Shader;
             pipelineSpec.DepthTestEnabled  = true;
             pipelineSpec.DepthCompareOp    = CompareOp::Always;

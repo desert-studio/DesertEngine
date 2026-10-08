@@ -2109,19 +2109,21 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // caller then post-processes the scene colour (the fallback is the caller's, not a silent skip).
     declares( "AddFrameTemporal",
               { "RDG::Extent3D{frame.Split.Output.Width,frame.Split.Output.Height,1}",
-                "graph.CreateTexture(desc,\"Overlay.Velocity\")", "graph.CreateTexture(desc,\"Overlay.SceneDepth\")",
+                "graph.CreateTexture(desc,\"Overlay.Velocity\")",
+                "graph.CreateTexture(desc,\"Overlay.SceneDepth\")",
                 "populate->DeclareBindings(pass,inputs.SceneDepth)",
                 "pass.ColorTarget(0,overlay.Velocity,RDG::LoadOp::ClearColor(",
                 "pass.DepthTarget(overlay.Depth,RDG::LoadOp::ClearDepth(Core::kDepthClear),",
                 "renderedwithoutthetemporalresolvethisframe:", "returnwithoutTemporal(added.GetError());",
                 "returnwithoutTemporal(prepared.GetError());" } );
-    declares( "OnUpdate",
-              { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
-                "phase==RenderPhase::Debug;},false,overlay)", "phase==RenderPhase::UI;},false,overlay)",
-                // The one resolution function, the render set resized to the frame's split, the velocity at it.
-                "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),std::nullopt,",
-                "ResizeRenderTargets(frame.Split.Render);",
-                "RDG::Extent3D{frame.Split.Render.Width,frame.Split.Render.Height,1}" } );
+    declares(
+         "OnUpdate",
+         { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
+           "phase==RenderPhase::Debug;},false,overlay)", "phase==RenderPhase::UI;},false,overlay)",
+           // The one resolution function, the render set resized to the frame's split, the velocity at it.
+           "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),std::nullopt,",
+           "ResizeRenderTargets(frame.Split.Render);",
+           "RDG::Extent3D{frame.Split.Render.Width,frame.Split.Render.Height,1}" } );
     // The overlay phases draw into the overlay set: every scene-target attachment replaced, no resolves.
     declares( "AddGraphPhasePasses",
               { "targets->Colors[0]=overlay.Color;", "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;",
@@ -2130,13 +2132,12 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // overdraw, outline); Resize sizes the Output set (tonemap, FXAA, SMAA) and hands the render set its split.
     declares( "ResizeRenderTargets",
               { "m_TargetFramebuffer->Resize(width,height);", "m_GBuffer->Resize(width,height);",
-                "resolve->Resize(width,height);", "maskFb->Resize(width,height);", "overdrawFb->Resize(width,height);",
-                "->OnResize(width,height);" } );
-    declares( "Resize",
-              { "m_RenderSystems[\"TonemapSystem\"])->Resize(width,height);",
-                "m_RenderSystems[\"FXAASystem\"])->Resize(width,height);",
-                "m_RenderSystems[\"SMAASystem\"])->Resize(width,height);",
-                "ResizeRenderTargets(split.GetValue().Render);" } );
+                "resolve->Resize(width,height);", "maskFb->Resize(width,height);",
+                "overdrawFb->Resize(width,height);", "->OnResize(width,height);" } );
+    declares( "Resize", { "m_RenderSystems[\"TonemapSystem\"])->Resize(width,height);",
+                          "m_RenderSystems[\"FXAASystem\"])->Resize(width,height);",
+                          "m_RenderSystems[\"SMAASystem\"])->Resize(width,height);",
+                          "ResizeRenderTargets(split.GetValue().Render);" } );
     {
         const std::string resize = squeeze( bodyOf( "Resize" ) );
         EXPECT_EQ( resize.find( "m_TargetFramebuffer->Resize(" ), std::string::npos )
@@ -3091,7 +3092,8 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     for ( const char* needle :
           { "RDG::PassFlags::Raster", "pass.Declare(declared,textures.GraphRefs())",
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
-            "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "targets->Colors[0]=sceneColor;",
+            "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "targets->Colors[0]=overlay.Color;",
+            "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;", "targets->Depth=overlay.Depth;",
             "node.DepthTarget(targets->Depth,depth)", "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;

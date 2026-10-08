@@ -104,17 +104,18 @@ namespace Desert::Graphic
             auto targets = TargetsOf( textures, target, spec.DebugName, pass.Name );
             if ( !targets )
                 continue;
-            // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay draws
-            // into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has one
-            // extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
+            // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
+            // draws into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has
+            // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
             // PopulateSceneDepth filled; one sample, so no resolves).
             if ( overlay.IsValid() && target == m_TargetFramebuffer )
             {
                 if ( targets->Colors.size() != kSceneTargetVelocitySlot + 1 )
                 {
-                    LOG_ERROR( "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
-                               "replaces exactly colour 0 and the velocity slot",
-                               pass.Name, targets->Colors.size() );
+                    LOG_ERROR(
+                         "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
+                         "replaces exactly colour 0 and the velocity slot",
+                         pass.Name, targets->Colors.size() );
                     continue;
                 }
                 targets->Colors[0]                        = overlay.Color;
