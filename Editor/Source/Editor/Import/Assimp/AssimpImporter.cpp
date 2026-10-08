@@ -484,7 +484,8 @@ namespace Desert::Editor
             }
             else if ( alpha.Kind == SourceAlphaKind::Mask )
             {
-                LOG_INFO( "[Import][Material] '{}' alphaMode MASK, cutoff {} (the albedo's alpha)", out.Name,
+                LOG_INFO( "[Import][Material] '{}' {}, cutoff {} (the albedo's alpha)", out.Name,
+                          alpha.AlphaMode.empty() ? "base colour alpha cuts out" : "alphaMode MASK",
                           alpha.AlphaCutoff );
             }
             else if ( alpha.Kind == SourceAlphaKind::OpacityMap && !alpha.AlphaMode.empty() &&

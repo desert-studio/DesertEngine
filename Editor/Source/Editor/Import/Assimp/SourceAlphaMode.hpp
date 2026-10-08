@@ -9,13 +9,15 @@ namespace Desert::Editor
 {
     // How a source material states its cut-out, read ONCE at import (UE Interchange's glTF rule): glTF names
     // it in the material (`alphaMode` + `alphaCutoff`, the mask being the base colour's alpha), FBX by a
-    // separate opacity map. The renderer has one mask source per material (chosen by the PBR passes) and
-    // no translucent blend mode for surface materials, so every stated cut-out becomes a cutoff here.
+    // separate opacity map or, stating nothing, by a base colour whose alpha cuts out (UE's FBX diffuse-alpha
+    // rule). The renderer has one mask source per material (chosen by the PBR passes) and no translucent blend
+    // mode for surface materials, so every stated cut-out becomes a cutoff here.
     enum class SourceAlphaKind
     {
         Opaque,      // nothing stated: no cut-out
         OpacityMap,  // FBX: a separate opacity texture, read by its red channel
-        Mask,        // glTF alphaMode MASK: the base colour's alpha against the file's own cutoff
+        Mask,        // the base colour's alpha against a cutoff: glTF alphaMode MASK (the file's cutoff), or an
+                     // unstated source whose base colour alpha has texels on both sides of 0.5 (cutoff 0.5)
         BlendAsMask, // glTF alphaMode BLEND: drawn as a mask at 0.5 (no translucent surface mode exists)
     };
 
@@ -33,5 +35,7 @@ namespace Desert::Editor
     // `baseColourFile` is the base colour texture as found on disk (empty when there is none). A glTF MASK or
     // BLEND takes its mask from that image's alpha; when the image has NO alpha channel (a JPG, an RGB PNG)
     // there is no mask to honour, so the material is imported OPAQUE and `Warning` names material and file.
+    // A material stating no alpha mode and no opacity map is Mask at 0.5 when that image's decoded alpha
+    // (DDS through DecodeDdsSource, else stb_image) has texels below and at/above 0.5.
     SourceAlpha ResolveSourceAlpha( const aiMaterial& material, const std::filesystem::path& baseColourFile = {} );
 } // namespace Desert::Editor
